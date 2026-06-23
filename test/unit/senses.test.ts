@@ -138,3 +138,14 @@ test("listen omits the at anchor when segment timing is missing (no [null,null])
   assert.equal("at" in segs[0], false); // no malformed [null,null]
   assert.match(segs[0].text as string, /no timing/);
 });
+
+test("listen --describe surfaces an audio-scene description (full describe mode)", async () => {
+  const { runListen } = await import("../../src/providers/tinycloud/listen.ts");
+  const fake = join(__dirname_compat(), "..", "fixtures", "fake-listen.sh");
+  const rec = await runListen("clip.m4a", { run: `bash ${fake} {{input}}`, describe: true });
+  const p = rec.payload as Record<string, unknown>;
+  assert.ok("description" in p, "describe mode adds a description field");
+  assert.match(p.description as string, /meeting/);
+  assert.equal(rec.meta?.mode, "describe");
+});
+function __dirname_compat() { return dirname(fileURLToPath(import.meta.url)); }

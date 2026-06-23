@@ -71,8 +71,15 @@ function segments(data: Record<string, unknown>): {
   return { transcript, segments: out };
 }
 
+/** Full multimodal describe → surfaces tinycloud's AUDIO descriptions (sounds,
+ *  music, events, ambience), not just speech. The Audio-Flamingo-style path that
+ *  runs turnkey on Cloudglue (no GPU). */
+const DESCRIBE_RUN = "tinycloud watch {{input}} --json";
+
 export interface ListenOptions {
   run?: string;
+  /** describe mode: full multimodal describe (audio scene description), not speech-only */
+  describe?: boolean;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
@@ -82,14 +89,31 @@ export interface ListenOptions {
   lang?: string;
 }
 
-/** Run the tinycloud speech-only provider and map to an audio.analysis record. */
+/** Build the audio-scene description from the full describe (summary + segments). */
+function audioDescription(data: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (typeof data.summary === "string") parts.push(data.summary as string);
+  const segs = Array.isArray(data.segments) ? data.segments : [];
+  for (const s of segs) {
+    if (!s || typeof s !== "object") continue;
+    const seg = s as Record<string, unknown>;
+    const a = seg.start_time ?? seg.start_seconds ?? seg.start ?? "";
+    const b = seg.end_time ?? seg.end_seconds ?? seg.end ?? "";
+    const d = (seg.description as string) ?? (seg.summary as string) ?? "";
+    if (d) parts.push(`[${a}–${b}] ${d}`);
+  }
+  return parts.join("\n");
+}
+
+/** Run the tinycloud provider and map to an audio.analysis record. Default is a
+ *  speech-only transcript; `describe` mode adds audio-scene description. */
 export async function runListen(
   input: string,
   opts: ListenOptions = {},
 ): Promise<OvercastRecord> {
-  // An empty/whitespace run template (e.g. a profile binding set to "") must
-  // fall back to the default — `?? DEFAULT_RUN` alone would keep "".
-  const template = opts.run && opts.run.trim() ? opts.run : DEFAULT_RUN;
+  // Empty/whitespace run template falls back to the default; --describe selects
+  // the full multimodal describe template.
+  const template = opts.run && opts.run.trim() ? opts.run : (opts.describe ? DESCRIBE_RUN : DEFAULT_RUN);
   const argv = renderCommand(template, { input });
   const [cmd, ...args] = argv;
   // A template that renders to no command would reject at spawn and throw;
@@ -184,12 +208,16 @@ export async function runListen(
     }
   }
 
+  const payload: Record<string, unknown> = { transcript, segments: segs, language };
+  // describe mode surfaces the audio-scene description alongside the transcript
+  if (opts.describe) payload.description = audioDescription(data);
+
   return makeRecord({
     verb: "listen",
     format: "json",
-    payload: { transcript, segments: segs, language },
+    payload,
     media: mediaAt !== undefined ? { ref: input, at: mediaAt } : { ref: input },
-    meta: { provider: "tinycloud", model: "cloudglue" },
+    meta: { provider: "tinycloud", model: "cloudglue", mode: opts.describe ? "describe" : "speech" },
     state,
   });
 }

@@ -33,12 +33,14 @@ export const listenVerb: VerbSpec = {
   group: "sense",
   summary: "Transcribe and analyze audio (or a video's audio track) into an audio.analysis record.",
   description:
-    "Default provider: tinycloud (speech-only describe). Emits transcript, speaker-tagged " +
-    "segments[] with media.at anchors, and detected language.",
+    "Default provider: tinycloud. Speech-only transcript by default; --describe runs the full " +
+    "multimodal describe to surface the AUDIO-SCENE description (sounds, music, events, ambience), " +
+    "not just speech. Emits transcript, speaker-tagged segments[] with media.at anchors, language.",
   args: [{ name: "input", summary: "Audio/video file path or URL", required: true }],
   flags: [
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
+    { name: "describe", summary: "Audio-scene description (full describe), not just speech", type: "boolean" },
     { name: "diarize", summary: "Attribute speech to distinct speakers", type: "boolean" },
     { name: "lang", summary: "Hint/force source language (e.g. en, es)", type: "string" },
   ],
@@ -48,6 +50,7 @@ export const listenVerb: VerbSpec = {
     if (!ctx.input) {
       return [errorRecord("listen", "listen requires an audio/video input")];
     }
+    const describe = ctx.opts.describe === true;
     const binding = ctx.profile.providers?.listen;
     // forward the declared listen flags to a custom provider, and give it the
     // same generous timeout the tinycloud mapper uses (long media).
@@ -62,6 +65,7 @@ export const listenVerb: VerbSpec = {
         })
       : await runListen(ctx.input, {
           run: binding?.run,
+          describe,
           signal: ctx.signal,
           diarize: ctx.opts.diarize === true,
           lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,

@@ -30,14 +30,14 @@ Emits `video.analysis` records.
 
 ### `overcast listen`
 
-Default provider: tinycloud (speech-only describe). Emits transcript, speaker-tagged segments[] with media.at anchors, and detected language.
+Default provider: tinycloud. Speech-only transcript by default; --describe runs the full multimodal describe to surface the AUDIO-SCENE description (sounds, music, events, ambience), not just speech. Emits transcript, speaker-tagged segments[] with media.at anchors, language.
 
 ```
 overcast listen <input> [options]
 
   Transcribe and analyze audio (or a video's audio track) into an audio.analysis record.
 
-  Default provider: tinycloud (speech-only describe). Emits transcript, speaker-tagged segments[] with media.at anchors, and detected language.
+  Default provider: tinycloud. Speech-only transcript by default; --describe runs the full multimodal describe to surface the AUDIO-SCENE description (sounds, music, events, ambience), not just speech. Emits transcript, speaker-tagged segments[] with media.at anchors, language.
 
 Arguments:
   input            Audio/video file path or URL
@@ -45,6 +45,7 @@ Arguments:
 Options:
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
+  --describe             Audio-scene description (full describe), not just speech
   --diarize              Attribute speech to distinct speakers
   --lang <string>        Hint/force source language (e.g. en, es)
 ```
