@@ -22,9 +22,14 @@ mkdir -p "$casedir"
 
 # Headless agent: no tool call needed — just confirm the agent runs under the
 # overcast extension + Cloudglue brain and emits JSON we can parse.
-out="$(cd "$casedir" && $OVERCAST -p "Name the overcast verb used to analyze a video. Answer with one word." \
+# Wrapped in a timeout so a hung cloud call fails fast (never hangs the suite).
+out="$(cd "$casedir" && oc_timeout "${OVERCAST_AGENT_TIMEOUT:-90}" $OVERCAST -p "Name the overcast verb used to analyze a video. Answer with one word." \
         --mode json --model cloudglue/tinycloud:advanced 2>"$SMOKE_DIR/phase1_agent.err")"
 rc=$?
+if [ "$rc" = "142" ]; then
+  fail "agent.timeout" "headless agent exceeded ${OVERCAST_AGENT_TIMEOUT:-90}s (cloud hang) — see phase1_agent.err"
+  return 0 2>/dev/null || exit 0
+fi
 save_json "phase1_agent" "$out" >/dev/null
 
 # pi --mode json emits structured JSON; assert it's parseable and non-empty.

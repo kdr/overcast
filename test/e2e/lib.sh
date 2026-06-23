@@ -47,3 +47,8 @@ save_json() {
 
 # smallest smoke clip with NO audio (screen-recording / OCR)
 smoke_clip() { echo "$TEST_MEDIA/browse-hackernews.mp4"; }
+
+# Portable timeout (macOS has no `timeout`): run argv, SIGALRM-kill after N secs.
+# A genuinely-hung cloud call then fails the case fast instead of hanging the
+# whole suite. Exits 142 (SIGALRM) on timeout.
+oc_timeout() { local t="$1"; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$t" "$@"; }
