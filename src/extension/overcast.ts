@@ -4,8 +4,8 @@
 // registers every verb in the registry as a pi tool. Keep all pi touch-points
 // isolated here + in registry/to-agent-tool.ts so a pi bump has a small radius.
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync, existsSync } from "node:fs";
+import { dirname, resolve, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -17,7 +17,15 @@ import { toAgentTool } from "../registry/to-agent-tool.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveCloudglue, resolveHome } from "../profile.js";
 import { buildSystemPrompt } from "./system-prompt.js";
-import { colorizeBanner } from "./branding.js";
+import { colorizeBanner, statusLine, headerText, OvercastFooter } from "./branding.js";
+
+/** First existing agent-context file in the cwd, for the status line. */
+function contextFileLabel(cwd: string): string {
+  for (const f of ["CLAUDE.md", "AGENTS.md"]) {
+    if (existsSync(join(cwd, f))) return `${f} loaded`;
+  }
+  return "";
+}
 
 const CLOUDGLUE_MODEL_ID = "tinycloud:advanced";
 
@@ -49,9 +57,38 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
 
   pi.on("session_start", async (_event, ctx) => {
     ctx.ui.setTheme(THEME_NAME);
+
+    const cwd = ctx.cwd ?? process.cwd();
+    const caseName = basename(cwd);
+
+    // Title: "overcast — <case>" (the case is the cwd folder). Overrides pi's
+    // "<app> - <session> - <cwd>" so the tab reads cleanly.
+    ctx.ui.setTitle(`overcast — ${caseName}`);
+
+    // Header: colorized banner + a status line (context file · verbs · model).
     if (banner) {
-      ctx.ui.setHeader((_tui: TUI, _theme): Component => new Text(banner));
+      const status = statusLine([
+        contextFileLabel(cwd),
+        `${VERBS.length} verbs`,
+        cgKey ? `model: ${CLOUDGLUE_MODEL_ID}` : "model: (set via /model)",
+      ]);
+      const header = headerText(banner, status);
+      ctx.ui.setHeader((_tui: TUI, _theme): Component => new Text(header));
     }
+
+    // Minimal footer: case · tokens · ctx% · model · thinking.
+    ctx.ui.setFooter((_tui, _theme, _data): Component => {
+      return new OvercastFooter(() => {
+        const usage = ctx.getContextUsage?.();
+        return {
+          caseName,
+          tokens: usage?.tokens ?? null,
+          ctxPercent: usage?.percent ?? null,
+          model: ctx.model?.id ?? CLOUDGLUE_MODEL_ID,
+          thinking: pi.getThinkingLevel?.() ?? "medium",
+        };
+      });
+    });
     // Turnkey: when a Cloudglue key is available, make its model the active
     // brain so overcast works out of the box (the user picked the Cloudglue
     // backend by configuring the key). Still overridable via /model — never
