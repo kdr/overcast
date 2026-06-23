@@ -13,6 +13,7 @@ import {
   sourceVerb,
   prebriefVerb,
 } from "../verbs/osint.js";
+import { askVerb, briefVerb } from "../verbs/read.js";
 import type { VerbSpec } from "./types.js";
 
 export const watchVerb: VerbSpec = {
@@ -73,6 +74,8 @@ export const VERBS: VerbSpec[] = [
   targetVerb,
   sourceVerb,
   prebriefVerb,
+  askVerb,
+  briefVerb,
 ];
 
 export function findVerb(name: string): VerbSpec | undefined {

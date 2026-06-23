@@ -63,6 +63,10 @@ m2="$($OVERCAST monitor --once --pipe watch --json --case "$mcase" --home "$ocho
 new2="$(jq -s '.[]|select(.verb=="monitor")|.payload.new_items' <<<"$m2" 2>/dev/null | head -1)"
 assert_eq "monitor.second_none" "0" "$new2" "second monitor pass detects 0 new (diff works)"
 
-# the verb surface now lists all 11 verbs
-nverbs="$($OVERCAST commands --json 2>/dev/null | jq '.verbs|length')"
-assert_eq "osint.verb_count" "11" "$nverbs" "commands --json lists 11 verbs"
+# the verb surface includes the OSINT verbs (presence check — later phases append)
+ov="$($OVERCAST commands --json 2>/dev/null | jq -r '.verbs[].name')"
+omissing=""
+for v in scan capture monitor target source prebrief; do
+  echo "$ov" | grep -qx "$v" || omissing="$omissing $v"
+done
+[ -z "$omissing" ] && ok "osint.verb_surface" "scan/capture/monitor/target/source/prebrief listed" || fail "osint.verb_surface" "missing:$omissing"
