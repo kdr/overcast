@@ -25,8 +25,10 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx test/unit/*.test.ts",
     "test:e2e": "bash test/e2e/run.sh",
-    "build:bun": "bun build --compile bin/overcast.ts --outfile dist/bin/overcast",
-    "dev": "tsx bin/overcast.ts"
+    "build:bun": "bun build --compile bin/overcast.ts --outfile dist/bin/overcast && node -e \"require('fs').writeFileSync('dist/bin/package.json', JSON.stringify({name:'overcast',version:'0.1.0',piConfig:{name:'overcast'}},null,2))\"",
+    "dev": "tsx bin/overcast.ts",
+    "postinstall": "node scripts/brand-pi.mjs",
+    "brand": "node scripts/brand-pi.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.79.10",
