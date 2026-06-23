@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { existsSync, writeFileSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { runListen } from "../providers/tinycloud/listen.js";
-import { isCustomBinding, runBoundProvider } from "../providers/run.js";
+import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
 import {
   probe,
   enhance as ffEnhance,
@@ -19,7 +19,12 @@ import {
   type Modality,
 } from "../media/ffmpeg.js";
 import { openHtmlPlayer, osOpen } from "../media/view.js";
+import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
+
+function hfToken(): string | undefined {
+  return process.env.HF_TOKEN || process.env.HUGGING_FACE_HUB_TOKEN || undefined;
+}
 
 // ---- listen ----------------------------------------------------------------
 
@@ -73,9 +78,9 @@ export const seeVerb: VerbSpec = {
   group: "sense",
   summary: "Understand an image or a single video frame (caption, OCR, detections).",
   description:
-    "v1: no default (tinycloud) implementation — ships as a placeholder that reports " +
-    "needs_credentials until a VLM provider is bound via `setup provider see <http|module>`. " +
-    "Accepts a frame:// reference (rec@sec) which is resolved to a frame via the internal ffmpeg toolkit.",
+    "Defaults to a Hugging Face image captioner when HF_TOKEN is set (override with " +
+    "HF_SEE_MODEL); otherwise a placeholder (needs_credentials) until a VLM is bound via " +
+    "`setup provider see`. Accepts frame://rec@sec, resolved to a frame via the internal ffmpeg toolkit.",
   args: [{ name: "input", summary: "Image path, video frame, or frame://rec@sec", required: true }],
   flags: [
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -104,18 +109,37 @@ export const seeVerb: VerbSpec = {
       }
     }
 
-    // If a see provider is bound, dispatch to it (exec wired; http/inproc
-    // return an explicit error). Otherwise: placeholder (no default in v1).
+    // Provider resolution for see:
+    //  1. an explicit profile binding (exec runs it; http/inproc → explicit
+    //     error rather than being silently ignored), else
+    //  2. the shipped Hugging Face captioner when HF_TOKEN is set (turnkey), else
+    //  3. the v1 placeholder (needs_credentials + guidance).
     const binding = ctx.profile.providers?.see;
+    const seeEnv = { ...process.env, OVERCAST_MEDIA_DIR: ctx.case.mediaDir };
     if (isCustomBinding(binding)) {
       // forward the declared see flags to the provider.
       const extraArgs: string[] = [];
       if (ctx.opts.ocr === true) extraArgs.push("--ocr");
       if (ctx.opts.detect) extraArgs.push("--detect", String(ctx.opts.detect));
       if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
-      const rec = await runBoundProvider("see", binding!, resolvedRef, { extraArgs, signal: ctx.signal });
+      const rec = await runBoundProvider("see", binding!, resolvedRef, {
+        env: seeEnv,
+        extraArgs,
+        signal: ctx.signal,
+      });
       rec.meta = { ...rec.meta, case: ctx.case.dir };
       return [rec];
+    }
+    if (hfToken()) {
+      const hf = shippedPath("examples", "providers", "hf", "see.sh");
+      if (hf) {
+        const rec = await runExecProvider("see", `bash ${hf} {{input}}`, resolvedRef, {
+          env: seeEnv,
+          signal: ctx.signal,
+        });
+        rec.meta = { ...rec.meta, case: ctx.case.dir };
+        return [rec];
+      }
     }
 
     return [
@@ -159,6 +183,18 @@ export const enhanceVerb: VerbSpec = {
     if (!ctx.input) return [errorRecord("enhance", "enhance requires a media input")];
     if (!existsSync(ctx.input)) {
       return [errorRecord("enhance", `input not found: ${ctx.input}`)];
+    }
+    // A bound enhance provider (e.g. the HF model-ops provider) takes over for
+    // model-based ops; the DEFAULT stays the internal ffmpeg toolkit (invariant
+    // #7). Bind via `overcast setup provider enhance "exec:bash …/hf/enhance.sh"`.
+    const enhBinding = ctx.profile.providers?.enhance;
+    if (enhBinding?.run) {
+      const rec = await runExecProvider("enhance", enhBinding.run, ctx.input, {
+        env: { ...process.env, OVERCAST_MEDIA_DIR: ctx.case.mediaDir },
+        signal: ctx.signal,
+      });
+      rec.meta = { ...rec.meta, case: ctx.case.dir };
+      return [rec];
     }
     const opsStr = ctx.opts.ops ? String(ctx.opts.ops) : "";
     const requested = opsStr

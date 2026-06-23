@@ -49,11 +49,43 @@ test("runListen maps a speech envelope to audio.analysis (via fixture provider)"
   assert.deepEqual(segs[0].at, [0, 3]);
 });
 
-test("see is a placeholder reporting needs_credentials with guidance", async () => {
-  const [rec] = await seeVerb.run(ctx("./suspect.jpg"));
-  assert.equal(rec.verb, "see");
-  assert.equal(rec.state, "needs_credentials");
-  assert.match((rec.payload as Record<string, unknown>).guidance as string, /setup provider see/);
+test("see is a placeholder (needs_credentials) when no HF token + no binding", async () => {
+  const saved = { a: process.env.HF_TOKEN, b: process.env.HUGGING_FACE_HUB_TOKEN };
+  delete process.env.HF_TOKEN;
+  delete process.env.HUGGING_FACE_HUB_TOKEN;
+  try {
+    const [rec] = await seeVerb.run(ctx("./suspect.jpg"));
+    assert.equal(rec.verb, "see");
+    assert.equal(rec.state, "needs_credentials");
+    assert.match((rec.payload as Record<string, unknown>).guidance as string, /setup provider see/);
+  } finally {
+    if (saved.a) process.env.HF_TOKEN = saved.a;
+    if (saved.b) process.env.HUGGING_FACE_HUB_TOKEN = saved.b;
+  }
+});
+
+test("see/enhance route to a bound provider (pass-through), e.g. a HF-style VLM", async () => {
+  const { writeFileSync, chmodSync } = await import("node:fs");
+  const seeScript = join(dir, "see-prov.sh");
+  writeFileSync(seeScript, '#!/usr/bin/env bash\necho "{\\"verb\\":\\"see\\",\\"payload\\":{\\"caption\\":\\"a green square\\"},\\"meta\\":{\\"provider\\":\\"hf:blip\\"},\\"state\\":\\"ready\\"}"\n');
+  chmodSync(seeScript, 0o755);
+  const c = openCase(dir); c.ensure();
+  const p = defaultProfile();
+  p.providers = { ...p.providers, see: { type: "exec", run: `bash ${seeScript} {{input}}` } };
+  const sctx: VerbContext = { input: clip, rest: [], opts: {}, case: c, profile: p };
+  const [srec] = await seeVerb.run(sctx);
+  assert.equal(srec.state, "ready");
+  assert.equal((srec.payload as Record<string, unknown>).caption, "a green square");
+  assert.equal(srec.meta?.provider, "hf:blip");
+
+  // enhance routes to its bound provider instead of ffmpeg
+  const enhScript = join(dir, "enh-prov.sh");
+  writeFileSync(enhScript, `#!/usr/bin/env bash\necho "{\\"verb\\":\\"enhance\\",\\"payload\\":{\\"output\\":\\"/tmp/x.png\\"},\\"media\\":{\\"ref\\":\\"/tmp/x.png\\"},\\"meta\\":{\\"provider\\":\\"hf:upscale\\"},\\"state\\":\\"ready\\"}"\n`);
+  chmodSync(enhScript, 0o755);
+  p.providers.enhance = { type: "exec", run: `bash ${enhScript} {{input}}` };
+  const [erec] = await enhanceVerb.run({ input: clip, rest: [], opts: {}, case: c, profile: p });
+  assert.equal(erec.state, "ready");
+  assert.equal(erec.meta?.provider, "hf:upscale");
 });
 
 test("enhance produces media.enhanced with the output as media.ref", async () => {

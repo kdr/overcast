@@ -6,3 +6,5 @@ dist/
 .overcast/
 .env
 .env.*
+*.swp
+*.swo

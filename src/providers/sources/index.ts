@@ -8,9 +8,30 @@
 // base command is invoked as `<base> enumerate ...` / `<base> fetch ...`. This
 // is how the e2e binds a committed fixture source provider offline.
 
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
+
+/** Path to a shipped source-provider script. tsup bundles the source tree, so we
+ *  walk up from this module to find the package root that holds examples/. */
+function shippedSource(file: string): string | undefined {
+  try {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    if (dir.includes("$bunfs") || dir === "/") return undefined; // bun binary
+    for (let i = 0; i < 8; i++) {
+      const p = join(dir, "examples", "providers", "sources", file);
+      if (existsSync(p)) return p;
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface SourceDescriptor {
   type: string;
@@ -41,11 +62,15 @@ export function builtinDescriptor(type: string): SourceDescriptor | undefined {
     return { type, base: tokenizeCommand(envOverride.trim()) };
   }
   switch (type) {
-    case "youtube":
+    case "youtube": {
       // yt-dlp drives both enumerate (flat) and fetch (download). No API key.
-      return { type, base: ["overcast-source-youtube"], needs: "yt-dlp on PATH" };
-    case "tiktok":
-      return { type, base: ["overcast-source-tiktok"], needs: "APIFY_TOKEN" };
+      const script = shippedSource("youtube.sh");
+      return script ? { type, base: ["bash", script], needs: "yt-dlp on PATH" } : undefined;
+    }
+    case "tiktok": {
+      const script = shippedSource("tiktok.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN" } : undefined;
+    }
     default:
       return undefined;
   }

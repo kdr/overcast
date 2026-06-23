@@ -107,6 +107,8 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["CLOUDGLUE_API_KEY", "Cloudglue key for the default watch/listen backend + turnkey brain (else ~/.tinycloud/config.json)"],
       ["CLOUDGLUE_BASE_URL", "Cloudglue endpoint (default https://api.cloudglue.dev)"],
       ["APIFY_TOKEN", "Apify token for the tiktok source provider"],
+      ["HF_TOKEN / HUGGING_FACE_HUB_TOKEN", "Hugging Face token — default `see` captioner + model-based `enhance` (upscale/denoise) via the HF Inference API"],
+      ["HF_SEE_MODEL / HF_ENHANCE_IMAGE_MODEL / HF_ENHANCE_AUDIO_MODEL", "override the HF models used by see/enhance"],
       ["OVERCAST_HOME", "overcast home for profiles (default ~/.overcast)"],
       ["OVERCAST_SOURCE_<TYPE>_CMD", "Override/add a source provider command (e.g. OVERCAST_SOURCE_YOUTUBE_CMD)"],
       ["OVERCAST_PI_ONLINE", "Set 1 to re-enable pi's startup update-check"],

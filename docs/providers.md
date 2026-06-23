@@ -42,12 +42,27 @@ travel with `--profile`. **Rebinding a verb requires no overcast code changes** 
 the default tinycloud `watch`/`listen` and the `see` placeholder are just the
 out-of-the-box descriptors.
 
+## Hugging Face providers (turnkey when `HF_TOKEN` is set)
+
+overcast ships Hugging Face Inference API providers so `see` and model-based
+`enhance` work out of the box once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
+
+- **`see`** — auto-defaults to a HF image captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)) when `HF_TOKEN` is present (else the placeholder). Override the model with `HF_SEE_MODEL` (default `Salesforce/blip-image-captioning-large`).
+- **`enhance`** — opt-in HF model ops ([`examples/providers/hf/enhance.sh`](../examples/providers/hf/enhance.sh)) for image upscale/unblur and audio enhance. Bind it (the **default stays the internal ffmpeg toolkit**):
+  ```bash
+  overcast setup provider enhance "exec:bash examples/providers/hf/enhance.sh {{input}}"
+  ```
+  Override models with `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL`. Note: a
+  model must be served on the HF serverless Inference API; large/custom models may
+  need a dedicated endpoint (point the `*_MODEL` var at one that is hosted).
+
 ## Samples (runnable, in this repo)
 
 - [`examples/providers/bash/watch.sh`](../examples/providers/bash/watch.sh) — the canonical tinycloud `watch` exec provider.
 - [`examples/providers/python/listen.py`](../examples/providers/python/listen.py) — a local-whisper `listen` provider (exec/http).
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec/in-proc).
-- [`examples/providers/sources/tiktok.sh`](../examples/providers/sources/tiktok.sh) — an Apify-backed `tiktok` source provider.
+- [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
+- [`examples/providers/sources/{youtube,tiktok}.sh`](../examples/providers/sources/) — yt-dlp + Apify source providers.
 
 Each responds to `describe` offline:
 

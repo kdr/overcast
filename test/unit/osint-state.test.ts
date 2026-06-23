@@ -98,3 +98,19 @@ test("tokenizeCommand respects quotes (spaced command paths)", () => {
   assert.deepEqual(tokenizeCommand('"/My Tools/bridge" enumerate'), ["/My Tools/bridge", "enumerate"]);
   assert.deepEqual(tokenizeCommand("'a b' c"), ["a b", "c"]);
 });
+
+import { builtinDescriptor } from "../../src/providers/sources/index.ts";
+
+test("builtinDescriptor resolves youtube/tiktok to shipped scripts; env override wins", () => {
+  const yt = builtinDescriptor("youtube");
+  assert.ok(yt, "youtube descriptor present in dev");
+  assert.match(yt!.base.join(" "), /youtube\.sh$/);
+  assert.equal(builtinDescriptor("nope"), undefined);
+  // env override takes precedence and is quote-aware
+  process.env.OVERCAST_SOURCE_YOUTUBE_CMD = 'bash "/x y/z.sh"';
+  try {
+    assert.deepEqual(builtinDescriptor("youtube")!.base, ["bash", "/x y/z.sh"]);
+  } finally {
+    delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD;
+  }
+});

@@ -53,14 +53,14 @@ Emits `audio.analysis` records.
 
 ### `overcast see`
 
-v1: no default (tinycloud) implementation — ships as a placeholder that reports needs_credentials until a VLM provider is bound via `setup provider see <http|module>`. Accepts a frame:// reference (rec@sec) which is resolved to a frame via the internal ffmpeg toolkit.
+Defaults to a Hugging Face image captioner when HF_TOKEN is set (override with HF_SEE_MODEL); otherwise a placeholder (needs_credentials) until a VLM is bound via `setup provider see`. Accepts frame://rec@sec, resolved to a frame via the internal ffmpeg toolkit.
 
 ```
 overcast see <input> [options]
 
   Understand an image or a single video frame (caption, OCR, detections).
 
-  v1: no default (tinycloud) implementation — ships as a placeholder that reports needs_credentials until a VLM provider is bound via `setup provider see <http|module>`. Accepts a frame:// reference (rec@sec) which is resolved to a frame via the internal ffmpeg toolkit.
+  Defaults to a Hugging Face image captioner when HF_TOKEN is set (override with HF_SEE_MODEL); otherwise a placeholder (needs_credentials) until a VLM is bound via `setup provider see`. Accepts frame://rec@sec, resolved to a frame via the internal ffmpeg toolkit.
 
 Arguments:
   input            Image path, video frame, or frame://rec@sec
