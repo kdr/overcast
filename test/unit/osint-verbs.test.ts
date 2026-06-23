@@ -93,3 +93,28 @@ test("monitor --once diffs the seen-set: new items first pass, none second", asy
     rmSync(d2, { recursive: true, force: true });
   }
 });
+
+test("monitor surfaces a source enumerate error (not a silent 'nothing new')", async () => {
+  const d3 = mkdtempSync(join(tmpdir(), "oc-monerr-"));
+  try {
+    const c = openCase(d3);
+    c.ensure();
+    // a source type with no provider → enumerateAll yields an error record
+    addSource(c, "bogus:x");
+    const profile = defaultProfile();
+    const recs = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true }, case: openCase(d3), profile });
+    const summary = recs.find((r) => r.verb === "monitor")!;
+    assert.equal(summary.state, "error");
+    assert.ok((summary.payload as Record<string, unknown>).source_errors);
+    // the error record itself is surfaced, not swallowed
+    assert.ok(recs.some((r) => r.state === "error" && r !== summary));
+  } finally {
+    rmSync(d3, { recursive: true, force: true });
+  }
+});
+
+test("capture rejects an unresolved ref instead of shipping it to yt-dlp", async () => {
+  const [rec] = await captureVerb.run(ctx({}, "scan_doesnotexist"));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /could not resolve ref/);
+});

@@ -20,10 +20,24 @@ export interface SourceDescriptor {
 }
 
 /** Built-in source descriptors. yt-dlp / apify are gated by deps/creds. */
+/**
+ * Tokenize a command string respecting single/double quotes, so a base command
+ * whose path contains spaces can be bound (e.g. `"/My Tools/bridge" enumerate`).
+ */
+export function tokenizeCommand(s: string): string[] {
+  const out: string[] = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    out.push(m[1] ?? m[2] ?? m[3]);
+  }
+  return out;
+}
+
 export function builtinDescriptor(type: string): SourceDescriptor | undefined {
   const envOverride = process.env[`OVERCAST_SOURCE_${type.toUpperCase()}_CMD`];
   if (envOverride) {
-    return { type, base: envOverride.trim().split(/\s+/) };
+    return { type, base: tokenizeCommand(envOverride.trim()) };
   }
   switch (type) {
     case "youtube":

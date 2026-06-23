@@ -130,8 +130,12 @@ async function captureRef(ctx: VerbContext, ref: string): Promise<OvercastRecord
       state: "ready",
     });
   }
-  // a URL → delegate to a source provider's fetch (youtube/tiktok/fixture)
-  const type = ref.includes("tiktok.com") ? "tiktok" : ref.includes("youtu") ? "youtube" : "youtube";
+  // only fetch things that actually look like URLs — a bogus/unresolved ref
+  // (e.g. a scan.hit id that didn't resolve) must NOT be shipped to yt-dlp.
+  if (!/^https?:\/\//i.test(ref)) {
+    return err("capture", `could not resolve ref to media: ${ref} (not a local path or URL)`);
+  }
+  const type = ref.includes("tiktok.com") ? "tiktok" : "youtube";
   const desc = builtinDescriptor(type);
   if (!desc) return err("capture", `no source provider can fetch ${ref}`);
   const dest = join(outDir, basename(ref.split("?")[0]) || "download");
@@ -206,9 +210,11 @@ export const monitorVerb: VerbSpec = {
   run: async (ctx) => {
     // v1: always a single pass (continuous looping is left to the scheduler).
     const hits = await enumerateAll(ctx);
+    const errorHits = hits.filter((h) => h.state === "error");
     const realHits = hits.filter((h) => h.state !== "error");
     const seen = loadSeen(ctx.case);
-    const out: OvercastRecord[] = [];
+    // surface enumerate errors so a dead source can't read as "nothing new"
+    const out: OvercastRecord[] = [...errorHits];
     let newCount = 0;
     for (const hit of realHits) {
       const key = hitKey(hit);
@@ -226,14 +232,22 @@ export const monitorVerb: VerbSpec = {
       }
     }
     saveSeen(ctx.case, seen);
-    // a summary record so callers can see the diff result at a glance
+    // a summary record so callers can see the diff result at a glance. When a
+    // source failed to enumerate, the summary state reflects that (a scheduler
+    // must not read a broken source as a clean "nothing new").
     out.unshift(
       makeRecord({
         verb: "monitor",
         format: "json",
-        payload: { new_items: newCount, total_hits: realHits.length, seen_size: seen.size },
+        payload: {
+          new_items: newCount,
+          total_hits: realHits.length,
+          seen_size: seen.size,
+          source_errors: errorHits.length,
+        },
         meta: { provider: "monitor", case: ctx.case.dir },
-        state: "ready",
+        state: errorHits.length ? "error" : "ready",
+        error: errorHits.length ? `${errorHits.length} source(s) failed to enumerate` : undefined,
       }),
     );
     return out;

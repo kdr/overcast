@@ -15,6 +15,7 @@ import {
   resolveSources,
 } from "../../src/state/source.ts";
 import { loadSeen, saveSeen, hitKey } from "../../src/state/seen.ts";
+import { tokenizeCommand } from "../../src/providers/sources/index.ts";
 import { makeRecord } from "../../src/record.ts";
 
 function withCase(fn: (c: ReturnType<typeof openCase>) => void) {
@@ -78,4 +79,10 @@ test("seen-set round-trips and hitKey prefers url", () => {
     const noUrl = makeRecord({ verb: "scan", payload: { title: "only-title" } });
     assert.equal(hitKey(noUrl), "only-title");
   });
+});
+
+test("tokenizeCommand respects quotes (spaced command paths)", () => {
+  assert.deepEqual(tokenizeCommand("bash /a/b.sh"), ["bash", "/a/b.sh"]);
+  assert.deepEqual(tokenizeCommand('"/My Tools/bridge" enumerate'), ["/My Tools/bridge", "enumerate"]);
+  assert.deepEqual(tokenizeCommand("'a b' c"), ["a b", "c"]);
 });
