@@ -35,6 +35,9 @@ export interface VerbContext {
   opts: Record<string, string | number | boolean | undefined>;
   case: Case;
   profile: Profile;
+  /** resolved overcast home + active profile name (for verbs that WRITE config) */
+  home?: string;
+  profileName?: string;
   /** abort signal (from the agent tool path) */
   signal?: AbortSignal;
 }

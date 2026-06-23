@@ -20,7 +20,7 @@ mkdir -p "$casedir"
 # A throwaway profile binding watch to the fixture exec provider.
 ochome="$SMOKE_DIR/home_watch"
 mkdir -p "$ochome/profiles"
-fake="$REPO/test/fixtures/fake-watch.sh"
+fake="$REPO/test/fixtures/fake-watch-record.sh"
 cat >"$ochome/profiles/fixture.json" <<JSON
 {
   "name": "fixture",

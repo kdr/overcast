@@ -4,6 +4,7 @@
 
 import { makeRecord } from "../record.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
+import { runExecProvider, isTinycloudDefault } from "../providers/run.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
 import {
   scanVerb,
@@ -14,6 +15,7 @@ import {
   prebriefVerb,
 } from "../verbs/osint.js";
 import { askVerb, briefVerb } from "../verbs/read.js";
+import { setupVerb, providerVerb, doctorVerb } from "../verbs/setup.js";
 import type { VerbSpec } from "./types.js";
 
 export const watchVerb: VerbSpec = {
@@ -45,17 +47,12 @@ export const watchVerb: VerbSpec = {
     }
     // resolve the run template from the active profile binding (else default).
     const binding = ctx.profile.providers?.watch;
-    const env = { ...process.env };
-    // ensure the Cloudglue key reaches the tinycloud CLI if only in tinycloud config
-    if (!env.CLOUDGLUE_API_KEY && ctx.profile) {
-      // tinycloud CLI reads its own config; nothing to inject here by default.
-    }
-    const rec = await runWatch(ctx.input, {
-      run: binding?.run,
-      env,
-      signal: ctx.signal,
-    });
-    // tag the case into meta for indexing
+    // A custom (non-tinycloud) provider already emits a record → pass it
+    // through. Only the tinycloud default needs envelope→record mapping.
+    const rec =
+      binding?.run && !isTinycloudDefault(binding.run)
+        ? await runExecProvider("watch", binding.run, ctx.input, { signal: ctx.signal })
+        : await runWatch(ctx.input, { run: binding?.run, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     return [rec];
   },
@@ -76,6 +73,9 @@ export const VERBS: VerbSpec[] = [
   prebriefVerb,
   askVerb,
   briefVerb,
+  setupVerb,
+  providerVerb,
+  doctorVerb,
 ];
 
 export function findVerb(name: string): VerbSpec | undefined {

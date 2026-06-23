@@ -148,6 +148,8 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
       opts: parsed.opts,
       case: c,
       profile: loadProfile(homeOpts),
+      home,
+      profileName: profile,
     };
 
     let records: OvercastRecord[];

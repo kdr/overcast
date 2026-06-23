@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { existsSync, writeFileSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { runListen } from "../providers/tinycloud/listen.js";
+import { runExecProvider, isTinycloudDefault } from "../providers/run.js";
 import {
   probe,
   enhance as ffEnhance,
@@ -43,12 +44,15 @@ export const listenVerb: VerbSpec = {
       return [errorRecord("listen", "listen requires an audio/video input")];
     }
     const binding = ctx.profile.providers?.listen;
-    const rec = await runListen(ctx.input, {
-      run: binding?.run,
-      signal: ctx.signal,
-      diarize: ctx.opts.diarize === true,
-      lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
-    });
+    const rec =
+      binding?.run && !isTinycloudDefault(binding.run)
+        ? await runExecProvider("listen", binding.run, ctx.input, { signal: ctx.signal })
+        : await runListen(ctx.input, {
+            run: binding?.run,
+            signal: ctx.signal,
+            diarize: ctx.opts.diarize === true,
+            lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
+          });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     return [rec];
   },
