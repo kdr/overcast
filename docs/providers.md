@@ -48,13 +48,34 @@ overcast ships Hugging Face Inference API providers so `see` and model-based
 `enhance` work out of the box once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 
 - **`see`** — auto-defaults to a HF image captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)) when `HF_TOKEN` is present (else the placeholder). Override the model with `HF_SEE_MODEL` (default `Salesforce/blip-image-captioning-large`).
-- **`enhance`** — opt-in HF model ops ([`examples/providers/hf/enhance.sh`](../examples/providers/hf/enhance.sh)) for image upscale/unblur and audio enhance. Bind it (the **default stays the internal ffmpeg toolkit**):
+- **`enhance` (image)** — opt-in HF model ops ([`examples/providers/hf/enhance.py`](../examples/providers/hf/enhance.py), needs `huggingface_hub` + `pillow`). Image **upscale/unblur/restore works** via the **fal-ai** provider, routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; uses the free monthly credit then pay-as-you-go). The **default stays the internal ffmpeg toolkit**; bind to opt in:
   ```bash
-  overcast setup provider enhance "exec:bash examples/providers/hf/enhance.sh {{input}}"
+  overcast setup provider enhance "exec:python3 examples/providers/hf/enhance.py {{input}}"
+  overcast enhance ./blurry.jpg          # -> upscaled/unblurred media.enhanced record
   ```
-  Override models with `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL`. Note: a
-  model must be served on the HF serverless Inference API; large/custom models may
-  need a dedicated endpoint (point the `*_MODEL` var at one that is hosted).
+  Default model `prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale` (override `HF_ENHANCE_IMAGE_MODEL`; provider `HF_ENHANCE_PROVIDER`, default `fal-ai`). **Caveat:** these are diffusion *editing* models — they synthesize plausible detail (not faithful super-resolution), so flag it for forensic use.
+- **`enhance` (audio)** — **not available via HF** (audio-to-audio isn't a HF Inference-Providers task; 0 hosted models). Use ffmpeg (`enhance --ops denoise,normalize`) or bind a Replicate-direct provider (`resemble-ai/resemble-enhance`) / self-host. `enhance.sh` (curl) remains for a dedicated HF Inference Endpoint via `HF_ENHANCE_ENDPOINT`.
+
+## fal.ai providers (`FAL_KEY`)
+
+Direct fal.ai providers (verified working) — bind to opt in:
+
+```bash
+overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input}}"      # florence-2 caption / --ocr
+overcast setup provider enhance "exec:bash examples/providers/fal/enhance.sh {{input}}"  # image: esrgan · audio: deepfilternet3
+```
+- **see** → `fal-ai/florence-2-large` (detailed caption; `--ocr` for text).
+- **enhance image** → `fal-ai/esrgan` (faithful Real-ESRGAN super-resolution — better for forensic use than diffusion editors).
+- **enhance audio** → `fal-ai/deepfilternet3` (speech denoise + 48 kHz). Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL`.
+
+## ElevenLabs providers (`ELEVENLABS_API_KEY`)
+
+```bash
+overcast setup provider listen  "exec:bash examples/providers/elevenlabs/listen.sh {{input}}"   # Scribe speech-to-text
+overcast setup provider enhance "exec:bash examples/providers/elevenlabs/enhance.sh {{input}}"  # voice isolator (audio)
+```
+- **listen** → ElevenLabs Speech-to-Text (Scribe) → transcript + word-level `segments[]` with `media.at` anchors + language.
+- **enhance** → ElevenLabs Voice Isolator (strips background noise/music → clean speech).
 
 ## Samples (runnable, in this repo)
 
