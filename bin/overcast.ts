@@ -5,8 +5,9 @@
 
 import { runCli } from "../src/cli.js";
 import { findVerb } from "../src/registry/verbs.js";
+import { resolveCloudglue } from "../src/profile.js";
 
-const KNOWN_TOP = new Set(["version", "commands"]);
+const KNOWN_TOP = new Set(["version", "commands", "help"]);
 const GLOBAL_FLAGS = new Set(["--case", "--home", "--profile"]);
 
 function isCliDispatch(argv: string[]): boolean {
@@ -24,6 +25,8 @@ function isCliDispatch(argv: string[]): boolean {
   // A version request is CLI only when it is the command itself, so headless
   // pi usage like `overcast -p "…" -v` still launches the agent.
   if (cmd === "--version" || cmd === "-v") return true;
+  // `overcast --help`/`-h` is OUR help, not pi's (only as the effective command).
+  if (cmd === "--help" || cmd === "-h") return true;
   if (KNOWN_TOP.has(cmd)) return true;
   if (findVerb(cmd)) return true;
   // A leading non-flag token is a command — route mistyped verbs to the CLI so
@@ -54,7 +57,28 @@ function takeGlobal(argv: string[], name: string): { value?: string; rest: strin
   return { value, rest };
 }
 
+/**
+ * Make the overcast TUI turnkey before handing off to pi:
+ *  - resolve the Cloudglue key (env or ~/.tinycloud/config.json) into
+ *    CLOUDGLUE_API_KEY so the registered Cloudglue provider has models (no
+ *    /login dance, fixes "No models available" / "no default model").
+ *  - suppress pi's startup update-check; overcast pins pi (invariant), so a
+ *    "pi update available" notice is noise. We set the TARGETED skip flag (not
+ *    full PI_OFFLINE) so model availability / runtime network is untouched.
+ *    Opt back in with OVERCAST_PI_ONLINE=1.
+ */
+function prepareTuiEnv(): void {
+  if (!process.env.CLOUDGLUE_API_KEY) {
+    const { apiKey } = resolveCloudglue();
+    if (apiKey) process.env.CLOUDGLUE_API_KEY = apiKey;
+  }
+  if (!process.env.PI_SKIP_VERSION_CHECK && process.env.OVERCAST_PI_ONLINE !== "1") {
+    process.env.PI_SKIP_VERSION_CHECK = "1";
+  }
+}
+
 async function launchTui(argv: string[]): Promise<void> {
+  prepareTuiEnv();
   // Dynamic import keeps pi out of the hot path for plain verb calls.
   const { main } = await import("@earendil-works/pi-coding-agent");
   const { default: overcastExtension } = await import("../src/extension/overcast.js");

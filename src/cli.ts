@@ -2,9 +2,9 @@
 // and direct verb execution (persist + print). Launching the pi TUI lives in
 // bin/overcast.ts (dynamic import) so pure verb calls stay fast and pi-free.
 
-import { versionInfo } from "./version.js";
+import { versionInfo, OVERCAST_VERSION } from "./version.js";
 import { VERBS, findVerb } from "./registry/verbs.js";
-import { toJSON, type VerbContext } from "./registry/types.js";
+import { toJSON, type VerbContext, type VerbSpec } from "./registry/types.js";
 import { parseVerbArgs, renderVerbHelp } from "./registry/to-cli.js";
 import { openCase } from "./case.js";
 import { loadProfile, type HomeOptions } from "./profile.js";
@@ -87,6 +87,50 @@ function renderRecord(rec: OvercastRecord, format: string): string {
   return `${head}\n  payload: { ${keys.join(", ")} }${rec.media ? `\n  media: ${rec.media.ref}` : ""}`;
 }
 
+const GROUP_TITLES: Record<VerbSpec["group"], string> = {
+  sense: "Senses",
+  inspect: "Inspect",
+  osint: "OSINT",
+  read: "Read",
+  state: "State",
+  config: "Config",
+};
+
+/** Top-level `overcast --help`: the overcast surface (NOT pi's help). */
+export function renderTopHelp(): string {
+  const lines: string[] = [];
+  lines.push(`overcast ${OVERCAST_VERSION} — senses (video/audio/image) + OSINT reach for any agent, built on pi`);
+  lines.push("");
+  lines.push("Usage:");
+  lines.push("  overcast                      Launch the interactive overcast agent (TUI)");
+  lines.push("  overcast <verb> [args] [--json]   Run a verb and emit record(s)");
+  lines.push("  overcast -p \"<task>\" [--mode json]  Headless agent (one task, then exit)");
+  lines.push("  overcast commands --json      Dump the verb registry (source of truth)");
+  lines.push("  overcast --version [--json]   Version + pinned pi");
+  lines.push("");
+  const groups = new Map<VerbSpec["group"], VerbSpec[]>();
+  for (const v of VERBS) {
+    const a = groups.get(v.group) ?? [];
+    a.push(v);
+    groups.set(v.group, a);
+  }
+  for (const [group, title] of Object.entries(GROUP_TITLES) as [VerbSpec["group"], string][]) {
+    const verbs = groups.get(group);
+    if (!verbs || verbs.length === 0) continue;
+    lines.push(`${title}:`);
+    for (const v of verbs) lines.push(`  ${v.name.padEnd(12)} ${v.summary}`);
+    lines.push("");
+  }
+  lines.push("Global flags:");
+  lines.push("  --case <dir>     Operate on the case rooted at <dir> (default: cwd)");
+  lines.push("  --home <dir>     overcast home for profiles (default: ~/.overcast)");
+  lines.push("  --profile <name> Active profile (default: default)");
+  lines.push("  --json           JSON output  ·  --format json|md|txt");
+  lines.push("");
+  lines.push("Run `overcast <verb> --help` for a verb's man page.");
+  return lines.join("\n");
+}
+
 /** Run the CLI. Returns a process exit code. */
 export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<number> {
   // Global flags may appear anywhere — including before the verb
@@ -95,6 +139,17 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   const { rest: tokens, caseDir, home, profile, errors: globalErrors } =
     extractGlobals(argv);
   const cmd = tokens[0];
+
+  // top-level help (overcast's own — never pi's). Validate globals first so a
+  // bad `--case`/`--home`/`--profile` is reported, consistent with verb dispatch.
+  if (cmd === "help" || cmd === "--help" || cmd === "-h") {
+    if (globalErrors.length) {
+      for (const e of globalErrors) io.err(`overcast: ${e}\n`);
+      return 2;
+    }
+    io.out(renderTopHelp() + "\n");
+    return 0;
+  }
 
   // version — only when it's the command itself, so `overcast watch x -v` runs
   // the verb (and an unknown command with a stray -v still errors) rather than
