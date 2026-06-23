@@ -1,0 +1,26 @@
+{
+  "name": "overcast",
+  "owner": {
+    "name": "overcast",
+    "url": "https://github.com/kdr/overcast"
+  },
+  "metadata": {
+    "description": "Video-understanding OSINT for coding agents: watch/listen/see media, scan/capture/monitor sources, ask/brief over a case.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "overcast",
+      "source": "./",
+      "description": "Give any agent senses (video/audio/image) and OSINT reach (search/capture/monitor), organized around an investigation case. Drives the overcast CLI (pi + tinycloud/Cloudglue).",
+      "version": "0.1.0",
+      "author": { "name": "overcast" },
+      "homepage": "https://github.com/kdr/overcast",
+      "repository": "https://github.com/kdr/overcast",
+      "license": "SEE LICENSE AT https://github.com/kdr/overcast",
+      "category": "media",
+      "tags": ["video", "osint", "cloudglue", "video-analysis", "investigation"],
+      "strict": true
+    }
+  ]
+}

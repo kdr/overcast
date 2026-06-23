@@ -1,0 +1,432 @@
+# overcast — verb reference
+
+Generated from the verb registry (`overcast commands --json`). Drive any verb
+from a shell via `overcast <verb> [args] --json` and parse the emitted record.
+Every verb emits one or more loose records persisted to the case's `.overcast/`
+store; cite findings by `record.id` + `media.at`.
+
+## Senses
+
+### `overcast watch`
+
+Runs the bound sense provider (default: tinycloud, exec) over a video file or URL and emits a video.analysis record with markdown content, a transcript (when speech is present), and the full structured describe in `detailed`.
+
+```
+overcast watch <input> [options]
+
+  Analyze a video into a reusable, time-anchored record (content/transcript/detailed).
+
+  Runs the bound sense provider (default: tinycloud, exec) over a video file or URL and emits a video.analysis record with markdown content, a transcript (when speech is present), and the full structured describe in `detailed`.
+
+Arguments:
+  input            Video file path or URL
+
+Options:
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `video.analysis` records.
+
+### `overcast listen`
+
+Default provider: tinycloud (speech-only describe). Emits transcript, speaker-tagged segments[] with media.at anchors, and detected language.
+
+```
+overcast listen <input> [options]
+
+  Transcribe and analyze audio (or a video's audio track) into an audio.analysis record.
+
+  Default provider: tinycloud (speech-only describe). Emits transcript, speaker-tagged segments[] with media.at anchors, and detected language.
+
+Arguments:
+  input            Audio/video file path or URL
+
+Options:
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+  --diarize              Attribute speech to distinct speakers
+  --lang <string>        Hint/force source language (e.g. en, es)
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `audio.analysis` records.
+
+### `overcast see`
+
+v1: no default (tinycloud) implementation — ships as a placeholder that reports needs_credentials until a VLM provider is bound via `setup provider see <http|module>`. Accepts a frame:// reference (rec@sec) which is resolved to a frame via the internal ffmpeg toolkit.
+
+```
+overcast see <input> [options]
+
+  Understand an image or a single video frame (caption, OCR, detections).
+
+  v1: no default (tinycloud) implementation — ships as a placeholder that reports needs_credentials until a VLM provider is bound via `setup provider see <http|module>`. Accepts a frame:// reference (rec@sec) which is resolved to a frame via the internal ffmpeg toolkit.
+
+Arguments:
+  input            Image path, video frame, or frame://rec@sec
+
+Options:
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+  --ocr                  Extract on-image text
+  --detect <string>      Comma list of classes to detect (face,plate,logo)
+  --prompt <string>      Focus the description
+  --embed                Persist a visual embedding (query seed)
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `image.analysis` records.
+
+### `overcast enhance`
+
+Deterministic, modality-dispatched ops on the bundled ffmpeg. Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
+
+```
+overcast enhance <input> [options]
+
+  Produce better media (denoise/normalize/upscale/...) via the internal ffmpeg toolkit.
+
+  Deterministic, modality-dispatched ops on the bundled ffmpeg. Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
+
+Arguments:
+  input            Media file path
+
+Options:
+  --ops <string>         Comma list of ops (denoise,normalize,upscale,...)
+  --out <string>         Output path (default .overcast/media/)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `media.enhanced` records.
+
+## Inspect
+
+### `overcast view`
+
+For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. --no-open writes the viewer and emits a view record with its path instead of launching.
+
+```
+overcast view <ref> [options]
+
+  Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
+
+  For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. --no-open writes the viewer and emits a view record with its path instead of launching.
+
+Arguments:
+  ref              Media path, capture-id, or record-id
+
+Options:
+  --at <string>          Start at SS or seek a START-END span
+  --spectrogram          (audio) also render a spectrogram
+  --no-open              Write the viewer but don't launch it
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `view` records.
+
+## OSINT
+
+### `overcast scan`
+
+Enumerates the case's enabled sources for the active target (or --query). With --pull, each hit is immediately captured and routed to a sense (one-shot recon).
+
+```
+overcast scan  [options]
+
+  Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
+
+  Enumerates the case's enabled sources for the active target (or --query). With --pull, each hit is immediately captured and routed to a sense (one-shot recon).
+
+Options:
+  --query <string>       Ad-hoc keyword search across sources
+  --source <string>      Restrict to source ids/types (comma list)
+  --since <string>       Only items newer than e.g. 24h, 2026-06-01
+  --limit <number>       Max hits per source
+  --pull                 Auto-capture + sense each hit
+  --pipe <string>        Sense to run on pulled hits (watch|listen)
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `scan.hit` records.
+
+### `overcast capture`
+
+Acquires media/content into .overcast/media/: a local path is copied in; a URL is downloaded via the matching source provider. Emits a capture record with a capture_id usable by the senses.
+
+```
+overcast capture <ref> [options]
+
+  Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
+
+  Acquires media/content into .overcast/media/: a local path is copied in; a URL is downloaded via the matching source provider. Emits a capture record with a capture_id usable by the senses.
+
+Arguments:
+  ref              URL, scan.hit id, local path, or - for stdin
+
+Options:
+  --index                Embed into the case index after capture
+  --out <string>         Output location override
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `capture` records.
+
+### `overcast monitor`
+
+Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once does a single diff pass and exits. (Continuous --every loop is scheduler-driven.)
+
+```
+overcast monitor  [options]
+
+  scan on a loop; diff against the seen-set; pipe new items into a sense. --once for schedulers.
+
+  Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once does a single diff pass and exits. (Continuous --every loop is scheduler-driven.)
+
+Options:
+  --source <string>      Restrict to source ids/types
+  --pipe <string>        Sense to run on new items (watch|listen)
+  --once                 Single diff pass then exit
+  --brief                Summarize the new batch (placeholder in v1)
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `scan.hit` records.
+
+## Read
+
+### `overcast ask`
+
+Retrieves over the bound memory providers (fan-out; local always on) and answers with citations to record.id and media.at. --deep forces agentic deepsearch (cloudglue, Phase 5).
+
+```
+overcast ask <question> [options]
+
+  Natural-language query over the case memory; answers with record.id + media.at citations.
+
+  Retrieves over the bound memory providers (fan-out; local always on) and answers with citations to record.id and media.at. --deep forces agentic deepsearch (cloudglue, Phase 5).
+
+Arguments:
+  question         The question to answer
+
+Options:
+  --deep                 Agentic semantic search (cloudglue)
+  --memory <string>      Restrict to specific memory provider ids
+  --since <string>       Time filter (e.g. 24h, 2026-06-01)
+  --verb <string>        Restrict to record kinds (comma list)
+  --limit <number>       Max passages
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `answer` records.
+
+### `overcast brief`
+
+Produces a structured report from accumulated records. --export writes a shareable md/html artifact (format inferred from the file extension).
+
+```
+overcast brief  [options]
+
+  Synthesize the case records into a report (timeline + findings); --export to md/html.
+
+  Produces a structured report from accumulated records. --export writes a shareable md/html artifact (format inferred from the file extension).
+
+Options:
+  --scope <string>       Filter, e.g. since:24h or verb:watch
+  --export <string>      Write a report file (.md or .html)
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `brief` records.
+
+## State
+
+### `overcast target`
+
+Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
+
+```
+overcast target <action> [value] [options]
+
+  Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
+
+Arguments:
+  action           add | list | rm | show
+  value            target value (for add) or id (for rm)
+
+Options:
+  --image                Treat the value as a reference image path
+  --json                 JSON output
+  --format <string>      json | md | txt
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `target` records.
+
+### `overcast source`
+
+Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
+
+```
+overcast source <action> [value] [options]
+
+  Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
+
+Arguments:
+  action           add | list | enable | disable | rm
+  value            <type>:<ref> (add) or source id
+
+Options:
+  --name <string>        Friendly name for the source
+  --json                 JSON output
+  --format <string>      json | md | txt
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `source` records.
+
+## Config
+
+### `overcast prebrief`
+
+A lightweight case kickoff. Initializes the .overcast/ store, sets the case name, and optionally seeds a target (--target) and a source (--source <type>:<ref>).
+
+```
+overcast prebrief [name] [options]
+
+  Stand up a case: name + target + source in one shot (non-interactive via flags).
+
+  A lightweight case kickoff. Initializes the .overcast/ store, sets the case name, and optionally seeds a target (--target) and a source (--source <type>:<ref>).
+
+Arguments:
+  name             Case name
+
+Options:
+  --target <string>      Seed target (name/prompt)
+  --source <string>      Seed source <type>:<ref>
+  --json                 JSON output
+  --format <string>      json | md | txt
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `prebrief` records.
+
+### `overcast setup`
+
+Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup show` prints the active profile.
+
+```
+overcast setup <action> [a] [b] [options]
+
+  Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|show).
+
+  Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup show` prints the active profile.
+
+Arguments:
+  action           provider | llm | show
+  a                verb (for provider) or provider id (for llm)
+  b                spec (for provider) or model (for llm)
+
+Options:
+  --profile <string>     Profile name to write (default: default)
+  --json                 JSON output
+  --format <string>      json | md | txt
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `setup` records.
+
+### `overcast provider`
+
+`provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (skill loading lands in Phase 7). `provider list` shows the active bindings.
+
+```
+overcast provider <action> [verb] [options]
+
+  Run a provider's init hook, or list/describe bound providers (provider init|list|describe).
+
+  `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (skill loading lands in Phase 7). `provider list` shows the active bindings.
+
+Arguments:
+  action           init | list | describe
+  verb             verb whose provider to init/describe
+
+Options:
+  --json                 JSON output
+  --format <string>      json | md | txt
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `provider` records.
+
+### `overcast doctor`
+
+Preflight: check pi version, ffmpeg/ffprobe, Cloudglue creds, tinycloud, provider bindings.
+
+```
+overcast doctor  [options]
+
+  Preflight: check pi version, ffmpeg/ffprobe, Cloudglue creds, tinycloud, provider bindings.
+
+Options:
+  --json                 JSON output
+  --format <string>      json | md | txt
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `doctor` records.
+
+### `overcast skills`
+
+`skills generate` (re)writes skills/overcast/{SKILL.md,reference/verbs.md} and skills/overcast-init from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.
+
+```
+overcast skills <action> [options]
+
+  Generate the flagship overcast skill + reference from the registry, or install into a harness.
+
+  `skills generate` (re)writes skills/overcast/{SKILL.md,reference/verbs.md} and skills/overcast-init from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.
+
+Arguments:
+  action           generate | install
+
+Options:
+  --harness <string>     Target harness for install (claude-code)
+  --json                 JSON output
+  --format <string>      json | md | txt
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `skills` records.

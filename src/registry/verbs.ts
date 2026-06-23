@@ -16,6 +16,7 @@ import {
 } from "../verbs/osint.js";
 import { askVerb, briefVerb } from "../verbs/read.js";
 import { setupVerb, providerVerb, doctorVerb } from "../verbs/setup.js";
+import { skillsVerb } from "../verbs/skills.js";
 import type { VerbSpec } from "./types.js";
 
 export const watchVerb: VerbSpec = {
@@ -75,6 +76,7 @@ export const VERBS: VerbSpec[] = [
   setupVerb,
   providerVerb,
   doctorVerb,
+  skillsVerb,
 ];
 
 export function findVerb(name: string): VerbSpec | undefined {
