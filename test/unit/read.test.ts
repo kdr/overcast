@@ -98,6 +98,58 @@ test("ask verb returns an answer record citing record.id + media.at", async () =
   });
 });
 
+test("brief --scope since:<when> actually filters stale records (review fix)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-brief-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "ancient" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "recent" }, meta: { time: new Date().toISOString() } }));
+    const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: { scope: "since:24h" }, case: c, profile: defaultProfile() });
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.match(report, /recent/);
+    assert.ok(!report.includes("ancient"), "stale 2020 record must be filtered out by since:24h");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief timeline: dated records sort chronologically, undated go last in order", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-tl-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "UNDATED-A" } }));
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "DATED-2026" }, meta: { time: "2026-01-01T00:00:00Z" } }));
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "UNDATED-B" } }));
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "DATED-2020" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    const order = ["DATED-2020", "DATED-2026", "UNDATED-A", "UNDATED-B"].map((s) => report.indexOf(s));
+    assert.ok(order.every((i) => i >= 0));
+    // dated ascending, then undated in insertion order
+    assert.ok(order[0] < order[1], "2020 before 2026");
+    assert.ok(order[1] < order[2], "dated before undated");
+    assert.ok(order[2] < order[3], "undated kept in insertion order");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief head preserves non-string content (does not print the key name)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-head-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: 42 } }));
+    const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.match(report, /: 42$/m);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief verb builds a report and --export writes md + html", async () => {
   await withCase(async (c, dir) => {
     const mdPath = join(dir, "out.md");

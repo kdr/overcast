@@ -6,6 +6,7 @@ import { writeFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer } from "../providers/memory/index.js";
+import { parseSince } from "../providers/memory/local.js";
 import type { QueryOpts } from "../providers/memory/types.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -73,12 +74,15 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
   const counts: Record<string, number> = {};
   for (const r of records) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
 
-  // sort by time when available (records without time keep insertion order)
-  const sorted = [...records].sort((a, b) => {
-    const ta = a.meta?.time ? Date.parse(String(a.meta.time)) : 0;
-    const tb = b.meta?.time ? Date.parse(String(b.meta.time)) : 0;
-    return ta - tb;
-  });
+  // sort dated records chronologically; undated records go LAST, preserving
+  // their original insertion order (decorate-sort-undecorate for stability).
+  const sorted = records
+    .map((r, i) => {
+      const parsed = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+      return { r, i, t: Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed };
+    })
+    .sort((a, b) => a.t - b.t || a.i - b.i)
+    .map((x) => x.r);
 
   const lines: string[] = [];
   lines.push(`# Brief — ${caseName}`, "");
@@ -93,10 +97,17 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
     if (typeof r.payload === "string") head = r.payload.slice(0, 160);
     else {
       const p = r.payload as Record<string, unknown>;
+      const pick = (v: unknown): string | undefined => {
+        if (v == null) return undefined;
+        if (typeof v === "string") return v.slice(0, 160);
+        // non-string content (number/object) must not be lost — stringify it
+        if (typeof v === "number" || typeof v === "boolean") return String(v);
+        return undefined;
+      };
       head =
-        (p.title as string) ||
-        (p.content as string)?.slice?.(0, 160) ||
-        (p.text as string)?.slice?.(0, 160) ||
+        pick(p.title) ??
+        pick(p.content) ??
+        pick(p.text) ??
         Object.keys(p).join(", ");
     }
     lines.push(`- **${r.verb}** \`${r.id}\`${at}${ref}: ${String(head).replace(/\s+/g, " ").trim()}`);
@@ -142,12 +153,23 @@ export const briefVerb: VerbSpec = {
   providerKey: "brief",
   run: async (ctx) => {
     let records = ctx.case.records();
-    // simple scope filter: since:<when> | verb:<kind>
+    // scope filter: since:<when> | verb:<kind>
     const scope = ctx.opts.scope ? String(ctx.opts.scope) : "";
     const m = scope.match(/^(since|verb):(.+)$/);
     if (m) {
-      if (m[1] === "verb") records = records.filter((r) => r.verb === m[2]);
-      // since handled loosely; the local provider's since logic is reused by ask
+      if (m[1] === "verb") {
+        records = records.filter((r) => r.verb === m[2]);
+      } else {
+        // since:<when> — keep records at/after the cutoff (undated records are
+        // kept, since we can't prove they're stale).
+        const cutoff = parseSince(m[2]);
+        if (cutoff != null) {
+          records = records.filter((r) => {
+            const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+            return Number.isNaN(t) || t >= cutoff;
+          });
+        }
+      }
     }
     const info = ctx.case.exists() ? ctx.case.info() : { name: "case" };
     const brief = buildBrief(records, info.name);
