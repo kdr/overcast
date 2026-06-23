@@ -34,18 +34,21 @@ case "$(echo "$ext" | tr 'A-Z' 'a-z')" in
 esac
 mkdir -p "$OUTDIR"
 
-# the inference API returns the transformed media as binary on success, or JSON on error
+# Endpoint: a dedicated HF Inference Endpoint URL ($HF_ENHANCE_ENDPOINT) if set,
+# else the inference-providers router (most enhancement models are NOT hosted
+# serverless — point HF_ENHANCE_ENDPOINT at a dedicated endpoint or a provider).
+url="${HF_ENHANCE_ENDPOINT:-https://router.huggingface.co/hf-inference/models/$model}"
 http=$(curl -s -o "$out" -w "%{http_code}" -X POST \
   -H "Authorization: Bearer $TOKEN" -H "x-wait-for-model: true" -H "Accept: $ctype" \
-  --data-binary @"$input" \
-  "https://api-inference.huggingface.co/models/$model")
+  --data-binary @"$input" "$url")
 
 if [ "$http" = "200" ] && [ -s "$out" ] && ! head -c1 "$out" | grep -q '{'; then
   jq -nc --arg o "$out" --arg m "hf:$model" \
     '{verb:"enhance",format:"json",payload:{output:$o,modality:"model",provider:$m},media:{ref:$o},meta:{provider:$m},state:"ready"}'
 else
-  err="$(cat "$out" 2>/dev/null | jq -r '.error // "HF enhance failed (model may not be on the serverless Inference API; set HF_ENHANCE_*_MODEL)"' 2>/dev/null)"
-  rm -f "$out"
-  jq -nc --arg e "${err:-HF enhance failed (http $http)}" --arg m "hf:$model" \
+  raw="$(cat "$out" 2>/dev/null)"; rm -f "$out"
+  err="$(jq -r '.error.message // .error // .message // empty' <<<"$raw" 2>/dev/null)"
+  [ -z "$err" ] && err="HF enhance failed (http $http). Most upscale/restore models aren't on HF serverless — set HF_ENHANCE_ENDPOINT to a dedicated Inference Endpoint, or use ffmpeg enhance."
+  jq -nc --arg e "$err" --arg m "hf:$model" \
     '{verb:"enhance",format:"json",payload:{provider:$m},error:$e,state:"error"}'
 fi
