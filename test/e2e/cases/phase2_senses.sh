@@ -48,7 +48,8 @@ assert_eq "view.mode" "video" "$(jq -r '.payload.mode' <<<"$vout")" "view detect
 vhtml="$(jq -r '.payload.viewer' <<<"$vout")"
 if [ -f "$vhtml" ] && grep -q "OVERCAST VIEW" "$vhtml"; then ok "view.html_written" "self-contained player generated"; else fail "view.html_written" "no player html"; fi
 
-# see: placeholder reports needs_credentials cleanly
-sout="$($OVERCAST see "./missing.jpg" --json --case "$casedir" 2>/dev/null)"
+# see: with NO provider configured (HF token unset), it's the placeholder.
+# (When HF_TOKEN/a binding is present, see routes to that provider instead.)
+sout="$(env -u HF_TOKEN -u HUGGING_FACE_HUB_TOKEN $OVERCAST see "./missing.jpg" --json --case "$casedir" 2>/dev/null)"
 save_json "phase2_see" "$sout" >/dev/null
-assert_eq "see.state" "needs_credentials" "$(jq -r '.state' <<<"$sout")" "see placeholder state"
+assert_eq "see.state" "needs_credentials" "$(jq -r '.state' <<<"$sout")" "see placeholder state (no provider)"
