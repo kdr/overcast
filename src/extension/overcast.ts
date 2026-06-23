@@ -61,15 +61,17 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
     const cwd = ctx.cwd ?? process.cwd();
     const caseName = basename(cwd);
 
-    // Title: "overcast — <case>" (the case is the cwd folder). Overrides pi's
+    // Title: "overcast — <profile>@case://<folder>" (the case is the cwd folder;
+    // the profile is the active persona, e.g. `recon`). Overrides pi's
     // "<app> - <session> - <cwd>" so the tab reads cleanly.
-    ctx.ui.setTitle(`overcast — ${caseName}`);
+    const profileName = loadProfile().name ?? "default";
+    ctx.ui.setTitle(`overcast — ${profileName}@case://${caseName}`);
 
     // Header: colorized banner + a status line (context file · verbs · model).
     if (banner) {
       const status = statusLine([
         contextFileLabel(cwd),
-        `${VERBS.length} verbs`,
+        `${VERBS.length} tools`,
         cgKey ? `model: ${CLOUDGLUE_MODEL_ID}` : "model: (set via /model)",
       ]);
       const header = headerText(banner, status);
