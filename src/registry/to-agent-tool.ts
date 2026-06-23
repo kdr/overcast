@@ -17,6 +17,10 @@ export interface ToolDeps {
   getCase: () => Case;
   /** resolve the active profile at call time */
   getProfile: () => Profile;
+  /** resolve the active overcast home (for config-writing verbs) */
+  getHome?: () => string | undefined;
+  /** the active profile name */
+  getProfileName?: () => string | undefined;
 }
 
 function flagSchema(f: FlagSpec): TSchema {
@@ -88,6 +92,8 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         opts,
         case: c,
         profile: deps.getProfile(),
+        home: deps.getHome?.(),
+        profileName: deps.getProfileName?.(),
         signal,
       };
 

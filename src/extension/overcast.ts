@@ -15,7 +15,7 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { VERBS } from "../registry/verbs.js";
 import { toAgentTool } from "../registry/to-agent-tool.js";
 import { openCase } from "../case.js";
-import { loadProfile, resolveCloudglue } from "../profile.js";
+import { loadProfile, resolveCloudglue, resolveHome } from "../profile.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -72,11 +72,13 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   pi.on("before_agent_start", () => ({ systemPrompt }));
 
   // --- Register every verb as a pi tool, bound to the session case + profile.
-  // The launcher surfaces --case/--profile (and --home) via env so the agent
-  // tools operate on the same case/profile the CLI session was started with.
+  // The launcher surfaces --case/--profile/--home via env so the agent tools
+  // operate on the same case/profile/home the CLI session was started with.
   const deps = {
     getCase: () => openCase(process.env.OVERCAST_CASE || process.cwd()),
     getProfile: () => loadProfile({ profile: process.env.OVERCAST_PROFILE || undefined }),
+    getHome: () => resolveHome(),
+    getProfileName: () => process.env.OVERCAST_PROFILE || "default",
   };
   for (const spec of VERBS) {
     pi.registerTool(toAgentTool(spec, deps));

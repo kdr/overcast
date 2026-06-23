@@ -7,6 +7,7 @@ import { openCase } from "../../src/case.ts";
 import { loadProfile, defaultProfile } from "../../src/profile.ts";
 import { parseProviderSpec, setupVerb, providerVerb, doctorVerb } from "../../src/verbs/setup.ts";
 import { runExecProvider, isTinycloudDefault } from "../../src/providers/run.ts";
+import { renderCommand } from "../../src/providers/exec.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 function ctx(dir: string, home: string, input: string | undefined, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext {
@@ -89,4 +90,44 @@ test("runExecProvider passes a custom provider's record through verbatim", async
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("runExecProvider: state:ready + non-zero exit does NOT attach a phantom error", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-run2-"));
+  try {
+    const { writeFileSync, chmodSync } = await import("node:fs");
+    const script = join(dir, "noisy.sh");
+    // emits a ready record but exits 3 (e.g. a wrapper with a bad cleanup code)
+    writeFileSync(script, '#!/usr/bin/env bash\necho "{\\"verb\\":\\"see\\",\\"payload\\":{\\"caption\\":\\"ok\\"},\\"state\\":\\"ready\\"}"\nexit 3\n');
+    chmodSync(script, 0o755);
+    const rec = await runExecProvider("see", `bash ${script}`, "x.jpg");
+    assert.equal(rec.state, "ready");
+    assert.equal(rec.error, undefined); // no phantom 'exit 3' on a ready record
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runExecProvider: a media object without a string ref falls back to the input ref", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-run3-"));
+  try {
+    const { writeFileSync, chmodSync } = await import("node:fs");
+    const script = join(dir, "noref.sh");
+    writeFileSync(script, '#!/usr/bin/env bash\necho "{\\"verb\\":\\"see\\",\\"payload\\":{},\\"media\\":{\\"at\\":5},\\"state\\":\\"ready\\"}"\n');
+    chmodSync(script, 0o755);
+    const rec = await runExecProvider("see", `bash ${script}`, "img.jpg");
+    assert.equal(rec.media?.ref, "img.jpg"); // ref-less media replaced by input
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an empty bound run coalesces to the default command (never an empty spawn)", () => {
+  // renderCommand of "" would yield [] → spawn("") throws; the dispatch uses
+  // `run || DEFAULT` so an empty/exec: binding falls back to the tinycloud default.
+  const empty = "";
+  const argv = renderCommand((empty || "tinycloud watch {{input}} --json"), { input: "x.mp4" });
+  assert.deepEqual(argv, ["tinycloud", "watch", "x.mp4", "--json"]);
+  // parseProviderSpec("exec:") is the source of an empty run
+  assert.equal(parseProviderSpec("exec:").run, "");
 });

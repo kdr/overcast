@@ -14,6 +14,7 @@ import {
 } from "../profile.js";
 import { FFMPEG_PATH, FFPROBE_PATH } from "../media/ffmpeg.js";
 import { execCapture } from "../providers/exec.js";
+import { tokenizeCommand } from "../providers/sources/index.js";
 import { PI_VERSION } from "../version.js";
 import { existsSync, readdirSync } from "node:fs";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -118,7 +119,7 @@ export const providerVerb: VerbSpec = {
 
     if (action === "describe") {
       if (desc.describe) {
-        const parts = desc.describe.split(/\s+/);
+        const parts = tokenizeCommand(desc.describe);
         const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
         return [makeRecord({ verb: "provider", format: "json", payload: { verb, describe: res.stdout || res.stderr }, state: res.code === 0 ? "ready" : "error" })];
       }
@@ -133,7 +134,7 @@ export const providerVerb: VerbSpec = {
     }
     const cmd = typeof init === "string" ? init : init.command;
     if (!cmd) return [makeRecord({ verb: "provider", format: "json", payload: { verb }, state: "ready" })];
-    const parts = cmd.split(/\s+/);
+    const parts = tokenizeCommand(cmd);
     const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 5 * 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
     return [makeRecord({ verb: "provider", format: "json", payload: { verb, init: cmd, stdout: res.stdout.slice(0, 1000), stderr: res.stderr.slice(0, 1000) }, state: res.code === 0 ? "ready" : "error", error: res.code === 0 ? undefined : `init exited ${res.code}` })];
   },
@@ -189,15 +190,30 @@ export const doctorVerb: VerbSpec = {
     const bound = Object.keys(ctx.profile.providers ?? {});
     checks.push({ name: "providers", ok: bound.length > 0, detail: bound.length ? bound.join(", ") : "none bound (defaults apply)" });
 
-    const allOk = checks.filter((c) => ["pi", "ffmpeg", "ffprobe"].includes(c.name)).every((c) => c.ok);
+    const coreOk = checks.filter((c) => ["pi", "ffmpeg", "ffprobe"].includes(c.name)).every((c) => c.ok);
+    // non-core but important: the default sense backend (tinycloud) + creds. If
+    // tinycloud is missing AND no custom watch provider is bound, the headline
+    // `watch`/`listen` won't run — surface that as a warning, not a green light.
+    const warnings: string[] = [];
+    const hasCustomSense = ["watch", "listen"].some((v) => {
+      const r = ctx.profile.providers?.[v]?.run;
+      return r && !/^\s*tinycloud\b/.test(r);
+    });
+    if (!checks.find((c) => c.name === "tinycloud")?.ok && !hasCustomSense) {
+      warnings.push("tinycloud CLI missing and no custom watch/listen provider bound — the default senses will fail");
+    }
+    if (!checks.find((c) => c.name === "cloudglue")?.ok) {
+      warnings.push("no Cloudglue key — the default sense backend and the Cloudglue brain are unavailable");
+    }
+    const ok = coreOk && warnings.length === 0;
     return [
       makeRecord({
         verb: "doctor",
         format: "json",
-        payload: { checks, ok: allOk, profiles },
+        payload: { checks, ok, core_ok: coreOk, warnings, profiles },
         meta: { case: ctx.case.dir },
-        state: allOk ? "ready" : "error",
-        error: allOk ? undefined : "one or more core checks failed",
+        state: ok ? "ready" : "error",
+        error: ok ? undefined : !coreOk ? "one or more core checks failed" : warnings.join("; "),
       }),
     ];
   },

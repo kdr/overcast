@@ -58,16 +58,29 @@ export async function runExecProvider(
     });
   }
 
-  // pass-through: honor the provider's record, fill required defaults.
+  // pass-through: honor the provider's record, fill required defaults. The
+  // provider's `state` is authoritative (exec wire contract).
+  const state = (parsed.state as string) ?? (res.code === 0 ? "ready" : "error");
+  // only attach an exit-code error when the record isn't already a success —
+  // a non-zero exit on an explicit ready/pending record is not a failure.
+  const isErrorState = state !== "ready" && state !== "pending";
+  const error =
+    (typeof parsed.error === "string" ? parsed.error : undefined) ??
+    (res.code !== 0 && isErrorState ? `exit ${res.code}` : undefined);
+  // honor parsed.media only when it carries a string ref (MediaRef contract).
+  const pm = parsed.media as { ref?: unknown; at?: number | [number, number] } | undefined;
+  const media =
+    pm && typeof pm.ref === "string"
+      ? { ref: pm.ref, at: pm.at }
+      : { ref: input };
+
   return makeRecord({
     verb: typeof parsed.verb === "string" ? parsed.verb : verb,
     format: (parsed.format as "json" | "md" | "txt") ?? "json",
     payload: (parsed.payload as Record<string, unknown> | string) ?? {},
-    media:
-      (parsed.media as { ref: string; at?: number | [number, number] }) ??
-      { ref: input },
+    media,
     meta: { provider: `exec:${cmd}`, ...((parsed.meta as Record<string, unknown>) ?? {}) },
-    error: (parsed.error as string) ?? (res.code === 0 ? undefined : `exit ${res.code}`),
-    state: (parsed.state as string) ?? (res.code === 0 ? "ready" : "error"),
+    error,
+    state,
   });
 }
