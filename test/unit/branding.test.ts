@@ -61,3 +61,16 @@ test("runCli handles --help / -h / help as overcast top-level help (exit 0)", as
     assert.match(out, /senses .* OSINT reach/);
   }
 });
+
+import { renderEnvHelp } from "../../src/cli.ts";
+
+test("renderEnvHelp lists BYO brain keys + overcast/perception + pi runtime vars", () => {
+  const env = renderEnvHelp();
+  // overcast/perception + sources
+  for (const v of ["CLOUDGLUE_API_KEY", "APIFY_TOKEN", "OVERCAST_HOME", "OVERCAST_SOURCE_<TYPE>_CMD"]) assert.ok(env.includes(v), `env help missing ${v}`);
+  // BYO brain keys (a representative sample)
+  for (const v of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "AWS_BEARER_TOKEN_BEDROCK"]) assert.ok(env.includes(v), `env help missing ${v}`);
+  // pi runtime
+  assert.ok(env.includes("PI_CODING_AGENT_DIR"));
+  assert.match(env, /providers also inherit the full environment/);
+});

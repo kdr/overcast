@@ -141,3 +141,22 @@ test("an empty bound run coalesces to the default command (never an empty spawn)
   // parseProviderSpec("exec:") is the source of an empty run
   assert.equal(parseProviderSpec("exec:").run, "");
 });
+
+test("exec providers inherit the full process environment (env vars + config files)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-env-"));
+  try {
+    const { writeFileSync, chmodSync } = await import("node:fs");
+    const script = join(dir, "env.sh");
+    writeFileSync(script, '#!/usr/bin/env bash\necho "{\\"verb\\":\\"see\\",\\"payload\\":{\\"k\\":\\"${OVERCAST_TEST_ENV:-MISSING}\\"},\\"state\\":\\"ready\\"}"\n');
+    chmodSync(script, 0o755);
+    process.env.OVERCAST_TEST_ENV = "from-env";
+    try {
+      const rec = await runExecProvider("see", `bash ${script}`, "x.jpg");
+      assert.equal((rec.payload as Record<string, unknown>).k, "from-env");
+    } finally {
+      delete process.env.OVERCAST_TEST_ENV;
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -96,6 +96,65 @@ const GROUP_TITLES: Record<VerbSpec["group"], string> = {
   config: "Config",
 };
 
+// Environment variables overcast and its providers honor. The brain LLM is BYO
+// via pi-ai, so EVERY pi-ai provider key works; exec/source/memory providers
+// also inherit the full process environment (in addition to their own config
+// files), so these reach provider scripts too.
+const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
+  {
+    title: "overcast / perception + sources",
+    vars: [
+      ["CLOUDGLUE_API_KEY", "Cloudglue key for the default watch/listen backend + turnkey brain (else ~/.tinycloud/config.json)"],
+      ["CLOUDGLUE_BASE_URL", "Cloudglue endpoint (default https://api.cloudglue.dev)"],
+      ["APIFY_TOKEN", "Apify token for the tiktok source provider"],
+      ["OVERCAST_HOME", "overcast home for profiles (default ~/.overcast)"],
+      ["OVERCAST_SOURCE_<TYPE>_CMD", "Override/add a source provider command (e.g. OVERCAST_SOURCE_YOUTUBE_CMD)"],
+      ["OVERCAST_PI_ONLINE", "Set 1 to re-enable pi's startup update-check"],
+      ["OVERCAST_E2E_LIVE", "Set 1 to run the gated live-Cloudglue e2e cases"],
+    ],
+  },
+  {
+    title: "brain LLM (BYO via pi-ai — any provider key works)",
+    vars: [
+      ["ANTHROPIC_API_KEY / ANTHROPIC_OAUTH_TOKEN", "Anthropic Claude"],
+      ["OPENAI_API_KEY", "OpenAI"],
+      ["GEMINI_API_KEY", "Google Gemini"],
+      ["GROQ_API_KEY", "Groq"],
+      ["XAI_API_KEY", "xAI Grok"],
+      ["OPENROUTER_API_KEY", "OpenRouter"],
+      ["DEEPSEEK_API_KEY", "DeepSeek"],
+      ["MISTRAL_API_KEY", "Mistral"],
+      ["TOGETHER_API_KEY / FIREWORKS_API_KEY / CEREBRAS_API_KEY", "hosted OSS"],
+      ["AZURE_OPENAI_API_KEY (+ _BASE_URL/_RESOURCE_NAME/_API_VERSION)", "Azure OpenAI"],
+      ["AWS_PROFILE / AWS_ACCESS_KEY_ID+AWS_SECRET_ACCESS_KEY / AWS_BEARER_TOKEN_BEDROCK (+ AWS_REGION)", "Amazon Bedrock"],
+      ["CLOUDFLARE_API_KEY + CLOUDFLARE_ACCOUNT_ID (+ _GATEWAY_ID)", "Cloudflare Workers AI / Gateway"],
+      ["NVIDIA_API_KEY / MINIMAX_API_KEY / MOONSHOT_API_KEY / KIMI_API_KEY / ZAI_API_KEY / XIAOMI_API_KEY / AI_GATEWAY_API_KEY / OPENCODE_API_KEY / ANT_LING_API_KEY", "others"],
+    ],
+  },
+  {
+    title: "pi runtime",
+    vars: [
+      ["PI_CODING_AGENT_DIR", "pi agent config dir (default ~/.pi/agent)"],
+      ["PI_CODING_AGENT_SESSION_DIR", "session storage dir"],
+      ["PI_OFFLINE", "disable startup network ops"],
+      ["PI_SKIP_VERSION_CHECK", "suppress the update notice (overcast sets this by default)"],
+      ["PI_TELEMETRY", "override install telemetry"],
+    ],
+  },
+];
+
+/** Render the Environment Variables help section. */
+export function renderEnvHelp(): string {
+  const lines: string[] = ["Environment Variables:"];
+  lines.push("  (the brain LLM is BYO — any pi-ai provider key works; exec/source/memory");
+  lines.push("   providers also inherit the full environment, alongside their config files)");
+  for (const g of ENV_GROUPS) {
+    lines.push("", `  # ${g.title}`);
+    for (const [name, desc] of g.vars) lines.push(`  ${name}`, `      ${desc}`);
+  }
+  return lines.join("\n");
+}
+
 /** Top-level `overcast --help`: the overcast surface (NOT pi's help). */
 export function renderTopHelp(): string {
   const lines: string[] = [];
@@ -126,6 +185,8 @@ export function renderTopHelp(): string {
   lines.push("  --home <dir>     overcast home for profiles (default: ~/.overcast)");
   lines.push("  --profile <name> Active profile (default: default)");
   lines.push("  --json           JSON output  ·  --format json|md|txt");
+  lines.push("");
+  lines.push(renderEnvHelp());
   lines.push("");
   lines.push("Run `overcast <verb> --help` for a verb's man page.");
   return lines.join("\n");
