@@ -5,6 +5,14 @@
 import { makeRecord } from "../record.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
+import {
+  scanVerb,
+  captureVerb,
+  monitorVerb,
+  targetVerb,
+  sourceVerb,
+  prebriefVerb,
+} from "../verbs/osint.js";
 import type { VerbSpec } from "./types.js";
 
 export const watchVerb: VerbSpec = {
@@ -59,6 +67,12 @@ export const VERBS: VerbSpec[] = [
   seeVerb,
   enhanceVerb,
   viewVerb,
+  scanVerb,
+  captureVerb,
+  monitorVerb,
+  targetVerb,
+  sourceVerb,
+  prebriefVerb,
 ];
 
 export function findVerb(name: string): VerbSpec | undefined {

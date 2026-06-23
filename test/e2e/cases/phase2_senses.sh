@@ -24,9 +24,14 @@ ok "senses.clip_gen" "generated tiny.mp4 via vendored ffmpeg"
 
 casedir="$SMOKE_DIR/case_senses"; mkdir -p "$casedir"
 
-# commands --json lists all five Phase 1+2 verbs
-verbs="$($OVERCAST commands --json | jq -r '.verbs[].name' | sort | tr '\n' ',')"
-assert_eq "senses.verb_surface" "enhance,listen,see,view,watch," "$verbs" "commands --json lists senses + view + watch"
+# commands --json includes the Phase 1+2 senses + view (subset check — later
+# phases append more verbs, so assert presence, not the exact set).
+verbs="$($OVERCAST commands --json | jq -r '.verbs[].name')"
+missing=""
+for v in watch listen see enhance view; do
+  echo "$verbs" | grep -qx "$v" || missing="$missing $v"
+done
+if [ -z "$missing" ]; then ok "senses.verb_surface" "commands --json lists watch/listen/see/enhance/view"; else fail "senses.verb_surface" "missing verbs:$missing"; fi
 
 # enhance: ffmpeg op -> media.enhanced with output media.ref
 eout="$($OVERCAST enhance "$clip" --ops grayscale --json --case "$casedir" 2>/dev/null)"

@@ -34,14 +34,12 @@ function flagSchema(f: FlagSpec): TSchema {
   return Type.Optional(Type.String(desc));
 }
 
-/** Build the TypeBox params object for a verb. */
+/** Build the TypeBox params object for a verb (all positional args + flags). */
 export function verbParams(spec: VerbSpec): TSchema {
   const props: Record<string, TSchema> = {};
-  // primary input positional
-  const primary = spec.args[0];
-  if (primary) {
-    const s = Type.String({ description: primary.summary });
-    props[primary.name] = primary.required ? s : Type.Optional(s);
+  for (const arg of spec.args) {
+    const s = Type.String({ description: arg.summary });
+    props[arg.name] = arg.required ? s : Type.Optional(s);
   }
   for (const f of spec.flags) props[f.name] = flagSchema(f);
   return Type.Object(props);
@@ -64,7 +62,6 @@ function summarizeRecord(rec: OvercastRecord): string {
  * emitted record to the case store and returns a split result.
  */
 export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
-  const primaryArg = spec.args[0]?.name;
   return {
     name: spec.name,
     label: spec.name,
@@ -78,14 +75,16 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         if (params[f.name] !== undefined)
           opts[f.name] = params[f.name] as string | number | boolean;
       }
-      const input =
-        primaryArg && params[primaryArg] !== undefined
-          ? String(params[primaryArg])
-          : undefined;
+      // reconstruct positional input + rest from the declared args
+      const positionals: string[] = [];
+      for (const arg of spec.args) {
+        if (params[arg.name] !== undefined) positionals.push(String(params[arg.name]));
+      }
+      const input = positionals[0];
 
       const ctx: VerbContext = {
         input,
-        rest: [],
+        rest: positionals.slice(1),
         opts,
         case: c,
         profile: deps.getProfile(),
