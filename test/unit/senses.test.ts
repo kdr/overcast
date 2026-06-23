@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync, chmodSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, chmodSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,7 @@ import type { VerbContext } from "../../src/registry/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_LISTEN = join(HERE, "..", "fixtures", "fake-listen.sh");
+const FAKE_LISTEN_NT = join(HERE, "..", "fixtures", "fake-listen-notiming.sh");
 
 let dir: string;
 let clip: string;
@@ -76,4 +77,32 @@ test("view --no-open writes an HTML player and emits a view record", async () =>
   assert.equal(p.mode, "video");
   assert.equal(p.opened, false);
   assert.ok(existsSync(p.viewer as string));
+});
+
+test("view escapes a media path with quotes/specials (no HTML/attr breakage)", async () => {
+  // a clip whose name contains a double-quote and angle brackets
+  const nasty = join(dir, 'a"<b> .mp4');
+  execFileSync(
+    FFMPEG_PATH,
+    ["-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10:duration=1", "-pix_fmt", "yuv420p", nasty],
+    { stdio: "ignore" },
+  );
+  const [rec] = await viewVerb.run(ctx(nasty, { "no-open": true }));
+  const html = readFileSync((rec.payload as Record<string, unknown>).viewer as string, "utf8");
+  // the src attribute must be a single well-formed value with no raw inner quote
+  const srcMatch = html.match(/src="([^"]*)"/);
+  assert.ok(srcMatch, "video src attribute present and quote-balanced");
+  assert.match(srcMatch![1], /%22%3Cb%3E/); // quote + <b> are percent-encoded in the URL
+  // body text must not contain raw angle brackets from the filename
+  assert.ok(!html.includes("<b>"), "raw <b> leaked into HTML body");
+  assert.match(html, /&lt;b&gt;/); // escaped in the visible note/title
+});
+
+test("listen omits the at anchor when segment timing is missing (no [null,null])", async () => {
+  chmodSync(FAKE_LISTEN_NT, 0o755);
+  const rec = await runListen("x.m4a", { run: `bash ${FAKE_LISTEN_NT} {{input}}` });
+  const segs = (rec.payload as Record<string, unknown>).segments as Array<Record<string, unknown>>;
+  assert.equal(segs.length, 1);
+  assert.equal("at" in segs[0], false); // no malformed [null,null]
+  assert.match(segs[0].text as string, /no timing/);
 });

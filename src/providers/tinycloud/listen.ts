@@ -37,11 +37,15 @@ function segments(data: Record<string, unknown>): {
     const end = seg.end_time ?? seg.end_seconds ?? seg.end;
     const speaker = seg.speaker;
     if (text) {
-      out.push({
-        at: [start, end],
-        speaker,
-        text,
-      });
+      const entry: Record<string, unknown> = { speaker, text };
+      // only attach a numeric [start,end] anchor when both endpoints are real
+      // numbers — never emit [null,null] / [undefined,undefined].
+      if (typeof start === "number" && typeof end === "number") {
+        entry.at = [start, end];
+      } else if (typeof start === "number") {
+        entry.at = start;
+      }
+      out.push(entry);
       lines.push(speaker ? `${String(speaker)}: ${text}` : String(text));
     }
   }

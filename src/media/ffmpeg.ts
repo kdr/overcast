@@ -61,7 +61,14 @@ export interface ProbeStream {
   codec_name?: string;
   width?: number;
   height?: number;
+  nb_frames?: string;
+  avg_frame_rate?: string;
 }
+
+// codecs that decode as still images (a "video" stream that is really a picture)
+const IMAGE_CODECS = new Set([
+  "png", "mjpeg", "bmp", "gif", "webp", "tiff", "ppm", "pgm", "apng", "heic", "heif",
+]);
 
 export interface ProbeResult {
   durationSeconds?: number;
@@ -91,12 +98,21 @@ export async function probe(path: string): Promise<ProbeResult> {
   const hasVideo = Boolean(video);
   const duration = parsed.format?.duration ? Number(parsed.format.duration) : undefined;
 
-  // images decode as a single video stream with no duration / 1 frame
-  let modality: Modality = modalityFromExt(path);
-  if (hasVideo && hasAudio) modality = "video";
-  else if (hasVideo && (duration === undefined || duration === 0)) modality = modalityFromExt(path) === "image" ? "image" : "video";
+  // Detect a still image: a single video stream, no audio, decoded by an image
+  // codec or with a single frame / no real duration. This works even when the
+  // file has a wrong/absent extension (the extension is only a last-resort hint).
+  const isImageStream =
+    hasVideo &&
+    !hasAudio &&
+    (IMAGE_CODECS.has((video?.codec_name ?? "").toLowerCase()) ||
+      video?.nb_frames === "1" ||
+      ((duration === undefined || duration === 0) && video?.avg_frame_rate === "0/0"));
+
+  let modality: Modality;
+  if (isImageStream) modality = "image";
   else if (hasVideo) modality = "video";
   else if (hasAudio) modality = "audio";
+  else modality = modalityFromExt(path);
 
   return {
     durationSeconds: duration,
@@ -165,7 +181,10 @@ function opFilter(op: EnhanceOp, modality: Modality): { v?: string; a?: string }
 
 export interface EnhanceResult {
   output: string;
+  /** ops that actually contributed a filter */
   ops: EnhanceOp[];
+  /** requested ops that did not apply to this modality */
+  skipped: EnhanceOp[];
   modality: Modality;
 }
 
@@ -191,10 +210,24 @@ export async function enhance(
   const modality = p.modality;
   const vFilters: string[] = [];
   const aFilters: string[] = [];
+  const applied: EnhanceOp[] = [];
+  const skipped: EnhanceOp[] = [];
   for (const op of ops) {
     const f = opFilter(op, modality);
+    // an audio filter on an image can't apply — count it as skipped, not silent.
+    const usableA = Boolean(f.a) && modality !== "image";
     if (f.v) vFilters.push(f.v);
-    if (f.a) aFilters.push(f.a);
+    if (usableA) aFilters.push(f.a as string);
+    if (f.v || usableA) applied.push(op);
+    else skipped.push(op);
+  }
+
+  // Don't run a no-op pass that re-encodes without applying anything — that
+  // would report success while changing nothing. Require at least one filter.
+  if (applied.length === 0) {
+    throw new Error(
+      `none of the ops [${ops.join(", ")}] apply to ${modality} media`,
+    );
   }
 
   const ext = modality === "image" ? ".png" : extname(input) || ".mp4";
@@ -207,7 +240,7 @@ export async function enhance(
   args.push(out);
 
   await execFileP(FFMPEG_PATH, args, { maxBuffer: 32 * 1024 * 1024 });
-  return { output: out, ops, modality };
+  return { output: out, ops: applied, modality, skipped };
 }
 
 export interface FrameRef {

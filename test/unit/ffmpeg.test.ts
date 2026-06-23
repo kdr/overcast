@@ -70,6 +70,32 @@ test("defaultOps differ per modality", () => {
   assert.deepEqual(defaultOps("other"), []);
 });
 
+test("probe classifies a real image as image even with a non-image extension", async () => {
+  // a genuine PNG saved as .dat must not be mistaken for video (review finding)
+  const png = join(dir, "frame.dat");
+  execFileSync(
+    FFMPEG_PATH,
+    ["-y", "-f", "lavfi", "-i", "color=c=red:size=64x64:duration=1", "-frames:v", "1", "-f", "image2", png],
+    { stdio: "ignore" },
+  );
+  const p = await probe(png);
+  assert.equal(p.modality, "image");
+});
+
+test("enhance throws (no silent no-op) when no op applies to the modality", async () => {
+  // an audio-only op on an image applies nothing → must error, not re-encode
+  const png = join(dir, "img.png");
+  execFileSync(
+    FFMPEG_PATH,
+    ["-y", "-f", "lavfi", "-i", "color=c=blue:size=48x48:duration=1", "-frames:v", "1", png],
+    { stdio: "ignore" },
+  );
+  await assert.rejects(() => enhance(png, ["normalize"], join(dir, "e2")), /apply to image/);
+  // a video op DOES apply to the image → ok, and reports it under ops
+  const r = await enhance(png, ["grayscale"], join(dir, "e3"));
+  assert.deepEqual(r.ops, ["grayscale"]);
+});
+
 test("parseFrameRef parses frame://rec@sec and rejects others", () => {
   assert.deepEqual(parseFrameRef("frame://rec_8f2a@134"), { recordId: "rec_8f2a", second: 134 });
   assert.deepEqual(parseFrameRef("frame://rec_x@12.5"), { recordId: "rec_x", second: 12.5 });

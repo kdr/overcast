@@ -3,6 +3,7 @@
 // (lightweight local player / OS-open). watch lives in registry/verbs.ts.
 
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { existsSync, writeFileSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { runListen } from "../providers/tinycloud/listen.js";
@@ -169,7 +170,12 @@ export const enhanceVerb: VerbSpec = {
         makeRecord({
           verb: "enhance",
           format: "json",
-          payload: { ops: result.ops, modality: result.modality, output: result.output },
+          payload: {
+            ops: result.ops,
+            skipped: result.skipped,
+            modality: result.modality,
+            output: result.output,
+          },
           media: { ref: result.output },
           meta: { provider: "ffmpeg", case: ctx.case.dir },
           state: "ready",
@@ -290,11 +296,16 @@ function buildPlayerHtml(
   const startAt = at ? Number(String(at).split("-")[0]) || 0 : 0;
   const tag = modality === "video" ? "video" : "audio";
   const markerPins = markers
-    .map((m) => `<button class="pin" onclick="seek(${m})">⏱ ${m}s</button>`)
+    .map((m) => `<button class="pin" onclick="seek(${Number(m)})">⏱ ${Number(m)}s</button>`)
     .join("");
-  const fileUrl = "file://" + src;
+  // Build a proper file:// URL (encodes spaces/specials) and HTML-escape every
+  // interpolated path so a filename with quotes/`<`/`&` can't break the
+  // attribute or inject script into the generated page.
+  const fileUrl = htmlAttr(pathToFileURL(src).href);
+  const nameEsc = htmlText(basenameOf(src));
+  const srcEsc = htmlText(src);
   return `<!doctype html><html><head><meta charset="utf-8">
-<title>overcast view — ${basenameOf(src)}</title>
+<title>overcast view — ${nameEsc}</title>
 <style>
   body{background:#08120c;color:#c6f7d5;font-family:ui-monospace,monospace;margin:0;padding:24px}
   h1{color:#ffc400;font-size:14px;letter-spacing:2px}
@@ -303,11 +314,11 @@ function buildPlayerHtml(
   .pin{background:#0d1f14;color:#00ff7f;border:1px solid #1f9d57;padding:4px 8px;margin:2px;cursor:pointer}
   .note{color:#1f9d57;font-size:12px;margin-top:8px}
 </style></head><body>
-<h1>▶ OVERCAST VIEW — ${basenameOf(src)}</h1>
+<h1>▶ OVERCAST VIEW — ${nameEsc}</h1>
 <${tag} id="m" src="${fileUrl}" controls></${tag}>
 <div class="pins">${markerPins || '<span class="note">no markers</span>'}</div>
 ${spectrogram && modality === "audio" ? '<p class="note">spectrogram: render via `enhance --ops spectrogram` (todo)</p>' : ""}
-<p class="note">${src}</p>
+<p class="note">${srcEsc}</p>
 <script>
   const m=document.getElementById('m');
   function seek(s){m.currentTime=s;m.play();}
@@ -318,4 +329,17 @@ ${spectrogram && modality === "audio" ? '<p class="note">spectrogram: render via
 
 function basenameOf(p: string): string {
   return p.split("/").pop() ?? p;
+}
+
+/** Escape for HTML text content. */
+function htmlText(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/** Escape for a double-quoted HTML attribute value. */
+function htmlAttr(s: string): string {
+  return htmlText(s).replace(/"/g, "&quot;");
 }
