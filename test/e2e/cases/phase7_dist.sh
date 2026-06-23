@@ -44,6 +44,9 @@ if command -v bun >/dev/null 2>&1; then
     bverbs="$("$bin" commands --json 2>/dev/null | jq '.verbs|length')"
     assert_eq "binary.version" "0.79.10" "$bpi" "compiled binary reports pinned pi"
     [ "${bverbs:-0}" -ge 11 ] && ok "binary.commands" "compiled binary lists verbs ($bverbs)" || fail "binary.commands" "binary verb surface broken"
+    # skills has no embedded source in the binary → must fail CLEANLY (no EROFS crash)
+    sk="$("$bin" skills install --json 2>/dev/null)"
+    if jq -e '.state=="error"' >/dev/null 2>&1 <<<"$sk"; then ok "binary.skills_clean" "binary skills install fails cleanly (no crash)"; else fail "binary.skills_clean" "binary skills did not fail cleanly"; fi
   else
     fail "binary.compile" "bun build --compile failed"
   fi

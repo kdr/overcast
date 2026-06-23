@@ -39,3 +39,25 @@ test("reference stays in sync with commands --json (same verb set)", () => {
   const headings = ref.match(/^### `overcast /gm) ?? [];
   assert.equal(headings.length, names.length);
 });
+
+import { skillsVerb } from "../../src/verbs/skills.ts";
+import { openCase } from "../../src/case.ts";
+import { defaultProfile } from "../../src/profile.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+test("skills verb: generate/install succeed in the source repo, unknown action errors", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-sk-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    const mk = (input: string, opts = {}) => ({ input, rest: [], opts, case: c, profile: defaultProfile() });
+    const [gen] = await skillsVerb.run(mk("generate"));
+    assert.equal(gen.state, "ready"); // package skills/ is writable from source
+    const [bad] = await skillsVerb.run(mk("frobnicate"));
+    assert.equal(bad.state, "error");
+    assert.match(bad.error ?? "", /usage: skills/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
