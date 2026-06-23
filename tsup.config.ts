@@ -22,5 +22,6 @@ export default defineConfig({
     "@earendil-works/pi-coding-agent",
     "ffmpeg-static",
     "ffprobe-static",
+    "@ffprobe-installer/ffprobe",
   ],
 });

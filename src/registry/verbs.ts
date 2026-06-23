@@ -4,6 +4,7 @@
 
 import { makeRecord } from "../record.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
+import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
 import type { VerbSpec } from "./types.js";
 
 export const watchVerb: VerbSpec = {
@@ -52,7 +53,13 @@ export const watchVerb: VerbSpec = {
 };
 
 /** The full verb registry. Append new verbs here. */
-export const VERBS: VerbSpec[] = [watchVerb];
+export const VERBS: VerbSpec[] = [
+  watchVerb,
+  listenVerb,
+  seeVerb,
+  enhanceVerb,
+  viewVerb,
+];
 
 export function findVerb(name: string): VerbSpec | undefined {
   return VERBS.find((v) => v.name === name);
