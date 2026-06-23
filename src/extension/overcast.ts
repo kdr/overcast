@@ -67,8 +67,8 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
           reasoning: false,
           input: ["text", "image"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 200000,
-          maxTokens: 16384,
+          contextWindow: 1000000,
+          maxTokens: 32000,
         } as Parameters<typeof pi.setModel>[0]);
       } catch {
         /* best-effort; user can still /model */
@@ -91,8 +91,8 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
         reasoning: false,
         input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 200000,
-        maxTokens: 16384,
+        contextWindow: 1000000,
+        maxTokens: 32000,
       },
     ],
   });
