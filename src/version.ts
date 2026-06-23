@@ -1,0 +1,21 @@
+// Version surface for overcast. The pinned pi version is an invariant
+// (CLAUDE.md / planning): @earendil-works/pi-* are pinned at exactly 0.79.10.
+
+export const OVERCAST_VERSION = "0.1.0";
+
+/** The exact pi version overcast is built against (pinned, not floated). */
+export const PI_VERSION = "0.79.10";
+
+export interface VersionInfo {
+  overcast: string;
+  pi: string;
+  node: string;
+}
+
+export function versionInfo(): VersionInfo {
+  return {
+    overcast: OVERCAST_VERSION,
+    pi: PI_VERSION,
+    node: process.versions.node,
+  };
+}
