@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     "bin/overcast": "bin/overcast.ts",
+    "extension/overcast": "src/extension/overcast.ts",
   },
   format: ["esm"],
   target: "node22",

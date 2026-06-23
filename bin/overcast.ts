@@ -1,56 +1,43 @@
 #!/usr/bin/env node
-// overcast CLI entry. Phase 0: --version. Later phases dispatch the verb
-// registry (see src/registry) and otherwise launch the pi TUI.
+// overcast CLI entry. Dispatches the verb registry (version / commands / verbs)
+// directly, and otherwise launches the pi TUI with the overcast extension
+// attached (CLAUDE.md invariant #1: reuse pi's loop/TUI, don't fork).
 
-import { versionInfo, OVERCAST_VERSION, PI_VERSION } from "../src/version.js";
+import { runCli } from "../src/cli.js";
+import { findVerb } from "../src/registry/verbs.js";
 
-function hasFlag(argv: string[], name: string): boolean {
-  return argv.includes(name);
+const KNOWN_TOP = new Set(["version", "commands"]);
+
+function isCliDispatch(argv: string[]): boolean {
+  const cmd = argv[0];
+  if (!cmd) return false;
+  if (argv.includes("--version") || argv.includes("-v")) return true;
+  if (KNOWN_TOP.has(cmd)) return true;
+  if (findVerb(cmd)) return true;
+  return false;
 }
 
-async function main(argv: string[]): Promise<number> {
-  const json = hasFlag(argv, "--json");
-
-  // The leading non-flag token (if any) is the subcommand. Version flags only
-  // apply when there is no subcommand, so `overcast notacommand -v` still
-  // reports the unknown command rather than printing the version.
-  const command = argv.find((a) => !a.startsWith("-"));
-
-  // --version / version
-  if (
-    command === "version" ||
-    (command === undefined && (hasFlag(argv, "--version") || hasFlag(argv, "-v")))
-  ) {
-    if (json) {
-      process.stdout.write(JSON.stringify(versionInfo()) + "\n");
-    } else {
-      process.stdout.write(`overcast ${OVERCAST_VERSION} (pi ${PI_VERSION})\n`);
-    }
-    return 0;
-  }
-
-  if (argv[0] === "--help" || argv[0] === "-h" || argv.length === 0) {
-    process.stdout.write(
-      [
-        `overcast ${OVERCAST_VERSION} — senses + OSINT for any agent, built on pi`,
-        "",
-        "Usage: overcast <verb> [args] [--json]",
-        "       overcast --version [--json]",
-        "",
-        "(verb registry wired in Phase 1+)",
-        "",
-      ].join("\n"),
-    );
-    return 0;
-  }
-
-  // report the actual subcommand token (the leading non-flag arg), not argv[0]
-  // which could be a leading flag like `--json`.
-  process.stderr.write(`overcast: unknown command '${command ?? argv[0]}'\n`);
-  return 1;
+async function launchTui(argv: string[]): Promise<void> {
+  // Dynamic import keeps pi out of the hot path for plain verb calls.
+  const { main } = await import("@earendil-works/pi-coding-agent");
+  const { default: overcastExtension } = await import("../src/extension/overcast.js");
+  const piArgs = argv.filter((a) => a !== "--tui");
+  await main(piArgs, { extensionFactories: [overcastExtension] });
 }
 
-main(process.argv.slice(2))
+async function run(): Promise<number> {
+  const argv = process.argv.slice(2);
+
+  if (isCliDispatch(argv) && !argv.includes("--tui")) {
+    return runCli(argv);
+  }
+
+  // no verb (or --tui): launch the interactive overcast agent.
+  await launchTui(argv);
+  return 0;
+}
+
+run()
   .then((code) => process.exit(code))
   .catch((err) => {
     process.stderr.write(`overcast: ${err?.stack ?? err}\n`);
