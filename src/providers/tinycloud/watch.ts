@@ -116,7 +116,8 @@ export async function runWatch(
   const [cmd, ...args] = argv;
 
   const res = await execCapture(cmd, args, {
-    timeoutMs: opts.timeoutMs ?? 5 * 60_000,
+    // full multimodal describe is legitimately slow; allow generous headroom.
+    timeoutMs: opts.timeoutMs ?? 15 * 60_000,
     env: opts.env,
     signal: opts.signal,
   });

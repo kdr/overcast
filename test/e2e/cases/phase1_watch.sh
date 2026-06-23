@@ -1,27 +1,36 @@
 #!/usr/bin/env bash
-# Phase 1 e2e: the vertical slice — `overcast watch <clip> --json` emits a valid
-# video.analysis record AND persists it to the case store. Hits Cloudglue via the
-# tinycloud exec provider; uses the smallest smoke clip to control time + cost.
+# Phase 1 e2e: the vertical slice — `overcast watch <input> --json` emits a valid
+# video.analysis record AND persists it to the case store.
+#
+# This case binds `watch` to the committed FIXTURE provider (a real exec provider
+# script echoing a captured tinycloud envelope) so it exercises the FULL overcast
+# pipeline — CLI -> exec transport -> envelope map -> record -> persist -> output
+# -> exit code — instantly and offline, on every cumulative run. The LIVE
+# Cloudglue path is proven separately by phase1_watchlive.sh (gated), and the
+# envelope-mapping itself is unit-tested against the same real fixture.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="$(cd "$DIR/../.." && pwd)"
 # shellcheck source=../lib.sh
 source "$DIR/lib.sh"
-
-clip="$(smoke_clip)"
-if [ ! -f "$clip" ]; then
-  fail "watch.clip_missing" "smoke clip not found: $clip"
-  return 0 2>/dev/null || exit 0
-fi
-if [ -z "${CLOUDGLUE_API_KEY:-}" ]; then
-  # fall back to the tinycloud config key so the provider can reach Cloudglue
-  k="$(jq -r '.services.cloudglue // .apiKeys.cloudglue // empty' "$HOME/.tinycloud/config.json" 2>/dev/null)"
-  [ -n "$k" ] && export CLOUDGLUE_API_KEY="$k"
-fi
 
 casedir="$SMOKE_DIR/case_watch"
 mkdir -p "$casedir"
 
-out="$($OVERCAST watch "$clip" --json --case "$casedir" 2>"$SMOKE_DIR/phase1_watch.err")"
+# A throwaway profile binding watch to the fixture exec provider.
+ochome="$SMOKE_DIR/home_watch"
+mkdir -p "$ochome/profiles"
+fake="$REPO/test/fixtures/fake-watch.sh"
+cat >"$ochome/profiles/fixture.json" <<JSON
+{
+  "name": "fixture",
+  "providers": {
+    "watch": { "type": "exec", "run": "bash $fake {{input}}" }
+  }
+}
+JSON
+
+out="$($OVERCAST watch "browse-hackernews.mp4" --json --case "$casedir" --home "$ochome" --profile fixture 2>"$SMOKE_DIR/phase1_watch.err")"
 rc=$?
 save_json "phase1_watch" "$out" >/dev/null
 
@@ -38,7 +47,7 @@ assert_eq "watch.has_content" "true" "$has_content" "payload.content non-empty"
 assert_eq "watch.has_detailed" "true" "$has_detailed" "payload.detailed present"
 assert_nonempty "watch.media_ref" "$media_ref" "media.ref set"
 
-# persisted to the case store as JSONL
+# persisted to the case store as JSONL, id matches emitted record
 persisted="$casedir/.overcast/records/watch.jsonl"
 if [ -f "$persisted" ]; then
   lines="$(wc -l <"$persisted" | tr -d ' ')"
