@@ -26,19 +26,37 @@ function extractGlobals(argv: string[]): {
   caseDir?: string;
   home?: string;
   profile?: string;
+  errors: string[];
 } {
   const rest: string[] = [];
+  const errors: string[] = [];
   let caseDir: string | undefined;
   let home: string | undefined;
   let profile: string | undefined;
+  // each global REQUIRES a value; a missing value (end of argv or a following
+  // flag) is an error rather than silently consuming nothing / the next flag.
+  const take = (name: string, i: number): string | undefined => {
+    const v = argv[i + 1];
+    if (v === undefined || v.startsWith("--")) {
+      errors.push(`${name} requires a value`);
+      return undefined;
+    }
+    return v;
+  };
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
-    if (t === "--case") caseDir = argv[++i];
-    else if (t === "--home") home = argv[++i];
-    else if (t === "--profile") profile = argv[++i];
-    else rest.push(t);
+    if (t === "--case") {
+      caseDir = take("--case", i);
+      i++;
+    } else if (t === "--home") {
+      home = take("--home", i);
+      i++;
+    } else if (t === "--profile") {
+      profile = take("--profile", i);
+      i++;
+    } else rest.push(t);
   }
-  return { rest, caseDir, home, profile };
+  return { rest, caseDir, home, profile, errors };
 }
 
 function renderRecord(rec: OvercastRecord, format: string): string {
@@ -88,11 +106,16 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // verb dispatch
   const spec = cmd ? findVerb(cmd) : undefined;
   if (spec) {
-    const { rest, caseDir, home, profile } = extractGlobals(argv.slice(1));
+    const { rest, caseDir, home, profile, errors: globalErrors } = extractGlobals(argv.slice(1));
     const parsed = parseVerbArgs(spec, rest);
     if (parsed.help) {
       io.out(renderVerbHelp(spec));
       return 0;
+    }
+    const allErrors = [...globalErrors, ...parsed.errors];
+    if (allErrors.length) {
+      for (const e of allErrors) io.err(`overcast ${spec.name}: ${e}\n`);
+      return 2;
     }
     const homeOpts: HomeOptions = { home, profile };
     const c = openCase(caseDir ?? process.cwd());

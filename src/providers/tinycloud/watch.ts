@@ -139,16 +139,48 @@ export async function runWatch(
   }
 
   const data = envelopeData(parsed);
+  const envObj =
+    parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+
+  // A non-zero exit OR an error envelope is a failure even if JSON parsed — the
+  // record's state/error is authoritative, so surface it instead of a silent
+  // empty "ready" record (would otherwise mark the video as successfully watched).
+  const envError =
+    (typeof envObj.error === "string" && envObj.error) ||
+    (typeof (data.error as string) === "string" && (data.error as string)) ||
+    "";
+  const errored =
+    res.code !== 0 ||
+    envObj.status === "error" ||
+    envObj.state === "error" ||
+    data.status === "error" ||
+    Boolean(envError);
+  if (errored) {
+    return makeRecord({
+      verb: "watch",
+      format: "json",
+      payload: { content: "", transcript: "", detailed: data },
+      media: { ref: input },
+      meta: { provider: "tinycloud", model: "cloudglue" },
+      error:
+        envError ||
+        `tinycloud watch failed (exit ${res.code}): ${res.stderr.trim().slice(0, 500)}`,
+      state: "error",
+    });
+  }
+
   const content = contentMarkdown(data);
   const transcript =
     typeof data.transcript === "string"
       ? (data.transcript as string)
       : transcriptFromSegments(data);
 
-  // tinycloud may return a pending job envelope (async); surface it loosely.
-  const envObj = parsed as Record<string, unknown>;
-  const state =
-    envObj.state === "pending" || envObj.status === "pending" ? "pending" : "ready";
+  // tinycloud may return a pending job envelope (async). Check BOTH the
+  // top-level envelope and the unwrapped data object (the pending marker can
+  // live under either, depending on the verb path).
+  const isPending = (o: Record<string, unknown>) =>
+    o.state === "pending" || o.status === "pending";
+  const state = isPending(envObj) || isPending(data) ? "pending" : "ready";
 
   const meta: Record<string, unknown> = { provider: "tinycloud", model: "cloudglue" };
   if (typeof data.title === "string") meta.title = data.title;

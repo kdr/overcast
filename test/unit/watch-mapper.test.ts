@@ -7,6 +7,7 @@ import { runWatch } from "../../src/providers/tinycloud/watch.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HERE, "..", "fixtures", "fake-watch.sh");
+const CASES = join(HERE, "..", "fixtures", "fake-watch-cases.sh");
 
 test("runWatch maps a real tinycloud envelope to the loose record (via fixture provider)", async () => {
   chmodSync(FAKE, 0o755);
@@ -42,4 +43,25 @@ test("runWatch returns an error record when the provider emits no JSON", async (
   const rec = await runWatch("x.mp4", { run: `bash -c 'echo not-json' {{input}}` });
   assert.equal(rec.state, "error");
   assert.ok(rec.error);
+});
+
+test("runWatch surfaces a non-zero exit even when JSON is present (no silent success)", async () => {
+  chmodSync(CASES, 0o755);
+  const rec = await runWatch("x.mp4", { run: `bash ${CASES} exit7 {{input}}` });
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /exit 7/);
+});
+
+test("runWatch maps an error envelope (status:error) to an error record", async () => {
+  chmodSync(CASES, 0o755);
+  const rec = await runWatch("x.mp4", { run: `bash ${CASES} error {{input}}` });
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /quota exceeded/);
+});
+
+test("runWatch tags pending when the marker is nested under data", async () => {
+  chmodSync(CASES, 0o755);
+  const rec = await runWatch("x.mp4", { run: `bash ${CASES} pending {{input}}` });
+  assert.equal(rec.state, "pending");
+  assert.equal(rec.error, undefined);
 });

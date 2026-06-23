@@ -7,6 +7,8 @@ export interface ParsedInvocation {
   rest: string[];
   opts: Record<string, string | number | boolean | undefined>;
   help: boolean;
+  /** parse-time errors (missing flag value, invalid choice). */
+  errors: string[];
 }
 
 function coerce(flag: FlagSpec, raw: string | boolean): string | number | boolean {
@@ -26,7 +28,14 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
 
   const positionals: string[] = [];
   const opts: Record<string, string | number | boolean | undefined> = {};
+  const errors: string[] = [];
   let help = false;
+
+  const checkChoice = (flag: FlagSpec, value: string) => {
+    if (flag.choices && flag.choices.length && !flag.choices.includes(value)) {
+      errors.push(`--${flag.name} must be one of: ${flag.choices.join(", ")} (got '${value}')`);
+    }
+  };
 
   for (const f of spec.flags) {
     if (f.default !== undefined) opts[f.name] = f.default;
@@ -50,13 +59,19 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
       if (flag && flag.type === "boolean") {
         opts[name] = value === undefined ? true : value === "true";
       } else if (value !== undefined) {
+        if (flag) checkChoice(flag, String(value));
         opts[name] = flag ? coerce(flag, value) : value;
       } else {
         // consume next token as value unless it's another flag
         const next = argv[i + 1];
         if (next !== undefined && !next.startsWith("--")) {
+          if (flag) checkChoice(flag, next);
           opts[name] = flag ? coerce(flag, next) : next;
           i++;
+        } else if (flag) {
+          // a declared string/number flag REQUIRES a value — don't silently
+          // coerce to boolean true (which would bypass type/choices).
+          errors.push(`--${name} requires a value`);
         } else {
           opts[name] = true; // bare unknown flag → boolean
         }
@@ -71,6 +86,7 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
     rest: positionals.slice(1),
     opts,
     help,
+    errors,
   };
 }
 
