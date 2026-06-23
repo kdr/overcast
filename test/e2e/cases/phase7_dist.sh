@@ -42,7 +42,7 @@ if command -v bun >/dev/null 2>&1; then
   if (cd "$REPO" && bun build --compile bin/overcast.ts --outfile "$bin") >/dev/null 2>&1 && [ -f "$bin" ]; then
     bpi="$("$bin" --version --json 2>/dev/null | jq -r '.pi')"
     bverbs="$("$bin" commands --json 2>/dev/null | jq '.verbs|length')"
-    assert_eq "binary.version" "0.79.10" "$bpi" "compiled binary reports pinned pi"
+    assert_eq "binary.version" "0.80.1" "$bpi" "compiled binary reports pinned pi"
     [ "${bverbs:-0}" -ge 11 ] && ok "binary.commands" "compiled binary lists verbs ($bverbs)" || fail "binary.commands" "binary verb surface broken"
     # skills has no embedded source in the binary → must fail CLEANLY (no EROFS crash)
     sk="$("$bin" skills install --json 2>/dev/null)"

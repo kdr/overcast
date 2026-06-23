@@ -15,9 +15,9 @@ test("versionInfo reports overcast + pinned pi + node", () => {
   assert.equal(v.node, process.versions.node);
 });
 
-test("pi version is pinned at exactly 0.79.10 (invariant)", () => {
+test("pi version is pinned at exactly 0.80.1 (invariant)", () => {
   // CLAUDE.md invariant: do not float the pi packages.
-  assert.equal(PI_VERSION, "0.79.10");
+  assert.equal(PI_VERSION, "0.80.1");
 });
 
 test("PI_VERSION constant stays in sync with the pinned pi-* deps", () => {

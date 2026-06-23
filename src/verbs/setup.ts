@@ -188,8 +188,8 @@ export const doctorVerb: VerbSpec = {
   run: async (ctx) => {
     const checks: Check[] = [];
 
-    // pinned pi
-    checks.push({ name: "pi", ok: PI_VERSION === "0.79.10", detail: `pinned ${PI_VERSION}` });
+    // pinned pi (report the build's pinned version; not hardcoded to one release)
+    checks.push({ name: "pi", ok: /^\d+\.\d+\.\d+$/.test(PI_VERSION), detail: `pinned ${PI_VERSION}` });
 
     // ffmpeg + ffprobe run
     for (const [label, bin] of [["ffmpeg", FFMPEG_PATH], ["ffprobe", FFPROBE_PATH]] as const) {

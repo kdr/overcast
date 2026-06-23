@@ -22,7 +22,7 @@ overcast *as* MCP is a secondary option. See [`planning/03-distribution.md`](pla
 ## Stack (pinned)
 
 - `@earendil-works/pi-ai`, `pi-agent-core`, `pi-tui`, `pi-coding-agent` —
-  **exactly `0.79.10`** (current `latest`, 2026-06-22). Do not float these;
+  **exactly `0.80.1`** (reviewed upgrade from 0.79.10; current `latest`). Do not float these;
   treat upgrades as reviewed changes.
 - `@cloudglue/cloudglue-js` (default sense provider, via the tinycloud CLI/exec).
   Cloudglue is **also** registered as a pickable *brain* LLM provider

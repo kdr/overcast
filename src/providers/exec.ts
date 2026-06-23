@@ -41,6 +41,10 @@ export function execCapture(
       cwd: opts.cwd,
       env,
       signal: opts.signal,
+      // ignore stdin so a child that reads stdin (e.g. some CLIs probing for
+      // piped input) gets EOF immediately instead of blocking until timeout.
+      // overcast providers receive input via argv ({{input}}), not stdin.
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
     let stdout = "";
