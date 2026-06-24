@@ -167,20 +167,16 @@ async function run(): Promise<number> {
   // --tui is a TUI-only routing flag; the CLI never needs to see it.
   const cliArgv = argv.filter((a) => a !== "--tui");
 
-  // overcast's own long-form --help/--version win everywhere — even mixed with
-  // --tui (`overcast --tui --help`, `overcast --tui --version`) or pi flags — and
-  // pi never sees them. The SHORT -h/-v are ambiguous (they're also pi flags), so
-  // they only count as ours via isCliDispatch when they are the effective command
-  // token (`overcast -h`), NOT when buried among pi flags (`overcast -p "…" -h`).
-  if (cliArgv.includes("--help") || cliArgv.includes("--version")) {
-    return runCli(cliArgv);
-  }
-
-  // A CLI dispatch — a registered verb, a known top command, or -h/-v as the
-  // effective command — runs via the CLI EVEN alongside --tui: an explicit verb
-  // (`overcast watch clip.mp4 --tui`, `overcast --tui watch clip.mp4`) wins over
-  // the agent, instead of leaking the verb's args onto pi's argv. We test the
-  // --tui-stripped argv so a leading or trailing --tui doesn't hide the command.
+  // Route to the CLI iff the EFFECTIVE command (first token after leading globals)
+  // is a registered verb, a known top command, or a help/version token — computed
+  // on the --tui-stripped argv. This single rule covers every case correctly:
+  //   overcast --version / --help / -h / -v / commands   → CLI
+  //   overcast --tui --version / --tui watch …           → CLI (verb/flag wins over --tui)
+  //   overcast watch clip.mp4 --tui                       → CLI (explicit verb wins)
+  //   overcast -p "…" --version / -p "…" -h               → TUI (a pi-flag invocation;
+  //                                                          --help/--version aren't the
+  //                                                          effective command, so they
+  //                                                          DON'T hijack pi)
   if (isCliDispatch(cliArgv)) {
     return runCli(cliArgv);
   }

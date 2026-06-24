@@ -16,8 +16,8 @@ case "$op" in
   enumerate)
     query=""; limit=20
     while [ "$#" -gt 0 ]; do case "$1" in
-      --query) query="$2"; shift 2 ;;
-      --limit) limit="$2"; shift 2 ;;
+      --query) query="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN" >&2; exit 13; }
@@ -51,8 +51,8 @@ case "$op" in
     fi
     url=""; out=""
     while [ "$#" -gt 0 ]; do case "$1" in
-      --url) url="$2"; shift 2 ;;
-      --out) out="$2"; shift 2 ;;
+      --url) url="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --out) out="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
     if yt-dlp -o "$out" "$url" >&2; then

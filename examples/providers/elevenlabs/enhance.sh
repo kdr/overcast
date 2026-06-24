@@ -16,7 +16,7 @@ case "$op" in
 esac
 
 input=""
-while [ "$#" -gt 0 ]; do case "$1" in --input) input="$2"; shift 2 ;; --*) shift ;; *) input="$1"; shift ;; esac; done
+while [ "$#" -gt 0 ]; do case "$1" in --input) input="${2:-}"; shift 2 2>/dev/null || shift ;; --*) shift ;; *) input="$1"; shift ;; esac; done
 need
 [ -f "$input" ] || { echo "{\"verb\":\"enhance\",\"error\":\"input not found\",\"state\":\"error\"}"; exit 0; }
 mkdir -p "$OUTDIR"

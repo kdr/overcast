@@ -29,7 +29,7 @@ op="${1:-enumerate}"; shift || true
 
 # translate an overcast youtube ref into a yt-dlp target
 ref_to_target() {
-  local ref="$1" limit="$2"
+  local ref="$1" limit="${2:-}"
   case "$ref" in
     search:*)   echo "ytsearch${limit}:${ref#search:}" ;;
     @*)         echo "https://www.youtube.com/${ref}/videos" ;;
@@ -47,9 +47,9 @@ case "$op" in
     need_ytdlp
     query=""; limit=10; since=""
     while [ "$#" -gt 0 ]; do case "$1" in
-      --query) query="$2"; shift 2 ;;
-      --limit) limit="$2"; shift 2 ;;
-      --since) since="$2"; shift 2 ;;
+      --query) query="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --since) since="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
     target="$(ref_to_target "$query" "$limit")"
@@ -96,8 +96,8 @@ case "$op" in
     need_ytdlp
     url=""; out=""
     while [ "$#" -gt 0 ]; do case "$1" in
-      --url) url="$2"; shift 2 ;;
-      --out) out="$2"; shift 2 ;;
+      --url) url="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --out) out="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
     # cap resolution to keep downloads small; merge to mp4. Honor yt-dlp's exit

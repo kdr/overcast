@@ -29,7 +29,7 @@ esac
 case "$op" in
   enumerate)
     query=""; limit=8
-    while [ "$#" -gt 0 ]; do case "$1" in --query) query="$2"; shift 2 ;; --limit) limit="$2"; shift 2 ;; *) shift ;; esac; done
+    while [ "$#" -gt 0 ]; do case "$1" in --query) query="${2:-}"; shift 2 2>/dev/null || shift ;; --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;; *) shift ;; esac; done
     need
     # -f fails the request on HTTP errors (bad/expired key, rate limit) so a
     # credential/API failure surfaces as an enumerate error, not empty hits.
@@ -50,7 +50,7 @@ case "$op" in
     ;;
   fetch)
     url=""; out=""
-    while [ "$#" -gt 0 ]; do case "$1" in --url) url="$2"; shift 2 ;; --out) out="$2"; shift 2 ;; *) shift ;; esac; done
+    while [ "$#" -gt 0 ]; do case "$1" in --url) url="${2:-}"; shift 2 2>/dev/null || shift ;; --out) out="${2:-}"; shift 2 2>/dev/null || shift ;; *) shift ;; esac; done
     # -f fails on HTTP errors; report a real failure instead of a ready-looking
     # capture pointing at a missing/empty file.
     if curl -fsSL -m 60 -o "${out}.html" "$url"; then

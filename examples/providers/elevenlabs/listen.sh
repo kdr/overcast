@@ -18,9 +18,9 @@ esac
 
 input=""; diarize=""; lang=""
 while [ "$#" -gt 0 ]; do case "$1" in
-  --input) input="$2"; shift 2 ;;
+  --input) input="${2:-}"; shift 2 2>/dev/null || shift ;;
   --diarize) diarize="-F diarize=true"; shift ;;
-  --lang) lang="-F language_code=$2"; shift 2 ;;
+  --lang) lang="-F language_code=${2:-}"; shift 2 2>/dev/null || shift ;;
   --*) shift ;;
   *) input="$1"; shift ;;
 esac; done

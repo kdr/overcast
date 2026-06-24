@@ -23,9 +23,9 @@ esac
 
 input=""; ocr=0; prompt=""
 while [ "$#" -gt 0 ]; do case "$1" in
-  --input) input="$2"; shift 2 ;;
+  --input) input="${2:-}"; shift 2 2>/dev/null || shift ;;
   --ocr) ocr=1; shift ;;
-  --prompt) prompt="$2"; shift 2 ;;
+  --prompt) prompt="${2:-}"; shift 2 2>/dev/null || shift ;;
   --*) shift ;;
   *) input="$1"; shift ;;
 esac; done

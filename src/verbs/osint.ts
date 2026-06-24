@@ -464,6 +464,11 @@ export const monitorVerb: VerbSpec = {
       let pass = 0;
       let errorPasses = 0;
       let credPasses = 0;
+      // de-dupe alerts across passes: recurring source-enumerate errors (and any
+      // other stable record) are alerted ONCE, not re-appended every pass.
+      const alerted = new Set<string>();
+      const alertKey = (r: OvercastRecord) =>
+        `${r.verb}|${r.error ?? ""}|${(r.media?.ref as string) ?? ""}|${JSON.stringify(r.payload ?? {}).slice(0, 100)}`;
       process.stderr.write(`monitor: every ${everyStr}, Ctrl-C to stop\n`);
       while (pass < maxPasses && !ctx.signal?.aborted) {
         pass++;
@@ -476,7 +481,13 @@ export const monitorVerb: VerbSpec = {
           saveSeen(ctx.case, seen);
         }
         for (const r of recs) { ctx.case.writeRecord(r); process.stdout.write(streamRender(r) + "\n"); }
-        writeAlert(recs.filter((r) => r.verb !== "monitor"));
+        const freshAlerts = recs.filter((r) => r.verb !== "monitor").filter((r) => {
+          const k = alertKey(r);
+          if (alerted.has(k)) return false;
+          alerted.add(k);
+          return true;
+        });
+        writeAlert(freshAlerts);
         if (recs.some((r) => r.state === "error")) errorPasses++;
         else if (recs.some((r) => r.state === "needs_credentials")) credPasses++;
         if (pass >= maxPasses || ctx.signal?.aborted) break;

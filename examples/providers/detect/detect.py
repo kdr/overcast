@@ -28,9 +28,15 @@ import subprocess
 import sys
 import tempfile
 
+def _envnum(name, default, cast):  # tolerant env parse — never crash at import
+    try:
+        return cast(os.environ.get(name, default))
+    except (ValueError, TypeError):
+        return cast(default)
+
 MODEL = os.environ.get("DETECT_MODEL", "google/owlv2-base-patch16-ensemble")
-THRESHOLD = float(os.environ.get("DETECT_THRESHOLD", "0.1"))
-MAX_FRAMES = int(os.environ.get("DETECT_MAX_FRAMES", "8"))
+THRESHOLD = _envnum("DETECT_THRESHOLD", "0.1", float)
+MAX_FRAMES = _envnum("DETECT_MAX_FRAMES", "8", int)
 FFMPEG = os.environ.get("OVERCAST_FFMPEG") or "ffmpeg"
 VIDEO_EXTS = (".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v")
 
