@@ -4,19 +4,18 @@ import { colorizeBanner, statusLine, headerText, OvercastFooter } from "../../sr
 import { renderTopHelp, runCli, type CliIO } from "../../src/cli.ts";
 import { VERBS } from "../../src/registry/verbs.ts";
 
-test("colorizeBanner: solid green wordmark (no outline), amber play box with red triangle", () => {
+test("colorizeBanner: two-tone green wordmark (face + dim extrusion), amber play box with red triangle", () => {
   const banner = [
     "        ╔═══════════╗",
     "        ║    ▶ ▮▮   ║",
-    " ██████  ██    ██ ███████",
+    " ██████╗ ██╗   ██╗███████╗",
     "        v i d e o · r e c o n · o s i n t",
   ].join("\n");
   const out = colorizeBanner(banner);
-  assert.ok(out.includes("\x1b[38;2;0;255;127m"), "bright green (wordmark face) present");
+  assert.ok(out.includes("\x1b[38;2;0;255;127m"), "bright green (block face) present");
+  assert.ok(out.includes("\x1b[38;2;31;157;87m"), "dim green (extrusion) present");
   assert.ok(out.includes("\x1b[38;2;255;196;0m"), "amber (play box) present");
   assert.ok(out.includes("\x1b[38;2;255;85;85m"), "red play triangle present");
-  // outline-free wordmark: no box-drawing extrusion → no dark-shadow color
-  assert.ok(!out.includes("\x1b[38;2;10;48;28m"), "no extrusion shadow on the wordmark");
   assert.ok(!out.includes("pi //"), "no pi // cloudglue branding");
 });
 

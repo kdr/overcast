@@ -9,6 +9,7 @@ import { dirname, resolve, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 
 import { VERBS } from "../registry/verbs.js";
@@ -40,6 +41,53 @@ const THEME_PATH = resolve(PKG_ROOT, "themes", "overcast.json");
 const BANNER_PATH = resolve(PKG_ROOT, "assets", "banner.txt");
 const THEME_NAME = "overcast";
 
+// pi's createTheme splits these color keys into the background map; everything
+// else is a foreground color.
+const BG_COLOR_KEYS = new Set([
+  "selectedBg",
+  "userMessageBg",
+  "customMessageBg",
+  "toolPendingBg",
+  "toolSuccessBg",
+  "toolErrorBg",
+]);
+
+/**
+ * Build the overcast theme as an inline `Theme` object from themes/overcast.json,
+ * mirroring pi's own `createTheme` (var-ref resolution + bg/fg key split). We
+ * apply it via `setTheme(theme)` instead of `setTheme("overcast")` because the
+ * name lookup depends on pi's resource discovery, which registers the theme
+ * AFTER `session_start` fires — so the name-based call silently failed and pi
+ * kept its default theme (cyan code, gray message bg). The object form has no
+ * such dependency (and also works in a compiled binary, where the file isn't on
+ * a real filesystem — falls back to undefined → name-based attempt).
+ */
+function buildOvercastTheme(): Theme | undefined {
+  try {
+    const json = JSON.parse(readFileSync(THEME_PATH, "utf8")) as {
+      name?: string;
+      vars?: Record<string, string | number>;
+      colors: Record<string, string | number>;
+    };
+    const vars = json.vars ?? {};
+    const resolveRef = (v: string | number, seen = new Set<string>()): string | number => {
+      if (typeof v === "string" && v in vars && !seen.has(v)) {
+        seen.add(v);
+        return resolveRef(vars[v], seen);
+      }
+      return v;
+    };
+    const fg: Record<string, string | number> = {};
+    const bg: Record<string, string | number> = {};
+    for (const [k, v] of Object.entries(json.colors)) {
+      (BG_COLOR_KEYS.has(k) ? bg : fg)[k] = resolveRef(v);
+    }
+    return new Theme(fg as never, bg as never, "truecolor", { name: json.name ?? THEME_NAME });
+  } catch {
+    return undefined;
+  }
+}
+
 export default async function overcastExtension(pi: ExtensionAPI): Promise<void> {
   // Read the banner once; captured by the setHeader factory. Colorize it to the
   // overcast theme (raw ASCII would render terminal-default white).
@@ -53,7 +101,9 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   // Resolve the Cloudglue config once (env or ~/.tinycloud/config.json).
   const { baseUrl, apiKey: cgKey } = resolveCloudglue();
 
-  // --- Theme: announce the file on discovery, activate by name on start. ----
+  // --- Theme: register the file for discovery, but activate it as an inline
+  // object (the name-based path registers too late — see buildOvercastTheme). --
+  const overcastTheme = buildOvercastTheme();
   pi.on("resources_discover", () => {
     // theme + the /ask,/brief prompt templates (prompts/*.md)
     return { themePaths: [THEME_PATH], promptPaths: [PROMPTS_PATH] };
@@ -63,7 +113,10 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   registerSlashCommands(pi);
 
   pi.on("session_start", async (_event, ctx) => {
-    ctx.ui.setTheme(THEME_NAME);
+    // apply the inline Theme object; fall back to the registered name if the
+    // file couldn't be read (e.g. an unexpected packaging layout).
+    const applied = overcastTheme ? ctx.ui.setTheme(overcastTheme) : undefined;
+    if (!applied?.success) ctx.ui.setTheme(THEME_NAME);
 
     // the case dir follows --case (surfaced via OVERCAST_CASE), matching the
     // agent tools — so the UI labels the case actually being processed.

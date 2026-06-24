@@ -14,10 +14,9 @@ function fitWidth(line: string, width: number): string {
 
 const GREEN = "\x1b[38;2;0;255;127m"; // #00ff7f — bright wordmark face
 const GREEN_DIM = "\x1b[38;2;31;157;87m"; // #1f9d57 — chrome / muted separators
-// Wordmark extrusion: a near-black green so the box-drawing outline glyphs read
-// as DARK LINES through/around the bright face (the target's "lines, not a solid
-// green block" look) instead of a bright drop-shadow. Tunable.
-const WORDMARK_SHADOW = "\x1b[38;2;10;48;28m"; // #0a301c
+// Wordmark extrusion (the ANSI-Shadow box-drawing glyphs): dim green, for the
+// 3D drop-shadow / depth in the design — NOT the bright face, NOT near-black.
+const WORDMARK_SHADOW = "\x1b[38;2;31;157;87m"; // #1f9d57
 const PALE = "\x1b[38;2;198;247;213m"; // #c6f7d5 — text
 const AMBER = "\x1b[38;2;255;196;0m"; // #ffc400 — accents
 const AMBER_DIM = "\x1b[38;2;168;123;0m"; // #a87b00 — tagline
