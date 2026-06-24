@@ -7,97 +7,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { runCli } from "../src/cli.js";
-import { findVerb } from "../src/registry/verbs.js";
+import { routeArgv } from "../src/cli-router.js";
 import { resolveCloudglue } from "../src/profile.js";
-
-const KNOWN_TOP = new Set(["version", "commands", "help"]);
-const GLOBAL_FLAGS = new Set(["--case", "--home", "--profile"]);
-// overcast's own value-taking leading flags (skipped to find the verb) and the
-// boolean output flag — so `overcast --json watch …` / `--format md watch …`
-// dispatch the verb instead of treating --json/--format as the command.
-const LEADING_VALUE_FLAGS = new Set(["--case", "--home", "--profile", "--format"]);
-const LEADING_BOOL_FLAGS = new Set(["--json"]);
-const VALID_FORMATS = new Set(["json", "md", "txt"]);
-
-/** The effective command token — the first arg after any leading global/output flags. */
-function effectiveCmd(argv: string[]): string | undefined {
-  let i = 0;
-  while (i < argv.length) {
-    const t = argv[i];
-    const name = t.includes("=") ? t.slice(0, t.indexOf("=")) : t;
-    if (LEADING_BOOL_FLAGS.has(name)) { i += 1; continue; } // boolean flag: skip just it
-    if (!LEADING_VALUE_FLAGS.has(name)) break;
-    if (t.includes("=")) {
-      // attached `--flag=value` is one token: skip it, the NEXT token is the
-      // command. An attached value can't be mistaken for the verb (it's glued to
-      // the flag), and for --format the value's validity is enforced downstream by
-      // the verb's flag parser (`--format must be one of json|md|txt`) — so an
-      // invalid `--format=bogus` still routes to the CLI to report, never the TUI.
-      i += 1;
-    } else {
-      // space form: consume the value only if it isn't itself a flag — a
-      // value-less global is malformed and must surface (reach the CLI), not be
-      // swallowed so the command token disappears and the TUI launches. For
-      // --format the value must be a REAL format (json|md|txt); otherwise the
-      // next token is the verb (`overcast --format watch clip.mp4`), not a value.
-      const v = argv[i + 1];
-      if (name === "--format") {
-        i += v !== undefined && VALID_FORMATS.has(v) ? 2 : 1;
-      } else {
-        i += v !== undefined && !v.startsWith("-") ? 2 : 1;
-      }
-    }
-  }
-  return argv[i];
-}
-
-/** True if a leading global flag is present but missing its value — a malformed
- *  CLI invocation that should reach runCli to report the error, not the TUI. */
-function hasMalformedGlobal(argv: string[]): boolean {
-  for (let i = 0; i < argv.length; i++) {
-    const t = argv[i];
-    const eq = t.includes("=");
-    const name = eq ? t.slice(0, t.indexOf("=")) : t;
-    if (!GLOBAL_FLAGS.has(name)) return false; // stop at the first non-global
-    if (eq) {
-      if (t.slice(t.indexOf("=") + 1) === "") return true; // `--case=`
-    } else {
-      const v = argv[i + 1];
-      if (v === undefined || v.startsWith("-")) return true; // value-less
-      i++; // skip the consumed value
-    }
-  }
-  return false;
-}
-
-function isCliDispatch(argv: string[]): boolean {
-  // Global flags may lead the invocation (`overcast --case /dir watch …`).
-  // Skip them (and their values) to find the effective command token.
-  const cmd = effectiveCmd(argv);
-  // No command after the leading flags. Route to the CLI (to report the error) for
-  // a value-less global (`overcast --case`) OR an output-flag-only invocation
-  // (`overcast --json` / `--format md`) — those are meaningless without a verb.
-  // A globals-only invocation (`overcast --case /dir`) falls through to launch the
-  // TUI in that case.
-  if (!cmd) {
-    if (hasMalformedGlobal(argv)) return true;
-    return argv.some((a) => {
-      const name = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
-      return LEADING_BOOL_FLAGS.has(name) || name === "--format";
-    });
-  }
-  // A version request is CLI only when it is the command itself, so headless
-  // pi usage like `overcast -p "…" -v` still launches the agent.
-  if (cmd === "--version" || cmd === "-v") return true;
-  // `overcast --help`/`-h` is OUR help, not pi's (only as the effective command).
-  if (cmd === "--help" || cmd === "-h") return true;
-  if (KNOWN_TOP.has(cmd)) return true;
-  if (findVerb(cmd)) return true;
-  // A leading non-flag token is a command — route mistyped verbs to the CLI so
-  // it reports "unknown command" instead of silently launching the TUI.
-  if (!cmd.startsWith("-")) return true;
-  return false; // leading pi flag (e.g. -p) → TUI
-}
 
 /** Pull a global flag's value (`--name v` or `--name=v`) out of argv. A missing
  *  or flag-like value is left untouched (not swallowed). */
@@ -192,25 +103,11 @@ async function launchTui(argv: string[]): Promise<void> {
 
 async function run(): Promise<number> {
   const argv = process.argv.slice(2);
-  // --tui is a TUI-only routing flag; the CLI never needs to see it.
-  const cliArgv = argv.filter((a) => a !== "--tui");
-
-  // Route to the CLI iff the EFFECTIVE command (first token after leading globals)
-  // is a registered verb, a known top command, or a help/version token — computed
-  // on the --tui-stripped argv. This single rule covers every case correctly:
-  //   overcast --version / --help / -h / -v / commands   → CLI
-  //   overcast --tui --version / --tui watch …           → CLI (verb/flag wins over --tui)
-  //   overcast watch clip.mp4 --tui                       → CLI (explicit verb wins)
-  //   overcast -p "…" --version / -p "…" -h               → TUI (a pi-flag invocation;
-  //                                                          --help/--version aren't the
-  //                                                          effective command, so they
-  //                                                          DON'T hijack pi)
-  if (isCliDispatch(cliArgv)) {
-    return runCli(cliArgv);
-  }
-
-  // no command to dispatch (a bare launch, `overcast --tui`, or a pi-flag
-  // invocation like `overcast -p "…"`): launch the interactive overcast agent.
+  // The CLI-vs-TUI decision is a pure function (src/cli-router.ts, unit-tested as a
+  // truth table). "cli" runs the verb registry; "tui" launches the pi agent (a bare
+  // launch, `overcast --tui`, or a pi-flag invocation like `overcast -p "…"`).
+  const { mode, cliArgv } = routeArgv(argv);
+  if (mode === "cli") return runCli(cliArgv);
   await launchTui(argv);
   return 0;
 }
