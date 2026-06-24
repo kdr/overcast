@@ -93,8 +93,10 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
     extractGlobals(argv);
   const cmd = tokens[0];
 
-  // version
-  if (cmd === "version" || tokens.includes("--version") || tokens.includes("-v")) {
+  // version — only when it's the command itself, so `overcast watch x -v` runs
+  // the verb (and an unknown command with a stray -v still errors) rather than
+  // printing the version for a `-v` anywhere in argv.
+  if (cmd === "version" || cmd === "--version" || cmd === "-v") {
     const json = tokens.includes("--json");
     io.out(
       json

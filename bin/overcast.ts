@@ -32,11 +32,44 @@ function isCliDispatch(argv: string[]): boolean {
   return false; // leading pi flag (e.g. -p) → TUI
 }
 
+/** Pull a global flag's value (`--name v` or `--name=v`) out of argv. A missing
+ *  or flag-like value is left untouched (not swallowed). */
+function takeGlobal(argv: string[], name: string): { value?: string; rest: string[] } {
+  const rest: string[] = [];
+  let value: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const t = argv[i];
+    if (t === name) {
+      const v = argv[i + 1];
+      if (v !== undefined && !v.startsWith("-")) {
+        value = v;
+        i++;
+      }
+    } else if (t.startsWith(`${name}=`)) {
+      value = t.slice(name.length + 1);
+    } else {
+      rest.push(t);
+    }
+  }
+  return { value, rest };
+}
+
 async function launchTui(argv: string[]): Promise<void> {
   // Dynamic import keeps pi out of the hot path for plain verb calls.
   const { main } = await import("@earendil-works/pi-coding-agent");
   const { default: overcastExtension } = await import("../src/extension/overcast.js");
-  const piArgs = argv.filter((a) => a !== "--tui");
+  // Surface --case/--profile/--home to the extension (via env) so agent-driven
+  // verbs use the session's case/profile, then drop them from pi's args.
+  let piArgs = argv.filter((a) => a !== "--tui");
+  for (const [flag, envVar] of [
+    ["--case", "OVERCAST_CASE"],
+    ["--profile", "OVERCAST_PROFILE"],
+    ["--home", "OVERCAST_HOME"],
+  ] as const) {
+    const { value, rest } = takeGlobal(piArgs, flag);
+    if (value) process.env[envVar] = value;
+    piArgs = rest;
+  }
   await main(piArgs, { extensionFactories: [overcastExtension] });
 }
 

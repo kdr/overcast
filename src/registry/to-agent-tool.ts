@@ -8,7 +8,7 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
-import type { OvercastRecord } from "../record.js";
+import { makeRecord, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
 import type { Profile } from "../profile.js";
 
@@ -96,6 +96,17 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
       try {
         records = await spec.run(ctx);
       } catch (err) {
+        // persist an error record like the CLI does, so agent-driven failures
+        // don't diverge from CLI case history.
+        c.writeRecord(
+          makeRecord({
+            verb: spec.name,
+            format: "json",
+            payload: {},
+            error: (err as Error).message,
+            state: "error",
+          }),
+        );
         const text = `overcast ${spec.name} failed: ${(err as Error).message}`;
         return {
           content: [{ type: "text", text }],

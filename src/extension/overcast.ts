@@ -71,10 +71,12 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   const systemPrompt = buildSystemPrompt();
   pi.on("before_agent_start", () => ({ systemPrompt }));
 
-  // --- Register every verb as a pi tool, bound to the cwd case + profile. ---
+  // --- Register every verb as a pi tool, bound to the session case + profile.
+  // The launcher surfaces --case/--profile (and --home) via env so the agent
+  // tools operate on the same case/profile the CLI session was started with.
   const deps = {
-    getCase: () => openCase(process.cwd()),
-    getProfile: () => loadProfile(),
+    getCase: () => openCase(process.env.OVERCAST_CASE || process.cwd()),
+    getProfile: () => loadProfile({ profile: process.env.OVERCAST_PROFILE || undefined }),
   };
   for (const spec of VERBS) {
     pi.registerTool(toAgentTool(spec, deps));
