@@ -18,6 +18,9 @@ import { openCase } from "../case.js";
 import { loadProfile, resolveCloudglue, resolveHome } from "../profile.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { colorizeBanner, statusLine, headerText, OvercastFooter } from "./branding.js";
+import { registerSlashCommands } from "./slash.js";
+
+const PROMPTS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "prompts");
 
 /** First existing agent-context file in the cwd, for the status line. */
 function contextFileLabel(cwd: string): string {
@@ -52,8 +55,12 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
 
   // --- Theme: announce the file on discovery, activate by name on start. ----
   pi.on("resources_discover", () => {
-    return { themePaths: [THEME_PATH] };
+    // theme + the /ask,/brief prompt templates (prompts/*.md)
+    return { themePaths: [THEME_PATH], promptPaths: [PROMPTS_PATH] };
   });
+
+  // state verbs as TUI slash commands (/target /source /case /prebrief /view /setup)
+  registerSlashCommands(pi);
 
   pi.on("session_start", async (_event, ctx) => {
     ctx.ui.setTheme(THEME_NAME);
