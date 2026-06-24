@@ -44,7 +44,9 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  process.stderr.write(`overcast: unknown command '${argv[0]}'\n`);
+  // report the actual subcommand token (the leading non-flag arg), not argv[0]
+  // which could be a leading flag like `--json`.
+  process.stderr.write(`overcast: unknown command '${command ?? argv[0]}'\n`);
   return 1;
 }
 
