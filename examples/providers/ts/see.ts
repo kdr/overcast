@@ -55,9 +55,10 @@ function main(argv: string[]): void {
   const opts: { ocr?: boolean; detect?: string } = {};
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === "--input") input = args[++i];
+    // guard ++i so a trailing flag yields "" rather than undefined/malformed output
+    if (a === "--input") input = i + 1 < args.length ? args[++i] : "";
     else if (a === "--ocr") opts.ocr = true;
-    else if (a === "--detect") opts.detect = args[++i];
+    else if (a === "--detect") opts.detect = i + 1 < args.length ? args[++i] : "";
     else if (a === "run") continue;
     else if (!a.startsWith("-")) input = a; // last positional wins (input contract)
   }

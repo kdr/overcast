@@ -25,7 +25,7 @@ while [ "$#" -gt 0 ]; do case "$1" in
   *) input="$1"; shift ;;
 esac; done
 need
-[ -f "$input" ] || { echo "{\"verb\":\"listen\",\"error\":\"input not found: $input\",\"state\":\"error\"}"; exit 0; }
+[ -f "$input" ] || { jq -nc --arg i "$input" '{verb:"listen",format:"json",payload:{transcript:"",segments:[],language:null},error:("input not found: "+$i),state:"error"}'; exit 0; }
 
 # shellcheck disable=SC2086
 resp="$(curl -s -m 300 -X POST "https://api.elevenlabs.io/v1/speech-to-text" \

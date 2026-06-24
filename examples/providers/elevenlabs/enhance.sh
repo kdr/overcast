@@ -21,7 +21,7 @@ need
 [ -f "$input" ] || { echo "{\"verb\":\"enhance\",\"error\":\"input not found\",\"state\":\"error\"}"; exit 0; }
 mkdir -p "$OUTDIR"
 ext="$(echo "${input##*.}" | tr 'A-Z' 'a-z')"
-case "$ext" in mp3|wav|m4a|aac|flac|ogg|mp4|mov|webm) : ;; *) echo "{\"verb\":\"enhance\",\"error\":\"ElevenLabs voice-isolation is audio-only (.$ext)\",\"state\":\"error\"}"; exit 0 ;; esac
+case "$ext" in mp3|wav|m4a|aac|flac|ogg|mp4|mov|webm) : ;; *) jq -nc --arg x ".$ext" '{verb:"enhance",error:("ElevenLabs voice-isolation is audio-only ("+$x+")"),state:"error"}'; exit 0 ;; esac
 base="$(basename "${input%.*}")"; out="$OUTDIR/${base}_voiceiso.mp3"
 
 http="$(curl -s -m 180 -o "$out" -w "%{http_code}" -X POST \

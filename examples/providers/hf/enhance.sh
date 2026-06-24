@@ -32,7 +32,7 @@ ext="${input##*.}"; base="$(basename "${input%.*}")"
 case "$(echo "$ext" | tr 'A-Z' 'a-z')" in
   jpg|jpeg|png|webp|bmp|gif) model="$IMG_MODEL"; out="$OUTDIR/${base}_hf.png"; ctype="image/*" ;;
   mp3|wav|m4a|aac|flac|ogg)  model="$AUD_MODEL"; out="$OUTDIR/${base}_hf.${ext}"; ctype="audio/*" ;;
-  *) echo "{\"verb\":\"enhance\",\"error\":\"unsupported modality .$ext for HF enhance\",\"state\":\"error\"}"; exit 0 ;;
+  *) jq -nc --arg x ".$ext" '{verb:"enhance",error:("unsupported modality "+$x+" for HF enhance"),state:"error"}'; exit 0 ;;
 esac
 mkdir -p "$OUTDIR"
 

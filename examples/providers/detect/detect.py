@@ -72,6 +72,11 @@ def parse_args(argv):
     # a truncated invocation like `… --detect`)
     def val(j):
         return argv[j + 1] if j + 1 < len(argv) else ""
+    def num(s, default, cast):  # tolerant numeric parse (no ValueError crash)
+        try:
+            return cast(s)
+        except (ValueError, TypeError):
+            return default
     while i < len(argv):
         a = argv[i]
         if a == "--input":
@@ -79,9 +84,9 @@ def parse_args(argv):
         elif a == "--detect":
             detect = val(i); i += 2
         elif a == "--threshold":
-            thr = float(val(i) or thr); i += 2
+            thr = num(val(i), thr, float); i += 2
         elif a == "--max-frames":
-            maxf = int(val(i) or maxf); i += 2
+            maxf = num(val(i), maxf, int); i += 2
         elif a in ("--prompt", "--embed"):
             i += 2 if a == "--prompt" else 1
         elif a in ("--ocr", "run"):

@@ -107,12 +107,14 @@ def main(argv):
         return init()
     inp, prompt = "", ""
     i = 1
+    def val(j):  # flag value, or "" if the flag is the last token (no IndexError)
+        return argv[j + 1] if j + 1 < len(argv) else ""
     while i < len(argv):
         a = argv[i]
         if a == "--input":
-            inp = argv[i + 1]; i += 2
+            inp = val(i); i += 2
         elif a == "--prompt":
-            prompt = argv[i + 1]; i += 2
+            prompt = val(i); i += 2
         elif not a.startswith("-"):
             inp = a; i += 1
         else:
