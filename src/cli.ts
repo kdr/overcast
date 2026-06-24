@@ -228,6 +228,19 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // first remaining token as the command.
   const { rest: tokens, caseDir, home, profile, errors: globalErrors } =
     extractGlobals(argv);
+  // A leading output flag before the verb (`overcast --json watch v.mp4`,
+  // `overcast --format md commands`) is moved to AFTER the command, so tokens[0]
+  // is the command and every handler (top-level commands/version + verb dispatch)
+  // sees the flag via tokens.slice(1).
+  const leadFlags: string[] = [];
+  while (tokens.length > 1 && (tokens[0] === "--json" || tokens[0] === "--format")) {
+    const f = tokens.shift() as string;
+    leadFlags.push(f);
+    if (f === "--format" && tokens.length > 1 && !tokens[0].startsWith("-")) {
+      leadFlags.push(tokens.shift() as string);
+    }
+  }
+  if (leadFlags.length) tokens.push(...leadFlags);
   const cmd = tokens[0];
 
   // a malformed global with no command (e.g. `overcast --case`) is a global-flag

@@ -76,9 +76,16 @@ case "$op" in
     # the --dump-json stdout, so routine yt-dlp warnings don't corrupt the JSON.
     errf="$(mktemp)"
     # shellcheck disable=SC2086
-    if ! raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>"$errf")"; then
-      echo "youtube enumerate failed: $(tail -3 "$errf" | tr '\n' ' ')" >&2
-      rm -f "$errf"; exit 1
+    raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>"$errf")"; code=$?
+    if [ -z "$raw" ]; then
+      # no JSON on stdout: a legitimate ZERO-result search/playlist (exit 0, or
+      # non-zero with no hard ERROR) → empty hit list, NOT a failure. Only a real
+      # error (yt-dlp printed ERROR:) surfaces as an enumerate failure.
+      if [ "$code" -ne 0 ] && grep -q 'ERROR' "$errf"; then
+        echo "youtube enumerate failed: $(tail -3 "$errf" | tr '\n' ' ')" >&2
+        rm -f "$errf"; exit 1
+      fi
+      rm -f "$errf"; echo '[]'; exit 0
     fi
     rm -f "$errf"
     printf '%s\n' "$raw" \

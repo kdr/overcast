@@ -12,14 +12,20 @@ import { resolveCloudglue } from "../src/profile.js";
 
 const KNOWN_TOP = new Set(["version", "commands", "help"]);
 const GLOBAL_FLAGS = new Set(["--case", "--home", "--profile"]);
+// overcast's own value-taking leading flags (skipped to find the verb) and the
+// boolean output flag — so `overcast --json watch …` / `--format md watch …`
+// dispatch the verb instead of treating --json/--format as the command.
+const LEADING_VALUE_FLAGS = new Set(["--case", "--home", "--profile", "--format"]);
+const LEADING_BOOL_FLAGS = new Set(["--json"]);
 
-/** The effective command token — the first arg after any leading global flags. */
+/** The effective command token — the first arg after any leading global/output flags. */
 function effectiveCmd(argv: string[]): string | undefined {
   let i = 0;
   while (i < argv.length) {
     const t = argv[i];
     const name = t.includes("=") ? t.slice(0, t.indexOf("=")) : t;
-    if (!GLOBAL_FLAGS.has(name)) break;
+    if (LEADING_BOOL_FLAGS.has(name)) { i += 1; continue; } // boolean flag: skip just it
+    if (!LEADING_VALUE_FLAGS.has(name)) break;
     if (t.includes("=")) {
       i += 1; // attached form: flag only
     } else {
