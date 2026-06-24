@@ -22,6 +22,7 @@ describe_ok "describe.fal_see"     bash "$P/fal/see.sh"
 describe_ok "describe.fal_enhance" bash "$P/fal/enhance.sh"
 describe_ok "describe.el_listen"   bash "$P/elevenlabs/listen.sh"
 describe_ok "describe.el_enhance"  bash "$P/elevenlabs/enhance.sh"
+describe_ok "describe.web"        bash "$P/sources/web.sh"
 describe_ok "describe.youtube"     bash "$P/sources/youtube.sh"
 describe_ok "describe.tiktok"      bash "$P/sources/tiktok.sh"
 

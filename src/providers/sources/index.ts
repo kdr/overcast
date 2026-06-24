@@ -71,6 +71,10 @@ export function builtinDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("tiktok.sh");
       return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN" } : undefined;
     }
+    case "web": {
+      const script = shippedSource("web.sh");
+      return script ? { type, base: ["bash", script], needs: "TAVILY_API_KEY|BRAVE_API_KEY" } : undefined;
+    }
     default:
       return undefined;
   }
