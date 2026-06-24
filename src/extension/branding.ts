@@ -13,6 +13,9 @@ function fitWidth(line: string, width: number): string {
 }
 
 const GREEN = "\x1b[38;2;0;255;127m"; // #00ff7f — bright wordmark face
+// Scanline: every other wordmark row uses this dimmer green so dark horizontal
+// lines run across the letters (the design's CRT look). Tunable brightness.
+const GREEN_SCAN = "\x1b[38;2;0;176;88m"; // #00b058
 const GREEN_DIM = "\x1b[38;2;31;157;87m"; // #1f9d57 — chrome / muted separators
 // Wordmark extrusion (the ANSI-Shadow box-drawing glyphs): dim green, for the
 // 3D drop-shadow / depth in the design — NOT the bright face, NOT near-black.
@@ -28,8 +31,11 @@ const SHADOW_CHARS = new Set("╔╗╚╝║═╦╩╠╣".split(""));
 // solid block glyphs → bright green face
 const BLOCK_CHARS = new Set("█▀▄▌▐▮".split(""));
 
-/** Per-character two-tone coloring of a wordmark line (face vs extrusion). */
-function colorWordmark(line: string): string {
+/** Per-character two-tone coloring of a wordmark line (face vs extrusion). On
+ *  `scan` rows the bright face is dimmed, so alternating rows form dark
+ *  horizontal scanlines across the letters. */
+function colorWordmark(line: string, scan = false): string {
+  const face = scan ? GREEN_SCAN : GREEN;
   let out = "";
   let mode: "block" | "shadow" | "" = "";
   for (const ch of line) {
@@ -39,7 +45,7 @@ function colorWordmark(line: string): string {
         ? "shadow"
         : "";
     if (want && want !== mode) {
-      out += want === "block" ? GREEN : WORDMARK_SHADOW;
+      out += want === "block" ? face : WORDMARK_SHADOW;
       mode = want;
     }
     out += ch;
@@ -54,22 +60,27 @@ function colorWordmark(line: string): string {
  */
 export function colorizeBanner(banner: string): string {
   const lines = banner.replace(/\n+$/, "").split("\n");
+  let inWordmark = false; // flips once the `█` wordmark starts
+  let wordmarkRow = 0; // index among wordmark rows, for the scanline alternation
   return lines
     .map((line) => {
-      // the play-button box (top 3 lines): amber, with a red play triangle
-      if (line.includes("▶") || /^[\s╔╗╚╝║═╦╩]*$/.test(line) === false && /[▮]/.test(line)) {
+      // The `█` full-block only appears in the wordmark — once we see it we're
+      // past the play box (whose pause glyph `▮` must NOT count, else the box
+      // would be mis-detected and the wordmark's all-box bottom row would render
+      // amber as a "box frame" instead of dim-green extrusion).
+      if (line.includes("█")) inWordmark = true;
+
+      // play-button box (before the wordmark): amber frame + red play triangle
+      if (!inWordmark) {
         return AMBER + line.replace("▶", `${RED}▶${AMBER}`) + RESET;
       }
-      // the box frame lines around the play button (only box chars + spaces)
-      if (/^\s*[╔╗╚╝║═╦╩]+\s*$/.test(line)) {
-        return AMBER + line + RESET;
-      }
-      // tagline
+      // tagline (after the wordmark): dim amber
       if (/v\s*i\s*d\s*e\s*o/i.test(line) || / · /.test(line)) {
         return AMBER_DIM + line + RESET;
       }
-      // wordmark — two-tone
-      return colorWordmark(line);
+      // wordmark rows (incl. the all-box extrusion rows): two-tone green, with a
+      // scanline dimming every other row.
+      return colorWordmark(line, wordmarkRow++ % 2 === 1);
     })
     .join("\n");
 }
