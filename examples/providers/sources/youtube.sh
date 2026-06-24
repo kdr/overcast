@@ -90,11 +90,17 @@ case "$op" in
       --out) out="$2"; shift 2 ;;
       *) shift ;;
     esac; done
-    # cap resolution to keep downloads small; merge to mp4
-    yt-dlp -f "best[height<=720]/best" -o "$out" "$url" >&2
-    # yt-dlp may add an extension; resolve the actual file
-    real="$out"; [ -f "$out" ] || real="$(ls "${out%.*}".* 2>/dev/null | head -1)"
-    echo "{\"kind\":\"video\",\"path\":\"${real:-$out}\",\"source\":\"youtube\",\"url\":\"$url\"}"
+    # cap resolution to keep downloads small; merge to mp4. Honor yt-dlp's exit
+    # status — a failed download must surface as an error, not a stale success.
+    if ! yt-dlp -f "best[height<=720]/best" -o "$out" "$url" >&2; then
+      echo "youtube fetch failed for $url" >&2; exit 1
+    fi
+    # yt-dlp may add an extension; resolve the actual file (newest match first)
+    real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"
+    if [ -z "$real" ] || [ ! -s "$real" ]; then
+      echo "youtube fetch produced no file for $url" >&2; exit 1
+    fi
+    echo "{\"kind\":\"video\",\"path\":\"$real\",\"source\":\"youtube\",\"url\":\"$url\"}"
     ;;
 
   *) echo "{}" ;;

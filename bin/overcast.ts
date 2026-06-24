@@ -144,9 +144,12 @@ async function run(): Promise<number> {
   // --tui is a TUI-only routing flag; the CLI never needs to see it.
   const cliArgv = argv.filter((a) => a !== "--tui");
 
-  // overcast's own --help/-h wins everywhere — including mixed with --tui
-  // (`overcast --tui --help`) — and pi never sees --help.
-  if (argv.includes("--help") || argv.includes("-h")) {
+  // overcast's own long-form --help/--version win everywhere — even mixed with
+  // --tui (`overcast --tui --help`, `overcast --tui --version`) or pi flags — and
+  // pi never sees them. The SHORT -h/-v are ambiguous (they're also pi flags), so
+  // they only count as ours via isCliDispatch when they are the effective command
+  // token (`overcast -h`), NOT when buried among pi flags (`overcast -p "…" -h`).
+  if (argv.includes("--help") || argv.includes("--version")) {
     return runCli(cliArgv);
   }
 

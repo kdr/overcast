@@ -333,8 +333,12 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
     const format = wantJson ? "json" : (parsed.opts.format as string) ?? "human";
     for (const rec of records) io.out(renderRecord(rec, format) + "\n");
 
-    // a record in error state → non-zero exit (state is authoritative hint)
-    return records.some((r) => r.state === "error") ? 1 : 0;
+    // state is the authoritative hint for the exit code: a hard error → 1, a
+    // setup gap (needs_credentials) → 3 (distinct, so automation can tell "broke"
+    // from "needs setup"); pending/ready → 0.
+    if (records.some((r) => r.state === "error")) return 1;
+    if (records.some((r) => r.state === "needs_credentials")) return 3;
+    return 0;
   }
 
   // unknown command

@@ -56,9 +56,13 @@ case "$op" in
       *) shift ;;
     esac; done
     if yt-dlp -o "$out" "$url" >&2; then
-      # yt-dlp may append an extension; resolve the actual file written
-      real="$out"; [ -f "$out" ] || real="$(ls "${out%.*}".* 2>/dev/null | head -1)"
-      echo "{\"kind\":\"video\",\"path\":\"${real:-$out}\",\"source\":\"tiktok\"}"
+      # yt-dlp may append an extension; resolve the actual file written (newest
+      # match first, so a stale sibling can't be picked over the fresh download)
+      real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"
+      if [ -z "$real" ] || [ ! -s "$real" ]; then
+        echo "tiktok fetch produced no file for $url" >&2; exit 1
+      fi
+      echo "{\"kind\":\"video\",\"path\":\"$real\",\"source\":\"tiktok\"}"
     else
       echo "tiktok fetch failed for $url" >&2; exit 1
     fi ;;

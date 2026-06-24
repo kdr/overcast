@@ -317,7 +317,10 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
         if (explicitPipe || isSenseableMedia(cap.media.ref)) {
           const sensed = await pipeSense(ctx, explicitPipe ?? "watch", cap.media.ref);
           if (sensed) out.push(sensed);
-          if (sensed?.state === "error") processFailed = true;
+          // A sense that didn't reach `ready` (error / needs_credentials / pending)
+          // means the item isn't done — leave it unseen so a later pass retries it
+          // once the setup gap is fixed, rather than dropping it permanently.
+          if (sensed && sensed.state && sensed.state !== "ready") processFailed = true;
         }
       } else {
         processFailed = true;

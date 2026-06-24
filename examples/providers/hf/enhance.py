@@ -68,6 +68,9 @@ def run(input_path, prompt):
             )
             out = os.path.join(OUTDIR, f"{base}_hf.png")
             img.save(out)
+            if not os.path.exists(out) or os.path.getsize(out) == 0:
+                emit({"verb": "enhance", "payload": {}, "error": f"HF image enhance wrote no output to {out}", "state": "error"})
+                return
             emit({"verb": "enhance", "format": "json",
                   "payload": {"output": out, "ops": ["hf-upscale"], "model": IMG_MODEL},
                   "media": {"ref": out}, "meta": {"provider": f"hf:{PROVIDER}:{IMG_MODEL}"},
@@ -82,6 +85,9 @@ def run(input_path, prompt):
             out = os.path.join(OUTDIR, f"{base}_hf.{ext}")
             with open(out, "wb") as f:
                 f.write(audio if isinstance(audio, (bytes, bytearray)) else audio[0]["blob"])
+            if not os.path.exists(out) or os.path.getsize(out) == 0:
+                emit({"verb": "enhance", "payload": {}, "error": f"HF audio enhance wrote no output to {out}", "state": "error"})
+                return
             emit({"verb": "enhance", "format": "json",
                   "payload": {"output": out, "ops": ["hf-audio"], "model": AUD_MODEL},
                   "media": {"ref": out}, "meta": {"provider": f"hf:{PROVIDER}:{AUD_MODEL}"},

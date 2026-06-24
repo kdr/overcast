@@ -149,8 +149,11 @@ export async function runWatch(
       error:
         res.code === 0
           ? "tinycloud watch produced no JSON output"
-          : `tinycloud watch exited ${res.code}: ${res.stderr.trim().slice(0, 500)}`,
-      state: "error",
+          : res.code === 13
+            ? "tinycloud watch needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
+            : `tinycloud watch exited ${res.code}: ${res.stderr.trim().slice(0, 500)}`,
+      // exit 13 = missing creds, matching runExecProvider + the source providers
+      state: res.code === 13 ? "needs_credentials" : "error",
     });
   }
 
@@ -197,6 +200,22 @@ export async function runWatch(
   const isPending = (o: Record<string, unknown>) =>
     o.state === "pending" || o.status === "pending";
   const state = isPending(envObj) || isPending(data) ? "pending" : "ready";
+
+  // A parsed-but-empty result (no content, no transcript, and an empty/absent
+  // `detailed`) is not a successful watch — surface it as an error instead of a
+  // silent "ready" that would mark the video as analyzed (matches the bash sample).
+  const detailedEmpty = !data || Object.keys(data).length === 0;
+  if (state === "ready" && !content && !transcript && detailedEmpty) {
+    return makeRecord({
+      verb: "watch",
+      format: "json",
+      payload: { content: "", transcript: "", detailed: data },
+      media: { ref: input },
+      meta: { provider: "tinycloud", model: "cloudglue" },
+      error: "tinycloud watch produced an empty result (no content/transcript/detailed)",
+      state: "error",
+    });
+  }
 
   const meta: Record<string, unknown> = { provider: "tinycloud", model: "cloudglue" };
   if (typeof data.title === "string") meta.title = data.title;

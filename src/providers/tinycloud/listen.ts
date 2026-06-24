@@ -149,8 +149,11 @@ export async function runListen(
       error:
         res.code === 0
           ? "tinycloud listen produced no JSON output"
-          : `tinycloud listen exited ${res.code}: ${res.stderr.trim().slice(0, 500)}`,
-      state: "error",
+          : res.code === 13
+            ? "tinycloud listen needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
+            : `tinycloud listen exited ${res.code}: ${res.stderr.trim().slice(0, 500)}`,
+      // exit 13 = missing creds, matching runExecProvider + the source providers
+      state: res.code === 13 ? "needs_credentials" : "error",
     });
   }
 
