@@ -31,15 +31,21 @@ case "$op" in
     query=""; limit=8
     while [ "$#" -gt 0 ]; do case "$1" in --query) query="$2"; shift 2 ;; --limit) limit="$2"; shift 2 ;; *) shift ;; esac; done
     need
+    # -f fails the request on HTTP errors (bad/expired key, rate limit) so a
+    # credential/API failure surfaces as an enumerate error, not empty hits.
     if [ -n "$TAVILY" ]; then
-      curl -s -m 30 -X POST "https://api.tavily.com/search" -H "Content-Type: application/json" \
-        -d "$(jq -nc --arg k "$TAVILY" --arg q "$query" --argjson n "$limit" '{api_key:$k, query:$q, max_results:$n, search_depth:"basic"}')" \
-        | jq -c '[ (.results // [])[] | {title:.title, url:.url, source:"web", published:(.published_date // null), snippet:(.content // ""), media:{ref:.url}} ]'
+      if ! resp="$(curl -fsS -m 30 -X POST "https://api.tavily.com/search" -H "Content-Type: application/json" \
+        -d "$(jq -nc --arg k "$TAVILY" --arg q "$query" --argjson n "$limit" '{api_key:$k, query:$q, max_results:$n, search_depth:"basic"}')")"; then
+        echo "web (tavily) search request failed for '$query'" >&2; exit 1
+      fi
+      printf '%s' "$resp" | jq -c '[ (.results // [])[] | {title:.title, url:.url, source:"web", published:(.published_date // null), snippet:(.content // ""), media:{ref:.url}} ]'
     else
-      curl -s -m 30 -G "https://api.search.brave.com/res/v1/web/search" \
+      if ! resp="$(curl -fsS -m 30 -G "https://api.search.brave.com/res/v1/web/search" \
         --data-urlencode "q=$query" --data-urlencode "count=$limit" \
-        -H "X-Subscription-Token: $BRAVE" -H "Accept: application/json" \
-        | jq -c '[ (.web.results // [])[] | {title:.title, url:.url, source:"web", published:(.age // null), snippet:(.description // ""), media:{ref:.url}} ]'
+        -H "X-Subscription-Token: $BRAVE" -H "Accept: application/json")"; then
+        echo "web (brave) search request failed for '$query'" >&2; exit 1
+      fi
+      printf '%s' "$resp" | jq -c '[ (.web.results // [])[] | {title:.title, url:.url, source:"web", published:(.age // null), snippet:(.description // ""), media:{ref:.url}} ]'
     fi
     ;;
   fetch)

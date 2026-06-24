@@ -291,9 +291,11 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 /** One monitor pass: enumerate, diff against `seen` (mutated), capture+sense new items. */
 async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<OvercastRecord[]> {
   const hits = await enumerateAll(ctx);
-  const errorHits = hits.filter((h) => h.state === "error");
-  const realHits = hits.filter((h) => h.state !== "error");
-  const out: OvercastRecord[] = [...errorHits];
+  // a real hit is a scan.hit (ready/unstated); error AND needs_credentials
+  // enumerate results are failures, not items to capture/count/mark seen.
+  const failedHits = hits.filter((h) => h.state === "error" || h.state === "needs_credentials");
+  const realHits = hits.filter((h) => h.state !== "error" && h.state !== "needs_credentials");
+  const out: OvercastRecord[] = [...failedHits];
   const newHits: OvercastRecord[] = [];
   let newCount = 0;
   for (const hit of realHits) {
@@ -323,14 +325,17 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
       newHits.push(hit);
     }
   }
+  // a hard error → error; only setup gaps → needs_credentials; else ready.
+  const hardErrors = failedHits.filter((h) => h.state === "error").length;
+  const credGaps = failedHits.filter((h) => h.state === "needs_credentials").length;
   out.unshift(
     makeRecord({
       verb: "monitor",
       format: "json",
-      payload: { new_items: newCount, total_hits: realHits.length, seen_size: seen.size, source_errors: errorHits.length },
+      payload: { new_items: newCount, total_hits: realHits.length, seen_size: seen.size, source_errors: failedHits.length },
       meta: { provider: "monitor", case: ctx.case.dir },
-      state: errorHits.length ? "error" : "ready",
-      error: errorHits.length ? `${errorHits.length} source(s) failed to enumerate` : undefined,
+      state: hardErrors ? "error" : credGaps ? "needs_credentials" : "ready",
+      error: failedHits.length ? `${failedHits.length} source(s) failed or need credentials` : undefined,
     }),
   );
   // --brief: a short summary record of the new batch (only the genuinely new

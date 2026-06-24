@@ -61,7 +61,8 @@ case "$op" in
       # upload_date is extracted and the filter actually applies.
       case "$since" in
         *[0-9]m)                     da="today" ;;       # minutes → today's uploads
-        *[0-9]h)                     da="today-1day" ;;
+        *[0-9]h)                     hrs="${since%h}"; days=$(( hrs / 24 ));
+                                     [ "$days" -le 0 ] && da="today" || da="today-${days}days" ;;
         *[0-9]d)                     da="today-${since%d}days" ;;
         *[0-9]w)                     da="today-$(( ${since%w} * 7 ))days" ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) da="$(printf '%s' "$since" | tr -d -)" ;;

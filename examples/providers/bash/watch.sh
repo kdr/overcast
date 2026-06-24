@@ -15,9 +15,21 @@ esac
 
 # run: <provider> <input> --json    (overcast renders {{input}})
 input="${2:-${1}}"
-desc="$(tinycloud watch "$input" --json)"
+if ! desc="$(tinycloud watch "$input" --json)"; then
+  jq -n --arg ref "$input" '{verb:"watch",format:"json",payload:{content:"",transcript:"",detailed:null},media:{ref:$ref},meta:{provider:"tinycloud"},error:"tinycloud watch failed",state:"error"}'
+  exit 0
+fi
+# surface a tinycloud error envelope or an empty/missing result as an error,
+# rather than storing a failed analysis as a successful watch.
+err="$(jq -r '(.error // .data.error // (if (.status=="error" or .data.status=="error") then "tinycloud reported an error" else "" end)) // ""' <<<"$desc" 2>/dev/null)"
 content="$(jq -r '.data.summary // ""' <<<"$desc")"
-jq -n --arg c "$content" --argjson d "$(jq '.data' <<<"$desc")" --arg ref "$input" \
+data="$(jq -c '.data // null' <<<"$desc")"
+if [ -n "$err" ] || { [ -z "$content" ] && [ "$data" = "null" ]; }; then
+  jq -n --arg e "${err:-tinycloud watch produced no summary}" --arg ref "$input" \
+    '{verb:"watch",format:"json",payload:{content:"",transcript:"",detailed:null},media:{ref:$ref},meta:{provider:"tinycloud"},error:$e,state:"error"}'
+  exit 0
+fi
+jq -n --arg c "$content" --argjson d "$data" --arg ref "$input" \
   '{verb:"watch", format:"json",
     payload:{content:$c, transcript:"", detailed:$d},
     media:{ref:$ref}, meta:{provider:"tinycloud"}, state:"ready"}'
