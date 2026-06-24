@@ -232,11 +232,14 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // `overcast --format md commands`) is moved to AFTER the command, so tokens[0]
   // is the command and every handler (top-level commands/version + verb dispatch)
   // sees the flag via tokens.slice(1).
+  const VALID_FORMATS = new Set(["json", "md", "txt"]);
   const leadFlags: string[] = [];
   while (tokens.length > 1 && (tokens[0] === "--json" || tokens[0] === "--format")) {
     const f = tokens.shift() as string;
     leadFlags.push(f);
-    if (f === "--format" && tokens.length > 1 && !tokens[0].startsWith("-")) {
+    // only pull --format's value when it's a REAL format; otherwise the next
+    // token is the verb (`--format watch clip.mp4`), not the format value.
+    if (f === "--format" && tokens.length > 1 && VALID_FORMATS.has(tokens[0])) {
       leadFlags.push(tokens.shift() as string);
     }
   }

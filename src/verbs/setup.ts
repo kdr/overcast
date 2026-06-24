@@ -41,12 +41,21 @@ export function parseProviderSpec(spec: string): ProviderDescriptor {
 /** Build an exec descriptor, wiring the documented `<cmd> init` / `<cmd> describe`
  *  subcommands (providers.md) so `provider init`/`describe` actually run them. */
 function execDescriptor(run: string): ProviderDescriptor {
-  // the verb op is invoked as `<base> {{input}}`; init/describe are `<base> init`
-  // / `<base> describe` — strip a trailing {{input}} to get the base command.
-  const base = run.replace(/\s*\{\{\s*input\s*\}\}\s*$/, "").trim();
+  // Derive the bare base command: drop a trailing {{input}} and any trailing
+  // run/--input sentinel so init/describe attach to just the script.
+  const base = run
+    .replace(/\s*\{\{\s*input\s*\}\}\s*$/, "")
+    .replace(/\s+(?:run\s+)?--input\s*$/, "")
+    .replace(/\s+run\s*$/, "")
+    .trim();
   return {
     type: "exec",
-    run,
+    // Invoke the run op with an explicit --input, so the media path is NEVER
+    // argv[1] and a file literally named "init"/"describe" can't be mistaken for
+    // the subcommand. init/describe are `<base> init` / `<base> describe`. An
+    // EMPTY base (e.g. `exec:`) stays empty so dispatch coalesces to the default
+    // command instead of spawning a bare `--input …`.
+    run: base ? `${base} --input {{input}}` : run,
     init: { command: `${base} init` },
     describe: `${base} describe`,
   };

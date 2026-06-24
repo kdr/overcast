@@ -17,6 +17,7 @@ const GLOBAL_FLAGS = new Set(["--case", "--home", "--profile"]);
 // dispatch the verb instead of treating --json/--format as the command.
 const LEADING_VALUE_FLAGS = new Set(["--case", "--home", "--profile", "--format"]);
 const LEADING_BOOL_FLAGS = new Set(["--json"]);
+const VALID_FORMATS = new Set(["json", "md", "txt"]);
 
 /** The effective command token — the first arg after any leading global/output flags. */
 function effectiveCmd(argv: string[]): string | undefined {
@@ -31,9 +32,15 @@ function effectiveCmd(argv: string[]): string | undefined {
     } else {
       // space form: consume the value only if it isn't itself a flag — a
       // value-less global is malformed and must surface (reach the CLI), not be
-      // swallowed so the command token disappears and the TUI launches.
+      // swallowed so the command token disappears and the TUI launches. For
+      // --format the value must be a REAL format (json|md|txt); otherwise the
+      // next token is the verb (`overcast --format watch clip.mp4`), not a value.
       const v = argv[i + 1];
-      i += v !== undefined && !v.startsWith("-") ? 2 : 1;
+      if (name === "--format") {
+        i += v !== undefined && VALID_FORMATS.has(v) ? 2 : 1;
+      } else {
+        i += v !== undefined && !v.startsWith("-") ? 2 : 1;
+      }
     }
   }
   return argv[i];

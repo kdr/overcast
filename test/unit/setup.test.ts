@@ -17,9 +17,11 @@ function ctx(dir: string, home: string, input: string | undefined, rest: string[
 }
 
 test("parseProviderSpec handles exec / http / inproc / bare forms", () => {
+  // the run op is invoked with an explicit --input (documented contract) so a
+  // media path is never argv[1]; init/describe attach to the bare base command.
   assert.deepEqual(parseProviderSpec("exec:./p.sh"), {
     type: "exec",
-    run: "./p.sh",
+    run: "./p.sh --input {{input}}",
     init: { command: "./p.sh init" },
     describe: "./p.sh describe",
   });
@@ -27,9 +29,16 @@ test("parseProviderSpec handles exec / http / inproc / bare forms", () => {
   assert.deepEqual(parseProviderSpec("inproc:./m.ts"), { type: "inproc", module: "./m.ts" });
   assert.deepEqual(parseProviderSpec("python3 x.py"), {
     type: "exec",
-    run: "python3 x.py",
+    run: "python3 x.py --input {{input}}",
     init: { command: "python3 x.py init" },
     describe: "python3 x.py describe",
+  });
+  // a binding that already places {{input}} is normalized to the same --input form
+  assert.deepEqual(parseProviderSpec("exec:bash w.sh {{input}}"), {
+    type: "exec",
+    run: "bash w.sh --input {{input}}",
+    init: { command: "bash w.sh init" },
+    describe: "bash w.sh describe",
   });
 });
 

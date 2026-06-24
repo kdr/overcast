@@ -49,8 +49,10 @@ function main(argv: string[]): void {
   // args after [node, script]. Don't assume argv[2] is the op — under
   // `node --import tsx see.ts <op>` the loader/positions vary; parse by VALUE.
   const args = argv.slice(2);
-  if (args.includes("describe")) return describe();
-  if (args.includes("init")) return init();
+  // the subcommand is ONLY the first token — so an object label that happens to be
+  // "describe"/"init" (e.g. `--detect describe`) doesn't trigger a subcommand.
+  if (args[0] === "describe") return describe();
+  if (args[0] === "init") return init();
   let input = "";
   const opts: { ocr?: boolean; detect?: string } = {};
   for (let i = 0; i < args.length; i++) {
