@@ -3,7 +3,7 @@
 // the verb surface (invariant #5).
 
 import { writeFileSync, mkdirSync, existsSync, cpSync } from "node:fs";
-import { dirname, resolve, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { makeRecord } from "../record.js";
@@ -30,9 +30,16 @@ function resolvePackageRoot(): string | undefined {
   }
   // bun compiled binaries expose a virtual filesystem mount
   if (here.includes("$bunfs") || here.startsWith("/$") || here === "/") return undefined;
-  const root = resolve(here, "..", "..");
-  // a real package root has a package.json
-  return existsSync(join(root, "package.json")) ? root : undefined;
+  // Walk up looking for the package root (package.json), rather than assuming a
+  // fixed depth — the bundle may live at dist/bin/, dist/, src/verbs/, etc.
+  let dir = here;
+  for (let i = 0; i < 8; i++) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
 }
 
 const PKG_ROOT = resolvePackageRoot();
