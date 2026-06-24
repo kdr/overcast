@@ -25,6 +25,7 @@ import { runWatch } from "../providers/tinycloud/watch.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
+import { parseSince } from "../providers/memory/local.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
@@ -52,6 +53,12 @@ async function enumerateAll(ctx: VerbContext): Promise<OvercastRecord[]> {
     limit = n;
   }
   const since = ctx.opts.since ? String(ctx.opts.since) : undefined;
+  // an unparseable --since is a user error, not a silent "no time bound" — reject
+  // it here rather than forwarding a bogus value to source scripts (which each
+  // degrade differently).
+  if (since && parseSince(since) == null) {
+    return [err("scan", `invalid --since: ${since} (expected e.g. 24h, 7d, 2026-06-01)`)];
+  }
 
   if (sources.length === 0) {
     return [err("scan", "no sources registered/enabled (try `overcast source add <type>:<ref>`)")];

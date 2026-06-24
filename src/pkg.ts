@@ -10,7 +10,12 @@ import { existsSync } from "node:fs";
 export function shippedPath(...segments: string[]): string | undefined {
   try {
     let dir = dirname(fileURLToPath(import.meta.url));
-    if (dir.includes("$bunfs") || dir === "/") return undefined;
+    if (dir.includes("$bunfs") || dir === "/") {
+      // compiled bun binary: the source tree isn't embedded, but the bun-sidecar
+      // ships these resources next to the executable.
+      const beside = join(dirname(process.execPath), ...segments);
+      return existsSync(beside) ? beside : undefined;
+    }
     for (let i = 0; i < 8; i++) {
       const p = join(dir, ...segments);
       if (existsSync(p)) return p;

@@ -8,6 +8,8 @@ import { existsSync, writeFileSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
+import { execCapture, parseFirstJson } from "../providers/exec.js";
+import { tokenizeCommand } from "../providers/sources/index.js";
 import {
   probe,
   enhance as ffEnhance,
@@ -130,6 +132,34 @@ export const seeVerb: VerbSpec = {
     if (ctx.opts.detect) extraArgs.push("--detect", String(ctx.opts.detect));
     if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
     if (isCustomBinding(binding)) {
+      // --detect needs a detection-capable provider. If the bound provider's
+      // `describe` clearly declares no detection (no "detections" payload / detect
+      // task), fail fast instead of handing --detect to a captioner that ignores
+      // it and returns a caption. Lenient: an unavailable/unparseable describe just
+      // proceeds (don't block a working provider on a describe hiccup).
+      if (ctx.opts.detect && binding!.describe) {
+        const dp = tokenizeCommand(binding!.describe);
+        const dres = await execCapture(dp[0], dp.slice(1), { signal: ctx.signal, timeoutMs: 30_000 }).catch(() => undefined);
+        if (dres && dres.code === 0) {
+          const d = parseFirstJson(dres.stdout) as Record<string, unknown> | undefined;
+          const payload = d && Array.isArray(d.payload) ? (d.payload as unknown[]) : [];
+          const task = d && typeof d.task === "string" ? d.task : "";
+          if (!payload.includes("detections") && !/detect/i.test(task)) {
+            return [
+              makeRecord({
+                verb: "see",
+                format: "json",
+                payload: { caption: "", ocr: "", detections: [], detect: String(ctx.opts.detect) },
+                error:
+                  "the bound see provider doesn't support --detect (its describe declares no detections); " +
+                  "bind a detector, e.g. `overcast setup provider see \"exec:python3 examples/providers/detect/detect.py\"`.",
+                state: "error",
+                meta: { case: ctx.case.dir },
+              }),
+            ];
+          }
+        }
+      }
       const rec = await runBoundProvider("see", binding!, resolvedRef, {
         env: seeEnv,
         extraArgs,

@@ -19,7 +19,11 @@ import { makeRecord, type OvercastRecord } from "../../record.js";
 function shippedSource(file: string): string | undefined {
   try {
     let dir = dirname(fileURLToPath(import.meta.url));
-    if (dir.includes("$bunfs") || dir === "/") return undefined; // bun binary
+    if (dir.includes("$bunfs") || dir === "/") {
+      // compiled bun binary: scripts are shipped beside the executable (bun-sidecar)
+      const beside = join(dirname(process.execPath), "examples", "providers", "sources", file);
+      return existsSync(beside) ? beside : undefined;
+    }
     for (let i = 0; i < 8; i++) {
       const p = join(dir, "examples", "providers", "sources", file);
       if (existsSync(p)) return p;

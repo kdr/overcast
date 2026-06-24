@@ -7,7 +7,7 @@
 //      reads them on every TUI/headless launch and HARD-CRASHES if missing
 //      (ENOENT … /theme/dark.json), which broke the binary's agent mode.
 // We copy both here so the compiled binary is self-sufficient.
-import { writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, copyFileSync, existsSync, cpSync } from "node:fs";
 import { join } from "node:path";
 
 const OUT = "dist/bin";
@@ -44,4 +44,19 @@ try {
 } catch (e) {
   console.error(`[build:bun] WARNING: could not copy pi builtin themes (${e.message}); the binary's TUI may crash on launch`);
 }
-console.error(`[build:bun] wrote ${OUT}/package.json + ${copied} builtin theme file(s)`);
+
+// 3) example provider scripts → dist/bin/examples/providers/. The compiled binary
+// can't read the bundled source tree (/$bunfs), so shippedPath()/shippedSource()
+// resolve these from beside the executable — needed for the builtin youtube/tiktok/
+// web sources and the turnkey Hugging Face `see`.
+let providers = 0;
+try {
+  const src = join(process.cwd(), "examples", "providers");
+  if (existsSync(src)) {
+    cpSync(src, join(OUT, "examples", "providers"), { recursive: true });
+    providers = 1;
+  }
+} catch (e) {
+  console.error(`[build:bun] WARNING: could not copy example providers (${e.message}); builtin sources won't resolve on the binary`);
+}
+console.error(`[build:bun] wrote ${OUT}/package.json + ${copied} builtin theme file(s)${providers ? " + example providers" : ""}`);
