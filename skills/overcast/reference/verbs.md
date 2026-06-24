@@ -146,6 +146,7 @@ Options:
   --limit <number>       Max hits per source
   --pull                 Auto-capture + sense each hit
   --pipe <string>        Sense to run on pulled hits (watch|listen)
+  --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -189,6 +190,7 @@ overcast monitor  [options]
 Options:
   --source <string>      Restrict to source ids/types
   --pipe <string>        Sense to run on new items (watch|listen)
+  --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --once                 Single diff pass then exit
   --every <string>       Continuous loop cadence (e.g. 15m, 6h)
   --brief                Summarize the new batch into a brief record

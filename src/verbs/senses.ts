@@ -16,28 +16,16 @@ import {
   parseFrameRef,
   modalityFromExt,
   spectrogram as ffSpectrogram,
-  FFMPEG_PATH,
-  FFPROBE_PATH,
   type EnhanceOp,
   type Modality,
 } from "../media/ffmpeg.js";
 import { openHtmlPlayer, osOpen } from "../media/view.js";
+import { providerEnv } from "../providers/provider-env.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function hfToken(): string | undefined {
   return process.env.HF_TOKEN || process.env.HUGGING_FACE_HUB_TOKEN || undefined;
-}
-
-/** Env passed to sense exec providers: the case media dir + the vendored ffmpeg
- *  binaries, so a provider can extract video frames without a system ffmpeg. */
-function providerEnv(mediaDir: string): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    OVERCAST_MEDIA_DIR: mediaDir,
-    OVERCAST_FFMPEG: FFMPEG_PATH,
-    OVERCAST_FFPROBE: FFPROBE_PATH,
-  };
 }
 
 // ---- listen ----------------------------------------------------------------
@@ -74,6 +62,7 @@ export const listenVerb: VerbSpec = {
     if (ctx.opts.lang) extraArgs.push("--lang", String(ctx.opts.lang));
     const rec = isCustomBinding(binding)
       ? await runBoundProvider("listen", binding!, ctx.input, {
+          env: providerEnv(ctx.case.mediaDir),
           extraArgs,
           timeoutMs: 15 * 60_000,
           signal: ctx.signal,

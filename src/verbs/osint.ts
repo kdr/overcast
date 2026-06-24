@@ -24,6 +24,7 @@ import { loadSeen, saveSeen, hitKey } from "../state/seen.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
+import { providerEnv } from "../providers/provider-env.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
@@ -98,6 +99,7 @@ export const scanVerb: VerbSpec = {
     { name: "limit", summary: "Max hits per source", type: "number" },
     { name: "pull", summary: "Auto-capture + sense each hit", type: "boolean" },
     { name: "pipe", summary: "Sense to run on pulled hits (watch|listen)", type: "string" },
+    { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -228,13 +230,23 @@ async function pipeSense(
     // record-mapping isn't bypassed (custom → pass-through; default → mapper).
     // Use the same generous 15-min timeout the standalone verbs give exec
     // providers, so long media doesn't time out under pull/monitor.
+    // honor --describe (listen audio-scene) when piping, matching `listen --describe`
+    const describe = ctx.opts.describe === true;
+    const extraArgs = verb === "listen" && describe ? ["--describe"] : [];
     let r: OvercastRecord;
     if (isCustomBinding(binding)) {
-      r = await runBoundProvider(verb, binding!, ref, { signal: ctx.signal, timeoutMs: 15 * 60_000 });
+      // pass the case media dir + vendored ffmpeg/ffprobe (like see/enhance), so a
+      // bound provider can extract frames / write into .overcast/media here too.
+      r = await runBoundProvider(verb, binding!, ref, {
+        env: providerEnv(ctx.case.mediaDir),
+        extraArgs,
+        signal: ctx.signal,
+        timeoutMs: 15 * 60_000,
+      });
     } else if (verb === "watch") {
       r = await runWatch(ref, { run: binding?.run, signal: ctx.signal });
     } else {
-      r = await runListen(ref, { run: binding?.run, signal: ctx.signal });
+      r = await runListen(ref, { run: binding?.run, describe, signal: ctx.signal });
     }
     r.meta = { ...r.meta, case: ctx.case.dir };
     return r;
@@ -417,6 +429,7 @@ export const monitorVerb: VerbSpec = {
   flags: [
     { name: "source", summary: "Restrict to source ids/types", type: "string" },
     { name: "pipe", summary: "Sense to run on new items (watch|listen)", type: "string" },
+    { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
     { name: "once", summary: "Single diff pass then exit", type: "boolean" },
     { name: "every", summary: "Continuous loop cadence (e.g. 15m, 6h)", type: "string" },
     { name: "brief", summary: "Summarize the new batch into a brief record", type: "boolean" },

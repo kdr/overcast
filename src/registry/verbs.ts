@@ -5,6 +5,7 @@
 import { makeRecord } from "../record.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
+import { providerEnv } from "../providers/provider-env.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
 import {
   scanVerb,
@@ -52,7 +53,7 @@ export const watchVerb: VerbSpec = {
     // A custom provider already emits a record → dispatch by transport. Only the
     // tinycloud default needs envelope→record mapping.
     const rec = isCustomBinding(binding)
-      ? await runBoundProvider("watch", binding!, ctx.input, { timeoutMs: 15 * 60_000, signal: ctx.signal })
+      ? await runBoundProvider("watch", binding!, ctx.input, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal })
       : await runWatch(ctx.input, { run: binding?.run, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     return [rec];
