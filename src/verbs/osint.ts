@@ -498,9 +498,14 @@ export const monitorVerb: VerbSpec = {
           saveSeen(ctx.case, seen);
         }
         for (const r of recs) {
-          const k = recKey(r);
-          if (emitted.has(k)) continue; // recurring record → emitted on an earlier pass
-          emitted.add(k);
+          // a per-pass monitor SUMMARY is always emitted (consecutive passes can
+          // legitimately repeat the same payload); only hit/error records dedupe
+          // so a recurring enumerate error isn't re-persisted/re-streamed each pass.
+          if (r.verb !== "monitor") {
+            const k = recKey(r);
+            if (emitted.has(k)) continue;
+            emitted.add(k);
+          }
           ctx.case.writeRecord(r);
           process.stdout.write(streamRender(r) + "\n");
           if (r.verb !== "monitor") writeAlert([r]); // file sink only (no-op for stdout)

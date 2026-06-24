@@ -81,5 +81,5 @@ case "$op" in
       exit 1
     fi
     ;;
-  *) echo "{}" ;;
+  *) echo "web source: unknown op (expected enumerate|fetch|init|describe)" >&2; exit 2 ;;
 esac

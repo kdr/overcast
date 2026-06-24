@@ -77,15 +77,16 @@ case "$op" in
     errf="$(mktemp)"
     # shellcheck disable=SC2086
     raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>"$errf")"; code=$?
-    # A hard failure (exit≠0 with a yt-dlp ERROR) is NOT a normal result — even if
-    # SOME JSON lines were printed before it failed. Surface it as an enumerate
-    # error rather than mapping a partial/broken result as a clean scan.
-    if [ "$code" -ne 0 ] && grep -q 'ERROR' "$errf"; then
-      echo "youtube enumerate failed: $(tail -3 "$errf" | tr '\n' ' ')" >&2
+    # ANY non-zero yt-dlp exit is a failure (network, auth, unavailable, partial),
+    # even with no "ERROR" line or some JSON already printed — surface it as an
+    # enumerate error rather than a clean/partial scan. A successful run that
+    # simply found nothing exits 0 with empty stdout (handled below).
+    if [ "$code" -ne 0 ]; then
+      echo "youtube enumerate failed (yt-dlp exit $code): $(tail -3 "$errf" | tr '\n' ' ')" >&2
       rm -f "$errf"; exit 1
     fi
     rm -f "$errf"
-    # empty stdout with no hard error = legitimate ZERO-result search/playlist.
+    # exit 0 + empty stdout = legitimate ZERO-result search/playlist.
     [ -z "$raw" ] && { echo '[]'; exit 0; }
     printf '%s\n' "$raw" \
       | jq -sc '[ .[] | {
@@ -119,5 +120,5 @@ case "$op" in
     jq -nc --arg p "$real" --arg u "$url" '{kind:"video",path:$p,source:"youtube",url:$u}'
     ;;
 
-  *) echo "{}" ;;
+  *) echo "youtube source: unknown op (expected enumerate|fetch|init|describe)" >&2; exit 2 ;;
 esac

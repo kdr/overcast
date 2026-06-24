@@ -85,5 +85,5 @@ case "$op" in
     else
       echo "tiktok fetch failed for $url" >&2; exit 1
     fi ;;
-  *) echo "{}" ;;
+  *) echo "tiktok source: unknown op (expected enumerate|fetch|init|describe)" >&2; exit 2 ;;
 esac
