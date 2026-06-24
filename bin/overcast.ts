@@ -7,14 +7,29 @@ import { runCli } from "../src/cli.js";
 import { findVerb } from "../src/registry/verbs.js";
 
 const KNOWN_TOP = new Set(["version", "commands"]);
+const GLOBAL_FLAGS = new Set(["--case", "--home", "--profile"]);
 
 function isCliDispatch(argv: string[]): boolean {
-  const cmd = argv[0];
-  if (!cmd) return false;
-  if (argv.includes("--version") || argv.includes("-v")) return true;
+  // Global flags may lead the invocation (`overcast --case /dir watch …`).
+  // Skip them (and their values) to find the effective command token.
+  let i = 0;
+  while (i < argv.length) {
+    const t = argv[i];
+    const name = t.includes("=") ? t.slice(0, t.indexOf("=")) : t;
+    if (!GLOBAL_FLAGS.has(name)) break;
+    i += t.includes("=") ? 1 : 2; // attached form: flag only; space form: flag + value
+  }
+  const cmd = argv[i];
+  if (!cmd) return false; // only globals / no args → launch the TUI
+  // A version request is CLI only when it is the command itself, so headless
+  // pi usage like `overcast -p "…" -v` still launches the agent.
+  if (cmd === "--version" || cmd === "-v") return true;
   if (KNOWN_TOP.has(cmd)) return true;
   if (findVerb(cmd)) return true;
-  return false;
+  // A leading non-flag token is a command — route mistyped verbs to the CLI so
+  // it reports "unknown command" instead of silently launching the TUI.
+  if (!cmd.startsWith("-")) return true;
+  return false; // leading pi flag (e.g. -p) → TUI
 }
 
 async function launchTui(argv: string[]): Promise<void> {

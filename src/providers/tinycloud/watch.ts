@@ -111,9 +111,25 @@ export async function runWatch(
   input: string,
   opts: WatchOptions = {},
 ): Promise<OvercastRecord> {
-  const template = opts.run ?? DEFAULT_RUN;
+  // An empty/whitespace run template (e.g. a profile binding set to "") must
+  // fall back to the default — `?? DEFAULT_RUN` alone would keep "".
+  const template = opts.run && opts.run.trim() ? opts.run : DEFAULT_RUN;
   const argv = renderCommand(template, { input });
   const [cmd, ...args] = argv;
+
+  // A template that renders to no command (all tokens dropped) would reject at
+  // spawn and throw; surface it as a normal error record like other failures.
+  if (!cmd) {
+    return makeRecord({
+      verb: "watch",
+      format: "json",
+      payload: { content: "", transcript: "", detailed: null },
+      media: { ref: input },
+      meta: { provider: "tinycloud", model: "cloudglue" },
+      error: `watch run template produced an empty command: ${JSON.stringify(template)}`,
+      state: "error",
+    });
+  }
 
   const res = await execCapture(cmd, args, {
     // full multimodal describe is legitimately slow; allow generous headroom.

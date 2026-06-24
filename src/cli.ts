@@ -8,7 +8,7 @@ import { toJSON, type VerbContext } from "./registry/types.js";
 import { parseVerbArgs, renderVerbHelp } from "./registry/to-cli.js";
 import { openCase } from "./case.js";
 import { loadProfile, type HomeOptions } from "./profile.js";
-import type { OvercastRecord } from "./record.js";
+import { makeRecord, type OvercastRecord } from "./record.js";
 
 export interface CliIO {
   out: (s: string) => void;
@@ -30,33 +30,41 @@ function extractGlobals(argv: string[]): {
 } {
   const rest: string[] = [];
   const errors: string[] = [];
-  let caseDir: string | undefined;
-  let home: string | undefined;
-  let profile: string | undefined;
-  // each global REQUIRES a value; a missing value (end of argv or a following
-  // flag) is an error rather than silently consuming nothing / the next flag.
-  const take = (name: string, i: number): string | undefined => {
-    const v = argv[i + 1];
-    if (v === undefined || v.startsWith("--")) {
-      errors.push(`${name} requires a value`);
-      return undefined;
-    }
-    return v;
-  };
+  const values: Record<string, string> = {};
+  const GLOBALS = ["--case", "--home", "--profile"];
+  // Each global REQUIRES a value, supplied either as `--case /path` or the
+  // attached `--case=/path` form. A missing value (end of argv or a following
+  // flag) is an error — and we must NOT swallow that following flag.
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
-    if (t === "--case") {
-      caseDir = take("--case", i);
-      i++;
-    } else if (t === "--home") {
-      home = take("--home", i);
-      i++;
-    } else if (t === "--profile") {
-      profile = take("--profile", i);
-      i++;
-    } else rest.push(t);
+    const eq = t.indexOf("=");
+    const name = eq >= 0 ? t.slice(0, eq) : t;
+    if (!GLOBALS.includes(name)) {
+      rest.push(t);
+      continue;
+    }
+    if (eq >= 0) {
+      const v = t.slice(eq + 1);
+      if (v === "") errors.push(`${name} requires a value`);
+      else values[name] = v;
+    } else {
+      const v = argv[i + 1];
+      if (v === undefined || v.startsWith("-")) {
+        // leave the following token for normal parsing — don't advance i.
+        errors.push(`${name} requires a value`);
+      } else {
+        values[name] = v;
+        i++; // consume the value
+      }
+    }
   }
-  return { rest, caseDir, home, profile, errors };
+  return {
+    rest,
+    caseDir: values["--case"],
+    home: values["--home"],
+    profile: values["--profile"],
+    errors,
+  };
 }
 
 function renderRecord(rec: OvercastRecord, format: string): string {
@@ -78,11 +86,16 @@ function renderRecord(rec: OvercastRecord, format: string): string {
 
 /** Run the CLI. Returns a process exit code. */
 export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<number> {
-  const cmd = argv[0];
+  // Global flags may appear anywhere — including before the verb
+  // (`overcast --case /dir watch v.mp4`). Strip them up front, then treat the
+  // first remaining token as the command.
+  const { rest: tokens, caseDir, home, profile, errors: globalErrors } =
+    extractGlobals(argv);
+  const cmd = tokens[0];
 
   // version
-  if (cmd === "version" || argv.includes("--version") || argv.includes("-v")) {
-    const json = argv.includes("--json");
+  if (cmd === "version" || tokens.includes("--version") || tokens.includes("-v")) {
+    const json = tokens.includes("--json");
     io.out(
       json
         ? JSON.stringify(versionInfo()) + "\n"
@@ -93,7 +106,7 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
 
   // commands --json: dump the registry (source of truth)
   if (cmd === "commands") {
-    const json = argv.includes("--json");
+    const json = tokens.includes("--json");
     const specs = VERBS.map(toJSON);
     if (json) {
       io.out(JSON.stringify({ verbs: specs }, null, 2) + "\n");
@@ -106,15 +119,19 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // verb dispatch
   const spec = cmd ? findVerb(cmd) : undefined;
   if (spec) {
-    const { rest, caseDir, home, profile, errors: globalErrors } = extractGlobals(argv.slice(1));
-    const parsed = parseVerbArgs(spec, rest);
+    // Validate globals before anything else (including --help): an invalid
+    // global like a value-less `--case` is an error regardless.
+    if (globalErrors.length) {
+      for (const e of globalErrors) io.err(`overcast ${spec.name}: ${e}\n`);
+      return 2;
+    }
+    const parsed = parseVerbArgs(spec, tokens.slice(1));
     if (parsed.help) {
       io.out(renderVerbHelp(spec));
       return 0;
     }
-    const allErrors = [...globalErrors, ...parsed.errors];
-    if (allErrors.length) {
-      for (const e of allErrors) io.err(`overcast ${spec.name}: ${e}\n`);
+    if (parsed.errors.length) {
+      for (const e of parsed.errors) io.err(`overcast ${spec.name}: ${e}\n`);
       return 2;
     }
     const homeOpts: HomeOptions = { home, profile };
@@ -132,6 +149,16 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
     try {
       records = await spec.run(ctx);
     } catch (e) {
+      // Spawn failure / timeout / abort: persist an error record like provider
+      // non-zero exits do, so the case store reflects the attempt.
+      const rec = makeRecord({
+        verb: spec.name,
+        format: "json",
+        payload: {},
+        error: (e as Error).message,
+        state: "error",
+      });
+      c.writeRecord(rec);
       io.err(`overcast ${spec.name}: ${(e as Error).message}\n`);
       return 1;
     }
