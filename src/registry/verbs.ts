@@ -15,6 +15,7 @@ import {
   prebriefVerb,
 } from "../verbs/osint.js";
 import { askVerb, briefVerb } from "../verbs/read.js";
+import { caseVerb } from "../verbs/case.js";
 import { setupVerb, providerVerb, doctorVerb } from "../verbs/setup.js";
 import { skillsVerb } from "../verbs/skills.js";
 import type { VerbSpec } from "./types.js";
@@ -73,6 +74,7 @@ export const VERBS: VerbSpec[] = [
   prebriefVerb,
   askVerb,
   briefVerb,
+  caseVerb,
   setupVerb,
   providerVerb,
   doctorVerb,

@@ -289,6 +289,34 @@ Options:
 
 Emits `source` records.
 
+### `overcast case`
+
+A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers.
+
+```
+overcast case <action> [arg] [options]
+
+  Inspect/manage the current case: init | info | records | memory.
+
+  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers.
+
+Arguments:
+  action           init | info | records | memory
+  arg              dir (init), record id (memory get), or query (memory search)
+
+Options:
+  --name <string>        Case name (init)
+  --verb <string>        Filter records by kind
+  --since <string>       Time filter (e.g. 24h, 2026-06-01)
+  --limit <number>       Max records/passages
+  --json                 JSON output
+  --format <string>      json | md | txt
+  --json               JSON output
+  --format <fmt>       json | md | txt
+```
+
+Emits `case` records.
+
 ## Config
 
 ### `overcast prebrief`
