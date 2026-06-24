@@ -4,6 +4,7 @@
 
 import { join, basename } from "node:path";
 import { copyFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import {
   builtinDescriptor,
@@ -111,6 +112,16 @@ export const scanVerb: VerbSpec = {
 
 // ---- capture ---------------------------------------------------------------
 
+/** A collision-resistant output filename for a URL download. Many URLs share a
+ *  basename (e.g. every `youtube.com/watch?v=…` → `watch`), so distinguish by a
+ *  short hash of the full URL while preserving any extension. */
+function uniqueName(url: string): string {
+  const base = basename(url.split("?")[0]) || "download";
+  const h = createHash("sha1").update(url).digest("hex").slice(0, 8);
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? `${base.slice(0, dot)}_${h}${base.slice(dot)}` : `${base}_${h}`;
+}
+
 /** The source provider type a scan.hit came from (from its meta.provider). */
 function hitSourceType(rec: OvercastRecord | undefined): string | undefined {
   const prov = rec?.meta?.provider;
@@ -156,7 +167,7 @@ async function captureRef(
   if (!desc) {
     return err("capture", `no source provider can fetch ${ref} (source type '${type}')`);
   }
-  const dest = opts.out ? opts.out : join(outDir, basename(ref.split("?")[0]) || "download");
+  const dest = opts.out ? opts.out : join(outDir, uniqueName(ref));
   return fetchSource(desc, { url: ref, out: dest, signal: ctx.signal });
 }
 
@@ -196,10 +207,16 @@ export const captureVerb: VerbSpec = {
   providerKey: "capture",
   run: async (ctx) => {
     if (!ctx.input) return [err("capture", "capture requires a ref (URL/path/scan.hit id)")];
-    // resolve a scan.hit record id → its media ref (and source provider)
+    // resolve a scan.hit record id → its media ref (and source provider). Fall
+    // back to payload.url when the hit has a url but no media field (matches
+    // hitKey/hitsToRecords).
     let ref = ctx.input;
     const rec = ctx.case.recordById(ctx.input);
     if (rec?.media?.ref) ref = rec.media.ref;
+    else if (rec && typeof rec.payload === "object") {
+      const url = (rec.payload as Record<string, unknown>).url;
+      if (typeof url === "string" && url) ref = url;
+    }
     const cap = await captureRef(ctx, ref, {
       sourceType: hitSourceType(rec),
       out: ctx.opts.out ? String(ctx.opts.out) : undefined,
@@ -242,30 +259,35 @@ export const monitorVerb: VerbSpec = {
     // surface enumerate errors so a dead source can't read as "nothing new"
     const out: OvercastRecord[] = [...errorHits];
     let newCount = 0;
-    for (const hit of realHits) {
-      const key = hitKey(hit);
-      if (seen.has(key)) continue;
-      out.push(hit);
-      // Only mark an item seen once it has been processed (no capturable media,
-      // or capture succeeded). A failed capture stays unseen so a later pass can
-      // retry it instead of silently dropping it.
-      let captureFailed = false;
-      if (hit.media?.ref) {
-        const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
-        out.push(cap);
-        if (cap.state !== "error" && cap.media?.ref) {
-          const sensed = await pipeSense(ctx, ctx.opts.pipe ? String(ctx.opts.pipe) : "watch", cap.media.ref);
-          if (sensed) out.push(sensed);
-        } else {
-          captureFailed = true;
+    // Persist the seen-set even if processing throws mid-pass, so accumulated
+    // progress isn't lost (each item is only marked seen after it succeeds).
+    try {
+      for (const hit of realHits) {
+        const key = hitKey(hit);
+        if (seen.has(key)) continue;
+        out.push(hit);
+        // Only mark an item seen once it has been processed (no capturable
+        // media, or capture succeeded). A failed capture stays unseen so a later
+        // pass can retry it instead of silently dropping it.
+        let captureFailed = false;
+        if (hit.media?.ref) {
+          const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
+          out.push(cap);
+          if (cap.state !== "error" && cap.media?.ref) {
+            const sensed = await pipeSense(ctx, ctx.opts.pipe ? String(ctx.opts.pipe) : "watch", cap.media.ref);
+            if (sensed) out.push(sensed);
+          } else {
+            captureFailed = true;
+          }
+        }
+        if (!captureFailed) {
+          seen.add(key);
+          newCount++;
         }
       }
-      if (!captureFailed) {
-        seen.add(key);
-        newCount++;
-      }
+    } finally {
+      saveSeen(ctx.case, seen);
     }
-    saveSeen(ctx.case, seen);
     // a summary record so callers can see the diff result at a glance. When a
     // source failed to enumerate, the summary state reflects that (a scheduler
     // must not read a broken source as a clean "nothing new").

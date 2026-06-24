@@ -175,7 +175,11 @@ export async function fetchSource(
   }
   // provider may emit its own capture record; else synthesize from the out path.
   const parsed = parseFirstJson(res.stdout) as Record<string, unknown> | undefined;
-  const path = (parsed?.path as string) ?? (parsed?.media as { ref?: string })?.ref ?? opts.out;
+  const reported = (parsed?.path as string) ?? (parsed?.media as { ref?: string })?.ref;
+  // Prefer whichever of the reported path / --out actually exists: a provider
+  // that writes to --out but returns a different/relative `path` shouldn't read
+  // as a failed capture. Only error when NEITHER file is present.
+  const path = reported && existsSync(reported) ? reported : opts.out;
   // A provider can exit 0 yet leave no file on disk — don't report a ready
   // capture for media that isn't there.
   if (!existsSync(path)) {
@@ -183,7 +187,7 @@ export async function fetchSource(
       verb: "capture",
       format: "json",
       payload: { url: opts.url, source: desc.type, path },
-      error: `source ${desc.type} fetch reported success but no file at ${path}`,
+      error: `source ${desc.type} fetch reported success but no file at ${path}${reported && reported !== path ? ` (or ${reported})` : ""}`,
       state: "error",
     });
   }
