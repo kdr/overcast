@@ -124,7 +124,15 @@ export const caseVerb: VerbSpec = {
       if (sub === "search") {
         const q = ctx.rest.slice(1).join(" ");
         if (!q) return [err("case memory search <query>")];
-        const passages = await providers[0].query(q, { limit: ctx.opts.limit != null ? Number(ctx.opts.limit) : 8 });
+        let limit = 8;
+        if (ctx.opts.limit != null) {
+          const n = Number(ctx.opts.limit);
+          if (!Number.isFinite(n) || n <= 0) {
+            return [err(`case memory search: invalid --limit '${ctx.opts.limit}' (expected a positive number)`)];
+          }
+          limit = n;
+        }
+        const passages = await providers[0].query(q, { limit });
         return [makeRecord({ verb: "case", format: "json", payload: { query: q, passages }, state: "ready" })];
       }
       return [err("usage: case memory <list|get|search> [arg]")];

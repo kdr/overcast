@@ -437,6 +437,7 @@ export const monitorVerb: VerbSpec = {
   args: [],
   flags: [
     { name: "source", summary: "Restrict to source ids/types", type: "string" },
+    { name: "query", summary: "Ad-hoc keyword search across sources", type: "string" },
     { name: "since", summary: "Only items newer than e.g. 24h, 2026-06-01", type: "string" },
     { name: "limit", summary: "Max hits per source", type: "number" },
     { name: "pipe", summary: "Sense to run on new items (watch|listen)", type: "string" },

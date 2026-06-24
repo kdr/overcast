@@ -189,6 +189,7 @@ overcast monitor  [options]
 
 Options:
   --source <string>      Restrict to source ids/types
+  --query <string>       Ad-hoc keyword search across sources
   --since <string>       Only items newer than e.g. 24h, 2026-06-01
   --limit <number>       Max hits per source
   --pipe <string>        Sense to run on new items (watch|listen)
