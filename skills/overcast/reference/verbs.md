@@ -79,14 +79,14 @@ Emits `image.analysis` records.
 
 ### `overcast enhance`
 
-Deterministic, modality-dispatched ops on the bundled ffmpeg. Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
+Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
 
 ```
 overcast enhance <input> [options]
 
-  Produce better media (denoise/normalize/upscale/...) via the internal ffmpeg toolkit.
+  Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 
-  Deterministic, modality-dispatched ops on the bundled ffmpeg. Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
+  Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
 
 Arguments:
   input            Media file path
@@ -130,14 +130,14 @@ Emits `view` records.
 
 ### `overcast scan`
 
-Enumerates the case's enabled sources for the active target (or --query). With --pull, each hit is immediately captured and routed to a sense (one-shot recon).
+Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon).
 
 ```
 overcast scan  [options]
 
   Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
 
-  Enumerates the case's enabled sources for the active target (or --query). With --pull, each hit is immediately captured and routed to a sense (one-shot recon).
+  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon).
 
 Options:
   --query <string>       Ad-hoc keyword search across sources

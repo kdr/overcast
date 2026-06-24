@@ -173,10 +173,12 @@ export const seeVerb: VerbSpec = {
 export const enhanceVerb: VerbSpec = {
   name: "enhance",
   group: "sense",
-  summary: "Produce better media (denoise/normalize/upscale/...) via the internal ffmpeg toolkit.",
+  summary: "Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.",
   description:
-    "Deterministic, modality-dispatched ops on the bundled ffmpeg. Emits a media.enhanced " +
-    "record whose media.ref is the output path — chain it into watch/listen/see.",
+    "Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/" +
+    "voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration " +
+    "via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice " +
+    "isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.",
   args: [{ name: "input", summary: "Media file path", required: true }],
   flags: [
     { name: "ops", summary: "Comma list of ops (denoise,normalize,upscale,...)", type: "string" },

@@ -21,7 +21,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `watch` — Analyze a video into a reusable, time-anchored record (content/transcript/detailed).
 - `listen` — Transcribe and analyze audio (or a video's audio track) into an audio.analysis record.
 - `see` — Understand an image or a single video frame (caption, OCR, detections).
-- `enhance` — Produce better media (denoise/normalize/upscale/...) via the internal ffmpeg toolkit.
+- `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `scan` — Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.

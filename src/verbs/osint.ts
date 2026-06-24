@@ -87,8 +87,9 @@ export const scanVerb: VerbSpec = {
   group: "osint",
   summary: "Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).",
   description:
-    "Enumerates the case's enabled sources for the active target (or --query). With --pull, each hit " +
-    "is immediately captured and routed to a sense (one-shot recon).",
+    "Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit " +
+    "--query overrides, and the active target is the fallback when a source has no ref. With --pull, " +
+    "each AV hit is immediately captured and routed to a sense (one-shot recon).",
   args: [],
   flags: [
     { name: "query", summary: "Ad-hoc keyword search across sources", type: "string" },

@@ -102,18 +102,43 @@ const GROUP_TITLES: Record<VerbSpec["group"], string> = {
 // files), so these reach provider scripts too.
 const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
   {
-    title: "overcast / perception + sources",
+    title: "overcast — default perception backend (tinycloud / Cloudglue)",
     vars: [
       ["CLOUDGLUE_API_KEY", "Cloudglue key for the default watch/listen backend + turnkey brain (else ~/.tinycloud/config.json)"],
       ["CLOUDGLUE_BASE_URL", "Cloudglue endpoint (default https://api.cloudglue.dev)"],
-      ["APIFY_TOKEN", "Apify token for the tiktok source provider"],
-      ["HF_TOKEN / HUGGING_FACE_HUB_TOKEN", "Hugging Face token — default `see` captioner (vision-LLM) + opt-in image `enhance` (routed to fal-ai)"],
-      ["FAL_KEY", "fal.ai key — opt-in providers: see (florence-2), enhance image (esrgan) + audio (deepfilternet3)"],
-      ["ELEVENLABS_API_KEY", "ElevenLabs key — opt-in providers: listen (Scribe STT) + enhance audio (voice isolator)"],
-      ["HF_SEE_MODEL / HF_ENHANCE_IMAGE_MODEL / FAL_SEE_MODEL / FAL_ENHANCE_*_MODEL", "override provider models for see/enhance"],
-      ["OVERCAST_HOME", "overcast home for profiles (default ~/.overcast)"],
+    ],
+  },
+  {
+    title: "overcast — opt-in sense providers (bind via `setup provider <verb> <spec>`)",
+    vars: [
+      ["HF_TOKEN / HUGGING_FACE_HUB_TOKEN", "Hugging Face token — turnkey `see` (vision-LLM caption/OCR) + `enhance` (image upscale)"],
+      ["HF_SEE_MODEL", "HF see model (default google/gemma-3-27b-it)"],
+      ["HF_ENHANCE_IMAGE_MODEL / HF_ENHANCE_AUDIO_MODEL / HF_ENHANCE_ENDPOINT", "HF enhance model + router endpoint overrides"],
+      ["FAL_KEY / FAL_API_KEY", "fal.ai key — see (florence-2), enhance image (esrgan) + audio (deepfilternet3)"],
+      ["FAL_SEE_MODEL / FAL_ENHANCE_IMAGE_MODEL / FAL_ENHANCE_AUDIO_MODEL", "fal model overrides"],
+      ["ELEVENLABS_API_KEY / XI_API_KEY", "ElevenLabs key — listen (Scribe STT) + enhance audio (voice isolation)"],
+      ["ELEVENLABS_STT_MODEL", "ElevenLabs speech-to-text model (default scribe_v1)"],
+    ],
+  },
+  {
+    title: "overcast — OSINT source providers",
+    vars: [
+      ["TAVILY_API_KEY", "Tavily key for the `web` search source (preferred)"],
+      ["BRAVE_API_KEY", "Brave Search key for the `web` source (fallback)"],
+      ["APIFY_TOKEN", "Apify token for the `tiktok` source (enumerate); fetch uses yt-dlp"],
       ["OVERCAST_SOURCE_<TYPE>_CMD", "Override/add a source provider command (e.g. OVERCAST_SOURCE_YOUTUBE_CMD)"],
+      ["(youtube source)", "needs yt-dlp on PATH — no API key"],
+    ],
+  },
+  {
+    title: "overcast — runtime / session",
+    vars: [
+      ["OVERCAST_HOME", "overcast home for profiles (default ~/.overcast)"],
+      ["OVERCAST_CASE", "case directory for the session (set by the launcher from --case)"],
+      ["OVERCAST_PROFILE", "active profile for the session (set by the launcher from --profile)"],
+      ["OVERCAST_MEDIA_DIR", "(set by overcast) the media output dir passed to exec providers"],
       ["OVERCAST_PI_ONLINE", "Set 1 to re-enable pi's startup update-check"],
+      ["OVERCAST_MONITOR_MAX_PASSES", "cap on monitor --every passes (testing/scheduling)"],
       ["OVERCAST_E2E_LIVE", "Set 1 to run the gated live-Cloudglue e2e cases"],
     ],
   },
