@@ -10,6 +10,11 @@ import { parseSince } from "../providers/memory/local.js";
 import type { QueryOpts } from "../providers/memory/types.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
+function readError(verb: string, message: string): OvercastRecord {
+  return makeRecord({ verb, format: "json", payload: { error: message }, error: message, state: "error" });
+}
+const askError = (m: string): OvercastRecord => readError("ask", m);
+
 function queryOpts(ctx: VerbContext): QueryOpts {
   const opts: QueryOpts = {};
   if (ctx.opts.verb) opts.verbs = String(ctx.opts.verb).split(",").map((s) => s.trim());
@@ -41,12 +46,26 @@ export const askVerb: VerbSpec = {
   providerKey: "ask",
   run: async (ctx) => {
     if (!ctx.input) {
-      return [makeRecord({ verb: "ask", format: "json", payload: { error: "ask requires a question" }, error: "ask requires a question", state: "error" })];
+      return [askError("ask requires a question")];
     }
-    let providers = resolveMemory(ctx.case, ctx.profile);
+    // an unparseable --since is a user error, not a silent "no time bound"
+    if (ctx.opts.since && parseSince(String(ctx.opts.since)) == null) {
+      return [askError(`invalid --since value: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
+    }
+    const available = resolveMemory(ctx.case, ctx.profile);
+    let providers = available;
     if (ctx.opts.memory) {
       const ids = new Set(String(ctx.opts.memory).split(",").map((s) => s.trim()));
-      providers = providers.filter((p) => ids.has(p.id));
+      providers = available.filter((p) => ids.has(p.id));
+      // none matched → surface the real problem instead of "No records match"
+      if (providers.length === 0) {
+        return [
+          askError(
+            `no memory providers match --memory ${ctx.opts.memory} ` +
+              `(available: ${available.map((p) => p.id).join(", ") || "none"})`,
+          ),
+        ];
+      }
     }
     const answer = await fanOutAnswer(providers, ctx.input, queryOpts(ctx), ctx.opts.deep === true);
     return [
@@ -153,22 +172,29 @@ export const briefVerb: VerbSpec = {
   providerKey: "brief",
   run: async (ctx) => {
     let records = ctx.case.records();
-    // scope filter: since:<when> | verb:<kind>
-    const scope = ctx.opts.scope ? String(ctx.opts.scope) : "";
-    const m = scope.match(/^(since|verb):(.+)$/);
-    if (m) {
+    // scope filter: since:<when> | verb:<kind>. Scope may arrive via --scope or
+    // as a positional argument (the prompt system passes it positionally).
+    const scope = (ctx.opts.scope ? String(ctx.opts.scope) : ctx.input ?? "").trim();
+    if (scope) {
+      const m = scope.match(/^(since|verb):(.+)$/);
+      if (!m) {
+        return [readError("brief", `invalid --scope '${scope}' (expected since:<when> or verb:<kind>)`)];
+      }
+      const value = m[2].trim(); // tolerate `verb: watch` / `since: 24h`
       if (m[1] === "verb") {
-        records = records.filter((r) => r.verb === m[2]);
+        records = records.filter((r) => r.verb === value);
       } else {
-        // since:<when> — keep records at/after the cutoff (undated records are
-        // kept, since we can't prove they're stale).
-        const cutoff = parseSince(m[2]);
-        if (cutoff != null) {
-          records = records.filter((r) => {
-            const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
-            return Number.isNaN(t) || t >= cutoff;
-          });
+        // since:<when> — an unparseable value is a user error, not a no-op.
+        const cutoff = parseSince(value);
+        if (cutoff == null) {
+          return [readError("brief", `invalid scope since:${value} (try 24h, 7d, or 2026-06-01)`)];
         }
+        // keep records at/after the cutoff (undated records are kept, since we
+        // can't prove they're stale).
+        records = records.filter((r) => {
+          const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+          return Number.isNaN(t) || t >= cutoff;
+        });
       }
     }
     const info = ctx.case.exists() ? ctx.case.info() : { name: "case" };

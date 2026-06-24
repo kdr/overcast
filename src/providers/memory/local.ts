@@ -79,15 +79,22 @@ export class LocalMemoryProvider implements MemoryProvider {
     if (opts.verbs && opts.verbs.length) {
       const set = new Set(opts.verbs);
       records = records.filter((r) => set.has(r.verb));
+    } else {
+      // Don't retrieve read-side outputs (ask/brief) as evidence — they embed
+      // the question + synthesized answer and would otherwise be cited back in
+      // place of the underlying records. Opt in explicitly via --verb to include.
+      records = records.filter((r) => r.verb !== "ask" && r.verb !== "brief");
     }
     if (opts.since) {
       const cutoff = parseSince(opts.since);
-      if (cutoff != null) {
-        records = records.filter((r) => {
-          const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
-          return Number.isNaN(t) || t >= cutoff;
-        });
+      // an unparseable cutoff must not silently disable the time filter
+      if (cutoff == null) {
+        throw new Error(`invalid since value: ${opts.since}`);
       }
+      records = records.filter((r) => {
+        const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+        return Number.isNaN(t) || t >= cutoff;
+      });
     }
     const scored: Passage[] = [];
     for (const rec of records) {

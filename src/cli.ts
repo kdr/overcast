@@ -71,9 +71,12 @@ function renderRecord(rec: OvercastRecord, format: string): string {
   if (format === "json") return JSON.stringify(rec, null, 2);
   if (format === "md" || format === "txt") {
     if (typeof rec.payload === "string") return rec.payload;
-    // prefer a `content` field for md; else stringify
+    // prefer a human-readable text field (content/text/report — e.g. ask/brief
+    // place their markdown under text/report); else stringify.
     const p = rec.payload as Record<string, unknown>;
-    if (typeof p.content === "string" && p.content) return p.content;
+    for (const k of ["content", "text", "report"]) {
+      if (typeof p[k] === "string" && p[k]) return p[k] as string;
+    }
     return JSON.stringify(rec.payload, null, 2);
   }
   // default human summary
