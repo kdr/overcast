@@ -13,7 +13,7 @@ done
 
 # --format md | grep → human-readable surface for a non-JSON record (case info)
 ocrun "$CASE" case init --name pipecase --json >/dev/null 2>&1
-info_md="$(ocrun "$CASE" case info --format md 2>/dev/null)"
+info_md="$(oc "$CASE" case info --format md)"
 [ -n "$info_md" ] && ok "$C.format_md" "case info --format md produces text" || fail "$C.format_md" "md empty"
 
 # chain: capture a real local clip → take its media.ref → watch it (if Cloudglue)
@@ -21,10 +21,10 @@ CLIP="$SMOKE_DIR/pipe50.mp4"
 SRC="$VIDEO_SMALL"; have_media "$SRC" || SRC="$VIDEO_VISUAL"
 have_media "$SRC" && clip_av 8 "$SRC" "$CLIP"
 if [ -f "$CLIP" ]; then
-  ref="$(ocrun "$CASE" capture "$CLIP" --json 2>/dev/null | jq -r '.media.ref')"
+  ref="$(oc "$CASE" capture "$CLIP" --json 2>/dev/null | jq -r '.media.ref')"
   assert_nonempty "$C.capture_ref" "$ref" "capture emits a media.ref to chain"
   if require_cred "$C.chain_watch" CLOUDGLUE_API_KEY "skipping chained watch"; then
-    w="$(OC_TIMEOUT=300 ocrun "$CASE" watch "$ref" --json 2>/dev/null | jq -r '.state')"
+    w="$(OC_TIMEOUT=300 oc "$CASE" watch "$ref" --json 2>/dev/null | jq -r '.state')"
     assert_eq "$C.chain_watch" "ready" "$w" "watch the captured ref (capture → watch chain)"
   fi
 fi

@@ -63,3 +63,61 @@ ocrun() {
   perl -e 'alarm shift; exec @ARGV or exit 127' "${OC_TIMEOUT:-300}" \
     $OVERCAST --case "$cd" --home "$cd/.ochome" "$@"
 }
+
+# --- rich reporting ----------------------------------------------------------
+# Each report section captures: the CONDITION under test, the exact COMMAND run,
+# and a SNIPPET of its output. Authoring pattern in a case:
+#
+#   cond "watch returns a ready video.analysis record"
+#   out="$(oc "$CASE" watch "$CLIP" --json)"      # captures command + output
+#   assert_eq "$C.state" "ready" "$(jq -r .state <<<"$out")" "state is ready"
+#
+# `oc`/`ocg` stash the command+output (files survive the $(...) subshell); the
+# ok/fail overrides below emit the markdown block, grouping multiple assertions
+# under the one command/output they share.
+DETAIL_MD="$SMOKE_DIR/detail.md"
+
+# set the condition under test (and clear any stale captured command/output so a
+# pure assertion that follows doesn't show a previous command's snippet)
+cond() { _COND="$1"; rm -f "$SMOKE_DIR/.cmd" "$SMOKE_DIR/.out"; }
+oc_capture() { printf '%s' "$1" >"$SMOKE_DIR/.cmd"; printf '%s' "$2" >"$SMOKE_DIR/.out"; }
+
+# oc <casedir> <args...> — run via the binary (in a case dir), capture cmd+output
+oc() {
+  local cd="$1"; shift
+  local out; out="$(ocrun "$cd" "$@" 2>/dev/null)"
+  oc_capture "overcast $*" "$out"
+  printf '%s' "$out"
+}
+
+# ocg <args...> — run the binary directly (no case dir; for version/commands/help)
+ocg() {
+  local out; out="$(perl -e 'alarm shift; exec @ARGV or exit 127' "${OC_TIMEOUT:-60}" $OVERCAST "$@" 2>/dev/null)"
+  oc_capture "overcast $*" "$out"
+  printf '%s' "$out"
+}
+
+_detail() { # <PASS|FAIL> <id> <note>
+  local cmd out key snip
+  cmd="$(cat "$SMOKE_DIR/.cmd" 2>/dev/null)"
+  out="$(cat "$SMOKE_DIR/.out" 2>/dev/null)"
+  key="${cmd}|${_COND:-$3}"
+  if [ "$key" != "$(cat "$SMOKE_DIR/.reportedkey" 2>/dev/null)" ]; then
+    {
+      printf '\n##### %s\n\n' "${_COND:-$3}"
+      if [ -n "$cmd" ]; then
+        printf '```console\n$ %s\n' "$cmd"
+        # snippet: first 12 lines, each capped to 200 cols (JSON event streams are wide)
+        printf '%s\n' "$out" | head -12 | cut -c1-200
+        [ "$(printf '%s\n' "$out" | wc -l)" -gt 12 ] && printf '… (output truncated)\n'
+        printf '```\n\n'
+      fi
+    } >>"$DETAIL_MD"
+    printf '%s' "$key" >"$SMOKE_DIR/.reportedkey"
+  fi
+  printf -- '- **%s** — %s\n' "$1" "$2 — $3" >>"$DETAIL_MD"
+}
+
+# override base ok/fail to ALSO emit the detailed report block
+ok() {   pass_count=$((pass_count + 1)); printf '  \033[32mPASS\033[0m %s — %s\n' "$1" "$2"; _record "$1" pass "$2"; _detail PASS "$1" "$2"; }
+fail() { fail_count=$((fail_count + 1)); printf '  \033[31mFAIL\033[0m %s — %s\n' "$1" "$2"; _record "$1" fail "$2"; _detail FAIL "$1" "$2"; }

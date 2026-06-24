@@ -10,14 +10,14 @@ have_media "$VIDEO_VISUAL" && clip_av 12 "$VIDEO_VISUAL" "$CLIP"
 [ -f "$CLIP" ] || { skip "$C" "no clip"; exit 0; }
 
 CASE=$(case_dir read)
-w="$(OC_TIMEOUT=300 ocrun "$CASE" watch "$CLIP" --json 2>/dev/null)"
+w="$(OC_TIMEOUT=300 oc "$CASE" watch "$CLIP" --json)"
 [ "$(echo "$w"|jq -r '.state')" = "ready" ] || { fail "$C.seed" "seed watch failed"; exit 0; }
 # a query term grounded in the real describe content (first salient word)
 term="$(echo "$w" | jq -r '.payload.content' | tr 'A-Z' 'a-z' | grep -oE '[a-z]{5,}' | head -1)"
 [ -n "$term" ] || term="video"
 
 # ask → cited answer over local memory
-a="$(ocrun "$CASE" ask "what is in the $term footage" --json 2>/dev/null)"
+a="$(oc "$CASE" ask "what is in the $term footage" --json)"
 save_json "30_ask" "$a" >/dev/null
 assert_eq "$C.ask.state" "ready" "$(echo "$a"|jq -r '.state')" "ask ready"
 nc="$(echo "$a" | jq -r '.payload.citations|length')"
@@ -25,12 +25,12 @@ if [ "${nc:-0}" -ge 1 ]; then ok "$C.ask.cited" "ask returned $nc citation(s) to
 assert_nonempty "$C.ask.text" "$(echo "$a"|jq -r '.payload.text')" "answer text"
 
 # ask --format md surfaces the answer text (not JSON)
-md="$(ocrun "$CASE" ask "summary" --format md 2>/dev/null)"
+md="$(oc "$CASE" ask "summary" --format md)"
 if printf '%s' "$md" | grep -q "record" || [ -n "$md" ]; then ok "$C.ask.md" "ask --format md prints text"; else fail "$C.ask.md" "md empty"; fi
 
 # brief → timeline + html export
 BHTML="$SMOKE_DIR/brief.html"
-b="$(ocrun "$CASE" brief --export "$BHTML" --json 2>/dev/null)"
+b="$(oc "$CASE" brief --export "$BHTML" --json)"
 save_json "30_brief" "$b" >/dev/null
 assert_eq "$C.brief.state" "ready" "$(echo "$b"|jq -r '.state')" "brief ready"
 tot="$(echo "$b" | jq -r '.payload.total')"

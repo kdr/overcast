@@ -51,6 +51,8 @@ UTC="$(date -u +%Y%m%dT%H%M%SZ)"
 export SMOKE_DIR="$REPO_ROOT/.dev/smoke/live-$UTC"
 mkdir -p "$SMOKE_DIR"
 export RESULTS_TSV="$SMOKE_DIR/results.tsv"; : >"$RESULTS_TSV"
+export DETAIL_MD="$SMOKE_DIR/detail.md"; : >"$DETAIL_MD"
+rm -f "$SMOKE_DIR/.reportedkey" "$SMOKE_DIR/.cmd" "$SMOKE_DIR/.out"
 GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 
@@ -71,7 +73,10 @@ echo "$OVERCAST" version --json 2>/dev/null | head -1 || true
 echo
 
 for c in "${cases[@]}"; do
-  echo "--- $(basename "$c") ---"
+  cname="$(basename "$c" .sh)"
+  echo "--- $cname ---"
+  printf '\n### %s\n' "$cname" >>"$DETAIL_MD"   # section header per case
+  rm -f "$SMOKE_DIR/.reportedkey"               # don't group across cases
   before=$(wc -l <"$RESULTS_TSV")
   bash "$c"; rc=$?
   after=$(wc -l <"$RESULTS_TSV")
@@ -92,15 +97,20 @@ REPORT="$SMOKE_DIR/report.md"
   echo "- **branch / sha:** \`$BRANCH@$GIT_SHA\`"
   echo "- **binary:** \`$OVERCAST\`"
   echo "- **test media:** \`$TEST_MEDIA\`"; echo
+  echo "## Summary"; echo
+  echo "- total: **$total**, pass/skip: **$pass**, fail: **$fail**"
+  [ "$fail" -gt 0 ] && echo "- ❌ failures present" || echo "- ✅ all green"; echo
   echo "## Results"; echo
   echo "| case | result | note |"; echo "|---|---|---|"
   while IFS=$'\t' read -r name res note; do
     note_esc=$(printf '%s' "$note" | sed 's/|/\\|/g')
     echo "| $name | $(printf '%s' "$res" | tr a-z A-Z) | $note_esc |"
   done <"$RESULTS_TSV"
-  echo; echo "## Summary"; echo
-  echo "- total: **$total**, pass/skip: **$pass**, fail: **$fail**"
-  [ "$fail" -gt 0 ] && echo "- ❌ failures present" || echo "- ✅ all green"
+  echo
+  echo "## Detailed checks"
+  echo
+  echo "_Each section: the condition under test, the exact command, and an output snippet._"
+  cat "$DETAIL_MD"
 } >"$REPORT"
 
 echo "=== LIVE summary: $pass/$total passed (incl. skips), $fail failed ==="

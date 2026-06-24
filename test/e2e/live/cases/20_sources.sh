@@ -11,7 +11,7 @@ if require_cred "$C.web" TAVILY_API_KEY "skipping web search"; then
   CASE=$(case_dir src_web)
   export OVERCAST_SOURCE_WEB_CMD="bash $SRCDIR/web.sh"
   ocrun "$CASE" source add 'web:overcast pi agent' --json >/dev/null 2>&1
-  out="$(OC_TIMEOUT=120 ocrun "$CASE" scan --source web --query "open source AI agent" --limit 3 --json 2>/dev/null)"
+  out="$(OC_TIMEOUT=120 oc "$CASE" scan --source web --query "open source AI agent" --limit 3 --json)"
   save_json "20_scan_web" "$out" >/dev/null
   hits="$(echo "$out" | jq -s '[.[]|select(.state!="error" and .verb=="scan")]|length' 2>/dev/null)"
   if [ "${hits:-0}" -ge 1 ]; then
@@ -29,7 +29,7 @@ if require_cred "$C.tiktok" APIFY_TOKEN "skipping tiktok"; then
   CASE=$(case_dir src_tiktok)
   export OVERCAST_SOURCE_TIKTOK_CMD="bash $SRCDIR/tiktok.sh"
   ocrun "$CASE" source add 'tiktok:@nasa' --json >/dev/null 2>&1
-  out="$(OC_TIMEOUT=180 ocrun "$CASE" scan --source tiktok --limit 2 --json 2>/dev/null)"
+  out="$(OC_TIMEOUT=180 oc "$CASE" scan --source tiktok --limit 2 --json)"
   save_json "20_scan_tiktok" "$out" >/dev/null
   recs="$(echo "$out" | jq -s 'length' 2>/dev/null)"
   st="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan")][0].state // "none"' 2>/dev/null)"
@@ -44,7 +44,7 @@ if have_cmd yt-dlp; then
   CASE=$(case_dir src_youtube)
   export OVERCAST_SOURCE_YOUTUBE_CMD="bash $SRCDIR/youtube.sh"
   ocrun "$CASE" source add 'youtube:search:nasa' --json >/dev/null 2>&1
-  out="$(OC_TIMEOUT=120 ocrun "$CASE" scan --source youtube --limit 2 --json 2>/dev/null)"
+  out="$(OC_TIMEOUT=120 oc "$CASE" scan --source youtube --limit 2 --json)"
   save_json "20_scan_youtube" "$out" >/dev/null
   hits="$(echo "$out" | jq -s '[.[]|select(.state!="error" and .verb=="scan")]|length' 2>/dev/null)"
   [ "${hits:-0}" -ge 1 ] && ok "$C.youtube.hits" "youtube returned $hits hits" || fail "$C.youtube.hits" "no hits"

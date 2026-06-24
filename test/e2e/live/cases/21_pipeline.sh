@@ -29,7 +29,7 @@ CASE=$(case_dir pipeline)
 ocrun "$CASE" source add 'folder:clips' --json >/dev/null 2>&1
 
 # scan --pull --pipe watch : enumerate → capture → real watch
-out="$(OC_TIMEOUT=300 ocrun "$CASE" scan --source folder --pull --pipe watch --json 2>/dev/null)"
+out="$(OC_TIMEOUT=300 oc "$CASE" scan --source folder --pull --pipe watch --json)"
 save_json "21_scan_pull" "$out" >/dev/null
 n="$(echo "$out" | jq -s 'length' 2>/dev/null)"
 if [ "${n:-0}" -ge 3 ]; then ok "$C.scan_stream" "scan --pull streamed $n records (scan+capture+watch)"; else fail "$C.scan_stream" "expected ≥3 records, got ${n:-0}"; fi
@@ -42,7 +42,7 @@ assert_nonempty "$C.pull_content" "$(echo "$w"|jq -r '.payload.content // empty'
 unset OVERCAST_SOURCE_FOLDER_CMD
 
 # capture a local file directly, then watch it by capture path
-out2="$(ocrun "$CASE" capture "$CLIP" --json 2>/dev/null)"
+out2="$(oc "$CASE" capture "$CLIP" --json)"
 capref="$(echo "$out2" | jq -r '.media.ref')"
 assert_eq "$C.capture_local" "ready" "$(echo "$out2"|jq -r '.state')" "local capture ready"
 if [ -f "$capref" ]; then ok "$C.capture_file" "captured file present in case media"; else fail "$C.capture_file" "missing $capref"; fi

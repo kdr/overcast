@@ -14,7 +14,8 @@ if require_cred "$C.hf" HF_TOKEN "skipping"; then
   CASE=$(case_dir see_hf)
   HS="$PWD/examples/providers/hf/see.sh"
   ocrun "$CASE" setup provider see "exec:bash $HS {{input}}" --json >/dev/null 2>&1
-  out="$(OC_TIMEOUT=180 ocrun "$CASE" see "$FRAME" --json 2>/dev/null)"
+  cond "see (bound HF vision-LLM) captions a real frame → ready record with a caption"
+  out="$(OC_TIMEOUT=180 oc "$CASE" see "$FRAME" --json)"
   save_json "12_see_hf" "$out" >/dev/null
   st="$(echo "$out" | jq -r '.state')"
   if [ "$st" = "ready" ]; then assert_nonempty "$C.hf.caption" "$(echo "$out"|jq -r '.payload.caption')" "HF caption non-empty"
@@ -26,7 +27,8 @@ if require_cred "$C.fal" FAL_KEY "skipping"; then
   CASE=$(case_dir see_fal)
   FS="$PWD/examples/providers/fal/see.sh"
   ocrun "$CASE" setup provider see "exec:bash $FS {{input}}" --json >/dev/null 2>&1
-  out="$(OC_TIMEOUT=180 ocrun "$CASE" see "$FRAME" --json 2>/dev/null)"
+  cond "see (bound fal florence-2) captions a real frame → ready record"
+  out="$(OC_TIMEOUT=180 oc "$CASE" see "$FRAME" --json)"
   save_json "12_see_fal" "$out" >/dev/null
   st="$(echo "$out" | jq -r '.state')"
   [ "$st" = "ready" ] && ok "$C.fal.state" "fal florence-2 ready (caption len $(echo "$out"|jq -r '.payload.caption|length'))" || fail "$C.fal.state" "state=$st"
@@ -43,7 +45,8 @@ if [ -n "$DETECT_PY" ]; then
   CASE=$(case_dir see_detect)
   DET="$PWD/examples/providers/detect/detect.py"
   ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
-  out="$(OC_TIMEOUT=300 ocrun "$CASE" see "$FRAME" --detect "person, hard hat, helmet" --json 2>/dev/null)"
+  cond "see --detect (bound local OWLv2) returns open-vocab bounding boxes on a real frame"
+  out="$(OC_TIMEOUT=300 oc "$CASE" see "$FRAME" --detect "person, hard hat, helmet" --json)"
   save_json "12_see_detect" "$out" >/dev/null
   assert_eq "$C.detect.state" "ready" "$(echo "$out"|jq -r '.state')" "OWLv2 detection ready"
   nd="$(echo "$out" | jq -r '.payload.detections|length')"

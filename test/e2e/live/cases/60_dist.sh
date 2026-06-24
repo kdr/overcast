@@ -14,16 +14,16 @@ esac
 
 # pure-local verbs work fully inside the binary (no providers/cloud)
 ocrun "$CASE" prebrief "binarycase" --target "test subject" --source 'web:q' --json >/dev/null 2>&1
-info="$(ocrun "$CASE" case info --json 2>/dev/null)"
+info="$(oc "$CASE" case info --json)"
 assert_eq "$C.case_init" "true" "$(echo "$info"|jq -r '.payload.initialized')" "case initialized by the binary"
 assert_eq "$C.case_name" "binarycase" "$(echo "$info"|jq -r '.payload.info.name')" "prebrief set the case name"
-tgt="$(ocrun "$CASE" target list --json 2>/dev/null | jq -r '.payload.primary.value // empty')"
+tgt="$(oc "$CASE" target list --json 2>/dev/null | jq -r '.payload.primary.value // empty')"
 assert_eq "$C.target" "test subject" "$tgt" "target persisted + read back"
-srcs="$(ocrun "$CASE" source list --json 2>/dev/null | jq -r '.payload.enabled')"
+srcs="$(oc "$CASE" source list --json 2>/dev/null | jq -r '.payload.enabled')"
 assert_eq "$C.source" "1" "$srcs" "one enabled source"
 
 # skills generate is source-repo only → the binary fails cleanly (no crash)
-sg="$(ocrun "$CASE" skills generate --json 2>/dev/null)"; rc=$?
+sg="$(oc "$CASE" skills generate --json)"; rc=$?
 if [ "$rc" -ne 0 ] || echo "$sg" | jq -e '.state=="error"' >/dev/null 2>&1; then ok "$C.skills_clean" "binary refuses skills generate cleanly (source-repo only)"; else fail "$C.skills_clean" "expected a clean refusal"; fi
 
 # skills generate DOES work from the source tree (node, not the binary)

@@ -28,13 +28,13 @@ ocrun "$CASE" source add 'feed:x' --json >/dev/null 2>&1
 
 # pass 1: 2 new (capture only; no sense pipe → AV gate means watch isn't auto-run
 # since these have no --pipe and the capture is AV we still skip unless --pipe).
-p1="$(OC_TIMEOUT=120 ocrun "$CASE" monitor --source feed --once --json 2>/dev/null)"
+p1="$(OC_TIMEOUT=120 oc "$CASE" monitor --source feed --once --json)"
 save_json "22_monitor_p1" "$p1" >/dev/null
 new1="$(echo "$p1" | jq -s -r '[.[]|select(.verb=="monitor")][0].payload.new_items')"
 assert_eq "$C.first_new" "2" "$new1" "first --once pass: 2 new items"
 
 # pass 2: same source → 0 new (seen-set diff works)
-p2="$(OC_TIMEOUT=120 ocrun "$CASE" monitor --source feed --once --json 2>/dev/null)"
+p2="$(OC_TIMEOUT=120 oc "$CASE" monitor --source feed --once --json)"
 save_json "22_monitor_p2" "$p2" >/dev/null
 new2="$(echo "$p2" | jq -s -r '[.[]|select(.verb=="monitor")][0].payload.new_items')"
 assert_eq "$C.second_none" "0" "$new2" "second pass: 0 new (diff works)"
@@ -42,7 +42,7 @@ assert_eq "$C.second_none" "0" "$new2" "second pass: 0 new (diff works)"
 # --every bounded to 1 pass via OVERCAST_MONITOR_MAX_PASSES
 CASE2=$(case_dir monitor_every)
 ocrun "$CASE2" source add 'feed:y' --json >/dev/null 2>&1
-ev="$(OVERCAST_MONITOR_MAX_PASSES=1 OC_TIMEOUT=120 ocrun "$CASE2" monitor --source feed --every 1h --alert stdout --json 2>/dev/null)"
+ev="$(OVERCAST_MONITOR_MAX_PASSES=1 OC_TIMEOUT=120 oc "$CASE2" monitor --source feed --every 1h --alert stdout --json)"
 save_json "22_monitor_every" "$ev" >/dev/null
 # --every streams records then returns a final summary; assert we saw a monitor summary
 if echo "$ev" | jq -e -s 'any(.[]; .verb=="monitor")' >/dev/null 2>&1; then ok "$C.every" "--every ran a bounded pass and streamed records"; else fail "$C.every" "no monitor output from --every"; fi
