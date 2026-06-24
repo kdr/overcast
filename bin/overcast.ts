@@ -62,8 +62,18 @@ function isCliDispatch(argv: string[]): boolean {
   // Global flags may lead the invocation (`overcast --case /dir watch …`).
   // Skip them (and their values) to find the effective command token.
   const cmd = effectiveCmd(argv);
-  // a value-less leading global (`overcast --case`) is a CLI error, not a TUI launch
-  if (!cmd) return hasMalformedGlobal(argv);
+  // No command after the leading flags. Route to the CLI (to report the error) for
+  // a value-less global (`overcast --case`) OR an output-flag-only invocation
+  // (`overcast --json` / `--format md`) — those are meaningless without a verb.
+  // A globals-only invocation (`overcast --case /dir`) falls through to launch the
+  // TUI in that case.
+  if (!cmd) {
+    if (hasMalformedGlobal(argv)) return true;
+    return argv.some((a) => {
+      const name = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
+      return LEADING_BOOL_FLAGS.has(name) || name === "--format";
+    });
+  }
   // A version request is CLI only when it is the command itself, so headless
   // pi usage like `overcast -p "…" -v` still launches the agent.
   if (cmd === "--version" || cmd === "-v") return true;
