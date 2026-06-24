@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/branding/logo.png" alt="overcast" width="220" />
+</p>
+
 # overcast
 
 **Senses (video / audio / image understanding) + OSINT reach (search / capture / monitor) for any agent — built on [pi](https://github.com/earendil-works/pi).**
