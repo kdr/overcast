@@ -182,6 +182,11 @@ Three surfaces from one source of truth (`src/registry/verbs.ts`):
 - **standalone binary** — `bun build --compile` → a single executable (+ a sidecar `package.json` for branding).
 - **agent skills + Claude Code plugin** — `skills generate` renders `skills/overcast/{SKILL.md, reference/verbs.md}` from the registry; `skills install` copies them into a harness.
 
+The vendored **FFmpeg** binaries are GPL-3.0; every distribution carries
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The npm package ships it, and
+`npm run package:bun` produces `dist/release/overcast-<platform>.tar.gz` with the
+notices (and `npm run licenses` regenerates them).
+
 ---
 
 ## Development
@@ -195,5 +200,5 @@ overcast commands --json   # the authoritative verb registry
 overcast doctor            # preflight
 ```
 
-Net-new code is the verbs + providers + record store + MCP bridge; pi's loop,
-TUI, sessions, and base tools are reused, not forked.
+Net-new code is the verbs + providers + record store; pi's loop, TUI, sessions,
+and base tools are reused, not forked.

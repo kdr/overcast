@@ -59,4 +59,23 @@ try {
 } catch (e) {
   console.error(`[build:bun] WARNING: could not copy example providers (${e.message}); builtin sources won't resolve on the binary`);
 }
-console.error(`[build:bun] wrote ${OUT}/package.json + ${copied} builtin theme file(s)${providers ? " + example providers" : ""}`);
+
+// 4) THIRD_PARTY_NOTICES.md → next to the binary. The bundled FFmpeg is GPL, so the
+// notices must travel with every distribution (npm tarball + this binary).
+let notices = 0;
+try {
+  const src = join(process.cwd(), "THIRD_PARTY_NOTICES.md");
+  if (existsSync(src)) {
+    copyFileSync(src, join(OUT, "THIRD_PARTY_NOTICES.md"));
+    notices = 1;
+  } else {
+    console.error("[build:bun] WARNING: THIRD_PARTY_NOTICES.md not found (run `npm run licenses`)");
+  }
+} catch (e) {
+  console.error(`[build:bun] WARNING: could not copy THIRD_PARTY_NOTICES.md (${e.message})`);
+}
+
+console.error(
+  `[build:bun] wrote ${OUT}/package.json + ${copied} builtin theme file(s)` +
+    `${providers ? " + example providers" : ""}${notices ? " + THIRD_PARTY_NOTICES.md" : ""}`,
+);

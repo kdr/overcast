@@ -16,7 +16,8 @@
     "assets",
     "skills",
     "prompts",
-    "examples"
+    "examples",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
     "node": ">=22"
@@ -28,6 +29,8 @@
     "test:e2e": "bash test/e2e/run.sh",
     "test:e2e:live": "bash test/e2e/live/run.sh",
     "build:bun": "bun build --compile bin/overcast.ts --outfile dist/bin/overcast && node scripts/bun-sidecar.mjs",
+    "package:bun": "npm run build:bun && node scripts/bun-package.mjs",
+    "licenses": "node scripts/gen-licenses.mjs",
     "dev": "tsx bin/overcast.ts",
     "postinstall": "node scripts/brand-pi.mjs",
     "brand": "node scripts/brand-pi.mjs"
