@@ -2,7 +2,7 @@
 # Build a few overcast profiles that combine the example providers, for testing
 # different backend combinations. Writes to $OVERCAST_HOME (default ~/.overcast).
 #   bash examples/profiles/install-profiles.sh [--home <dir>]
-# Then:  overcast <verb> ... --profile <name>   (or `overcast setup use <name>`)
+# Then:  overcast <verb> ... --profile <name>   (or: OVERCAST_PROFILE=<name> overcast …)
 #
 # Keys (in .env or your shell): CLOUDGLUE_API_KEY, FAL_KEY, ELEVENLABS_API_KEY, HF_TOKEN.
 set -euo pipefail
@@ -49,4 +49,4 @@ echo "  recon: watch=tinycloud · listen=elevenlabs · see=fal · enhance=fal"
 echo
 echo "Done. Try:  overcast see ./img.jpg --json --profile fal"
 echo "            overcast listen ./clip.mp4 --describe --json --profile cloudglue"
-echo "            overcast --profile recon   (or: overcast setup use recon)"
+echo "            overcast --profile recon   (or: OVERCAST_PROFILE=recon overcast)"

@@ -10,10 +10,9 @@ overcast gives an agent *eyes and ears* and *reach*, organized around an
 investigation **case**. It ships as a **pi package** (extension + skills +
 prompts + theme), a **standalone bun binary**, and **agent skills** that drive
 the CLI from any harness. The brain LLM is BYO; the default perception backend is
-[Cloudglue](https://cloudglue.dev) via the tinycloud CLI.
-
-> Proof-of-concept video-understanding OSINT agent for a DEF CON talk, and a
-> reusable kit.
+[Cloudglue](https://cloudglue.dev) via the
+[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)
+([tinycloud.sh](https://www.tinycloud.sh/)).
 
 ---
 
@@ -116,6 +115,34 @@ authoring guide in [`docs/providers.md`](docs/providers.md).
 | **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave) |
 | **memory** | ask / brief | local (always on) |
 
+### Profiles
+
+A **profile** is a named set of bindings — per-verb providers plus the brain LLM —
+persisted under `~/.overcast/profiles/` (`OVERCAST_HOME`). Build one by binding
+into it, then select it per command (or for the whole session):
+
+```bash
+# build / extend a profile named "fal"
+overcast setup provider see  "exec:bash examples/providers/fal/see.sh {{input}}" --profile fal
+overcast setup provider watch "exec:bash examples/providers/bash/watch.sh {{input}}" --profile fal
+overcast setup llm anthropic claude-sonnet-4-6                                   --profile fal
+
+# use it: per command …
+overcast see ./img.jpg --json --profile fal
+# … or for the session
+OVERCAST_PROFILE=fal overcast see ./img.jpg --json
+
+overcast setup show --profile fal     # inspect a profile's bindings
+```
+
+The default profile is `default`. Point `--home <dir>` at a different store to
+keep profiles per-case or per-project. To build ready-made presets (e.g. `fal`,
+`cloudglue`, `recon`) from the shipped example providers:
+
+```bash
+bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profile <name>
+```
+
 ---
 
 ## Environment variables
@@ -173,8 +200,3 @@ overcast doctor            # preflight
 The full design lives in [`planning/`](planning/README.md). Net-new code is the
 verbs (Layer 2) + providers (Layer 3) + record store + MCP bridge; pi's loop,
 TUI, sessions, and base tools are reused, not forked.
-
----
-
-*v1 is YOLO: no permission system / sandbox (pi default). Treat untrusted media
-and scraped content as potential prompt-injection vectors.*
