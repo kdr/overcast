@@ -19,7 +19,12 @@ function queryOpts(ctx: VerbContext): QueryOpts {
   const opts: QueryOpts = {};
   if (ctx.opts.verb) opts.verbs = String(ctx.opts.verb).split(",").map((s) => s.trim());
   if (ctx.opts.since) opts.since = String(ctx.opts.since);
-  if (ctx.opts.limit != null) opts.limit = Number(ctx.opts.limit);
+  // only apply a positive, finite limit — a 0 / NaN (non-numeric) limit would
+  // otherwise slice everything away and report no matches.
+  if (ctx.opts.limit != null) {
+    const n = Number(ctx.opts.limit);
+    if (Number.isFinite(n) && n > 0) opts.limit = n;
+  }
   return opts;
 }
 
@@ -127,6 +132,7 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
         pick(p.title) ??
         pick(p.content) ??
         pick(p.text) ??
+        pick(p.report) ?? // brief records store their markdown under `report`
         Object.keys(p).join(", ");
     }
     lines.push(`- **${r.verb}** \`${r.id}\`${at}${ref}: ${String(head).replace(/\s+/g, " ").trim()}`);
