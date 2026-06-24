@@ -438,6 +438,7 @@ export const monitorVerb: VerbSpec = {
   flags: [
     { name: "source", summary: "Restrict to source ids/types", type: "string" },
     { name: "since", summary: "Only items newer than e.g. 24h, 2026-06-01", type: "string" },
+    { name: "limit", summary: "Max hits per source", type: "number" },
     { name: "pipe", summary: "Sense to run on new items (watch|listen)", type: "string" },
     { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
     { name: "once", summary: "Single diff pass then exit", type: "boolean" },
