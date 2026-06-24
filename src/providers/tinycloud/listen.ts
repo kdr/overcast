@@ -16,6 +16,16 @@ function envelopeData(parsed: unknown): Record<string, unknown> {
   return {};
 }
 
+/** Coerce a timestamp to seconds, tolerating numeric strings ("12.5"). */
+function toSeconds(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
 /** Build a transcript + speaker-tagged segments[] from tinycloud segments. */
 function segments(data: Record<string, unknown>): {
   transcript: string;
@@ -33,16 +43,17 @@ function segments(data: Record<string, unknown>): {
       (seg.text as string) ??
       (seg.summary as string) ??
       "";
-    const start = seg.start_time ?? seg.start_seconds ?? seg.start;
-    const end = seg.end_time ?? seg.end_seconds ?? seg.end;
+    // tolerate numeric-string timestamps from external APIs ("12.5").
+    const start = toSeconds(seg.start_time ?? seg.start_seconds ?? seg.start);
+    const end = toSeconds(seg.end_time ?? seg.end_seconds ?? seg.end);
     const speaker = seg.speaker;
     if (text) {
       const entry: Record<string, unknown> = { speaker, text };
       // only attach a numeric [start,end] anchor when both endpoints are real
       // numbers — never emit [null,null] / [undefined,undefined].
-      if (typeof start === "number" && typeof end === "number") {
+      if (start !== undefined && end !== undefined) {
         entry.at = [start, end];
-      } else if (typeof start === "number") {
+      } else if (start !== undefined) {
         entry.at = start;
       }
       out.push(entry);
@@ -65,6 +76,10 @@ export interface ListenOptions {
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
+  /** attribute speech to distinct speakers (--diarize) */
+  diarize?: boolean;
+  /** hint/force source language (--lang en) */
+  lang?: string;
 }
 
 /** Run the tinycloud speech-only provider and map to an audio.analysis record. */
@@ -74,6 +89,9 @@ export async function runListen(
 ): Promise<OvercastRecord> {
   const argv = renderCommand(opts.run ?? DEFAULT_RUN, { input });
   const [cmd, ...args] = argv;
+  // Forward the declared listen flags to the provider command.
+  if (opts.diarize) args.push("--diarize");
+  if (opts.lang) args.push("--lang", opts.lang);
   const res = await execCapture(cmd, args, {
     timeoutMs: opts.timeoutMs ?? 15 * 60_000,
     env: opts.env,
@@ -97,18 +115,65 @@ export async function runListen(
   }
 
   const data = envelopeData(parsed);
+  const envObj =
+    parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+
+  // An error envelope is a failure even when JSON parsed and exit was 0 — the
+  // record's state/error is authoritative, so surface it instead of storing a
+  // silent "ready" listen record (mirrors runWatch).
+  const envError =
+    (typeof envObj.error === "string" && envObj.error) ||
+    (typeof (data.error as string) === "string" && (data.error as string)) ||
+    "";
+  if (
+    envObj.status === "error" ||
+    envObj.state === "error" ||
+    data.status === "error" ||
+    Boolean(envError)
+  ) {
+    return makeRecord({
+      verb: "listen",
+      format: "json",
+      payload: { transcript: "", segments: [], language: null },
+      media: { ref: input },
+      meta: { provider: "tinycloud", model: "cloudglue" },
+      error: envError || "tinycloud listen reported an error envelope",
+      state: "error",
+    });
+  }
+
   const { transcript, segments: segs } = segments(data);
   const language =
     (typeof data.language === "string" && data.language) ||
     (typeof data.lang === "string" && (data.lang as string)) ||
     null;
 
+  // tinycloud may return a pending (async) job envelope.
+  const isPending = (o: Record<string, unknown>) =>
+    o.state === "pending" || o.status === "pending";
+  const state = isPending(envObj) || isPending(data) ? "pending" : "ready";
+
+  // Record-level seek anchor (the per-segment anchors live in payload.segments):
+  // the first segment's start, so `view <listen-rec>` has a seek hint.
+  let mediaAt: number | undefined;
+  for (const s of segs) {
+    const a = s.at;
+    if (typeof a === "number") {
+      mediaAt = a;
+      break;
+    }
+    if (Array.isArray(a) && typeof a[0] === "number") {
+      mediaAt = a[0];
+      break;
+    }
+  }
+
   return makeRecord({
     verb: "listen",
     format: "json",
     payload: { transcript, segments: segs, language },
-    media: { ref: input },
+    media: mediaAt !== undefined ? { ref: input, at: mediaAt } : { ref: input },
     meta: { provider: "tinycloud", model: "cloudglue" },
-    state: "ready",
+    state,
   });
 }

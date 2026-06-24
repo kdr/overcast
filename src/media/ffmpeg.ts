@@ -152,7 +152,6 @@ export type EnhanceOp =
   | "normalize"
   | "voice-isolate"
   | "upscale"
-  | "deskew"
   | "stabilize"
   | "grayscale";
 
@@ -168,8 +167,6 @@ function opFilter(op: EnhanceOp, modality: Modality): { v?: string; a?: string }
       return { a: "highpass=f=200,lowpass=f=3000" };
     case "upscale":
       return { v: "scale=iw*2:ih*2:flags=lanczos" };
-    case "deskew":
-      return { v: "deshake" };
     case "stabilize":
       return { v: "deshake" };
     case "grayscale":

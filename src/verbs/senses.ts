@@ -15,6 +15,7 @@ import {
   parseFrameRef,
   modalityFromExt,
   type EnhanceOp,
+  type Modality,
 } from "../media/ffmpeg.js";
 import { openHtmlPlayer, osOpen } from "../media/view.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -42,7 +43,12 @@ export const listenVerb: VerbSpec = {
       return [errorRecord("listen", "listen requires an audio/video input")];
     }
     const binding = ctx.profile.providers?.listen;
-    const rec = await runListen(ctx.input, { run: binding?.run, signal: ctx.signal });
+    const rec = await runListen(ctx.input, {
+      run: binding?.run,
+      signal: ctx.signal,
+      diarize: ctx.opts.diarize === true,
+      lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
+    });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     return [rec];
   },
@@ -225,13 +231,39 @@ export const viewVerb: VerbSpec = {
         markers = a;
         if (!at) at = `${a[0]}-${a[1]}`;
       }
+      // Records like `listen` carry per-segment anchors in the payload rather
+      // than a single record-level media.at — surface those as timeline pins.
+      const segs = (rec.payload as Record<string, unknown> | undefined)?.segments;
+      if (Array.isArray(segs)) {
+        const segMarkers: number[] = [];
+        for (const s of segs) {
+          const sa = (s as Record<string, unknown> | null)?.at;
+          if (typeof sa === "number") segMarkers.push(sa);
+          else if (Array.isArray(sa) && typeof sa[0] === "number") segMarkers.push(sa[0]);
+        }
+        if (segMarkers.length) {
+          markers = [...new Set([...markers, ...segMarkers])].sort((x, y) => x - y);
+          if (!at) at = String(markers[0]);
+        }
+      }
     }
 
-    if (!existsSync(mediaPath)) {
+    // watch/listen accept and persist http(s) URLs; view must too (don't treat
+    // a URL as a missing local path or wrap it in a file:// URL).
+    const isUrl = /^https?:\/\//i.test(mediaPath);
+    if (!isUrl && !existsSync(mediaPath)) {
       return [errorRecord("view", `media not found: ${mediaPath}`)];
     }
 
-    const modality = modalityFromExt(mediaPath);
+    // Detect modality by content (ffprobe) for local files, matching `enhance`;
+    // fall back to the extension (and use it directly for remote URLs).
+    const modality: Modality = isUrl
+      ? modalityFromExt(mediaPath)
+      : (
+          await probe(mediaPath).catch(
+            () => ({ modality: modalityFromExt(mediaPath) }) as Awaited<ReturnType<typeof probe>>,
+          )
+        ).modality;
     const noOpen = ctx.opts["no-open"] === true;
 
     if (modality !== "video" && modality !== "audio") {
@@ -250,7 +282,7 @@ export const viewVerb: VerbSpec = {
     }
 
     const htmlPath = join(ctx.case.mediaDir, "view.html");
-    const html = buildPlayerHtml(mediaPath, modality, at, markers, ctx.opts.spectrogram === true);
+    const html = buildPlayerHtml(mediaPath, modality, at, markers, ctx.opts.spectrogram === true, isUrl);
     writeFileSync(htmlPath, html, "utf8");
     if (!noOpen) openHtmlPlayer(htmlPath);
 
@@ -292,16 +324,18 @@ function buildPlayerHtml(
   at: string | undefined,
   markers: number[],
   spectrogram: boolean,
+  isRemote = false,
 ): string {
-  const startAt = at ? Number(String(at).split("-")[0]) || 0 : 0;
+  const startAt = at ? parseTimecode(String(at).split("-")[0]) : 0;
   const tag = modality === "video" ? "video" : "audio";
   const markerPins = markers
     .map((m) => `<button class="pin" onclick="seek(${Number(m)})">⏱ ${Number(m)}s</button>`)
     .join("");
-  // Build a proper file:// URL (encodes spaces/specials) and HTML-escape every
-  // interpolated path so a filename with quotes/`<`/`&` can't break the
-  // attribute or inject script into the generated page.
-  const fileUrl = htmlAttr(pathToFileURL(src).href);
+  // For local files build a proper file:// URL (encodes spaces/specials); a
+  // remote http(s) URL is used as-is. Either way HTML-escape every interpolated
+  // path so a filename with quotes/`<`/`&` can't break the attribute or inject
+  // script into the generated page.
+  const fileUrl = htmlAttr(isRemote ? src : pathToFileURL(src).href);
   const nameEsc = htmlText(basenameOf(src));
   const srcEsc = htmlText(src);
   return `<!doctype html><html><head><meta charset="utf-8">
@@ -329,6 +363,20 @@ ${spectrogram && modality === "audio" ? '<p class="note">spectrogram: render via
 
 function basenameOf(p: string): string {
   return p.split("/").pop() ?? p;
+}
+
+/** Parse a seek value: plain seconds ("134", "134.5") or a timecode ("02:14",
+ *  "1:02:14"). Returns 0 for anything unparseable. */
+function parseTimecode(s: string): number {
+  const str = s.trim();
+  if (str === "") return 0;
+  if (str.includes(":")) {
+    const parts = str.split(":").map((p) => Number(p));
+    if (parts.some((n) => !Number.isFinite(n))) return 0;
+    return parts.reduce((acc, p) => acc * 60 + p, 0);
+  }
+  const n = Number(str);
+  return Number.isFinite(n) ? n : 0;
 }
 
 /** Escape for HTML text content. */

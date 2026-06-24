@@ -185,7 +185,7 @@ overcast enhance <source> [--ops <list>] [--at <span>] [--out <path>]
 ```
 
 **DESCRIPTION** — Produce *better media* (not analysis). Dispatches on modality:
-image → denoise/upscale/deblur/deskew; audio → denoise/voice-isolate/normalize;
+image → denoise/upscale/deblur; audio → denoise/voice-isolate/normalize;
 video → stabilize/frame-upscale/deflicker. Deterministic ops run on the internal
 ffmpeg toolkit; model-based ops (Real-ESRGAN, source separation) run via a
 swappable provider.
