@@ -138,8 +138,11 @@ export async function runListen(
     signal: opts.signal,
   });
 
+  // No parseable JSON at all → surface the exit code (parse JSON first, like
+  // runWatch, so a non-zero exit that still prints an error envelope keeps its
+  // detail instead of being dropped here).
   const parsed = parseFirstJson(res.stdout);
-  if (parsed === undefined || res.code !== 0) {
+  if (parsed === undefined) {
     return makeRecord({
       verb: "listen",
       format: "json",
@@ -168,7 +171,10 @@ export async function runListen(
     (typeof envObj.error === "string" && envObj.error) ||
     (typeof (data.error as string) === "string" && (data.error as string)) ||
     "";
+  // A non-zero exit OR an error envelope is a failure even when JSON parsed —
+  // apply them together (like runWatch), and treat exit 13 as a cred gap.
   if (
+    res.code !== 0 ||
     envObj.status === "error" ||
     envObj.state === "error" ||
     data.status === "error" ||
@@ -180,8 +186,12 @@ export async function runListen(
       payload: { transcript: "", segments: [], language: null },
       media: { ref: input },
       meta: { provider: "tinycloud", model: "cloudglue" },
-      error: envError || "tinycloud listen reported an error envelope",
-      state: "error",
+      error:
+        envError ||
+        (res.code === 13
+          ? "tinycloud listen needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
+          : `tinycloud listen failed (exit ${res.code}): ${res.stderr.trim().slice(0, 500)}`),
+      state: res.code === 13 ? "needs_credentials" : "error",
     });
   }
 

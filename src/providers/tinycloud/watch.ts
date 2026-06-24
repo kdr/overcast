@@ -184,7 +184,9 @@ export async function runWatch(
       error:
         envError ||
         `tinycloud watch failed (exit ${res.code}): ${res.stderr.trim().slice(0, 500)}`,
-      state: "error",
+      // exit 13 is the cred-gap convention even when JSON parsed — classify it as
+      // needs_credentials (not a hard error), matching the no-JSON path + runExecProvider.
+      state: res.code === 13 ? "needs_credentials" : "error",
     });
   }
 

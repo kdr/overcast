@@ -309,8 +309,13 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     // an item is only "done" (seen) once capture AND any sensing succeeded; a
     // failed capture OR a failed sense stays unseen so a later pass retries it.
     let processFailed = false;
-    if (hit.media?.ref) {
-      const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
+    // capture from media.ref OR a payload.url (a scan hit may carry only a URL,
+    // no media object — `capture` falls back the same way, so monitor must too,
+    // else such a hit is marked seen without ever being fetched/sensed).
+    const hitUrl = (hit.payload as Record<string, unknown>)?.url;
+    const ref = hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
+    if (ref) {
+      const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
       out.push(cap);
       if (cap.state !== "error" && cap.media?.ref) {
         const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;

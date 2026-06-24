@@ -116,8 +116,12 @@ export async function runExecProvider(
   }
 
   // pass-through: honor the provider's record, fill required defaults. The
-  // provider's `state` is authoritative (exec wire contract).
-  const state = (parsed.state as string) ?? (res.code === 0 ? "ready" : "error");
+  // provider's `state` is authoritative (exec wire contract). When the provider
+  // gives no state, derive it from the exit code: 0 → ready, 13 → needs_credentials
+  // (the cred-gap convention), anything else → error.
+  const state =
+    (parsed.state as string) ??
+    (res.code === 0 ? "ready" : res.code === 13 ? "needs_credentials" : "error");
   // only attach an exit-code error when the record isn't already a non-error
   // state — a non-zero exit on an explicit ready/pending/needs_credentials
   // record (e.g. a cred check that exits 13) is not a hard failure.
