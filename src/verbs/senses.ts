@@ -16,6 +16,8 @@ import {
   parseFrameRef,
   modalityFromExt,
   spectrogram as ffSpectrogram,
+  FFMPEG_PATH,
+  FFPROBE_PATH,
   type EnhanceOp,
   type Modality,
 } from "../media/ffmpeg.js";
@@ -25,6 +27,17 @@ import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function hfToken(): string | undefined {
   return process.env.HF_TOKEN || process.env.HUGGING_FACE_HUB_TOKEN || undefined;
+}
+
+/** Env passed to sense exec providers: the case media dir + the vendored ffmpeg
+ *  binaries, so a provider can extract video frames without a system ffmpeg. */
+function providerEnv(mediaDir: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    OVERCAST_MEDIA_DIR: mediaDir,
+    OVERCAST_FFMPEG: FFMPEG_PATH,
+    OVERCAST_FFPROBE: FFPROBE_PATH,
+  };
 }
 
 // ---- listen ----------------------------------------------------------------
@@ -92,7 +105,7 @@ export const seeVerb: VerbSpec = {
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
     { name: "ocr", summary: "Extract on-image text", type: "boolean" },
-    { name: "detect", summary: "Comma list of classes to detect (face,plate,logo)", type: "string" },
+    { name: "detect", summary: "Comma list of target objects to locate (bind the detect provider for bounding boxes)", type: "string" },
     { name: "prompt", summary: "Focus the description", type: "string" },
     { name: "embed", summary: "Persist a visual embedding (query seed)", type: "boolean" },
   ],
@@ -121,7 +134,7 @@ export const seeVerb: VerbSpec = {
     //  2. the shipped Hugging Face captioner when HF_TOKEN is set (turnkey), else
     //  3. the v1 placeholder (needs_credentials + guidance).
     const binding = ctx.profile.providers?.see;
-    const seeEnv = { ...process.env, OVERCAST_MEDIA_DIR: ctx.case.mediaDir };
+    const seeEnv = providerEnv(ctx.case.mediaDir);
     // forward the declared see flags to whichever provider runs (custom or HF).
     const extraArgs: string[] = [];
     if (ctx.opts.ocr === true) extraArgs.push("--ocr");
@@ -202,7 +215,7 @@ export const enhanceVerb: VerbSpec = {
       // error) rather than silently falling back to ffmpeg when a non-exec
       // enhance provider is bound.
       const rec = await runBoundProvider("enhance", enhBinding!, ctx.input, {
-        env: { ...process.env, OVERCAST_MEDIA_DIR: ctx.case.mediaDir },
+        env: providerEnv(ctx.case.mediaDir),
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: ctx.case.dir };

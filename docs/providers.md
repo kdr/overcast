@@ -77,12 +77,33 @@ overcast setup provider enhance "exec:bash examples/providers/elevenlabs/enhance
 - **listen** → ElevenLabs Speech-to-Text (Scribe) → transcript + word-level `segments[]` with `media.at` anchors + language.
 - **enhance** → ElevenLabs Voice Isolator (strips background noise/music → clean speech).
 
+## Object detection (`see` — open-vocabulary, local)
+
+A zero-shot **object detector** that takes a list of target objects (`--detect`)
+and an image **or a video** (frames are sampled with the vendored ffmpeg) and
+returns bounding boxes. It runs **locally** via `transformers` — no fixed COCO
+vocabulary, no remote API:
+
+```bash
+pip install torch transformers pillow scipy     # Grounding DINO also needs `timm`
+overcast setup provider see "exec:python3 examples/providers/detect/detect.py"
+
+overcast see ./scene.jpg --detect "car, person, license plate" --json
+overcast see ./clip.mp4  --detect "weapon, hard hat" --json      # video → frames sampled, each box carries `at`
+```
+
+- Default model **OWLv2** (`google/owlv2-base-patch16-ensemble`) — small, CPU-friendly. Switch to **Grounding DINO** with `DETECT_MODEL=IDEA-Research/grounding-dino-tiny`. Both run through the `zero-shot-object-detection` pipeline, so `--detect` is the open-vocabulary candidate-label list.
+- Emits a `see` record: `payload.detections = [{ label, score, box:{xmin,ymin,xmax,ymax}, at? }]` (the `at` second is present for video frames) plus `payload.counts` per label.
+- Env: `DETECT_MODEL`, `DETECT_THRESHOLD` (default 0.1), `DETECT_MAX_FRAMES` (default 8). overcast passes `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` (the vendored binaries) so video frame extraction works with no system ffmpeg.
+- *Note:* `nvidia/LocateAnything-3B` is a higher-quality open-vocab grounding model but it's a 3B VLM (~7.7 GB, GPU-class); swap it in via a local-transformers provider if you have the hardware.
+
 ## Samples (runnable, in this repo)
 
 - [`examples/providers/bash/watch.sh`](../examples/providers/bash/watch.sh) — the canonical tinycloud `watch` exec provider.
 - [`examples/providers/python/listen.py`](../examples/providers/python/listen.py) — a local-whisper `listen` provider (exec/http).
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec/in-proc).
 - [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
+- [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — local open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
 - [`examples/providers/sources/{youtube,tiktok,web}.sh`](../examples/providers/sources/) — yt-dlp + Apify + web-search (Tavily/Brave) source providers.
 
 ## Source providers (built-in types)

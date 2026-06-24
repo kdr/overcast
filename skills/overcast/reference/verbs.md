@@ -70,7 +70,7 @@ Options:
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
   --ocr                  Extract on-image text
-  --detect <string>      Comma list of classes to detect (face,plate,logo)
+  --detect <string>      Comma list of target objects to locate (bind the detect provider for bounding boxes)
   --prompt <string>      Focus the description
   --embed                Persist a visual embedding (query seed)
 ```
