@@ -19,6 +19,7 @@ import { loadProfile, resolveCloudglue, resolveHome } from "../profile.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { colorizeBanner, statusLine, recLine, headerText, OvercastHeader, OvercastFooter } from "./branding.js";
 import { registerSlashCommands } from "./slash.js";
+import { OvercastEditor } from "./editor.js";
 import { OVERCAST_VERSION } from "../version.js";
 
 const PROMPTS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "prompts");
@@ -117,6 +118,13 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
     // file couldn't be read (e.g. an unexpected packaging layout).
     const applied = overcastTheme ? ctx.ui.setTheme(overcastTheme) : undefined;
     if (!applied?.success) ctx.ui.setTheme(THEME_NAME);
+
+    // custom editor: yellow ❯ prompt + green block cursor (best-effort).
+    try {
+      ctx.ui.setEditorComponent((tui, theme, keybindings) => new OvercastEditor(tui, theme, keybindings));
+    } catch {
+      /* keep pi's default editor if the API shape changed */
+    }
 
     // the case dir follows --case (surfaced via OVERCAST_CASE), matching the
     // agent tools — so the UI labels the case actually being processed.
