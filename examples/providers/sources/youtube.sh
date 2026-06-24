@@ -45,15 +45,31 @@ case "$op" in
 
   enumerate)
     need_ytdlp
-    query=""; limit=10
+    query=""; limit=10; since=""
     while [ "$#" -gt 0 ]; do case "$1" in
       --query) query="$2"; shift 2 ;;
       --limit) limit="$2"; shift 2 ;;
+      --since) since="$2"; shift 2 ;;
       *) shift ;;
     esac; done
     target="$(ref_to_target "$query" "$limit")"
-    # --flat-playlist keeps it fast (no per-video extraction); dump one JSON/line
-    yt-dlp --flat-playlist --dump-json --playlist-end "$limit" "$target" 2>/dev/null \
+    # --flat-playlist keeps it fast (no per-video extraction); dump one JSON/line.
+    flat="--flat-playlist"; date_args=""
+    if [ -n "$since" ]; then
+      # honor --since: map to yt-dlp --dateafter. Date-granular, so any hours
+      # value collapses to "yesterday". Drop --flat-playlist so upload_date is
+      # extracted and the filter actually applies.
+      case "$since" in
+        *[0-9]h)                     da="today-1day" ;;
+        *[0-9]d)                     da="today-${since%d}days" ;;
+        *[0-9]w)                     da="today-$(( ${since%w} * 7 ))days" ;;
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) da="$(printf '%s' "$since" | tr -d -)" ;;
+        *)                           da="$since" ;;
+      esac
+      flat=""; date_args="--dateafter $da"
+    fi
+    # shellcheck disable=SC2086
+    yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>/dev/null \
       | jq -sc '[ .[] | {
           title: (.title // .id),
           url: (.url // .webpage_url // ("https://youtu.be/"+.id)),

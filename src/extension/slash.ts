@@ -48,10 +48,11 @@ export function registerSlashCommands(pi: ExtensionAPI): void {
           pi.appendEntry(RESULT_TYPE, { text: `▶ ${name}: ${parsed.errors.join("; ")}` });
           return;
         }
-        const c = openCase(process.cwd());
+        // honor the session case + profile (--case/--profile, surfaced via env)
+        // so slash-driven verbs use the same .overcast/ store and profile as the
+        // agent tools in this session.
+        const c = openCase(process.env.OVERCAST_CASE || process.cwd());
         c.ensure();
-        // honor the session profile (--profile, surfaced via OVERCAST_PROFILE)
-        // so TUI /setup etc. write to the same profile the CLI session uses.
         const profileName = process.env.OVERCAST_PROFILE || "default";
         const ctx: VerbContext = {
           input: parsed.input,

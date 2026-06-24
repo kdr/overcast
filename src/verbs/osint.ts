@@ -2,8 +2,8 @@
 // (scan on a loop + diff seen-set), plus the state verbs target/source and the
 // prebrief case wizard. Source providers live in providers/sources.
 
-import { join, basename } from "node:path";
-import { copyFileSync, existsSync } from "node:fs";
+import { join, basename, dirname } from "node:path";
+import { copyFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import {
@@ -122,6 +122,14 @@ function uniqueName(url: string): string {
   return dot > 0 ? `${base.slice(0, dot)}_${h}${base.slice(dot)}` : `${base}_${h}`;
 }
 
+/** Best-effort source provider for an ad-hoc URL by host. Video hosts map to
+ *  their downloaders; anything else to the generic `web` page fetcher. */
+function hostSourceType(url: string): string {
+  if (/(^|\.)tiktok\.com/i.test(url)) return "tiktok";
+  if (/(^|\.)(youtube\.com|youtu\.be)/i.test(url)) return "youtube";
+  return "web";
+}
+
 /** The source provider type a scan.hit came from (from its meta.provider). */
 function hitSourceType(rec: OvercastRecord | undefined): string | undefined {
   const prov = rec?.meta?.provider;
@@ -160,9 +168,9 @@ async function captureRef(
     return err("capture", `could not resolve ref to media: ${ref} (not a local path or URL)`);
   }
   // Prefer the originating source provider (from the scan.hit); only fall back
-  // to host-sniffing for ad-hoc URLs with no known source.
-  const type =
-    opts.sourceType ?? (ref.includes("tiktok.com") ? "tiktok" : "youtube");
+  // to host-sniffing for ad-hoc URLs with no known source. A generic host maps
+  // to the `web` page fetcher, not yt-dlp.
+  const type = opts.sourceType ?? hostSourceType(ref);
   const desc = builtinDescriptor(type);
   if (!desc) {
     return err("capture", `no source provider can fetch ${ref} (source type '${type}')`);
@@ -254,6 +262,7 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
   const errorHits = hits.filter((h) => h.state === "error");
   const realHits = hits.filter((h) => h.state !== "error");
   const out: OvercastRecord[] = [...errorHits];
+  const newHits: OvercastRecord[] = [];
   let newCount = 0;
   for (const hit of realHits) {
     const key = hitKey(hit);
@@ -276,6 +285,7 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     if (!captureFailed) {
       seen.add(key);
       newCount++;
+      newHits.push(hit);
     }
   }
   out.unshift(
@@ -288,13 +298,13 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
       error: errorHits.length ? `${errorHits.length} source(s) failed to enumerate` : undefined,
     }),
   );
-  // --brief: a short summary record of the new batch
+  // --brief: a short summary record of the new batch (only the genuinely new
+  // items found this pass, not the first N of all enumerated hits).
   if (ctx.opts.brief === true && newCount > 0) {
-    const titles = realHits
+    const titles = newHits
       .filter((h) => typeof h.payload === "object")
       .map((h) => (h.payload as Record<string, unknown>).title)
-      .filter(Boolean)
-      .slice(0, newCount);
+      .filter(Boolean);
     out.push(makeRecord({ verb: "brief", format: "md", payload: { report: `## Monitor — ${newCount} new\n${titles.map((t) => `- ${t}`).join("\n")}`, total: newCount }, meta: { case: ctx.case.dir }, state: "ready" }));
   }
   return out;
@@ -329,7 +339,7 @@ export const monitorVerb: VerbSpec = {
       if (!alertSink) return;
       const lines = recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
       if (alertSink === "stdout") process.stdout.write(lines);
-      else { const { appendFileSync, mkdirSync } = require("node:fs"); mkdirSync(require("node:path").dirname(alertSink), { recursive: true }); appendFileSync(alertSink, lines); }
+      else { mkdirSync(dirname(alertSink), { recursive: true }); appendFileSync(alertSink, lines); }
     };
 
     // continuous mode: --every set and NOT --once → blocking loop, stream each pass.
@@ -339,6 +349,7 @@ export const monitorVerb: VerbSpec = {
       const seen = loadSeen(ctx.case);
       const maxPasses = process.env.OVERCAST_MONITOR_MAX_PASSES ? Number(process.env.OVERCAST_MONITOR_MAX_PASSES) : Infinity;
       let pass = 0;
+      let errorPasses = 0;
       process.stderr.write(`monitor: every ${everyStr}, Ctrl-C to stop\n`);
       while (pass < maxPasses && !ctx.signal?.aborted) {
         pass++;
@@ -346,10 +357,22 @@ export const monitorVerb: VerbSpec = {
         for (const r of recs) { ctx.case.writeRecord(r); process.stdout.write(JSON.stringify(r) + "\n"); }
         saveSeen(ctx.case, seen);
         writeAlert(recs.filter((r) => r.verb !== "monitor"));
+        if (recs.some((r) => r.state === "error")) errorPasses++;
         if (pass >= maxPasses || ctx.signal?.aborted) break;
         await sleep(intervalMs, ctx.signal);
       }
-      return []; // already streamed + persisted per pass
+      // records already streamed + persisted per pass; return a final summary so
+      // the exit code reflects whether any pass errored (schedulers rely on it).
+      return [
+        makeRecord({
+          verb: "monitor",
+          format: "json",
+          payload: { passes: pass, error_passes: errorPasses },
+          meta: { provider: "monitor", case: ctx.case.dir },
+          state: errorPasses ? "error" : "ready",
+          error: errorPasses ? `${errorPasses}/${pass} pass(es) had errors` : undefined,
+        }),
+      ];
     }
 
     // single pass (--once or default). Persist the seen-set even if the pass

@@ -15,7 +15,8 @@
     "themes",
     "assets",
     "skills",
-    "prompts"
+    "prompts",
+    "examples"
   ],
   "engines": {
     "node": ">=22"

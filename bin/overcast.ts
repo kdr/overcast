@@ -17,7 +17,15 @@ function effectiveCmd(argv: string[]): string | undefined {
     const t = argv[i];
     const name = t.includes("=") ? t.slice(0, t.indexOf("=")) : t;
     if (!GLOBAL_FLAGS.has(name)) break;
-    i += t.includes("=") ? 1 : 2; // attached form: flag only; space form: flag + value
+    if (t.includes("=")) {
+      i += 1; // attached form: flag only
+    } else {
+      // space form: consume the value only if it isn't itself a flag — a
+      // value-less global is malformed and must surface (reach the CLI), not be
+      // swallowed so the command token disappears and the TUI launches.
+      const v = argv[i + 1];
+      i += v !== undefined && !v.startsWith("-") ? 2 : 1;
+    }
   }
   return argv[i];
 }
@@ -31,11 +39,31 @@ function isHelpOrVersionCmd(argv: string[]): boolean {
   );
 }
 
+/** True if a leading global flag is present but missing its value — a malformed
+ *  CLI invocation that should reach runCli to report the error, not the TUI. */
+function hasMalformedGlobal(argv: string[]): boolean {
+  for (let i = 0; i < argv.length; i++) {
+    const t = argv[i];
+    const eq = t.includes("=");
+    const name = eq ? t.slice(0, t.indexOf("=")) : t;
+    if (!GLOBAL_FLAGS.has(name)) return false; // stop at the first non-global
+    if (eq) {
+      if (t.slice(t.indexOf("=") + 1) === "") return true; // `--case=`
+    } else {
+      const v = argv[i + 1];
+      if (v === undefined || v.startsWith("-")) return true; // value-less
+      i++; // skip the consumed value
+    }
+  }
+  return false;
+}
+
 function isCliDispatch(argv: string[]): boolean {
   // Global flags may lead the invocation (`overcast --case /dir watch …`).
   // Skip them (and their values) to find the effective command token.
   const cmd = effectiveCmd(argv);
-  if (!cmd) return false; // only globals / no args → launch the TUI
+  // a value-less leading global (`overcast --case`) is a CLI error, not a TUI launch
+  if (!cmd) return hasMalformedGlobal(argv);
   // A version request is CLI only when it is the command itself, so headless
   // pi usage like `overcast -p "…" -v` still launches the agent.
   if (cmd === "--version" || cmd === "-v") return true;
