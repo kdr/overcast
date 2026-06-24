@@ -75,9 +75,21 @@ test("seen-set round-trips and hitKey prefers url", () => {
     assert.deepEqual([...loadSeen(c)].sort(), ["a", "b"]);
 
     const rec = makeRecord({ verb: "scan", payload: { url: "http://x/1", title: "t" }, media: { ref: "m" } });
-    assert.equal(hitKey(rec), "http://x/1");
+    assert.equal(hitKey(rec), "url:http://x/1");
+
+    // No url → a content composite (prefixed), stable and title-derived.
     const noUrl = makeRecord({ verb: "scan", payload: { title: "only-title" } });
-    assert.equal(hitKey(noUrl), "only-title");
+    const k = hitKey(noUrl);
+    assert.match(k, /^c:/);
+    assert.ok(k.includes("only-title"));
+    // distinct titles → distinct keys; identical payload → identical key.
+    assert.notEqual(k, hitKey(makeRecord({ verb: "scan", payload: { title: "other-title" } })));
+    assert.equal(k, hitKey(makeRecord({ verb: "scan", payload: { title: "only-title" } })));
+
+    // nothing identifying → a stable content hash (never the random rec.id).
+    const bare = makeRecord({ verb: "scan", payload: {} });
+    assert.match(hitKey(bare), /^h:/);
+    assert.equal(hitKey(bare), hitKey(makeRecord({ verb: "scan", payload: {} })));
   });
 });
 

@@ -85,6 +85,15 @@ export class Case {
     return JSON.parse(readFileSync(this.caseFile, "utf8")) as CaseInfo;
   }
 
+  /** Set the case name, persisting it to case.json (creates the store first). */
+  setName(name: string): CaseInfo {
+    const info = this.ensure();
+    if (!name || name === info.name) return info;
+    const updated: CaseInfo = { ...info, name };
+    writeFileSync(this.caseFile, JSON.stringify(updated, null, 2) + "\n", "utf8");
+    return updated;
+  }
+
   // --- records --------------------------------------------------------------
 
   /**

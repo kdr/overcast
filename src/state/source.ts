@@ -89,12 +89,14 @@ export function removeSource(c: Case, id: string): boolean {
   return store.sources.length < before;
 }
 
-/** Resolve sources by id list (default: all enabled). */
+/** Resolve sources by id list (default: all enabled). Always respects the
+ *  `enabled` flag — a disabled source stays disabled even when named via
+ *  `--source`, matching the default behavior. */
 export function resolveSources(c: Case, ids?: string[]): SourceEntry[] {
-  const all = listSources(c);
+  const all = listSources(c).filter((s) => s.enabled);
   if (ids && ids.length) {
     const set = new Set(ids);
     return all.filter((s) => set.has(s.id) || set.has(s.type));
   }
-  return all.filter((s) => s.enabled);
+  return all;
 }

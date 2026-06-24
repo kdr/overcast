@@ -97,7 +97,7 @@ export const scanVerb: VerbSpec = {
     const out: OvercastRecord[] = [...hits];
     for (const hit of hits) {
       if (hit.state === "error" || !hit.media?.ref) continue;
-      const cap = await captureRef(ctx, hit.media.ref);
+      const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
       out.push(cap);
       if (cap.state !== "error" && cap.media?.ref) {
         const pipe = ctx.opts.pipe ? String(ctx.opts.pipe) : "watch";
@@ -111,11 +111,24 @@ export const scanVerb: VerbSpec = {
 
 // ---- capture ---------------------------------------------------------------
 
-async function captureRef(ctx: VerbContext, ref: string): Promise<OvercastRecord> {
+/** The source provider type a scan.hit came from (from its meta.provider). */
+function hitSourceType(rec: OvercastRecord | undefined): string | undefined {
+  const prov = rec?.meta?.provider;
+  if (typeof prov === "string" && prov.startsWith("source:")) {
+    return prov.slice("source:".length);
+  }
+  return undefined;
+}
+
+async function captureRef(
+  ctx: VerbContext,
+  ref: string,
+  opts: { sourceType?: string; out?: string } = {},
+): Promise<OvercastRecord> {
   const outDir = ctx.case.mediaDir;
   // a local file → copy into the case (fixture/folder sources, ad-hoc paths)
   if (existsSync(ref)) {
-    const dest = join(outDir, basename(ref));
+    const dest = opts.out ? opts.out : join(outDir, basename(ref));
     try {
       copyFileSync(ref, dest);
     } catch (e) {
@@ -135,10 +148,15 @@ async function captureRef(ctx: VerbContext, ref: string): Promise<OvercastRecord
   if (!/^https?:\/\//i.test(ref)) {
     return err("capture", `could not resolve ref to media: ${ref} (not a local path or URL)`);
   }
-  const type = ref.includes("tiktok.com") ? "tiktok" : "youtube";
+  // Prefer the originating source provider (from the scan.hit); only fall back
+  // to host-sniffing for ad-hoc URLs with no known source.
+  const type =
+    opts.sourceType ?? (ref.includes("tiktok.com") ? "tiktok" : "youtube");
   const desc = builtinDescriptor(type);
-  if (!desc) return err("capture", `no source provider can fetch ${ref}`);
-  const dest = join(outDir, basename(ref.split("?")[0]) || "download");
+  if (!desc) {
+    return err("capture", `no source provider can fetch ${ref} (source type '${type}')`);
+  }
+  const dest = opts.out ? opts.out : join(outDir, basename(ref.split("?")[0]) || "download");
   return fetchSource(desc, { url: ref, out: dest, signal: ctx.signal });
 }
 
@@ -178,11 +196,19 @@ export const captureVerb: VerbSpec = {
   providerKey: "capture",
   run: async (ctx) => {
     if (!ctx.input) return [err("capture", "capture requires a ref (URL/path/scan.hit id)")];
-    // resolve a scan.hit record id → its media ref
+    // resolve a scan.hit record id → its media ref (and source provider)
     let ref = ctx.input;
     const rec = ctx.case.recordById(ctx.input);
     if (rec?.media?.ref) ref = rec.media.ref;
-    const cap = await captureRef(ctx, ref);
+    const cap = await captureRef(ctx, ref, {
+      sourceType: hitSourceType(rec),
+      out: ctx.opts.out ? String(ctx.opts.out) : undefined,
+    });
+    // --index: flag the artifact for memory recall. The case store IS the local
+    // memory index (records are written there), so this records the intent.
+    if (ctx.opts.index === true && typeof cap.payload === "object") {
+      (cap.payload as Record<string, unknown>).indexed = true;
+    }
     return [cap];
   },
 };
@@ -219,16 +245,24 @@ export const monitorVerb: VerbSpec = {
     for (const hit of realHits) {
       const key = hitKey(hit);
       if (seen.has(key)) continue;
-      seen.add(key);
-      newCount++;
       out.push(hit);
+      // Only mark an item seen once it has been processed (no capturable media,
+      // or capture succeeded). A failed capture stays unseen so a later pass can
+      // retry it instead of silently dropping it.
+      let captureFailed = false;
       if (hit.media?.ref) {
-        const cap = await captureRef(ctx, hit.media.ref);
+        const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
         out.push(cap);
         if (cap.state !== "error" && cap.media?.ref) {
           const sensed = await pipeSense(ctx, ctx.opts.pipe ? String(ctx.opts.pipe) : "watch", cap.media.ref);
           if (sensed) out.push(sensed);
+        } else {
+          captureFailed = true;
         }
+      }
+      if (!captureFailed) {
+        seen.add(key);
+        newCount++;
       }
     }
     saveSeen(ctx.case, seen);
@@ -284,6 +318,10 @@ export const targetVerb: VerbSpec = {
       const ok = removeTarget(ctx.case, value);
       return [makeRecord({ verb: "target", format: "json", payload: { removed: ok, id: value }, state: "ready" })];
     }
+    // an unrecognized action shouldn't silently fall through to a list
+    if (action && action !== "list" && action !== "show") {
+      return [err("target", `unknown target action '${action}' (expected add|list|rm|show)`)];
+    }
     // list / show
     return [
       makeRecord({
@@ -330,6 +368,10 @@ export const sourceVerb: VerbSpec = {
       if (!value) return [err("source", "source rm requires an id")];
       return [makeRecord({ verb: "source", format: "json", payload: { removed: removeSource(ctx.case, value), id: value }, state: "ready" })];
     }
+    // an unrecognized action (e.g. `disbale`) shouldn't read as a successful list
+    if (action && action !== "list") {
+      return [err("source", `unknown source action '${action}' (expected add|list|enable|disable|rm)`)];
+    }
     return [makeRecord({ verb: "source", format: "json", payload: { sources: listSources(ctx.case), enabled: enabledSources(ctx.case).length }, state: "ready" })];
   },
 };
@@ -353,8 +395,9 @@ export const prebriefVerb: VerbSpec = {
   outputKind: "prebrief",
   providerKey: "prebrief",
   run: async (ctx) => {
-    const info = ctx.case.ensure();
-    const seeded: Record<string, unknown> = { case: info.id, name: ctx.input ?? info.name };
+    // Persist the provided case name (not just echo it), per the verb contract.
+    const info = ctx.input ? ctx.case.setName(String(ctx.input)) : ctx.case.ensure();
+    const seeded: Record<string, unknown> = { case: info.id, name: info.name };
     if (ctx.opts.target) seeded.target = addTarget(ctx.case, String(ctx.opts.target));
     if (ctx.opts.source) seeded.source = addSource(ctx.case, String(ctx.opts.source));
     return [makeRecord({ verb: "prebrief", format: "json", payload: seeded, meta: { case: ctx.case.dir }, state: "ready" })];

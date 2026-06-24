@@ -8,6 +8,7 @@
 // base command is invoked as `<base> enumerate ...` / `<base> fetch ...`. This
 // is how the e2e binds a committed fixture source provider offline.
 
+import { existsSync } from "node:fs";
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 
@@ -125,7 +126,22 @@ export async function enumerateSource(
       }),
     ];
   }
-  return hitsToRecords(parseFirstJson(res.stdout), desc.type);
+  // Exit 0 but no parseable JSON is a provider problem, not a clean zero-result
+  // scan — surface it as an error instead of a silent empty list. (A legitimate
+  // empty result parses to `[]`, which yields zero hits without erroring.)
+  const parsed = parseFirstJson(res.stdout);
+  if (parsed === undefined) {
+    return [
+      makeRecord({
+        verb: "scan",
+        format: "json",
+        payload: { source: desc.type },
+        error: `source ${desc.type} enumerate produced no parseable JSON output`,
+        state: "error",
+      }),
+    ];
+  }
+  return hitsToRecords(parsed, desc.type);
 }
 
 export interface FetchOpts {
@@ -160,6 +176,17 @@ export async function fetchSource(
   // provider may emit its own capture record; else synthesize from the out path.
   const parsed = parseFirstJson(res.stdout) as Record<string, unknown> | undefined;
   const path = (parsed?.path as string) ?? (parsed?.media as { ref?: string })?.ref ?? opts.out;
+  // A provider can exit 0 yet leave no file on disk — don't report a ready
+  // capture for media that isn't there.
+  if (!existsSync(path)) {
+    return makeRecord({
+      verb: "capture",
+      format: "json",
+      payload: { url: opts.url, source: desc.type, path },
+      error: `source ${desc.type} fetch reported success but no file at ${path}`,
+      state: "error",
+    });
+  }
   return makeRecord({
     verb: "capture",
     format: "json",
