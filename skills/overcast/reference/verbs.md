@@ -24,8 +24,6 @@ Arguments:
 Options:
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `video.analysis` records.
@@ -49,8 +47,6 @@ Options:
   --json                 Shorthand for --format json
   --diarize              Attribute speech to distinct speakers
   --lang <string>        Hint/force source language (e.g. en, es)
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `audio.analysis` records.
@@ -76,8 +72,6 @@ Options:
   --detect <string>      Comma list of classes to detect (face,plate,logo)
   --prompt <string>      Focus the description
   --embed                Persist a visual embedding (query seed)
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `image.analysis` records.
@@ -101,8 +95,6 @@ Options:
   --out <string>         Output path (default .overcast/media/)
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `media.enhanced` records.
@@ -129,8 +121,6 @@ Options:
   --no-open              Write the viewer but don't launch it
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `view` records.
@@ -157,8 +147,6 @@ Options:
   --pipe <string>        Sense to run on pulled hits (watch|listen)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `scan.hit` records.
@@ -182,8 +170,6 @@ Options:
   --out <string>         Output location override
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `capture` records.
@@ -206,8 +192,6 @@ Options:
   --brief                Summarize the new batch (placeholder in v1)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `scan.hit` records.
@@ -236,8 +220,6 @@ Options:
   --limit <number>       Max passages
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `answer` records.
@@ -258,8 +240,6 @@ Options:
   --export <string>      Write a report file (.md or .html)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `brief` records.
@@ -283,8 +263,6 @@ Options:
   --image                Treat the value as a reference image path
   --json                 JSON output
   --format <string>      json | md | txt
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `target` records.
@@ -306,8 +284,6 @@ Options:
   --name <string>        Friendly name for the source
   --json                 JSON output
   --format <string>      json | md | txt
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `source` records.
@@ -333,8 +309,6 @@ Options:
   --source <string>      Seed source <type>:<ref>
   --json                 JSON output
   --format <string>      json | md | txt
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `prebrief` records.
@@ -359,8 +333,6 @@ Options:
   --profile <string>     Profile name to write (default: default)
   --json                 JSON output
   --format <string>      json | md | txt
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `setup` records.
@@ -383,8 +355,6 @@ Arguments:
 Options:
   --json                 JSON output
   --format <string>      json | md | txt
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `provider` records.
@@ -401,8 +371,6 @@ overcast doctor  [options]
 Options:
   --json                 JSON output
   --format <string>      json | md | txt
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `doctor` records.
@@ -425,8 +393,6 @@ Options:
   --harness <string>     Target harness for install (claude-code)
   --json                 JSON output
   --format <string>      json | md | txt
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `skills` records.

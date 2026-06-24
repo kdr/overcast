@@ -38,6 +38,19 @@ function resolvePackageRoot(): string | undefined {
 const PKG_ROOT = resolvePackageRoot();
 const SKILLS_DIR = PKG_ROOT ? join(PKG_ROOT, "skills") : undefined;
 
+/** Harnesses `skills install` knows how to target. */
+const HARNESS_DESTS: Record<string, string> = {
+  "claude-code": join(homedir(), ".claude", "skills"),
+};
+
+/** Is `root` a checked-out source tree (vs an installed/`node_modules` copy)?
+ *  `skills generate` must only rewrite the committed skills/, never a package. */
+function isSourceTree(root: string | undefined): boolean {
+  if (!root) return false;
+  if (root.split(/[\\/]/).includes("node_modules")) return false;
+  return existsSync(join(root, "src")) && existsSync(join(root, "tsconfig.json"));
+}
+
 /** Write the generated skill files into the repo's skills/ tree (source-repo only). */
 function generateSkills(skillsDir: string): string[] {
   const written: string[] = [];
@@ -59,24 +72,25 @@ function generateSkills(skillsDir: string): string[] {
   return written;
 }
 
-/** Install the SHIPPED skills into a harness's skills directory. */
-function installSkills(skillsDir: string, harness: string): { dest: string; copied: string[] } {
-  // Claude Code project skills live in ./.claude/skills; user skills in
-  // ~/.claude/skills. Default to the user dir (works outside a project).
-  const dest =
-    harness === "claude-code"
-      ? join(homedir(), ".claude", "skills")
-      : join(homedir(), ".overcast", "skills");
+/** Install the SHIPPED skills into a harness's skills directory. Returns the
+ *  destination, what was copied, and any expected skills that were missing. */
+function installSkills(
+  skillsDir: string,
+  dest: string,
+): { dest: string; copied: string[]; missing: string[] } {
   mkdirSync(dest, { recursive: true });
   const copied: string[] = [];
+  const missing: string[] = [];
   for (const name of ["overcast", "overcast-init"]) {
     const src = join(skillsDir, name);
     if (existsSync(src)) {
       cpSync(src, join(dest, name), { recursive: true });
       copied.push(name);
+    } else {
+      missing.push(name);
     }
   }
-  return { dest, copied };
+  return { dest, copied, missing };
 }
 
 export const skillsVerb: VerbSpec = {
@@ -101,9 +115,10 @@ export const skillsVerb: VerbSpec = {
 
     if (action === "generate") {
       // a source-repo command: it rewrites the committed skills/ from the
-      // registry. Not meaningful from a bun binary or an installed package.
-      if (!SKILLS_DIR) {
-        return fail("skills generate is a source-repo command (no writable package skills/ dir in this distribution)");
+      // registry. Not meaningful from a bun binary or an installed package
+      // (which would rewrite the shipped skills/ inside node_modules).
+      if (!SKILLS_DIR || !isSourceTree(PKG_ROOT)) {
+        return fail("skills generate is a source-repo command (run it from a checked-out overcast tree, not an installed package or the compiled binary)");
       }
       try {
         const written = generateSkills(SKILLS_DIR);
@@ -120,8 +135,17 @@ export const skillsVerb: VerbSpec = {
         return fail("no shipped skills/ in this distribution (install the npm package, or run from source)");
       }
       const harness = ctx.opts.harness ? String(ctx.opts.harness) : "claude-code";
+      const harnessDest = HARNESS_DESTS[harness];
+      // an unknown harness must not be silently redirected to a default dir
+      if (!harnessDest) {
+        return fail(`unknown harness '${harness}' (supported: ${Object.keys(HARNESS_DESTS).join(", ")})`);
+      }
       try {
-        const { dest, copied } = installSkills(SKILLS_DIR, harness);
+        const { dest, copied, missing } = installSkills(SKILLS_DIR, harnessDest);
+        // a partial install (e.g. overcast-init missing) is not a success
+        if (missing.length) {
+          return [makeRecord({ verb: "skills", format: "json", payload: { harness, dest, installed: copied, missing }, error: `partial install — missing skill(s): ${missing.join(", ")}`, state: "error" })];
+        }
         return [makeRecord({ verb: "skills", format: "json", payload: { harness, dest, installed: copied }, state: "ready" })];
       } catch (e) {
         return fail(`skills install failed: ${(e as Error).message}`);

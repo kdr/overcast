@@ -110,13 +110,17 @@ export function renderVerbHelp(spec: VerbSpec): string {
   }
   lines.push("");
   lines.push("Options:");
+  const declared = new Set(spec.flags.map((f) => f.name));
   for (const f of spec.flags) {
     const meta = f.type === "boolean" ? "" : ` <${f.type}>`;
     const def = f.default !== undefined ? ` (default: ${f.default})` : "";
     lines.push(`  --${(f.name + meta).padEnd(20)} ${f.summary}${def}`);
   }
-  lines.push(`  --json               JSON output`);
-  lines.push(`  --format <fmt>       json | md | txt`);
+  // Only show the common json/format options when the verb didn't already
+  // declare them — otherwise the help (and the generated reference) lists each
+  // twice and drifts from `commands --json` (invariant #5).
+  if (!declared.has("json")) lines.push(`  --json               JSON output`);
+  if (!declared.has("format")) lines.push(`  --format <fmt>       json | md | txt`);
   lines.push("");
   return lines.join("\n");
 }
