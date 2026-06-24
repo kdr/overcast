@@ -64,15 +64,22 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
     // Title: "overcast — <profile>@case://<folder>" (the case is the cwd folder;
     // the profile is the active persona, e.g. `recon`). Overrides pi's
     // "<app> - <session> - <cwd>" so the tab reads cleanly.
-    const profileName = loadProfile().name ?? "default";
+    const activeProfile = loadProfile({ profile: process.env.OVERCAST_PROFILE || undefined });
+    const profileName = activeProfile.name ?? "default";
     ctx.ui.setTitle(`overcast — ${profileName}@case://${caseName}`);
 
     // Header: colorized banner + a status line (context file · verbs · model).
+    // Respect an explicit `setup llm` choice in the status label too.
+    const modelLabel = activeProfile.llm
+      ? `model: ${activeProfile.llm.model ?? activeProfile.llm.provider}`
+      : cgKey
+        ? `model: ${CLOUDGLUE_MODEL_ID}`
+        : "model: (set via /model)";
     if (banner) {
       const status = statusLine([
         contextFileLabel(cwd),
         `${VERBS.length} tools`,
-        cgKey ? `model: ${CLOUDGLUE_MODEL_ID}` : "model: (set via /model)",
+        modelLabel,
       ]);
       const header = headerText(banner, status);
       ctx.ui.setHeader((_tui: TUI, _theme): Component => new Text(header));
@@ -91,11 +98,11 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
         };
       });
     });
-    // Turnkey: when a Cloudglue key is available, make its model the active
-    // brain so overcast works out of the box (the user picked the Cloudglue
-    // backend by configuring the key). Still overridable via /model — never
-    // hardcoded. setModel returns false if pi can't resolve a key.
-    if (cgKey) {
+    // Turnkey: when a Cloudglue key is available AND the user hasn't pinned
+    // their own brain (`setup llm`), make Cloudglue the active model so overcast
+    // works out of the box. An explicit profile llm is always respected; this is
+    // still overridable via /model — never hardcoded over a user's choice.
+    if (cgKey && !activeProfile.llm) {
       try {
         await pi.setModel({
           id: CLOUDGLUE_MODEL_ID,
