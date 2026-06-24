@@ -2,7 +2,7 @@
 // install skills into a harness (Claude Code). Keeps the skill docs in sync with
 // the verb surface (invariant #5).
 
-import { writeFileSync, mkdirSync, existsSync, cpSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, cpSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -34,12 +34,30 @@ function resolvePackageRoot(): string | undefined {
   // fixed depth — the bundle may live at dist/bin/, dist/, src/verbs/, etc.
   let dir = here;
   for (let i = 0; i < 8; i++) {
-    if (existsSync(join(dir, "package.json"))) return dir;
+    const pj = join(dir, "package.json");
+    // Skip the minimal `dist/bin/package.json` sidecar that `build:bun` drops
+    // next to the compiled binary for pi branding — it has no `dependencies`,
+    // so it would otherwise shadow the real package root for skills/shippedPath.
+    if (existsSync(pj) && isRealPackage(pj)) return dir;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
   return undefined;
+}
+
+/** A real overcast package.json declares dependencies; the bun branding sidecar
+ *  ({ name, version, piConfig }) does not. */
+function isRealPackage(pkgJsonPath: string): boolean {
+  try {
+    const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as {
+      dependencies?: unknown;
+      files?: unknown;
+    };
+    return pkg.dependencies != null || pkg.files != null;
+  } catch {
+    return false;
+  }
 }
 
 const PKG_ROOT = resolvePackageRoot();
