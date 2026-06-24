@@ -89,6 +89,15 @@ function buildOvercastTheme(): Theme | undefined {
   }
 }
 
+/** The terminal/tab title: "overcast — <profile>@case://<case-folder>". pi's own
+ *  updateTerminalTitle() resets the title to "<app> - <cwd>" on session bind, so
+ *  we re-apply this on each turn (below) to keep it. */
+function desiredTitle(): string {
+  const cwd = process.env.OVERCAST_CASE || process.cwd();
+  const profileName = loadProfile({ profile: process.env.OVERCAST_PROFILE || undefined }).name ?? "default";
+  return `overcast — ${profileName}@case://${basename(cwd)}`;
+}
+
 export default async function overcastExtension(pi: ExtensionAPI): Promise<void> {
   // Read the banner once; captured by the setHeader factory. Colorize it to the
   // overcast theme (raw ASCII would render terminal-default white).
@@ -135,8 +144,10 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
     // the profile is the active persona, e.g. `recon`). Overrides pi's
     // "<app> - <session> - <cwd>" so the tab reads cleanly.
     const activeProfile = loadProfile({ profile: process.env.OVERCAST_PROFILE || undefined });
-    const profileName = activeProfile.name ?? "default";
-    ctx.ui.setTitle(`overcast — ${profileName}@case://${caseName}`);
+    ctx.ui.setTitle(desiredTitle());
+    // pi resets the terminal title to "<app> - <cwd>" on session bind (after this
+    // handler) — re-apply ours just after the synchronous init settles.
+    setTimeout(() => { try { ctx.ui.setTitle(desiredTitle()); } catch { /* ignore */ } }, 50);
 
     // Header: colorized banner + a status line (context file · verbs · model).
     // Respect an explicit `setup llm` choice in the status label too.
@@ -194,6 +205,14 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
       }
     }
   });
+
+  // Keep our terminal title: pi's updateTerminalTitle() resets it to "<app> - <cwd>"
+  // on session bind, so re-assert "overcast — <profile>@case://<case>" each turn.
+  const reapplyTitle = (_event: unknown, ctx: { ui: { setTitle(t: string): void } }) => {
+    try { ctx.ui.setTitle(desiredTitle()); } catch { /* ignore */ }
+  };
+  pi.on("turn_start", reapplyTitle as never);
+  pi.on("turn_end", reapplyTitle as never);
 
   // --- Cloudglue brain provider (anthropic-messages); never forced. ---------
   // Pass the resolved key literally when we have one (env or tinycloud config)
