@@ -232,80 +232,136 @@ export const captureVerb: VerbSpec = {
 
 // ---- monitor (--once) ------------------------------------------------------
 
+/** Parse a cadence like "15m"/"6h"/"30s"/"1d" into milliseconds. */
+export function parseInterval(s: string): number | undefined {
+  const m = s.match(/^(\d+)\s*([smhd])$/);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  const u = m[2];
+  return n * (u === "s" ? 1e3 : u === "m" ? 60e3 : u === "h" ? 3600e3 : 86400e3);
+}
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((res) => {
+    if (ms <= 0) return res();
+    const t = setTimeout(res, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); res(); }, { once: true });
+  });
+
+/** One monitor pass: enumerate, diff against `seen` (mutated), capture+sense new items. */
+async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<OvercastRecord[]> {
+  const hits = await enumerateAll(ctx);
+  const errorHits = hits.filter((h) => h.state === "error");
+  const realHits = hits.filter((h) => h.state !== "error");
+  const out: OvercastRecord[] = [...errorHits];
+  let newCount = 0;
+  for (const hit of realHits) {
+    const key = hitKey(hit);
+    if (seen.has(key)) continue;
+    out.push(hit);
+    // Only mark an item seen once it has been processed (no capturable media, or
+    // capture succeeded). A failed capture stays unseen so a later pass retries
+    // it instead of silently dropping it.
+    let captureFailed = false;
+    if (hit.media?.ref) {
+      const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
+      out.push(cap);
+      if (cap.state !== "error" && cap.media?.ref) {
+        const sensed = await pipeSense(ctx, ctx.opts.pipe ? String(ctx.opts.pipe) : "watch", cap.media.ref);
+        if (sensed) out.push(sensed);
+      } else {
+        captureFailed = true;
+      }
+    }
+    if (!captureFailed) {
+      seen.add(key);
+      newCount++;
+    }
+  }
+  out.unshift(
+    makeRecord({
+      verb: "monitor",
+      format: "json",
+      payload: { new_items: newCount, total_hits: realHits.length, seen_size: seen.size, source_errors: errorHits.length },
+      meta: { provider: "monitor", case: ctx.case.dir },
+      state: errorHits.length ? "error" : "ready",
+      error: errorHits.length ? `${errorHits.length} source(s) failed to enumerate` : undefined,
+    }),
+  );
+  // --brief: a short summary record of the new batch
+  if (ctx.opts.brief === true && newCount > 0) {
+    const titles = realHits
+      .filter((h) => typeof h.payload === "object")
+      .map((h) => (h.payload as Record<string, unknown>).title)
+      .filter(Boolean)
+      .slice(0, newCount);
+    out.push(makeRecord({ verb: "brief", format: "md", payload: { report: `## Monitor — ${newCount} new\n${titles.map((t) => `- ${t}`).join("\n")}`, total: newCount }, meta: { case: ctx.case.dir }, state: "ready" }));
+  }
+  return out;
+}
+
 export const monitorVerb: VerbSpec = {
   name: "monitor",
   group: "osint",
-  summary: "scan on a loop; diff against the seen-set; pipe new items into a sense. --once for schedulers.",
+  summary: "scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.",
   description:
     "Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe " +
-    "sense. --once does a single diff pass and exits. (Continuous --every loop is scheduler-driven.)",
+    "sense. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop " +
+    "(run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; " +
+    "--alert <stdout|file> mirrors new records to a sink.",
   args: [],
   flags: [
     { name: "source", summary: "Restrict to source ids/types", type: "string" },
     { name: "pipe", summary: "Sense to run on new items (watch|listen)", type: "string" },
     { name: "once", summary: "Single diff pass then exit", type: "boolean" },
-    { name: "brief", summary: "Summarize the new batch (placeholder in v1)", type: "boolean" },
+    { name: "every", summary: "Continuous loop cadence (e.g. 15m, 6h)", type: "string" },
+    { name: "brief", summary: "Summarize the new batch into a brief record", type: "boolean" },
+    { name: "alert", summary: "Mirror new records to a sink (stdout | <file>)", type: "string" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
   outputKind: "scan.hit",
   providerKey: "monitor",
   run: async (ctx) => {
-    // v1: always a single pass (continuous looping is left to the scheduler).
-    const hits = await enumerateAll(ctx);
-    const errorHits = hits.filter((h) => h.state === "error");
-    const realHits = hits.filter((h) => h.state !== "error");
-    const seen = loadSeen(ctx.case);
-    // surface enumerate errors so a dead source can't read as "nothing new"
-    const out: OvercastRecord[] = [...errorHits];
-    let newCount = 0;
-    // Persist the seen-set even if processing throws mid-pass, so accumulated
-    // progress isn't lost (each item is only marked seen after it succeeds).
-    try {
-      for (const hit of realHits) {
-        const key = hitKey(hit);
-        if (seen.has(key)) continue;
-        out.push(hit);
-        // Only mark an item seen once it has been processed (no capturable
-        // media, or capture succeeded). A failed capture stays unseen so a later
-        // pass can retry it instead of silently dropping it.
-        let captureFailed = false;
-        if (hit.media?.ref) {
-          const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
-          out.push(cap);
-          if (cap.state !== "error" && cap.media?.ref) {
-            const sensed = await pipeSense(ctx, ctx.opts.pipe ? String(ctx.opts.pipe) : "watch", cap.media.ref);
-            if (sensed) out.push(sensed);
-          } else {
-            captureFailed = true;
-          }
-        }
-        if (!captureFailed) {
-          seen.add(key);
-          newCount++;
-        }
+    const everyStr = ctx.opts.every ? String(ctx.opts.every) : "";
+    const alertSink = ctx.opts.alert ? String(ctx.opts.alert) : "";
+    const writeAlert = (recs: OvercastRecord[]) => {
+      if (!alertSink) return;
+      const lines = recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
+      if (alertSink === "stdout") process.stderr.write(lines);
+      else { const { appendFileSync, mkdirSync } = require("node:fs"); mkdirSync(require("node:path").dirname(alertSink), { recursive: true }); appendFileSync(alertSink, lines); }
+    };
+
+    // continuous mode: --every set and NOT --once → blocking loop, stream each pass.
+    if (everyStr && ctx.opts.once !== true) {
+      const intervalMs = parseInterval(everyStr) ?? 0;
+      if (intervalMs <= 0) return [makeRecord({ verb: "monitor", format: "json", payload: { error: `bad --every '${everyStr}'` }, error: "bad interval", state: "error" })];
+      const seen = loadSeen(ctx.case);
+      const maxPasses = process.env.OVERCAST_MONITOR_MAX_PASSES ? Number(process.env.OVERCAST_MONITOR_MAX_PASSES) : Infinity;
+      let pass = 0;
+      process.stderr.write(`monitor: every ${everyStr}, Ctrl-C to stop\n`);
+      while (pass < maxPasses && !ctx.signal?.aborted) {
+        pass++;
+        const recs = await monitorPass(ctx, seen);
+        for (const r of recs) { ctx.case.writeRecord(r); process.stdout.write(JSON.stringify(r) + "\n"); }
+        saveSeen(ctx.case, seen);
+        writeAlert(recs.filter((r) => r.verb !== "monitor"));
+        if (pass >= maxPasses || ctx.signal?.aborted) break;
+        await sleep(intervalMs, ctx.signal);
       }
+      return []; // already streamed + persisted per pass
+    }
+
+    // single pass (--once or default). Persist the seen-set even if the pass
+    // throws mid-way, so accumulated progress isn't lost.
+    const seen = loadSeen(ctx.case);
+    let out: OvercastRecord[] = [];
+    try {
+      out = await monitorPass(ctx, seen);
     } finally {
       saveSeen(ctx.case, seen);
     }
-    // a summary record so callers can see the diff result at a glance. When a
-    // source failed to enumerate, the summary state reflects that (a scheduler
-    // must not read a broken source as a clean "nothing new").
-    out.unshift(
-      makeRecord({
-        verb: "monitor",
-        format: "json",
-        payload: {
-          new_items: newCount,
-          total_hits: realHits.length,
-          seen_size: seen.size,
-          source_errors: errorHits.length,
-        },
-        meta: { provider: "monitor", case: ctx.case.dir },
-        state: errorHits.length ? "error" : "ready",
-        error: errorHits.length ? `${errorHits.length} source(s) failed to enumerate` : undefined,
-      }),
-    );
+    writeAlert(out.filter((r) => r.verb !== "monitor"));
     return out;
   },
 };

@@ -25,7 +25,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `scan` — Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
-- `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once for schedulers.
+- `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
 - `target` — Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
 - `source` — Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
 - `prebrief` — Stand up a case: name + target + source in one shot (non-interactive via flags).

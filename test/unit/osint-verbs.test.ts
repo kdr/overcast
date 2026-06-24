@@ -118,3 +118,35 @@ test("capture rejects an unresolved ref instead of shipping it to yt-dlp", async
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /could not resolve ref/);
 });
+
+import { parseInterval } from "../../src/verbs/osint.ts";
+
+test("parseInterval parses s/m/h/d cadences", () => {
+  assert.equal(parseInterval("30s"), 30_000);
+  assert.equal(parseInterval("15m"), 900_000);
+  assert.equal(parseInterval("6h"), 21_600_000);
+  assert.equal(parseInterval("1d"), 86_400_000);
+  assert.equal(parseInterval("nope"), undefined);
+});
+
+test("monitor --every loops with seen-set diff across passes (capped)", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monloop-"));
+  process.env.OVERCAST_MONITOR_MAX_PASSES = "2";
+  try {
+    const c = openCase(d); c.ensure();
+    addSource(c, "fixture:x");
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+    // the loop persists each pass's records to the case store; assert on those
+    await monitorVerb.run({ input: undefined, rest: [], opts: { every: "1s", pipe: "watch" }, case: openCase(d), profile });
+    const summaries = openCase(d).records()
+      .filter((r) => r.verb === "monitor")
+      .map((r) => (r.payload as Record<string, unknown>).new_items);
+    assert.equal(summaries.length, 2, "ran 2 passes");
+    assert.equal(summaries[0], 2, "pass 1: 2 new");
+    assert.equal(summaries[1], 0, "pass 2: 0 new (seen-set held across loop)");
+  } finally {
+    delete process.env.OVERCAST_MONITOR_MAX_PASSES;
+    rmSync(d, { recursive: true, force: true });
+  }
+});

@@ -177,20 +177,22 @@ Emits `capture` records.
 
 ### `overcast monitor`
 
-Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once does a single diff pass and exits. (Continuous --every loop is scheduler-driven.)
+Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
 
 ```
 overcast monitor  [options]
 
-  scan on a loop; diff against the seen-set; pipe new items into a sense. --once for schedulers.
+  scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
 
-  Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once does a single diff pass and exits. (Continuous --every loop is scheduler-driven.)
+  Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
 
 Options:
   --source <string>      Restrict to source ids/types
   --pipe <string>        Sense to run on new items (watch|listen)
   --once                 Single diff pass then exit
-  --brief                Summarize the new batch (placeholder in v1)
+  --every <string>       Continuous loop cadence (e.g. 15m, 6h)
+  --brief                Summarize the new batch into a brief record
+  --alert <string>       Mirror new records to a sink (stdout | <file>)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
