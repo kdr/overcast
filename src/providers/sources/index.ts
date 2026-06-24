@@ -10,7 +10,7 @@
 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 
@@ -211,14 +211,18 @@ export async function fetchSource(
   // that writes to --out but returns a different/relative `path` shouldn't read
   // as a failed capture. Only error when NEITHER file is present.
   const path = reported && existsSync(reported) ? reported : opts.out;
-  // A provider can exit 0 yet leave no file on disk — don't report a ready
-  // capture for media that isn't there.
-  if (!existsSync(path)) {
+  // A provider can exit 0 yet leave no file (or a 0-byte file) on disk — don't
+  // report a ready capture for media that isn't actually there.
+  const size = existsSync(path) ? (() => { try { return statSync(path).size; } catch { return 0; } })() : -1;
+  if (size <= 0) {
     return makeRecord({
       verb: "capture",
       format: "json",
       payload: { url: opts.url, source: desc.type, path },
-      error: `source ${desc.type} fetch reported success but no file at ${path}${reported && reported !== path ? ` (or ${reported})` : ""}`,
+      error:
+        size < 0
+          ? `source ${desc.type} fetch reported success but no file at ${path}${reported && reported !== path ? ` (or ${reported})` : ""}`
+          : `source ${desc.type} fetch produced an empty (0-byte) file at ${path}`,
       state: "error",
     });
   }

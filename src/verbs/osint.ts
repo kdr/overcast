@@ -116,15 +116,21 @@ export const scanVerb: VerbSpec = {
       const hitUrl = (hit.payload as Record<string, unknown>)?.url;
       const ref = hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
       if (!ref) continue;
-      const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-      out.push(cap);
-      if (cap.state !== "error" && cap.media?.ref) {
-        const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-        // only auto-sense AV captures; honor an explicit --pipe for anything.
-        if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-          const sensed = await pipeSense(ctx, "scan", explicitPipe ?? "watch", cap.media.ref);
-          if (sensed) out.push(sensed);
+      try {
+        const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+        out.push(cap);
+        if (cap.state !== "error" && cap.media?.ref) {
+          const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+          // only auto-sense AV captures; honor an explicit --pipe for anything.
+          if (explicitPipe || isSenseableMedia(cap.media.ref)) {
+            const sensed = await pipeSense(ctx, "scan", explicitPipe ?? "watch", cap.media.ref);
+            if (sensed) out.push(sensed);
+          }
         }
+      } catch (e) {
+        // a provider timeout / spawn failure rejects — record it and keep pulling
+        // the remaining hits instead of aborting the whole scan.
+        out.push(err("scan", `pull of ${ref} failed: ${(e as Error).message}`));
       }
     }
     return out;
@@ -330,28 +336,37 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     //    so `monitor --every` doesn't reprocess it forever, and flag the pass.
     let transient = false;
     let procError = false;
-    const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-    out.push(cap);
-    if (cap.state === "needs_credentials") {
-      transient = true; procCredGaps++;
-    } else if (cap.state === "error" || !cap.media?.ref) {
-      procError = true;
-    } else {
-      const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-      if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-        const sensed = await pipeSense(ctx, "monitor", explicitPipe ?? "watch", cap.media.ref);
-        if (sensed) out.push(sensed);
-        const st = sensed?.state;
-        if (st === "needs_credentials") { transient = true; procCredGaps++; }
-        else if (st === "pending") { transient = true; }
-        else if (st === "error") { procError = true; }
+    try {
+      const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+      out.push(cap);
+      if (cap.state === "needs_credentials") {
+        transient = true; procCredGaps++;
+      } else if (cap.state === "error" || !cap.media?.ref) {
+        procError = true;
+      } else {
+        const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+        if (explicitPipe || isSenseableMedia(cap.media.ref)) {
+          const sensed = await pipeSense(ctx, "monitor", explicitPipe ?? "watch", cap.media.ref);
+          if (sensed) out.push(sensed);
+          const st = sensed?.state;
+          if (st === "needs_credentials") { transient = true; procCredGaps++; }
+          else if (st === "pending") { transient = true; }
+          else if (st === "error") { procError = true; }
+        }
       }
+    } catch (e) {
+      // execCapture rejects on provider timeout / spawn failure — convert it to a
+      // per-hit error so the loop keeps processing the rest (and --every keeps
+      // looping) instead of throwing out of the whole pass.
+      procError = true;
+      out.push(err("monitor", `processing ${ref} failed: ${(e as Error).message}`));
     }
-    if (transient) continue; // leave unseen → retry on a later pass
+    if (transient) continue; // recoverable gap → leave unseen, retry next pass
+    // a hard error is permanent → mark seen (no infinite retry) but DON'T count it
+    // as a successfully-ingested new item; the summary reports it via process_errors.
     seen.add(key);
-    newCount++;
-    newHits.push(hit);
     if (procError) procErrors++;
+    else { newCount++; newHits.push(hit); }
   }
   // summary state reflects BOTH enumerate-time and capture/sense failures: a hard
   // error → error; only setup gaps → needs_credentials; else ready.

@@ -30,7 +30,7 @@ while [ "$#" -gt 0 ]; do case "$1" in
   *) input="$1"; shift ;;
 esac; done
 need_token
-[ -f "$input" ] || { echo "{\"verb\":\"see\",\"payload\":{\"error\":\"image not found: $input\"},\"error\":\"image not found\",\"state\":\"error\"}"; exit 0; }
+[ -f "$input" ] || { jq -nc --arg i "$input" '{verb:"see",format:"json",payload:{caption:"",ocr:"",detections:[],error:("image not found: "+$i)},error:"image not found",state:"error"}'; exit 0; }
 
 # mime from extension; base64 data URL
 case "$(echo "${input##*.}" | tr 'A-Z' 'a-z')" in

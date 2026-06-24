@@ -70,8 +70,15 @@ case "$op" in
       esac
       flat=""; date_args="--dateafter $da"
     fi
+    # capture yt-dlp explicitly so a failure (network, age-restriction, etc.)
+    # surfaces as an enumerate ERROR (exit 1 → scan error record), not an empty
+    # hit list that reads like a clean zero-result scan.
     # shellcheck disable=SC2086
-    yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>/dev/null \
+    if ! raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>&1)"; then
+      echo "youtube enumerate failed: $(printf '%s' "$raw" | tail -3 | tr '\n' ' ')" >&2
+      exit 1
+    fi
+    printf '%s\n' "$raw" \
       | jq -sc '[ .[] | {
           title: (.title // .id),
           url: (.url // .webpage_url // ("https://youtu.be/"+.id)),
