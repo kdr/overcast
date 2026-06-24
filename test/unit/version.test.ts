@@ -20,6 +20,11 @@ test("pi version is pinned at exactly 0.80.1 (invariant)", () => {
   assert.equal(PI_VERSION, "0.80.1");
 });
 
+test("OVERCAST_VERSION stays in sync with package.json version", () => {
+  // guards the `--version` overcast field against drifting from the package.
+  assert.equal(OVERCAST_VERSION, pkg.version);
+});
+
 test("PI_VERSION constant stays in sync with the pinned pi-* deps", () => {
   // The constant is the single source of truth surfaced to `--version`; this
   // guards it against silently drifting from the actual pinned dependency

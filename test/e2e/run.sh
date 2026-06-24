@@ -56,12 +56,15 @@ echo
 
 for c in "${cases[@]}"; do
   echo "--- case file: $(basename "$c") ---"
+  before=$(wc -l <"$RESULTS_TSV")
   # shellcheck disable=SC1090
   bash "$c"
   rc=$?
+  after=$(wc -l <"$RESULTS_TSV")
   # A case that dies before writing its own result row (missing dep, script
-  # error) would otherwise be silently counted as zero failures. Record it.
-  if [ "$rc" -ne 0 ]; then
+  # error) would otherwise be silently counted as zero failures. Only synthesize
+  # a fail row when the case didn't already write one (else we'd double-count).
+  if [ "$rc" -ne 0 ] && [ "$after" -eq "$before" ]; then
     printf '%s\tfail\tcase script exited rc=%s\n' \
       "$(basename "$c" .sh)" "$rc" >>"$RESULTS_TSV"
   fi
@@ -108,4 +111,10 @@ REPORT="$SMOKE_DIR/report.md"
 
 echo "=== summary: $pass/$total passed, $fail failed ==="
 echo "report: $REPORT"
+# Zero recorded results means no case wrote a verdict (all cases died before
+# writing, or the ledger is empty) — that is a failure, not an "all green" pass.
+if [ "$total" -eq 0 ]; then
+  echo "[run.sh] no case results recorded — failing" >&2
+  exit 1
+fi
 [ "$fail" -eq 0 ]
