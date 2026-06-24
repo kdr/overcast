@@ -97,11 +97,17 @@ built-ins (`/model` `/tree` `/session` `/resume`).
 ```bash
 npm run build            # tsup (dev/library build)
 npm run typecheck        # tsc --noEmit
-npm test                 # unit + e2e (offline; fixture provider)
+npm test                 # unit tests (offline; fixtures)
+npm run test:e2e         # offline e2e (fixture providers, no creds)
+npm run test:e2e:live    # LIVE real-data e2e (builds bun binary, sources .env) — see test/e2e/README.md
 npm run build:bun        # bun build --compile → dist/bin/overcast
 overcast commands --json # dump the verb registry (authoritative)
 overcast doctor          # preflight: pi, providers, creds, ffmpeg
 ```
+
+**e2e test procedure: [`test/e2e/README.md`](test/e2e/README.md)** — what each
+suite covers, the `.env`/clip contract ([`.env.example`](.env.example)), and how
+to add a case. CI gates shell scripts with `shellcheck -S warning`.
 
 ## Where to start
 
@@ -115,5 +121,8 @@ proves the architecture end to end before fanning out.
 Ground claims in reality: for provider/record changes, run a verb against a
 fixture and inspect the emitted record JSONL. For skill/doc changes, check
 against `overcast commands --json`. For TUI/theme, launch `overcast` and eyeball
-the banner + colors. Keep pi touch-points isolated in `src/extension/` and
+the banner + colors. For end-to-end proof against real backends (providers, record
+contract, CLI router, bun binary), run the live suite (`npm run test:e2e:live`,
+[`test/e2e/README.md`](test/e2e/README.md)) and inspect the generated
+`report.md`. Keep pi touch-points isolated in `src/extension/` and
 `src/registry/to-agent-tool.ts` so a pi bump has a small blast radius.

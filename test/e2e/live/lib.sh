@@ -24,17 +24,18 @@ skip() { ok "$1" "SKIPPED — $2"; }
 require_cred() { if have_cred "$2"; then return 0; else skip "$1" "no $2 — $3"; return 1; fi; }
 
 # --- real media --------------------------------------------------------------
-# Full small clips that exist in TEST_MEDIA (assert presence before use).
-# These are consumed by the case scripts that source this lib, so shellcheck's
-# "appears unused" (SC2034) is a false positive here.
+# Real clips, each overridable via .env (OC_VIDEO_*) or defaulting to a named file
+# under TEST_MEDIA. Cases assert presence (have_media) and SKIP if absent, so any
+# subset works. They're consumed by the case scripts that source this lib, so the
+# SC2034 "appears unused" below is a false positive (disabled per-line).
 # shellcheck disable=SC2034
-VIDEO_VISUAL="$TEST_MEDIA/browse-hackernews.mp4"     # screen-rec, rich visual, ~35s
+VIDEO_VISUAL="${OC_VIDEO_VISUAL:-$TEST_MEDIA/browse-hackernews.mp4}"      # screen-rec, rich visual ~35s
 # shellcheck disable=SC2034
-VIDEO_OBJECTS="$TEST_MEDIA/worker_without_helmet.mp4" # people + hard hats (detection)
+VIDEO_OBJECTS="${OC_VIDEO_OBJECTS:-$TEST_MEDIA/worker_without_helmet.mp4}" # people + hard hats (detection)
 # shellcheck disable=SC2034
-VIDEO_SMALL="$TEST_MEDIA/bbq.mp4"                     # small, for enhance/view
+VIDEO_SMALL="${OC_VIDEO_SMALL:-$TEST_MEDIA/bbq.mp4}"                       # small, for enhance/view
 # shellcheck disable=SC2034
-VIDEO_SPEECH_SRC="$TEST_MEDIA/bobbyleetheoasian.mp4"  # comedy clip → has speech
+VIDEO_SPEECH_SRC="${OC_VIDEO_SPEECH:-$TEST_MEDIA/bobbyleetheoasian.mp4}"   # has speech, for listen
 
 have_media() { [ -f "$1" ]; }
 

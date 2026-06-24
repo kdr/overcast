@@ -6,5 +6,6 @@ dist/
 .overcast/
 .env
 .env.*
+!.env.example
 *.swp
 *.swo
