@@ -28,19 +28,39 @@ esac
 
 case "$op" in
   enumerate)
-    query=""; limit=8
-    while [ "$#" -gt 0 ]; do case "$1" in --query) query="${2:-}"; shift 2 2>/dev/null || shift ;; --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;; *) shift ;; esac; done
+    query=""; limit=8; since=""
+    while [ "$#" -gt 0 ]; do case "$1" in --query) query="${2:-}"; shift 2 2>/dev/null || shift ;; --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;; --since) since="${2:-}"; shift 2 2>/dev/null || shift ;; *) shift ;; esac; done
     need
+    # honor --since: bucket it into Tavily's `time_range` / Brave's `freshness`
+    # (day/week/month/year) so a recency filter actually applies, not silently drops.
+    tav_range=""; brave_fresh=""
+    if [ -n "$since" ]; then
+      case "$since" in
+        *[0-9]m|*[0-9]h) days=1 ;;
+        *[0-9]d) days="${since%d}" ;;
+        *[0-9]w) days=$(( ${since%w} * 7 )) ;;
+        *) days=31 ;;   # explicit date / unknown → month-ish bucket
+      esac
+      if   [ "$days" -le 1 ];  then tav_range="day";   brave_fresh="pd"
+      elif [ "$days" -le 7 ];  then tav_range="week";  brave_fresh="pw"
+      elif [ "$days" -le 31 ]; then tav_range="month"; brave_fresh="pm"
+      else                          tav_range="year";  brave_fresh="py"; fi
+    fi
     # -f fails the request on HTTP errors (bad/expired key, rate limit) so a
     # credential/API failure surfaces as an enumerate error, not empty hits.
     if [ -n "$TAVILY" ]; then
-      if ! resp="$(curl -fsS -m 30 -X POST "https://api.tavily.com/search" -H "Content-Type: application/json" \
-        -d "$(jq -nc --arg k "$TAVILY" --arg q "$query" --argjson n "$limit" '{api_key:$k, query:$q, max_results:$n, search_depth:"basic"}')")"; then
+      body="$(jq -nc --arg k "$TAVILY" --arg q "$query" --argjson n "$limit" --arg tr "$tav_range" \
+        '{api_key:$k, query:$q, max_results:$n, search_depth:"basic"} + (if $tr != "" then {time_range:$tr} else {} end)')"
+      if ! resp="$(curl -fsS -m 30 -X POST "https://api.tavily.com/search" -H "Content-Type: application/json" -d "$body")"; then
         echo "web (tavily) search request failed for '$query'" >&2; exit 1
       fi
       printf '%s' "$resp" | jq -c '[ (.results // [])[] | {title:.title, url:.url, source:"web", published:(.published_date // null), snippet:(.content // ""), media:{ref:.url}} ]'
     else
-      if ! resp="$(curl -fsS -m 30 -G "https://api.search.brave.com/res/v1/web/search" \
+      # freshness (pd/pw/pm/py) has no special chars → safe as a URL query param;
+      # avoids an empty-array expansion under `set -u` on older bash.
+      brave_url="https://api.search.brave.com/res/v1/web/search"
+      [ -n "$brave_fresh" ] && brave_url="$brave_url?freshness=$brave_fresh"
+      if ! resp="$(curl -fsS -m 30 -G "$brave_url" \
         --data-urlencode "q=$query" --data-urlencode "count=$limit" \
         -H "X-Subscription-Token: $BRAVE" -H "Accept: application/json")"; then
         echo "web (brave) search request failed for '$query'" >&2; exit 1

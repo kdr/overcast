@@ -14,13 +14,30 @@ case "$op" in
   describe)
     echo '{"source":"tiktok","emits":"scan.hit","needs":["APIFY_TOKEN"]}'; exit 0 ;;
   enumerate)
-    query=""; limit=20
+    query=""; limit=20; since=""
     while [ "$#" -gt 0 ]; do case "$1" in
       --query) query="${2:-}"; shift 2 2>/dev/null || shift ;;
       --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --since) since="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN" >&2; exit 13; }
+    # honor --since with a client-side cutoff (the actor has no portable date
+    # param): cut = epoch before which posts are dropped. 0 = no filter.
+    cut=0
+    if [ -n "$since" ]; then
+      now="$(date +%s)"; days=""
+      case "$since" in
+        *[0-9]m) days=0 ;;
+        *[0-9]h) days=$(( ${since%h} / 24 )) ;;
+        *[0-9]d) days="${since%d}" ;;
+        *[0-9]w) days=$(( ${since%w} * 7 )) ;;
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+          cut="$(date -d "$since" +%s 2>/dev/null || date -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo 0)" ;;
+        *) days="" ;;
+      esac
+      [ "$cut" = 0 ] && [ -n "$days" ] && cut=$(( now - days * 86400 ))
+    fi
     # a `#tag` ref scrapes a hashtag (actor's `hashtags` field); otherwise a
     # profile/user. Strip a leading '#'/'@' for the field value.
     # build the body with jq so a query containing " or \ can't break the JSON
@@ -39,9 +56,11 @@ case "$op" in
       echo "tiktok enumerate: unexpected response (not an array): $(printf '%s' "$run" | head -c 200)" >&2
       exit 1
     fi
-    jq -c '[.[] | {title:.text, url:.webVideoUrl, source:"tiktok",
-                   published:.createTimeISO, snippet:.text,
-                   media:{ref:.webVideoUrl}}]' <<<"$run" ;;
+    jq -c --argjson cut "$cut" '[.[]
+        | select($cut == 0 or (.createTime // $cut) >= $cut)
+        | {title:.text, url:.webVideoUrl, source:"tiktok",
+           published:.createTimeISO, snippet:.text,
+           media:{ref:.webVideoUrl}}]' <<<"$run" ;;
   fetch)
     # enumerate uses Apify, but fetch downloads with yt-dlp — verify it's present
     # so a capture fails clearly instead of erroring mid-download.
