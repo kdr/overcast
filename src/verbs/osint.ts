@@ -110,8 +110,13 @@ export const scanVerb: VerbSpec = {
     // --pull: capture + sense each non-error hit
     const out: OvercastRecord[] = [...hits];
     for (const hit of hits) {
-      if (hit.state === "error" || !hit.media?.ref) continue;
-      const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
+      if (hit.state === "error") continue;
+      // resolve the fetch target from media.ref OR payload.url (a hit may carry
+      // only a URL) — same fallback as monitorPass + captureRef.
+      const hitUrl = (hit.payload as Record<string, unknown>)?.url;
+      const ref = hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
+      if (!ref) continue;
+      const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
       out.push(cap);
       if (cap.state !== "error" && cap.media?.ref) {
         const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
@@ -330,6 +335,14 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
       } else {
         processFailed = true;
       }
+    }
+    if (!ref) {
+      // nothing fetchable (no media.ref, no payload.url): the scan.hit is still
+      // surfaced (pushed above), but there's nothing to capture/sense — record it
+      // as seen so it isn't re-surfaced every pass, WITHOUT counting it as a
+      // processed new item.
+      seen.add(key);
+      continue;
     }
     if (!processFailed) {
       seen.add(key);

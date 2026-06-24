@@ -30,15 +30,6 @@ function effectiveCmd(argv: string[]): string | undefined {
   return argv[i];
 }
 
-/** overcast's own help/version — these win even over --tui. */
-function isHelpOrVersionCmd(argv: string[]): boolean {
-  const cmd = effectiveCmd(argv);
-  return (
-    cmd === "--help" || cmd === "-h" || cmd === "help" ||
-    cmd === "--version" || cmd === "-v" || cmd === "version"
-  );
-}
-
 /** True if a leading global flag is present but missing its value — a malformed
  *  CLI invocation that should reach runCli to report the error, not the TUI. */
 function hasMalformedGlobal(argv: string[]): boolean {
@@ -149,16 +140,21 @@ async function run(): Promise<number> {
   // pi never sees them. The SHORT -h/-v are ambiguous (they're also pi flags), so
   // they only count as ours via isCliDispatch when they are the effective command
   // token (`overcast -h`), NOT when buried among pi flags (`overcast -p "…" -h`).
-  if (argv.includes("--help") || argv.includes("--version")) {
+  if (cliArgv.includes("--help") || cliArgv.includes("--version")) {
     return runCli(cliArgv);
   }
 
-  // --tui forces the agent, EXCEPT overcast's own --version, which wins.
-  if (isCliDispatch(argv) && (!argv.includes("--tui") || isHelpOrVersionCmd(argv))) {
+  // A CLI dispatch — a registered verb, a known top command, or -h/-v as the
+  // effective command — runs via the CLI EVEN alongside --tui: an explicit verb
+  // (`overcast watch clip.mp4 --tui`, `overcast --tui watch clip.mp4`) wins over
+  // the agent, instead of leaking the verb's args onto pi's argv. We test the
+  // --tui-stripped argv so a leading or trailing --tui doesn't hide the command.
+  if (isCliDispatch(cliArgv)) {
     return runCli(cliArgv);
   }
 
-  // no verb (or --tui): launch the interactive overcast agent.
+  // no command to dispatch (a bare launch, `overcast --tui`, or a pi-flag
+  // invocation like `overcast -p "…"`): launch the interactive overcast agent.
   await launchTui(argv);
   return 0;
 }
