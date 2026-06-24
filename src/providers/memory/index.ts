@@ -1,5 +1,5 @@
 // Memory fan-out (A-spec): ask/brief read across all bound memory providers and
-// merge. v1 binds only the always-on local provider (B-first); Phase 5 adds the
+// merge. currently binds only the always-on local provider; later work adds the
 // cloudglue provider. The fan-out interface already accepts >1 provider.
 
 import type { Case } from "../../case.js";
@@ -10,12 +10,12 @@ import { LocalMemoryProvider } from "./local.js";
 /** Resolve the bound memory providers for a case. Local is always present. */
 export function resolveMemory(case_: Case, _profile?: Profile): MemoryProvider[] {
   const providers: MemoryProvider[] = [new LocalMemoryProvider(case_)];
-  // Phase 5: append a cloudglue memory provider when bound in the profile.
+  // append a cloudglue memory provider when bound in the profile.
   return providers;
 }
 
 /**
- * Fan out an answer across providers, preferring grounded/cited results. v1
+ * Fan out an answer across providers, preferring grounded/cited results. Currently
  * merges by taking each provider's `answer` (or synthesizing from query) and
  * concatenating with a deduped citation set.
  */

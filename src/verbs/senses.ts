@@ -127,7 +127,7 @@ export const seeVerb: VerbSpec = {
     //  1. an explicit profile binding (exec runs it; http/inproc → explicit
     //     error rather than being silently ignored), else
     //  2. the shipped Hugging Face captioner when HF_TOKEN is set (turnkey), else
-    //  3. the v1 placeholder (needs_credentials + guidance).
+    //  3. the placeholder (needs_credentials + guidance).
     const binding = ctx.profile.providers?.see;
     const seeEnv = providerEnv(ctx.case.mediaDir);
     // forward the declared see flags to whichever provider runs (custom or HF).
@@ -213,7 +213,7 @@ export const seeVerb: VerbSpec = {
           ocr: "",
           detections: [],
           guidance:
-            "see has no default provider in v1. Bind a VLM: `overcast setup provider see <http|module>`.",
+            "see has no default provider yet. Bind a VLM: `overcast setup provider see <http|module>`.",
         },
         media: { ref: resolvedRef },
         meta: { provider: "placeholder", case: ctx.case.dir },

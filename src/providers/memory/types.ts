@@ -1,5 +1,5 @@
 // Memory provider interface (CLAUDE.md invariant #6, memory class). The spec is
-// multi-provider (A-spec); v1 ships a single local provider (B-first) with the
+// multi-provider (A-spec); currently ships a single local provider with the
 // fan-out interface already in place. `ask`/`brief` read through bound providers;
 // every verb's record is written to memory.
 

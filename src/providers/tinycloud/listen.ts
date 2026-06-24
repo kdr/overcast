@@ -1,4 +1,4 @@
-// Default `listen` provider: tinycloud (exec), v1 = a SPEECH-ONLY describe
+// Default `listen` provider: tinycloud (exec): a SPEECH-ONLY describe
 // Maps the tinycloud envelope to an `audio.analysis` record at
 // the exec boundary. Swap to a local whisper via http/in-proc for offline use.
 

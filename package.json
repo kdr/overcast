@@ -1,6 +1,6 @@
 {
   "name": "@overcast/cli",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "overcast — senses (video/audio/image) + OSINT reach for any agent, built on pi",
   "type": "module",
   "bin": {

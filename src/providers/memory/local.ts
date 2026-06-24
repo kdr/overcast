@@ -70,7 +70,7 @@ export class LocalMemoryProvider implements MemoryProvider {
   // records are already persisted by the case store; write is a no-op for the
   // local provider (the JSONL store IS the index source). Kept for the interface.
   write(): void {
-    /* records persisted by Case.writeRecord; nothing extra to index in v1 */
+    /* records persisted by Case.writeRecord; nothing extra to index yet */
   }
 
   query(q: string, opts: QueryOpts = {}): Passage[] {

@@ -124,8 +124,8 @@ export const providerVerb: VerbSpec = {
   group: "config",
   summary: "Run a provider's init hook, or list/describe bound providers (provider init|list|describe).",
   description:
-    "`provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based " +
-    "init (skill loading lands in Phase 7). `provider list` shows the active bindings.",
+    "`provider init <verb>` runs the bound provider's init step — a command, or guidance for a " +
+    "skill-based init (not wired yet). `provider list` shows the active bindings.",
   args: [
     { name: "action", summary: "init | list | describe", required: true },
     { name: "verb", summary: "verb whose provider to init/describe" },
@@ -165,7 +165,7 @@ export const providerVerb: VerbSpec = {
     const init = desc.init;
     if (!init) return [makeRecord({ verb: "provider", format: "json", payload: { verb, note: "no init step" }, state: "ready" })];
     if (typeof init === "object" && init.skill) {
-      return [makeRecord({ verb: "provider", format: "json", payload: { verb, skill: init.skill, guidance: `init uses the '${init.skill}' skill; install/run it (skill auto-load lands in Phase 7)` }, state: "needs_credentials" })];
+      return [makeRecord({ verb: "provider", format: "json", payload: { verb, skill: init.skill, guidance: `init uses the '${init.skill}' skill; install/run it (skill auto-load is not wired yet)` }, state: "needs_credentials" })];
     }
     const cmd = typeof init === "string" ? init : init.command;
     if (!cmd) return [makeRecord({ verb: "provider", format: "json", payload: { verb }, state: "ready" })];

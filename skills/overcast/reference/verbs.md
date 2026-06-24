@@ -208,14 +208,14 @@ Emits `scan.hit` records.
 
 ### `overcast ask`
 
-Retrieves over the bound memory providers (fan-out; local always on) and answers with citations to record.id and media.at. --deep forces agentic deepsearch (cloudglue, Phase 5).
+Retrieves over the bound memory providers (fan-out; local always on) and answers with citations to record.id and media.at. --deep forces agentic deepsearch (cloudglue, when bound).
 
 ```
 overcast ask <question> [options]
 
   Natural-language query over the case memory; answers with record.id + media.at citations.
 
-  Retrieves over the bound memory providers (fan-out; local always on) and answers with citations to record.id and media.at. --deep forces agentic deepsearch (cloudglue, Phase 5).
+  Retrieves over the bound memory providers (fan-out; local always on) and answers with citations to record.id and media.at. --deep forces agentic deepsearch (cloudglue, when bound).
 
 Arguments:
   question         The question to answer
@@ -373,14 +373,14 @@ Emits `setup` records.
 
 ### `overcast provider`
 
-`provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (skill loading lands in Phase 7). `provider list` shows the active bindings.
+`provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
 
 ```
 overcast provider <action> [verb] [options]
 
   Run a provider's init hook, or list/describe bound providers (provider init|list|describe).
 
-  `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (skill loading lands in Phase 7). `provider list` shows the active bindings.
+  `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
 
 Arguments:
   action           init | list | describe

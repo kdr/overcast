@@ -1,6 +1,6 @@
 // Default `watch` provider: tinycloud (exec). Invariant #11 — call tinycloud
 // only via its public CLI verbs; map its envelope to the loose record at THIS
-// boundary (invariant #3). v1: a comprehensive describe → flat payload with
+// boundary (invariant #3). A comprehensive describe → flat payload with
 // content / transcript / detailed keys.
 
 import { existsSync, readFileSync } from "node:fs";

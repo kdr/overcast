@@ -17,7 +17,7 @@ mkdirSync(OUT, { recursive: true });
 writeFileSync(
   join(OUT, "package.json"),
   JSON.stringify(
-    { name: "overcast", version: "0.1.0", type: "module", private: true, piConfig: { name: "overcast" } },
+    { name: "overcast", version: "0.0.1", type: "module", private: true, piConfig: { name: "overcast" } },
     null,
     2,
   ) + "\n",

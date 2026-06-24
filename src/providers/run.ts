@@ -22,7 +22,7 @@ export function isCustomBinding(b?: ProviderDescriptor): boolean {
 }
 
 /**
- * Dispatch a bound provider by transport. v1 wires the `exec` transport; an
+ * Dispatch a bound provider by transport. currently only the `exec` transport is wired; an
  * `http`/`inproc` binding returns an explicit error rather than silently
  * falling back to the tinycloud default (which would ignore the binding).
  */
@@ -51,7 +51,7 @@ export async function runBoundProvider(
   return makeRecord({
     verb, format: "json", payload: { input }, media: { ref: input },
     meta: { provider: transport },
-    error: `${transport} provider transport is not implemented in v1 (only exec is wired); bind an exec provider for '${verb}'`,
+    error: `${transport} provider transport is not implemented yet (only exec is wired); bind an exec provider for '${verb}'`,
     state: "error",
   });
 }

@@ -1,6 +1,6 @@
 // Phase 4 read-side verbs: ask (retrieve + cite over case memory) and brief
 // (synthesize the case into a report, --export to md/html). Both read through
-// the bound memory providers (fan-out); v1 ships the local provider.
+// the bound memory providers (fan-out); currently the local provider.
 
 import { writeFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
@@ -36,7 +36,7 @@ export const askVerb: VerbSpec = {
   summary: "Natural-language query over the case memory; answers with record.id + media.at citations.",
   description:
     "Retrieves over the bound memory providers (fan-out; local always on) and answers with citations " +
-    "to record.id and media.at. --deep forces agentic deepsearch (cloudglue, Phase 5).",
+    "to record.id and media.at. --deep forces agentic deepsearch (cloudglue, when bound).",
   args: [{ name: "question", summary: "The question to answer", required: true }],
   flags: [
     { name: "deep", summary: "Agentic semantic search (cloudglue)", type: "boolean" },
