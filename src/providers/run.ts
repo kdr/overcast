@@ -32,7 +32,12 @@ export async function runBoundProvider(
   input: string,
   opts: RunExecOpts = {},
 ): Promise<OvercastRecord> {
-  const isExec = binding.type === "exec" || (!!binding.run && !binding.endpoint && !binding.module);
+  // Only treat as exec when the type is exec, or untyped with a bare run — a
+  // descriptor explicitly typed http/inproc must NOT be shell-executed even if
+  // it carries a leftover `run`.
+  const isExec =
+    binding.type === "exec" ||
+    (binding.type === undefined && !!binding.run && !binding.endpoint && !binding.module);
   if (isExec) {
     if (!binding.run) {
       return makeRecord({
@@ -70,13 +75,21 @@ export async function runExecProvider(
   input: string,
   opts: RunExecOpts = {},
 ): Promise<OvercastRecord> {
-  // ensure the input reaches the provider even if the template omits {{input}}
-  const template = runTemplate.includes("{{input}}")
-    ? runTemplate
-    : `${runTemplate} {{input}}`;
-  const argv = renderCommand(template, { input });
-  const [cmd, ...args] = argv;
-  if (opts.extraArgs?.length) args.push(...opts.extraArgs);
+  let cmd: string;
+  let args: string[];
+  if (runTemplate.includes("{{input}}")) {
+    // explicit placement — render in place, extra flags go after.
+    const argv = renderCommand(runTemplate, { input });
+    [cmd, ...args] = argv;
+    if (opts.extraArgs?.length) args.push(...opts.extraArgs);
+  } else {
+    // no explicit {{input}}: flags BEFORE the input so the input stays the last
+    // positional (the documented sample-provider contract: ref = argv[-1]).
+    const argv = renderCommand(runTemplate, {});
+    [cmd, ...args] = argv;
+    if (opts.extraArgs?.length) args.push(...opts.extraArgs);
+    args.push(input);
+  }
 
   const res = await execCapture(cmd, args, {
     env: opts.env,
@@ -110,11 +123,20 @@ export async function runExecProvider(
   const error =
     (typeof parsed.error === "string" ? parsed.error : undefined) ??
     (res.code !== 0 && isErrorState ? `exit ${res.code}` : undefined);
-  // honor parsed.media only when it carries a string ref (MediaRef contract).
-  const pm = parsed.media as { ref?: unknown; at?: number | [number, number] } | undefined;
+  // honor parsed.media only when it carries a string ref, and only attach `at`
+  // when it matches the MediaRef contract (a number or a 2-number [start,end])
+  // — a malformed anchor (string, 3-tuple) is dropped, not persisted.
+  const pm = parsed.media as { ref?: unknown; at?: unknown } | undefined;
+  const validAt = (at: unknown): number | [number, number] | undefined => {
+    if (typeof at === "number") return at;
+    if (Array.isArray(at) && at.length === 2 && at.every((n) => typeof n === "number")) {
+      return [at[0], at[1]];
+    }
+    return undefined;
+  };
   const media =
     pm && typeof pm.ref === "string"
-      ? { ref: pm.ref, at: pm.at }
+      ? { ref: pm.ref, at: validAt(pm.at) }
       : { ref: input };
 
   return makeRecord({

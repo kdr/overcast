@@ -195,8 +195,11 @@ export const enhanceVerb: VerbSpec = {
     // model-based ops; the DEFAULT stays the internal ffmpeg toolkit (invariant
     // #7). Bind via `overcast setup provider enhance "exec:bash …/hf/enhance.sh"`.
     const enhBinding = ctx.profile.providers?.enhance;
-    if (enhBinding?.run) {
-      const rec = await runExecProvider("enhance", enhBinding.run, ctx.input, {
+    if (isCustomBinding(enhBinding)) {
+      // dispatch by transport (exec runs it; http/inproc return an explicit
+      // error) rather than silently falling back to ffmpeg when a non-exec
+      // enhance provider is bound.
+      const rec = await runBoundProvider("enhance", enhBinding!, ctx.input, {
         env: { ...process.env, OVERCAST_MEDIA_DIR: ctx.case.mediaDir },
         signal: ctx.signal,
       });
@@ -267,6 +270,9 @@ export const viewVerb: VerbSpec = {
     // resolve a record-id to its media (jump to its media.at)
     let mediaPath = ctx.input;
     let markers: number[] = [];
+    // a true [start,end] span carried by the resolved record — preserved as-is
+    // for the view record's media.at (we never SYNTHESIZE a span from 2 points).
+    let recordSpan: [number, number] | undefined;
     let at = ctx.opts.at ? String(ctx.opts.at) : undefined;
     const rec = ctx.case.recordById(ctx.input);
     if (rec?.media?.ref) {
@@ -277,6 +283,7 @@ export const viewVerb: VerbSpec = {
         if (!at) at = String(a);
       } else if (Array.isArray(a)) {
         markers = a;
+        recordSpan = [a[0], a[1]];
         if (!at) at = `${a[0]}-${a[1]}`;
       }
       // Records like `listen` carry per-segment anchors in the payload rather
@@ -357,7 +364,9 @@ export const viewVerb: VerbSpec = {
           spectrogram: spectro ?? null,
           opened: !noOpen,
         },
-        media: { ref: mediaPath, at: markers.length === 1 ? markers[0] : (markers.length === 2 ? [markers[0], markers[1]] as [number, number] : undefined) },
+        // a real span if the source had one; otherwise the first marker as a
+        // point seek — never a fabricated [start,end] from two distinct points.
+        media: { ref: mediaPath, at: recordSpan ?? (markers.length ? markers[0] : undefined) },
         meta: { provider: "view", case: ctx.case.dir },
         state: "ready",
       }),

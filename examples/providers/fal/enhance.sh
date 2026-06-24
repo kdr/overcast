@@ -28,7 +28,7 @@ ext="$(echo "${input##*.}" | tr 'A-Z' 'a-z')"; base="$(basename "${input%.*}")"
 b64="$(base64 -i "$input" 2>/dev/null | tr -d '\n')" || b64="$(base64 "$input" | tr -d '\n')"
 
 case "$ext" in
-  jpg|jpeg|png|webp|bmp) model="$IMG_MODEL"; field=image_url; mime="image/$ext"; rkey=".image.url"; out="$OUTDIR/${base}_fal.png" ;;
+  jpg|jpeg|png|webp|bmp) model="$IMG_MODEL"; field=image_url; subtype="$ext"; [ "$subtype" = "jpg" ] && subtype="jpeg"; mime="image/$subtype"; rkey=".image.url"; out="$OUTDIR/${base}_fal.png" ;;
   mp3|wav|m4a|aac|flac|ogg) model="$AUD_MODEL"; field=audio_url; mime="audio/$ext"; rkey=".audio_file.url"; out="$OUTDIR/${base}_fal.mp3" ;;
   *) echo "{\"verb\":\"enhance\",\"error\":\"unsupported modality .$ext\",\"state\":\"error\"}"; exit 0 ;;
 esac

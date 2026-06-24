@@ -77,7 +77,10 @@ export function makeRecord(input: NewRecordInput): OvercastRecord {
     payload: input.payload,
   };
   if (input.media) rec.media = input.media;
-  if (input.meta) rec.meta = input.meta;
+  // Stamp a creation time so `--since` filters and the brief timeline have a
+  // real anchor (callers may override via meta.time). Without this every record
+  // has no time and time bounds/sorts silently no-op.
+  rec.meta = { time: new Date().toISOString(), ...(input.meta ?? {}) };
   if (input.error !== undefined) rec.error = input.error;
   if (input.state !== undefined) rec.state = input.state;
   return rec;

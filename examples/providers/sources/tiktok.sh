@@ -29,13 +29,22 @@ case "$op" in
                    published:.createTimeISO, snippet:.text,
                    media:{ref:.webVideoUrl}}]' <<<"$run" ;;
   fetch)
+    # enumerate uses Apify, but fetch downloads with yt-dlp — verify it's present
+    # so a capture fails clearly instead of erroring mid-download.
+    if ! command -v yt-dlp >/dev/null 2>&1; then
+      echo "tiktok fetch needs yt-dlp on PATH (enumerate uses APIFY_TOKEN; fetch uses yt-dlp)" >&2
+      exit 13
+    fi
     url=""; out=""
     while [ "$#" -gt 0 ]; do case "$1" in
       --url) url="$2"; shift 2 ;;
       --out) out="$2"; shift 2 ;;
       *) shift ;;
     esac; done
-    yt-dlp -o "$out" "$url" >&2
-    echo "{\"kind\":\"video\",\"path\":\"$out\",\"source\":\"tiktok\"}" ;;
+    if yt-dlp -o "$out" "$url" >&2; then
+      echo "{\"kind\":\"video\",\"path\":\"$out\",\"source\":\"tiktok\"}"
+    else
+      echo "tiktok fetch failed for $url" >&2; exit 1
+    fi ;;
   *) echo "{}" ;;
 esac

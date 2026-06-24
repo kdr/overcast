@@ -23,6 +23,7 @@ import { addTarget, listTargets, removeTarget, primaryTarget } from "../state/ta
 import { loadSeen, saveSeen, hitKey } from "../state/seen.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { runListen } from "../providers/tinycloud/listen.js";
+import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
@@ -34,10 +35,21 @@ function err(verb: string, message: string): OvercastRecord {
 async function enumerateAll(ctx: VerbContext): Promise<OvercastRecord[]> {
   const sourceIds = ctx.opts.source ? String(ctx.opts.source).split(",").map((s) => s.trim()) : undefined;
   const sources = resolveSources(ctx.case, sourceIds);
-  const query =
-    (ctx.opts.query ? String(ctx.opts.query) : undefined) ??
-    primaryTarget(ctx.case)?.value;
-  const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined;
+  // an explicit --query overrides everything; otherwise each source enumerates
+  // its OWN ref (channel/playlist/handle/keyword), falling back to the standing
+  // target only when the source has no ref. (Previously the target shadowed
+  // every source's ref, so a bound `youtube:@channel` was searched by keyword.)
+  const adhocQuery = ctx.opts.query ? String(ctx.opts.query) : undefined;
+  const targetValue = primaryTarget(ctx.case)?.value;
+  // a non-finite --limit is rejected rather than forwarded as "NaN"
+  let limit: number | undefined;
+  if (ctx.opts.limit != null) {
+    const n = Number(ctx.opts.limit);
+    if (!Number.isFinite(n) || n <= 0) {
+      return [err("scan", `invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
+    }
+    limit = n;
+  }
   const since = ctx.opts.since ? String(ctx.opts.since) : undefined;
 
   if (sources.length === 0) {
@@ -53,7 +65,7 @@ async function enumerateAll(ctx: VerbContext): Promise<OvercastRecord[]> {
     }
     try {
       const hits = await enumerateSource(desc, {
-        query: query ?? s.ref,
+        query: adhocQuery ?? (s.ref || targetValue),
         ref: s.ref,
         limit,
         since,
@@ -101,9 +113,12 @@ export const scanVerb: VerbSpec = {
       const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
       out.push(cap);
       if (cap.state !== "error" && cap.media?.ref) {
-        const pipe = ctx.opts.pipe ? String(ctx.opts.pipe) : "watch";
-        const sensed = await pipeSense(ctx, pipe, cap.media.ref);
-        if (sensed) out.push(sensed);
+        const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+        // only auto-sense AV captures; honor an explicit --pipe for anything.
+        if (explicitPipe || isSenseableMedia(cap.media.ref)) {
+          const sensed = await pipeSense(ctx, explicitPipe ?? "watch", cap.media.ref);
+          if (sensed) out.push(sensed);
+        }
       }
     }
     return out;
@@ -130,6 +145,14 @@ function hostSourceType(url: string): string {
   return "web";
 }
 
+/** Whether a captured artifact is audio/video the default watch/listen senses
+ *  can process — so a `web` hit captured as an .html page isn't auto-routed to
+ *  tinycloud watch (which would just error every pass). */
+function isSenseableMedia(ref: string): boolean {
+  if (/^https?:\/\//i.test(ref)) return true; // a remote AV URL
+  return /\.(mp4|m4v|mov|webm|mkv|avi|mp3|m4a|wav|flac|ogg|aac)$/i.test(ref);
+}
+
 /** The source provider type a scan.hit came from (from its meta.provider). */
 function hitSourceType(rec: OvercastRecord | undefined): string | undefined {
   const prov = rec?.meta?.provider;
@@ -145,9 +168,11 @@ async function captureRef(
   opts: { sourceType?: string; out?: string } = {},
 ): Promise<OvercastRecord> {
   const outDir = ctx.case.mediaDir;
-  // a local file → copy into the case (fixture/folder sources, ad-hoc paths)
+  // a local file → copy into the case (fixture/folder sources, ad-hoc paths).
+  // Use a collision-resistant name (like the URL path) so two distinct sources
+  // sharing a basename don't clobber each other / share a capture_id.
   if (existsSync(ref)) {
-    const dest = opts.out ? opts.out : join(outDir, basename(ref));
+    const dest = opts.out ? opts.out : join(outDir, uniqueName(ref));
     try {
       copyFileSync(ref, dest);
     } catch (e) {
@@ -184,17 +209,24 @@ async function pipeSense(
   verb: string,
   ref: string,
 ): Promise<OvercastRecord | undefined> {
-  if (verb === "watch") {
-    const r = await runWatch(ref, { run: ctx.profile.providers?.watch?.run, signal: ctx.signal });
+  if (verb === "watch" || verb === "listen") {
+    const binding = ctx.profile.providers?.[verb];
+    // dispatch the same way the top-level verbs do, so a bound custom provider's
+    // record-mapping isn't bypassed (custom → pass-through; default → mapper).
+    let r: OvercastRecord;
+    if (isCustomBinding(binding)) {
+      r = await runBoundProvider(verb, binding!, ref, { signal: ctx.signal });
+    } else if (verb === "watch") {
+      r = await runWatch(ref, { run: binding?.run, signal: ctx.signal });
+    } else {
+      r = await runListen(ref, { run: binding?.run, signal: ctx.signal });
+    }
     r.meta = { ...r.meta, case: ctx.case.dir };
     return r;
   }
-  if (verb === "listen") {
-    const r = await runListen(ref, { run: ctx.profile.providers?.listen?.run, signal: ctx.signal });
-    r.meta = { ...r.meta, case: ctx.case.dir };
-    return r;
-  }
-  return undefined;
+  // an unknown --pipe value (typo, or see/enhance) must surface, not silently
+  // produce nothing.
+  return err("scan", `unknown --pipe '${verb}' (expected watch | listen)`);
 }
 
 export const captureVerb: VerbSpec = {
@@ -276,8 +308,11 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
       const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
       out.push(cap);
       if (cap.state !== "error" && cap.media?.ref) {
-        const sensed = await pipeSense(ctx, ctx.opts.pipe ? String(ctx.opts.pipe) : "watch", cap.media.ref);
-        if (sensed) out.push(sensed);
+        const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+        if (explicitPipe || isSenseableMedia(cap.media.ref)) {
+          const sensed = await pipeSense(ctx, explicitPipe ?? "watch", cap.media.ref);
+          if (sensed) out.push(sensed);
+        }
       } else {
         captureFailed = true;
       }

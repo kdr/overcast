@@ -65,7 +65,12 @@ export function registerSlashCommands(pi: ExtensionAPI): void {
         };
         try {
           const recs = await spec.run(ctx);
-          for (const r of recs) c.writeRecord(r);
+          // skip a record tagged for a different case (already persisted there),
+          // matching the CLI / agent-tool persist guards.
+          for (const r of recs) {
+            if (r.meta?.case && r.meta.case !== c.dir) continue;
+            c.writeRecord(r);
+          }
           pi.appendEntry(RESULT_TYPE, { text: recs.map(summarize).join("\n\n") || `▶ ${name}: (no records)` });
         } catch (e) {
           pi.appendEntry(RESULT_TYPE, { text: `▶ ${name} failed: ${(e as Error).message}` });

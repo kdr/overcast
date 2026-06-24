@@ -85,12 +85,24 @@ export const caseVerb: VerbSpec = {
       if (ctx.opts.verb) recs = recs.filter((r) => r.verb === String(ctx.opts.verb));
       if (ctx.opts.since) {
         const cutoff = parseSince(String(ctx.opts.since));
-        if (cutoff != null) recs = recs.filter((r) => {
+        // an unparseable --since is a user error, not a silent "no time bound"
+        if (cutoff == null) {
+          return [err(`invalid --since: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
+        }
+        recs = recs.filter((r) => {
           const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
           return Number.isNaN(t) || t >= cutoff;
         });
       }
-      const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : 50;
+      // a non-finite/negative --limit must not silently empty or trim the list
+      let limit = 50;
+      if (ctx.opts.limit != null) {
+        const n = Number(ctx.opts.limit);
+        if (!Number.isFinite(n) || n <= 0) {
+          return [err(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
+        }
+        limit = n;
+      }
       const view = recs.slice(0, limit).map((r) => ({
         id: r.id, verb: r.verb, state: r.state ?? "ready", media: r.media?.ref ?? null,
       }));

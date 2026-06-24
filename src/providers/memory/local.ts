@@ -131,13 +131,14 @@ export class LocalMemoryProvider implements MemoryProvider {
   }
 }
 
-/** Parse a relative ("24h", "7d") or absolute date into an epoch ms cutoff. */
+/** Parse a relative ("30m", "24h", "7d", "2w") or absolute date into an epoch ms
+ *  cutoff. Units match monitor's --every: m=minutes, h=hours, d=days, w=weeks. */
 export function parseSince(since: string): number | null {
-  const rel = since.match(/^(\d+)([hdwm])$/);
+  const rel = since.match(/^(\d+)([mhdw])$/);
   if (rel) {
     const n = Number(rel[1]);
     const unit = rel[2];
-    const ms = unit === "h" ? 3600e3 : unit === "d" ? 86400e3 : unit === "w" ? 7 * 86400e3 : 30 * 86400e3;
+    const ms = unit === "m" ? 60e3 : unit === "h" ? 3600e3 : unit === "d" ? 86400e3 : 7 * 86400e3;
     // anchor on a fixed reference would break determinism; use process clock.
     return Date.parse(new Date().toISOString()) - n * ms;
   }
