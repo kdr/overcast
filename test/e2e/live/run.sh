@@ -35,6 +35,15 @@ else
   export OVERCAST="$REPO_ROOT/dist/bin/overcast"
 fi
 
+# Sanity-check the CLI under test BEFORE running cases — a missing/broken binary
+# (e.g. a stray `npm run build`, whose tsup clean:true wipes dist/bin/overcast)
+# would otherwise surface as dozens of confusing empty-output "failures".
+if ! $OVERCAST version --json >/dev/null 2>&1; then
+  echo "[live] FATAL: '$OVERCAST' does not run — rebuild it (npm run build:bun) and avoid" >&2
+  echo "       running 'npm run build' afterward (tsup clean:true deletes the bun binary)." >&2
+  exit 1
+fi
+
 export TEST_MEDIA="${TEST_MEDIA:-$HOME/Downloads/test-videos}"
 export FFMPEG="$(node -e "console.log(require('ffmpeg-static'))" 2>/dev/null || echo ffmpeg)"
 
