@@ -141,7 +141,9 @@ export const seeVerb: VerbSpec = {
     if (hfToken()) {
       const hf = shippedPath("examples", "providers", "hf", "see.sh");
       if (hf) {
-        const rec = await runExecProvider("see", `bash ${hf} {{input}}`, resolvedRef, {
+        // pass --input explicitly (like execDescriptor) so the media path is never
+        // argv[1] and a file named "init"/"describe" can't trigger that subcommand.
+        const rec = await runExecProvider("see", `bash ${hf} --input {{input}}`, resolvedRef, {
           env: seeEnv,
           extraArgs,
           signal: ctx.signal,

@@ -234,11 +234,15 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // sees the flag via tokens.slice(1).
   const VALID_FORMATS = new Set(["json", "md", "txt"]);
   const leadFlags: string[] = [];
-  while (tokens.length > 1 && (tokens[0] === "--json" || tokens[0] === "--format")) {
+  while (
+    tokens.length > 1 &&
+    (tokens[0] === "--json" || tokens[0] === "--format" || tokens[0].startsWith("--format="))
+  ) {
     const f = tokens.shift() as string;
     leadFlags.push(f);
-    // only pull --format's value when it's a REAL format; otherwise the next
-    // token is the verb (`--format watch clip.mp4`), not the format value.
+    // space form: only pull --format's value when it's a REAL format; otherwise
+    // the next token is the verb (`--format watch clip.mp4`), not the value. The
+    // attached form (`--format=md`) already carries its value in the token.
     if (f === "--format" && tokens.length > 1 && VALID_FORMATS.has(tokens[0])) {
       leadFlags.push(tokens.shift() as string);
     }

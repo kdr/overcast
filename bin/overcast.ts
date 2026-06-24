@@ -28,7 +28,12 @@ function effectiveCmd(argv: string[]): string | undefined {
     if (LEADING_BOOL_FLAGS.has(name)) { i += 1; continue; } // boolean flag: skip just it
     if (!LEADING_VALUE_FLAGS.has(name)) break;
     if (t.includes("=")) {
-      i += 1; // attached form: flag only
+      // attached `--flag=value` is one token: skip it, the NEXT token is the
+      // command. An attached value can't be mistaken for the verb (it's glued to
+      // the flag), and for --format the value's validity is enforced downstream by
+      // the verb's flag parser (`--format must be one of json|md|txt`) — so an
+      // invalid `--format=bogus` still routes to the CLI to report, never the TUI.
+      i += 1;
     } else {
       // space form: consume the value only if it isn't itself a flag — a
       // value-less global is malformed and must surface (reach the CLI), not be
