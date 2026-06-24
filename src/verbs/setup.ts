@@ -145,7 +145,9 @@ export const providerVerb: VerbSpec = {
       if (desc.describe) {
         const parts = tokenizeCommand(desc.describe);
         const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
-        return [makeRecord({ verb: "provider", format: "json", payload: { verb, describe: res.stdout || res.stderr }, state: res.code === 0 ? "ready" : "error" })];
+        // exit 13 = needs credentials (the exec contract), like provider init + the exec boundary
+        const dstate = res.code === 0 ? "ready" : res.code === 13 ? "needs_credentials" : "error";
+        return [makeRecord({ verb: "provider", format: "json", payload: { verb, describe: res.stdout || res.stderr }, state: dstate })];
       }
       return [makeRecord({ verb: "provider", format: "json", payload: { verb, descriptor: desc }, state: "ready" })];
     }

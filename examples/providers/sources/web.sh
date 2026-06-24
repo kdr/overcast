@@ -54,7 +54,7 @@ case "$op" in
     # -f fails on HTTP errors; report a real failure instead of a ready-looking
     # capture pointing at a missing/empty file.
     if curl -fsSL -m 60 -o "${out}.html" "$url"; then
-      echo "{\"kind\":\"page\",\"path\":\"${out}.html\",\"source\":\"web\",\"url\":\"$url\"}"
+      jq -nc --arg p "${out}.html" --arg u "$url" '{kind:"page",path:$p,source:"web",url:$u}'
     else
       echo "web fetch failed for $url" >&2
       rm -f "${out}.html"

@@ -18,23 +18,31 @@ const FAKE_WATCH = join(HERE, "..", "fixtures", "fake-watch.sh");
 
 let dir: string;
 let clip: string;
+let clip2: string;
 
 before(() => {
   dir = mkdtempSync(join(tmpdir(), "oc-osintv-"));
+  // two distinct clips → the fixture's two hits are genuinely two items (monitor
+  // dedups by media.ref, so they must differ to count as two).
   clip = join(dir, "src.mp4");
-  execFileSync(
-    FFMPEG_PATH,
-    ["-y", "-f", "lavfi", "-i", "testsrc=size=96x72:rate=10:duration=1", "-pix_fmt", "yuv420p", clip],
-    { stdio: "ignore" },
-  );
-  // wire the fixture source provider + the clip it points at
+  clip2 = join(dir, "src2.mp4");
+  for (const c of [clip, clip2]) {
+    execFileSync(
+      FFMPEG_PATH,
+      ["-y", "-f", "lavfi", "-i", "testsrc=size=96x72:rate=10:duration=1", "-pix_fmt", "yuv420p", c],
+      { stdio: "ignore" },
+    );
+  }
+  // wire the fixture source provider + the clips it points at
   process.env.OVERCAST_SOURCE_FIXTURE_CMD = `bash ${FAKE_SOURCE}`;
   process.env.OVERCAST_FIXTURE_CLIP = clip;
+  process.env.OVERCAST_FIXTURE_CLIP2 = clip2;
 });
 after(() => {
   rmSync(dir, { recursive: true, force: true });
   delete process.env.OVERCAST_SOURCE_FIXTURE_CMD;
   delete process.env.OVERCAST_FIXTURE_CLIP;
+  delete process.env.OVERCAST_FIXTURE_CLIP2;
 });
 
 function ctx(opts: VerbContext["opts"] = {}, input?: string): VerbContext {

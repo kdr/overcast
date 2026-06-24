@@ -199,9 +199,19 @@ export async function runWatch(
   // tinycloud may return a pending job envelope (async). Check BOTH the
   // top-level envelope and the unwrapped data object (the pending marker can
   // live under either, depending on the verb path).
+  // Honor an explicit provider state in the envelope (exit 0) — a
+  // `needs_credentials` or `pending` marker is authoritative, like runExecProvider,
+  // so monitor/runCli classify it correctly instead of defaulting to ready.
   const isPending = (o: Record<string, unknown>) =>
     o.state === "pending" || o.status === "pending";
-  const state = isPending(envObj) || isPending(data) ? "pending" : "ready";
+  const needsCreds = (o: Record<string, unknown>) =>
+    o.state === "needs_credentials" || o.status === "needs_credentials";
+  const state =
+    needsCreds(envObj) || needsCreds(data)
+      ? "needs_credentials"
+      : isPending(envObj) || isPending(data)
+        ? "pending"
+        : "ready";
 
   // A parsed-but-empty result (no content, no transcript, and an empty/absent
   // `detailed`) is not a successful watch — surface it as an error instead of a

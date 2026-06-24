@@ -202,9 +202,18 @@ export async function runListen(
     null;
 
   // tinycloud may return a pending (async) job envelope.
+  // Honor an explicit provider state in the envelope (exit 0): a needs_credentials
+  // or pending marker is authoritative (matches runExecProvider + runWatch).
   const isPending = (o: Record<string, unknown>) =>
     o.state === "pending" || o.status === "pending";
-  const state = isPending(envObj) || isPending(data) ? "pending" : "ready";
+  const needsCreds = (o: Record<string, unknown>) =>
+    o.state === "needs_credentials" || o.status === "needs_credentials";
+  const state =
+    needsCreds(envObj) || needsCreds(data)
+      ? "needs_credentials"
+      : isPending(envObj) || isPending(data)
+        ? "pending"
+        : "ready";
 
   // Record-level seek anchor (the per-segment anchors live in payload.segments):
   // the first segment's start, so `view <listen-rec>` has a seek hint.

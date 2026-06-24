@@ -100,7 +100,7 @@ case "$op" in
     if [ -z "$real" ] || [ ! -s "$real" ]; then
       echo "youtube fetch produced no file for $url" >&2; exit 1
     fi
-    echo "{\"kind\":\"video\",\"path\":\"$real\",\"source\":\"youtube\",\"url\":\"$url\"}"
+    jq -nc --arg p "$real" --arg u "$url" '{kind:"video",path:$p,source:"youtube",url:$u}'
     ;;
 
   *) echo "{}" ;;

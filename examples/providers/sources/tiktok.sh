@@ -62,7 +62,7 @@ case "$op" in
       if [ -z "$real" ] || [ ! -s "$real" ]; then
         echo "tiktok fetch produced no file for $url" >&2; exit 1
       fi
-      echo "{\"kind\":\"video\",\"path\":\"$real\",\"source\":\"tiktok\"}"
+      jq -nc --arg p "$real" '{kind:"video",path:$p,source:"tiktok"}'
     else
       echo "tiktok fetch failed for $url" >&2; exit 1
     fi ;;

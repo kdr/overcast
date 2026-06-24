@@ -43,7 +43,11 @@ const SEP = "\u001f";
  */
 export function hitKey(rec: OvercastRecord): string {
   const p = (typeof rec.payload === "object" ? rec.payload : {}) as Record<string, unknown>;
-  const url = (p.url as string) || (rec.media?.ref as string) || "";
+  // Prefer media.ref, THEN payload.url — the same precedence captureRef/monitor/
+  // scan use to fetch, so dedup identity matches what actually gets downloaded
+  // (else a hit carrying both with different values dedups on one but fetches the
+  // other, re-downloading the same media or treating dupes as new).
+  const url = (rec.media?.ref as string) || (p.url as string) || "";
   if (url) return `url:${url}`;
 
   const fields = [p.source_id, p.source, p.title, p.author, p.published, p.snippet];

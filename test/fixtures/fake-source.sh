@@ -9,13 +9,15 @@ op="${1:-enumerate}"; shift || true
 
 # the clip the hits point at: $OVERCAST_FIXTURE_CLIP (set by the test/e2e)
 clip="${OVERCAST_FIXTURE_CLIP:-/nonexistent.mp4}"
+# two DISTINCT media so the hits are genuinely two items (dedup is by media.ref)
+clip2="${OVERCAST_FIXTURE_CLIP2:-$clip}"
 
 case "$op" in
   enumerate)
     cat <<JSON
 [
   {"title":"fixture hit one","url":"$clip","source":"fixture","published":"2026-06-01","snippet":"first item","media":{"ref":"$clip"}},
-  {"title":"fixture hit two","url":"${clip}#2","source":"fixture","published":"2026-06-02","snippet":"second item","media":{"ref":"$clip"}}
+  {"title":"fixture hit two","url":"$clip2","source":"fixture","published":"2026-06-02","snippet":"second item","media":{"ref":"$clip2"}}
 ]
 JSON
     ;;

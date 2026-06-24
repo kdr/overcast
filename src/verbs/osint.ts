@@ -122,7 +122,7 @@ export const scanVerb: VerbSpec = {
         const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
         // only auto-sense AV captures; honor an explicit --pipe for anything.
         if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-          const sensed = await pipeSense(ctx, explicitPipe ?? "watch", cap.media.ref);
+          const sensed = await pipeSense(ctx, "scan", explicitPipe ?? "watch", cap.media.ref);
           if (sensed) out.push(sensed);
         }
       }
@@ -212,6 +212,7 @@ async function captureRef(
 
 async function pipeSense(
   ctx: VerbContext,
+  caller: string,
   verb: string,
   ref: string,
 ): Promise<OvercastRecord | undefined> {
@@ -219,9 +220,11 @@ async function pipeSense(
     const binding = ctx.profile.providers?.[verb];
     // dispatch the same way the top-level verbs do, so a bound custom provider's
     // record-mapping isn't bypassed (custom → pass-through; default → mapper).
+    // Use the same generous 15-min timeout the standalone verbs give exec
+    // providers, so long media doesn't time out under pull/monitor.
     let r: OvercastRecord;
     if (isCustomBinding(binding)) {
-      r = await runBoundProvider(verb, binding!, ref, { signal: ctx.signal });
+      r = await runBoundProvider(verb, binding!, ref, { signal: ctx.signal, timeoutMs: 15 * 60_000 });
     } else if (verb === "watch") {
       r = await runWatch(ref, { run: binding?.run, signal: ctx.signal });
     } else {
@@ -231,8 +234,8 @@ async function pipeSense(
     return r;
   }
   // an unknown --pipe value (typo, or see/enhance) must surface, not silently
-  // produce nothing.
-  return err("scan", `unknown --pipe '${verb}' (expected watch | listen)`);
+  // produce nothing — labelled with the ACTIVE command (monitor/scan).
+  return err(caller, `unknown --pipe '${verb}' (expected watch | listen)`);
 }
 
 export const captureVerb: VerbSpec = {
@@ -304,63 +307,74 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
   const out: OvercastRecord[] = [...failedHits];
   const newHits: OvercastRecord[] = [];
   let newCount = 0;
+  let procErrors = 0; // hard capture/sense failures this pass
+  let procCredGaps = 0; // capture/sense failures that need setup (retry-able)
   for (const hit of realHits) {
     const key = hitKey(hit);
     if (seen.has(key)) continue;
     out.push(hit);
-    // Only mark an item seen once it has been processed (no capturable media, or
-    // capture succeeded). A failed capture stays unseen so a later pass retries
-    // it instead of silently dropping it.
-    // an item is only "done" (seen) once capture AND any sensing succeeded; a
-    // failed capture OR a failed sense stays unseen so a later pass retries it.
-    let processFailed = false;
     // capture from media.ref OR a payload.url (a scan hit may carry only a URL,
-    // no media object — `capture` falls back the same way, so monitor must too,
-    // else such a hit is marked seen without ever being fetched/sensed).
+    // no media object — `capture` falls back the same way, so monitor must too).
     const hitUrl = (hit.payload as Record<string, unknown>)?.url;
     const ref = hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
-    if (ref) {
-      const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-      out.push(cap);
-      if (cap.state !== "error" && cap.media?.ref) {
-        const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-        if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-          const sensed = await pipeSense(ctx, explicitPipe ?? "watch", cap.media.ref);
-          if (sensed) out.push(sensed);
-          // A sense that didn't reach `ready` (error / needs_credentials / pending)
-          // means the item isn't done — leave it unseen so a later pass retries it
-          // once the setup gap is fixed, rather than dropping it permanently.
-          if (sensed && sensed.state && sensed.state !== "ready") processFailed = true;
-        }
-      } else {
-        processFailed = true;
-      }
-    }
     if (!ref) {
-      // nothing fetchable (no media.ref, no payload.url): the scan.hit is still
-      // surfaced (pushed above), but there's nothing to capture/sense — record it
-      // as seen so it isn't re-surfaced every pass, WITHOUT counting it as a
-      // processed new item.
+      // nothing fetchable: surface the scan.hit, mark seen (don't re-surface every
+      // pass), but don't count it as a processed new item.
       seen.add(key);
       continue;
     }
-    if (!processFailed) {
-      seen.add(key);
-      newCount++;
-      newHits.push(hit);
+    // Classify the outcome:
+    //  - transient (needs_credentials / pending): a recoverable gap → leave the
+    //    item UNSEEN so a later pass retries once it's fixed.
+    //  - hard error (e.g. piping `watch` at captured HTML): PERMANENT → mark seen
+    //    so `monitor --every` doesn't reprocess it forever, and flag the pass.
+    let transient = false;
+    let procError = false;
+    const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+    out.push(cap);
+    if (cap.state === "needs_credentials") {
+      transient = true; procCredGaps++;
+    } else if (cap.state === "error" || !cap.media?.ref) {
+      procError = true;
+    } else {
+      const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+      if (explicitPipe || isSenseableMedia(cap.media.ref)) {
+        const sensed = await pipeSense(ctx, "monitor", explicitPipe ?? "watch", cap.media.ref);
+        if (sensed) out.push(sensed);
+        const st = sensed?.state;
+        if (st === "needs_credentials") { transient = true; procCredGaps++; }
+        else if (st === "pending") { transient = true; }
+        else if (st === "error") { procError = true; }
+      }
     }
+    if (transient) continue; // leave unseen → retry on a later pass
+    seen.add(key);
+    newCount++;
+    newHits.push(hit);
+    if (procError) procErrors++;
   }
-  // a hard error → error; only setup gaps → needs_credentials; else ready.
-  const hardErrors = failedHits.filter((h) => h.state === "error").length;
-  const credGaps = failedHits.filter((h) => h.state === "needs_credentials").length;
+  // summary state reflects BOTH enumerate-time and capture/sense failures: a hard
+  // error → error; only setup gaps → needs_credentials; else ready.
+  const hardErrors = failedHits.filter((h) => h.state === "error").length + procErrors;
+  const credGaps = failedHits.filter((h) => h.state === "needs_credentials").length + procCredGaps;
   out.unshift(
     makeRecord({
       verb: "monitor",
       format: "json",
-      payload: { new_items: newCount, total_hits: realHits.length, seen_size: seen.size, source_errors: failedHits.length },
+      payload: {
+        new_items: newCount,
+        total_hits: realHits.length,
+        seen_size: seen.size,
+        source_errors: failedHits.length,
+        process_errors: procErrors,
+        process_cred_gaps: procCredGaps,
+      },
       meta: { provider: "monitor", case: ctx.case.dir },
       state: hardErrors ? "error" : credGaps ? "needs_credentials" : "ready",
-      error: failedHits.length ? `${failedHits.length} source(s) failed or need credentials` : undefined,
+      error:
+        hardErrors || credGaps
+          ? `${hardErrors} failed, ${credGaps} need credentials (sources + capture/sense)`
+          : undefined,
     }),
   );
   // --brief: a short summary record of the new batch (only the genuinely new
@@ -435,9 +449,15 @@ export const monitorVerb: VerbSpec = {
       process.stderr.write(`monitor: every ${everyStr}, Ctrl-C to stop\n`);
       while (pass < maxPasses && !ctx.signal?.aborted) {
         pass++;
-        const recs = await monitorPass(ctx, seen);
+        let recs: OvercastRecord[];
+        try {
+          recs = await monitorPass(ctx, seen);
+        } finally {
+          // persist accumulated seen-set even if a pass throws mid-way (timeout,
+          // spawn failure), matching the --once path's try/finally.
+          saveSeen(ctx.case, seen);
+        }
         for (const r of recs) { ctx.case.writeRecord(r); process.stdout.write(streamRender(r) + "\n"); }
-        saveSeen(ctx.case, seen);
         writeAlert(recs.filter((r) => r.verb !== "monitor"));
         if (recs.some((r) => r.state === "error")) errorPasses++;
         else if (recs.some((r) => r.state === "needs_credentials")) credPasses++;

@@ -139,7 +139,9 @@ def run():
         from PIL import Image
         from transformers import pipeline
     except Exception as e:
-        fail("detector deps missing: %s (pip install torch transformers pillow)" % e, state="needs_credentials")
+        # missing python deps is a broken environment, not a credential gap →
+        # state:error (not needs_credentials, which would exit 3 = "needs a key")
+        fail("detector deps missing: %s (pip install torch transformers pillow)" % e, state="error")
 
     try:
         detector = pipeline("zero-shot-object-detection", model=MODEL)
