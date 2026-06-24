@@ -12,9 +12,10 @@ P="$REPO/examples/providers"
 HOME_ARG=()
 [ "${1:-}" = "--home" ] && HOME_ARG=(--home "$2")
 
-bind() { # <profile> <verb> <script-relpath> [extra-args]
-  $OC setup provider "$2" "exec:bash $P/$3 {{input}}" --profile "$1" "${HOME_ARG[@]}" >/dev/null
-  echo "  $1: $2 -> $3"
+bind() { # <profile> <verb> <script-relpath> [interpreter=bash]
+  local interp="${4:-bash}"   # .py scripts must run under python3, not bash
+  $OC setup provider "$2" "exec:$interp $P/$3 {{input}}" --profile "$1" "${HOME_ARG[@]}" >/dev/null
+  echo "  $1: $2 -> $interp $3"
 }
 
 echo "Building profiles in ${2:-~/.overcast}:"
@@ -33,7 +34,7 @@ bind elevenlabs enhance elevenlabs/enhance.sh   # voice isolator (audio)
 
 # 4. hf — Hugging Face.
 bind hf see     hf/see.sh              # gemma vision-LLM caption
-bind hf enhance hf/enhance.py          # image upscale via fal-routed HF token
+bind hf enhance hf/enhance.py python3  # image upscale via fal-routed HF token (Python)
 
 # 5. recon — best-of-breed mix for an OSINT case.
 $OC setup llm cloudglue tinycloud:advanced --profile recon "${HOME_ARG[@]}" >/dev/null

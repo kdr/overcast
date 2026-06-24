@@ -442,7 +442,10 @@ export const monitorVerb: VerbSpec = {
       const intervalMs = parseInterval(everyStr) ?? 0;
       if (intervalMs <= 0) return [makeRecord({ verb: "monitor", format: "json", payload: { error: `bad --every '${everyStr}'` }, error: "bad interval", state: "error" })];
       const seen = loadSeen(ctx.case);
-      const maxPasses = process.env.OVERCAST_MONITOR_MAX_PASSES ? Number(process.env.OVERCAST_MONITOR_MAX_PASSES) : Infinity;
+      // cap passes from the env var; a non-numeric/≤0 value is ignored (→ Infinity)
+      // rather than becoming NaN, which would make `pass < maxPasses` never run.
+      const rawMax = Number(process.env.OVERCAST_MONITOR_MAX_PASSES);
+      const maxPasses = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : Infinity;
       let pass = 0;
       let errorPasses = 0;
       let credPasses = 0;
