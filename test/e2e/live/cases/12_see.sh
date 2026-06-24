@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Real see: HF captioner + fal florence-2 (caption/OCR) + local OWLv2 detector,
-# all on a REAL frame extracted from a real video.
+# on a real image (OC_IMAGE) or a frame extracted from a real video.
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
 C=see
 
-FRAME="$SMOKE_DIR/see_frame.jpg"
-have_media "$VIDEO_OBJECTS" && frame_jpg "$VIDEO_OBJECTS" 3 "$FRAME"
-[ -f "$FRAME" ] || { skip "$C" "no frame available"; exit 0; }
+# Prefer a standalone image (OC_IMAGE); else extract one real frame from a video.
+if have_media "$IMAGE_FILE"; then
+  FRAME="$IMAGE_FILE"
+elif have_media "$VIDEO_OBJECTS"; then
+  FRAME="$SMOKE_DIR/see_frame.jpg"; frame_jpg "$VIDEO_OBJECTS" 3 "$FRAME"
+elif have_media "$VIDEO_VISUAL"; then
+  FRAME="$SMOKE_DIR/see_frame.jpg"; frame_jpg "$VIDEO_VISUAL" 3 "$FRAME"
+fi
+[ -n "${FRAME:-}" ] && [ -f "$FRAME" ] || { skip "$C" "no image (set OC_IMAGE or OC_VIDEO_OBJECTS/VISUAL)"; exit 0; }
 
 # --- HF captioner (bound explicitly with an absolute path: the bun binary can't
 #     auto-resolve the shipped examples/ from its virtual FS) ---

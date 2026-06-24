@@ -4,10 +4,10 @@
 #
 # Exported by live/run.sh:
 #   OVERCAST     the CLI under test (the compiled bun binary by default)
-#   TEST_MEDIA   ~/Downloads/test-videos (real clips)
 #   SMOKE_DIR    this run's output dir
 #   FFMPEG       the vendored ffmpeg (for prepping short real clips)
-#   plus every provider key from .env (CLOUDGLUE_API_KEY, HF_TOKEN, FAL_KEY, …)
+#   plus every provider key + media path from .env (OC_VIDEO_*/OC_IMAGE/OC_AUDIO,
+#   CLOUDGLUE_API_KEY, HF_TOKEN, FAL_KEY, …)
 
 LIVE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib.sh
@@ -24,18 +24,23 @@ skip() { ok "$1" "SKIPPED — $2"; }
 require_cred() { if have_cred "$2"; then return 0; else skip "$1" "no $2 — $3"; return 1; fi; }
 
 # --- real media --------------------------------------------------------------
-# Real clips, each overridable via .env (OC_VIDEO_*) or defaulting to a named file
-# under TEST_MEDIA. Cases assert presence (have_media) and SKIP if absent, so any
-# subset works. They're consumed by the case scripts that source this lib, so the
-# SC2034 "appears unused" below is a false positive (disabled per-line).
+# Every medium is a FULL PATH supplied via .env (OC_VIDEO_*/OC_IMAGE/OC_AUDIO); no
+# file names are baked in here. Cases assert presence (have_media) and SKIP when a
+# medium is unset/missing, so any subset works. They're consumed by the case
+# scripts that source this lib, so the SC2034 "appears unused" below is a false
+# positive (disabled per-line).
 # shellcheck disable=SC2034
-VIDEO_VISUAL="${OC_VIDEO_VISUAL:-$TEST_MEDIA/browse-hackernews.mp4}"      # screen-rec, rich visual ~35s
+VIDEO_VISUAL="${OC_VIDEO_VISUAL:-}"      # rich on-screen visual — watch / see
 # shellcheck disable=SC2034
-VIDEO_OBJECTS="${OC_VIDEO_OBJECTS:-$TEST_MEDIA/worker_without_helmet.mp4}" # people + hard hats (detection)
+VIDEO_OBJECTS="${OC_VIDEO_OBJECTS:-}"    # people + detectable objects — see --detect
 # shellcheck disable=SC2034
-VIDEO_SMALL="${OC_VIDEO_SMALL:-$TEST_MEDIA/bbq.mp4}"                       # small, for enhance/view
+VIDEO_SMALL="${OC_VIDEO_SMALL:-}"        # short / small — enhance / view
 # shellcheck disable=SC2034
-VIDEO_SPEECH_SRC="${OC_VIDEO_SPEECH:-$TEST_MEDIA/bobbyleetheoasian.mp4}"   # has speech, for listen
+VIDEO_SPEECH_SRC="${OC_VIDEO_SPEECH:-}"  # clear speech — listen (audio fallback)
+# shellcheck disable=SC2034
+IMAGE_FILE="${OC_IMAGE:-}"               # standalone image — see (caption / OCR / detect)
+# shellcheck disable=SC2034
+AUDIO_FILE="${OC_AUDIO:-}"               # standalone audio — listen
 
 have_media() { [ -f "$1" ]; }
 

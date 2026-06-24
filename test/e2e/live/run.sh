@@ -44,8 +44,14 @@ if ! $OVERCAST version --json >/dev/null 2>&1; then
   exit 1
 fi
 
-export TEST_MEDIA="${TEST_MEDIA:-$HOME/Downloads/test-videos}"
 FFMPEG="$(node -e "console.log(require('ffmpeg-static'))" 2>/dev/null || echo ffmpeg)"; export FFMPEG
+# media is supplied by full path via .env (OC_VIDEO_*/OC_IMAGE/OC_AUDIO) — no file
+# names baked into the repo. Summarize which are configured WITHOUT printing paths.
+media_summary() {
+  for v in OC_VIDEO_VISUAL OC_VIDEO_OBJECTS OC_VIDEO_SMALL OC_VIDEO_SPEECH OC_IMAGE OC_AUDIO; do
+    [ -n "${!v:-}" ] && printf '%s ' "${v#OC_}"
+  done
+}
 
 UTC="$(date -u +%Y%m%dT%H%M%SZ)"
 export SMOKE_DIR="$REPO_ROOT/.dev/smoke/live-$UTC"
@@ -67,7 +73,7 @@ if [ "${#cases[@]}" -eq 0 ]; then echo "[live] no cases matched ${*:-(all)}" >&2
 
 echo "=== overcast LIVE e2e — $UTC — $BRANCH@$GIT_SHA ==="
 echo "binary:     $OVERCAST"
-echo "test media: $TEST_MEDIA"
+echo "media:      $(media_summary)"
 echo "creds:      $(for k in CLOUDGLUE_API_KEY HF_TOKEN FAL_KEY ELEVENLABS_API_KEY TAVILY_API_KEY APIFY_TOKEN; do [ -n "${!k:-}" ] && printf '%s ' "${k%%_*}"; done)"
 echo "$OVERCAST" version --json 2>/dev/null | head -1 || true
 echo
@@ -96,7 +102,7 @@ REPORT="$SMOKE_DIR/report.md"
   echo "- **timestamp:** $UTC"
   echo "- **branch / sha:** \`$BRANCH@$GIT_SHA\`"
   echo "- **binary:** \`$OVERCAST\`"
-  echo "- **test media:** \`$TEST_MEDIA\`"; echo
+  echo "- **media configured:** \`$(media_summary)\`"; echo
   echo "## Summary"; echo
   echo "- total: **$total**, pass/skip: **$pass**, fail: **$fail**"
   [ "$fail" -gt 0 ] && echo "- ❌ failures present" || echo "- ✅ all green"; echo

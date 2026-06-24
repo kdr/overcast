@@ -3,10 +3,14 @@
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
 C=listen
 
-# prep a short real speech clip (20s) so the cloud call stays cheap/fast
-CLIP="$SMOKE_DIR/speech20.mp4"
-if have_media "$VIDEO_SPEECH_SRC"; then clip_av 20 "$VIDEO_SPEECH_SRC" "$CLIP"; fi
-[ -f "$CLIP" ] || { skip "$C" "no speech clip available"; exit 0; }
+# Prefer a standalone audio file (OC_AUDIO); else extract a short speech clip from
+# a video (OC_VIDEO_SPEECH) so the cloud call stays cheap/fast.
+if have_media "$AUDIO_FILE"; then
+  CLIP="$AUDIO_FILE"
+elif have_media "$VIDEO_SPEECH_SRC"; then
+  CLIP="$SMOKE_DIR/speech20.mp4"; clip_av 20 "$VIDEO_SPEECH_SRC" "$CLIP"
+fi
+[ -n "${CLIP:-}" ] && [ -f "$CLIP" ] || { skip "$C" "no audio (set OC_AUDIO or OC_VIDEO_SPEECH)"; exit 0; }
 
 # --- Cloudglue (default) ---
 if require_cred "$C.cloudglue" CLOUDGLUE_API_KEY "skipping"; then

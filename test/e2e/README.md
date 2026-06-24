@@ -40,11 +40,12 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
   (`CLOUDGLUE_API_KEY`, `HF_TOKEN`, `FAL_KEY`, `ELEVENLABS_API_KEY`,
   `TAVILY_API_KEY`/`BRAVE_API_KEY`, `APIFY_TOKEN`). Values are never printed — the
   banner only lists which key *names* are present.
-- **Real clips** — `TEST_MEDIA` (default `~/Downloads/test-videos`). Each clip is
-  overridable via `OC_VIDEO_*` in `.env` (`OC_VIDEO_VISUAL`, `OC_VIDEO_OBJECTS`,
-  `OC_VIDEO_SMALL`, `OC_VIDEO_SPEECH`). The video files are **not** in the repo;
-  point these at your own clips. Cases trim short, cached sub-clips with the
-  vendored ffmpeg before hitting cloud backends.
+- **Real media** — each a **full path** in `.env`; no file names are baked into
+  the repo. Videos: `OC_VIDEO_VISUAL`, `OC_VIDEO_OBJECTS`, `OC_VIDEO_SMALL`,
+  `OC_VIDEO_SPEECH`. Plus a standalone `OC_IMAGE` (for `see`) and `OC_AUDIO` (for
+  `listen`) — if those are unset, `see`/`listen` fall back to a frame / audio
+  extracted from the videos. Cases trim short, cached sub-clips with the vendored
+  ffmpeg before hitting cloud backends, and SKIP any medium that's unset/missing.
 - **Local detector (`see --detect`)** — `DETECT_PY` = a python with
   `torch`/`transformers`/`scipy`/`pillow` (OWLv2). If unset, the case probes
   `python3`/`python` and skips when the deps are missing.
