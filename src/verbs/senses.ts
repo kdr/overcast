@@ -109,13 +109,17 @@ export const seeVerb: VerbSpec = {
     let resolvedRef = ctx.input;
     const fr = parseFrameRef(ctx.input);
     if (fr) {
+      // a frame:// ref that can't be resolved must FAIL clearly — never hand the
+      // literal "frame://…" string to a provider (which reports a confusing
+      // "image not found: frame://…").
       const src = ctx.case.recordById(fr.recordId)?.media?.ref;
-      if (src && existsSync(src)) {
-        try {
-          resolvedRef = await extractFrame(src, fr.second, ctx.case.mediaDir);
-        } catch {
-          /* keep the original ref; placeholder will still report */
-        }
+      if (!src || !existsSync(src)) {
+        return [errorRecord("see", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`)];
+      }
+      try {
+        resolvedRef = await extractFrame(src, fr.second, ctx.case.mediaDir);
+      } catch (e) {
+        return [errorRecord("see", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`)];
       }
     }
 

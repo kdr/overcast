@@ -3,7 +3,7 @@
 // prebrief case wizard. Source providers live in providers/sources.
 
 import { join, basename, dirname } from "node:path";
-import { copyFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import {
@@ -265,6 +265,52 @@ async function pipeSense(
   return err(caller, `unknown --pipe '${verb}' (expected watch | listen)`);
 }
 
+/** Best-effort media extension from leading magic bytes (so a piped clip lands
+ *  with a sensible extension the senses/ffmpeg can classify). */
+function sniffExt(b: Buffer): string {
+  const at = (off: number, s: string) => b.length >= off + s.length && b.slice(off, off + s.length).toString("latin1") === s;
+  if (at(4, "ftyp")) return ".mp4"; // ISO-BMFF: mp4/mov/m4a
+  if (at(0, "RIFF") && at(8, "WEBP")) return ".webp";
+  if (at(0, "RIFF") && at(8, "WAVE")) return ".wav";
+  if (at(0, "RIFF") && at(8, "AVI ")) return ".avi";
+  if (b[0] === 0x89 && at(1, "PNG")) return ".png";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return ".jpg";
+  if (at(0, "GIF8")) return ".gif";
+  if (at(0, "OggS")) return ".ogg";
+  if (at(0, "fLaC")) return ".flac";
+  if (at(0, "ID3") || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return ".mp3";
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return ".webm";
+  return ".bin";
+}
+
+/** `capture -` — ingest bytes piped on stdin into the case as a capture record. */
+async function captureStdin(ctx: VerbContext, out?: string): Promise<OvercastRecord> {
+  if (process.stdin.isTTY) return err("capture", "capture - expects media piped on stdin (none detected)");
+  const buf: Buffer = await new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    process.stdin.on("data", (c) => chunks.push(c as Buffer));
+    process.stdin.on("end", () => resolve(Buffer.concat(chunks)));
+    process.stdin.on("error", reject);
+  });
+  if (buf.length === 0) return err("capture", "capture -: stdin was empty");
+  const hash = createHash("sha1").update(buf).digest("hex").slice(0, 8);
+  const dest = out ?? join(ctx.case.mediaDir, `stdin-${hash}${sniffExt(buf)}`);
+  try {
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, buf);
+  } catch (e) {
+    return err("capture", `stdin write failed: ${(e as Error).message}`);
+  }
+  return makeRecord({
+    verb: "capture",
+    format: "json",
+    payload: { capture_id: "cap_" + basename(dest), path: dest, kind: "file", source: "stdin", bytes: buf.length },
+    media: { ref: dest },
+    meta: { provider: "capture:stdin", case: ctx.case.dir },
+    state: "ready",
+  });
+}
+
 export const captureVerb: VerbSpec = {
   name: "capture",
   group: "osint",
@@ -272,7 +318,7 @@ export const captureVerb: VerbSpec = {
   description:
     "Acquires media/content into .overcast/media/: a local path is copied in; a URL is downloaded via " +
     "the matching source provider. Emits a capture record with a capture_id usable by the senses.",
-  args: [{ name: "ref", summary: "URL, scan.hit id, or local path", required: true }],
+  args: [{ name: "ref", summary: "URL, scan.hit id, local path, or - for stdin", required: true }],
   flags: [
     { name: "index", summary: "Embed into the case index after capture", type: "boolean" },
     { name: "out", summary: "Output location override", type: "string" },
@@ -282,7 +328,9 @@ export const captureVerb: VerbSpec = {
   outputKind: "capture",
   providerKey: "capture",
   run: async (ctx) => {
-    if (!ctx.input) return [err("capture", "capture requires a ref (URL/path/scan.hit id)")];
+    if (!ctx.input) return [err("capture", "capture requires a ref (URL/path/scan.hit id, or - for stdin)")];
+    // `-` → ingest stdin (a piped clip/image) into the case.
+    if (ctx.input === "-") return [await captureStdin(ctx, ctx.opts.out ? String(ctx.opts.out) : undefined)];
     // resolve a scan.hit record id → its media ref (and source provider). Fall
     // back to payload.url when the hit has a url but no media field (matches
     // hitKey/hitsToRecords).
@@ -504,9 +552,12 @@ export const monitorVerb: VerbSpec = {
         let recs: OvercastRecord[];
         try {
           recs = await monitorPass(ctx, seen);
+        } catch (e) {
+          // a thrown pass (timeout, spawn failure) becomes one failed-pass error
+          // record — the long-running loop keeps going, it doesn't crash.
+          recs = [err("monitor", `monitor pass failed: ${(e as Error).message}`)];
         } finally {
-          // persist accumulated seen-set even if a pass throws mid-way (timeout,
-          // spawn failure), matching the --once path's try/finally.
+          // persist accumulated seen-set even if a pass throws mid-way.
           saveSeen(ctx.case, seen);
         }
         for (const r of recs) {
