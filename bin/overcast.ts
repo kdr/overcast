@@ -141,10 +141,18 @@ async function launchTui(argv: string[]): Promise<void> {
 
 async function run(): Promise<number> {
   const argv = process.argv.slice(2);
+  // --tui is a TUI-only routing flag; the CLI never needs to see it.
+  const cliArgv = argv.filter((a) => a !== "--tui");
 
-  // --tui forces the agent, EXCEPT overcast's own --help/--version, which win.
+  // overcast's own --help/-h wins everywhere — including mixed with --tui
+  // (`overcast --tui --help`) — and pi never sees --help.
+  if (argv.includes("--help") || argv.includes("-h")) {
+    return runCli(cliArgv);
+  }
+
+  // --tui forces the agent, EXCEPT overcast's own --version, which wins.
   if (isCliDispatch(argv) && (!argv.includes("--tui") || isHelpOrVersionCmd(argv))) {
-    return runCli(argv);
+    return runCli(cliArgv);
   }
 
   // no verb (or --tui): launch the interactive overcast agent.

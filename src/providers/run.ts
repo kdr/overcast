@@ -99,6 +99,8 @@ export async function runExecProvider(
 
   const parsed = parseFirstJson(res.stdout) as Record<string, unknown> | undefined;
   if (parsed === undefined) {
+    // exit 13 with no JSON = missing deps/credentials (exec contract), a setup
+    // gap, not a hard failure (matches enumerateSource/fetchSource/provider init).
     return makeRecord({
       verb,
       format: "json",
@@ -109,7 +111,7 @@ export async function runExecProvider(
         res.code === 0
           ? `provider produced no JSON record`
           : `provider exited ${res.code}: ${res.stderr.trim().slice(0, 400)}`,
-      state: "error",
+      state: res.code === 13 ? "needs_credentials" : "error",
     });
   }
 

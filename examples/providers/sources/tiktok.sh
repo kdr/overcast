@@ -23,9 +23,10 @@ case "$op" in
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN" >&2; exit 13; }
     # a `#tag` ref scrapes a hashtag (actor's `hashtags` field); otherwise a
     # profile/user. Strip a leading '#'/'@' for the field value.
+    # build the body with jq so a query containing " or \ can't break the JSON
     case "$query" in
-      \#*) input="{\"hashtags\":[\"${query#\#}\"],\"resultsPerPage\":$limit}" ;;
-      *)   input="{\"profiles\":[\"${query#@}\"],\"resultsPerPage\":$limit}" ;;
+      \#*) input="$(jq -nc --arg t "${query#\#}" --argjson n "$limit" '{hashtags:[$t],resultsPerPage:$n}')" ;;
+      *)   input="$(jq -nc --arg p "${query#@}" --argjson n "$limit" '{profiles:[$p],resultsPerPage:$n}')" ;;
     esac
     # -f fails the request on HTTP errors so Apify error JSON isn't parsed as hits
     if ! run=$(curl -fsS -X POST \

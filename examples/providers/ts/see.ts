@@ -46,16 +46,20 @@ function run(input: string, opts: { ocr?: boolean; detect?: string }): void {
 }
 
 function main(argv: string[]): void {
-  const op = argv[2] ?? "run";
-  if (op === "describe") return describe();
-  if (op === "init") return init();
+  // args after [node, script]. Don't assume argv[2] is the op — under
+  // `node --import tsx see.ts <op>` the loader/positions vary; parse by VALUE.
+  const args = argv.slice(2);
+  if (args.includes("describe")) return describe();
+  if (args.includes("init")) return init();
   let input = "";
   const opts: { ocr?: boolean; detect?: string } = {};
-  for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === "--input") input = argv[++i];
-    else if (argv[i] === "--ocr") opts.ocr = true;
-    else if (argv[i] === "--detect") opts.detect = argv[++i];
-    else if (!argv[i].startsWith("-") && i === argv.length - 1 && !input) input = argv[i];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--input") input = args[++i];
+    else if (a === "--ocr") opts.ocr = true;
+    else if (a === "--detect") opts.detect = args[++i];
+    else if (a === "run") continue;
+    else if (!a.startsWith("-")) input = a; // last positional wins (input contract)
   }
   run(input, opts);
 }

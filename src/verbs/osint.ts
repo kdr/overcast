@@ -305,7 +305,9 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     // Only mark an item seen once it has been processed (no capturable media, or
     // capture succeeded). A failed capture stays unseen so a later pass retries
     // it instead of silently dropping it.
-    let captureFailed = false;
+    // an item is only "done" (seen) once capture AND any sensing succeeded; a
+    // failed capture OR a failed sense stays unseen so a later pass retries it.
+    let processFailed = false;
     if (hit.media?.ref) {
       const cap = await captureRef(ctx, hit.media.ref, { sourceType: hitSourceType(hit) });
       out.push(cap);
@@ -314,12 +316,13 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
         if (explicitPipe || isSenseableMedia(cap.media.ref)) {
           const sensed = await pipeSense(ctx, explicitPipe ?? "watch", cap.media.ref);
           if (sensed) out.push(sensed);
+          if (sensed?.state === "error") processFailed = true;
         }
       } else {
-        captureFailed = true;
+        processFailed = true;
       }
     }
-    if (!captureFailed) {
+    if (!processFailed) {
       seen.add(key);
       newCount++;
       newHits.push(hit);
@@ -406,6 +409,7 @@ export const monitorVerb: VerbSpec = {
       const maxPasses = process.env.OVERCAST_MONITOR_MAX_PASSES ? Number(process.env.OVERCAST_MONITOR_MAX_PASSES) : Infinity;
       let pass = 0;
       let errorPasses = 0;
+      let credPasses = 0;
       process.stderr.write(`monitor: every ${everyStr}, Ctrl-C to stop\n`);
       while (pass < maxPasses && !ctx.signal?.aborted) {
         pass++;
@@ -414,19 +418,21 @@ export const monitorVerb: VerbSpec = {
         saveSeen(ctx.case, seen);
         writeAlert(recs.filter((r) => r.verb !== "monitor"));
         if (recs.some((r) => r.state === "error")) errorPasses++;
+        else if (recs.some((r) => r.state === "needs_credentials")) credPasses++;
         if (pass >= maxPasses || ctx.signal?.aborted) break;
         await sleep(intervalMs, ctx.signal);
       }
       // records already streamed + persisted per pass; return a final summary so
-      // the exit code reflects whether any pass errored (schedulers rely on it).
+      // the exit code reflects whether any pass errored OR needed credentials.
+      const failedPasses = errorPasses + credPasses;
       return [
         makeRecord({
           verb: "monitor",
           format: "json",
-          payload: { passes: pass, error_passes: errorPasses },
+          payload: { passes: pass, error_passes: errorPasses, cred_passes: credPasses },
           meta: { provider: "monitor", case: ctx.case.dir },
-          state: errorPasses ? "error" : "ready",
-          error: errorPasses ? `${errorPasses}/${pass} pass(es) had errors` : undefined,
+          state: errorPasses ? "error" : credPasses ? "needs_credentials" : "ready",
+          error: failedPasses ? `${failedPasses}/${pass} pass(es) failed or need credentials` : undefined,
         }),
       ];
     }
