@@ -83,7 +83,15 @@ overcast setup provider enhance "exec:bash examples/providers/elevenlabs/enhance
 - [`examples/providers/python/listen.py`](../examples/providers/python/listen.py) — a local-whisper `listen` provider (exec/http).
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec/in-proc).
 - [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
-- [`examples/providers/sources/{youtube,tiktok}.sh`](../examples/providers/sources/) — yt-dlp + Apify source providers.
+- [`examples/providers/sources/{youtube,tiktok,web}.sh`](../examples/providers/sources/) — yt-dlp + Apify + web-search (Tavily/Brave) source providers.
+
+## Source providers (built-in types)
+
+`scan`/`monitor` enumerate sources; `capture` fetches. Built-in types resolve to shipped scripts:
+- **`youtube`** — yt-dlp (no key). `source add youtube:@handle` · `youtube:search:"…"` · `youtube:playlist:<id>`.
+- **`tiktok`** — Apify (`APIFY_TOKEN`). `source add tiktok:@user` · `tiktok:#tag`.
+- **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). `source add web:"<query>"` → web search hits.
+- Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
 Each responds to `describe` offline:
 
