@@ -272,7 +272,7 @@ export const captureVerb: VerbSpec = {
   description:
     "Acquires media/content into .overcast/media/: a local path is copied in; a URL is downloaded via " +
     "the matching source provider. Emits a capture record with a capture_id usable by the senses.",
-  args: [{ name: "ref", summary: "URL, scan.hit id, local path, or - for stdin", required: true }],
+  args: [{ name: "ref", summary: "URL, scan.hit id, or local path", required: true }],
   flags: [
     { name: "index", summary: "Embed into the case index after capture", type: "boolean" },
     { name: "out", summary: "Output location override", type: "string" },

@@ -36,6 +36,13 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
       errors.push(`--${flag.name} must be one of: ${flag.choices.join(", ")} (got '${value}')`);
     }
   };
+  // a number flag with a non-numeric value is a parse error (names the original
+  // token, not the coerced NaN) — one check for EVERY number flag.
+  const checkNumber = (flag: FlagSpec, value: string) => {
+    if (flag.type === "number" && !Number.isFinite(Number(value))) {
+      errors.push(`--${flag.name} expects a number (got '${value}')`);
+    }
+  };
 
   for (const f of spec.flags) {
     if (f.default !== undefined) opts[f.name] = f.default;
@@ -59,13 +66,13 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
       if (flag && flag.type === "boolean") {
         opts[name] = value === undefined ? true : value === "true";
       } else if (value !== undefined) {
-        if (flag) checkChoice(flag, String(value));
+        if (flag) { checkChoice(flag, String(value)); checkNumber(flag, String(value)); }
         opts[name] = flag ? coerce(flag, value) : value;
       } else {
         // consume next token as value unless it's another flag
         const next = argv[i + 1];
         if (next !== undefined && !next.startsWith("--")) {
-          if (flag) checkChoice(flag, next);
+          if (flag) { checkChoice(flag, next); checkNumber(flag, next); }
           opts[name] = flag ? coerce(flag, next) : next;
           i++;
         } else if (flag) {

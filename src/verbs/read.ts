@@ -57,6 +57,14 @@ export const askVerb: VerbSpec = {
     if (ctx.opts.since && parseSince(String(ctx.opts.since)) == null) {
       return [askError(`invalid --since value: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
     }
+    // a non-finite/non-positive --limit is a user error, not a silent fall-back to
+    // the default recall breadth (matches scan/case/monitor).
+    if (ctx.opts.limit != null) {
+      const n = Number(ctx.opts.limit);
+      if (!Number.isFinite(n) || n <= 0) {
+        return [askError(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
+      }
+    }
     const available = resolveMemory(ctx.case, ctx.profile);
     let providers = available;
     if (ctx.opts.memory) {
