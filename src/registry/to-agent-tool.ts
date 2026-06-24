@@ -119,7 +119,12 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         };
       }
 
-      for (const rec of records) c.writeRecord(rec);
+      // skip a record explicitly tagged for a different case (already persisted
+      // there) — e.g. `case init <other-dir>`.
+      for (const rec of records) {
+        if (rec.meta?.case && rec.meta.case !== c.dir) continue;
+        c.writeRecord(rec);
+      }
 
       const summary = records.map(summarizeRecord).join("\n");
       return {

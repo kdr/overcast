@@ -49,10 +49,17 @@ export const caseVerb: VerbSpec = {
         writeFileSync(c.caseFile, JSON.stringify(cur, null, 2) + "\n", "utf8");
         info.name = cur.name;
       }
-      const rec = makeRecord({ verb: "case", format: "json", payload: { ...info, dir: c.dir }, state: "ready" });
-      // `case init <dir>` stands up a DIFFERENT case than the active one; persist
-      // the init record into that new case's store (the CLI would otherwise write
-      // it only to the active --case/cwd store — the wrong folder).
+      // Tag the record with the case it belongs to. When `case init <dir>`
+      // targets a DIFFERENT case than the active one, persist it there and tag
+      // it so the framework skips writing it into the active case's timeline
+      // (see the meta.case guard in cli.ts / to-agent-tool.ts).
+      const rec = makeRecord({
+        verb: "case",
+        format: "json",
+        payload: { ...info, dir: c.dir },
+        meta: { case: c.dir },
+        state: "ready",
+      });
       if (c.dir !== ctx.case.dir) c.writeRecord(rec);
       return [rec];
     }

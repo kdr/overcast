@@ -65,7 +65,9 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   pi.on("session_start", async (_event, ctx) => {
     ctx.ui.setTheme(THEME_NAME);
 
-    const cwd = ctx.cwd ?? process.cwd();
+    // the case dir follows --case (surfaced via OVERCAST_CASE), matching the
+    // agent tools — so the UI labels the case actually being processed.
+    const cwd = process.env.OVERCAST_CASE || ctx.cwd || process.cwd();
     const caseName = basename(cwd);
 
     // Title: "overcast — <profile>@case://<folder>" (the case is the cwd folder;

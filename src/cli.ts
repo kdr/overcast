@@ -290,7 +290,12 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
       return 1;
     }
 
-    for (const rec of records) c.writeRecord(rec);
+    // persist into the active case, but skip a record explicitly tagged for a
+    // different case (e.g. `case init <other-dir>` already wrote it there).
+    for (const rec of records) {
+      if (rec.meta?.case && rec.meta.case !== c.dir) continue;
+      c.writeRecord(rec);
+    }
 
     const wantJson = parsed.opts.json === true || parsed.opts.format === "json";
     const format = wantJson ? "json" : (parsed.opts.format as string) ?? "human";

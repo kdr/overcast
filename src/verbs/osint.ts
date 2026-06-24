@@ -335,6 +335,22 @@ export const monitorVerb: VerbSpec = {
   run: async (ctx) => {
     const everyStr = ctx.opts.every ? String(ctx.opts.every) : "";
     const alertSink = ctx.opts.alert ? String(ctx.opts.alert) : "";
+    // honor --json/--format for the streamed records (defaults to JSON-lines,
+    // the natural machine format for a continuous loop).
+    const streamFmt =
+      ctx.opts.json === true || ctx.opts.format === "json"
+        ? "json"
+        : (ctx.opts.format as string) || "json";
+    const streamRender = (r: OvercastRecord): string => {
+      if (streamFmt === "md" || streamFmt === "txt") {
+        if (typeof r.payload === "string") return r.payload;
+        const p = r.payload as Record<string, unknown>;
+        for (const k of ["content", "text", "report"]) {
+          if (typeof p[k] === "string" && p[k]) return p[k] as string;
+        }
+      }
+      return JSON.stringify(r);
+    };
     const writeAlert = (recs: OvercastRecord[]) => {
       if (!alertSink) return;
       const lines = recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
@@ -354,7 +370,7 @@ export const monitorVerb: VerbSpec = {
       while (pass < maxPasses && !ctx.signal?.aborted) {
         pass++;
         const recs = await monitorPass(ctx, seen);
-        for (const r of recs) { ctx.case.writeRecord(r); process.stdout.write(JSON.stringify(r) + "\n"); }
+        for (const r of recs) { ctx.case.writeRecord(r); process.stdout.write(streamRender(r) + "\n"); }
         saveSeen(ctx.case, seen);
         writeAlert(recs.filter((r) => r.verb !== "monitor"));
         if (recs.some((r) => r.state === "error")) errorPasses++;

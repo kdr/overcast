@@ -122,12 +122,12 @@ export const seeVerb: VerbSpec = {
     //  3. the v1 placeholder (needs_credentials + guidance).
     const binding = ctx.profile.providers?.see;
     const seeEnv = { ...process.env, OVERCAST_MEDIA_DIR: ctx.case.mediaDir };
+    // forward the declared see flags to whichever provider runs (custom or HF).
+    const extraArgs: string[] = [];
+    if (ctx.opts.ocr === true) extraArgs.push("--ocr");
+    if (ctx.opts.detect) extraArgs.push("--detect", String(ctx.opts.detect));
+    if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
     if (isCustomBinding(binding)) {
-      // forward the declared see flags to the provider.
-      const extraArgs: string[] = [];
-      if (ctx.opts.ocr === true) extraArgs.push("--ocr");
-      if (ctx.opts.detect) extraArgs.push("--detect", String(ctx.opts.detect));
-      if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
       const rec = await runBoundProvider("see", binding!, resolvedRef, {
         env: seeEnv,
         extraArgs,
@@ -141,6 +141,7 @@ export const seeVerb: VerbSpec = {
       if (hf) {
         const rec = await runExecProvider("see", `bash ${hf} {{input}}`, resolvedRef, {
           env: seeEnv,
+          extraArgs,
           signal: ctx.signal,
         });
         rec.meta = { ...rec.meta, case: ctx.case.dir };
