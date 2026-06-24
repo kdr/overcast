@@ -18,7 +18,7 @@ esac
 input=""; ocr=0
 while [ "$#" -gt 0 ]; do case "$1" in --input) input="$2"; shift 2 ;; --ocr) ocr=1; shift ;; --*) shift ;; *) input="$1"; shift ;; esac; done
 need
-[ -f "$input" ] || { echo "{\"verb\":\"see\",\"error\":\"image not found: $input\",\"state\":\"error\"}"; exit 0; }
+[ -f "$input" ] || { jq -nc --arg i "$input" '{verb:"see",format:"json",payload:{caption:"",ocr:"",detections:[]},error:("image not found: "+$i),state:"error"}'; exit 0; }
 
 case "$(echo "${input##*.}" | tr 'A-Z' 'a-z')" in jpg|jpeg) mime=image/jpeg ;; webp) mime=image/webp ;; *) mime=image/png ;; esac
 b64="$(base64 -i "$input" 2>/dev/null | tr -d '\n')" || b64="$(base64 "$input" | tr -d '\n')"

@@ -68,16 +68,20 @@ def init():
 def parse_args(argv):
     inp, detect, thr, maxf = "", "", THRESHOLD, MAX_FRAMES
     i = 0
+    # value for a flag at index i, or "" if it's the last token (no IndexError on
+    # a truncated invocation like `… --detect`)
+    def val(j):
+        return argv[j + 1] if j + 1 < len(argv) else ""
     while i < len(argv):
         a = argv[i]
         if a == "--input":
-            inp = argv[i + 1]; i += 2
+            inp = val(i); i += 2
         elif a == "--detect":
-            detect = argv[i + 1]; i += 2
+            detect = val(i); i += 2
         elif a == "--threshold":
-            thr = float(argv[i + 1]); i += 2
+            thr = float(val(i) or thr); i += 2
         elif a == "--max-frames":
-            maxf = int(argv[i + 1]); i += 2
+            maxf = int(val(i) or maxf); i += 2
         elif a in ("--prompt", "--embed"):
             i += 2 if a == "--prompt" else 1
         elif a in ("--ocr", "run"):

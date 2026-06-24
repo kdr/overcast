@@ -72,12 +72,15 @@ case "$op" in
     fi
     # capture yt-dlp explicitly so a failure (network, age-restriction, etc.)
     # surfaces as an enumerate ERROR (exit 1 → scan error record), not an empty
-    # hit list that reads like a clean zero-result scan.
+    # hit list that reads like a clean zero-result scan. Keep stderr SEPARATE from
+    # the --dump-json stdout, so routine yt-dlp warnings don't corrupt the JSON.
+    errf="$(mktemp)"
     # shellcheck disable=SC2086
-    if ! raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>&1)"; then
-      echo "youtube enumerate failed: $(printf '%s' "$raw" | tail -3 | tr '\n' ' ')" >&2
-      exit 1
+    if ! raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>"$errf")"; then
+      echo "youtube enumerate failed: $(tail -3 "$errf" | tr '\n' ' ')" >&2
+      rm -f "$errf"; exit 1
     fi
+    rm -f "$errf"
     printf '%s\n' "$raw" \
       | jq -sc '[ .[] | {
           title: (.title // .id),
