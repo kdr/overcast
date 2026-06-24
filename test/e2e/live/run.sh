@@ -15,7 +15,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 
 # --- creds: source .env (do not echo values) -------------------------------
 if [ -f .env ]; then
@@ -45,7 +45,7 @@ if ! $OVERCAST version --json >/dev/null 2>&1; then
 fi
 
 export TEST_MEDIA="${TEST_MEDIA:-$HOME/Downloads/test-videos}"
-export FFMPEG="$(node -e "console.log(require('ffmpeg-static'))" 2>/dev/null || echo ffmpeg)"
+FFMPEG="$(node -e "console.log(require('ffmpeg-static'))" 2>/dev/null || echo ffmpeg)"; export FFMPEG
 
 UTC="$(date -u +%Y%m%dT%H%M%SZ)"
 export SMOKE_DIR="$REPO_ROOT/.dev/smoke/live-$UTC"

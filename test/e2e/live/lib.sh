@@ -25,9 +25,15 @@ require_cred() { if have_cred "$2"; then return 0; else skip "$1" "no $2 — $3"
 
 # --- real media --------------------------------------------------------------
 # Full small clips that exist in TEST_MEDIA (assert presence before use).
+# These are consumed by the case scripts that source this lib, so shellcheck's
+# "appears unused" (SC2034) is a false positive here.
+# shellcheck disable=SC2034
 VIDEO_VISUAL="$TEST_MEDIA/browse-hackernews.mp4"     # screen-rec, rich visual, ~35s
+# shellcheck disable=SC2034
 VIDEO_OBJECTS="$TEST_MEDIA/worker_without_helmet.mp4" # people + hard hats (detection)
+# shellcheck disable=SC2034
 VIDEO_SMALL="$TEST_MEDIA/bbq.mp4"                     # small, for enhance/view
+# shellcheck disable=SC2034
 VIDEO_SPEECH_SRC="$TEST_MEDIA/bobbyleetheoasian.mp4"  # comedy clip → has speech
 
 have_media() { [ -f "$1" ]; }
@@ -98,7 +104,7 @@ ocg() {
 }
 
 _detail() { # <PASS|FAIL> <id> <note>
-  local cmd out key snip
+  local cmd out key
   cmd="$(cat "$SMOKE_DIR/.cmd" 2>/dev/null)"
   out="$(cat "$SMOKE_DIR/.out" 2>/dev/null)"
   key="${cmd}|${_COND:-$3}"

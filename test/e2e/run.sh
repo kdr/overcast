@@ -13,7 +13,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 
 # --- build the CLI so cases run against fresh dist -------------------------
 if [ ! -f dist/bin/overcast.js ] || [ "${SKIP_BUILD:-}" != "1" ]; then

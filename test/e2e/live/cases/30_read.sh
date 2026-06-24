@@ -2,7 +2,7 @@
 # Read side over REAL records: watch a real clip, then ask (cited retrieval) and
 # brief (timeline + html export) over the case's local memory.
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
-C=read
+C="read"
 require_cred "$C" CLOUDGLUE_API_KEY "skipping (needs a real watch to read over)" || exit 0
 
 CLIP="$SMOKE_DIR/read_clip.mp4"

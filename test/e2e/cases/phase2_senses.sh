@@ -8,8 +8,7 @@ REPO="$(cd "$DIR/../.." && pwd)"
 # shellcheck source=../lib.sh
 source "$DIR/lib.sh"
 
-# resolve the vendored ffmpeg via the toolkit and make a 1s clip
-ff="$(node -e "import('$REPO/dist/index.js').catch(()=>{}); import('$REPO/src/media/ffmpeg.ts')" 2>/dev/null || true)"
+# make a 1s clip with the vendored ffmpeg (resolved via the toolkit)
 clip="$SMOKE_DIR/tiny.mp4"
 node --import tsx -e "
 import {FFMPEG_PATH} from '$REPO/src/media/ffmpeg.ts';
