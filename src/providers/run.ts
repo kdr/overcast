@@ -6,10 +6,49 @@
 
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { execCapture, renderCommand, parseFirstJson } from "./exec.js";
+import type { ProviderDescriptor } from "../profile.js";
 
 /** Does a run template look like the default tinycloud binding? */
 export function isTinycloudDefault(run?: string): boolean {
   return !!run && /^\s*tinycloud\b/.test(run);
+}
+
+/** A custom (non-default) provider binding we should dispatch to, rather than
+ *  the built-in tinycloud mapper. */
+export function isCustomBinding(b?: ProviderDescriptor): boolean {
+  if (!b) return false;
+  if (b.run && isTinycloudDefault(b.run)) return false;
+  return Boolean(b.run || b.endpoint || b.module);
+}
+
+/**
+ * Dispatch a bound provider by transport. v1 wires the `exec` transport; an
+ * `http`/`inproc` binding returns an explicit error rather than silently
+ * falling back to the tinycloud default (which would ignore the binding).
+ */
+export async function runBoundProvider(
+  verb: string,
+  binding: ProviderDescriptor,
+  input: string,
+  opts: RunExecOpts = {},
+): Promise<OvercastRecord> {
+  const isExec = binding.type === "exec" || (!!binding.run && !binding.endpoint && !binding.module);
+  if (isExec) {
+    if (!binding.run) {
+      return makeRecord({
+        verb, format: "json", payload: { input }, media: { ref: input },
+        error: `exec provider for '${verb}' has no run command`, state: "error",
+      });
+    }
+    return runExecProvider(verb, binding.run, input, opts);
+  }
+  const transport = binding.type ?? (binding.endpoint ? "http" : binding.module ? "inproc" : "unknown");
+  return makeRecord({
+    verb, format: "json", payload: { input }, media: { ref: input },
+    meta: { provider: transport },
+    error: `${transport} provider transport is not implemented in v1 (only exec is wired); bind an exec provider for '${verb}'`,
+    state: "error",
+  });
 }
 
 export interface RunExecOpts {
@@ -61,9 +100,10 @@ export async function runExecProvider(
   // pass-through: honor the provider's record, fill required defaults. The
   // provider's `state` is authoritative (exec wire contract).
   const state = (parsed.state as string) ?? (res.code === 0 ? "ready" : "error");
-  // only attach an exit-code error when the record isn't already a success —
-  // a non-zero exit on an explicit ready/pending record is not a failure.
-  const isErrorState = state !== "ready" && state !== "pending";
+  // only attach an exit-code error when the record isn't already a non-error
+  // state — a non-zero exit on an explicit ready/pending/needs_credentials
+  // record (e.g. a cred check that exits 13) is not a hard failure.
+  const isErrorState = !["ready", "pending", "needs_credentials"].includes(state);
   const error =
     (typeof parsed.error === "string" ? parsed.error : undefined) ??
     (res.code !== 0 && isErrorState ? `exit ${res.code}` : undefined);
@@ -77,7 +117,10 @@ export async function runExecProvider(
   return makeRecord({
     verb: typeof parsed.verb === "string" ? parsed.verb : verb,
     format: (parsed.format as "json" | "md" | "txt") ?? "json",
-    payload: (parsed.payload as Record<string, unknown> | string) ?? {},
+    // a well-formed record carries `payload`; if a provider emitted a bare
+    // object (e.g. an envelope) instead, keep its data rather than dropping it
+    // to an empty payload.
+    payload: (parsed.payload as Record<string, unknown> | string) ?? (parsed as Record<string, unknown>),
     media,
     meta: { provider: `exec:${cmd}`, ...((parsed.meta as Record<string, unknown>) ?? {}) },
     error,

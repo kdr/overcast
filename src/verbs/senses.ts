@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { existsSync, writeFileSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { runListen } from "../providers/tinycloud/listen.js";
-import { runExecProvider, isTinycloudDefault } from "../providers/run.js";
+import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import {
   probe,
   enhance as ffEnhance,
@@ -44,15 +44,14 @@ export const listenVerb: VerbSpec = {
       return [errorRecord("listen", "listen requires an audio/video input")];
     }
     const binding = ctx.profile.providers?.listen;
-    const rec =
-      binding?.run && !isTinycloudDefault(binding.run)
-        ? await runExecProvider("listen", binding.run, ctx.input, { signal: ctx.signal })
-        : await runListen(ctx.input, {
-            run: binding?.run,
-            signal: ctx.signal,
-            diarize: ctx.opts.diarize === true,
-            lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
-          });
+    const rec = isCustomBinding(binding)
+      ? await runBoundProvider("listen", binding!, ctx.input, { signal: ctx.signal })
+      : await runListen(ctx.input, {
+          run: binding?.run,
+          signal: ctx.signal,
+          diarize: ctx.opts.diarize === true,
+          lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
+        });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     return [rec];
   },
@@ -96,25 +95,13 @@ export const seeVerb: VerbSpec = {
       }
     }
 
-    // If a see provider is bound, run it (exec). Otherwise: placeholder.
+    // If a see provider is bound, dispatch to it (exec wired; http/inproc
+    // return an explicit error). Otherwise: placeholder (no default in v1).
     const binding = ctx.profile.providers?.see;
-    if (binding?.run) {
-      // delegated providers are wired in Phase 5; for now, surface that it's bound.
-      return [
-        makeRecord({
-          verb: "see",
-          format: "json",
-          payload: {
-            caption: "",
-            ocr: "",
-            detections: [],
-            note: `see provider bound (${binding.run}); full exec wiring lands in Phase 5`,
-          },
-          media: { ref: resolvedRef },
-          meta: { provider: "bound", case: ctx.case.dir },
-          state: "pending",
-        }),
-      ];
+    if (isCustomBinding(binding)) {
+      const rec = await runBoundProvider("see", binding!, resolvedRef, { signal: ctx.signal });
+      rec.meta = { ...rec.meta, case: ctx.case.dir };
+      return [rec];
     }
 
     return [

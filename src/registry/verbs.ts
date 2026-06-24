@@ -4,7 +4,7 @@
 
 import { makeRecord } from "../record.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
-import { runExecProvider, isTinycloudDefault } from "../providers/run.js";
+import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
 import {
   scanVerb,
@@ -47,12 +47,11 @@ export const watchVerb: VerbSpec = {
     }
     // resolve the run template from the active profile binding (else default).
     const binding = ctx.profile.providers?.watch;
-    // A custom (non-tinycloud) provider already emits a record → pass it
-    // through. Only the tinycloud default needs envelope→record mapping.
-    const rec =
-      binding?.run && !isTinycloudDefault(binding.run)
-        ? await runExecProvider("watch", binding.run, ctx.input, { signal: ctx.signal })
-        : await runWatch(ctx.input, { run: binding?.run, signal: ctx.signal });
+    // A custom provider already emits a record → dispatch by transport. Only the
+    // tinycloud default needs envelope→record mapping.
+    const rec = isCustomBinding(binding)
+      ? await runBoundProvider("watch", binding!, ctx.input, { signal: ctx.signal })
+      : await runWatch(ctx.input, { run: binding?.run, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     return [rec];
   },

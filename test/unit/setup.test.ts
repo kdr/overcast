@@ -17,10 +17,20 @@ function ctx(dir: string, home: string, input: string | undefined, rest: string[
 }
 
 test("parseProviderSpec handles exec / http / inproc / bare forms", () => {
-  assert.deepEqual(parseProviderSpec("exec:./p.sh"), { type: "exec", run: "./p.sh" });
+  assert.deepEqual(parseProviderSpec("exec:./p.sh"), {
+    type: "exec",
+    run: "./p.sh",
+    init: { command: "./p.sh init" },
+    describe: "./p.sh describe",
+  });
   assert.deepEqual(parseProviderSpec("http://localhost:8090"), { type: "http", endpoint: "http://localhost:8090" });
   assert.deepEqual(parseProviderSpec("inproc:./m.ts"), { type: "inproc", module: "./m.ts" });
-  assert.deepEqual(parseProviderSpec("python3 x.py"), { type: "exec", run: "python3 x.py" });
+  assert.deepEqual(parseProviderSpec("python3 x.py"), {
+    type: "exec",
+    run: "python3 x.py",
+    init: { command: "python3 x.py init" },
+    describe: "python3 x.py describe",
+  });
 });
 
 test("setup provider persists a binding to the profile; doctor + provider list see it", async () => {

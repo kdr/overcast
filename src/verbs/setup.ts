@@ -32,10 +32,24 @@ export function parseProviderSpec(spec: string): ProviderDescriptor {
     return { type: "inproc", module: spec.slice("inproc:".length) };
   }
   if (spec.startsWith("exec:")) {
-    return { type: "exec", run: spec.slice("exec:".length) };
+    return execDescriptor(spec.slice("exec:".length));
   }
   // bare path/command → exec
-  return { type: "exec", run: spec };
+  return execDescriptor(spec);
+}
+
+/** Build an exec descriptor, wiring the documented `<cmd> init` / `<cmd> describe`
+ *  subcommands (providers.md) so `provider init`/`describe` actually run them. */
+function execDescriptor(run: string): ProviderDescriptor {
+  // the verb op is invoked as `<base> {{input}}`; init/describe are `<base> init`
+  // / `<base> describe` — strip a trailing {{input}} to get the base command.
+  const base = run.replace(/\s*\{\{\s*input\s*\}\}\s*$/, "").trim();
+  return {
+    type: "exec",
+    run,
+    init: { command: `${base} init` },
+    describe: `${base} describe`,
+  };
 }
 
 // ---- setup -----------------------------------------------------------------
@@ -65,6 +79,9 @@ export const setupVerb: VerbSpec = {
     const name = ctx.opts.profile ? String(ctx.opts.profile) : ctx.profileName ?? "default";
     const ho = { home: ctx.home, profile: name };
     const profile: Profile = loadProfile(ho);
+    // saveProfile writes to profile.name's file; pin it to the profile we loaded
+    // so edits can't land in a different file when the names differ.
+    profile.name = name;
 
     if (action === "provider") {
       const verb = ctx.rest[0];
@@ -81,6 +98,10 @@ export const setupVerb: VerbSpec = {
       profile.llm = { provider, model };
       const path = saveProfile(profile, ho);
       return [makeRecord({ verb: "setup", format: "json", payload: { llm: profile.llm, profile: name, path }, state: "ready" })];
+    }
+    // a typo like `setup provder` must not read as a successful `show`
+    if (action && action !== "show") {
+      return [err("setup", `unknown setup action '${action}' (expected provider | llm | show)`)];
     }
     // show
     return [makeRecord({ verb: "setup", format: "json", payload: { profile: profile }, state: "ready" })];
@@ -112,6 +133,9 @@ export const providerVerb: VerbSpec = {
     if (action === "list") {
       return [makeRecord({ verb: "provider", format: "json", payload: { providers }, state: "ready" })];
     }
+    if (action !== "describe" && action !== "init") {
+      return [err("provider", `unknown provider action '${action}' (expected init | list | describe)`)];
+    }
     const verb = ctx.rest[0];
     if (!verb) return [err("provider", `usage: provider ${action} <verb>`)];
     const desc = providers[verb];
@@ -136,7 +160,9 @@ export const providerVerb: VerbSpec = {
     if (!cmd) return [makeRecord({ verb: "provider", format: "json", payload: { verb }, state: "ready" })];
     const parts = tokenizeCommand(cmd);
     const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 5 * 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
-    return [makeRecord({ verb: "provider", format: "json", payload: { verb, init: cmd, stdout: res.stdout.slice(0, 1000), stderr: res.stderr.slice(0, 1000) }, state: res.code === 0 ? "ready" : "error", error: res.code === 0 ? undefined : `init exited ${res.code}` })];
+    // exec contract (providers.md): exit 13 = needs credentials, not a hard error.
+    const state = res.code === 0 ? "ready" : res.code === 13 ? "needs_credentials" : "error";
+    return [makeRecord({ verb: "provider", format: "json", payload: { verb, init: cmd, stdout: res.stdout.slice(0, 1000), stderr: res.stderr.slice(0, 1000) }, state, error: state === "error" ? `init exited ${res.code}` : undefined })];
   },
 };
 
