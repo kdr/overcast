@@ -13,8 +13,18 @@ case "${1:-run}" in
     exit 0 ;;
 esac
 
-# run: <provider> <input> --json    (overcast renders {{input}})
-input="${2:-${1}}"
+# run: resolve the input ref. overcast renders {{input}} as a bare positional,
+# but the documented exec contract is `run --input <ref> --json` — accept BOTH
+# (and ignore --json / --format / other flags), like the other samples.
+if [ "${1:-}" = "run" ]; then shift; fi
+input=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --input) input="${2:-}"; shift 2 ;;
+    --*) shift ;;
+    *) input="$1"; shift ;;
+  esac
+done
 if ! desc="$(tinycloud watch "$input" --json)"; then
   jq -n --arg ref "$input" '{verb:"watch",format:"json",payload:{content:"",transcript:"",detailed:null},media:{ref:$ref},meta:{provider:"tinycloud"},error:"tinycloud watch failed",state:"error"}'
   exit 0

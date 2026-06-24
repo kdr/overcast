@@ -167,12 +167,18 @@ def run():
             frames = extract_frames(inp, maxf, wd)
             if not frames:
                 fail("could not extract frames (need ffmpeg — OVERCAST_FFMPEG or on PATH)")
+            frame_ok = 0
             for t, fp in frames:
                 try:
                     detect_image(fp, t)
+                    frame_ok += 1
                 except Exception as e:
                     sys.stderr.write("frame %.2fs failed: %s\n" % (t, e))
-        frames_used = len(frames)
+            # if EVERY sampled frame failed, that's a detection error — not a
+            # successful "no objects found" scan with an empty detections list.
+            if frame_ok == 0:
+                fail("object detection failed on all %d sampled frames" % len(frames))
+        frames_used = frame_ok
     else:
         try:
             detect_image(inp)
