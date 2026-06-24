@@ -1,5 +1,5 @@
 // Default `listen` provider: tinycloud (exec), v1 = a SPEECH-ONLY describe
-// (planning/05). Maps the tinycloud envelope to an `audio.analysis` record at
+// Maps the tinycloud envelope to an `audio.analysis` record at
 // the exec boundary. Swap to a local whisper via http/in-proc for offline use.
 
 import { makeRecord, type OvercastRecord } from "../../record.js";

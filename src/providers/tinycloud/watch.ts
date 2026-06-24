@@ -1,7 +1,7 @@
 // Default `watch` provider: tinycloud (exec). Invariant #11 — call tinycloud
 // only via its public CLI verbs; map its envelope to the loose record at THIS
 // boundary (invariant #3). v1: a comprehensive describe → flat payload with
-// content / transcript / detailed keys (planning/05).
+// content / transcript / detailed keys.
 
 import { existsSync, readFileSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../../record.js";
@@ -63,7 +63,7 @@ function segmentBreakdown(data: Record<string, unknown>): string {
 }
 
 /**
- * Best-effort markdown "content" (planning/05: markdown of the describe output).
+ * Best-effort markdown "content" (markdown of the describe output).
  * Prefers the on-disk describe markdown sidecar; otherwise builds a readable
  * breakdown from title + summary + per-segment descriptions.
  */

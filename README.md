@@ -182,8 +182,6 @@ Three surfaces from one source of truth (`src/registry/verbs.ts`):
 - **standalone binary** — `bun build --compile` → a single executable (+ a sidecar `package.json` for branding).
 - **agent skills + Claude Code plugin** — `skills generate` renders `skills/overcast/{SKILL.md, reference/verbs.md}` from the registry; `skills install` copies them into a harness.
 
-See [`planning/03-distribution.md`](planning/03-distribution.md).
-
 ---
 
 ## Development
@@ -197,6 +195,5 @@ overcast commands --json   # the authoritative verb registry
 overcast doctor            # preflight
 ```
 
-The full design lives in [`planning/`](planning/README.md). Net-new code is the
-verbs (Layer 2) + providers (Layer 3) + record store + MCP bridge; pi's loop,
+Net-new code is the verbs + providers + record store + MCP bridge; pi's loop,
 TUI, sessions, and base tools are reused, not forked.

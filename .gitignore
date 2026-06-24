@@ -9,3 +9,4 @@ dist/
 !.env.example
 *.swp
 *.swo
+planning/

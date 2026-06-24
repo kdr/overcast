@@ -4,8 +4,7 @@ overcast binds verbs to backends through **providers**. There is one wire
 contract (the **record**) and three transports: `exec` (default), `http`,
 `in-proc`. Three provider classes share the same machinery — **sense**
 (`watch`/`listen`/`see`/`enhance`), **source** (scrapers), and **memory**
-(`write`/`recall`). This doc is derived from
-[`planning/05-providers.md`](../planning/05-providers.md).
+(`write`/`recall`).
 
 ## The exec wire contract
 
