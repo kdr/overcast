@@ -87,8 +87,24 @@ export async function runListen(
   input: string,
   opts: ListenOptions = {},
 ): Promise<OvercastRecord> {
-  const argv = renderCommand(opts.run ?? DEFAULT_RUN, { input });
+  // An empty/whitespace run template (e.g. a profile binding set to "") must
+  // fall back to the default — `?? DEFAULT_RUN` alone would keep "".
+  const template = opts.run && opts.run.trim() ? opts.run : DEFAULT_RUN;
+  const argv = renderCommand(template, { input });
   const [cmd, ...args] = argv;
+  // A template that renders to no command would reject at spawn and throw;
+  // surface it as a normal error record like other failures.
+  if (!cmd) {
+    return makeRecord({
+      verb: "listen",
+      format: "json",
+      payload: { transcript: "", segments: [], language: null },
+      media: { ref: input },
+      meta: { provider: "tinycloud", model: "cloudglue" },
+      error: `listen run template produced an empty command: ${JSON.stringify(template)}`,
+      state: "error",
+    });
+  }
   // Forward the declared listen flags to the provider command.
   if (opts.diarize) args.push("--diarize");
   if (opts.lang) args.push("--lang", opts.lang);
