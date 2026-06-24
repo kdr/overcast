@@ -34,7 +34,7 @@ function err(verb: string, message: string): OvercastRecord {
 
 // ---- scan ------------------------------------------------------------------
 
-async function enumerateAll(ctx: VerbContext): Promise<OvercastRecord[]> {
+async function enumerateAll(ctx: VerbContext, verb = "scan"): Promise<OvercastRecord[]> {
   const sourceIds = ctx.opts.source ? String(ctx.opts.source).split(",").map((s) => s.trim()) : undefined;
   const sources = resolveSources(ctx.case, sourceIds);
   // an explicit --query overrides everything; otherwise each source enumerates
@@ -48,7 +48,7 @@ async function enumerateAll(ctx: VerbContext): Promise<OvercastRecord[]> {
   if (ctx.opts.limit != null) {
     const n = Number(ctx.opts.limit);
     if (!Number.isFinite(n) || n <= 0) {
-      return [err("scan", `invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
+      return [err(verb, `invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
     }
     limit = n;
   }
@@ -57,11 +57,11 @@ async function enumerateAll(ctx: VerbContext): Promise<OvercastRecord[]> {
   // it here rather than forwarding a bogus value to source scripts (which each
   // degrade differently).
   if (since && parseSince(since) == null) {
-    return [err("scan", `invalid --since: ${since} (expected e.g. 24h, 7d, 2026-06-01)`)];
+    return [err(verb, `invalid --since: ${since} (expected e.g. 24h, 7d, 2026-06-01)`)];
   }
 
   if (sources.length === 0) {
-    return [err("scan", "no sources registered/enabled (try `overcast source add <type>:<ref>`)")];
+    return [err(verb, "no sources registered/enabled (try `overcast source add <type>:<ref>`)")];
   }
 
   const out: OvercastRecord[] = [];
@@ -119,7 +119,9 @@ export const scanVerb: VerbSpec = {
     // --pull: capture + sense each non-error hit
     const out: OvercastRecord[] = [...hits];
     for (const hit of hits) {
-      if (hit.state === "error") continue;
+      // skip enumerate FAILURES (error + needs_credentials) — they're not items to
+      // capture/sense, matching monitorPass.
+      if (hit.state === "error" || hit.state === "needs_credentials") continue;
       // resolve the fetch target from media.ref OR payload.url (a hit may carry
       // only a URL) — same fallback as monitorPass + captureRef.
       const hitUrl = (hit.payload as Record<string, unknown>)?.url;
@@ -324,7 +326,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 
 /** One monitor pass: enumerate, diff against `seen` (mutated), capture+sense new items. */
 async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<OvercastRecord[]> {
-  const hits = await enumerateAll(ctx);
+  const hits = await enumerateAll(ctx, "monitor");
   // a real hit is a scan.hit (ready/unstated); error AND needs_credentials
   // enumerate results are failures, not items to capture/count/mark seen.
   const failedHits = hits.filter((h) => h.state === "error" || h.state === "needs_credentials");

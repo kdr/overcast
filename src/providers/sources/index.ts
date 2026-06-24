@@ -9,32 +9,15 @@
 // is how the e2e binds a committed fixture source provider offline.
 
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { existsSync, statSync } from "node:fs";
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
+import { shippedPath } from "../../pkg.js";
 
-/** Path to a shipped source-provider script. tsup bundles the source tree, so we
- *  walk up from this module to find the package root that holds examples/. */
+/** Path to a shipped source-provider script — resolves the package root (dev) or
+ *  beside the executable (bun binary) via the shared shippedPath(). */
 function shippedSource(file: string): string | undefined {
-  try {
-    let dir = dirname(fileURLToPath(import.meta.url));
-    if (dir.includes("$bunfs") || dir === "/") {
-      // compiled bun binary: scripts are shipped beside the executable (bun-sidecar)
-      const beside = join(dirname(process.execPath), "examples", "providers", "sources", file);
-      return existsSync(beside) ? beside : undefined;
-    }
-    for (let i = 0; i < 8; i++) {
-      const p = join(dir, "examples", "providers", "sources", file);
-      if (existsSync(p)) return p;
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
+  return shippedPath("examples", "providers", "sources", file);
 }
 
 export interface SourceDescriptor {
@@ -96,7 +79,9 @@ export interface ScanHit {
 
 /** Map an enumerate result (array or JSONL) into scan.hit records. */
 function hitsToRecords(parsed: unknown, sourceType: string): OvercastRecord[] {
-  const arr: unknown[] = Array.isArray(parsed) ? parsed : parsed != null ? [parsed] : [];
+  // the enumerate contract is a JSON ARRAY of hits; a non-array (e.g. a lone `{}`)
+  // is malformed → zero hits, not one empty ready hit.
+  const arr: unknown[] = Array.isArray(parsed) ? parsed : [];
   return arr.map((h) => {
     const hit = (h ?? {}) as ScanHit;
     const media = hit.media?.ref
