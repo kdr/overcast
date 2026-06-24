@@ -205,6 +205,13 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
     extractGlobals(argv);
   const cmd = tokens[0];
 
+  // a malformed global with no command (e.g. `overcast --case`) is a global-flag
+  // error (exit 2), not an `unknown command ''`.
+  if (cmd === undefined && globalErrors.length) {
+    for (const e of globalErrors) io.err(`overcast: ${e}\n`);
+    return 2;
+  }
+
   // top-level help (overcast's own — never pi's). Validate globals first so a
   // bad `--case`/`--home`/`--profile` is reported, consistent with verb dispatch.
   if (cmd === "help" || cmd === "--help" || cmd === "-h") {

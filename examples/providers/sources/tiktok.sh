@@ -21,10 +21,23 @@ case "$op" in
       *) shift ;;
     esac; done
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN" >&2; exit 13; }
-    run=$(curl -s -X POST \
+    # a `#tag` ref scrapes a hashtag (actor's `hashtags` field); otherwise a
+    # profile/user. Strip a leading '#'/'@' for the field value.
+    case "$query" in
+      \#*) input="{\"hashtags\":[\"${query#\#}\"],\"resultsPerPage\":$limit}" ;;
+      *)   input="{\"profiles\":[\"${query#@}\"],\"resultsPerPage\":$limit}" ;;
+    esac
+    # -f fails the request on HTTP errors so Apify error JSON isn't parsed as hits
+    if ! run=$(curl -fsS -X POST \
       "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items?token=$APIFY_TOKEN" \
-      -H 'content-type: application/json' \
-      -d "{\"profiles\":[\"$query\"],\"resultsPerPage\":$limit}")
+      -H 'content-type: application/json' -d "$input"); then
+      echo "tiktok enumerate request failed for '$query'" >&2; exit 1
+    fi
+    # Apify returns a JSON array on success; anything else (an error object) is a failure
+    if ! printf '%s' "$run" | jq -e 'type == "array"' >/dev/null 2>&1; then
+      echo "tiktok enumerate: unexpected response (not an array): $(printf '%s' "$run" | head -c 200)" >&2
+      exit 1
+    fi
     jq -c '[.[] | {title:.text, url:.webVideoUrl, source:"tiktok",
                    published:.createTimeISO, snippet:.text,
                    media:{ref:.webVideoUrl}}]' <<<"$run" ;;

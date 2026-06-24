@@ -22,7 +22,9 @@ case "$op" in
 esac
 
 input=""
-while [ "$#" -gt 0 ]; do case "$1" in --input) input="$2"; shift 2 ;; --*) shift 2 || shift ;; *) input="$1"; shift ;; esac; done
+# unknown --flags are treated as single-token booleans (shift 1) so a flag
+# placed before the positional input can't swallow the file path as a value.
+while [ "$#" -gt 0 ]; do case "$1" in --input) input="$2"; shift 2 ;; --*) shift ;; *) input="$1"; shift ;; esac; done
 need_token
 [ -f "$input" ] || { echo "{\"verb\":\"enhance\",\"error\":\"input not found\",\"state\":\"error\"}"; exit 0; }
 

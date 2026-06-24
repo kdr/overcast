@@ -56,10 +56,11 @@ case "$op" in
     # --flat-playlist keeps it fast (no per-video extraction); dump one JSON/line.
     flat="--flat-playlist"; date_args=""
     if [ -n "$since" ]; then
-      # honor --since: map to yt-dlp --dateafter. Date-granular, so any hours
-      # value collapses to "yesterday". Drop --flat-playlist so upload_date is
-      # extracted and the filter actually applies.
+      # honor --since: map to yt-dlp --dateafter. Date-granular, so sub-day units
+      # (minutes/hours) collapse to today/yesterday. Drop --flat-playlist so
+      # upload_date is extracted and the filter actually applies.
       case "$since" in
+        *[0-9]m)                     da="today" ;;       # minutes → today's uploads
         *[0-9]h)                     da="today-1day" ;;
         *[0-9]d)                     da="today-${since%d}days" ;;
         *[0-9]w)                     da="today-$(( ${since%w} * 7 ))days" ;;

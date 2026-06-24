@@ -40,9 +40,15 @@ url="$(jq -r "$rkey // empty" <<<"$resp" 2>/dev/null)"
 err="$(jq -r '(.detail // .error // empty)' <<<"$resp" 2>/dev/null)"
 
 if [ -n "$url" ]; then
-  curl -s -m 120 -o "$out" "$url"
-  jq -nc --arg o "$out" --arg m "fal:$model" \
-    '{verb:"enhance",format:"json",payload:{output:$o,ops:["fal"],model:$m},media:{ref:$o},meta:{provider:$m},state:"ready"}'
+  # only report ready when the result actually downloaded to a non-empty file
+  if curl -fsS -m 120 -o "$out" "$url" && [ -s "$out" ]; then
+    jq -nc --arg o "$out" --arg m "fal:$model" \
+      '{verb:"enhance",format:"json",payload:{output:$o,ops:["fal"],model:$m},media:{ref:$o},meta:{provider:$m},state:"ready"}'
+  else
+    rm -f "$out"
+    jq -nc --arg m "fal:$model" \
+      '{verb:"enhance",format:"json",payload:{provider:$m},error:"fal enhance: result download failed or empty",state:"error"}'
+  fi
 else
   jq -nc --arg e "${err:-fal enhance failed}" --arg m "fal:$model" \
     '{verb:"enhance",format:"json",payload:{provider:$m},error:$e,state:"error"}'

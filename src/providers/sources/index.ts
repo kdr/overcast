@@ -145,13 +145,14 @@ export async function enumerateSource(
     timeoutMs: opts.timeoutMs ?? 2 * 60_000,
   });
   if (res.code !== 0) {
+    // exit 13 = missing deps/credentials (exec contract), a setup gap not a hard fail
     return [
       makeRecord({
         verb: "scan",
         format: "json",
         payload: { source: desc.type },
         error: `source ${desc.type} enumerate failed (exit ${res.code}): ${res.stderr.trim().slice(0, 300)}`,
-        state: "error",
+        state: res.code === 13 ? "needs_credentials" : "error",
       }),
     ];
   }
@@ -194,12 +195,13 @@ export async function fetchSource(
     timeoutMs: opts.timeoutMs ?? 5 * 60_000,
   });
   if (res.code !== 0) {
+    // exit 13 = missing deps/credentials (exec contract), a setup gap not a hard fail
     return makeRecord({
       verb: "capture",
       format: "json",
       payload: { url: opts.url, source: desc.type },
       error: `source ${desc.type} fetch failed (exit ${res.code}): ${res.stderr.trim().slice(0, 300)}`,
-      state: "error",
+      state: res.code === 13 ? "needs_credentials" : "error",
     });
   }
   // provider may emit its own capture record; else synthesize from the out path.
