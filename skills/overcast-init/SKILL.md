@@ -2,7 +2,7 @@
 name: overcast-init
 description: >-
   Install and configure overcast for this harness: install the CLI, verify the
-  vendored ffmpeg, and configure the Cloudglue key for the default perception
+  system ffmpeg, and configure the Cloudglue key for the default perception
   backend. Use once before driving the `overcast` skill.
 ---
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real enhance (vendored ffmpeg + fal esrgan) and view (HTML player) on real media.
+# Real enhance (system ffmpeg + fal esrgan) and view (HTML player) on real media.
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
 C=enhance
 

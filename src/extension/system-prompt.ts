@@ -18,5 +18,11 @@ export function buildSystemPrompt(): string {
     "",
     "Base tools (read/write/edit/bash/grep/find/ls) come from pi — use them freely.",
     "Prefer the overcast verbs for perception and OSINT; keep cloud calls purposeful.",
+    "",
+    "Prerequisites (run `overcast doctor` to check): system `ffmpeg`/`ffprobe` (>= 4.4)",
+    "on PATH for enhance/view/frame-extraction; the tinycloud CLI + CLOUDGLUE_API_KEY",
+    "for the default watch/listen; yt-dlp for youtube/tiktok capture. If a media op",
+    "fails because ffmpeg isn't found, tell the user to install it (`brew install ffmpeg`",
+    "/ `apt install ffmpeg`) and re-run `overcast doctor`.",
   ].join("\n");
 }

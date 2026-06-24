@@ -1,45 +1,55 @@
-// Internal ffmpeg toolkit (CLAUDE.md invariant #7: ffmpeg is internal, NOT a
-// user-configurable provider). Powers `enhance`, frame extraction, and `view`.
-// Resolves the vendored ffmpeg-static / ffprobe-static binaries (or falls back
-// to PATH), mirroring tinycloud's resolver.
+// Internal ffmpeg toolkit (CLAUDE.md invariant #7: ffmpeg is used internally — for
+// `enhance`, frame extraction, and `view` — but is NOT a pluggable provider).
+// ffmpeg/ffprobe are a SYSTEM PREREQUISITE: resolve an explicit override
+// (OVERCAST_FFMPEG / OVERCAST_FFPROBE) or the binary on PATH. `overcast doctor`
+// verifies it's installed and recent enough.
 
-import { createRequire } from "node:module";
 import { dirname, join, extname, basename } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
-const require = createRequire(import.meta.url);
 
-function resolveFfmpeg(): string {
+/** Recommended minimum ffmpeg/ffprobe version (major.minor). */
+export const MIN_FFMPEG = "4.4";
+
+function resolveTool(envVar: string, bin: string): string {
+  // an explicit absolute-path override wins; otherwise the bare name is resolved
+  // from PATH at exec time (doctor verifies presence + version).
+  const override = process.env[envVar];
+  if (override && existsSync(override)) return override;
+  return bin;
+}
+
+export const FFMPEG_PATH = resolveTool("OVERCAST_FFMPEG", "ffmpeg");
+export const FFPROBE_PATH = resolveTool("OVERCAST_FFPROBE", "ffprobe");
+
+export interface ToolInfo {
+  ok: boolean;
+  path: string;
+  version?: string;
+  recent?: boolean; // version >= MIN_FFMPEG
+  error?: string;
+}
+
+/** Probe an ffmpeg-family tool: does it run, and what version (vs MIN_FFMPEG). */
+export async function probeTool(path: string): Promise<ToolInfo> {
   try {
-    const p = require("ffmpeg-static") as string | null;
-    if (p && existsSync(p)) return p;
-  } catch {
-    /* not installed / unsupported platform */
-  }
-  return "ffmpeg"; // fall back to PATH
-}
-
-function resolveFfprobe(): string {
-  // Prefer @ffprobe-installer/ffprobe — it ships correct per-platform binaries
-  // (ffprobe-static@3.1.0 mislabels an x86_64 binary in its darwin/arm64 dir,
-  // which fails with EBADARCH on Apple Silicon).
-  for (const pkg of ["@ffprobe-installer/ffprobe", "ffprobe-static"]) {
-    try {
-      const m = require(pkg) as { path?: string } | string;
-      const p = typeof m === "string" ? m : m?.path;
-      if (p && existsSync(p)) return p;
-    } catch {
-      /* not installed — try next */
+    const { stdout } = await execFileP(path, ["-version"], { timeout: 10_000 });
+    const m = stdout.match(/version\s+n?(\d+)\.(\d+)/i);
+    const version = stdout.split("\n", 1)[0]?.replace(/^[a-z]+ version\s+/i, "").trim();
+    let recent: boolean | undefined;
+    if (m) {
+      const [, maj, min] = m.map(Number);
+      const [rMaj, rMin] = MIN_FFMPEG.split(".").map(Number);
+      recent = maj > rMaj || (maj === rMaj && min >= rMin);
     }
+    return { ok: true, path, version, recent };
+  } catch (e) {
+    return { ok: false, path, error: (e as Error).message };
   }
-  return "ffprobe"; // fall back to PATH
 }
-
-export const FFMPEG_PATH = resolveFfmpeg();
-export const FFPROBE_PATH = resolveFfprobe();
 
 export type Modality = "video" | "audio" | "image" | "other";
 

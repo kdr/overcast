@@ -23,7 +23,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 - `@cloudglue/cloudglue-js` — the default sense backend (via the tinycloud CLI,
   `exec`). Cloudglue is **also** a pickable *brain* LLM provider (anthropic-messages
   API) so it appears in `/model` — never forced.
-- `ffmpeg-static` + `ffprobe-static` — internal media toolkit, vendored.
+- `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
+  `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
 
 ## Invariants (do not violate)
@@ -48,8 +49,9 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    tiktok, web), and **memory** (`ask/brief`; local). Bindings live in the profile;
    transports are `exec` (default), `http`, `in-proc`. Default sense binding =
    tinycloud (exec).
-7. **ffmpeg is internal**, not a user-configurable provider — `enhance`, `view`,
-   and frame extraction use the vendored binaries.
+7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `view`, and frame
+   extraction shell out to the **system** `ffmpeg`/`ffprobe` (PATH or
+   `OVERCAST_FFMPEG`/`OVERCAST_FFPROBE`); `overcast doctor` checks it's installed.
 8. **No CDN.** Publish to npm directly (pi package + bun binary).
 9. **tinycloud = public verbs only.** Call tinycloud through its CLI verbs
    (`tinycloud watch`, `tinycloud listen`) — never import its internal libs. Map
@@ -66,7 +68,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `transcript` / `detailed`), `listen` (speech transcript; `--describe` for the
   full audio-scene), `see` (caption / OCR / open-vocab detect — turnkey Hugging
   Face, bindable fal, local OWLv2 via `examples/providers/detect`), `enhance`
-  (vendored ffmpeg or a bound model), `view` (HTML media player).
+  (system ffmpeg or a bound model), `view` (HTML media player).
 - **OSINT** — `scan`, `capture`, `monitor` (sources: youtube / tiktok / web;
   `--since` recency filter); `target` / `source` manage scope; `prebrief` stands up
   a case in one shot.

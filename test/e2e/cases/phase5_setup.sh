@@ -11,15 +11,15 @@ source "$DIR/lib.sh"
 casedir="$SMOKE_DIR/case_setup"; mkdir -p "$casedir"
 ochome="$SMOKE_DIR/home_setup"; mkdir -p "$ochome"
 
-# doctor: pi + vendored ffmpeg/ffprobe must be runnable
+# doctor: pi + system ffmpeg/ffprobe must be runnable
 doc="$($OVERCAST doctor --json --case "$casedir" --home "$ochome" 2>/dev/null)"
 save_json "phase5_doctor" "$doc" >/dev/null
 pi_ok="$(jq -r '.payload.checks[]|select(.name=="pi")|.ok' <<<"$doc")"
 ff_ok="$(jq -r '.payload.checks[]|select(.name=="ffmpeg")|.ok' <<<"$doc")"
 fp_ok="$(jq -r '.payload.checks[]|select(.name=="ffprobe")|.ok' <<<"$doc")"
 assert_eq "doctor.pi" "true" "$pi_ok" "doctor: pi pinned"
-assert_eq "doctor.ffmpeg" "true" "$ff_ok" "doctor: vendored ffmpeg runnable"
-assert_eq "doctor.ffprobe" "true" "$fp_ok" "doctor: vendored ffprobe runnable"
+assert_eq "doctor.ffmpeg" "true" "$ff_ok" "doctor: system ffmpeg runnable"
+assert_eq "doctor.ffprobe" "true" "$fp_ok" "doctor: system ffprobe runnable"
 
 # samples respond to describe (each runs from the repo)
 for d in \

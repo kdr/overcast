@@ -20,7 +20,7 @@ let clip: string;
 before(() => {
   dir = mkdtempSync(join(tmpdir(), "oc-ff-"));
   clip = join(dir, "tiny.mp4");
-  // a real 1s clip with both video + audio, via the vendored ffmpeg
+  // a real 1s clip with both video + audio, via the system ffmpeg
   execFileSync(
     FFMPEG_PATH,
     [

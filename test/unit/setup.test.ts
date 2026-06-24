@@ -73,7 +73,7 @@ test("doctor reports core checks (pi/ffmpeg/ffprobe runnable) with structured re
     const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean }>;
     const byName = new Map(checks.map((c) => [c.name, c.ok]));
     assert.equal(byName.get("pi"), true);
-    assert.equal(byName.get("ffmpeg"), true); // vendored ffmpeg must run
+    assert.equal(byName.get("ffmpeg"), true); // system ffmpeg must run
     assert.equal(byName.get("ffprobe"), true);
   } finally {
     rmSync(dir, { recursive: true, force: true });

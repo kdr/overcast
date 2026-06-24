@@ -17,9 +17,13 @@ import {execFileSync} from 'node:child_process';
 execFileSync(FFMPEG_PATH,['-y','-f','lavfi','-i','testsrc=size=96x72:rate=10:duration=1','-pix_fmt','yuv420p','$clip'],{stdio:'ignore'});
 " 2>/dev/null
 [ -f "$clip" ] || { fail "osint.clip_gen" "could not generate fixture clip"; return 0 2>/dev/null || exit 0; }
+# a DISTINCT second clip so the fixture's two hits are genuinely two items
+# (monitor dedups by media.ref).
+clip2="$SMOKE_DIR/osint_src2.mp4"; cp "$clip" "$clip2"
 
 export OVERCAST_SOURCE_FIXTURE_CMD="bash $REPO/test/fixtures/fake-source.sh"
 export OVERCAST_FIXTURE_CLIP="$clip"
+export OVERCAST_FIXTURE_CLIP2="$clip2"
 
 casedir="$SMOKE_DIR/case_osint"; mkdir -p "$casedir"
 ochome="$SMOKE_DIR/home_osint"; mkdir -p "$ochome/profiles"

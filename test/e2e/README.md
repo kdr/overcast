@@ -44,7 +44,7 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
   the repo. Videos: `OC_VIDEO_VISUAL`, `OC_VIDEO_OBJECTS`, `OC_VIDEO_SMALL`,
   `OC_VIDEO_SPEECH`. Plus a standalone `OC_IMAGE` (for `see`) and `OC_AUDIO` (for
   `listen`) — if those are unset, `see`/`listen` fall back to a frame / audio
-  extracted from the videos. Cases trim short, cached sub-clips with the vendored
+  extracted from the videos. Cases trim short, cached sub-clips with the system
   ffmpeg before hitting cloud backends, and SKIP any medium that's unset/missing.
 - **Local detector (`see --detect`)** — `DETECT_PY` = a python with
   `torch`/`transformers`/`scipy`/`pillow` (OWLv2). If unset, the case probes

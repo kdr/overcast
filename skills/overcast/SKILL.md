@@ -54,6 +54,6 @@ read it when you need a verb's exact flags).
 
 ## Setup
 
-`overcast doctor` checks readiness (pi, vendored ffmpeg, Cloudglue creds, the
+`overcast doctor` checks readiness (pi, system ffmpeg, Cloudglue creds, the
 tinycloud CLI). `overcast setup provider <verb> <spec>` rebinds a verb to your
 own provider with no code changes.

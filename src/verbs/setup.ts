@@ -12,7 +12,7 @@ import {
   type Profile,
   type ProviderDescriptor,
 } from "../profile.js";
-import { FFMPEG_PATH, FFPROBE_PATH } from "../media/ffmpeg.js";
+import { FFMPEG_PATH, FFPROBE_PATH, probeTool, MIN_FFMPEG } from "../media/ffmpeg.js";
 import { execCapture } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { PI_VERSION } from "../version.js";
@@ -202,11 +202,15 @@ export const doctorVerb: VerbSpec = {
     // pinned pi (report the build's pinned version; not hardcoded to one release)
     checks.push({ name: "pi", ok: /^\d+\.\d+\.\d+$/.test(PI_VERSION), detail: `pinned ${PI_VERSION}` });
 
-    // ffmpeg + ffprobe run
+    // ffmpeg + ffprobe — a SYSTEM prerequisite (on PATH or via OVERCAST_FFMPEG/
+    // OVERCAST_FFPROBE). Report presence + version, and flag installs older than
+    // the recommended minimum.
     for (const [label, bin] of [["ffmpeg", FFMPEG_PATH], ["ffprobe", FFPROBE_PATH]] as const) {
-      const res = await execCapture(bin, ["-version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
-      const first = (res.stdout.split("\n")[0] || "").slice(0, 60);
-      checks.push({ name: label, ok: res.code === 0, detail: res.code === 0 ? first : "not runnable" });
+      const info = await probeTool(bin);
+      const detail = info.ok
+        ? `${info.version ?? "ok"}${info.recent === false ? ` (recommend ≥ ${MIN_FFMPEG})` : ""}`
+        : `not found on PATH — install ffmpeg ≥ ${MIN_FFMPEG} (e.g. \`brew install ffmpeg\` / \`apt install ffmpeg\`)`;
+      checks.push({ name: label, ok: info.ok, detail });
     }
 
     // Cloudglue creds (brain provider)

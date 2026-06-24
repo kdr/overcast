@@ -244,7 +244,7 @@ async function pipeSense(
     const extraArgs = verb === "listen" && describe ? ["--describe"] : [];
     let r: OvercastRecord;
     if (isCustomBinding(binding)) {
-      // pass the case media dir + vendored ffmpeg/ffprobe (like see/enhance), so a
+      // pass the case media dir + system ffmpeg/ffprobe (like see/enhance), so a
       // bound provider can extract frames / write into .overcast/media here too.
       r = await runBoundProvider(verb, binding!, ref, {
         env: providerEnv(ctx.case.mediaDir),

@@ -44,7 +44,12 @@ if ! $OVERCAST version --json >/dev/null 2>&1; then
   exit 1
 fi
 
-FFMPEG="$(node -e "console.log(require('ffmpeg-static'))" 2>/dev/null || echo ffmpeg)"; export FFMPEG
+# ffmpeg is a system prerequisite (on PATH or via OVERCAST_FFMPEG) — used to prep
+# short real clips. A case skips clip prep cleanly if it isn't installed.
+FFMPEG="${OVERCAST_FFMPEG:-ffmpeg}"; export FFMPEG
+if ! "$FFMPEG" -version >/dev/null 2>&1; then
+  echo "[live] WARNING: ffmpeg not found ('$FFMPEG') — install it (brew/apt) for clip prep; media cases will skip" >&2
+fi
 # media is supplied by full path via .env (OC_VIDEO_*/OC_IMAGE/OC_AUDIO) — no file
 # names baked into the repo. Summarize which are configured WITHOUT printing paths.
 media_summary() {

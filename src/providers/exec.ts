@@ -15,7 +15,7 @@ export interface ExecOptions {
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   timeoutMs?: number;
-  /** extra PATH dirs prepended (e.g. vendored ffmpeg) */
+  /** extra PATH dirs prepended (e.g. system ffmpeg) */
   extraPath?: string[];
 }
 

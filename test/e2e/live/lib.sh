@@ -5,7 +5,7 @@
 # Exported by live/run.sh:
 #   OVERCAST     the CLI under test (the compiled bun binary by default)
 #   SMOKE_DIR    this run's output dir
-#   FFMPEG       the vendored ffmpeg (for prepping short real clips)
+#   FFMPEG       the system ffmpeg (for prepping short real clips)
 #   plus every provider key + media path from .env (OC_VIDEO_*/OC_IMAGE/OC_AUDIO,
 #   CLOUDGLUE_API_KEY, HF_TOKEN, FAL_KEY, …)
 

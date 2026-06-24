@@ -95,7 +95,7 @@ read it when you need a verb's exact flags).
 
 ## Setup
 
-\`overcast doctor\` checks readiness (pi, vendored ffmpeg, Cloudglue creds, the
+\`overcast doctor\` checks readiness (pi, system ffmpeg, Cloudglue creds, the
 tinycloud CLI). \`overcast setup provider <verb> <spec>\` rebinds a verb to your
 own provider with no code changes.
 `;
@@ -107,7 +107,7 @@ export function generateInitSkill(): string {
 name: overcast-init
 description: >-
   Install and configure overcast for this harness: install the CLI, verify the
-  vendored ffmpeg, and configure the Cloudglue key for the default perception
+  system ffmpeg, and configure the Cloudglue key for the default perception
   backend. Use once before driving the \`overcast\` skill.
 ---
 

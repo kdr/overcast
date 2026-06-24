@@ -79,7 +79,7 @@ overcast setup provider enhance "exec:bash examples/providers/elevenlabs/enhance
 ## Object detection (`see` — open-vocabulary, local)
 
 A zero-shot **object detector** that takes a list of target objects (`--detect`)
-and an image **or a video** (frames are sampled with the vendored ffmpeg) and
+and an image **or a video** (frames are sampled with the system ffmpeg) and
 returns bounding boxes. It runs **locally** via `transformers` — no fixed COCO
 vocabulary, no remote API:
 
@@ -93,7 +93,7 @@ overcast see ./clip.mp4  --detect "weapon, hard hat" --json      # video → fra
 
 - Default model **OWLv2** (`google/owlv2-base-patch16-ensemble`) — small, CPU-friendly. Switch to **Grounding DINO** with `DETECT_MODEL=IDEA-Research/grounding-dino-tiny`. Both run through the `zero-shot-object-detection` pipeline, so `--detect` is the open-vocabulary candidate-label list.
 - Emits a `see` record: `payload.detections = [{ label, score, box:{xmin,ymin,xmax,ymax}, at? }]` (the `at` second is present for video frames) plus `payload.counts` per label.
-- Env: `DETECT_MODEL`, `DETECT_THRESHOLD` (default 0.1), `DETECT_MAX_FRAMES` (default 8). overcast passes `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` (the vendored binaries) so video frame extraction works with no system ffmpeg.
+- Env: `DETECT_MODEL`, `DETECT_THRESHOLD` (default 0.1), `DETECT_MAX_FRAMES` (default 8). overcast passes `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` (the system ffmpeg/ffprobe) so video frame extraction works.
 - *Note:* `nvidia/LocateAnything-3B` is a higher-quality open-vocab grounding model but it's a 3B VLM (~7.7 GB, GPU-class); swap it in via a local-transformers provider if you have the hardware.
 
 ## Samples (runnable, in this repo)
@@ -130,5 +130,5 @@ bash examples/providers/sources/tiktok.sh describe
 
 ## Readiness
 
-`overcast doctor` checks pi, the vendored ffmpeg/ffprobe, Cloudglue creds, the
+`overcast doctor` checks pi, the system ffmpeg/ffprobe, Cloudglue creds, the
 tinycloud CLI, the home/profiles, and the active provider bindings.

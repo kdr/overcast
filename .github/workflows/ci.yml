@@ -13,6 +13,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # ffmpeg/ffprobe are a system prerequisite (used by enhance/view/frame
+      # extraction); the unit suite exercises them.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build

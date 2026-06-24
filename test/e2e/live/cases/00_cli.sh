@@ -31,10 +31,10 @@ assert_eq "$C.unknown_rc" "1" "$rc" "unknown command exits 1"
 cond "--help wins even when --tui is present"
 if ocg --tui --help | grep -qi "senses"; then ok "$C.help_over_tui" "--tui --help shows overcast help"; else fail "$C.help_over_tui" "--tui swallowed --help"; fi
 
-cond "doctor preflight passes for the vendored ffmpeg/ffprobe + Cloudglue creds"
+cond "doctor preflight passes for the system ffmpeg/ffprobe + Cloudglue creds"
 doc="$(ocg doctor --json)"
-assert_eq "$C.doctor_ffmpeg" "true" "$(echo "$doc" | jq -r '.payload.checks[]|select(.name=="ffmpeg")|.ok')" "vendored ffmpeg runs in the binary"
-assert_eq "$C.doctor_ffprobe" "true" "$(echo "$doc" | jq -r '.payload.checks[]|select(.name=="ffprobe")|.ok')" "vendored ffprobe runs"
+assert_eq "$C.doctor_ffmpeg" "true" "$(echo "$doc" | jq -r '.payload.checks[]|select(.name=="ffmpeg")|.ok')" "system ffmpeg runs in the binary"
+assert_eq "$C.doctor_ffprobe" "true" "$(echo "$doc" | jq -r '.payload.checks[]|select(.name=="ffprobe")|.ok')" "system ffprobe runs"
 if have_cred CLOUDGLUE_API_KEY; then
   assert_eq "$C.doctor_cloudglue" "true" "$(echo "$doc" | jq -r '.payload.checks[]|select(.name=="cloudglue")|.ok')" "Cloudglue creds detected"
 fi

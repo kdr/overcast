@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Phase 2 e2e: senses & view (offline — ffmpeg + placeholder). Generates a real
-# tiny clip with the vendored ffmpeg, then exercises enhance / view / see / the
+# tiny clip with the system ffmpeg, then exercises enhance / view / see / the
 # verb surface. listen's live Cloudglue path is gated in phase2_listenlive.sh.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,7 +8,7 @@ REPO="$(cd "$DIR/../.." && pwd)"
 # shellcheck source=../lib.sh
 source "$DIR/lib.sh"
 
-# make a 1s clip with the vendored ffmpeg (resolved via the toolkit)
+# make a 1s clip with the system ffmpeg (resolved via the toolkit)
 clip="$SMOKE_DIR/tiny.mp4"
 node --import tsx -e "
 import {FFMPEG_PATH} from '$REPO/src/media/ffmpeg.ts';
@@ -16,10 +16,10 @@ import {execFileSync} from 'node:child_process';
 execFileSync(FFMPEG_PATH,['-y','-f','lavfi','-i','testsrc=size=128x96:rate=10:duration=1','-pix_fmt','yuv420p','$clip'],{stdio:'ignore'});
 " 2>"$SMOKE_DIR/phase2_ff.err"
 if [ ! -f "$clip" ]; then
-  fail "senses.clip_gen" "could not generate test clip with vendored ffmpeg"
+  fail "senses.clip_gen" "could not generate test clip with system ffmpeg"
   return 0 2>/dev/null || exit 0
 fi
-ok "senses.clip_gen" "generated tiny.mp4 via vendored ffmpeg"
+ok "senses.clip_gen" "generated tiny.mp4 via system ffmpeg"
 
 casedir="$SMOKE_DIR/case_senses"; mkdir -p "$casedir"
 

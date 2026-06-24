@@ -16,8 +16,7 @@
     "assets",
     "skills",
     "prompts",
-    "examples",
-    "THIRD_PARTY_NOTICES.md"
+    "examples"
   ],
   "engines": {
     "node": ">=22"
@@ -29,8 +28,6 @@
     "test:e2e": "bash test/e2e/run.sh",
     "test:e2e:live": "bash test/e2e/live/run.sh",
     "build:bun": "bun build --compile bin/overcast.ts --outfile dist/bin/overcast && node scripts/bun-sidecar.mjs",
-    "package:bun": "npm run build:bun && node scripts/bun-package.mjs",
-    "licenses": "node scripts/gen-licenses.mjs",
     "dev": "tsx bin/overcast.ts",
     "postinstall": "node scripts/brand-pi.mjs",
     "brand": "node scripts/brand-pi.mjs"
@@ -40,9 +37,6 @@
     "@earendil-works/pi-ai": "0.80.1",
     "@earendil-works/pi-coding-agent": "0.80.1",
     "@earendil-works/pi-tui": "0.80.1",
-    "@ffprobe-installer/ffprobe": "^2.1.2",
-    "ffmpeg-static": "5.3.0",
-    "ffprobe-static": "^3.1.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

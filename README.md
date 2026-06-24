@@ -18,6 +18,18 @@ the CLI from any harness. The brain LLM is BYO; the default perception backend i
 
 ## Install
 
+### Prerequisites
+
+- **FFmpeg ≥ 4.4** — `ffmpeg` + `ffprobe` on your `PATH` (the internal media toolkit
+  for `enhance`, frame extraction, and `view`).
+  `brew install ffmpeg` · `apt install ffmpeg` · <https://ffmpeg.org/download.html>
+  (or point `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` at specific binaries).
+- **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
+  default `watch` / `listen` backend (Cloudglue); set `CLOUDGLUE_API_KEY`.
+- **yt-dlp** on `PATH` — only for the `youtube` / `tiktok` capture sources.
+
+`overcast doctor` verifies all of these.
+
 ```bash
 npm i -g @overcast/cli          # the CLI + pi package
 overcast doctor                 # preflight: pi, ffmpeg/ffprobe, Cloudglue, providers
@@ -26,10 +38,8 @@ overcast doctor                 # preflight: pi, ffmpeg/ffprobe, Cloudglue, prov
 Or grab the standalone binary (no Node required) from releases, or build it:
 
 ```bash
-npm run build:bun               # → dist/bin/overcast  (single self-contained executable)
+npm run build:bun               # → dist/bin/overcast  (still uses the system ffmpeg)
 ```
-
-ffmpeg/ffprobe are **vendored** — no system install needed.
 
 ---
 
@@ -182,10 +192,8 @@ Three surfaces from one source of truth (`src/registry/verbs.ts`):
 - **standalone binary** — `bun build --compile` → a single executable (+ a sidecar `package.json` for branding).
 - **agent skills + Claude Code plugin** — `skills generate` renders `skills/overcast/{SKILL.md, reference/verbs.md}` from the registry; `skills install` copies them into a harness.
 
-The vendored **FFmpeg** binaries are GPL-3.0; every distribution carries
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The npm package ships it, and
-`npm run package:bun` produces `dist/release/overcast-<platform>.tar.gz` with the
-notices (and `npm run licenses` regenerates them).
+FFmpeg/ffprobe are a **system prerequisite** (on `PATH`), not bundled — so the
+distributions carry no GPL binaries.
 
 ---
 
