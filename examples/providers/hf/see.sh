@@ -21,13 +21,15 @@ case "$op" in
   describe) echo "{\"verb\":\"see\",\"kind\":\"image.analysis\",\"payload\":[\"caption\",\"ocr\"],\"model\":\"$MODEL\",\"needs\":[\"HF_TOKEN\"]}"; exit 0 ;;
 esac
 
-input=""; ocr=0; prompt=""
+input=""; ocr=0; prompt=""; input_set=0
 while [ "$#" -gt 0 ]; do case "$1" in
-  --input) input="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --input) input="${2:-}"; input_set=1; shift 2 2>/dev/null || shift ;;
   --ocr) ocr=1; shift ;;
   --prompt) prompt="${2:-}"; shift 2 2>/dev/null || shift ;;
+  # unknown flags (e.g. --detect, which this captioner can't do) are ignored; an
+  # explicit --input wins so a flag's leftover value can't clobber the real path.
   --*) shift ;;
-  *) input="$1"; shift ;;
+  *) [ "$input_set" = 1 ] || input="$1"; shift ;;
 esac; done
 need_token
 [ -f "$input" ] || { jq -nc --arg i "$input" '{verb:"see",format:"json",payload:{caption:"",ocr:"",detections:[],error:("image not found: "+$i)},error:"image not found",state:"error"}'; exit 0; }

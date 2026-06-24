@@ -138,6 +138,23 @@ export const seeVerb: VerbSpec = {
       rec.meta = { ...rec.meta, case: ctx.case.dir };
       return [rec];
     }
+    // --detect needs a detection provider. The turnkey HF captioner / placeholder
+    // below can't detect, so fail clearly instead of passing the label list to a
+    // captioner (which would mistake it for the image path).
+    if (ctx.opts.detect) {
+      return [
+        makeRecord({
+          verb: "see",
+          format: "json",
+          payload: { caption: "", ocr: "", detections: [], detect: String(ctx.opts.detect) },
+          error:
+            "see --detect needs a detection provider; bind one, e.g. " +
+            "`overcast setup provider see \"exec:python3 examples/providers/detect/detect.py\"` (OWLv2).",
+          state: "error",
+          meta: { case: ctx.case.dir },
+        }),
+      ];
+    }
     if (hfToken()) {
       const hf = shippedPath("examples", "providers", "hf", "see.sh");
       if (hf) {

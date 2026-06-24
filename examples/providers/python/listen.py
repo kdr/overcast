@@ -45,7 +45,9 @@ def run(input_ref: str):
 
 
 def main(argv):
-    op = argv[1] if len(argv) > 1 else "run"
+    # `--input` (always passed by overcast for the run op) marks a run, so a media
+    # path literally named "init"/"describe" can't be taken as the subcommand.
+    op = "run" if "--input" in argv else (argv[1] if len(argv) > 1 else "run")
     if op == "describe":
         return describe()
     if op == "init":
