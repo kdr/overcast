@@ -3,6 +3,9 @@
 // directly, and otherwise launches the pi TUI with the overcast extension
 // attached (CLAUDE.md invariant #1: reuse pi's loop/TUI, don't fork).
 
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { runCli } from "../src/cli.js";
 import { findVerb } from "../src/registry/verbs.js";
 import { resolveCloudglue } from "../src/profile.js";
@@ -110,8 +113,37 @@ function prepareTuiEnv(): void {
   }
 }
 
+/** Default pi's `quietStartup` on (hide the [Context]/[Prompts]/[Extensions]/
+ *  [Themes] resource listing on every launch). pi exposes no flag/option/extension
+ *  API for this — only a settings.json key — so we seed it ONCE in the agent
+ *  settings, and never override an explicit user choice (set it false to opt back in). */
+function ensureQuietStartup(): void {
+  try {
+    const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+    const file = join(agentDir, "settings.json");
+    const settings: Record<string, unknown> = existsSync(file)
+      ? (JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>)
+      : {};
+    if (settings.quietStartup === undefined) {
+      settings.quietStartup = true;
+      mkdirSync(agentDir, { recursive: true });
+      writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    }
+  } catch {
+    /* best-effort; the listing just stays visible */
+  }
+}
+
+/** Clear the terminal (and scrollback) so the overcast banner starts at the top,
+ *  free of shell prompt / `npm run dev` output above it. */
+function clearScreen(): void {
+  if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+}
+
 async function launchTui(argv: string[]): Promise<void> {
   prepareTuiEnv();
+  ensureQuietStartup();
+  clearScreen();
   // Dynamic import keeps pi out of the hot path for plain verb calls.
   const { main } = await import("@earendil-works/pi-coding-agent");
   const { default: overcastExtension } = await import("../src/extension/overcast.js");

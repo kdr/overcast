@@ -4,10 +4,20 @@
 // (neon green wordmark + amber accents) instead of the terminal default.
 
 import type { Component } from "@earendil-works/pi-tui";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
+
+/** Truncate a single line to the viewport width (ANSI-aware), so a fixed-width
+ *  banner/footer never overflows and crashes pi's renderer on a narrow terminal. */
+function fitWidth(line: string, width: number): string {
+  return visibleWidth(line) > width ? truncateToWidth(line, width) : line;
+}
 
 const GREEN = "\x1b[38;2;0;255;127m"; // #00ff7f — bright wordmark face
-const GREEN_DIM = "\x1b[38;2;31;157;87m"; // #1f9d57 — extrusion / muted
+const GREEN_DIM = "\x1b[38;2;31;157;87m"; // #1f9d57 — chrome / muted separators
+// Wordmark extrusion: a near-black green so the box-drawing outline glyphs read
+// as DARK LINES through/around the bright face (the target's "lines, not a solid
+// green block" look) instead of a bright drop-shadow. Tunable.
+const WORDMARK_SHADOW = "\x1b[38;2;10;48;28m"; // #0a301c
 const PALE = "\x1b[38;2;198;247;213m"; // #c6f7d5 — text
 const AMBER = "\x1b[38;2;255;196;0m"; // #ffc400 — accents
 const AMBER_DIM = "\x1b[38;2;168;123;0m"; // #a87b00 — tagline
@@ -30,7 +40,7 @@ function colorWordmark(line: string): string {
         ? "shadow"
         : "";
     if (want && want !== mode) {
-      out += want === "block" ? GREEN : GREEN_DIM;
+      out += want === "block" ? GREEN : WORDMARK_SHADOW;
       mode = want;
     }
     out += ch;
@@ -65,6 +75,12 @@ export function colorizeBanner(banner: string): string {
     .join("\n");
 }
 
+/** The `[ REC ● ] <version>` line under the tagline — amber brackets + label,
+ *  a red record dot, dim-amber version. Evokes a recording deck (the play-glyph). */
+export function recLine(version: string): string {
+  return `${AMBER}[ ${PALE}REC ${RED}●${AMBER} ] ${AMBER_DIM}${version}${RESET}`;
+}
+
 /** A one-line status row shown under the banner (e.g. context file · tools · model). */
 export function statusLine(parts: string[]): string {
   const kept = parts.filter(Boolean);
@@ -76,6 +92,20 @@ export function statusLine(parts: string[]): string {
 /** Compose the header: colorized banner, then (if any) a status line below it. */
 export function headerText(banner: string, status: string): string {
   return status ? `${banner}\n${status}` : banner;
+}
+
+/** Header as a width-aware Component: truncates each line to the viewport so the
+ *  fixed-width banner can't overflow pi's renderer (which aborts on over-width
+ *  lines) on a narrow terminal — unlike a raw Text component. */
+export class OvercastHeader implements Component {
+  private readonly lines: string[];
+  constructor(text: string) {
+    this.lines = text.split("\n");
+  }
+  invalidate(): void {}
+  render(width: number): string[] {
+    return this.lines.map((l) => fitWidth(l, width));
+  }
 }
 
 // --- minimal footer ---------------------------------------------------------
@@ -94,6 +124,13 @@ function fmtTokens(n: number | null): string {
   return String(n);
 }
 
+/** Context percentage as a short integer (e.g. 6) — never the raw float, which
+ *  could render as `0.00009999999999999999` and blow out the footer width. */
+function fmtPercent(p: number | null): string {
+  if (p == null) return "0";
+  return String(Math.round(p));
+}
+
 /** A left/right-justified minimal footer line (case · tok · ctx% · model · think). */
 export class OvercastFooter implements Component {
   constructor(private readonly get: () => FooterData) {}
@@ -103,9 +140,9 @@ export class OvercastFooter implements Component {
     const d = this.get();
     const left = `${GREEN_DIM}case://${PALE}${d.caseName}${RESET}`;
     const right =
-      `${GREEN_DIM}${fmtTokens(d.tokens)} tok ${GREEN_DIM}· ${PALE}ctx ${d.ctxPercent ?? 0}% ` +
+      `${GREEN_DIM}${fmtTokens(d.tokens)} tok ${GREEN_DIM}· ${PALE}ctx ${fmtPercent(d.ctxPercent)}% ` +
       `${GREEN_DIM}· ${GREEN}${d.model} ${GREEN_DIM}· ${AMBER}think:${d.thinking}${RESET}`;
     const pad = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
-    return [left + " ".repeat(pad) + right];
+    return [fitWidth(left + " ".repeat(pad) + right, width)];
   }
 }

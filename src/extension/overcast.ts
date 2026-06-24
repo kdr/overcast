@@ -9,7 +9,6 @@ import { dirname, resolve, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 
 import { VERBS } from "../registry/verbs.js";
@@ -17,8 +16,9 @@ import { toAgentTool } from "../registry/to-agent-tool.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveCloudglue, resolveHome } from "../profile.js";
 import { buildSystemPrompt } from "./system-prompt.js";
-import { colorizeBanner, statusLine, headerText, OvercastFooter } from "./branding.js";
+import { colorizeBanner, statusLine, recLine, headerText, OvercastHeader, OvercastFooter } from "./branding.js";
 import { registerSlashCommands } from "./slash.js";
+import { OVERCAST_VERSION } from "../version.js";
 
 const PROMPTS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "prompts");
 
@@ -91,8 +91,10 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
         `${VERBS.length} tools`,
         modelLabel,
       ]);
-      const header = headerText(banner, status);
-      ctx.ui.setHeader((_tui: TUI, _theme): Component => new Text(header));
+      // banner (incl. tagline) → [ REC ● ] <version> → a blank line → status row
+      const subhead = [recLine(OVERCAST_VERSION), "", status].filter((l) => l !== undefined).join("\n");
+      const header = headerText(banner, subhead);
+      ctx.ui.setHeader((_tui: TUI, _theme): Component => new OvercastHeader(header));
     }
 
     // Minimal footer: case · tokens · ctx% · model · thinking.
