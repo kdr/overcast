@@ -6,10 +6,12 @@ C=monitor
 # a cheap source emitting 2 stable hits (no cloud needed for the diff logic).
 # media.ref points at a small real clip so capture (local copy) succeeds; we DON'T
 # pipe a sense here (no --pipe / non-AV gate keeps it fast) — diff is the focus.
-CLIP="$SMOKE_DIR/mon_clip.mp4"
+# two DISTINCT clips so the two hits are genuinely two items (monitor dedups by
+# media.ref — identical refs would correctly collapse to one).
+CLIP="$SMOKE_DIR/mon_clip.mp4"; CLIP2="$SMOKE_DIR/mon_clip2.mp4"
 SRC="$VIDEO_SMALL"; have_media "$SRC" || SRC="$VIDEO_VISUAL"
-have_media "$SRC" && clip_av 4 "$SRC" "$CLIP"
-[ -f "$CLIP" ] || { skip "$C" "no clip"; exit 0; }
+have_media "$SRC" && { clip_av 4 "$SRC" "$CLIP"; clip_av 3 "$SRC" "$CLIP2"; }
+{ [ -f "$CLIP" ] && [ -f "$CLIP2" ]; } || { skip "$C" "no clip"; exit 0; }
 
 SRCSCRIPT="$SMOKE_DIR/mon_src.sh"
 cat >"$SRCSCRIPT" <<EOF
@@ -17,7 +19,7 @@ cat >"$SRCSCRIPT" <<EOF
 case "\${1:-enumerate}" in
   describe) echo '{"source":"feed","emits":"scan.hit"}' ;;
   init) exit 0 ;;
-  enumerate) printf '[{"title":"a","url":"%s#a","source":"feed","media":{"ref":"%s"}},{"title":"b","url":"%s#b","source":"feed","media":{"ref":"%s"}}]' "$CLIP" "$CLIP" "$CLIP" "$CLIP" ;;
+  enumerate) printf '[{"title":"a","url":"%s","source":"feed","media":{"ref":"%s"}},{"title":"b","url":"%s","source":"feed","media":{"ref":"%s"}}]' "$CLIP" "$CLIP" "$CLIP2" "$CLIP2" ;;
   fetch) shift; out=""; while [ "\$#" -gt 0 ]; do [ "\$1" = "--out" ] && out="\$2"; shift; done; cp "$CLIP" "\$out" 2>/dev/null; echo "{\"kind\":\"video\",\"path\":\"\$out\",\"source\":\"feed\"}" ;;
 esac
 EOF
