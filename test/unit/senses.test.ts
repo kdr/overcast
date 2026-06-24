@@ -149,3 +149,16 @@ test("listen --describe surfaces an audio-scene description (full describe mode)
   assert.equal(rec.meta?.mode, "describe");
 });
 function __dirname_compat() { return dirname(fileURLToPath(import.meta.url)); }
+
+test("see forwards --ocr/--prompt to the bound provider (extraArgs)", async () => {
+  const { writeFileSync, chmodSync } = await import("node:fs");
+  const prov = join(dir, "see-args.sh");
+  // echo back whether --ocr was received
+  writeFileSync(prov, '#!/usr/bin/env bash\nargs="$*"\nif echo "$args" | grep -q -- --ocr; then ocr="read it"; else ocr=""; fi\necho "{\\"verb\\":\\"see\\",\\"payload\\":{\\"caption\\":\\"\\",\\"ocr\\":\\"$ocr\\"},\\"state\\":\\"ready\\"}"\n');
+  chmodSync(prov, 0o755);
+  const c = openCase(dir); c.ensure();
+  const p = defaultProfile();
+  p.providers = { ...p.providers, see: { type: "exec", run: `bash ${prov} {{input}}` } };
+  const [rec] = await seeVerb.run({ input: clip, rest: [], opts: { ocr: true }, case: c, profile: p });
+  assert.equal((rec.payload as Record<string, unknown>).ocr, "read it");
+});

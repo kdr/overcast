@@ -147,6 +147,18 @@ export async function extractFrame(
   return out;
 }
 
+/** Render an audio spectrogram to a PNG via ffmpeg's native showspectrumpic. */
+export async function spectrogram(input: string, outDir: string): Promise<string> {
+  ensureDir(outDir);
+  const out = join(outDir, `${basename(input, extname(input))}_spectrogram.png`);
+  await execFileP(
+    FFMPEG_PATH,
+    ["-y", "-i", input, "-lavfi", "showspectrumpic=s=1024x512:legend=1", out],
+    { maxBuffer: 16 * 1024 * 1024 },
+  );
+  return out;
+}
+
 export type EnhanceOp =
   | "denoise"
   | "normalize"

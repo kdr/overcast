@@ -102,3 +102,12 @@ test("parseFrameRef parses frame://rec@sec and rejects others", () => {
   assert.equal(parseFrameRef("./x.jpg"), null);
   assert.equal(parseFrameRef("frame://rec_x"), null);
 });
+
+test("spectrogram renders a PNG from audio via showspectrumpic", async () => {
+  const wav = join(dir, "tone.wav");
+  execFileSync(FFMPEG_PATH, ["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", wav], { stdio: "ignore" });
+  const { spectrogram } = await import("../../src/media/ffmpeg.ts");
+  const out = await spectrogram(wav, join(dir, "spec"));
+  assert.ok(existsSync(out));
+  assert.match(out, /_spectrogram\.png$/);
+});
