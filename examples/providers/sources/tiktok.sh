@@ -26,17 +26,18 @@ case "$op" in
     # param): cut = epoch before which posts are dropped. 0 = no filter.
     cut=0
     if [ -n "$since" ]; then
-      now="$(date +%s)"; days=""
+      now="$(date +%s)"
+      # compute the cutoff in SECONDS so sub-day units (30m, 12h) aren't lost to
+      # integer day division.
       case "$since" in
-        *[0-9]m) days=0 ;;
-        *[0-9]h) days=$(( ${since%h} / 24 )) ;;
-        *[0-9]d) days="${since%d}" ;;
-        *[0-9]w) days=$(( ${since%w} * 7 )) ;;
+        *[0-9]m) cut=$(( now - ${since%m} * 60 )) ;;
+        *[0-9]h) cut=$(( now - ${since%h} * 3600 )) ;;
+        *[0-9]d) cut=$(( now - ${since%d} * 86400 )) ;;
+        *[0-9]w) cut=$(( now - ${since%w} * 604800 )) ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
           cut="$(date -d "$since" +%s 2>/dev/null || date -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo 0)" ;;
-        *) days="" ;;
+        *) cut=0 ;;
       esac
-      [ "$cut" = 0 ] && [ -n "$days" ] && cut=$(( now - days * 86400 ))
     fi
     # a `#tag` ref scrapes a hashtag (actor's `hashtags` field); otherwise a
     # profile/user. Strip a leading '#'/'@' for the field value.
@@ -57,7 +58,7 @@ case "$op" in
       exit 1
     fi
     jq -c --argjson cut "$cut" '[.[]
-        | select($cut == 0 or (.createTime // $cut) >= $cut)
+        | select($cut == 0 or (.createTime // 0) >= $cut)
         | {title:.text, url:.webVideoUrl, source:"tiktok",
            published:.createTimeISO, snippet:.text,
            media:{ref:.webVideoUrl}}]' <<<"$run" ;;

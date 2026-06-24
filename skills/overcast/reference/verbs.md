@@ -189,6 +189,7 @@ overcast monitor  [options]
 
 Options:
   --source <string>      Restrict to source ids/types
+  --since <string>       Only items newer than e.g. 24h, 2026-06-01
   --pipe <string>        Sense to run on new items (watch|listen)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --once                 Single diff pass then exit

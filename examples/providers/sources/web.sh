@@ -39,7 +39,11 @@ case "$op" in
         *[0-9]m|*[0-9]h) days=1 ;;
         *[0-9]d) days="${since%d}" ;;
         *[0-9]w) days=$(( ${since%w} * 7 )) ;;
-        *) days=31 ;;   # explicit date / unknown → month-ish bucket
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+          # explicit date → its age in days, so it buckets by "newer than this date"
+          d="$(date -d "$since" +%s 2>/dev/null || date -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')"
+          if [ -n "$d" ]; then days=$(( ( $(date +%s) - d ) / 86400 )); [ "$days" -lt 0 ] && days=0; else days=31; fi ;;
+        *) days=31 ;;   # unknown → month-ish bucket
       esac
       if   [ "$days" -le 1 ];  then tav_range="day";   brave_fresh="pd"
       elif [ "$days" -le 7 ];  then tav_range="week";  brave_fresh="pw"
