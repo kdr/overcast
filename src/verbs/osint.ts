@@ -459,10 +459,13 @@ export const monitorVerb: VerbSpec = {
       return JSON.stringify(r);
     };
     const writeAlert = (recs: OvercastRecord[]) => {
-      if (!alertSink) return;
+      // FILE sinks only. Records already reach stdout via the normal monitor
+      // output (the per-pass stream in --every; runCli printing the returned
+      // records in --once), so mirroring them to stdout would double every line.
+      if (!alertSink || alertSink === "stdout" || recs.length === 0) return;
       const lines = recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
-      if (alertSink === "stdout") process.stdout.write(lines);
-      else { mkdirSync(dirname(alertSink), { recursive: true }); appendFileSync(alertSink, lines); }
+      mkdirSync(dirname(alertSink), { recursive: true });
+      appendFileSync(alertSink, lines);
     };
 
     // continuous mode: --every set and NOT --once → blocking loop, stream each pass.
@@ -477,10 +480,11 @@ export const monitorVerb: VerbSpec = {
       let pass = 0;
       let errorPasses = 0;
       let credPasses = 0;
-      // de-dupe alerts across passes: recurring source-enumerate errors (and any
-      // other stable record) are alerted ONCE, not re-appended every pass.
-      const alerted = new Set<string>();
-      const alertKey = (r: OvercastRecord) =>
+      // de-dupe across passes: a recurring record (e.g. the same source-enumerate
+      // error every pass) is persisted / streamed / alerted ONCE — not re-written
+      // to the case JSONL with a new id, re-streamed, or re-appended to the sink.
+      const emitted = new Set<string>();
+      const recKey = (r: OvercastRecord) =>
         `${r.verb}|${r.error ?? ""}|${(r.media?.ref as string) ?? ""}|${JSON.stringify(r.payload ?? {}).slice(0, 100)}`;
       process.stderr.write(`monitor: every ${everyStr}, Ctrl-C to stop\n`);
       while (pass < maxPasses && !ctx.signal?.aborted) {
@@ -493,14 +497,14 @@ export const monitorVerb: VerbSpec = {
           // spawn failure), matching the --once path's try/finally.
           saveSeen(ctx.case, seen);
         }
-        for (const r of recs) { ctx.case.writeRecord(r); process.stdout.write(streamRender(r) + "\n"); }
-        const freshAlerts = recs.filter((r) => r.verb !== "monitor").filter((r) => {
-          const k = alertKey(r);
-          if (alerted.has(k)) return false;
-          alerted.add(k);
-          return true;
-        });
-        writeAlert(freshAlerts);
+        for (const r of recs) {
+          const k = recKey(r);
+          if (emitted.has(k)) continue; // recurring record → emitted on an earlier pass
+          emitted.add(k);
+          ctx.case.writeRecord(r);
+          process.stdout.write(streamRender(r) + "\n");
+          if (r.verb !== "monitor") writeAlert([r]); // file sink only (no-op for stdout)
+        }
         if (recs.some((r) => r.state === "error")) errorPasses++;
         else if (recs.some((r) => r.state === "needs_credentials")) credPasses++;
         if (pass >= maxPasses || ctx.signal?.aborted) break;

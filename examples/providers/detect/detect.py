@@ -233,9 +233,12 @@ def run():
 
 def main():
     argv = sys.argv[1:]
-    if "describe" in argv:
+    # the subcommand is ONLY the first token — so object labels that happen to be
+    # "describe"/"init" (e.g. `run --detect describe`) don't trigger a subcommand.
+    op = argv[0] if argv else "run"
+    if op == "describe":
         return describe()
-    if "init" in argv:
+    if op == "init":
         return init()
     run()
 

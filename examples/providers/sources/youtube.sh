@@ -77,17 +77,16 @@ case "$op" in
     errf="$(mktemp)"
     # shellcheck disable=SC2086
     raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>"$errf")"; code=$?
-    if [ -z "$raw" ]; then
-      # no JSON on stdout: a legitimate ZERO-result search/playlist (exit 0, or
-      # non-zero with no hard ERROR) → empty hit list, NOT a failure. Only a real
-      # error (yt-dlp printed ERROR:) surfaces as an enumerate failure.
-      if [ "$code" -ne 0 ] && grep -q 'ERROR' "$errf"; then
-        echo "youtube enumerate failed: $(tail -3 "$errf" | tr '\n' ' ')" >&2
-        rm -f "$errf"; exit 1
-      fi
-      rm -f "$errf"; echo '[]'; exit 0
+    # A hard failure (exit≠0 with a yt-dlp ERROR) is NOT a normal result — even if
+    # SOME JSON lines were printed before it failed. Surface it as an enumerate
+    # error rather than mapping a partial/broken result as a clean scan.
+    if [ "$code" -ne 0 ] && grep -q 'ERROR' "$errf"; then
+      echo "youtube enumerate failed: $(tail -3 "$errf" | tr '\n' ' ')" >&2
+      rm -f "$errf"; exit 1
     fi
     rm -f "$errf"
+    # empty stdout with no hard error = legitimate ZERO-result search/playlist.
+    [ -z "$raw" ] && { echo '[]'; exit 0; }
     printf '%s\n' "$raw" \
       | jq -sc '[ .[] | {
           title: (.title // .id),

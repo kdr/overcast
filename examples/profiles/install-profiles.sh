@@ -10,7 +10,10 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OC="node $REPO/dist/bin/overcast.js"
 P="$REPO/examples/providers"
 HOME_ARG=()
-[ "${1:-}" = "--home" ] && HOME_ARG=(--home "$2")
+if [ "${1:-}" = "--home" ]; then
+  [ -n "${2:-}" ] || { echo "usage: install-profiles.sh [--home <dir>]" >&2; exit 2; }
+  HOME_ARG=(--home "$2")
+fi
 
 bind() { # <profile> <verb> <script-relpath> [interpreter=bash]
   local interp="${4:-bash}"   # .py scripts must run under python3, not bash
