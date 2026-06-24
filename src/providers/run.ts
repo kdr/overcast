@@ -55,6 +55,8 @@ export interface RunExecOpts {
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** extra CLI args appended after the rendered command (e.g. --diarize) */
+  extraArgs?: string[];
 }
 
 /**
@@ -74,6 +76,7 @@ export async function runExecProvider(
     : `${runTemplate} {{input}}`;
   const argv = renderCommand(template, { input });
   const [cmd, ...args] = argv;
+  if (opts.extraArgs?.length) args.push(...opts.extraArgs);
 
   const res = await execCapture(cmd, args, {
     env: opts.env,

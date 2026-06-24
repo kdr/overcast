@@ -222,8 +222,11 @@ export const doctorVerb: VerbSpec = {
     // `watch`/`listen` won't run — surface that as a warning, not a green light.
     const warnings: string[] = [];
     const hasCustomSense = ["watch", "listen"].some((v) => {
-      const r = ctx.profile.providers?.[v]?.run;
-      return r && !/^\s*tinycloud\b/.test(r);
+      const b = ctx.profile.providers?.[v];
+      if (!b) return false;
+      // an http/inproc binding (endpoint/module, no run) is also a custom sense
+      if (b.endpoint || b.module) return true;
+      return b.run ? !/^\s*tinycloud\b/.test(b.run) : false;
     });
     if (!checks.find((c) => c.name === "tinycloud")?.ok && !hasCustomSense) {
       warnings.push("tinycloud CLI missing and no custom watch/listen provider bound — the default senses will fail");

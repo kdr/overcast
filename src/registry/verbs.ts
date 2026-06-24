@@ -50,7 +50,7 @@ export const watchVerb: VerbSpec = {
     // A custom provider already emits a record → dispatch by transport. Only the
     // tinycloud default needs envelope→record mapping.
     const rec = isCustomBinding(binding)
-      ? await runBoundProvider("watch", binding!, ctx.input, { signal: ctx.signal })
+      ? await runBoundProvider("watch", binding!, ctx.input, { timeoutMs: 15 * 60_000, signal: ctx.signal })
       : await runWatch(ctx.input, { run: binding?.run, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     return [rec];

@@ -44,8 +44,17 @@ export const listenVerb: VerbSpec = {
       return [errorRecord("listen", "listen requires an audio/video input")];
     }
     const binding = ctx.profile.providers?.listen;
+    // forward the declared listen flags to a custom provider, and give it the
+    // same generous timeout the tinycloud mapper uses (long media).
+    const extraArgs: string[] = [];
+    if (ctx.opts.diarize === true) extraArgs.push("--diarize");
+    if (ctx.opts.lang) extraArgs.push("--lang", String(ctx.opts.lang));
     const rec = isCustomBinding(binding)
-      ? await runBoundProvider("listen", binding!, ctx.input, { signal: ctx.signal })
+      ? await runBoundProvider("listen", binding!, ctx.input, {
+          extraArgs,
+          timeoutMs: 15 * 60_000,
+          signal: ctx.signal,
+        })
       : await runListen(ctx.input, {
           run: binding?.run,
           signal: ctx.signal,
@@ -99,7 +108,12 @@ export const seeVerb: VerbSpec = {
     // return an explicit error). Otherwise: placeholder (no default in v1).
     const binding = ctx.profile.providers?.see;
     if (isCustomBinding(binding)) {
-      const rec = await runBoundProvider("see", binding!, resolvedRef, { signal: ctx.signal });
+      // forward the declared see flags to the provider.
+      const extraArgs: string[] = [];
+      if (ctx.opts.ocr === true) extraArgs.push("--ocr");
+      if (ctx.opts.detect) extraArgs.push("--detect", String(ctx.opts.detect));
+      if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
+      const rec = await runBoundProvider("see", binding!, resolvedRef, { extraArgs, signal: ctx.signal });
       rec.meta = { ...rec.meta, case: ctx.case.dir };
       return [rec];
     }
