@@ -49,7 +49,12 @@ export const caseVerb: VerbSpec = {
         writeFileSync(c.caseFile, JSON.stringify(cur, null, 2) + "\n", "utf8");
         info.name = cur.name;
       }
-      return [makeRecord({ verb: "case", format: "json", payload: { ...info, dir: c.dir }, state: "ready" })];
+      const rec = makeRecord({ verb: "case", format: "json", payload: { ...info, dir: c.dir }, state: "ready" });
+      // `case init <dir>` stands up a DIFFERENT case than the active one; persist
+      // the init record into that new case's store (the CLI would otherwise write
+      // it only to the active --case/cwd store — the wrong folder).
+      if (c.dir !== ctx.case.dir) c.writeRecord(rec);
+      return [rec];
     }
 
     if (action === "info") {

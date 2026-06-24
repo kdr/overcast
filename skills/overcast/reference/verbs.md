@@ -313,8 +313,6 @@ Options:
   --limit <number>       Max records/passages
   --json                 JSON output
   --format <string>      json | md | txt
-  --json               JSON output
-  --format <fmt>       json | md | txt
 ```
 
 Emits `case` records.

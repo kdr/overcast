@@ -328,7 +328,7 @@ export const monitorVerb: VerbSpec = {
     const writeAlert = (recs: OvercastRecord[]) => {
       if (!alertSink) return;
       const lines = recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
-      if (alertSink === "stdout") process.stderr.write(lines);
+      if (alertSink === "stdout") process.stdout.write(lines);
       else { const { appendFileSync, mkdirSync } = require("node:fs"); mkdirSync(require("node:path").dirname(alertSink), { recursive: true }); appendFileSync(alertSink, lines); }
     };
 

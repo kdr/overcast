@@ -7,6 +7,7 @@ import { Text } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 import { findVerb } from "../registry/verbs.js";
 import { parseVerbArgs } from "../registry/to-cli.js";
+import { tokenizeCommand } from "../providers/sources/index.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveHome } from "../profile.js";
 import type { OvercastRecord } from "../record.js";
@@ -39,7 +40,9 @@ export function registerSlashCommands(pi: ExtensionAPI): void {
     pi.registerCommand(name, {
       description: spec.summary,
       handler: async (args: string): Promise<void> => {
-        const argv = args.trim() ? args.trim().split(/\s+/) : [];
+        // tokenize like the shell CLI so quoted multi-word values survive
+        // (e.g. /case memory search "white van") instead of splitting on spaces.
+        const argv = args.trim() ? tokenizeCommand(args.trim()) : [];
         const parsed = parseVerbArgs(spec, argv);
         if (parsed.errors.length) {
           pi.appendEntry(RESULT_TYPE, { text: `▶ ${name}: ${parsed.errors.join("; ")}` });
@@ -47,14 +50,17 @@ export function registerSlashCommands(pi: ExtensionAPI): void {
         }
         const c = openCase(process.cwd());
         c.ensure();
+        // honor the session profile (--profile, surfaced via OVERCAST_PROFILE)
+        // so TUI /setup etc. write to the same profile the CLI session uses.
+        const profileName = process.env.OVERCAST_PROFILE || "default";
         const ctx: VerbContext = {
           input: parsed.input,
           rest: parsed.rest,
           opts: parsed.opts,
           case: c,
-          profile: loadProfile(),
+          profile: loadProfile({ profile: profileName }),
           home: resolveHome(),
-          profileName: "default",
+          profileName,
         };
         try {
           const recs = await spec.run(ctx);

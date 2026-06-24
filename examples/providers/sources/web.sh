@@ -45,8 +45,15 @@ case "$op" in
   fetch)
     url=""; out=""
     while [ "$#" -gt 0 ]; do case "$1" in --url) url="$2"; shift 2 ;; --out) out="$2"; shift 2 ;; *) shift ;; esac; done
-    curl -s -L -m 60 -o "${out}.html" "$url" >&2 || true
-    echo "{\"kind\":\"page\",\"path\":\"${out}.html\",\"source\":\"web\",\"url\":\"$url\"}"
+    # -f fails on HTTP errors; report a real failure instead of a ready-looking
+    # capture pointing at a missing/empty file.
+    if curl -fsSL -m 60 -o "${out}.html" "$url"; then
+      echo "{\"kind\":\"page\",\"path\":\"${out}.html\",\"source\":\"web\",\"url\":\"$url\"}"
+    else
+      echo "web fetch failed for $url" >&2
+      rm -f "${out}.html"
+      exit 1
+    fi
     ;;
   *) echo "{}" ;;
 esac

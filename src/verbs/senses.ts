@@ -15,6 +15,7 @@ import {
   extractFrame,
   parseFrameRef,
   modalityFromExt,
+  spectrogram as ffSpectrogram,
   type EnhanceOp,
   type Modality,
 } from "../media/ffmpeg.js";
@@ -55,6 +56,7 @@ export const listenVerb: VerbSpec = {
     // forward the declared listen flags to a custom provider, and give it the
     // same generous timeout the tinycloud mapper uses (long media).
     const extraArgs: string[] = [];
+    if (describe) extraArgs.push("--describe");
     if (ctx.opts.diarize === true) extraArgs.push("--diarize");
     if (ctx.opts.lang) extraArgs.push("--lang", String(ctx.opts.lang));
     const rec = isCustomBinding(binding)
@@ -326,8 +328,18 @@ export const viewVerb: VerbSpec = {
       ];
     }
 
+    // optional spectrogram (audio): render a real PNG via ffmpeg showspectrumpic
+    let spectro: string | undefined;
+    if (ctx.opts.spectrogram === true && modality === "audio" && !isUrl) {
+      try {
+        spectro = await ffSpectrogram(mediaPath, ctx.case.mediaDir);
+      } catch {
+        /* non-fatal; the player still renders without it */
+      }
+    }
+
     const htmlPath = join(ctx.case.mediaDir, "view.html");
-    const html = buildPlayerHtml(mediaPath, modality, at, markers, ctx.opts.spectrogram === true, isUrl);
+    const html = buildPlayerHtml(mediaPath, modality, at, markers, spectro, isUrl);
     writeFileSync(htmlPath, html, "utf8");
     if (!noOpen) openHtmlPlayer(htmlPath);
 
@@ -341,6 +353,7 @@ export const viewVerb: VerbSpec = {
           viewer: htmlPath,
           at: at ?? null,
           markers,
+          spectrogram: spectro ?? null,
           opened: !noOpen,
         },
         media: { ref: mediaPath, at: markers.length === 1 ? markers[0] : (markers.length === 2 ? [markers[0], markers[1]] as [number, number] : undefined) },
@@ -368,7 +381,7 @@ function buildPlayerHtml(
   modality: "video" | "audio",
   at: string | undefined,
   markers: number[],
-  spectrogram: boolean,
+  spectrogramPath: string | undefined,
   isRemote = false,
 ): string {
   const startAt = at ? parseTimecode(String(at).split("-")[0]) : 0;
@@ -396,7 +409,7 @@ function buildPlayerHtml(
 <h1>▶ OVERCAST VIEW — ${nameEsc}</h1>
 <${tag} id="m" src="${fileUrl}" controls></${tag}>
 <div class="pins">${markerPins || '<span class="note">no markers</span>'}</div>
-${spectrogram && modality === "audio" ? '<p class="note">spectrogram: render via `enhance --ops spectrogram` (todo)</p>' : ""}
+${spectrogramPath ? `<img src="${htmlAttr(pathToFileURL(spectrogramPath).href)}" alt="spectrogram" style="width:100%;max-width:1024px;border:1px solid #1f9d57;margin-top:12px"/>` : ""}
 <p class="note">${srcEsc}</p>
 <script>
   const m=document.getElementById('m');
