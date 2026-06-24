@@ -70,8 +70,9 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
 
     // Header: colorized banner + a status line (context file · verbs · model).
     // Respect an explicit `setup llm` choice in the status label too.
-    const modelLabel = activeProfile.llm
-      ? `model: ${activeProfile.llm.model ?? activeProfile.llm.provider}`
+    const llmLabel = activeProfile.llm?.model || activeProfile.llm?.provider;
+    const modelLabel = llmLabel
+      ? `model: ${llmLabel}`
       : cgKey
         ? `model: ${CLOUDGLUE_MODEL_ID}`
         : "model: (set via /model)";

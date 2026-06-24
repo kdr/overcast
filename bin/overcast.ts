@@ -10,9 +10,8 @@ import { resolveCloudglue } from "../src/profile.js";
 const KNOWN_TOP = new Set(["version", "commands", "help"]);
 const GLOBAL_FLAGS = new Set(["--case", "--home", "--profile"]);
 
-function isCliDispatch(argv: string[]): boolean {
-  // Global flags may lead the invocation (`overcast --case /dir watch …`).
-  // Skip them (and their values) to find the effective command token.
+/** The effective command token — the first arg after any leading global flags. */
+function effectiveCmd(argv: string[]): string | undefined {
   let i = 0;
   while (i < argv.length) {
     const t = argv[i];
@@ -20,7 +19,22 @@ function isCliDispatch(argv: string[]): boolean {
     if (!GLOBAL_FLAGS.has(name)) break;
     i += t.includes("=") ? 1 : 2; // attached form: flag only; space form: flag + value
   }
-  const cmd = argv[i];
+  return argv[i];
+}
+
+/** overcast's own help/version — these win even over --tui. */
+function isHelpOrVersionCmd(argv: string[]): boolean {
+  const cmd = effectiveCmd(argv);
+  return (
+    cmd === "--help" || cmd === "-h" || cmd === "help" ||
+    cmd === "--version" || cmd === "-v" || cmd === "version"
+  );
+}
+
+function isCliDispatch(argv: string[]): boolean {
+  // Global flags may lead the invocation (`overcast --case /dir watch …`).
+  // Skip them (and their values) to find the effective command token.
+  const cmd = effectiveCmd(argv);
   if (!cmd) return false; // only globals / no args → launch the TUI
   // A version request is CLI only when it is the command itself, so headless
   // pi usage like `overcast -p "…" -v` still launches the agent.
@@ -100,7 +114,8 @@ async function launchTui(argv: string[]): Promise<void> {
 async function run(): Promise<number> {
   const argv = process.argv.slice(2);
 
-  if (isCliDispatch(argv) && !argv.includes("--tui")) {
+  // --tui forces the agent, EXCEPT overcast's own --help/--version, which win.
+  if (isCliDispatch(argv) && (!argv.includes("--tui") || isHelpOrVersionCmd(argv))) {
     return runCli(argv);
   }
 
