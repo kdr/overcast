@@ -16,6 +16,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      # Phase 0 acceptance check: the built entrypoint must actually run.
+      - run: node dist/bin/overcast.js --version --json
       - run: npm test
 
   shellcheck:
@@ -26,4 +28,4 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
           find . -name '*.sh' -not -path './node_modules/*' -print0 \
-            | xargs -0 -r shellcheck -S warning || true
+            | xargs -0 -r shellcheck -S warning

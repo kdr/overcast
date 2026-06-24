@@ -4,3 +4,5 @@ dist/
 *.log
 .DS_Store
 .overcast/
+.env
+.env.*

@@ -11,8 +11,16 @@ function hasFlag(argv: string[], name: string): boolean {
 async function main(argv: string[]): Promise<number> {
   const json = hasFlag(argv, "--json");
 
+  // The leading non-flag token (if any) is the subcommand. Version flags only
+  // apply when there is no subcommand, so `overcast notacommand -v` still
+  // reports the unknown command rather than printing the version.
+  const command = argv.find((a) => !a.startsWith("-"));
+
   // --version / version
-  if (argv[0] === "version" || hasFlag(argv, "--version") || hasFlag(argv, "-v")) {
+  if (
+    command === "version" ||
+    (command === undefined && (hasFlag(argv, "--version") || hasFlag(argv, "-v")))
+  ) {
     if (json) {
       process.stdout.write(JSON.stringify(versionInfo()) + "\n");
     } else {

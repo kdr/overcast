@@ -42,6 +42,13 @@ else
   cases=(test/e2e/cases/*.sh)
 fi
 
+# A run that executes zero cases is a failure, not an "all green" pass —
+# usually a typo in the phase filter.
+if [ "${#cases[@]}" -eq 0 ]; then
+  echo "[run.sh] no case scripts matched ${*:-(all)} — nothing to run" >&2
+  exit 1
+fi
+
 echo "=== overcast e2e — $UTC — $BRANCH@$GIT_SHA ==="
 echo "smoke dir: $SMOKE_DIR"
 echo "test media: $TEST_MEDIA"
@@ -51,6 +58,13 @@ for c in "${cases[@]}"; do
   echo "--- case file: $(basename "$c") ---"
   # shellcheck disable=SC1090
   bash "$c"
+  rc=$?
+  # A case that dies before writing its own result row (missing dep, script
+  # error) would otherwise be silently counted as zero failures. Record it.
+  if [ "$rc" -ne 0 ]; then
+    printf '%s\tfail\tcase script exited rc=%s\n' \
+      "$(basename "$c" .sh)" "$rc" >>"$RESULTS_TSV"
+  fi
   echo
 done
 

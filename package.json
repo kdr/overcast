@@ -7,8 +7,7 @@
     "overcast": "./dist/bin/overcast.js"
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./extension": "./dist/extension/overcast.js"
+    ".": "./dist/index.js"
   },
   "files": [
     "dist",
