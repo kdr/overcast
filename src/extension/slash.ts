@@ -14,7 +14,7 @@ import type { OvercastRecord } from "../record.js";
 import { renderForFormat } from "../render.js";
 import type { VerbContext } from "../registry/types.js";
 
-const SLASH_VERBS = ["target", "source", "case", "prebrief", "view", "setup"];
+const SLASH_VERBS = ["target", "source", "collection", "case", "prebrief", "view", "setup"];
 const RESULT_TYPE = "overcast-result";
 
 function summarize(rec: OvercastRecord, format?: string): string {

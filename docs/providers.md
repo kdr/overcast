@@ -125,10 +125,72 @@ bash examples/providers/sources/tiktok.sh describe
 ## Memory providers
 
 `ask`/`brief` read through bound **memory** providers (fan-out; the always-on
-`local` provider indexes `.overcast/records`). A `cloudglue` memory provider
-(collection-backed, via public tinycloud verbs) is the A-spec second tier.
+`local` provider indexes `.overcast/records`). For collection-backed retrieval,
+`ask --collection <id>` queries a tinycloud **media-descriptions** collection
+directly (see below) — the public-verb realization of the A-spec second tier.
+
+## Faces (`face`) and collections (`collection`) — tinycloud ≥ 0.3.4
+
+These two verbs are backed by the tinycloud CLI's newer **face** and **library
+collections** surfaces (invariant #9: public verbs only; mapped to the loose
+record by the shared `runTinycloud` boundary in
+[`src/providers/tinycloud/envelope.ts`](../src/providers/tinycloud/envelope.ts)).
+Point `OVERCAST_TINYCLOUD_CMD` at a specific binary/wrapper if `tinycloud` isn't
+on `PATH`; `overcast doctor` reports the installed version and warns below 0.3.4.
+
+### `face` — detect / match / search
+
+One verb resolves to one of four tinycloud face ops from the inputs given:
+
+```bash
+overcast face ./clip.mp4 --json                          # detect: who is in this video (boxes + timestamps)
+overcast face ./clip.mp4 --match ./suspect.jpg --json    # match: find this person in the clip, ranked by similarity
+overcast face --match ./suspect.jpg --collection <id> --json   # search a face-analysis collection (case-wide)
+overcast face ./clip.mp4 --collection <id> --json        # list a video's stored detections in a collection
+```
+
+Emits a `face.analysis` record: `faces[]` is normalized (`at`, `box`,
+`similarity`, `thumbnail?`) and the full provider data survives in `detailed`.
+The video/reference may be a path, URL, or a case record id. Bind your own
+detector with `setup provider face <spec>` like any sense (it receives the media
+plus `--match`/`--collection`/… as flags).
+
+### `collection` — index a target's videos, then read by type
+
+A collection is a Cloudglue index of videos, searchable one way per **type**.
+overcast keeps a local mirror in `.overcast/collections.json` (the OSINT twin of
+the source/target registries) so the case knows what it owns; the create/add/
+show/delete ops run on tinycloud.
+
+```bash
+# media-descriptions → ask / probe across every indexed video
+overcast collection create case-media --type media-descriptions --json
+overcast scan --pull --json                          # gather the target's videos into the case
+overcast collection add --all --to <id> --json       # register every captured/watched video
+overcast ask "what objections came up?" --collection <id> --json
+overcast ask "moments a document is signed" --collection <id> --probe --json
+
+# face-analysis → find a person across the whole index
+overcast collection create faces --type face --json
+overcast collection add ./clip.mp4 --to <face-id> --json
+overcast face --match ./suspect.jpg --collection <face-id> --json
+
+# entities → same-schema extraction across all videos, fetched per video
+overcast collection create people --type entities --prompt "people, orgs, locations" --json
+overcast collection entities <ent-id> ./clip.mp4 --json
+
+overcast collection list --json                      # the case's collections (mirror)
+overcast collection show <id> --json                 # live status: files[].status
+overcast collection delete <id> --json
+```
+
+`--type` accepts the canonical tinycloud names (`media-descriptions`,
+`entities`, `face-analysis`, `rich-transcripts`) and friendly aliases (`media`,
+`face`, …). Entities collections require `--prompt` or `--schema`. `add`/`entities`
+accept a path, URL, or a case record id (a `capture`/`watch` record → its media).
 
 ## Readiness
 
 `overcast doctor` checks pi, the system ffmpeg/ffprobe, Cloudglue creds, the
-tinycloud CLI, the home/profiles, and the active provider bindings.
+tinycloud CLI **and its version** (`face`/`collection` need ≥ 0.3.4), the
+home/profiles, and the active provider bindings.

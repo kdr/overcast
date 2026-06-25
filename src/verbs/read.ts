@@ -7,6 +7,9 @@ import { resolve, extname } from "node:path";
 import { makeRecord, isMetaRecord, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
+import { tcAsk } from "../providers/tinycloud/collection.js";
+import { findCollection } from "../state/collection.js";
+import { providerEnv } from "../providers/provider-env.js";
 import type { QueryOpts } from "../providers/memory/types.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -40,6 +43,9 @@ export const askVerb: VerbSpec = {
   args: [{ name: "question", summary: "The question to answer", required: true }],
   flags: [
     { name: "deep", summary: "Agentic semantic search (cloudglue)", type: "boolean" },
+    { name: "collection", summary: "Answer over a media-descriptions collection (id/name) via tinycloud, not local memory", type: "string" },
+    { name: "probe", summary: "With --collection: semantic moment search (probe) instead of Q&A (ask)", type: "boolean" },
+    { name: "scope", summary: "With --collection --probe: file | segment", type: "string" },
     { name: "memory", summary: "Restrict to specific memory provider ids", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
     { name: "verb", summary: "Restrict to record kinds (comma list)", type: "string" },
@@ -52,6 +58,26 @@ export const askVerb: VerbSpec = {
   run: async (ctx) => {
     if (!ctx.input) {
       return [askError("ask requires a question")];
+    }
+    // --collection: answer over a tinycloud media-descriptions collection (the
+    // index of a target's videos) instead of the local case memory. The id/name
+    // resolves through the case mirror to the real tinycloud collection id.
+    if (ctx.opts.collection) {
+      const value = String(ctx.opts.collection);
+      const colId = findCollection(ctx.case, value)?.id ?? value;
+      const limit =
+        ctx.opts.limit != null && Number.isFinite(Number(ctx.opts.limit)) && Number(ctx.opts.limit) > 0
+          ? Number(ctx.opts.limit)
+          : undefined;
+      const rec = await tcAsk(ctx.input, colId, {
+        probe: ctx.opts.probe === true,
+        scope: ctx.opts.scope ? String(ctx.opts.scope) : undefined,
+        limit,
+        env: providerEnv(ctx.case.mediaDir),
+        signal: ctx.signal,
+      });
+      rec.meta = { ...rec.meta, case: ctx.case.dir };
+      return [rec];
     }
     // an unparseable --since is a user error, not a silent "no time bound"
     if (ctx.opts.since && parseSince(String(ctx.opts.since)) == null) {

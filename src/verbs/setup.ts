@@ -15,12 +15,31 @@ import {
 import { FFMPEG_PATH, FFPROBE_PATH, probeTool, MIN_FFMPEG } from "../media/ffmpeg.js";
 import { execCapture } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
+import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { PI_VERSION } from "../version.js";
 import { existsSync, readdirSync } from "node:fs";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
   return makeRecord({ verb, format: "json", payload: { error: message }, error: message, state: "error" });
+}
+
+/** Minimum tinycloud the face + collection verbs need (`face match` landed in
+ *  0.3.4). Older installs run watch/listen fine but lack faces/collections. */
+export const MIN_TINYCLOUD = "0.3.4";
+
+function parseSemver(s: string): [number, number, number] | undefined {
+  const m = s.match(/(\d+)\.(\d+)\.(\d+)/);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined;
+}
+
+/** True when version `a` is strictly older than `b`. */
+function semverLt(a: [number, number, number], b: [number, number, number]): boolean {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] < b[i]) return true;
+    if (a[i] > b[i]) return false;
+  }
+  return false;
 }
 
 /** Parse a provider spec into a descriptor. Forms: exec:<cmd> | http(s)://… | inproc:<module>. */
@@ -217,9 +236,23 @@ export const doctorVerb: VerbSpec = {
     const cg = resolveCloudglue();
     checks.push({ name: "cloudglue", ok: Boolean(cg.apiKey), detail: cg.apiKey ? `key present, baseUrl ${cg.baseUrl}` : "no CLOUDGLUE_API_KEY / tinycloud config" });
 
-    // tinycloud CLI (default sense backend)
-    const tc = await execCapture("tinycloud", ["--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
-    checks.push({ name: "tinycloud", ok: tc.code === 0, detail: tc.code === 0 ? "CLI available" : "tinycloud CLI not on PATH" });
+    // tinycloud CLI (default sense backend). Honor OVERCAST_TINYCLOUD_CMD so a
+    // custom path/wrapper is the one actually checked. Parse the version to flag
+    // installs older than the face/collection minimum.
+    const [tcCmd, ...tcLead] = tinycloudBase();
+    const tc = await execCapture(tcCmd, [...tcLead, "--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    const tcVer = parseSemver(`${tc.stdout} ${tc.stderr}`);
+    const tcOld = tcVer ? semverLt(tcVer, parseSemver(MIN_TINYCLOUD)!) : false;
+    checks.push({
+      name: "tinycloud",
+      ok: tc.code === 0,
+      detail:
+        tc.code !== 0
+          ? "tinycloud CLI not on PATH (install: `npm i -g @cloudglue/tinycloud` or `tinycloud install --latest`)"
+          : tcVer
+            ? `${tcVer.join(".")}${tcOld ? ` (face/collection verbs need ≥ ${MIN_TINYCLOUD} — run \`tinycloud update\`)` : ""}`
+            : "CLI available",
+    });
 
     // home / profiles
     const home = resolveHome({ home: ctx.home });
@@ -245,6 +278,9 @@ export const doctorVerb: VerbSpec = {
     });
     if (!checks.find((c) => c.name === "tinycloud")?.ok && !hasCustomSense) {
       warnings.push("tinycloud CLI missing and no custom watch/listen provider bound — the default senses will fail");
+    }
+    if (tcOld) {
+      warnings.push(`tinycloud is older than ${MIN_TINYCLOUD} — the face + collection verbs need ≥ ${MIN_TINYCLOUD} (run \`tinycloud update\`)`);
     }
     if (!checks.find((c) => c.name === "cloudglue")?.ok) {
       warnings.push("no Cloudglue key — the default sense backend and the Cloudglue brain are unavailable");

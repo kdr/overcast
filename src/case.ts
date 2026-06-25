@@ -56,6 +56,9 @@ export class Case {
   get sourcesFile(): string {
     return join(this.storeDir, "sources.json");
   }
+  get collectionsFile(): string {
+    return join(this.storeDir, "collections.json");
+  }
   get seenFile(): string {
     return join(this.storeDir, "seen.json");
   }

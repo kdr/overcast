@@ -85,8 +85,9 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
   {
     title: "overcast — default perception backend (tinycloud / Cloudglue)",
     vars: [
-      ["CLOUDGLUE_API_KEY", "Cloudglue key for the default watch/listen backend + turnkey brain (else ~/.tinycloud/config.json)"],
+      ["CLOUDGLUE_API_KEY", "Cloudglue key for the default watch/listen/face/collection backend + turnkey brain (else ~/.tinycloud/config.json)"],
       ["CLOUDGLUE_BASE_URL", "Cloudglue endpoint (default https://api.cloudglue.dev)"],
+      ["OVERCAST_TINYCLOUD_CMD", "Override the tinycloud invocation for face/collection/ask-collection (a path or wrapper, e.g. a pinned binary)"],
     ],
   },
   {

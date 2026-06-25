@@ -12,10 +12,14 @@ One-time setup for overcast.
 
 1. **Install the CLI** — `pi install npm:@kdrrr/overcast` (inside pi) or
    `npm i -g @kdrrr/overcast` for the standalone binary.
-2. **Verify** — `overcast doctor --json` (pi pinned, ffmpeg/ffprobe runnable,
-   Cloudglue key, tinycloud CLI).
-3. **Cloudglue key** — the default `watch`/`listen` providers reach Cloudglue
-   via the tinycloud CLI; configure it (`tinycloud setup cloudglue`) or export
-   `CLOUDGLUE_API_KEY`.
+2. **Install/update tinycloud** — the default perception backend. Get the latest
+   (`npm i -g @cloudglue/tinycloud` then `tinycloud install --latest`, or
+   `tinycloud update`). The `face` + `collection` verbs need **tinycloud ≥ 0.3.4**;
+   override the invocation with `OVERCAST_TINYCLOUD_CMD` if it isn't on `PATH`.
+3. **Verify** — `overcast doctor --json` (pi pinned, ffmpeg/ffprobe runnable,
+   Cloudglue key, tinycloud CLI + version).
+4. **Cloudglue key** — the default `watch`/`listen`/`face`/`collection` providers
+   reach Cloudglue via the tinycloud CLI; configure it (`tinycloud setup cloudglue`)
+   or export `CLOUDGLUE_API_KEY`.
 
 Then use the `overcast` skill to drive the verbs.

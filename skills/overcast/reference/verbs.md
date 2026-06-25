@@ -77,6 +77,38 @@ Options:
 
 Emits `image.analysis` records.
 
+### `overcast face`
+
+Default provider: tinycloud. `face <video>` detects faces (normalized boxes + timestamps). `face <video> --match ref.jpg` finds that person in the video, ranked by similarity. `face --match ref.jpg --collection <id>` searches the face across a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id. Emits a face.analysis record with faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
+
+```
+overcast face [input] [options]
+
+  Detect, match, or search faces in video (and across face-analysis collections).
+
+  Default provider: tinycloud. `face <video>` detects faces (normalized boxes + timestamps). `face <video> --match ref.jpg` finds that person in the video, ranked by similarity. `face --match ref.jpg --collection <id>` searches the face across a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id. Emits a face.analysis record with faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
+
+Arguments:
+  input            Video to analyze (path/URL/record-id); omit with --match + --collection to search the index
+
+Options:
+  --match <string>       Reference face image to find (path/URL/record-id)
+  --collection <string>  Face-analysis collection id/name to search or list within (comma-list ok; default: the case's face collection)
+  --max-faces <number>   match: cap returned matches
+  --min-similarity <number> match/search: similarity floor (0–100)
+  --thumbnails           Include face thumbnails
+  --fps <number>         detect/match: sampling frames per second
+  --start <string>       detect/match: window start (SS or timecode)
+  --end <string>         detect/match: window end (SS or timecode)
+  --limit <number>       list/search: max results
+  --offset <number>      list/search: result offset
+  --group-by <string>    search: group results by file
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `face.analysis` records.
+
 ### `overcast enhance`
 
 Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
@@ -204,6 +236,40 @@ Options:
 
 Emits `scan.hit` records.
 
+### `overcast collection`
+
+A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured/watched for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection <id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).
+
+```
+overcast collection <action> [arg] [options]
+
+  Manage tinycloud collections that index a target's videos (create/add/list/show/delete/remove/entities).
+
+  A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured/watched for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection <id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).
+
+Arguments:
+  action           create | add | list | show | delete | remove | entities
+  arg              name (create) · video/record-id (add/remove) · collection id (show/delete) · collection id (entities)
+
+Options:
+  --type <string>        create: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)
+  --description <string> create: human description
+  --prompt <string>      create entities: free-text extraction prompt
+  --schema <string>      create entities: path to a JSON schema file
+  --to <string>          add: target collection id/name
+  --from <string>        remove: collection id/name to remove the video from
+  --all                  add: register every video the case has captured/watched
+  --remote               list: also query tinycloud for all account collections
+  --no-upload            add: don't upload (use an already-uploaded source)
+  --no-download          add: don't materialize the source locally
+  --limit <number>       entities: max entities
+  --offset <number>      entities: entity offset
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `collection` records.
+
 ## Read
 
 ### `overcast ask`
@@ -222,6 +288,9 @@ Arguments:
 
 Options:
   --deep                 Agentic semantic search (cloudglue)
+  --collection <string>  Answer over a media-descriptions collection (id/name) via tinycloud, not local memory
+  --probe                With --collection: semantic moment search (probe) instead of Q&A (ask)
+  --scope <string>       With --collection --probe: file | segment
   --memory <string>      Restrict to specific memory provider ids
   --since <string>       Time filter (e.g. 24h, 2026-06-01)
   --verb <string>        Restrict to record kinds (comma list)

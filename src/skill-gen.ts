@@ -85,6 +85,8 @@ Run any verb from bash and parse the JSON record:
 \`\`\`bash
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
+overcast face ./clip.mp4 --json           # detect faces (boxes + timestamps)
+overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video
 overcast ask "every white van, with timestamps" --json
 overcast brief --export ./brief.html
 \`\`\`
@@ -92,6 +94,33 @@ overcast brief --export ./brief.html
 \`overcast commands --json\` dumps the authoritative verb registry. Full man
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
 read it when you need a verb's exact flags).
+
+### Faces & collections (register a target's videos, then ask / find a person)
+
+A **collection** is a tinycloud (Cloudglue) index of videos, searchable one way
+per TYPE — build one from the videos you gather for a target, then query it:
+
+\`\`\`bash
+# 1) index the target's videos (media-descriptions = ask/probe; face = find a person)
+overcast collection create case-media --type media-descriptions --json
+overcast scan --pull --json                       # pull the target's videos into the case
+overcast collection add --all --to <col-id> --json   # register every captured/watched video
+
+# 2a) media-descriptions → ask / probe across ALL indexed videos
+overcast ask "what objections came up?" --collection <col-id> --json
+overcast ask "moments a contract is signed" --collection <col-id> --probe --json
+
+# 2b) face-analysis → find a specific person across the index
+overcast collection create faces --type face --json
+overcast collection add --all --to <face-col-id> --json
+overcast face --match ./suspect.jpg --collection <face-col-id> --json
+
+# 2c) entities → same-schema extraction per video
+overcast collection create people --type entities --prompt "people, orgs, locations" --json
+overcast collection entities <ent-col-id> ./clip.mp4 --json
+\`\`\`
+
+\`face\` needs tinycloud ≥ 0.3.4 (\`overcast doctor\` flags an older install).
 
 ### Reading large records
 
@@ -130,11 +159,15 @@ One-time setup for overcast.
 
 1. **Install the CLI** — \`pi install npm:@kdrrr/overcast\` (inside pi) or
    \`npm i -g @kdrrr/overcast\` for the standalone binary.
-2. **Verify** — \`overcast doctor --json\` (pi pinned, ffmpeg/ffprobe runnable,
-   Cloudglue key, tinycloud CLI).
-3. **Cloudglue key** — the default \`watch\`/\`listen\` providers reach Cloudglue
-   via the tinycloud CLI; configure it (\`tinycloud setup cloudglue\`) or export
-   \`CLOUDGLUE_API_KEY\`.
+2. **Install/update tinycloud** — the default perception backend. Get the latest
+   (\`npm i -g @cloudglue/tinycloud\` then \`tinycloud install --latest\`, or
+   \`tinycloud update\`). The \`face\` + \`collection\` verbs need **tinycloud ≥ 0.3.4**;
+   override the invocation with \`OVERCAST_TINYCLOUD_CMD\` if it isn't on \`PATH\`.
+3. **Verify** — \`overcast doctor --json\` (pi pinned, ffmpeg/ffprobe runnable,
+   Cloudglue key, tinycloud CLI + version).
+4. **Cloudglue key** — the default \`watch\`/\`listen\`/\`face\`/\`collection\` providers
+   reach Cloudglue via the tinycloud CLI; configure it (\`tinycloud setup cloudglue\`)
+   or export \`CLOUDGLUE_API_KEY\`.
 
 Then use the \`overcast\` skill to drive the verbs.
 `;
