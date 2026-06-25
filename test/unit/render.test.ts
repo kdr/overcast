@@ -64,6 +64,21 @@ test("renderRecord preview shows per-field sizes and no pointer for a small payl
   assert.doesNotMatch(out, /case memory get/); // small → no paging pointer
 });
 
+test("renderRecord preview shows a paging hint when a field is truncated, even under budget", () => {
+  // payload ~0.5KB (well under budget) but the 500-char field is previewed to ~200
+  // chars — a lossy preview must still point at how to read the full value.
+  const rec = makeRecord({ id: "rec_lossy01", verb: "watch", payload: { content: "c".repeat(500) } });
+  const out = renderRecord(rec, { mode: "preview", budget: 8000 });
+  assert.match(out, /not fully shown/);
+  assert.match(out, /case memory get rec_lossy01 --field <name>/);
+});
+
+test("renderRecord preview omits the hint when every field is fully shown", () => {
+  const rec = makeRecord({ verb: "doctor", payload: { ok: true, n: 3, note: "short" } });
+  const out = renderRecord(rec, { mode: "preview", budget: 8000 });
+  assert.doesNotMatch(out, /case memory get/); // scalars + short string → nothing hidden
+});
+
 test("renderRecord full inlines a within-budget payload (agent sees the answer)", () => {
   const rec = makeRecord({ verb: "ask", payload: { text: "The tribe opposed the energy park.", question: "who?" } });
   const out = renderRecord(rec, { mode: "full", budget: 8000 });

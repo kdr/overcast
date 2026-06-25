@@ -163,10 +163,12 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
   const h = head(rec);
   if (rec.error) return `${h} error=${rec.error}`;
 
-  const bytes = payloadBytes(rec);
-
-  if (mode === "full" && (opts.force || bytes <= budget)) {
-    return `${h}\n${renderFullPayload(rec.payload)}`;
+  // full mode: inline only when the RENDERED output fits the budget (the pretty
+  // form can be larger than the compact payload — gate on what's actually emitted).
+  if (mode === "full") {
+    const rendered = `${h}\n${renderFullPayload(rec.payload)}`;
+    if (opts.force || Buffer.byteLength(rendered, "utf8") <= budget) return rendered;
+    // else fall through to preview
   }
 
   const isString = typeof rec.payload === "string";
@@ -178,9 +180,18 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
     const tag = meta.length ? ` (${meta.join(", ")})` : "";
     return `  ${f.name}${tag}: ${f.preview}`;
   });
+  // A field is fully shown in preview only if its value === its preview: a scalar,
+  // or a string no longer than the preview width. Strings that got truncated and
+  // objects/arrays (preview shows only {keys}/a one-liner) are LOSSY — so whenever
+  // any field is lossy, point the reader at how to page the full value. (Gating on
+  // payloadBytes>budget missed this: a preview can be lossy while the compact
+  // payload is under budget.)
+  const lossy = fields.some(
+    (f) => !(f.type === "string" ? f.chars <= previewChars : f.type === "number" || f.type === "boolean" || f.type === "null"),
+  );
   const pageCmd = isString
     ? `case memory get ${rec.id} --offset 0 [--limit M]`
     : `case memory get ${rec.id} --field <name> [--offset N] [--limit M]`;
-  const hint = bytes > budget ? `\n  ⟶ full payload ${humanSize(bytes)}; read it in full with: ${pageCmd}` : "";
+  const hint = lossy ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read a field in full with: ${pageCmd}` : "";
   return `${h} payload:\n${lines.join("\n")}${hint}`;
 }
