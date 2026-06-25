@@ -5,11 +5,12 @@
 // gradient wordmark, a magenta/cyan recording-deck HUD beside the play box, a
 // centered tagline, and a bracket-tagged status row.
 //
-// The header is *animated* (the "C · synthwave" + live-effects design): it owns a
-// timer and calls tui.requestRender(), so the REC dot blinks, the level meter
-// bounces, and the wordmark does a one-time "decrypt" reveal on launch. pi is not
-// forked — we attach as a normal Component via ctx.ui.setHeader and drive repaints
-// through the public TUI.requestRender() (see node_modules/.../pi-tui/dist/tui.d.ts).
+// The header animates ONCE: the wordmark does a "decrypt" reveal on launch, then
+// the timer STOPS for good and the header is static. A steady-state ticker would
+// call tui.requestRender() forever, repainting the header and snapping the
+// terminal's scrollback back to the bottom — so you could never scroll up. pi is
+// not forked — we attach as a normal Component via ctx.ui.setHeader and drive the
+// reveal repaints through the public TUI.requestRender().
 
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
@@ -58,9 +59,7 @@ const BLOCK_CHARS = new Set("█▀▄▌▐▮".split(""));
 // ---- animation timing (tunable) --------------------------------------------
 const REVEAL_MS = 800; // one-time wordmark decrypt-in on launch
 const TAG_REVEAL_MS = 560; // tagline/status fade in near the end of the reveal
-const BLINK_MS = 600; // REC dot on/off period
-const REVEAL_TICK_MS = 55; // fast repaint during the reveal (smooth scramble)
-const STEADY_TICK_MS = 160; // calm repaint after — drives the blink + meter
+const REVEAL_TICK_MS = 55; // repaint cadence DURING the one-time reveal only
 
 const deterministicHash = (r: number, c: number) =>
   (r * 131 + c * 17 + ((r * c) % 7) * 53) >>> 0;
@@ -170,7 +169,6 @@ export class OvercastHeader implements Component {
   private readonly ok: boolean;
   private readonly start = Date.now();
   private timer: ReturnType<typeof setInterval> | null = null;
-  private fast = true;
 
   constructor(
     private readonly tui: TUI | null,
@@ -205,14 +203,14 @@ export class OvercastHeader implements Component {
     }
   }
 
-  /** Drive repaints: fast during the reveal, then drop to a calm blink/meter tick. */
+  /** Drive repaints DURING the one-time decrypt reveal only. Once it finishes the
+   *  timer stops for good — no steady-state ticker — so the header never repaints
+   *  while idle and never fights the terminal's scrollback. */
   private tick(): void {
-    const elapsed = Date.now() - this.start;
-    if (this.fast && elapsed >= REVEAL_MS + 120) {
-      this.fast = false;
-      if (this.timer) clearInterval(this.timer);
-      this.timer = setInterval(() => this.tick(), STEADY_TICK_MS);
-      this.timer.unref?.();
+    if (Date.now() - this.start >= REVEAL_MS + 120) {
+      this.dispose(); // reveal done → stop animating; the header is now static
+      this.tui?.requestRender(); // settle the final frame once
+      return;
     }
     this.tui?.requestRender();
   }
@@ -224,14 +222,14 @@ export class OvercastHeader implements Component {
 
   invalidate(): void {}
 
-  /** The recording-deck HUD shown to the right of the play box (3 rows). */
-  private hud(elapsed: number, revealing: boolean): string[] {
-    const dotOn = revealing || Math.floor(elapsed / BLINK_MS) % 2 === 0;
-    const dot = dotOn ? `${MAGENTA}◉` : `${MAGENTA_DIM}◌`;
-    const row0 = `   ${dot} ${PALE}REC ${MAGENTA_DIM}│ ${CYAN}v${this.version}${RESET}`;
-    const level = 4 + Math.round(2 * Math.sin(elapsed / 230)); // 2..6
+  /** The recording-deck HUD to the right of the play box (3 rows). Static — the
+   *  REC dot stays lit and the meter holds a fixed level, since the header stops
+   *  repainting after the reveal (an animated dot/meter would need a forever-timer
+   *  that breaks scrollback). */
+  private hud(): string[] {
+    const row0 = `   ${MAGENTA}◉ ${PALE}REC ${MAGENTA_DIM}│ ${CYAN}v${this.version}${RESET}`;
     let meter = "   ";
-    for (let i = 0; i < 6; i++) meter += i < level ? `${METER[i]}▰` : `${MAGENTA_DIM}▱`;
+    for (let i = 0; i < 6; i++) meter += i < 4 ? `${METER[i]}▰` : `${MAGENTA_DIM}▱`;
     meter += RESET;
     const row2 = `   ${MAGENTA_DIM}────────────${RESET}`;
     return [row0, meter, row2];
@@ -241,7 +239,7 @@ export class OvercastHeader implements Component {
     if (!this.ok) return [];
     const elapsed = Date.now() - this.start;
     const revealing = elapsed < REVEAL_MS;
-    const hud = this.hud(elapsed, revealing);
+    const hud = this.hud();
 
     const lines: string[] = [];
     for (let i = 0; i < 3; i++) lines.push(this.deckBox[i] + hud[i]);
