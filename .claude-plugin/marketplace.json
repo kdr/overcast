@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Video-understanding OSINT for coding agents: watch/listen/see media, scan/capture/monitor sources, ask/brief over a case.",
-    "version": "0.0.0"
+    "version": "0.0.1"
   },
   "plugins": [
     {
       "name": "overcast",
       "source": "./",
       "description": "Give any agent senses (video/audio/image) and OSINT reach (search/capture/monitor), organized around an investigation case. Drives the overcast CLI (pi + tinycloud/Cloudglue).",
-      "version": "0.0.0",
+      "version": "0.0.1",
       "author": {
         "name": "kdr"
       },

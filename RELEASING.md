@@ -28,9 +28,10 @@ propagates it into the files that hard-code a version:
 (`scripts/bun-sidecar.mjs` reads `package.json` directly, so it needs no sync.)
 
 This is wired to the npm `version` lifecycle, so **`npm version <patch|minor|x.y.z>`
-bumps everything at once** and stages it into the version commit. CI also runs
-`node scripts/sync-version.mjs --check` and fails on drift, so the surfaces can
-never silently diverge.
+bumps + syncs every surface at once** (pass `--no-git-tag-version` in the PR-based
+release flow below to skip the auto commit/tag). CI also runs `node
+scripts/sync-version.mjs --check` and fails on drift, so the surfaces can never
+silently diverge.
 
 ---
 
@@ -81,11 +82,38 @@ exists — the publish step is idempotent) and just build + attach the binaries.
 
 ## Cutting a release (0.0.1 and onward)
 
-From a clean default branch:
+`main` is protected (changes must go through a PR), so the version-bump **commit**
+lands via a PR and the **tag** is pushed afterward — the tag push is what triggers
+the release, and tags aren't covered by the branch rule.
+
+**1. Bump + sync on a release branch** (no commit/tag yet):
 
 ```bash
-npm version patch             # or: minor / major / 0.3.0  → bumps + syncs + commits + tags vX.Y.Z
-git push --follow-tags        # push the commit and the tag together
+git checkout main && git pull
+git checkout -b release-vX.Y.Z
+npm version X.Y.Z --no-git-tag-version   # patch / minor / major / x.y.z
+node scripts/sync-version.mjs --check     # all surfaces match (should already)
+```
+
+`--no-git-tag-version` edits + syncs every surface (`package.json`,
+`package-lock.json`, `src/version.ts`, both `.claude-plugin/*.json`) **without**
+committing or tagging.
+
+**2. Open + merge the PR** (squash or merge — either is fine; step 3 tags `main`
+*after* it lands, so the tagged commit is always whatever ends up on `main`):
+
+```bash
+git commit -am "Release vX.Y.Z"
+git push -u origin release-vX.Y.Z
+gh pr create --base main --fill
+# …review, then merge it.
+```
+
+**3. Tag the merged commit on `main` and push the tag:**
+
+```bash
+git checkout main && git pull
+git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
 Pushing the `vX.Y.Z` tag triggers `release.yml`, which:
@@ -99,6 +127,13 @@ Pushing the `vX.Y.Z` tag triggers `release.yml`, which:
 You can also run it manually from the Actions tab (**workflow_dispatch**) with the
 version as input; in that mode the binaries are uploaded as workflow artifacts
 instead of release assets.
+
+> **Why not `npm version patch && git push --follow-tags`?** That pushes the bump
+> commit straight to `main`, which the PR rule rejects (`GH013: Changes must be
+> made through a pull request`) — though the tag (and thus the publish) still goes
+> through, leaving `main` behind the tag. If you'd rather keep the one-liner, add
+> an admin **bypass** for the `main` ruleset (Settings → Rules) instead of the PR
+> flow above.
 
 ---
 
@@ -124,6 +159,9 @@ npm i -g @kdrrr/overcast@latest && overcast --version --json
 - **`E404` configuring the Trusted Publisher** → the package doesn't exist yet; do
   the manual bootstrap publish first.
 - **Version-drift CI failure** → run `npm run sync-version` and commit.
+- **`GH013` / "Changes must be made through a pull request"** when pushing the
+  version commit → `main` requires a PR. Use the PR-based flow above (the tag
+  pushes fine on its own), or add an admin bypass to the `main` ruleset.
 - **2FA on the bootstrap publish** → `npm publish --otp=<code>`.
 - **Re-running a release tag** → safe; the publish step no-ops when the version is
   already on npm, and binary assets are overwritten.
