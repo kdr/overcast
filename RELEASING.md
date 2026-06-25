@@ -99,14 +99,14 @@ node scripts/sync-version.mjs --check     # all surfaces match (should already)
 `package-lock.json`, `src/version.ts`, both `.claude-plugin/*.json`) **without**
 committing or tagging.
 
-**2. Open + merge the PR** (prefer a **merge commit**, not squash, so the commit
-you'll tag stays reachable from `main`):
+**2. Open + merge the PR** (squash or merge — either is fine; step 3 tags `main`
+*after* it lands, so the tagged commit is always whatever ends up on `main`):
 
 ```bash
 git commit -am "Release vX.Y.Z"
 git push -u origin release-vX.Y.Z
 gh pr create --base main --fill
-# …review, then merge it (merge commit).
+# …review, then merge it.
 ```
 
 **3. Tag the merged commit on `main` and push the tag:**
