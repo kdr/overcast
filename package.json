@@ -1,10 +1,31 @@
 {
-  "name": "@overcast/cli",
-  "version": "0.0.1",
+  "name": "@kdrrr/overcast",
+  "version": "0.0.0",
   "description": "overcast — senses (video/audio/image) + OSINT reach for any agent, built on pi",
+  "license": "SEE LICENSE AT https://github.com/kdr/overcast",
+  "author": "kdr",
+  "homepage": "https://github.com/kdr/overcast#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kdr/overcast.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kdr/overcast/issues"
+  },
+  "keywords": [
+    "video",
+    "osint",
+    "video-analysis",
+    "cloudglue",
+    "investigation",
+    "senses",
+    "pi",
+    "agent",
+    "cli"
+  ],
   "type": "module",
   "bin": {
-    "overcast": "./dist/bin/overcast.js"
+    "overcast": "dist/bin/overcast.js"
   },
   "exports": {
     ".": "./dist/index.js",
@@ -13,13 +34,17 @@
   "files": [
     "dist",
     "themes",
-    "assets",
+    "assets/banner.txt",
+    "assets/branding/logo.png",
     "skills",
     "prompts",
     "examples"
   ],
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsup",
@@ -29,6 +54,9 @@
     "test:e2e:live": "bash test/e2e/live/run.sh",
     "build:bun": "bun build --compile bin/overcast.ts --outfile dist/bin/overcast && node scripts/bun-sidecar.mjs",
     "dev": "tsx bin/overcast.ts",
+    "sync-version": "node scripts/sync-version.mjs",
+    "version": "node scripts/sync-version.mjs && git add -A src/version.ts .claude-plugin/plugin.json .claude-plugin/marketplace.json",
+    "prepublishOnly": "npm run build",
     "postinstall": "node scripts/brand-pi.mjs",
     "brand": "node scripts/brand-pi.mjs"
   },

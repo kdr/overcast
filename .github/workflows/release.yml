@@ -1,0 +1,110 @@
+# Release: publish @kdrrr/overcast to npm via OIDC trusted publishing (no token),
+# then cross-compile the standalone bun binary for macOS/Linux and attach the
+# tarballs to the GitHub Release. Triggered by pushing a v* tag.
+#
+# One-time setup (maintainer): see RELEASING.md — configure the npmjs Trusted
+# Publisher for @kdrrr/overcast (GitHub Actions → repo kdr/overcast → workflow
+# release.yml) AFTER the first manual publish.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (must equal package.json version)"
+        required: true
+
+permissions:
+  contents: write # create the GitHub Release + upload binary assets
+  id-token: write # OIDC for npm trusted publishing (provenance is automatic)
+
+jobs:
+  npm-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          # npm-recommended trusted-publishing config. With no NODE_AUTH_TOKEN set,
+          # npm >= 11.5.1 ignores setup-node's .npmrc token placeholder and auths via
+          # OIDC. Ref: https://docs.npmjs.com/trusted-publishers/
+          registry-url: "https://registry.npmjs.org"
+      # Trusted publishing needs npm >= 11.5.1; pin to latest to be safe.
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+      - name: Verify tag matches package.json version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::tag/input version ($VERSION) != package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        id: ver
+      # ffmpeg/ffprobe are a system prerequisite exercised by the unit suite.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm ci
+      - run: node scripts/sync-version.mjs --check
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node dist/bin/overcast.js --version --json
+      - run: npm test
+      - name: Publish to npm (OIDC trusted publishing — no token)
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          if npm view "@kdrrr/overcast@$VERSION" version >/dev/null 2>&1; then
+            echo "@kdrrr/overcast@$VERSION is already published — skipping publish."
+          else
+            npm publish
+          fi
+
+  binaries:
+    needs: npm-publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # Deps are needed: bun-sidecar.mjs copies pi's builtin themes out of
+      # node_modules, and `bun --compile` resolves imports from node_modules.
+      - run: npm ci
+      - name: Cross-compile binaries + sidecar trees
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          for target in bun-darwin-arm64 bun-darwin-x64 bun-linux-x64 bun-linux-arm64; do
+            osarch="${target#bun-}"
+            out="dist/release/$osarch"
+            mkdir -p "$out"
+            echo "→ building $osarch"
+            bun build --compile --target="$target" bin/overcast.ts --outfile "$out/overcast"
+            node scripts/bun-sidecar.mjs "$out"
+            tar -C "$out" -czf "dist/release/overcast-$osarch.tar.gz" .
+          done
+          ls -lh dist/release/*.tar.gz
+      - name: Attach binaries to the GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/release/*.tar.gz
+          fail_on_unmatched_files: true
+      - name: Upload binaries as workflow artifacts (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: overcast-binaries
+          path: dist/release/*.tar.gz
