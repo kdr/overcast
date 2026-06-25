@@ -4,14 +4,14 @@
 
 # overcast
 
-**Senses (video / audio / image understanding) + OSINT reach (search / capture / monitor) for any agent — built on [pi](https://github.com/earendil-works/pi).**
+**Senses (video / audio / image understanding) + OSINT reach (search / capture / monitor) for any agent.**
 
 overcast gives an agent *eyes and ears* and *reach*, organized around an
 investigation **case**. It ships as a **pi package** (extension + skills +
 prompts + theme), a **standalone bun binary**, and **agent skills** that drive
 the CLI from any harness. The brain LLM is BYO; the default perception backend is
 [Cloudglue](https://cloudglue.dev) via the
-[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)
+[Tinycloud Video Agent CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)
 ([tinycloud.sh](https://www.tinycloud.sh/)).
 
 ---
@@ -20,7 +20,7 @@ the CLI from any harness. The brain LLM is BYO; the default perception backend i
 
 ### Prerequisites
 
-- **FFmpeg ≥ 4.4** — `ffmpeg` + `ffprobe` on your `PATH` (the internal media toolkit
+- **FFmpeg** — `ffmpeg` + `ffprobe` on your `PATH` (the internal media toolkit
   for `enhance`, frame extraction, and `view`).
   `brew install ffmpeg` · `apt install ffmpeg` · <https://ffmpeg.org/download.html>
   (or point `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` at specific binaries).
@@ -192,9 +192,6 @@ Three surfaces from one source of truth (`src/registry/verbs.ts`):
 - **standalone binary** — `bun build --compile` → a single executable (+ a sidecar `package.json` for branding).
 - **agent skills + Claude Code plugin** — `skills generate` renders `skills/overcast/{SKILL.md, reference/verbs.md}` from the registry; `skills install` copies them into a harness.
 
-FFmpeg/ffprobe are a **system prerequisite** (on `PATH`), not bundled — so the
-distributions carry no GPL binaries.
-
 ---
 
 ## Development
@@ -207,6 +204,3 @@ npm run test:e2e    # full e2e (real clips + Cloudglue); OVERCAST_E2E_LIVE=1 for
 overcast commands --json   # the authoritative verb registry
 overcast doctor            # preflight
 ```
-
-Net-new code is the verbs + providers + record store; pi's loop, TUI, sessions,
-and base tools are reused, not forked.
