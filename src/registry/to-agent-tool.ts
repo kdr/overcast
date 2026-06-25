@@ -158,6 +158,10 @@ export function verbCallLine(spec: VerbSpec, args: Record<string, unknown>): str
   return `${tag} ${HUD_DIM}▸${HUD_RESET} ${HUD_PALE}${v}${HUD_RESET}`;
 }
 
+// How many lines of a tool's record output to show before collapsing (mirrors
+// pi's built-in tools, e.g. bash=5/read=10). ctrl+o expands. Tunable.
+const COLLAPSED_RESULT_LINES = 6;
+
 /**
  * Convert a VerbSpec into a pi ToolDefinition. The execute() persists every
  * emitted record to the case store and returns a split result.
@@ -178,6 +182,33 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         text.setText(`⟦ ${spec.name} ⟧`);
       }
       return text;
+    },
+    // Collapse verbose record output by default, like pi's built-in read/bash
+    // tools. (overcast tools otherwise render the full `content` via pi's
+    // fallback, which never truncates — that's the "wall of JSON" dump.) Shows a
+    // short preview + a "ctrl+o to expand" hint, and respects the global ctrl+o
+    // toggle via options.expanded. UI-only: the agent still gets the full
+    // `content` text; this just declutters the screen.
+    renderResult: (result, options, theme): Text => {
+      let text = "";
+      try {
+        const parts = (result?.content ?? []) as Array<{ type?: string; text?: string }>;
+        text = parts
+          .filter((c) => c?.type === "text")
+          .map((c) => c.text ?? "")
+          .join("\n")
+          .replace(/\n+$/, "");
+      } catch {
+        text = "";
+      }
+      if (!text) return new Text("", 0, 0);
+      const lines = text.split("\n");
+      if (options.expanded || lines.length <= COLLAPSED_RESULT_LINES) {
+        return new Text(theme.fg("toolOutput", text), 0, 0);
+      }
+      const head = theme.fg("toolOutput", lines.slice(0, COLLAPSED_RESULT_LINES).join("\n"));
+      const hint = theme.fg("muted", `… (${lines.length - COLLAPSED_RESULT_LINES} more lines, ctrl+o to expand)`);
+      return new Text(`${head}\n${hint}`, 0, 0);
     },
     execute: async (_toolCallId, params: Record<string, unknown>, signal) => {
       const c = deps.getCase();

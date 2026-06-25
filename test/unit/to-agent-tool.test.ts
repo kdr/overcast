@@ -22,6 +22,25 @@ test("verbCallLine: class-colored ⟦ TAG ⟧ ▸ arg (semantic split + primary 
   assert.ok(!s.includes("▸"), "no separator when no primary arg");
 });
 
+test("renderResult: collapses long output to a preview + expand hint (full when expanded)", () => {
+  const spec = { name: "doctor", args: [], flags: [] } as unknown as VerbSpec;
+  const deps = { getCase: () => ({}), getProfile: () => ({}) } as unknown as Parameters<typeof toAgentTool>[1];
+  const tool = toAgentTool(spec, deps);
+  const theme = { fg: (_k: string, t: string) => t } as never;
+  const longText = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n");
+  const result = { content: [{ type: "text", text: longText }] } as never;
+
+  const collapsed = tool.renderResult!(result, { expanded: false, isPartial: false }, theme, {} as never);
+  const c = collapsed.render(200).join("\n");
+  assert.match(c, /14 more lines, ctrl\+o to expand/); // 20 - 6 preview lines
+  assert.ok(!c.includes("line 20"), "tail is hidden when collapsed");
+
+  const expanded = tool.renderResult!(result, { expanded: true, isPartial: false }, theme, {} as never);
+  const e = expanded.render(200).join("\n");
+  assert.ok(e.includes("line 20"), "full output when expanded");
+  assert.ok(!/more lines/.test(e), "no expand hint when expanded");
+});
+
 /** Build a tool whose run() returns the given records, execute it, return the
  *  LLM-facing text (what the agent actually sees). */
 async function renderViaTool(records: OvercastRecord[]): Promise<string> {
