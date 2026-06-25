@@ -17,7 +17,7 @@ import { toAgentTool } from "../registry/to-agent-tool.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveCloudglue, resolveHome } from "../profile.js";
 import { buildSystemPrompt } from "./system-prompt.js";
-import { colorizeBanner, statusLine, recLine, headerText, OvercastHeader, OvercastFooter } from "./branding.js";
+import { OvercastHeader, OvercastFooter, workingIndicator, opLabel, idleLabel } from "./branding.js";
 import { registerSlashCommands } from "./slash.js";
 import { OvercastEditor } from "./editor.js";
 import { OVERCAST_VERSION } from "../version.js";
@@ -99,13 +99,13 @@ function desiredTitle(): string {
 }
 
 export default async function overcastExtension(pi: ExtensionAPI): Promise<void> {
-  // Read the banner once; captured by the setHeader factory. Colorize it to the
-  // overcast theme (raw ASCII would render terminal-default white).
-  let banner = "";
+  // Read the raw banner once; captured by the setHeader factory. OvercastHeader
+  // colorizes + animates it (raw ASCII would render terminal-default white).
+  let bannerRaw = "";
   try {
-    banner = colorizeBanner(readFileSync(BANNER_PATH, "utf8"));
+    bannerRaw = readFileSync(BANNER_PATH, "utf8");
   } catch {
-    banner = "";
+    bannerRaw = "";
   }
 
   // Resolve the Cloudglue config once (env or ~/.tinycloud/config.json).
@@ -121,6 +121,18 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
 
   // state verbs as TUI slash commands (/target /source /case /prebrief /view /setup)
   registerSlashCommands(pi);
+
+  // Themed busy *label* ("verbs"): name the actual op while a verb runs
+  // ("scanning sources…", "watching the footage…"), and a themed generic while
+  // the agent reasons between tools — replacing pi's default "Working…". The
+  // spinner *glyph* is set separately per-session (setWorkingIndicator).
+  // turn_start fires at the start of every turn (incl. the first), so it alone
+  // covers the "reasoning" phase — a parallel agent_start handler would advance
+  // the idle-phrase rotation twice at loop start and skip an entry (Bugbot, #12).
+  pi.on("turn_start", (_e, ctx) => ctx.ui?.setWorkingMessage?.(idleLabel()));
+  pi.on("tool_execution_start", (e, ctx) => ctx.ui?.setWorkingMessage?.(opLabel(e.toolName)));
+  pi.on("tool_execution_end", (_e, ctx) => ctx.ui?.setWorkingMessage?.(idleLabel()));
+  pi.on("agent_end", (_e, ctx) => ctx.ui?.setWorkingMessage?.(undefined));
 
   pi.on("session_start", async (_event, ctx) => {
     // apply the inline Theme object; fall back to the registered name if the
@@ -149,24 +161,30 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
     // handler) — re-apply ours just after the synchronous init settles.
     setTimeout(() => { try { ctx.ui.setTitle(desiredTitle()); } catch { /* ignore */ } }, 50);
 
-    // Header: colorized banner + a status line (context file · verbs · model).
-    // Respect an explicit `setup llm` choice in the status label too.
+    // Header: the animated recording-deck banner (gradient wordmark + REC HUD +
+    // centered tagline + bracket status). Respect an explicit `setup llm` choice.
     const llmLabel = activeProfile.llm?.model || activeProfile.llm?.provider;
-    const modelLabel = llmLabel
-      ? `model: ${llmLabel}`
-      : cgKey
-        ? `model: ${CLOUDGLUE_MODEL_ID}`
-        : "model: (set via /model)";
-    if (banner) {
-      const status = statusLine([
-        contextFileLabel(cwd),
-        `${VERBS.length} tools`,
-        modelLabel,
-      ]);
-      // banner (incl. tagline) → [ REC ● ] <version> → a blank line → status row
-      const subhead = [recLine(OVERCAST_VERSION), "", status].filter((l) => l !== undefined).join("\n");
-      const header = headerText(banner, subhead);
-      ctx.ui.setHeader((_tui: TUI, _theme): Component => new OvercastHeader(header));
+    const modelId = llmLabel || (cgKey ? CLOUDGLUE_MODEL_ID : "(set via /model)");
+    if (bannerRaw) {
+      const contextFile = contextFileLabel(cwd).replace(" loaded", "");
+      ctx.ui.setHeader(
+        (tui: TUI, _theme): Component =>
+          new OvercastHeader(tui, {
+            banner: bannerRaw,
+            version: OVERCAST_VERSION,
+            contextFile,
+            tools: VERBS.length,
+            model: modelId,
+          }),
+      );
+    }
+
+    // Themed "busy" spinner: a magenta/cyan scan-bar sweep instead of the default
+    // braille dots (frames render verbatim, so we color them ourselves).
+    try {
+      ctx.ui.setWorkingIndicator?.(workingIndicator());
+    } catch {
+      /* keep pi's default spinner if the API shape changed */
     }
 
     // Minimal footer: case · tokens · ctx% · model · thinking.

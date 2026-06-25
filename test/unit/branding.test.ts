@@ -1,35 +1,73 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { colorizeBanner, statusLine, headerText, OvercastFooter } from "../../src/extension/branding.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { OvercastHeader, workingIndicator, OvercastFooter, opLabel, idleLabel } from "../../src/extension/branding.ts";
 import { renderTopHelp, runCli, type CliIO } from "../../src/cli.ts";
 import { VERBS } from "../../src/registry/verbs.ts";
 
-test("colorizeBanner: two-tone green wordmark (face + dim extrusion), amber play box with red triangle", () => {
-  const banner = [
-    "        ╔═══════════╗",
-    "        ║    ▶ ▮▮   ║",
-    " ██████╗ ██╗   ██╗███████╗",
-    "        v i d e o · r e c o n · o s i n t",
-  ].join("\n");
-  const out = colorizeBanner(banner);
-  assert.ok(out.includes("\x1b[38;2;0;255;127m"), "bright green (block face) present");
-  assert.ok(out.includes("\x1b[38;2;31;157;87m"), "dim green (extrusion) present");
-  assert.ok(out.includes("\x1b[38;2;255;196;0m"), "amber (play box) present");
-  assert.ok(out.includes("\x1b[38;2;255;85;85m"), "red play triangle present");
-  assert.ok(!out.includes("pi //"), "no pi // cloudglue branding");
+const BANNER = readFileSync(fileURLToPath(new URL("../../assets/banner.txt", import.meta.url)), "utf8");
+const headerOpts = { banner: BANNER, version: "0.0.1", contextFile: "CLAUDE.md", tools: 18, model: "tinycloud:advanced" };
+const setStart = (h: OvercastHeader, msAgo: number) => {
+  (h as unknown as { start: number }).start = Date.now() - msAgo;
+};
+
+test("OvercastHeader: settled frame paints the synthwave gradient + recording-deck HUD", () => {
+  const h = new OvercastHeader(null, headerOpts);
+  setStart(h, 4000); // well past the boot reveal
+  const out = h.render(140).join("\n");
+  h.dispose();
+  assert.ok(out.includes("\x1b[38;2;0;255;127m"), "gradient top = neon green");
+  assert.ok(out.includes("\x1b[38;2;0;229;255m"), "gradient bottom = cyan");
+  assert.ok(out.includes("\x1b[38;2;255;46;151m"), "magenta REC/accent present");
+  assert.match(out, /REC .*v0\.0\.1/, "deck shows REC + version");
+  assert.match(out, /\[[^\]]*OK[^\]]*\][^\n]*CLAUDE\.md/, "bracket OK tag for context file");
+  assert.match(out, /\[[^\]]*18[^\]]*\][^\n]*tools/, "bracket tools tag");
+  assert.ok(out.includes("tinycloud:advanced"), "model in status");
+  // tagline centered under the wordmark (indented well past the source's 8)
+  const tagLine = out.split("\n").find((l) => l.includes("o s i n t")) ?? "";
+  const lead = (tagLine.match(/^ */) ?? [""])[0].length;
+  assert.ok(lead >= 10, `tagline centered under the wordmark (lead=${lead})`);
 });
 
-test("statusLine joins parts (skipping empties) with a leading marker", () => {
-  const s = statusLine(["CLAUDE.md loaded", "", "17 verbs", "model: x"]);
-  assert.match(s, /▶/);
-  assert.match(s, /CLAUDE\.md loaded/);
-  assert.match(s, /17 verbs/);
-  assert.equal(statusLine([]), "");
+test("OvercastHeader: boot frame hides the status until the decrypt reveal finishes", () => {
+  const h = new OvercastHeader(null, headerOpts);
+  setStart(h, 40); // first moments of the reveal
+  const out = h.render(140).join("\n");
+  h.dispose();
+  assert.ok(!out.includes("tinycloud:advanced"), "status fades in only after the reveal");
+  assert.ok(out.includes("REC"), "deck readout is shown immediately");
 });
 
-test("headerText appends the status line under the banner", () => {
-  assert.equal(headerText("BANNER", ""), "BANNER");
-  assert.equal(headerText("BANNER", "STATUS"), "BANNER\nSTATUS");
+test("opLabel: each verb cycles its OWN variations (independent per-verb cursors)", () => {
+  // Interleave an unrelated verb between every scan call. With per-verb cursors,
+  // scan still covers all 4 of its variations; a single shared counter would skip
+  // half of them (the bug Cursor Bugbot flagged).
+  const scanSeen = new Set<string>();
+  for (let i = 0; i < 4; i++) {
+    scanSeen.add(opLabel("scan"));
+    opLabel("watch"); // unrelated verb must not advance scan's cursor
+  }
+  assert.equal(scanSeen.size, 4, "scan cycles all its variations regardless of other verbs");
+  for (const s of scanSeen) assert.ok(s.endsWith("…"), "labels end with …");
+  assert.equal(opLabel("weird-unmapped"), "weird-unmapped…"); // graceful fallback
+});
+
+test("idleLabel: cycles iconic phrases, never pi's default 'Working'", () => {
+  const a = idleLabel();
+  const b = idleLabel();
+  assert.ok(a.length > 0 && !/Working/.test(a), "themed, not the default");
+  assert.notEqual(a, b, "rotates between calls");
+});
+
+test("workingIndicator: animated ASCII table-flip frames (verbatim, colored)", () => {
+  const wi = workingIndicator();
+  assert.ok(wi.frames.length >= 2, "animated");
+  assert.ok(wi.intervalMs > 0, "has an interval");
+  const joined = wi.frames.join("");
+  assert.ok(joined.includes("┻━┻"), "the flipped table appears");
+  assert.ok(joined.includes("╯°□°"), "the rage face appears");
+  assert.ok(joined.includes("\x1b[38;2;255;85;85m"), "red rage frame");
 });
 
 test("OvercastFooter renders a justified case · tok · ctx% · model · think line", () => {
@@ -37,7 +75,7 @@ test("OvercastFooter renders a justified case · tok · ctx% · model · think l
   const [line] = f.render(100);
   assert.match(line, /case:\/\/.*shadowport/);
   assert.match(line, /12\.4k tok/);
-  assert.match(line, /ctx 6%/);
+  assert.match(line, /ctx .*6%/);
   assert.match(line, /think:medium/);
   // null tokens render as an em-dash, not NaN
   const g = new OvercastFooter(() => ({ caseName: "c", tokens: null, ctxPercent: null, model: "m", thinking: "off" }));

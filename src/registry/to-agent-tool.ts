@@ -7,6 +7,7 @@
 
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
 import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
 import { renderRecord, pageCommand } from "../render.js";
@@ -121,6 +122,46 @@ function renderRecords(records: OvercastRecord[]): string {
   return parts.join("\n\n");
 }
 
+// --- verb HUD call tag ------------------------------------------------------
+// A cyberpunk "recording-deck" tag for the tool-call line, colored by verb class
+// (a semantic split: you read what kind of op is running by its hue). Raw
+// truecolor (the theme has no neon-magenta/cyan), mirroring src/extension styling.
+const HUD_RESET = "\x1b[0m";
+const HUD_PALE = "\x1b[38;2;198;247;213m"; // arg text
+const HUD_DIM = "\x1b[38;2;31;157;87m"; // ▸ separator
+const ACCENT: Record<string, string> = {
+  sense: "\x1b[38;2;0;255;127m", // senses → neon green
+  osint: "\x1b[38;2;255;46;151m", // OSINT → magenta
+  read: "\x1b[38;2;0;229;255m", // memory/read → cyan
+  config: "\x1b[38;2;255;196;0m", // config/dist → amber
+};
+const SENSE = new Set(["watch", "listen", "see", "enhance", "view"]);
+const OSINT = new Set(["scan", "capture", "monitor", "target", "source", "prebrief"]);
+const READ = new Set(["ask", "brief", "case"]);
+
+function verbAccent(name: string): string {
+  if (SENSE.has(name)) return ACCENT.sense;
+  if (OSINT.has(name)) return ACCENT.osint;
+  if (READ.has(name)) return ACCENT.read;
+  return ACCENT.config;
+}
+
+/** A HUD-tag call line: `⟦ WATCH ⟧ ▸ <primary arg>`. The tag is class-colored;
+ *  the primary positional arg (if any) trails after a dim ▸. Never throws. */
+export function verbCallLine(spec: VerbSpec, args: Record<string, unknown>): string {
+  const tag = `${verbAccent(spec.name)}⟦ ${spec.name.toUpperCase()} ⟧${HUD_RESET}`;
+  const primaryName = spec.args[0]?.name;
+  const raw = primaryName ? args?.[primaryName] : undefined;
+  if (raw === undefined || raw === null || raw === "") return tag;
+  let v = String(raw);
+  if (v.length > 80) v = v.slice(0, 79) + "…";
+  return `${tag} ${HUD_DIM}▸${HUD_RESET} ${HUD_PALE}${v}${HUD_RESET}`;
+}
+
+// How many lines of a tool's record output to show before collapsing (mirrors
+// pi's built-in tools, e.g. bash=5/read=10). ctrl+o expands. Tunable.
+const COLLAPSED_RESULT_LINES = 6;
+
 /**
  * Convert a VerbSpec into a pi ToolDefinition. The execute() persists every
  * emitted record to the case store and returns a split result.
@@ -131,6 +172,44 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
     label: spec.name,
     description: `${spec.summary}${spec.description ? "\n\n" + spec.description : ""}`,
     parameters: verbParams(spec),
+    // Cyberpunk call line (keeps pi's default themed shell, like the bash tool):
+    // ⟦ VERB ⟧ ▸ <arg>, colored by verb class.
+    renderCall: (args, _theme, context): Text => {
+      const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+      try {
+        text.setText(verbCallLine(spec, (args ?? {}) as Record<string, unknown>));
+      } catch {
+        text.setText(`⟦ ${spec.name} ⟧`);
+      }
+      return text;
+    },
+    // Collapse verbose record output by default, like pi's built-in read/bash
+    // tools. (overcast tools otherwise render the full `content` via pi's
+    // fallback, which never truncates — that's the "wall of JSON" dump.) Shows a
+    // short preview + a "ctrl+o to expand" hint, and respects the global ctrl+o
+    // toggle via options.expanded. UI-only: the agent still gets the full
+    // `content` text; this just declutters the screen.
+    renderResult: (result, options, theme): Text => {
+      let text = "";
+      try {
+        const parts = (result?.content ?? []) as Array<{ type?: string; text?: string }>;
+        text = parts
+          .filter((c) => c?.type === "text")
+          .map((c) => c.text ?? "")
+          .join("\n")
+          .replace(/\n+$/, "");
+      } catch {
+        text = "";
+      }
+      if (!text) return new Text("", 0, 0);
+      const lines = text.split("\n");
+      if (options.expanded || lines.length <= COLLAPSED_RESULT_LINES) {
+        return new Text(theme.fg("toolOutput", text), 0, 0);
+      }
+      const head = theme.fg("toolOutput", lines.slice(0, COLLAPSED_RESULT_LINES).join("\n"));
+      const hint = theme.fg("muted", `… (${lines.length - COLLAPSED_RESULT_LINES} more lines, ctrl+o to expand)`);
+      return new Text(`${head}\n${hint}`, 0, 0);
+    },
     execute: async (_toolCallId, params: Record<string, unknown>, signal) => {
       const c = deps.getCase();
       c.ensure();
