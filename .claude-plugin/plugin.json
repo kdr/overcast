@@ -2,7 +2,7 @@
   "name": "overcast",
   "displayName": "overcast — video-OSINT senses",
   "description": "Give any agent senses (video/audio/image understanding) and OSINT reach (search/capture/monitor), organized around an investigation case. Built on pi with the tinycloud/Cloudglue perception backend.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "author": {
     "name": "kdr"
   },
