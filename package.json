@@ -1,6 +1,6 @@
 {
   "name": "@kdrrr/overcast",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "overcast — senses (video/audio/image) + OSINT reach for any agent, built on pi",
   "license": "SEE LICENSE AT https://github.com/kdr/overcast",
   "author": "kdr",
@@ -38,7 +38,8 @@
     "assets/branding/logo.png",
     "skills",
     "prompts",
-    "examples"
+    "examples",
+    "scripts/brand-pi.mjs"
   ],
   "engines": {
     "node": ">=22"

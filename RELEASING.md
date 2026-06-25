@@ -135,6 +135,11 @@ instead of release assets.
 > an admin **bypass** for the `main` ruleset (Settings → Rules) instead of the PR
 > flow above.
 
+**Shipping one PR's change as a patch?** You can skip the dedicated
+`release-vX.Y.Z` branch and fold the bump into that PR: run `npm version X.Y.Z
+--no-git-tag-version` on the feature branch, commit it alongside the change, then
+tag `main` after the PR merges (step 3 above). One PR instead of two.
+
 ---
 
 ## Verify a release
