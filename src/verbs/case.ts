@@ -6,7 +6,7 @@ import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
 import { openCase } from "../case.js";
 import { resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
-import { payloadFields } from "../render.js";
+import { payloadFields, fieldText } from "../render.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -139,6 +139,9 @@ export const caseVerb: VerbSpec = {
             name: f.name,
             type: f.type,
             size: f.size,
+            // `chars` is the unit --offset/--limit page in (=== paging `total`),
+            // so manifest length never disagrees with paging metadata.
+            chars: f.chars,
             ...(f.count != null ? { count: f.count } : {}),
             preview: f.preview,
           }));
@@ -158,7 +161,8 @@ export const caseVerb: VerbSpec = {
           const names = payloadFields(rec.payload).map((f) => f.name).join(", ");
           return [err(`record ${id} has no field '${field}' (fields: ${names})`)];
         }
-        const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        // same canonical text the manifest measured (guarded; never throws)
+        const text = fieldText(value);
         const total = text.length;
 
         let offset = 0;

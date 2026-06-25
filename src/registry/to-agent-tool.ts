@@ -9,7 +9,7 @@ import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
 import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
-import { renderRecord, payloadBytes } from "../render.js";
+import { renderRecord } from "../render.js";
 import type { Case } from "../case.js";
 import type { Profile } from "../profile.js";
 
@@ -57,29 +57,38 @@ export function verbParams(spec: VerbSpec): TSchema {
   return Type.Object(props);
 }
 
+/** A `case memory get --field` page slice — always shown in full (the agent
+ *  asked for exactly that slice). Matched on the page record's signature, not a
+ *  bare `chunk` key, so a verb payload that merely has a `chunk` field isn't
+ *  forced inline. */
+function isPageChunk(rec: OvercastRecord): boolean {
+  if (rec.verb !== "case" || typeof rec.payload !== "object" || rec.payload == null) return false;
+  const p = rec.payload as JsonMap;
+  return "chunk" in p && "field" in p && "next_offset" in p;
+}
+
 /**
- * Render the emitted records into the LLM-facing tool text. Greedy by size:
- * inline records in full while under the budget, preview the rest (so a single
- * huge watch record previews but the small records around it stay full). A
- * record that is itself an explicitly-requested page (`case memory get --field`
- * → a `chunk` payload) is always shown in full — the agent asked for exactly
- * that slice.
+ * Render the emitted records into the LLM-facing tool text. Greedy by the ACTUAL
+ * rendered size (header + formatting, not just payload bytes): inline records in
+ * full while under the budget, preview the rest — so a single huge watch record
+ * previews but the small records around it stay full.
  */
 function renderRecords(records: OvercastRecord[]): string {
   let spent = 0;
   return records
     .map((rec) => {
-      const isChunk =
-        typeof rec.payload === "object" && rec.payload != null && "chunk" in (rec.payload as JsonMap);
-      if (isChunk) return renderRecord(rec, { mode: "full", budget: AGENT_BUDGET, force: true });
-      if (!rec.error) {
-        const size = payloadBytes(rec);
-        if (spent + size <= AGENT_BUDGET) {
-          spent += size;
-          return renderRecord(rec, { mode: "full", budget: AGENT_BUDGET });
-        }
+      if (isPageChunk(rec)) return renderRecord(rec, { mode: "full", budget: AGENT_BUDGET, force: true });
+      // full-mode already degrades a too-big payload to a preview internally;
+      // we then budget on the rendered string so headers/separators count too.
+      const full = renderRecord(rec, { mode: "full", budget: AGENT_BUDGET });
+      const cost = Buffer.byteLength(full, "utf8");
+      if (spent + cost <= AGENT_BUDGET) {
+        spent += cost;
+        return full;
       }
-      return renderRecord(rec, { mode: "preview", budget: AGENT_BUDGET });
+      const preview = renderRecord(rec, { mode: "preview", budget: AGENT_BUDGET });
+      spent += Buffer.byteLength(preview, "utf8");
+      return preview;
     })
     .join("\n\n");
 }

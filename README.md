@@ -95,7 +95,7 @@ surface + env vars.)
 |---|---|
 | `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations |
 | `brief` | timeline / findings report; `--export` to md/html |
-| `case` | inspect/manage the case: `init` / `info` / `records` / `memory` |
+| `case` | inspect/manage the case: `init` / `info` / `records` / `memory` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
 
 **Config / SDK / dist** — `setup` (bind providers + brain LLM), `provider`
 (init/list/describe), `doctor` (preflight), `skills` (generate/install).

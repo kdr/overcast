@@ -166,3 +166,33 @@ test("brief verb builds a report and --export writes md + html", async () => {
     assert.match(html, /white van/);
   });
 });
+
+test("brief embeds the FULL primary field, not a 160-char stub", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-brieffull-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    // a marker only reachable if the field is NOT truncated at ~160 chars
+    const content = "lead ".repeat(60) + "DEEP_TAIL_MARKER";
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content }, media: { ref: "v.mp4" } }));
+    const [rec] = await briefVerb.run(ctx(c, undefined, {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.ok(content.length > 200, "fixture should exceed the old 160-char cap");
+    assert.match(report, /DEEP_TAIL_MARKER/); // full content embedded
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief collapses a prior brief record to a one-liner (no recursive re-embed)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefprior-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "brief", payload: { report: "OLD_REPORT_BODY", counts: {}, total: 5 } }));
+    const [rec] = await briefVerb.run(ctx(c, undefined, {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.match(report, /prior brief — 5 records/);
+    assert.doesNotMatch(report, /OLD_REPORT_BODY/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

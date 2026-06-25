@@ -36,6 +36,24 @@ function safeJson(v: unknown): string {
   }
 }
 
+/**
+ * The canonical pageable text of a field value — the EXACT string
+ * `case memory get --field` slices. Manifest and pager both derive length/size
+ * from this, so the manifest's reported `chars` === paging `total` (no
+ * bytes-vs-chars or compact-vs-pretty drift). Guarded against non-serializable
+ * values so paging returns a record instead of throwing.
+ */
+export function fieldText(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  try {
+    return JSON.stringify(v, null, 2) ?? String(v);
+  } catch {
+    return String(v);
+  }
+}
+
 function oneLine(s: string, max: number): string {
   const t = s.replace(/\s+/g, " ").trim();
   return t.length <= max ? t : t.slice(0, max) + "…";
@@ -46,32 +64,41 @@ export type FieldType = "string" | "number" | "boolean" | "array" | "object" | "
 export interface FieldInfo {
   name: string;
   type: FieldType;
-  /** human size of the field value */
+  /** human size (UTF-8 bytes) of the field's pageable text */
   size: string;
   bytes: number;
+  /** length in characters — the unit `--offset`/`--limit` page in (=== paging `total`) */
+  chars: number;
   /** array length / object key count (undefined for scalars) */
   count?: number;
   /** short one-line preview of the value */
   preview: string;
 }
 
+function fieldType(v: unknown): FieldType {
+  if (v == null) return "null";
+  if (Array.isArray(v)) return "array";
+  if (typeof v === "object") return "object";
+  return typeof v as "string" | "number" | "boolean";
+}
+
 function oneField(name: string, v: unknown, previewChars: number): FieldInfo {
-  if (v == null) return { name, type: "null", size: "0B", bytes: 0, preview: "null" };
-  if (typeof v === "string") {
-    const bytes = Buffer.byteLength(v, "utf8");
-    return { name, type: "string", size: humanSize(bytes), bytes, preview: oneLine(v, previewChars) };
+  const type = fieldType(v);
+  // size/length come from the SAME text the pager slices (fieldText), so the
+  // manifest never disagrees with paging metadata.
+  const text = fieldText(v);
+  const bytes = Buffer.byteLength(text, "utf8");
+  const chars = text.length;
+  const base = { name, type, size: humanSize(bytes), bytes, chars };
+  if (type === "object") {
+    const keys = Object.keys(v as JsonMap);
+    return { ...base, count: keys.length, preview: `{${keys.join(",")}}` };
   }
-  if (typeof v === "number" || typeof v === "boolean") {
-    const s = String(v);
-    return { name, type: typeof v as "number" | "boolean", size: humanSize(s.length), bytes: s.length, preview: s };
+  if (type === "array") {
+    return { ...base, count: (v as unknown[]).length, preview: oneLine(text, previewChars) };
   }
-  const json = safeJson(v);
-  const bytes = Buffer.byteLength(json, "utf8");
-  if (Array.isArray(v)) {
-    return { name, type: "array", size: humanSize(bytes), bytes, count: v.length, preview: oneLine(json, previewChars) };
-  }
-  const keys = Object.keys(v as JsonMap);
-  return { name, type: "object", size: humanSize(bytes), bytes, count: keys.length, preview: `{${keys.join(",")}}` };
+  if (type === "null") return { ...base, preview: "null" };
+  return { ...base, preview: oneLine(text, previewChars) };
 }
 
 /**
