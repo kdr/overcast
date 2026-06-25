@@ -2,10 +2,19 @@
   "name": "overcast",
   "displayName": "overcast — video-OSINT senses",
   "description": "Give any agent senses (video/audio/image understanding) and OSINT reach (search/capture/monitor), organized around an investigation case. Built on pi with the tinycloud/Cloudglue perception backend.",
-  "version": "0.0.1",
-  "author": { "name": "overcast" },
+  "version": "0.0.0",
+  "author": {
+    "name": "overcast"
+  },
   "homepage": "https://github.com/kdr/overcast",
   "repository": "https://github.com/kdr/overcast",
   "license": "SEE LICENSE AT https://github.com/kdr/overcast",
-  "keywords": ["video", "osint", "video-analysis", "cloudglue", "investigation", "senses"]
+  "keywords": [
+    "video",
+    "osint",
+    "video-analysis",
+    "cloudglue",
+    "investigation",
+    "senses"
+  ]
 }

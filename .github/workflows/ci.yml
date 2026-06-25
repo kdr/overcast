@@ -17,6 +17,8 @@ jobs:
       # extraction); the unit suite exercises them.
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm ci
+      # version is single-sourced from package.json; fail if any surface drifted.
+      - run: node scripts/sync-version.mjs --check
       - run: npm run typecheck
       - run: npm run build
       # Phase 0 acceptance check: the built entrypoint must actually run.
