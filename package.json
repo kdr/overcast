@@ -38,7 +38,8 @@
     "assets/branding/logo.png",
     "skills",
     "prompts",
-    "examples"
+    "examples",
+    "scripts/brand-pi.mjs"
   ],
   "engines": {
     "node": ">=22"
