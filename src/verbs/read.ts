@@ -125,27 +125,36 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
   for (const r of sorted) {
     const at = r.media?.at != null ? ` @${Array.isArray(r.media.at) ? r.media.at.join("-") : r.media.at}s` : "";
     const ref = r.media?.ref ? ` (${r.media.ref})` : "";
-    let head = "";
-    if (typeof r.payload === "string") head = r.payload.slice(0, 160);
-    else {
-      const p = r.payload as Record<string, unknown>;
-      const pick = (v: unknown): string | undefined => {
-        if (v == null) return undefined;
-        if (typeof v === "string") return v.slice(0, 160);
-        // non-string content (number/object) must not be lost — stringify it
-        if (typeof v === "number" || typeof v === "boolean") return String(v);
-        return undefined;
-      };
-      head =
-        pick(p.title) ??
-        pick(p.content) ??
-        pick(p.text) ??
-        pick(p.report) ?? // brief records store their markdown under `report`
-        Object.keys(p).join(", ");
+    lines.push(`### \`${r.verb}\` ${r.id}${at}${ref}`, "");
+    if (r.error) {
+      lines.push(`> error: ${r.error}`, "");
+      continue;
     }
-    lines.push(`- **${r.verb}** \`${r.id}\`${at}${ref}: ${String(head).replace(/\s+/g, " ").trim()}`);
+    lines.push(briefBody(r), "");
   }
   return { md: lines.join("\n"), counts, total: records.length };
+}
+
+// Brief is an export artifact: embed each record's primary field IN FULL (not a
+// 160-char stub — the bug that made `brief --export` a useless record list).
+// Prior brief records collapse to a one-liner so a brief never re-embeds briefs.
+const BRIEF_PRIMARY_FIELDS = ["content", "transcript", "text", "caption", "ocr", "title", "snippet"];
+
+function briefBody(rec: OvercastRecord): string {
+  if (rec.verb === "brief") {
+    const total = typeof rec.payload === "object" && rec.payload ? (rec.payload as Record<string, unknown>).total : undefined;
+    return `_(prior brief — ${total ?? "?"} records)_`;
+  }
+  if (typeof rec.payload === "string") return rec.payload.trim() || "_(empty)_";
+  const p = rec.payload as Record<string, unknown>;
+  for (const k of BRIEF_PRIMARY_FIELDS) {
+    const v = p[k];
+    if (typeof v === "string" && v.trim()) return v;
+    // a non-string primary value (number/boolean) must not be lost
+    if (typeof v === "number" || typeof v === "boolean") return `${k}: ${v}`;
+  }
+  // no primary text field — list what the payload carries
+  return `_payload: ${Object.keys(p).join(", ") || "(empty)"}_`;
 }
 
 function mdToHtml(md: string, title: string): string {
@@ -154,6 +163,7 @@ function mdToHtml(md: string, title: string): string {
   const body = md
     .split("\n")
     .map((line) => {
+      if (/^### /.test(line)) return `<h3>${esc(line.slice(4))}</h3>`;
       if (/^# /.test(line)) return `<h1>${esc(line.slice(2))}</h1>`;
       if (/^## /.test(line)) return `<h2>${esc(line.slice(3))}</h2>`;
       if (/^- /.test(line)) return `<li>${esc(line.slice(2))}</li>`;

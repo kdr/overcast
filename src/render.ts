@@ -1,0 +1,157 @@
+// Shared record → text rendering. ONE place that turns a loose record into a
+// human/agent-facing string, so the five surfaces (agent tool, CLI summary, TUI
+// slash, brief, memory) stop reimplementing payload→string with five different
+// ad-hoc char limits (the bug that made the agent see only payload key names).
+//
+// Two ideas keep the agent from "skipping the middle":
+//   1. preview mode reports MAGNITUDE (size + item/key counts) per field, so a
+//      stub can never masquerade as the complete value.
+//   2. full mode inlines the whole payload when it fits a byte budget; oversized
+//      fields fall back to a preview + a deterministic "page it" pointer
+//      (`case memory get <id> --field <name> --offset/--limit`).
+
+import type { OvercastRecord, RecordPayload, JsonMap } from "./record.js";
+
+const DEFAULT_BUDGET = 8000; // bytes; full-mode inline ceiling
+const DEFAULT_PREVIEW = 200; // chars; per-field preview width
+
+/** Byte size of a record's payload (string as-is, object as JSON). */
+export function payloadBytes(rec: OvercastRecord): number {
+  const p = rec.payload;
+  return Buffer.byteLength(typeof p === "string" ? p : safeJson(p), "utf8");
+}
+
+/** Human-readable byte size: 412B, 1.3KB, 48KB, 1.3MB. */
+export function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function safeJson(v: unknown): string {
+  try {
+    return JSON.stringify(v) ?? String(v);
+  } catch {
+    return String(v);
+  }
+}
+
+function oneLine(s: string, max: number): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length <= max ? t : t.slice(0, max) + "…";
+}
+
+export type FieldType = "string" | "number" | "boolean" | "array" | "object" | "null";
+
+export interface FieldInfo {
+  name: string;
+  type: FieldType;
+  /** human size of the field value */
+  size: string;
+  bytes: number;
+  /** array length / object key count (undefined for scalars) */
+  count?: number;
+  /** short one-line preview of the value */
+  preview: string;
+}
+
+function oneField(name: string, v: unknown, previewChars: number): FieldInfo {
+  if (v == null) return { name, type: "null", size: "0B", bytes: 0, preview: "null" };
+  if (typeof v === "string") {
+    const bytes = Buffer.byteLength(v, "utf8");
+    return { name, type: "string", size: humanSize(bytes), bytes, preview: oneLine(v, previewChars) };
+  }
+  if (typeof v === "number" || typeof v === "boolean") {
+    const s = String(v);
+    return { name, type: typeof v as "number" | "boolean", size: humanSize(s.length), bytes: s.length, preview: s };
+  }
+  const json = safeJson(v);
+  const bytes = Buffer.byteLength(json, "utf8");
+  if (Array.isArray(v)) {
+    return { name, type: "array", size: humanSize(bytes), bytes, count: v.length, preview: oneLine(json, previewChars) };
+  }
+  const keys = Object.keys(v as JsonMap);
+  return { name, type: "object", size: humanSize(bytes), bytes, count: keys.length, preview: `{${keys.join(",")}}` };
+}
+
+/**
+ * Describe each payload field (name/type/size/count/preview). A string payload
+ * is reported as a single field named "(text)". This is the manifest backing
+ * `case memory get` and the preview-mode renderer.
+ */
+export function payloadFields(payload: RecordPayload, previewChars = 160): FieldInfo[] {
+  if (typeof payload === "string") return [oneField("(text)", payload, previewChars)];
+  return Object.entries(payload).map(([k, v]) => oneField(k, v, previewChars));
+}
+
+/** Render a full (within-budget) object payload, printing string fields in full. */
+function renderFullPayload(payload: RecordPayload): string {
+  if (typeof payload === "string") return payload;
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(payload)) {
+    if (v == null) out.push(`${k}: null`);
+    else if (typeof v === "string") out.push(v.includes("\n") || v.length > 80 ? `${k}:\n${v}` : `${k}: ${v}`);
+    else if (typeof v === "number" || typeof v === "boolean") out.push(`${k}: ${v}`);
+    else out.push(`${k}: ${safeJson(v)}`);
+  }
+  return out.join("\n");
+}
+
+export type RenderMode = "preview" | "full";
+
+export interface RenderOpts {
+  /** preview (default): magnitude + per-field previews. full: inline whole
+   *  payload when it fits `budget` (or always, with `force`); else preview. */
+  mode?: RenderMode;
+  /** full-mode inline ceiling in bytes (default 8000) */
+  budget?: number;
+  /** full-mode: inline regardless of size (for explicitly-requested slices) */
+  force?: boolean;
+  /** per-field preview width in chars (default 200) */
+  previewChars?: number;
+}
+
+function head(rec: OvercastRecord): string {
+  const at =
+    rec.media?.at != null
+      ? `@${Array.isArray(rec.media.at) ? rec.media.at.join("-") : rec.media.at}s`
+      : "";
+  const media = rec.media?.ref ? ` media=${rec.media.ref}${at ? " " + at : ""}` : "";
+  return `${rec.id} [${rec.verb}] state=${rec.state ?? "ready"}${media}`;
+}
+
+/**
+ * Render a record to text. The single renderer behind every surface.
+ * - preview: one line per field with size/count, plus a "page it" pointer for
+ *   oversized payloads — a stub can never look like the whole value.
+ * - full: inline the entire payload when it fits the budget; otherwise behave
+ *   like preview (so big fields degrade gracefully rather than dump 183KB).
+ */
+export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string {
+  const mode = opts.mode ?? "preview";
+  const budget = opts.budget ?? DEFAULT_BUDGET;
+  const previewChars = opts.previewChars ?? DEFAULT_PREVIEW;
+  const h = head(rec);
+  if (rec.error) return `${h} error=${rec.error}`;
+
+  const bytes = payloadBytes(rec);
+
+  if (mode === "full" && (opts.force || bytes <= budget)) {
+    return `${h}\n${renderFullPayload(rec.payload)}`;
+  }
+
+  const isString = typeof rec.payload === "string";
+  const fields = payloadFields(rec.payload, previewChars);
+  const lines = fields.map((f) => {
+    const meta: string[] = [];
+    if (f.bytes > 200) meta.push(f.size);
+    if (f.count != null) meta.push(`${f.count} ${f.type === "array" ? "items" : "keys"}`);
+    const tag = meta.length ? ` (${meta.join(", ")})` : "";
+    return `  ${f.name}${tag}: ${f.preview}`;
+  });
+  const pageCmd = isString
+    ? `case memory get ${rec.id} --offset 0 [--limit M]`
+    : `case memory get ${rec.id} --field <name> [--offset N] [--limit M]`;
+  const hint = bytes > budget ? `\n  ⟶ full payload ${humanSize(bytes)}; read it in full with: ${pageCmd}` : "";
+  return `${h} payload:\n${lines.join("\n")}${hint}`;
+}

@@ -9,6 +9,7 @@ import { parseVerbArgs, renderVerbHelp } from "./registry/to-cli.js";
 import { openCase } from "./case.js";
 import { loadProfile, type HomeOptions } from "./profile.js";
 import { makeRecord, type OvercastRecord } from "./record.js";
+import { renderRecord as renderRecordSummary } from "./render.js";
 
 export interface CliIO {
   out: (s: string) => void;
@@ -79,12 +80,8 @@ function renderRecord(rec: OvercastRecord, format: string): string {
     }
     return JSON.stringify(rec.payload, null, 2);
   }
-  // default human summary
-  const head = `${rec.id} [${rec.verb}] state=${rec.state ?? "ready"}`;
-  if (rec.error) return `${head}\n  error: ${rec.error}`;
-  if (typeof rec.payload === "string") return `${head}\n  ${rec.payload.slice(0, 400)}`;
-  const keys = Object.keys(rec.payload);
-  return `${head}\n  payload: { ${keys.join(", ")} }${rec.media ? `\n  media: ${rec.media.ref}` : ""}`;
+  // default human summary — magnitude-aware preview (shared with the agent tool)
+  return renderRecordSummary(rec, { mode: "preview" });
 }
 
 const GROUP_TITLES: Record<VerbSpec["group"], string> = {

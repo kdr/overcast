@@ -8,9 +8,17 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
+import { renderRecord, payloadBytes } from "../render.js";
 import type { Case } from "../case.js";
 import type { Profile } from "../profile.js";
+
+// How many payload bytes to inline into the LLM-facing tool result before
+// falling back to a preview + a "page it" pointer. Small results (ask answers,
+// scan hits, doctor checks) inline whole; only big fields (a watch `content`
+// timeline) preview — which is the whole point: the agent never again sees only
+// `payload{content,transcript,detailed}` and has to bash its own output back.
+const AGENT_BUDGET = 8000;
 
 export interface ToolDeps {
   /** resolve the active case (cwd-based) at call time */
@@ -49,16 +57,31 @@ export function verbParams(spec: VerbSpec): TSchema {
   return Type.Object(props);
 }
 
-/** A short, LLM-facing summary line for a record. */
-function summarizeRecord(rec: OvercastRecord): string {
-  const head = `${rec.id} [${rec.verb}] state=${rec.state ?? "ready"}`;
-  if (rec.error) return `${head} error=${rec.error}`;
-  if (typeof rec.payload === "string") {
-    const oneLine = rec.payload.replace(/\s+/g, " ").slice(0, 200);
-    return `${head} :: ${oneLine}`;
-  }
-  const keys = Object.keys(rec.payload);
-  return `${head} payload{${keys.join(",")}}`;
+/**
+ * Render the emitted records into the LLM-facing tool text. Greedy by size:
+ * inline records in full while under the budget, preview the rest (so a single
+ * huge watch record previews but the small records around it stay full). A
+ * record that is itself an explicitly-requested page (`case memory get --field`
+ * → a `chunk` payload) is always shown in full — the agent asked for exactly
+ * that slice.
+ */
+function renderRecords(records: OvercastRecord[]): string {
+  let spent = 0;
+  return records
+    .map((rec) => {
+      const isChunk =
+        typeof rec.payload === "object" && rec.payload != null && "chunk" in (rec.payload as JsonMap);
+      if (isChunk) return renderRecord(rec, { mode: "full", budget: AGENT_BUDGET, force: true });
+      if (!rec.error) {
+        const size = payloadBytes(rec);
+        if (spent + size <= AGENT_BUDGET) {
+          spent += size;
+          return renderRecord(rec, { mode: "full", budget: AGENT_BUDGET });
+        }
+      }
+      return renderRecord(rec, { mode: "preview", budget: AGENT_BUDGET });
+    })
+    .join("\n\n");
 }
 
 /**
@@ -126,7 +149,7 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         c.writeRecord(rec);
       }
 
-      const summary = records.map(summarizeRecord).join("\n");
+      const summary = renderRecords(records);
       return {
         content: [
           {

@@ -11,20 +11,15 @@ import { tokenizeCommand } from "../providers/sources/index.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveHome } from "../profile.js";
 import type { OvercastRecord } from "../record.js";
+import { renderRecord } from "../render.js";
 import type { VerbContext } from "../registry/types.js";
 
 const SLASH_VERBS = ["target", "source", "case", "prebrief", "view", "setup"];
 const RESULT_TYPE = "overcast-result";
 
 function summarize(rec: OvercastRecord): string {
-  const head = `▶ ${rec.verb} · ${rec.state ?? "ready"}${rec.id ? ` · ${rec.id}` : ""}`;
-  if (rec.error) return `${head}\n  error: ${rec.error}`;
-  if (typeof rec.payload === "string") return `${head}\n  ${rec.payload.slice(0, 600)}`;
-  const p = rec.payload as Record<string, unknown>;
-  const body = Object.entries(p)
-    .map(([k, v]) => `  ${k}: ${typeof v === "string" ? v.slice(0, 160) : JSON.stringify(v).slice(0, 160)}`)
-    .join("\n");
-  return `${head}\n${body}`;
+  // shared magnitude-aware preview (same renderer as the agent tool + CLI)
+  return `▶ ${renderRecord(rec, { mode: "preview" })}`;
 }
 
 /** Register the state slash-commands + the custom result renderer. */

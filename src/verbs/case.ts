@@ -2,10 +2,11 @@
 // a folder (invariant #4); this is the read/seed surface over it + the bound
 // memory providers. Subcommands: init | info | records | memory.
 
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
 import { openCase } from "../case.js";
 import { resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
+import { payloadFields } from "../render.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -19,7 +20,9 @@ export const caseVerb: VerbSpec = {
   description:
     "A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; " +
     "`case info` shows state; `case records [--verb] [--since]` lists records; " +
-    "`case memory <list|get|search> [q]` routes to the bound memory providers.",
+    "`case memory <list|get|search> [q]` routes to the bound memory providers. " +
+    "`case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] " +
+    "[--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.",
   args: [
     { name: "action", summary: "init | info | records | memory", required: true },
     { name: "arg", summary: "dir (init), record id (memory get), or query (memory search)" },
@@ -28,7 +31,9 @@ export const caseVerb: VerbSpec = {
     { name: "name", summary: "Case name (init)", type: "string" },
     { name: "verb", summary: "Filter records by kind", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
-    { name: "limit", summary: "Max records/passages", type: "number" },
+    { name: "field", summary: "Payload field to read in full (memory get)", type: "string" },
+    { name: "offset", summary: "Start char offset when paging a field (memory get)", type: "number" },
+    { name: "limit", summary: "Max records/passages, or max chars when paging a field", type: "number" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
@@ -117,9 +122,78 @@ export const caseVerb: VerbSpec = {
       }
       if (sub === "get") {
         const id = ctx.rest[1];
-        if (!id) return [err("case memory get <record-id>")];
+        if (!id) return [err("usage: case memory get <record-id> [--field <name>] [--offset N] [--limit M]")];
         const rec = ctx.case.recordById(id);
-        return [makeRecord({ verb: "case", format: "json", payload: { record: rec ?? null }, state: rec ? "ready" : "error", error: rec ? undefined : `no record ${id}` })];
+        if (!rec) {
+          return [makeRecord({ verb: "case", format: "json", payload: { record: id, found: false }, state: "error", error: `no record ${id}` })];
+        }
+
+        const field = ctx.opts.field != null ? String(ctx.opts.field) : undefined;
+        const isString = typeof rec.payload === "string";
+
+        // No --field (object payload): return a manifest of how to read it — each
+        // field's name/type/size + a short preview — so the agent knows which
+        // field to page instead of guessing or dumping the whole record.
+        if (field == null && !isString) {
+          const fields = payloadFields(rec.payload).map((f) => ({
+            name: f.name,
+            type: f.type,
+            size: f.size,
+            ...(f.count != null ? { count: f.count } : {}),
+            preview: f.preview,
+          }));
+          return [
+            makeRecord({
+              verb: "case",
+              format: "json",
+              payload: { record: rec.id, verb: rec.verb, state: rec.state ?? "ready", media: rec.media ?? null, fields },
+              state: "ready",
+            }),
+          ];
+        }
+
+        // Page a single field (string payload pages directly, no --field needed).
+        const value = isString ? rec.payload : (rec.payload as JsonMap)[field as string];
+        if (value === undefined) {
+          const names = payloadFields(rec.payload).map((f) => f.name).join(", ");
+          return [err(`record ${id} has no field '${field}' (fields: ${names})`)];
+        }
+        const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        const total = text.length;
+
+        let offset = 0;
+        if (ctx.opts.offset != null) {
+          const n = Number(ctx.opts.offset);
+          if (!Number.isFinite(n) || n < 0) return [err(`invalid --offset: ${ctx.opts.offset} (expected a non-negative number)`)];
+          offset = Math.min(n, total);
+        }
+        let limit = 16000;
+        if (ctx.opts.limit != null) {
+          const n = Number(ctx.opts.limit);
+          if (!Number.isFinite(n) || n <= 0) return [err(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
+          limit = n;
+        }
+        const chunk = text.slice(offset, offset + limit);
+        const nextOffset = offset + chunk.length;
+        const hasMore = nextOffset < total;
+        return [
+          makeRecord({
+            verb: "case",
+            format: "txt",
+            payload: {
+              record: id,
+              field: isString ? "(text)" : field,
+              offset,
+              limit,
+              total,
+              returned: chunk.length,
+              has_more: hasMore,
+              next_offset: hasMore ? nextOffset : null,
+              chunk,
+            },
+            state: "ready",
+          }),
+        ];
       }
       if (sub === "search") {
         const q = ctx.rest.slice(1).join(" ");
