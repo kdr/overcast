@@ -126,7 +126,9 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   // ("scanning sources…", "watching the footage…"), and a themed generic while
   // the agent reasons between tools — replacing pi's default "Working…". The
   // spinner *glyph* is set separately per-session (setWorkingIndicator).
-  pi.on("agent_start", (_e, ctx) => ctx.ui?.setWorkingMessage?.(idleLabel()));
+  // turn_start fires at the start of every turn (incl. the first), so it alone
+  // covers the "reasoning" phase — a parallel agent_start handler would advance
+  // the idle-phrase rotation twice at loop start and skip an entry (Bugbot, #12).
   pi.on("turn_start", (_e, ctx) => ctx.ui?.setWorkingMessage?.(idleLabel()));
   pi.on("tool_execution_start", (e, ctx) => ctx.ui?.setWorkingMessage?.(opLabel(e.toolName)));
   pi.on("tool_execution_end", (_e, ctx) => ctx.ui?.setWorkingMessage?.(idleLabel()));
