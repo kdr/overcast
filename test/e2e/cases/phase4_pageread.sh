@@ -39,6 +39,14 @@ assert_eq "page.p1.next_offset" "100" "$(jq -r '.payload.next_offset' <<<"$p1")"
 # manifest chars === paging total (no bytes-vs-chars drift)
 assert_eq "page.chars_eq_total" "$cchars" "$(jq -r '.payload.total' <<<"$p1")" "manifest chars matches paging total"
 
+# (2b) --format txt returns the raw chunk body, not a JSON envelope
+txt="$($OVERCAST case memory get "$RID" --field content --offset 0 --limit 40 --format txt --case "$casedir" 2>/dev/null)"
+if [ "${txt:0:7}" = "scene 0" ] && ! printf '%s' "$txt" | grep -q '"chunk"'; then
+  ok "page.txt_chunk" "--format txt emits the plain chunk body"
+else
+  fail "page.txt_chunk" "txt output was not the plain chunk: ${txt:0:40}"
+fi
+
 # (3) page 2: continue from next_offset
 p2="$($OVERCAST case memory get "$RID" --field content --offset 100 --limit 100 --json --case "$casedir" 2>/dev/null)"
 save_json "phase4_pageread_p2" "$p2" >/dev/null

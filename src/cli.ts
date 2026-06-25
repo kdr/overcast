@@ -73,9 +73,10 @@ function renderRecord(rec: OvercastRecord, format: string): string {
   if (format === "md" || format === "txt") {
     if (typeof rec.payload === "string") return rec.payload;
     // prefer a human-readable text field (content/text/report — e.g. ask/brief
-    // place their markdown under text/report); else stringify.
+    // place their markdown under text/report; `case memory get --field` puts the
+    // slice under chunk); else stringify.
     const p = rec.payload as Record<string, unknown>;
-    for (const k of ["content", "text", "report"]) {
+    for (const k of ["content", "text", "report", "chunk"]) {
       if (typeof p[k] === "string" && p[k]) return p[k] as string;
     }
     return JSON.stringify(rec.payload, null, 2);

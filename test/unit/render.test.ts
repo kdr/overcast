@@ -114,6 +114,20 @@ test("renderRecord points a string payload to --offset paging (no --field)", () 
   assert.match(out, /case memory get rec_str01 --offset 0/);
 });
 
+test("renderRecord paging hint targets meta.pageTarget, not the envelope id", () => {
+  // a `case memory get` manifest envelope: its own id is rec_env01, but the hint
+  // must point at the TARGET record it describes (rec_target99).
+  const rec = makeRecord({
+    id: "rec_env01",
+    verb: "case",
+    payload: { record: "rec_target99", fields: [{ name: "content", chars: 9000 }] },
+    meta: { pageTarget: "rec_target99" },
+  });
+  const out = renderRecord(rec, { mode: "preview" });
+  assert.match(out, /case memory get rec_target99 --field <name>/);
+  assert.doesNotMatch(out, /get rec_env01/);
+});
+
 test("renderRecord surfaces an error record", () => {
   const rec = makeRecord({ verb: "watch", payload: {}, error: "boom", state: "error" });
   assert.match(renderRecord(rec), /error=boom/);

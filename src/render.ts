@@ -189,9 +189,13 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
   const lossy = fields.some(
     (f) => !(f.type === "string" ? f.chars <= previewChars : f.type === "number" || f.type === "boolean" || f.type === "null"),
   );
+  // The id to page is the record itself — UNLESS this is a `case memory get`
+  // envelope, which carries the real target id in meta.pageTarget (else the hint
+  // would point at the envelope's own id and re-fetch a manifest of a manifest).
+  const pid = (typeof rec.meta?.pageTarget === "string" && rec.meta.pageTarget) || rec.id;
   const pageCmd = isString
-    ? `case memory get ${rec.id} --offset 0 [--limit M]`
-    : `case memory get ${rec.id} --field <name> [--offset N] [--limit M]`;
+    ? `case memory get ${pid} --offset 0 [--limit M]`
+    : `case memory get ${pid} --field <name> [--offset N] [--limit M]`;
   const hint = lossy ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read a field in full with: ${pageCmd}` : "";
   return `${h} payload:\n${lines.join("\n")}${hint}`;
 }

@@ -119,6 +119,25 @@ test("case memory get validates --offset and --limit", async () => {
   });
 });
 
+test("case memory get rejects --offset/--limit without --field on an object payload", async () => {
+  await withBigRecord(async (dir, id) => {
+    const [o] = await caseVerb.run(ctx(dir, "memory", ["get", id], { offset: 0 }));
+    assert.equal(o.state, "error");
+    assert.match(String(o.error), /require --field/);
+    const [l] = await caseVerb.run(ctx(dir, "memory", ["get", id], { limit: 100 }));
+    assert.equal(l.state, "error");
+  });
+});
+
+test("case memory get manifest/chunk carry meta.pageTarget for correct hints", async () => {
+  await withBigRecord(async (dir, id) => {
+    const [man] = await caseVerb.run(ctx(dir, "memory", ["get", id]));
+    assert.equal(man.meta?.pageTarget, id);
+    const [chunk] = await caseVerb.run(ctx(dir, "memory", ["get", id], { field: "content", offset: 0, limit: 10 }));
+    assert.equal(chunk.meta?.pageTarget, id);
+  });
+});
+
 test("case memory get on a missing record errors", async () => {
   await withBigRecord(async (dir) => {
     const [rec] = await caseVerb.run(ctx(dir, "memory", ["get", "rec_doesnotexist"]));

@@ -135,6 +135,11 @@ export const caseVerb: VerbSpec = {
         // field's name/type/size + a short preview — so the agent knows which
         // field to page instead of guessing or dumping the whole record.
         if (field == null && !isString) {
+          // --offset/--limit need a field to page; ignoring them would let a
+          // caller believe a slice was returned while seeing only the manifest.
+          if (ctx.opts.offset != null || ctx.opts.limit != null) {
+            return [err(`case memory get ${id}: --offset/--limit require --field <name> (omit them for the field manifest)`)];
+          }
           const fields = payloadFields(rec.payload).map((f) => ({
             name: f.name,
             type: f.type,
@@ -150,6 +155,8 @@ export const caseVerb: VerbSpec = {
               verb: "case",
               format: "json",
               payload: { record: rec.id, verb: rec.verb, state: rec.state ?? "ready", media: rec.media ?? null, fields },
+              // a preview of this envelope should point paging at the TARGET record
+              meta: { pageTarget: rec.id },
               state: "ready",
             }),
           ];
@@ -205,6 +212,7 @@ export const caseVerb: VerbSpec = {
               next_offset: hasMore ? nextOffset : null,
               chunk,
             },
+            meta: { pageTarget: id },
             state: "ready",
           }),
         ];
