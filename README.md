@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/logo.png" alt="overcast" width="220" />
+  <img src="assets/branding/logo.png" alt="overcast" width="420" />
 </p>
 
 # overcast
