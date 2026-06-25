@@ -10,6 +10,7 @@ import {
   getField,
   pageTargetId,
   pageCommand,
+  renderForFormat,
   TEXT_FIELD,
   humanSize,
 } from "../../src/render.ts";
@@ -152,6 +153,18 @@ test("renderRecord paging hint targets meta.pageTarget, not the envelope id", ()
   const out = renderRecord(rec, { mode: "preview" });
   assert.match(out, /case memory get rec_target99 --field <name>/);
   assert.doesNotMatch(out, /get rec_env01/);
+});
+
+test("renderForFormat: txt/md surface a paged chunk in full (shared by CLI + slash)", () => {
+  const page = makeRecord({ verb: "case", payload: { record: "rec_t", field: "content", chunk: "FULL CHUNK BODY ".repeat(40), next_offset: 640 } });
+  const txt = renderForFormat(page, "txt");
+  assert.match(txt, /FULL CHUNK BODY FULL CHUNK BODY/); // the whole chunk, not a ~200-char preview
+  assert.doesNotMatch(txt, /payload:/); // not the preview format
+  // json → the whole record; default → the magnitude preview
+  assert.match(renderForFormat(page, "json"), /"chunk"/);
+  assert.match(renderForFormat(page), /\[case\] state=ready payload:/);
+  // string payload under txt → the body
+  assert.equal(renderForFormat(makeRecord({ verb: "note", payload: "hello body" }), "txt"), "hello body");
 });
 
 test("renderRecord surfaces an error record", () => {

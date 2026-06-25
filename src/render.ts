@@ -228,3 +228,28 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
   const hint = lossy ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read it with: ${pageCommand(rec)}` : "";
   return `${h} payload:\n${lines.join("\n")}${hint}`;
 }
+
+// Text fields a record may carry its full human-readable body under: ask/brief
+// place markdown in text/report; `case memory get --field` puts the slice in
+// chunk; senses use content.
+const TEXT_PAYLOAD_FIELDS = ["content", "text", "report", "chunk"];
+
+/**
+ * Format-aware single-record render, shared by the CLI and the TUI slash handler
+ * so both honor `--format`/`--json` identically (a paged `chunk` shows in full
+ * under txt/md, not a truncated preview):
+ *   json → the whole record · md/txt → the body text field (else the payload
+ *   JSON) · default → the magnitude preview.
+ */
+export function renderForFormat(rec: OvercastRecord, format?: string): string {
+  if (format === "json") return JSON.stringify(rec, null, 2);
+  if (format === "md" || format === "txt") {
+    if (typeof rec.payload === "string") return rec.payload;
+    const p = rec.payload as JsonMap;
+    for (const k of TEXT_PAYLOAD_FIELDS) {
+      if (typeof p[k] === "string" && p[k]) return p[k] as string;
+    }
+    return JSON.stringify(rec.payload, null, 2);
+  }
+  return renderRecord(rec, { mode: "preview" });
+}

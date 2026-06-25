@@ -9,7 +9,7 @@ import { parseVerbArgs, renderVerbHelp } from "./registry/to-cli.js";
 import { openCase } from "./case.js";
 import { loadProfile, type HomeOptions } from "./profile.js";
 import { makeRecord, type OvercastRecord } from "./record.js";
-import { renderRecord as renderRecordSummary } from "./render.js";
+import { renderForFormat } from "./render.js";
 
 export interface CliIO {
   out: (s: string) => void;
@@ -66,23 +66,6 @@ function extractGlobals(argv: string[]): {
     profile: values["--profile"],
     errors,
   };
-}
-
-function renderRecord(rec: OvercastRecord, format: string): string {
-  if (format === "json") return JSON.stringify(rec, null, 2);
-  if (format === "md" || format === "txt") {
-    if (typeof rec.payload === "string") return rec.payload;
-    // prefer a human-readable text field (content/text/report — e.g. ask/brief
-    // place their markdown under text/report; `case memory get --field` puts the
-    // slice under chunk); else stringify.
-    const p = rec.payload as Record<string, unknown>;
-    for (const k of ["content", "text", "report", "chunk"]) {
-      if (typeof p[k] === "string" && p[k]) return p[k] as string;
-    }
-    return JSON.stringify(rec.payload, null, 2);
-  }
-  // default human summary — magnitude-aware preview (shared with the agent tool)
-  return renderRecordSummary(rec, { mode: "preview" });
 }
 
 const GROUP_TITLES: Record<VerbSpec["group"], string> = {
@@ -349,7 +332,7 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
 
     const wantJson = parsed.opts.json === true || parsed.opts.format === "json";
     const format = wantJson ? "json" : (parsed.opts.format as string) ?? "human";
-    for (const rec of records) io.out(renderRecord(rec, format) + "\n");
+    for (const rec of records) io.out(renderForFormat(rec, format) + "\n");
 
     // state is the authoritative hint for the exit code: a hard error → 1, a
     // setup gap (needs_credentials) → 3 (distinct, so automation can tell "broke"
