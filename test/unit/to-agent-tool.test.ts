@@ -6,8 +6,21 @@ import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
-import { toAgentTool } from "../../src/registry/to-agent-tool.ts";
+import { toAgentTool, verbCallLine } from "../../src/registry/to-agent-tool.ts";
 import type { VerbSpec } from "../../src/registry/types.ts";
+
+test("verbCallLine: class-colored ⟦ TAG ⟧ ▸ arg (semantic split + primary arg)", () => {
+  const watch = { name: "watch", args: [{ name: "url" }] } as unknown as VerbSpec;
+  const scan = { name: "scan", args: [{ name: "query" }] } as unknown as VerbSpec;
+  const w = verbCallLine(watch, { url: "https://x/v.mp4" });
+  assert.match(w, /⟦ WATCH ⟧/);
+  assert.ok(w.includes("\x1b[38;2;0;255;127m"), "sense verb → neon green tag");
+  assert.match(w, /▸.*https:\/\/x\/v\.mp4/);
+  const s = verbCallLine(scan, {});
+  assert.match(s, /⟦ SCAN ⟧/);
+  assert.ok(s.includes("\x1b[38;2;255;46;151m"), "osint verb → magenta tag");
+  assert.ok(!s.includes("▸"), "no separator when no primary arg");
+});
 
 /** Build a tool whose run() returns the given records, execute it, return the
  *  LLM-facing text (what the agent actually sees). */
