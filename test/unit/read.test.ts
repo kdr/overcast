@@ -196,3 +196,35 @@ test("brief collapses a prior brief record to a one-liner (no recursive re-embed
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("local memory does not retrieve case (inspection) records as evidence", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-memcase-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "a white van at the docks" }, media: { ref: "a.mp4" } }));
+    // a `case memory get` page envelope that duplicates the same source text
+    c.writeRecord(makeRecord({ verb: "case", payload: { record: "rec_x", field: "content", chunk: "a white van at the docks" } }));
+    const hits = new LocalMemoryProvider(c).query("white van docks");
+    assert.ok(hits.length >= 1);
+    assert.ok(hits.every((h) => h.verb !== "case"), "case envelopes must not be cited as evidence");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief html export does not reparse embedded content as markup", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefhtml-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "intro line\n### Scene 5 heading\n- bullet inside content" }, media: { ref: "v.mp4" } }));
+    const htmlPath = join(dir, "b.html");
+    await briefVerb.run(ctx(c, undefined, { export: htmlPath }));
+    const html = readFileSync(htmlPath, "utf8");
+    assert.doesNotMatch(html, /<h3>Scene 5 heading<\/h3>/); // embedded line NOT a heading
+    assert.match(html, /### Scene 5 heading/); // present as escaped literal text
+    assert.match(html, /<pre>/); // embedded content is fenced
+    assert.match(html, /<h3>/); // the structural per-record heading still renders
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

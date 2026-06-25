@@ -80,10 +80,12 @@ export class LocalMemoryProvider implements MemoryProvider {
       const set = new Set(opts.verbs);
       records = records.filter((r) => set.has(r.verb));
     } else {
-      // Don't retrieve read-side outputs (ask/brief) as evidence — they embed
-      // the question + synthesized answer and would otherwise be cited back in
-      // place of the underlying records. Opt in explicitly via --verb to include.
-      records = records.filter((r) => r.verb !== "ask" && r.verb !== "brief");
+      // Don't retrieve read/meta outputs as evidence: ask/brief embed the
+      // question + synthesized answer, and `case` records are inspection
+      // envelopes (manifests / `memory get` page slices) that duplicate a source
+      // record's text — citing either in place of the underlying watch/listen
+      // record is wrong. Opt in explicitly via --verb to include.
+      records = records.filter((r) => r.verb !== "ask" && r.verb !== "brief" && r.verb !== "case");
     }
     if (opts.since) {
       const cutoff = parseSince(opts.since);

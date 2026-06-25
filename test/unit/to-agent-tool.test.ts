@@ -79,16 +79,33 @@ test("a non-case payload that merely has a `chunk` key is NOT force-inlined", as
   assert.match(text, /case memory get rec_see01/);
 });
 
-test("budget is capped across many records: excess are omitted with a tail note", async () => {
-  // ~50 records of ~400B each → ~20KB of payload, well over the 8KB budget
-  const records = Array.from({ length: 50 }, (_, i) =>
+test("budget cap: over-budget records become compact locators, output stays bounded", async () => {
+  const records = Array.from({ length: 60 }, (_, i) =>
+    makeRecord({ id: `rec_h${i}`, verb: "scan", payload: { title: `hit ${i}`, snippet: "x".repeat(400) } }),
+  );
+  const text = await renderViaTool(records);
+  // no record is silently dropped — over-budget ones get an id + paging pointer
+  assert.match(text, /not shown \(budget\); read it with/);
+  // total LLM-facing text stays bounded (not the ~24KB of raw payloads)
+  assert.ok(Buffer.byteLength(text, "utf8") < 14_000, `text was ${Buffer.byteLength(text, "utf8")}B`);
+});
+
+test("budget cap: beyond the locator cap, the remainder is summarized", async () => {
+  const records = Array.from({ length: 120 }, (_, i) =>
     makeRecord({ verb: "scan", payload: { title: `hit ${i}`, snippet: "x".repeat(400) } }),
   );
   const text = await renderViaTool(records);
-  assert.match(text, /more record\(s\) not shown/); // tail note present
-  assert.match(text, /case records/); // points at how to see the rest
-  // total LLM-facing text stays bounded (budget 8KB + headers/tail, not 20KB)
-  assert.ok(Buffer.byteLength(text, "utf8") < 12_000, `text was ${Buffer.byteLength(text, "utf8")}B`);
+  assert.match(text, /more record\(s\) not shown/); // > MAX_LOCATORS → tail summary
+  assert.ok(Buffer.byteLength(text, "utf8") < 16_000);
+});
+
+test("a single record whose preview exceeds budget still gets an id + pointer (no silent drop)", async () => {
+  // ~400 fields → the preview itself exceeds the 8KB budget
+  const payload: Record<string, unknown> = {};
+  for (let i = 0; i < 400; i++) payload[`field_${i}`] = `value ${i}`;
+  const text = await renderViaTool([makeRecord({ id: "rec_wide01", verb: "watch", payload })]);
+  assert.match(text, /rec_wide01 \[watch\]/); // the id is present
+  assert.match(text, /case memory get rec_wide01/); // and how to read it
 });
 
 test("greedy budget: small records inline, the big one previews (mixed batch)", async () => {

@@ -123,7 +123,7 @@ test("case memory get rejects --offset/--limit without --field on an object payl
   await withBigRecord(async (dir, id) => {
     const [o] = await caseVerb.run(ctx(dir, "memory", ["get", id], { offset: 0 }));
     assert.equal(o.state, "error");
-    assert.match(String(o.error), /require --field/);
+    assert.match(String(o.error), /--field <name> required/);
     const [l] = await caseVerb.run(ctx(dir, "memory", ["get", id], { limit: 100 }));
     assert.equal(l.state, "error");
   });
@@ -143,6 +143,24 @@ test("case memory get on a missing record errors", async () => {
     const [rec] = await caseVerb.run(ctx(dir, "memory", ["get", "rec_doesnotexist"]));
     assert.equal(rec.state, "error");
   });
+});
+
+test("case memory get on a string record with no flags returns a (text) manifest", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-getstrman-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    const rec = makeRecord({ verb: "note", payload: "a plain string payload body" });
+    c.writeRecord(rec);
+    const [man] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id]));
+    const p = man.payload as Record<string, unknown>;
+    const fields = p.fields as Array<Record<string, unknown>>;
+    assert.equal(fields.length, 1);
+    assert.equal(fields[0].name, "(text)");
+    assert.equal(fields[0].chars, "a plain string payload body".length);
+    assert.equal(man.meta?.pageTarget, rec.id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("case memory get pages a plain-string payload as (text), no --field needed", async () => {

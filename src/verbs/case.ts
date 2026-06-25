@@ -2,11 +2,11 @@
 // a folder (invariant #4); this is the read/seed surface over it + the bound
 // memory providers. Subcommands: init | info | records | memory.
 
-import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
+import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase } from "../case.js";
 import { resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
-import { payloadFields, fieldText } from "../render.js";
+import { payloadFields, fieldText, fieldNames, getField } from "../render.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -128,24 +128,21 @@ export const caseVerb: VerbSpec = {
           return [makeRecord({ verb: "case", format: "json", payload: { record: id, found: false }, state: "error", error: `no record ${id}` })];
         }
 
+        // A record's payload is a set of named fields — object keys, or the single
+        // implicit "(text)" for a string payload. String and object travel the
+        // SAME path from here (no isString branches): enumerate via fieldNames,
+        // address via getField, measure/slice via fieldText.
         const field = ctx.opts.field != null ? String(ctx.opts.field) : undefined;
-        const isString = typeof rec.payload === "string";
+        const hasPaging = ctx.opts.offset != null || ctx.opts.limit != null;
+        const names = fieldNames(rec.payload);
 
-        // No --field (object payload): return a manifest of how to read it — each
-        // field's name/type/size + a short preview — so the agent knows which
-        // field to page instead of guessing or dumping the whole record.
-        if (field == null && !isString) {
-          // --offset/--limit need a field to page; ignoring them would let a
-          // caller believe a slice was returned while seeing only the manifest.
-          if (ctx.opts.offset != null || ctx.opts.limit != null) {
-            return [err(`case memory get ${id}: --offset/--limit require --field <name> (omit them for the field manifest)`)];
-          }
+        // Bare `get <id>` (no --field, no paging flags) → a field manifest of how
+        // to read the record — name/type/size + chars (the unit paging counts in).
+        if (field == null && !hasPaging) {
           const fields = payloadFields(rec.payload).map((f) => ({
             name: f.name,
             type: f.type,
             size: f.size,
-            // `chars` is the unit --offset/--limit page in (=== paging `total`),
-            // so manifest length never disagrees with paging metadata.
             chars: f.chars,
             ...(f.count != null ? { count: f.count } : {}),
             preview: f.preview,
@@ -155,28 +152,24 @@ export const caseVerb: VerbSpec = {
               verb: "case",
               format: "json",
               payload: { record: rec.id, verb: rec.verb, state: rec.state ?? "ready", media: rec.media ?? null, fields },
-              // a preview of this envelope should point paging at the TARGET record
+              // a preview of this envelope points paging at the TARGET record
               meta: { pageTarget: rec.id },
               state: "ready",
             }),
           ];
         }
 
-        // Page a single field. A string payload has one implicit field, "(text)":
-        // page it directly (no --field needed), but reject a wrong --field rather
-        // than silently paging the whole string under a bogus name.
-        let value: unknown;
-        if (isString) {
-          if (field != null && field !== "(text)") {
-            return [err(`record ${id} has no field '${field}' (fields: (text))`)];
-          }
-          value = rec.payload;
-        } else {
-          value = (rec.payload as JsonMap)[field as string];
-          if (value === undefined) {
-            const names = payloadFields(rec.payload).map((f) => f.name).join(", ");
-            return [err(`record ${id} has no field '${field}' (fields: ${names})`)];
-          }
+        // Resolve the field to page. Omitting --field is only unambiguous when the
+        // record has exactly one field (a string payload's "(text)"); a multi-field
+        // object payload needs --field, so --offset/--limit can't silently no-op.
+        let target = field;
+        if (target == null) {
+          if (names.length === 1) target = names[0];
+          else return [err(`case memory get ${id}: --field <name> required to page an object payload (fields: ${names.join(", ")})`)];
+        }
+        const value = getField(rec.payload, target);
+        if (value === undefined) {
+          return [err(`record ${id} has no field '${target}' (fields: ${names.join(", ")})`)];
         }
         // same canonical text the manifest measured (guarded; never throws)
         const text = fieldText(value);
@@ -203,7 +196,7 @@ export const caseVerb: VerbSpec = {
             format: "txt",
             payload: {
               record: id,
-              field: isString ? "(text)" : field,
+              field: target,
               offset,
               limit,
               total,

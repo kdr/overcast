@@ -59,6 +59,43 @@ function oneLine(s: string, max: number): string {
   return t.length <= max ? t : t.slice(0, max) + "…";
 }
 
+// --- field access (single source of truth) ----------------------------------
+// One place that enumerates / addresses / targets a record's payload fields, so
+// a string payload and an object payload travel the SAME path everywhere (case
+// memory get, the manifest, the renderer) and can't drift field-by-field.
+
+/** The implicit field name of a string payload's body. */
+export const TEXT_FIELD = "(text)";
+
+/** The pageable field names of a payload: object keys, or `["(text)"]` for a
+ *  string payload. The ONE enumeration of a record's fields. */
+export function fieldNames(payload: RecordPayload): string[] {
+  return typeof payload === "string" ? [TEXT_FIELD] : Object.keys(payload);
+}
+
+/** Resolve a field's raw value (undefined if absent). `(text)` addresses a
+ *  string payload's body. */
+export function getField(payload: RecordPayload, name: string): unknown {
+  if (typeof payload === "string") return name === TEXT_FIELD ? payload : undefined;
+  return (payload as JsonMap)[name];
+}
+
+/** The record id paging should target: a `case memory get` envelope carries the
+ *  real target in `meta.pageTarget`; everything else pages itself. */
+export function pageTargetId(rec: OvercastRecord): string {
+  return (typeof rec.meta?.pageTarget === "string" && rec.meta.pageTarget) || rec.id;
+}
+
+/** The exact `overcast case memory get …` command to read a record's content in
+ *  full. SINGLE source of the paging-command syntax — preview hints and
+ *  agent-tool locators both call it, so they can never disagree. */
+export function pageCommand(rec: OvercastRecord): string {
+  const id = pageTargetId(rec);
+  return typeof rec.payload === "string"
+    ? `overcast case memory get ${id} --offset 0 [--limit M]`
+    : `overcast case memory get ${id} --field <name> [--offset N] [--limit M]`;
+}
+
 export type FieldType = "string" | "number" | "boolean" | "array" | "object" | "null";
 
 export interface FieldInfo {
@@ -107,8 +144,8 @@ function oneField(name: string, v: unknown, previewChars: number): FieldInfo {
  * `case memory get` and the preview-mode renderer.
  */
 export function payloadFields(payload: RecordPayload, previewChars = 160): FieldInfo[] {
-  if (typeof payload === "string") return [oneField("(text)", payload, previewChars)];
-  return Object.entries(payload).map(([k, v]) => oneField(k, v, previewChars));
+  // enumerate + address through the shared helpers so string/object stay uniform
+  return fieldNames(payload).map((name) => oneField(name, getField(payload, name), previewChars));
 }
 
 /** Render a full (within-budget) object payload, printing string fields in full. */
@@ -171,7 +208,6 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
     // else fall through to preview
   }
 
-  const isString = typeof rec.payload === "string";
   const fields = payloadFields(rec.payload, previewChars);
   const lines = fields.map((f) => {
     const meta: string[] = [];
@@ -189,13 +225,6 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
   const lossy = fields.some(
     (f) => !(f.type === "string" ? f.chars <= previewChars : f.type === "number" || f.type === "boolean" || f.type === "null"),
   );
-  // The id to page is the record itself — UNLESS this is a `case memory get`
-  // envelope, which carries the real target id in meta.pageTarget (else the hint
-  // would point at the envelope's own id and re-fetch a manifest of a manifest).
-  const pid = (typeof rec.meta?.pageTarget === "string" && rec.meta.pageTarget) || rec.id;
-  const pageCmd = isString
-    ? `case memory get ${pid} --offset 0 [--limit M]`
-    : `case memory get ${pid} --field <name> [--offset N] [--limit M]`;
-  const hint = lossy ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read a field in full with: ${pageCmd}` : "";
+  const hint = lossy ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read it with: ${pageCommand(rec)}` : "";
   return `${h} payload:\n${lines.join("\n")}${hint}`;
 }

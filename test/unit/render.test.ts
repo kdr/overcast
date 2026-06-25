@@ -6,6 +6,11 @@ import {
   payloadFields,
   payloadBytes,
   fieldText,
+  fieldNames,
+  getField,
+  pageTargetId,
+  pageCommand,
+  TEXT_FIELD,
   humanSize,
 } from "../../src/render.ts";
 
@@ -20,6 +25,27 @@ test("payloadBytes measures string vs object payloads", () => {
   assert.equal(payloadBytes(makeRecord({ verb: "x", payload: "abcde" })), 5);
   const obj = makeRecord({ verb: "x", payload: { a: 1 } });
   assert.equal(payloadBytes(obj), Buffer.byteLength(JSON.stringify({ a: 1 })));
+});
+
+test("field access: a string payload and an object payload share one model", () => {
+  // string payload → one implicit field "(text)"; object payload → its keys
+  assert.deepEqual(fieldNames("hi"), [TEXT_FIELD]);
+  assert.deepEqual(fieldNames({ a: 1, b: 2 }), ["a", "b"]);
+  assert.equal(getField("hi", TEXT_FIELD), "hi");
+  assert.equal(getField("hi", "content"), undefined); // wrong field on a string → absent
+  assert.equal(getField({ a: 1 }, "a"), 1);
+  assert.equal(getField({ a: 1 }, "z"), undefined);
+});
+
+test("pageTargetId/pageCommand point at the target, falling back to the record id", () => {
+  const plain = makeRecord({ id: "rec_p", verb: "watch", payload: { content: "x" } });
+  assert.equal(pageTargetId(plain), "rec_p");
+  assert.match(pageCommand(plain), /case memory get rec_p --field <name>/);
+  const envelope = makeRecord({ id: "rec_env", verb: "case", payload: { record: "rec_t" }, meta: { pageTarget: "rec_t" } });
+  assert.equal(pageTargetId(envelope), "rec_t");
+  assert.match(pageCommand(envelope), /case memory get rec_t/);
+  const strRec = makeRecord({ id: "rec_s", verb: "note", payload: "body" });
+  assert.match(pageCommand(strRec), /case memory get rec_s --offset 0/);
 });
 
 test("fieldText is the canonical pageable form (string/scalar/object) and guards circular", () => {

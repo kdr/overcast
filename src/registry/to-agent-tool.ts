@@ -9,7 +9,7 @@ import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
 import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
-import { renderRecord } from "../render.js";
+import { renderRecord, pageCommand } from "../render.js";
 import type { Case } from "../case.js";
 import type { Profile } from "../profile.js";
 
@@ -67,48 +67,56 @@ function isPageChunk(rec: OvercastRecord): boolean {
   return "chunk" in p && "field" in p && "next_offset" in p;
 }
 
+// Beyond this many over-budget records, stop emitting per-record locators and
+// summarize the rest — so a flood of records stays bounded either way.
+const MAX_LOCATORS = 50;
+
 /**
- * Render the emitted records into the LLM-facing tool text. Greedy by the ACTUAL
- * rendered size (header + formatting, not just payload bytes): inline records in
- * full while under the budget, fall back to a preview, and once even the preview
- * won't fit, stop and emit a single "N more not shown" line — so a verb that
- * emits many records can't blow far past the budget the previews are meant to
- * enforce.
+ * Render the emitted records into the LLM-facing tool text. One fold over the
+ * records, picking the largest representation that fits the remaining budget and
+ * NEVER dropping a record silently:
+ *   fit in full → inline · else fit as preview → preview · else → a one-line
+ *   locator (id + how to page it).
+ * Budgeting is on the ACTUAL rendered bytes (header + formatting). Locators are
+ * capped so even thousands of records stay bounded.
  */
 function renderRecords(records: OvercastRecord[]): string {
   let spent = 0;
+  let locators = 0;
   let omitted = 0;
   const parts: string[] = [];
   for (const rec of records) {
-    // an explicitly-requested page slice is always shown and doesn't compete
-    // for the budget (the agent asked for exactly that record).
+    // an explicitly-requested page slice is always shown in full and doesn't
+    // compete for the budget (the agent asked for exactly that record).
     if (isPageChunk(rec)) {
       parts.push(renderRecord(rec, { mode: "full", budget: AGENT_BUDGET, force: true }));
       continue;
     }
-    // full-mode already degrades a too-big payload to a preview internally;
-    // budget on the rendered string so headers/separators count too.
-    const full = renderRecord(rec, { mode: "full", budget: AGENT_BUDGET });
-    const fullCost = Buffer.byteLength(full, "utf8");
-    if (spent + fullCost <= AGENT_BUDGET) {
-      spent += fullCost;
-      parts.push(full);
-      continue;
+    // try full, then preview, budgeting on the rendered string each time
+    for (const mode of ["full", "preview"] as const) {
+      const rendered = renderRecord(rec, { mode, budget: AGENT_BUDGET });
+      const cost = Buffer.byteLength(rendered, "utf8");
+      if (spent + cost <= AGENT_BUDGET) {
+        spent += cost;
+        parts.push(rendered);
+        break;
+      }
+      if (mode === "preview") {
+        // even the preview won't fit — emit a compact locator so the agent still
+        // has the id + how to read it (never a silent drop), up to a cap.
+        if (locators < MAX_LOCATORS) {
+          locators++;
+          const loc = `${rec.id} [${rec.verb}] state=${rec.state ?? "ready"} — not shown (budget); read it with \`${pageCommand(rec)}\``;
+          spent += Buffer.byteLength(loc, "utf8");
+          parts.push(loc);
+        } else {
+          omitted++;
+        }
+      }
     }
-    const preview = renderRecord(rec, { mode: "preview", budget: AGENT_BUDGET });
-    const previewCost = Buffer.byteLength(preview, "utf8");
-    if (spent + previewCost <= AGENT_BUDGET) {
-      spent += previewCost;
-      parts.push(preview);
-      continue;
-    }
-    omitted++;
   }
   if (omitted > 0) {
-    parts.push(
-      `… ${omitted} more record(s) not shown (over ${Math.round(AGENT_BUDGET / 1024)}KB budget); ` +
-        "list them with `overcast case records` and read one with `overcast case memory get <id>`.",
-    );
+    parts.push(`… ${omitted} more record(s) not shown; list them with \`overcast case records\`.`);
   }
   return parts.join("\n\n");
 }
