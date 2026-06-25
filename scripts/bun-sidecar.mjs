@@ -7,17 +7,23 @@
 //      reads them on every TUI/headless launch and HARD-CRASHES if missing
 //      (ENOENT … /theme/dark.json), which broke the binary's agent mode.
 // We copy both here so the compiled binary is self-sufficient.
-import { writeFileSync, mkdirSync, copyFileSync, existsSync, cpSync } from "node:fs";
+import { writeFileSync, mkdirSync, copyFileSync, existsSync, cpSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const OUT = "dist/bin";
+// Output dir defaults to dist/bin (the `build:bun` path); the release workflow
+// passes a per-platform dir (e.g. dist/release/darwin-arm64) so each compiled
+// binary gets its own sidecar tree to tar up.
+const OUT = process.argv[2] || "dist/bin";
 mkdirSync(OUT, { recursive: true });
+
+// version tracks package.json (the source of truth; see scripts/sync-version.mjs)
+const VERSION = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")).version;
 
 // 1) branding sidecar
 writeFileSync(
   join(OUT, "package.json"),
   JSON.stringify(
-    { name: "overcast", version: "0.0.1", type: "module", private: true, piConfig: { name: "overcast" } },
+    { name: "overcast", version: VERSION, type: "module", private: true, piConfig: { name: "overcast" } },
     null,
     2,
   ) + "\n",

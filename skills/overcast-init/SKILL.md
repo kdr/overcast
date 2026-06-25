@@ -10,8 +10,8 @@ description: >-
 
 One-time setup for overcast.
 
-1. **Install the CLI** — `pi install npm:@overcast/cli` (inside pi) or
-   `npm i -g @overcast/cli` for the standalone binary.
+1. **Install the CLI** — `pi install npm:@kdrrr/overcast` (inside pi) or
+   `npm i -g @kdrrr/overcast` for the standalone binary.
 2. **Verify** — `overcast doctor --json` (pi pinned, ffmpeg/ffprobe runnable,
    Cloudglue key, tinycloud CLI).
 3. **Cloudglue key** — the default `watch`/`listen` providers reach Cloudglue

@@ -31,14 +31,48 @@ the CLI from any harness. The brain LLM is BYO; the default perception backend i
 `overcast doctor` verifies all of these.
 
 ```bash
-npm i -g @overcast/cli          # the CLI + pi package
+npm i -g @kdrrr/overcast          # the CLI + pi package  →  `overcast`
 overcast doctor                 # preflight: pi, ffmpeg/ffprobe, Cloudglue, providers
 ```
 
-Or grab the standalone binary (no Node required) from releases, or build it:
+Update to the newest release, or run a verb one-off without installing:
 
 ```bash
-npm run build:bun               # → dist/bin/overcast  (still uses the system ffmpeg)
+npm i -g @kdrrr/overcast@latest   # update an existing global install
+npx @kdrrr/overcast doctor        # run any verb without a global install
+```
+
+Or grab the **standalone binary** (no Node required) for your platform from the
+[latest release](https://github.com/kdr/overcast/releases/latest) —
+`overcast-<os>-<arch>.tar.gz` (ships its `theme/` + `examples/` sidecars) — or
+build it locally:
+
+```bash
+tar -xzf overcast-darwin-arm64.tar.gz   # → ./overcast (+ sidecars); put it on PATH
+npm run build:bun                       # …or build locally → dist/bin/overcast
+```
+
+---
+
+## Use it from your agent
+
+overcast drives any harness three ways — pick whichever fits:
+
+**Agent skills** (Claude Code, Cursor, Codex, …) — install the bundled skills with
+the CLI, or pull them straight from this repo with the harness-agnostic
+[`skills`](https://github.com/vercel-labs/skills) installer:
+
+```bash
+overcast skills install               # menu: pick a harness, writes the SKILL.md files
+overcast skills install --global      # → ~/.claude/skills/overcast
+npx skills add kdr/overcast           # vercel-labs/skills; pulls skills from this repo
+```
+
+**Claude Code plugin** (slash commands + skills as one package):
+
+```text
+/plugin marketplace add kdr/overcast
+/plugin install overcast@overcast
 ```
 
 ---
@@ -188,7 +222,7 @@ pickable brain in `/model` when its key is set — never forced.
 
 Three surfaces from one source of truth (`src/registry/verbs.ts`):
 
-- **pi package** (`@overcast/cli`) — `tsup` bundles `dist/{bin,index,extension}.js`; pi + ffmpeg/ffprobe stay external (pinned / runtime-resolved). A `postinstall` brands the pinned pi host as "overcast" without moving `~/.pi`.
+- **pi package** (`@kdrrr/overcast`) — `tsup` bundles `dist/{bin,index,extension}.js`; pi + ffmpeg/ffprobe stay external (pinned / runtime-resolved). A `postinstall` brands the pinned pi host as "overcast" without moving `~/.pi`.
 - **standalone binary** — `bun build --compile` → a single executable (+ a sidecar `package.json` for branding).
 - **agent skills + Claude Code plugin** — `skills generate` renders `skills/overcast/{SKILL.md, reference/verbs.md}` from the registry; `skills install` copies them into a harness.
 
