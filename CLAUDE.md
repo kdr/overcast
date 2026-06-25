@@ -73,7 +73,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--since` recency filter); `target` / `source` manage scope; `prebrief` stands up
   a case in one shot.
 - **Read** — `ask` (cited retrieval over case memory), `brief` (timeline/findings
-  report), `case` (inspect/manage the case + its records).
+  report), `case` (inspect/manage the case + its records; `case memory get <id>
+  --field <name> --offset/--limit` pages a large record field in full — the
+  non-truncating way to read a `watch` `content`/`listen` transcript, vs raw jsonl).
 - **Config / dist** — `setup` (bind providers + brain LLM, manage profiles),
   `provider` (init/list/describe), `doctor` (preflight), `skills` (generate/install).
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.

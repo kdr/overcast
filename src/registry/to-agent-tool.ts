@@ -8,9 +8,17 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
+import { renderRecord, pageCommand } from "../render.js";
 import type { Case } from "../case.js";
 import type { Profile } from "../profile.js";
+
+// How many payload bytes to inline into the LLM-facing tool result before
+// falling back to a preview + a "page it" pointer. Small results (ask answers,
+// scan hits, doctor checks) inline whole; only big fields (a watch `content`
+// timeline) preview — which is the whole point: the agent never again sees only
+// `payload{content,transcript,detailed}` and has to bash its own output back.
+const AGENT_BUDGET = 8000;
 
 export interface ToolDeps {
   /** resolve the active case (cwd-based) at call time */
@@ -49,16 +57,68 @@ export function verbParams(spec: VerbSpec): TSchema {
   return Type.Object(props);
 }
 
-/** A short, LLM-facing summary line for a record. */
-function summarizeRecord(rec: OvercastRecord): string {
-  const head = `${rec.id} [${rec.verb}] state=${rec.state ?? "ready"}`;
-  if (rec.error) return `${head} error=${rec.error}`;
-  if (typeof rec.payload === "string") {
-    const oneLine = rec.payload.replace(/\s+/g, " ").slice(0, 200);
-    return `${head} :: ${oneLine}`;
+/** A `case memory get --field` page slice — always shown in full (the agent
+ *  asked for exactly that slice). Matched on the page record's signature, not a
+ *  bare `chunk` key, so a verb payload that merely has a `chunk` field isn't
+ *  forced inline. */
+function isPageChunk(rec: OvercastRecord): boolean {
+  if (rec.verb !== "case" || typeof rec.payload !== "object" || rec.payload == null) return false;
+  const p = rec.payload as JsonMap;
+  return "chunk" in p && "field" in p && "next_offset" in p;
+}
+
+// Beyond this many over-budget records, stop emitting per-record locators and
+// summarize the rest — so a flood of records stays bounded either way.
+const MAX_LOCATORS = 50;
+
+/**
+ * Render the emitted records into the LLM-facing tool text. One fold over the
+ * records, picking the largest representation that fits the remaining budget and
+ * NEVER dropping a record silently:
+ *   fit in full → inline · else fit as preview → preview · else → a one-line
+ *   locator (id + how to page it).
+ * Budgeting is on the ACTUAL rendered bytes (header + formatting). Locators are
+ * capped so even thousands of records stay bounded.
+ */
+function renderRecords(records: OvercastRecord[]): string {
+  let spent = 0;
+  let locators = 0;
+  let omitted = 0;
+  const parts: string[] = [];
+  for (const rec of records) {
+    // an explicitly-requested page slice is always shown in full and doesn't
+    // compete for the budget (the agent asked for exactly that record).
+    if (isPageChunk(rec)) {
+      parts.push(renderRecord(rec, { mode: "full", budget: AGENT_BUDGET, force: true }));
+      continue;
+    }
+    // try full, then preview, budgeting on the rendered string each time
+    for (const mode of ["full", "preview"] as const) {
+      const rendered = renderRecord(rec, { mode, budget: AGENT_BUDGET });
+      const cost = Buffer.byteLength(rendered, "utf8");
+      if (spent + cost <= AGENT_BUDGET) {
+        spent += cost;
+        parts.push(rendered);
+        break;
+      }
+      if (mode === "preview") {
+        // even the preview won't fit — emit a compact locator so the agent still
+        // has the id + how to read it (never a silent drop), up to a cap.
+        if (locators < MAX_LOCATORS) {
+          locators++;
+          const loc = `${rec.id} [${rec.verb}] state=${rec.state ?? "ready"} — not shown (budget); read it with \`${pageCommand(rec)}\``;
+          spent += Buffer.byteLength(loc, "utf8");
+          parts.push(loc);
+        } else {
+          omitted++;
+        }
+      }
+    }
   }
-  const keys = Object.keys(rec.payload);
-  return `${head} payload{${keys.join(",")}}`;
+  if (omitted > 0) {
+    parts.push(`… ${omitted} more record(s) not shown; list them with \`overcast case records\`.`);
+  }
+  return parts.join("\n\n");
 }
 
 /**
@@ -126,7 +186,7 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         c.writeRecord(rec);
       }
 
-      const summary = records.map(summarizeRecord).join("\n");
+      const summary = renderRecords(records);
       return {
         content: [
           {

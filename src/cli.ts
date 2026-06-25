@@ -9,6 +9,7 @@ import { parseVerbArgs, renderVerbHelp } from "./registry/to-cli.js";
 import { openCase } from "./case.js";
 import { loadProfile, type HomeOptions } from "./profile.js";
 import { makeRecord, type OvercastRecord } from "./record.js";
+import { renderForFormat } from "./render.js";
 
 export interface CliIO {
   out: (s: string) => void;
@@ -65,26 +66,6 @@ function extractGlobals(argv: string[]): {
     profile: values["--profile"],
     errors,
   };
-}
-
-function renderRecord(rec: OvercastRecord, format: string): string {
-  if (format === "json") return JSON.stringify(rec, null, 2);
-  if (format === "md" || format === "txt") {
-    if (typeof rec.payload === "string") return rec.payload;
-    // prefer a human-readable text field (content/text/report — e.g. ask/brief
-    // place their markdown under text/report); else stringify.
-    const p = rec.payload as Record<string, unknown>;
-    for (const k of ["content", "text", "report"]) {
-      if (typeof p[k] === "string" && p[k]) return p[k] as string;
-    }
-    return JSON.stringify(rec.payload, null, 2);
-  }
-  // default human summary
-  const head = `${rec.id} [${rec.verb}] state=${rec.state ?? "ready"}`;
-  if (rec.error) return `${head}\n  error: ${rec.error}`;
-  if (typeof rec.payload === "string") return `${head}\n  ${rec.payload.slice(0, 400)}`;
-  const keys = Object.keys(rec.payload);
-  return `${head}\n  payload: { ${keys.join(", ")} }${rec.media ? `\n  media: ${rec.media.ref}` : ""}`;
 }
 
 const GROUP_TITLES: Record<VerbSpec["group"], string> = {
@@ -351,7 +332,7 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
 
     const wantJson = parsed.opts.json === true || parsed.opts.format === "json";
     const format = wantJson ? "json" : (parsed.opts.format as string) ?? "human";
-    for (const rec of records) io.out(renderRecord(rec, format) + "\n");
+    for (const rec of records) io.out(renderForFormat(rec, format) + "\n");
 
     // state is the authoritative hint for the exit code: a hard error → 1, a
     // setup gap (needs_credentials) → 3 (distinct, so automation can tell "broke"

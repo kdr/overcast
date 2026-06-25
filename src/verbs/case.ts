@@ -6,6 +6,7 @@ import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase } from "../case.js";
 import { resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
+import { payloadFields, fieldText, fieldNames, getField } from "../render.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -19,7 +20,9 @@ export const caseVerb: VerbSpec = {
   description:
     "A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; " +
     "`case info` shows state; `case records [--verb] [--since]` lists records; " +
-    "`case memory <list|get|search> [q]` routes to the bound memory providers.",
+    "`case memory <list|get|search> [q]` routes to the bound memory providers. " +
+    "`case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] " +
+    "[--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.",
   args: [
     { name: "action", summary: "init | info | records | memory", required: true },
     { name: "arg", summary: "dir (init), record id (memory get), or query (memory search)" },
@@ -28,7 +31,9 @@ export const caseVerb: VerbSpec = {
     { name: "name", summary: "Case name (init)", type: "string" },
     { name: "verb", summary: "Filter records by kind", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
-    { name: "limit", summary: "Max records/passages", type: "number" },
+    { name: "field", summary: "Payload field to read in full (memory get)", type: "string" },
+    { name: "offset", summary: "Start char offset when paging a field (memory get)", type: "number" },
+    { name: "limit", summary: "Max records/passages, or max chars when paging a field", type: "number" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
@@ -117,9 +122,96 @@ export const caseVerb: VerbSpec = {
       }
       if (sub === "get") {
         const id = ctx.rest[1];
-        if (!id) return [err("case memory get <record-id>")];
+        if (!id) return [err("usage: case memory get <record-id> [--field <name>] [--offset N] [--limit M]")];
         const rec = ctx.case.recordById(id);
-        return [makeRecord({ verb: "case", format: "json", payload: { record: rec ?? null }, state: rec ? "ready" : "error", error: rec ? undefined : `no record ${id}` })];
+        if (!rec) {
+          return [makeRecord({ verb: "case", format: "json", payload: { record: id, found: false }, state: "error", error: `no record ${id}` })];
+        }
+
+        // A record's payload is a set of named fields — object keys, or the single
+        // implicit "(text)" for a string payload. String and object travel the
+        // SAME path from here (no isString branches): enumerate via fieldNames,
+        // address via getField, measure/slice via fieldText.
+        const field = ctx.opts.field != null ? String(ctx.opts.field) : undefined;
+        const hasPaging = ctx.opts.offset != null || ctx.opts.limit != null;
+        const names = fieldNames(rec.payload);
+
+        // Bare `get <id>` (no --field, no paging flags) → a field manifest of how
+        // to read the record — name/type/size + chars (the unit paging counts in).
+        if (field == null && !hasPaging) {
+          const fields = payloadFields(rec.payload).map((f) => ({
+            name: f.name,
+            type: f.type,
+            size: f.size,
+            chars: f.chars,
+            ...(f.count != null ? { count: f.count } : {}),
+            preview: f.preview,
+          }));
+          return [
+            makeRecord({
+              verb: "case",
+              format: "json",
+              payload: { record: rec.id, verb: rec.verb, state: rec.state ?? "ready", media: rec.media ?? null, fields },
+              // a preview of this envelope points paging at the TARGET record
+              meta: { pageTarget: rec.id },
+              state: "ready",
+            }),
+          ];
+        }
+
+        // Resolve the field to page. Omitting --field is only unambiguous when the
+        // record has exactly one field (a string payload's "(text)"); a multi-field
+        // object payload needs --field, so --offset/--limit can't silently no-op.
+        let target = field;
+        if (target == null) {
+          if (names.length === 1) target = names[0];
+          else return [err(`case memory get ${id}: --field <name> required to page an object payload (fields: ${names.join(", ")})`)];
+        }
+        const value = getField(rec.payload, target);
+        if (value === undefined) {
+          return [err(`record ${id} has no field '${target}' (fields: ${names.join(", ")})`)];
+        }
+        // same canonical text the manifest measured (guarded; never throws)
+        const text = fieldText(value);
+        const total = text.length;
+
+        let offset = 0;
+        if (ctx.opts.offset != null) {
+          const n = Number(ctx.opts.offset);
+          if (!Number.isFinite(n) || n < 0) return [err(`invalid --offset: ${ctx.opts.offset} (expected a non-negative number)`)];
+          // an overshoot must NOT silently clamp to the end (looks like a clean
+          // end-of-field and can stop paging before earlier ranges were read).
+          if (n > total) return [err(`--offset ${n} is past the end of field '${target}' (${total} chars)`)];
+          offset = n;
+        }
+        let limit = 16000;
+        if (ctx.opts.limit != null) {
+          const n = Number(ctx.opts.limit);
+          if (!Number.isFinite(n) || n <= 0) return [err(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
+          limit = n;
+        }
+        const chunk = text.slice(offset, offset + limit);
+        const nextOffset = offset + chunk.length;
+        const hasMore = nextOffset < total;
+        return [
+          makeRecord({
+            verb: "case",
+            format: "txt",
+            payload: {
+              record: id,
+              field: target,
+              offset,
+              limit,
+              total,
+              returned: chunk.length,
+              has_more: hasMore,
+              next_offset: hasMore ? nextOffset : null,
+              chunk,
+            },
+            meta: { pageTarget: id },
+            state: "ready",
+          }),
+        ];
       }
       if (sub === "search") {
         const q = ctx.rest.slice(1).join(" ");

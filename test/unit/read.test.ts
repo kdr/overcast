@@ -166,3 +166,71 @@ test("brief verb builds a report and --export writes md + html", async () => {
     assert.match(html, /white van/);
   });
 });
+
+test("brief embeds the FULL primary field, not a 160-char stub", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-brieffull-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    // a marker only reachable if the field is NOT truncated at ~160 chars
+    const content = "lead ".repeat(60) + "DEEP_TAIL_MARKER";
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content }, media: { ref: "v.mp4" } }));
+    const [rec] = await briefVerb.run(ctx(c, undefined, {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.ok(content.length > 200, "fixture should exceed the old 160-char cap");
+    assert.match(report, /DEEP_TAIL_MARKER/); // full content embedded
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief excludes meta records (prior brief, ask, case) from timeline and counts", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefmeta-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "EVIDENCE_MARKER van at docks" }, media: { ref: "a.mp4" } }));
+    c.writeRecord(makeRecord({ verb: "brief", payload: { report: "OLD_REPORT_BODY", counts: {}, total: 5 } }));
+    c.writeRecord(makeRecord({ verb: "ask", payload: { text: "ASK_ANSWER", citations: [], question: "q" } }));
+    c.writeRecord(makeRecord({ verb: "case", payload: { record: "rec_x", field: "content", chunk: "CASE_CHUNK" } }));
+    const [rec] = await briefVerb.run(ctx(c, undefined, {}));
+    const p = rec.payload as Record<string, unknown>;
+    const report = p.report as string;
+    assert.match(report, /EVIDENCE_MARKER/); // the real evidence IS present
+    assert.doesNotMatch(report, /OLD_REPORT_BODY|ASK_ANSWER|CASE_CHUNK/); // meta excluded
+    assert.equal(p.total, 1); // only the 1 evidence record counted
+    assert.deepEqual(p.counts, { watch: 1 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("local memory does not retrieve case (inspection) records as evidence", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-memcase-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "a white van at the docks" }, media: { ref: "a.mp4" } }));
+    // a `case memory get` page envelope that duplicates the same source text
+    c.writeRecord(makeRecord({ verb: "case", payload: { record: "rec_x", field: "content", chunk: "a white van at the docks" } }));
+    const hits = new LocalMemoryProvider(c).query("white van docks");
+    assert.ok(hits.length >= 1);
+    assert.ok(hits.every((h) => h.verb !== "case"), "case envelopes must not be cited as evidence");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief html export does not reparse embedded content as markup", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefhtml-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "intro line\n### Scene 5 heading\n- bullet inside content" }, media: { ref: "v.mp4" } }));
+    const htmlPath = join(dir, "b.html");
+    await briefVerb.run(ctx(c, undefined, { export: htmlPath }));
+    const html = readFileSync(htmlPath, "utf8");
+    assert.doesNotMatch(html, /<h3>Scene 5 heading<\/h3>/); // embedded line NOT a heading
+    assert.match(html, /### Scene 5 heading/); // present as escaped literal text
+    assert.match(html, /<pre>/); // embedded content is fenced
+    assert.match(html, /<h3>/); // the structural per-record heading still renders
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

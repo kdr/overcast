@@ -3,7 +3,7 @@
 // record's payload text. No external deps; per-case.
 
 import type { Case } from "../../case.js";
-import type { OvercastRecord } from "../../record.js";
+import { isMetaRecord, type OvercastRecord } from "../../record.js";
 import type { MemoryProvider, Passage, QueryOpts, Answer } from "./types.js";
 
 /** Flatten a record's payload into searchable text. */
@@ -80,10 +80,9 @@ export class LocalMemoryProvider implements MemoryProvider {
       const set = new Set(opts.verbs);
       records = records.filter((r) => set.has(r.verb));
     } else {
-      // Don't retrieve read-side outputs (ask/brief) as evidence — they embed
-      // the question + synthesized answer and would otherwise be cited back in
-      // place of the underlying records. Opt in explicitly via --verb to include.
-      records = records.filter((r) => r.verb !== "ask" && r.verb !== "brief");
+      // Don't retrieve read/meta outputs (ask/brief/case) as evidence — they
+      // restate or duplicate primary records. Opt in explicitly via --verb.
+      records = records.filter((r) => !isMetaRecord(r));
     }
     if (opts.since) {
       const cutoff = parseSince(opts.since);

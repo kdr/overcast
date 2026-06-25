@@ -4,7 +4,7 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, isMetaRecord, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import type { QueryOpts } from "../providers/memory/types.js";
@@ -103,6 +103,11 @@ interface BriefData {
 
 /** Build a markdown brief from the case records (timeline + by-kind sections). */
 function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
+  // Exclude read/meta outputs (ask/brief/case) — they restate or duplicate
+  // primary records and would otherwise show up as noisy "findings" (e.g. a
+  // `case memory get` page slice) and inflate the counts. Same boundary as
+  // memory retrieval (isMetaRecord), so brief and search stay consistent.
+  records = records.filter((r) => !isMetaRecord(r));
   const counts: Record<string, number> = {};
   for (const r of records) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
 
@@ -125,45 +130,81 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
   for (const r of sorted) {
     const at = r.media?.at != null ? ` @${Array.isArray(r.media.at) ? r.media.at.join("-") : r.media.at}s` : "";
     const ref = r.media?.ref ? ` (${r.media.ref})` : "";
-    let head = "";
-    if (typeof r.payload === "string") head = r.payload.slice(0, 160);
-    else {
-      const p = r.payload as Record<string, unknown>;
-      const pick = (v: unknown): string | undefined => {
-        if (v == null) return undefined;
-        if (typeof v === "string") return v.slice(0, 160);
-        // non-string content (number/object) must not be lost — stringify it
-        if (typeof v === "number" || typeof v === "boolean") return String(v);
-        return undefined;
-      };
-      head =
-        pick(p.title) ??
-        pick(p.content) ??
-        pick(p.text) ??
-        pick(p.report) ?? // brief records store their markdown under `report`
-        Object.keys(p).join(", ");
+    lines.push(`### \`${r.verb}\` ${r.id}${at}${ref}`, "");
+    if (r.error) {
+      lines.push(`> error: ${r.error}`, "");
+      continue;
     }
-    lines.push(`- **${r.verb}** \`${r.id}\`${at}${ref}: ${String(head).replace(/\s+/g, " ").trim()}`);
+    // Embedded record content is DATA, not markup — fence it so a line inside it
+    // that starts with #/##/###/- isn't reparsed as a heading or list item (both
+    // md viewers and our html exporter honor the fence). Use a fence longer than
+    // any backtick run in the body so the content can't close it early.
+    const body = briefBody(r);
+    const fence = fenceFor(body);
+    lines.push(fence, body, fence, "");
   }
   return { md: lines.join("\n"), counts, total: records.length };
+}
+
+// Brief is an export artifact: embed each record's primary field IN FULL (not a
+// 160-char stub — the bug that made `brief --export` a useless record list).
+const BRIEF_PRIMARY_FIELDS = ["content", "transcript", "text", "caption", "ocr", "title", "snippet"];
+
+/** A code fence longer than any backtick run in `body`, so the body can't close
+ *  it prematurely (≥3 backticks). */
+function fenceFor(body: string): string {
+  let max = 0;
+  for (const m of body.matchAll(/`+/g)) max = Math.max(max, m[0].length);
+  return "`".repeat(Math.max(3, max + 1));
+}
+
+function briefBody(rec: OvercastRecord): string {
+  if (typeof rec.payload === "string") return rec.payload.trim() || "(empty)";
+  const p = rec.payload as Record<string, unknown>;
+  for (const k of BRIEF_PRIMARY_FIELDS) {
+    const v = p[k];
+    if (typeof v === "string" && v.trim()) return v;
+    // a non-string primary value (number/boolean) must not be lost
+    if (typeof v === "number" || typeof v === "boolean") return `${k}: ${v}`;
+  }
+  // no primary text field — list what the payload carries
+  return `payload: ${Object.keys(p).join(", ") || "(empty)"}`;
 }
 
 function mdToHtml(md: string, title: string): string {
   // minimal, dependency-free md→html for the export artifact
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const body = md
-    .split("\n")
-    .map((line) => {
-      if (/^# /.test(line)) return `<h1>${esc(line.slice(2))}</h1>`;
-      if (/^## /.test(line)) return `<h2>${esc(line.slice(3))}</h2>`;
-      if (/^- /.test(line)) return `<li>${esc(line.slice(2))}</li>`;
-      if (line.trim() === "") return "";
-      return `<p>${esc(line)}</p>`;
-    })
-    .join("\n");
+  const out: string[] = [];
+  let fence: string | null = null; // the opening fence string while inside a code block
+  for (const line of md.split("\n")) {
+    if (fence == null && /^`{3,}\s*$/.test(line)) {
+      fence = line.trim();
+      out.push("<pre>");
+      continue;
+    }
+    if (fence != null) {
+      // inside a fence: everything is escaped literal data, closed only by the
+      // exact matching fence — embedded #/-/``` are NOT treated as markup.
+      if (line.trim() === fence) {
+        out.push("</pre>");
+        fence = null;
+      } else {
+        out.push(esc(line));
+      }
+      continue;
+    }
+    if (/^### /.test(line)) out.push(`<h3>${esc(line.slice(4))}</h3>`);
+    else if (/^# /.test(line)) out.push(`<h1>${esc(line.slice(2))}</h1>`);
+    else if (/^## /.test(line)) out.push(`<h2>${esc(line.slice(3))}</h2>`);
+    else if (/^- /.test(line)) out.push(`<li>${esc(line.slice(2))}</li>`);
+    else if (line.trim() === "") out.push("");
+    else out.push(`<p>${esc(line)}</p>`);
+  }
+  const body = out.join("\n");
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>body{background:#08120c;color:#c6f7d5;font-family:ui-monospace,monospace;max-width:840px;margin:2rem auto;padding:1rem}
-h1,h2{color:#ffc400}code{color:#00ff7f}li{margin:2px 0}</style></head><body>
+h1,h2{color:#ffc400}code{color:#00ff7f}li{margin:2px 0}
+pre{white-space:pre-wrap;word-break:break-word;background:#0d1f14;padding:8px;border-radius:4px}</style></head><body>
 ${body}
 </body></html>`;
 }

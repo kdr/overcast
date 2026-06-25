@@ -11,20 +11,16 @@ import { tokenizeCommand } from "../providers/sources/index.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveHome } from "../profile.js";
 import type { OvercastRecord } from "../record.js";
+import { renderForFormat } from "../render.js";
 import type { VerbContext } from "../registry/types.js";
 
 const SLASH_VERBS = ["target", "source", "case", "prebrief", "view", "setup"];
 const RESULT_TYPE = "overcast-result";
 
-function summarize(rec: OvercastRecord): string {
-  const head = `▶ ${rec.verb} · ${rec.state ?? "ready"}${rec.id ? ` · ${rec.id}` : ""}`;
-  if (rec.error) return `${head}\n  error: ${rec.error}`;
-  if (typeof rec.payload === "string") return `${head}\n  ${rec.payload.slice(0, 600)}`;
-  const p = rec.payload as Record<string, unknown>;
-  const body = Object.entries(p)
-    .map(([k, v]) => `  ${k}: ${typeof v === "string" ? v.slice(0, 160) : JSON.stringify(v).slice(0, 160)}`)
-    .join("\n");
-  return `${head}\n${body}`;
+function summarize(rec: OvercastRecord, format?: string): string {
+  // same format-aware renderer as the CLI, so /case memory get … --format txt
+  // shows a paged chunk in full instead of a truncated preview
+  return `▶ ${renderForFormat(rec, format)}`;
 }
 
 /** Register the state slash-commands + the custom result renderer. */
@@ -71,7 +67,9 @@ export function registerSlashCommands(pi: ExtensionAPI): void {
             if (r.meta?.case && r.meta.case !== c.dir) continue;
             c.writeRecord(r);
           }
-          pi.appendEntry(RESULT_TYPE, { text: recs.map(summarize).join("\n\n") || `▶ ${name}: (no records)` });
+          // honor --json/--format like the CLI (so a paged chunk isn't truncated)
+          const fmt = parsed.opts.json ? "json" : (parsed.opts.format as string | undefined);
+          pi.appendEntry(RESULT_TYPE, { text: recs.map((r) => summarize(r, fmt)).join("\n\n") || `▶ ${name}: (no records)` });
         } catch (e) {
           pi.appendEntry(RESULT_TYPE, { text: `▶ ${name} failed: ${(e as Error).message}` });
         }

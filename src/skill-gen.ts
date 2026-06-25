@@ -93,6 +93,19 @@ overcast brief --export ./brief.html
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
 read it when you need a verb's exact flags).
 
+### Reading large records
+
+A verb's JSON record can carry a large field (a \`watch\` \`content\` timeline, a
+long \`listen\` transcript). Don't reconstruct it by \`head\`/\`tail\`-ing the raw
+\`.overcast/records/*.jsonl\` — that truncates and silently drops the middle.
+Page it deterministically instead:
+
+\`\`\`bash
+overcast case memory get <record-id>                              # manifest: field names + sizes (chars)
+overcast case memory get <record-id> --field content --offset 0 --limit 16000 --json
+# repeat with the returned next_offset until has_more is false; offsets are in chars
+\`\`\`
+
 ## Setup
 
 \`overcast doctor\` checks readiness (pi, system ffmpeg, Cloudglue creds, the
