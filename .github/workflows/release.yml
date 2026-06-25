@@ -28,6 +28,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+          # npm-recommended trusted-publishing config. With no NODE_AUTH_TOKEN set,
+          # npm >= 11.5.1 ignores setup-node's .npmrc token placeholder and auths via
+          # OIDC. Ref: https://docs.npmjs.com/trusted-publishers/
           registry-url: "https://registry.npmjs.org"
       # Trusted publishing needs npm >= 11.5.1; pin to latest to be safe.
       - name: Ensure npm supports trusted publishing

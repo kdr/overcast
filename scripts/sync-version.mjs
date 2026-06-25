@@ -61,7 +61,7 @@ const mkt = JSON.parse(readFileSync(join(ROOT, mktPath), "utf8"));
 let mktDirty = false;
 if (mkt.metadata?.version !== VERSION) {
   drift.push(`${mktPath} (.metadata.version=${mkt.metadata?.version})`);
-  mkt.metadata.version = VERSION;
+  (mkt.metadata ??= {}).version = VERSION;
   mktDirty = true;
 }
 for (const p of mkt.plugins ?? []) {

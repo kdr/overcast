@@ -1,7 +1,7 @@
 {
   "name": "overcast",
   "owner": {
-    "name": "overcast",
+    "name": "kdr",
     "url": "https://github.com/kdr/overcast"
   },
   "metadata": {
@@ -15,7 +15,7 @@
       "description": "Give any agent senses (video/audio/image) and OSINT reach (search/capture/monitor), organized around an investigation case. Drives the overcast CLI (pi + tinycloud/Cloudglue).",
       "version": "0.0.0",
       "author": {
-        "name": "overcast"
+        "name": "kdr"
       },
       "homepage": "https://github.com/kdr/overcast",
       "repository": "https://github.com/kdr/overcast",

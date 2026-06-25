@@ -58,7 +58,8 @@ per run. The repo is public, so npm provenance is generated automatically.
 ## First publish (bootstrap 0.0.0) — manual, one time only
 
 OIDC isn't available yet, so publish the initial version from a machine logged in
-to npm (`npm whoami` → an account with write access to the `@kdr` scope):
+to npm (`npm whoami` → an account that owns the `@kdrrr` scope, i.e. a member of
+the `kdrrr` org with publish rights):
 
 ```bash
 npm run build                 # produce dist/ (prepublishOnly also runs this)
