@@ -39,10 +39,17 @@ test("OvercastHeader: boot frame hides the status until the decrypt reveal finis
   assert.ok(out.includes("REC"), "deck readout is shown immediately");
 });
 
-test("opLabel: rotates a verb's hacker-movie variations, with a fallback", () => {
-  const seen = new Set([opLabel("scan"), opLabel("scan"), opLabel("scan"), opLabel("scan")]);
-  assert.ok(seen.size >= 2, "scan rotates through variations");
-  for (const s of seen) assert.ok(s.endsWith("…"), "labels end with …");
+test("opLabel: each verb cycles its OWN variations (independent per-verb cursors)", () => {
+  // Interleave an unrelated verb between every scan call. With per-verb cursors,
+  // scan still covers all 4 of its variations; a single shared counter would skip
+  // half of them (the bug Cursor Bugbot flagged).
+  const scanSeen = new Set<string>();
+  for (let i = 0; i < 4; i++) {
+    scanSeen.add(opLabel("scan"));
+    opLabel("watch"); // unrelated verb must not advance scan's cursor
+  }
+  assert.equal(scanSeen.size, 4, "scan cycles all its variations regardless of other verbs");
+  for (const s of scanSeen) assert.ok(s.endsWith("…"), "labels end with …");
   assert.equal(opLabel("weird-unmapped"), "weird-unmapped…"); // graceful fallback
 });
 

@@ -333,15 +333,19 @@ const IDLE_LABELS = [
   "i'm in…",
 ];
 
-let opIdx = 0;
+// Per-verb cursors so each verb advances through ITS OWN variations — a single
+// shared counter would make a verb's phrase depend on unrelated verbs' calls.
+const opIdx = new Map<string, number>();
 let idleIdx = 0;
 
 /** The busy-label for a running tool/verb — rotates through that verb's
- *  variations (falls back to `<name>…` for anything unmapped). */
+ *  variations independently (falls back to `<name>…` for anything unmapped). */
 export function opLabel(toolName: string): string {
   const v = OP_LABELS[toolName];
   if (!v || v.length === 0) return `${toolName}…`;
-  return v[opIdx++ % v.length];
+  const i = opIdx.get(toolName) ?? 0;
+  opIdx.set(toolName, i + 1);
+  return v[i % v.length];
 }
 
 /** A themed generic shown while the agent reasons — cycles the iconic phrases. */
