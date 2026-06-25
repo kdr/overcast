@@ -1,0 +1,48 @@
+{
+  "name": "@overcast/cli",
+  "version": "0.0.1",
+  "description": "overcast — senses (video/audio/image) + OSINT reach for any agent, built on pi",
+  "type": "module",
+  "bin": {
+    "overcast": "./dist/bin/overcast.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./extension": "./dist/extension/overcast.js"
+  },
+  "files": [
+    "dist",
+    "themes",
+    "assets",
+    "skills",
+    "prompts",
+    "examples"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx test/unit/*.test.ts",
+    "test:e2e": "bash test/e2e/run.sh",
+    "test:e2e:live": "bash test/e2e/live/run.sh",
+    "build:bun": "bun build --compile bin/overcast.ts --outfile dist/bin/overcast && node scripts/bun-sidecar.mjs",
+    "dev": "tsx bin/overcast.ts",
+    "postinstall": "node scripts/brand-pi.mjs",
+    "brand": "node scripts/brand-pi.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.80.1",
+    "@earendil-works/pi-ai": "0.80.1",
+    "@earendil-works/pi-coding-agent": "0.80.1",
+    "@earendil-works/pi-tui": "0.80.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

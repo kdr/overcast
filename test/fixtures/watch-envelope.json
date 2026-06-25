@@ -1,0 +1,37 @@
+{
+  "kind": "watch",
+  "status": "ready",
+  "data": {
+    "title": "Exploring Hacker News Discussions on macOS Customization and AI Tools",
+    "summary": "The video shows a user browsing the Hacker News website, navigating through front-page news items and engaging with discussion threads focused on recent software releases, macOS menu bar customization, and AI-powered coding tools. The user scrolls through comments, examines technical tips for adjusting macOS menu bar spacing, explores conversations about AI agents and code editors, and attempts to interact with the platform's login system. The interface is characterized by Hacker News's minimalist, text-heavy design, and the video contains no audio.",
+    "duration_seconds": 35.1,
+    "segments": [
+      {
+        "index": 1,
+        "start_time": 0,
+        "end_time": 20,
+        "description": "Browsing Hacker News Website",
+        "summary": "A user navigates the Hacker News website, scrolling through the front page and clicking on specific discussion threads about software releases and operating system customization.",
+        "thumbnail_url": "https://d3o2b6j2mt954z.cloudfront.net/img/f/a6355893-bbbb-50b9-a95f-426eb0cf248e/t/6b5fbeeb-5758-5547-950a-2747bdbd5136.webp"
+      },
+      {
+        "index": 2,
+        "start_time": 20,
+        "end_time": 35.1,
+        "description": "Browsing Hacker News Discussions",
+        "summary": "A user navigates through various discussion threads on Hacker News, focusing on topics related to macOS menu bar customization and AI-powered coding tools. The video shows the user scrolling through comments, returning to the main list, and attempting to interact with the platform's login system.",
+        "thumbnail_url": "https://d3o2b6j2mt954z.cloudfront.net/img/f/a6355893-bbbb-50b9-a95f-426eb0cf248e/t/99b494b5-4320-58a9-9556-bb20a19e757e.webp"
+      }
+    ],
+    "describe": {
+      "profile": "default",
+      "primary_modalities": [
+        "speech",
+        "visual",
+        "scene_text",
+        "audio_description",
+        "summary"
+      ]
+    }
+  }
+}

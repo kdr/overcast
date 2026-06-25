@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.dev/
+*.log
+.DS_Store
+.overcast/
+.env
+.env.*
+!.env.example
+*.swp
+*.swo
+planning/

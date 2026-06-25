@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "verbatimModuleSyntax": false
+  },
+  "include": ["src", "bin"],
+  "exclude": ["node_modules", "dist", "test", "examples"]
+}
