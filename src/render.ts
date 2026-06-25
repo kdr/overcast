@@ -119,7 +119,9 @@ function renderFullPayload(payload: RecordPayload): string {
     if (v == null) out.push(`${k}: null`);
     else if (typeof v === "string") out.push(v.includes("\n") || v.length > 80 ? `${k}:\n${v}` : `${k}: ${v}`);
     else if (typeof v === "number" || typeof v === "boolean") out.push(`${k}: ${v}`);
-    else out.push(`${k}: ${safeJson(v)}`);
+    // object/array: render via fieldText (pretty JSON) so the inline full view
+    // matches EXACTLY what `case memory get --field <k>` pages back.
+    else out.push(`${k}:\n${fieldText(v)}`);
   }
   return out.join("\n");
 }

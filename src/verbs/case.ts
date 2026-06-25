@@ -155,11 +155,21 @@ export const caseVerb: VerbSpec = {
           ];
         }
 
-        // Page a single field (string payload pages directly, no --field needed).
-        const value = isString ? rec.payload : (rec.payload as JsonMap)[field as string];
-        if (value === undefined) {
-          const names = payloadFields(rec.payload).map((f) => f.name).join(", ");
-          return [err(`record ${id} has no field '${field}' (fields: ${names})`)];
+        // Page a single field. A string payload has one implicit field, "(text)":
+        // page it directly (no --field needed), but reject a wrong --field rather
+        // than silently paging the whole string under a bogus name.
+        let value: unknown;
+        if (isString) {
+          if (field != null && field !== "(text)") {
+            return [err(`record ${id} has no field '${field}' (fields: (text))`)];
+          }
+          value = rec.payload;
+        } else {
+          value = (rec.payload as JsonMap)[field as string];
+          if (value === undefined) {
+            const names = payloadFields(rec.payload).map((f) => f.name).join(", ");
+            return [err(`record ${id} has no field '${field}' (fields: ${names})`)];
+          }
         }
         // same canonical text the manifest measured (guarded; never throws)
         const text = fieldText(value);

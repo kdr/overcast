@@ -137,6 +137,14 @@ test("case memory get pages a plain-string payload as (text), no --field needed"
     assert.equal(p.field, "(text)");
     assert.equal(p.chunk, "a pla");
     assert.equal(p.total, "a plain string payload body".length);
+
+    // a wrong --field on a string payload must error, not silently page the string
+    const [bad] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id], { field: "content" }));
+    assert.equal(bad.state, "error");
+    assert.match(String(bad.error), /no field 'content'.*\(text\)/);
+    // the explicit "(text)" field name is accepted
+    const [okp] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id], { field: "(text)", offset: 0, limit: 3 }));
+    assert.equal((okp.payload as Record<string, unknown>).chunk, "a p");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

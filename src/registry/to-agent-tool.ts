@@ -70,27 +70,47 @@ function isPageChunk(rec: OvercastRecord): boolean {
 /**
  * Render the emitted records into the LLM-facing tool text. Greedy by the ACTUAL
  * rendered size (header + formatting, not just payload bytes): inline records in
- * full while under the budget, preview the rest — so a single huge watch record
- * previews but the small records around it stay full.
+ * full while under the budget, fall back to a preview, and once even the preview
+ * won't fit, stop and emit a single "N more not shown" line — so a verb that
+ * emits many records can't blow far past the budget the previews are meant to
+ * enforce.
  */
 function renderRecords(records: OvercastRecord[]): string {
   let spent = 0;
-  return records
-    .map((rec) => {
-      if (isPageChunk(rec)) return renderRecord(rec, { mode: "full", budget: AGENT_BUDGET, force: true });
-      // full-mode already degrades a too-big payload to a preview internally;
-      // we then budget on the rendered string so headers/separators count too.
-      const full = renderRecord(rec, { mode: "full", budget: AGENT_BUDGET });
-      const cost = Buffer.byteLength(full, "utf8");
-      if (spent + cost <= AGENT_BUDGET) {
-        spent += cost;
-        return full;
-      }
-      const preview = renderRecord(rec, { mode: "preview", budget: AGENT_BUDGET });
-      spent += Buffer.byteLength(preview, "utf8");
-      return preview;
-    })
-    .join("\n\n");
+  let omitted = 0;
+  const parts: string[] = [];
+  for (const rec of records) {
+    // an explicitly-requested page slice is always shown and doesn't compete
+    // for the budget (the agent asked for exactly that record).
+    if (isPageChunk(rec)) {
+      parts.push(renderRecord(rec, { mode: "full", budget: AGENT_BUDGET, force: true }));
+      continue;
+    }
+    // full-mode already degrades a too-big payload to a preview internally;
+    // budget on the rendered string so headers/separators count too.
+    const full = renderRecord(rec, { mode: "full", budget: AGENT_BUDGET });
+    const fullCost = Buffer.byteLength(full, "utf8");
+    if (spent + fullCost <= AGENT_BUDGET) {
+      spent += fullCost;
+      parts.push(full);
+      continue;
+    }
+    const preview = renderRecord(rec, { mode: "preview", budget: AGENT_BUDGET });
+    const previewCost = Buffer.byteLength(preview, "utf8");
+    if (spent + previewCost <= AGENT_BUDGET) {
+      spent += previewCost;
+      parts.push(preview);
+      continue;
+    }
+    omitted++;
+  }
+  if (omitted > 0) {
+    parts.push(
+      `… ${omitted} more record(s) not shown (over ${Math.round(AGENT_BUDGET / 1024)}KB budget); ` +
+        "list them with `overcast case records` and read one with `overcast case memory get <id>`.",
+    );
+  }
+  return parts.join("\n\n");
 }
 
 /**

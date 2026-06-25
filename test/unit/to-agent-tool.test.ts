@@ -79,6 +79,18 @@ test("a non-case payload that merely has a `chunk` key is NOT force-inlined", as
   assert.match(text, /case memory get rec_see01/);
 });
 
+test("budget is capped across many records: excess are omitted with a tail note", async () => {
+  // ~50 records of ~400B each → ~20KB of payload, well over the 8KB budget
+  const records = Array.from({ length: 50 }, (_, i) =>
+    makeRecord({ verb: "scan", payload: { title: `hit ${i}`, snippet: "x".repeat(400) } }),
+  );
+  const text = await renderViaTool(records);
+  assert.match(text, /more record\(s\) not shown/); // tail note present
+  assert.match(text, /case records/); // points at how to see the rest
+  // total LLM-facing text stays bounded (budget 8KB + headers/tail, not 20KB)
+  assert.ok(Buffer.byteLength(text, "utf8") < 12_000, `text was ${Buffer.byteLength(text, "utf8")}B`);
+});
+
 test("greedy budget: small records inline, the big one previews (mixed batch)", async () => {
   const text = await renderViaTool([
     makeRecord({ verb: "ask", payload: { text: "SMALL-ANSWER-MARKER", question: "q" } }),

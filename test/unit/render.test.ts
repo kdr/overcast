@@ -70,6 +70,13 @@ test("renderRecord full inlines a within-budget payload (agent sees the answer)"
   assert.match(out, /The tribe opposed the energy park\./); // full text present
 });
 
+test("renderRecord full renders a nested field exactly as paging would (fieldText)", () => {
+  const detailed = { segments: [1, 2, 3], title: "t" };
+  const rec = makeRecord({ verb: "watch", payload: { detailed } });
+  const out = renderRecord(rec, { mode: "full", budget: 8000 });
+  assert.ok(out.includes(fieldText(detailed))); // inline form === pageable form (pretty JSON)
+});
+
 test("renderRecord full degrades an over-budget payload to preview + paging pointer", () => {
   const big = "X".repeat(50_000);
   const rec = makeRecord({ id: "rec_big01", verb: "watch", payload: { content: big, transcript: "" } });
