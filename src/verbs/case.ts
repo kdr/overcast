@@ -179,7 +179,10 @@ export const caseVerb: VerbSpec = {
         if (ctx.opts.offset != null) {
           const n = Number(ctx.opts.offset);
           if (!Number.isFinite(n) || n < 0) return [err(`invalid --offset: ${ctx.opts.offset} (expected a non-negative number)`)];
-          offset = Math.min(n, total);
+          // an overshoot must NOT silently clamp to the end (looks like a clean
+          // end-of-field and can stop paging before earlier ranges were read).
+          if (n > total) return [err(`--offset ${n} is past the end of field '${target}' (${total} chars)`)];
+          offset = n;
         }
         let limit = 16000;
         if (ctx.opts.limit != null) {

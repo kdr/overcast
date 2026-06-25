@@ -4,7 +4,7 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, isMetaRecord, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import type { QueryOpts } from "../providers/memory/types.js";
@@ -103,6 +103,11 @@ interface BriefData {
 
 /** Build a markdown brief from the case records (timeline + by-kind sections). */
 function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
+  // Exclude read/meta outputs (ask/brief/case) — they restate or duplicate
+  // primary records and would otherwise show up as noisy "findings" (e.g. a
+  // `case memory get` page slice) and inflate the counts. Same boundary as
+  // memory retrieval (isMetaRecord), so brief and search stay consistent.
+  records = records.filter((r) => !isMetaRecord(r));
   const counts: Record<string, number> = {};
   for (const r of records) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
 
@@ -128,12 +133,6 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
     lines.push(`### \`${r.verb}\` ${r.id}${at}${ref}`, "");
     if (r.error) {
       lines.push(`> error: ${r.error}`, "");
-      continue;
-    }
-    if (r.verb === "brief") {
-      // a prior brief collapses to a one-liner so a brief never re-embeds briefs
-      const total = typeof r.payload === "object" && r.payload ? (r.payload as Record<string, unknown>).total : undefined;
-      lines.push(`_(prior brief — ${total ?? "?"} records)_`, "");
       continue;
     }
     // Embedded record content is DATA, not markup — fence it so a line inside it

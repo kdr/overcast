@@ -48,6 +48,20 @@ export interface OvercastRecord {
 export type RecordPayload = JsonMap | string;
 export type JsonMap = { [k: string]: unknown };
 
+/**
+ * Verbs whose records are read/meta outputs — `ask`/`brief` (synthesized answers
+ * & reports) and `case` (inspection envelopes: manifests, `memory get` page
+ * slices). They restate or duplicate primary records, so they're excluded from
+ * BOTH memory retrieval and brief timelines — never cited or embedded in place of
+ * the underlying watch/listen/see record. The single source for that boundary.
+ */
+export const META_VERBS: ReadonlySet<string> = new Set(["ask", "brief", "case"]);
+
+/** Whether a record is a read/meta output (not primary evidence). */
+export function isMetaRecord(rec: Pick<OvercastRecord, "verb">): boolean {
+  return META_VERBS.has(rec.verb);
+}
+
 const ID_PREFIX = "rec_";
 
 /** Stable-ish unique id; this IS the record's memory address. */

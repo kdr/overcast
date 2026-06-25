@@ -183,15 +183,21 @@ test("brief embeds the FULL primary field, not a 160-char stub", async () => {
   }
 });
 
-test("brief collapses a prior brief record to a one-liner (no recursive re-embed)", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "oc-briefprior-"));
+test("brief excludes meta records (prior brief, ask, case) from timeline and counts", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefmeta-"));
   try {
     const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "EVIDENCE_MARKER van at docks" }, media: { ref: "a.mp4" } }));
     c.writeRecord(makeRecord({ verb: "brief", payload: { report: "OLD_REPORT_BODY", counts: {}, total: 5 } }));
+    c.writeRecord(makeRecord({ verb: "ask", payload: { text: "ASK_ANSWER", citations: [], question: "q" } }));
+    c.writeRecord(makeRecord({ verb: "case", payload: { record: "rec_x", field: "content", chunk: "CASE_CHUNK" } }));
     const [rec] = await briefVerb.run(ctx(c, undefined, {}));
-    const report = (rec.payload as Record<string, unknown>).report as string;
-    assert.match(report, /prior brief — 5 records/);
-    assert.doesNotMatch(report, /OLD_REPORT_BODY/);
+    const p = rec.payload as Record<string, unknown>;
+    const report = p.report as string;
+    assert.match(report, /EVIDENCE_MARKER/); // the real evidence IS present
+    assert.doesNotMatch(report, /OLD_REPORT_BODY|ASK_ANSWER|CASE_CHUNK/); // meta excluded
+    assert.equal(p.total, 1); // only the 1 evidence record counted
+    assert.deepEqual(p.counts, { watch: 1 });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

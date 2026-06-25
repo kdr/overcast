@@ -101,6 +101,19 @@ test("case memory get --field reaches the end (has_more false, next_offset null)
   });
 });
 
+test("case memory get errors when --offset is past the end of the field", async () => {
+  await withBigRecord(async (dir, id, content) => {
+    const [over] = await caseVerb.run(ctx(dir, "memory", ["get", id], { field: "content", offset: content.length + 100 }));
+    assert.equal(over.state, "error");
+    assert.match(String(over.error), /past the end/);
+    // offset === total is the legitimate terminal: empty slice, has_more false
+    const [end] = await caseVerb.run(ctx(dir, "memory", ["get", id], { field: "content", offset: content.length, limit: 50 }));
+    const p = end.payload as Record<string, unknown>;
+    assert.equal(p.returned, 0);
+    assert.equal(p.has_more, false);
+  });
+});
+
 test("case memory get errors on a missing field, listing the real fields", async () => {
   await withBigRecord(async (dir, id) => {
     const [rec] = await caseVerb.run(ctx(dir, "memory", ["get", id], { field: "nope" }));
