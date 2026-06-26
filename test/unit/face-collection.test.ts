@@ -627,11 +627,12 @@ test("face --collection rejects a non-face-analysis collection type (#R6-2)", as
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("face rejects invalid numeric flags (--limit 0, --min-similarity 150) (#R6-3)", async () => {
+test("face rejects invalid numeric flags (--limit 0, --min-similarity 1.5 — tinycloud's 0–1 scale) (#R6-3)", async () => {
   const [a] = await faceVerb.run(ctx(clip, { limit: 0 }));
   assert.equal(a.state, "error");
   assert.match(a.error ?? "", /invalid --limit/);
-  const [b] = await faceVerb.run(ctx(clip, { "min-similarity": 150, match: face }));
+  // tinycloud similarity is 0–1, so > 1 is invalid (caught by the live e2e smoke)
+  const [b] = await faceVerb.run(ctx(clip, { "min-similarity": 1.5, match: face }));
   assert.equal(b.state, "error");
   assert.match(b.error ?? "", /invalid --min-similarity/);
 });

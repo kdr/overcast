@@ -22,9 +22,9 @@ export interface FaceParams {
   image?: string;
   /** a face-analysis collection id (list/search); search may target several */
   collections?: string[];
-  /** match: cap returned matches */
+  /** match: cap returned matches (tinycloud: 1–4000) */
   maxFaces?: number;
-  /** match/search: similarity floor (0–100) */
+  /** match/search: similarity/score floor (0–1, tinycloud's scale) */
   minSimilarity?: number;
   /** detect/match: sampling fps + time window */
   fps?: number;

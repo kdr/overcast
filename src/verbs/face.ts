@@ -126,8 +126,8 @@ export const faceVerb: VerbSpec = {
   flags: [
     { name: "match", summary: "Reference face image to find (path/URL/record-id)", type: "string" },
     { name: "collection", summary: "Face-analysis collection id/name to search or list within (comma-list ok; default: the case's face collection)", type: "string" },
-    { name: "max-faces", summary: "match: cap returned matches", type: "number" },
-    { name: "min-similarity", summary: "match/search: similarity floor (0–100)", type: "number" },
+    { name: "max-faces", summary: "match: cap returned matches (1–4000)", type: "number" },
+    { name: "min-similarity", summary: "match/search: similarity floor (0–1)", type: "number" },
     { name: "thumbnails", summary: "Include face thumbnails", type: "boolean" },
     { name: "fps", summary: "detect/match: sampling frames per second", type: "number" },
     { name: "start", summary: "detect/match: window start (SS or timecode)", type: "string" },
@@ -175,8 +175,8 @@ export const faceVerb: VerbSpec = {
     // paths) — reject 0/negative/out-of-range/non-finite like ask/entities,
     // rather than forwarding a junk value to the provider.
     const numErr =
-      badNumber(ctx.opts, "max-faces", (n) => n > 0, "a positive number") ??
-      badNumber(ctx.opts, "min-similarity", (n) => n >= 0 && n <= 100, "0–100") ??
+      badNumber(ctx.opts, "max-faces", (n) => n >= 1 && n <= 4000, "1–4000") ??
+      badNumber(ctx.opts, "min-similarity", (n) => n >= 0 && n <= 1, "0–1") ??
       badNumber(ctx.opts, "fps", (n) => n > 0, "a positive number") ??
       badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number") ??
       badNumber(ctx.opts, "offset", (n) => n >= 0, "a non-negative number");
