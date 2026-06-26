@@ -46,6 +46,16 @@ function err(message: string): OvercastRecord {
  *  while it ingests, but the membership intent is real). */
 const accepted = (rec: OvercastRecord) => rec.state === "ready" || rec.state === "pending";
 
+/** show/delete take a POSITIONAL id; an `add`/`remove` target flag (--to/--from)
+ *  with no positional is a misuse that must NOT fall through to the sole
+ *  collection (dangerous for delete). Returns the stray flag name, else undefined. */
+function strayTargetFlag(ctx: VerbContext): string | undefined {
+  if (ctx.rest[0]) return undefined;
+  if (ctx.opts.to != null) return "--to";
+  if (ctx.opts.from != null) return "--from";
+  return undefined;
+}
+
 /** A case record id → its media.ref; otherwise the ref as-is (path / URL). */
 function resolveMediaRef(c: Case, ref: string): { ref: string; recordId?: string } {
   const rec = c.recordById(ref);
@@ -152,7 +162,7 @@ export const collectionVerb: VerbSpec = {
 
     // ---- create ----
     if (action === "create") {
-      const name = ctx.rest[0];
+      const name = ctx.rest[0]?.trim();
       if (!name) return [err("usage: collection create <name> --type <media-descriptions|entities|face-analysis>")];
       // `!= null` so a provided-but-empty `--type=` flows to normalizeCollectionType
       // (→ unknown-type error) instead of silently defaulting like an omitted flag.
@@ -161,7 +171,9 @@ export const collectionVerb: VerbSpec = {
       if (!type) {
         return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts)`)];
       }
-      const prompt = ctx.opts.prompt ? String(ctx.opts.prompt) : undefined;
+      // a whitespace-only --prompt is effectively no prompt — treat it as absent so
+      // the entities requirement below catches it, not tinycloud with an empty prompt.
+      const prompt = ctx.opts.prompt != null && String(ctx.opts.prompt).trim() ? String(ctx.opts.prompt) : undefined;
       const schema = ctx.opts.schema ? String(ctx.opts.schema) : undefined;
       if (type === "entities" && !prompt && !schema) {
         return [err("an entities collection needs --prompt <text> or --schema <file> (the schema to extract from every video)")];
@@ -269,6 +281,8 @@ export const collectionVerb: VerbSpec = {
 
     // ---- show ----
     if (action === "show") {
+      const stray = strayTargetFlag(ctx);
+      if (stray) return [err(`collection show takes a positional id: \`collection show <id>\` (saw ${stray}, which doesn't apply here)`)];
       const target = resolveTarget(c, ctx.rest[0]);
       if (target.error) return [err(`collection show: ${target.error}`)];
       const { rec } = await tcCollectionShow(target.id!, tcOpts);
@@ -278,6 +292,10 @@ export const collectionVerb: VerbSpec = {
 
     // ---- delete ----
     if (action === "delete") {
+      // guard the destructive op: a misused --to/--from with no positional must not
+      // silently delete the case's sole collection.
+      const stray = strayTargetFlag(ctx);
+      if (stray) return [err(`collection delete takes a positional id: \`collection delete <id>\` (saw ${stray}, which doesn't apply here)`)];
       const target = resolveTarget(c, ctx.rest[0]);
       if (target.error) return [err(`collection delete: ${target.error}`)];
       const { rec } = await tcCollectionDelete(target.id!, tcOpts);

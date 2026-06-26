@@ -42,7 +42,10 @@ function resolveImageRef(c: Case, ref: string): { ref?: string; error?: string }
   if (!rec) return { ref }; // a direct path / URL — trust the user's choice
   const m = rec.media?.ref;
   if (!m) return { error: `--match record ${ref} has no media` };
-  if (!/^https?:\/\//i.test(m) && !IMG_RE.test(m)) {
+  // require an image extension for a record-resolved ref — local AND http (strip
+  // any query/fragment) — so a watch/capture/scan record pointing at a video or
+  // page URL is rejected, not accepted as a face image.
+  if (!IMG_RE.test(m.replace(/[?#].*$/, ""))) {
     return { error: `--match record ${ref} resolves to ${m}, which isn't a face image — pass a face image (jpg/png) or an image record (e.g. a see/capture of a photo)` };
   }
   return { ref: m };

@@ -786,6 +786,41 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+// ---- Bugbot round-14 regressions -------------------------------------------
+
+test("collection create rejects a whitespace-only name and a whitespace-only entities --prompt (#R14-1/#R14-2)", async () => {
+  const [n] = await collectionVerb.run(ctx("create", { type: "media" }, ["   "]));
+  assert.equal(n.state, "error");
+  assert.match(n.error ?? "", /usage: collection create/);
+  const [p] = await collectionVerb.run(ctx("create", { type: "entities", prompt: "   " }, ["people"]));
+  assert.equal(p.state, "error");
+  assert.match(p.error ?? "", /--prompt|--schema/);
+});
+
+test("collection delete rejects a misused --to (no silent sole-collection delete) (#R14-3)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-stray-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    const [d] = await collectionVerb.run({ input: "delete", rest: [], opts: { to: "col_only" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(d.state, "error");
+    assert.match(d.error ?? "", /positional id/);
+    assert.equal(listCollections(openCase(cdir)).length, 1); // the sole collection was NOT deleted
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("face --match record rejects an http video/page media.ref (#R14-4)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-httpimg-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    const w = makeRecord({ verb: "watch", payload: {}, media: { ref: "https://example.com/clip.mp4" }, state: "ready" });
+    c.writeRecord(w);
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: w.id, collection: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /isn't a face image/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
 // ---- Bugbot round-13 regression --------------------------------------------
 
 test("empty-string --match / --type are rejected, not treated as omitted (#R13)", async () => {

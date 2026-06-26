@@ -75,6 +75,9 @@ export const askVerb: VerbSpec = {
     if (ctx.opts.collection == null && (ctx.opts.probe === true || ctx.opts.scope)) {
       return [askError("--probe/--scope only apply with --collection (a media-descriptions collection)")];
     }
+    if (ctx.opts.scope != null && !String(ctx.opts.scope).trim()) {
+      return [askError("--scope requires a value (file | segment)")];
+    }
     if (ctx.opts.scope && ctx.opts.probe !== true) {
       return [askError("--scope only applies with --probe (probe = semantic moment search)")];
     }
