@@ -12,7 +12,7 @@
 // `face --match … --collection <id>` (face-analysis), `collection entities …`.
 
 import { existsSync } from "node:fs";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, isReady, type OvercastRecord } from "../record.js";
 import {
   tcCollectionCreate,
   tcCollectionAdd,
@@ -66,6 +66,9 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
   const seen = new Set<string>();
   for (const r of c.records()) {
     if (!["capture", "watch", "listen", "face"].includes(r.verb)) continue;
+    // skip non-ready senses: a failed/credential-gapped watch can still set
+    // media.ref to the input path — registering those would pollute the collection.
+    if (!isReady(r)) continue;
     // a face SEARCH record's media.ref is the QUERY image, not a case video — skip.
     if (r.verb === "face" && (r.payload as Record<string, unknown> | undefined)?.op === "search") continue;
     const ref = r.media?.ref;
@@ -155,8 +158,9 @@ export const collectionVerb: VerbSpec = {
         prompt,
         schema,
       });
-      // mirror only a real, ready collection (a cred gap / error returns no id).
-      if (id && rec.state === "ready") addCollection(c, { id, type, name, description: ctx.opts.description ? String(ctx.opts.description) : undefined });
+      // mirror an accepted create (ready OR an async pending that still returned
+      // a real id) so the create→add-by-name flow works; a cred gap / error has no id.
+      if (id && accepted(rec)) addCollection(c, { id, type, name, description: ctx.opts.description ? String(ctx.opts.description) : undefined });
       rec.meta = { ...rec.meta, case: c.dir };
       return [rec];
     }
@@ -172,7 +176,13 @@ export const collectionVerb: VerbSpec = {
       // no-ops (collection absent) and `add --all` re-adds the same videos every
       // run. Record the --type hint when given so face auto-resolution can find
       // it; otherwise "unknown" (face --match falls back to those candidates).
-      if (!findCollection(c, id)) addCollection(c, { id, type: typeHint ?? "unknown", name: id });
+      const existing = findCollection(c, id);
+      if (!existing) {
+        addCollection(c, { id, type: typeHint ?? "unknown", name: id });
+      } else if (typeHint && existing.type === "unknown") {
+        // a later `add --type face` classifies a previously-unknown stub (addCollection upserts).
+        addCollection(c, { id, type: typeHint, name: existing.name, description: existing.description });
+      }
       const addOpts = {
         ...tcOpts,
         noUpload: ctx.opts["no-upload"] === true,
@@ -258,13 +268,23 @@ export const collectionVerb: VerbSpec = {
       const id = ctx.rest[0];
       const videoArg = ctx.rest[1];
       if (!id || !videoArg) return [err("usage: collection entities <collection-id> <video|record-id>")];
+      // validate the numeric paging flags (matches ask) — a 0/negative/NaN value
+      // must not become a bad flag on the tinycloud CLI.
+      let limit: number | undefined;
+      if (ctx.opts.limit != null) {
+        const n = Number(ctx.opts.limit);
+        if (!Number.isFinite(n) || n <= 0) return [err(`collection entities: invalid --limit '${ctx.opts.limit}' (expected a positive number)`)];
+        limit = n;
+      }
+      let offset: number | undefined;
+      if (ctx.opts.offset != null) {
+        const n = Number(ctx.opts.offset);
+        if (!Number.isFinite(n) || n < 0) return [err(`collection entities: invalid --offset '${ctx.opts.offset}' (expected a non-negative number)`)];
+        offset = n;
+      }
       const colId = findCollection(c, id)?.id ?? id;
       const { ref } = resolveMediaRef(c, videoArg);
-      const { rec } = await tcCollectionEntities(colId, ref, {
-        ...tcOpts,
-        limit: ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined,
-        offset: ctx.opts.offset != null ? Number(ctx.opts.offset) : undefined,
-      });
+      const { rec } = await tcCollectionEntities(colId, ref, { ...tcOpts, limit, offset });
       rec.meta = { ...rec.meta, case: c.dir };
       return [rec];
     }

@@ -508,3 +508,48 @@ test("collection remove updates the mirror on an accepted op (#R3-4)", async () 
     rmSync(cdir, { recursive: true, force: true });
   }
 });
+
+// ---- Bugbot round-4 regressions --------------------------------------------
+
+test("ask --scope without --probe, and --probe without --collection, are errors (#R4-1/#R4-2)", async () => {
+  const [a] = await askVerb.run(ctx("q?", { collection: "col_x", scope: "file" })); // scope, no probe
+  assert.equal(a.state, "error");
+  assert.match(a.error ?? "", /--scope only applies with --probe/);
+  const [b] = await askVerb.run(ctx("q?", { probe: true })); // probe, no collection
+  assert.equal(b.state, "error");
+  assert.match(b.error ?? "", /only apply with --collection/);
+});
+
+test("collection add --type face upgrades an existing unknown stub (#R4-4)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-typeup-"));
+  const video = join(cdir, "v.mp4"); writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_x", type: "unknown", name: "col_x" });
+    await collectionVerb.run({ input: "add", rest: [video], opts: { to: "col_x", type: "face" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(findCollection(openCase(cdir), "col_x")?.type, "face-analysis");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("collection add --all skips non-ready (failed) sense records (#R4-5)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-failall-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_v", type: "media-descriptions", name: "v" });
+    c.writeRecord(makeRecord({ verb: "watch", payload: {}, media: { ref: "/tmp/bad.mp4" }, error: "boom", state: "error" }));
+    c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: "/tmp/good.mp4" }, state: "ready" }));
+    await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_v" }, case: openCase(cdir), profile: defaultProfile() });
+    const members = findCollection(openCase(cdir), "col_v")!.members.map((m) => m.ref);
+    assert.deepEqual(members, ["/tmp/good.mp4"]); // the errored watch is excluded
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("collection entities validates --limit/--offset like ask (#R4-6)", async () => {
+  const [rec] = await collectionVerb.run(ctx("entities", { limit: 0 }, ["col_x", "vid"]));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /invalid --limit/);
+});

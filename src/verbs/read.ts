@@ -68,6 +68,14 @@ export const askVerb: VerbSpec = {
         return [askError(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
       }
     }
+    // --probe/--scope only apply to a tinycloud collection query (--collection);
+    // --scope only in probe mode. Reject misuse rather than silently ignoring it.
+    if (!ctx.opts.collection && (ctx.opts.probe === true || ctx.opts.scope)) {
+      return [askError("--probe/--scope only apply with --collection (a media-descriptions collection)")];
+    }
+    if (ctx.opts.scope && ctx.opts.probe !== true) {
+      return [askError("--scope only applies with --probe (probe = semantic moment search)")];
+    }
     // --collection: answer over a tinycloud media-descriptions collection (the
     // index of a target's videos) instead of the local case memory. The id/name
     // resolves through the case mirror to the real tinycloud collection id.
