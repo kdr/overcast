@@ -56,6 +56,12 @@ function resolveMediaRef(c: Case, ref: string): { ref: string; recordId?: string
 const AV_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mp3|m4a|wav|flac|ogg|aac)$/i;
 const isAv = (ref: string) => /^https?:\/\//i.test(ref) || AV_RE.test(ref);
 
+/** Record verbs whose media.ref is registerable case media (captured/sensed).
+ *  Deliberately excludes `scan` (media.ref is a page/listing URL that still
+ *  passes isAv for any http(s)) — the actual media arrives via `capture`. Used by
+ *  both `add --all` and single `add <record-id>` so they filter identically. */
+const MEDIA_VERBS = ["capture", "watch", "listen", "face"];
+
 /** Unique AV media refs the case has captured or sensed (the media gathered while
  *  investigating the target) — what `collection add --all` registers: `capture`
  *  (fetched media) plus anything sensed via `watch`/`listen`/`face`. Deliberately
@@ -66,7 +72,7 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
   const out: Array<{ ref: string; recordId: string }> = [];
   const seen = new Set<string>();
   for (const r of c.records()) {
-    if (!["capture", "watch", "listen", "face"].includes(r.verb)) continue;
+    if (!MEDIA_VERBS.includes(r.verb)) continue;
     // skip non-ready senses: a failed/credential-gapped watch can still set
     // media.ref to the input path — registering those would pollute the collection.
     if (!isReady(r)) continue;
@@ -213,11 +219,15 @@ export const collectionVerb: VerbSpec = {
       const arg = ctx.rest[0];
       if (!arg) return [err("usage: collection add <video|record-id> --to <id> (or --all)")];
       const { ref, recordId } = resolveMediaRef(c, arg);
-      // when the arg is a case record, apply the same filters as `--all`: a
-      // non-ready (failed) sense or a face-search record (media = query image)
-      // must not be registered — surface why rather than indexing junk.
+      // when the arg is a case record, apply the same filters as `--all`: only
+      // captured/sensed media (not a `scan` hit's page URL), ready, and not a
+      // face-search record (media = query image) — surface why rather than
+      // indexing junk.
       if (recordId) {
         const src = c.recordById(recordId);
+        if (src && !MEDIA_VERBS.includes(src.verb)) {
+          return [err(`collection add: record ${arg} is a ${src.verb} record, not captured/sensed media — capture it first (e.g. \`scan --pull\`) then add the capture, or pass a path/URL`)];
+        }
         if (src && !isReady(src)) return [err(`collection add: record ${arg} isn't ready (state=${src.state ?? "?"})`)];
         if (src?.verb === "face" && (src.payload as Record<string, unknown> | undefined)?.op === "search") {
           return [err(`collection add: record ${arg} is a face search (its media is the query image, not a video)`)];

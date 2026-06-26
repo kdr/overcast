@@ -713,3 +713,34 @@ test("custom face provider gets the auto-picked sole face collection + op (#R7-4
     assert.equal((rec.payload as Record<string, unknown>).got_op, "yes");
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
+
+// ---- Bugbot round-9 regressions --------------------------------------------
+
+test("single collection add rejects a scan record (page URL), like --all (#R9-1)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-addscan-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_x", type: "media-descriptions", name: "x" });
+    const scan = makeRecord({ verb: "scan", payload: { url: "https://news.example/post" }, media: { ref: "https://news.example/post" }, state: "ready" });
+    c.writeRecord(scan);
+    const [rec] = await collectionVerb.run({ input: "add", rest: [scan.id], opts: { to: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /is a scan record/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("a pinned full-path tinycloud face binding runs ALL ops via runFace, not the template's subcommand (#R9-2)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-pinned-"));
+  const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
+  const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    const p = defaultProfile();
+    // a "pinned binary" (the fake) whose template hardcodes `face detect`
+    p.providers = { ...p.providers, face: { type: "exec", run: `${BASE} face detect {{input}} --json` } };
+    const [rec] = await faceVerb.run({ input: vid, rest: [], opts: { match: img }, case: c, profile: p });
+    const pl = rec.payload as Record<string, unknown>;
+    assert.equal(pl.op, "match"); // op resolved + routed through runFace, not the template's `detect`
+    assert.equal((pl.faces as Array<Record<string, unknown>>)[0].similarity, 92.5); // the fixture's `face match` result
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});

@@ -15,6 +15,7 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { collectionsByType, resolveCollectionRef } from "../state/collection.js";
 import type { Case } from "../case.js";
+import type { ProviderDescriptor } from "../profile.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -86,14 +87,30 @@ const num = (v: unknown): number | undefined => {
  *  tinycloud binary/wrapper (e.g. `tinycloud-beta …`) is honored rather than
  *  silently ignored. A fully non-tinycloud binding is handled by isCustomBinding
  *  (pass-through) instead; here we only reach a tinycloud-style binding. */
+const TC_SUBCOMMANDS = ["face", "library", "ask", "probe", "watch", "listen"];
+
 export function tinycloudBaseFromRun(run?: string): string | undefined {
   if (!run || !run.trim()) return undefined;
   const out: string[] = [];
   for (const t of run.trim().split(/\s+/)) {
-    if (["face", "library", "ask", "probe", "watch", "listen"].includes(t) || t.startsWith("{{") || t.startsWith("-")) break;
+    if (TC_SUBCOMMANDS.includes(t) || t.startsWith("{{") || t.startsWith("-")) break;
     out.push(t);
   }
   return out.length ? out.join(" ") : undefined;
+}
+
+/** Is this `face` binding a tinycloud invocation (possibly a PINNED binary/path,
+ *  e.g. `/opt/tc/tinycloud face detect {{input}}`) rather than a standalone custom
+ *  provider? Such a binding must be driven via runFace with the derived base so
+ *  ALL four ops work — the custom branch would hardcode whatever subcommand the
+ *  template names. Detected by a tinycloud subcommand following the command prefix. */
+function isTinycloudFaceBinding(b?: ProviderDescriptor): boolean {
+  const run = b?.run;
+  if (!run) return false;
+  const base = tinycloudBaseFromRun(run);
+  if (!base) return false;
+  const after = run.trim().split(/\s+/).slice(base.split(/\s+/).length);
+  return after.length > 0 && TC_SUBCOMMANDS.includes(after[0]);
 }
 
 export const faceVerb: VerbSpec = {
@@ -208,9 +225,11 @@ export const faceVerb: VerbSpec = {
     }
 
     // A custom face provider takes over (pass-through) with the SAME resolved op +
-    // collections, so a bound provider behaves like the default tinycloud path.
+    // collections, so a bound provider behaves like the default tinycloud path. A
+    // tinycloud-style binding (incl. a pinned binary/path) is NOT custom — it runs
+    // through runFace below so all four ops work, not just the template's subcommand.
     const binding = ctx.profile.providers?.face;
-    if (isCustomBinding(binding)) {
+    if (isCustomBinding(binding) && !isTinycloudFaceBinding(binding)) {
       const primary = op === "search" ? image! : video!;
       const extraArgs: string[] = ["--op", op];
       if (image && (op === "match" || op === "search")) extraArgs.push("--match", image);
