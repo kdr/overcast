@@ -785,3 +785,20 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
     assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0); // mirror pruned
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
+
+// ---- Bugbot round-11 regression --------------------------------------------
+
+test("collection target rejects a BLANK explicit id but allows an omitted one (#R11)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-blanktgt-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    // a PROVIDED-but-blank id is a user error — must not silently target the sole collection
+    const [blank] = await collectionVerb.run({ input: "show", rest: ["   "], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(blank.state, "error");
+    assert.match(blank.error ?? "", /blank collection id/);
+    // an OMITTED id still resolves the case's sole collection (the convenience path)
+    const [omitted] = await collectionVerb.run({ input: "show", rest: [], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.notEqual(omitted.state, "error");
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});

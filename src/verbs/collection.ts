@@ -87,12 +87,14 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
 }
 
 /** Resolve the target collection id for add/show/delete: an explicit value, else
- *  the case's sole mirrored collection (optionally filtered by type). */
+ *  the case's sole mirrored collection (optionally filtered by type). A value that
+ *  was PROVIDED but is blank/whitespace is a user error (like ask/face reject blank
+ *  --collection) — only a truly OMITTED value falls back to the sole collection, so
+ *  an empty-looking flag can't silently target (and delete) the wrong one. */
 function resolveTarget(c: Case, explicit?: string, type?: string): { id?: string; error?: string } {
-  // a whitespace-only value is treated as missing (fall through to sole-collection
-  // resolution), never shipped as a junk id.
-  const ex = explicit?.trim();
-  if (ex) {
+  if (explicit !== undefined) {
+    const ex = explicit.trim();
+    if (!ex) return { error: "a blank collection id/name was given — pass a real id/name, or omit it to use the case's sole collection" };
     const ref = resolveCollectionRef(c, ex); // errors on an ambiguous display name
     if (ref.error) return { error: ref.error };
     return { id: ref.entry?.id ?? ex };
