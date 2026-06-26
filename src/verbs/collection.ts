@@ -96,23 +96,30 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
   return out;
 }
 
-/** Resolve a single video arg (path/URL/record-id) for `add`/`entities`, applying
- *  the same filters: a case record must be captured/sensed media (not a `scan`
- *  hit's page URL), ready, and not a face-search query image; the ref must exist
- *  (local) and be AV. Returns the resolved ref (+ recordId) or an error. */
-function resolveVideoArg(c: Case, arg: string, label: string): { ref?: string; recordId?: string; error?: string } {
+/** Resolve a single video arg (path/URL/record-id) and apply media filters: a case
+ *  record must be captured/sensed media (not a `scan` hit's page URL) and not a
+ *  face-search query image; the ref must be AV. `add`/`entities` also require the
+ *  record be ready and the local file exist; `remove` disables both (you should be
+ *  able to un-index a video whose record errored or whose local file is gone). */
+function resolveVideoArg(
+  c: Case,
+  arg: string,
+  label: string,
+  opts: { requireReady?: boolean; requireExists?: boolean } = {},
+): { ref?: string; recordId?: string; error?: string } {
+  const { requireReady = true, requireExists = true } = opts;
   const { ref, recordId } = resolveMediaRef(c, arg);
   if (recordId) {
     const src = c.recordById(recordId);
     if (src && !MEDIA_VERBS.includes(src.verb)) {
       return { error: `${label}: record ${arg} is a ${src.verb} record, not captured/sensed media — capture it first (e.g. \`scan --pull\`) then use the capture, or pass a path/URL` };
     }
-    if (src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
+    if (requireReady && src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
     if (src?.verb === "face" && (src.payload as Record<string, unknown> | undefined)?.op === "search") {
       return { error: `${label}: record ${arg} is a face search (its media is the query image, not a video)` };
     }
   }
-  if (!/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: video not found: ${ref}` };
+  if (requireExists && !/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: video not found: ${ref}` };
   if (!isAv(ref)) return { error: `${label}: ${ref} is not a video/audio file` };
   return { ref, recordId };
 }
@@ -253,7 +260,19 @@ export const collectionVerb: VerbSpec = {
         const col = findCollection(c, id);
         const members = new Set(col?.members.map((m) => m.ref) ?? []);
         const vids = caseVideoRefs(c).filter((v) => !members.has(v.ref));
-        if (vids.length === 0) return [err("collection add --all: no new captured/sensed videos to register")];
+        if (vids.length === 0) {
+          // distinguish "nothing here" from "still processing" — caseVideoRefs only
+          // returns READY media, so report in-flight pending records rather than a
+          // misleading "no videos" (consistent with single add erroring on pending).
+          const pending = c.records().filter(
+            (r) => MEDIA_VERBS.includes(r.verb) && r.state === "pending" && r.media?.ref && isAv(r.media.ref) && !members.has(r.media.ref),
+          ).length;
+          return [err(
+            pending > 0
+              ? `collection add --all: ${pending} video(s) still processing (pending) — rerun once they're ready`
+              : "collection add --all: no new captured/sensed videos to register",
+          )];
+        }
         const recs: OvercastRecord[] = [];
         for (const v of vids) {
           const { rec } = await tcCollectionAdd(v.ref, id, addOpts);
@@ -321,7 +340,12 @@ export const collectionVerb: VerbSpec = {
       if (!arg) return [err("usage: collection remove <video|record-id> --from <id>")];
       const from = resolveTarget(c, ctx.opts.from != null ? String(ctx.opts.from) : undefined);
       if (from.error) return [err(`collection remove: ${from.error}`)];
-      const { ref } = resolveMediaRef(c, arg);
+      // same media filters as add/entities (reject scan/face-search/non-AV refs),
+      // but allow a gone local file / errored record — you should still be able to
+      // un-index a video that's no longer on disk or whose sense later failed.
+      const v = resolveVideoArg(c, arg, "collection remove", { requireExists: false, requireReady: false });
+      if (v.error) return [err(v.error)];
+      const ref = v.ref!;
       const { rec } = await tcCollectionRemove(ref, from.id!, tcOpts);
       // mirror on ready OR pending (an async remove still removed the member),
       // matching how `add` tracks membership via accepted().

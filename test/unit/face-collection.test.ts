@@ -786,6 +786,37 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+// ---- Bugbot round-16 regressions -------------------------------------------
+
+test("collection remove applies media filters but allows a gone file / errored record (#R16-1)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-rmfilt-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_r", type: "media-descriptions", name: "r" });
+    addMember(c, "col_r", { ref: "/tmp/gone.mp4" });
+    const scan = makeRecord({ verb: "scan", payload: { url: "https://x/p" }, media: { ref: "https://x/p" }, state: "ready" });
+    c.writeRecord(scan);
+    const [bad] = await collectionVerb.run({ input: "remove", rest: [scan.id], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.match(bad.error ?? "", /is a scan record/); // a scan record is rejected
+    // a gone local file is still removable (no existsSync gate on remove)
+    const [ok] = await collectionVerb.run({ input: "remove", rest: ["/tmp/gone.mp4"], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.notEqual(ok.state, "error");
+    assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection add --all reports pending videos instead of 'no videos' (#R16-2)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-allpend-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_p", type: "media-descriptions", name: "p" });
+    c.writeRecord(makeRecord({ verb: "watch", payload: {}, media: { ref: "/tmp/inflight.mp4" }, state: "pending" }));
+    const [rec] = await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_p" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /still processing \(pending\)/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
 // ---- Bugbot round-15 regressions -------------------------------------------
 
 test("collection add/remove reject the inapplicable target flag (--from on add, --to on remove) (#R15-1)", async () => {
