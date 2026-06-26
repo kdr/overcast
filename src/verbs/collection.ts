@@ -166,20 +166,23 @@ export const collectionVerb: VerbSpec = {
       if (!type) {
         return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts)`)];
       }
-      // a whitespace-only --prompt is effectively no prompt — treat it as absent so
-      // the entities requirement below catches it, not tinycloud with an empty prompt.
-      const prompt = ctx.opts.prompt != null && String(ctx.opts.prompt).trim() ? String(ctx.opts.prompt) : undefined;
-      const schema = ctx.opts.schema ? String(ctx.opts.schema) : undefined;
+      // reject a provided-but-blank text/path flag (a typo) — sweep all of create's
+      // value flags together, so a blank `--schema=`/`--prompt=`/`--description=`
+      // gives a clear error instead of falling through (the generic "needs prompt
+      // or schema", or a silently-dropped description).
+      for (const f of ["prompt", "schema", "description"] as const) {
+        if (ctx.opts[f] != null && !String(ctx.opts[f]).trim()) {
+          return [err(`--${f} requires a ${f === "schema" ? "path to a JSON schema file" : "value"}`)];
+        }
+      }
+      const prompt = ctx.opts.prompt != null ? String(ctx.opts.prompt) : undefined;
+      const schema = ctx.opts.schema != null ? String(ctx.opts.schema) : undefined;
+      const description = ctx.opts.description != null ? String(ctx.opts.description) : undefined;
       if (type === "entities" && !prompt && !schema) {
         return [err("an entities collection needs --prompt <text> or --schema <file> (the schema to extract from every video)")];
       }
       if (schema && !existsSync(schema)) return [err(`--schema file not found: ${schema}`)];
-      const { rec, id } = await tcCollectionCreate(name, type, {
-        ...tcOpts,
-        description: ctx.opts.description ? String(ctx.opts.description) : undefined,
-        prompt,
-        schema,
-      });
+      const { rec, id } = await tcCollectionCreate(name, type, { ...tcOpts, description, prompt, schema });
       // mirror an accepted create (ready OR an async pending that still returned
       // a real id) so the create→add-by-name flow works; a cred gap / error has no id.
       if (id && accepted(rec)) addCollection(c, { id, type, name, description: ctx.opts.description ? String(ctx.opts.description) : undefined });

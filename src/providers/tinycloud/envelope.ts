@@ -158,9 +158,16 @@ export function tinycloudError(
   return undefined;
 }
 
+/** Default exec timeout for a tinycloud op. tinycloud media work (analyze, ingest,
+ *  face, collection-backed ask) is slow, so every tinycloud-backed verb shares this
+ *  ceiling — face/watch/listen and collection/ask alike — rather than some using a
+ *  shorter default and spuriously timing out on media the others would complete. */
+export const TINYCLOUD_TIMEOUT_MS = 15 * 60_000;
+
 export interface RunTinycloudOpts {
   /** override the base command (tokenized) — else OVERCAST_TINYCLOUD_CMD / `tinycloud` */
   base?: string;
+  /** exec timeout (default TINYCLOUD_TIMEOUT_MS) */
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
@@ -201,7 +208,7 @@ export async function runTinycloud(
   }
   const args = [...lead, ...subArgs];
   const res = await execCapture(cmd, args, {
-    timeoutMs: opts.timeoutMs ?? 10 * 60_000,
+    timeoutMs: opts.timeoutMs ?? TINYCLOUD_TIMEOUT_MS,
     env: opts.env,
     signal: opts.signal,
   });

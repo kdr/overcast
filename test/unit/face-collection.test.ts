@@ -20,6 +20,7 @@ import {
   envelopeData,
   tinycloudBase,
   tinycloudBaseFromRun,
+  TINYCLOUD_TIMEOUT_MS,
 } from "../../src/providers/tinycloud/envelope.ts";
 import { runFace, faceArgv } from "../../src/providers/tinycloud/face.ts";
 import {
@@ -791,6 +792,20 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
     assert.equal((rec.payload as Record<string, unknown>).removed, true); // payload agrees with the mirror update
     assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0); // mirror pruned
   } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+// ---- Round 19 --------------------------------------------------------------
+
+test("collection create rejects a blank --schema= / --prompt= / --description= (create blank-flag sweep)", async () => {
+  for (const f of ["schema", "prompt", "description"]) {
+    const [rec] = await collectionVerb.run({ input: "create", rest: ["c"], opts: { type: "media-descriptions", [f]: "" }, case: openCase(dir), profile: defaultProfile() });
+    assert.equal(rec.state, "error", `--${f}= should error`);
+    assert.match(rec.error ?? "", new RegExp(`--${f} requires`));
+  }
+});
+
+test("the long tinycloud exec timeout is a single shared constant (collection/ask inherit it)", () => {
+  assert.equal(TINYCLOUD_TIMEOUT_MS, 15 * 60_000); // collection + ask get this via runTinycloud's default, matching face/watch/listen
 });
 
 // ---- Round 18 --------------------------------------------------------------

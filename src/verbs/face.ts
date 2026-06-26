@@ -11,7 +11,7 @@
 import { existsSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { runFace, type FaceOp, type FaceParams } from "../providers/tinycloud/face.js";
-import { tinycloudBaseFromRun, TC_SUBCOMMANDS } from "../providers/tinycloud/envelope.js";
+import { tinycloudBaseFromRun, TC_SUBCOMMANDS, TINYCLOUD_TIMEOUT_MS } from "../providers/tinycloud/envelope.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { collectionsByType, resolveCollectionRef } from "../state/collection.js";
@@ -237,7 +237,7 @@ export const faceVerb: VerbSpec = {
       const rec = await runBoundProvider("face", binding!, primary, {
         env: providerEnv(c.mediaDir),
         extraArgs,
-        timeoutMs: 15 * 60_000,
+        timeoutMs: TINYCLOUD_TIMEOUT_MS,
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: c.dir };
@@ -267,7 +267,7 @@ export const faceVerb: VerbSpec = {
       env: providerEnv(c.mediaDir),
       // long media: match watch/listen's 15-min headroom (and the custom-face
       // branch above), not runTinycloud's 10-min default.
-      timeoutMs: 15 * 60_000,
+      timeoutMs: TINYCLOUD_TIMEOUT_MS,
       signal: ctx.signal,
     });
     rec.meta = { ...rec.meta, case: c.dir };
