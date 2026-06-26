@@ -213,9 +213,20 @@ export const collectionVerb: VerbSpec = {
       const arg = ctx.rest[0];
       if (!arg) return [err("usage: collection add <video|record-id> --to <id> (or --all)")];
       const { ref, recordId } = resolveMediaRef(c, arg);
+      // when the arg is a case record, apply the same filters as `--all`: a
+      // non-ready (failed) sense or a face-search record (media = query image)
+      // must not be registered — surface why rather than indexing junk.
+      if (recordId) {
+        const src = c.recordById(recordId);
+        if (src && !isReady(src)) return [err(`collection add: record ${arg} isn't ready (state=${src.state ?? "?"})`)];
+        if (src?.verb === "face" && (src.payload as Record<string, unknown> | undefined)?.op === "search") {
+          return [err(`collection add: record ${arg} is a face search (its media is the query image, not a video)`)];
+        }
+      }
       if (!/^https?:\/\//i.test(ref) && !existsSync(ref)) {
         return [err(`collection add: video not found: ${ref}`)];
       }
+      if (!isAv(ref)) return [err(`collection add: ${ref} is not a video/audio file`)];
       const { rec } = await tcCollectionAdd(ref, id, addOpts);
       if (accepted(rec)) addMember(c, id, { ref, recordId });
       rec.meta = { ...rec.meta, case: c.dir };
@@ -270,7 +281,7 @@ export const collectionVerb: VerbSpec = {
 
     // ---- entities ----
     if (action === "entities") {
-      const id = ctx.rest[0];
+      const id = ctx.rest[0]?.trim(); // trim so a blank/padded id doesn't bypass mirror lookup
       const videoArg = ctx.rest[1];
       if (!id || !videoArg) return [err("usage: collection entities <collection-id> <video|record-id>")];
       // validate the numeric paging flags (matches ask) — a 0/negative/NaN value

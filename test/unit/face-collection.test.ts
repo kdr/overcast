@@ -660,6 +660,41 @@ test("face --match rejects a record id whose media isn't an image (#R7-2)", asyn
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+// ---- Bugbot round-8 regressions --------------------------------------------
+
+test("single collection add filters non-ready / face-search / non-AV like --all (#R8-1)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-add1-"));
+  const good = join(cdir, "good.mp4"); writeFileSync(good, "x");
+  const notav = join(cdir, "notes.txt"); writeFileSync(notav, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_x", type: "media-descriptions", name: "x" });
+    const bad = makeRecord({ verb: "watch", payload: {}, media: { ref: good }, error: "boom", state: "error" });
+    c.writeRecord(bad);
+    const mk = (rest: string[]) => ({ input: "add", rest, opts: { to: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
+    const [r1] = await collectionVerb.run(mk([bad.id])); // a failed watch record
+    assert.match(r1.error ?? "", /isn't ready/);
+    const [r2] = await collectionVerb.run(mk([notav])); // a non-AV file
+    assert.match(r2.error ?? "", /not a video\/audio/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection entities trims a blank id (#R8-2)", async () => {
+  const [rec] = await collectionVerb.run(ctx("entities", {}, ["   ", "vid"]));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /usage: collection entities/);
+});
+
+test("addMember/removeMember match by id only, not a colliding display name (#R8-3)", () => {
+  const c = openCase(mkdtempSync(join(tmpdir(), "oc-mem-")));
+  c.ensure();
+  addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
+  addCollection(c, { id: "col_b", type: "media-descriptions", name: "col_a" }); // name collides with col_a's id
+  assert.equal(addMember(c, "col_a", { ref: "v.mp4" }), true);
+  assert.equal(findCollection(c, "col_a")!.members.length, 1); // recorded on col_a (the id)
+  assert.equal(findCollection(c, "col_b")!.members.length, 0); // NOT the name-colliding entry
+});
+
 test("custom face provider gets the auto-picked sole face collection + op (#R7-4)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-custres-"));
   const prov = join(cdir, "fp.sh");

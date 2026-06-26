@@ -164,11 +164,13 @@ export function removeCollection(c: Case, id: string): boolean {
   return store.collections.length < before;
 }
 
-/** Add a member video to a mirrored collection (dedupe by ref). Returns false
- *  when the collection isn't in the mirror. */
+/** Add a member video to a mirrored collection (dedupe by ref). Matches by
+ *  tinycloud id ONLY (callers resolve names first) — matching `name` too could
+ *  record the member on the wrong entry, the same hazard removeCollection avoids.
+ *  Returns false when the id isn't in the mirror. */
 export function addMember(c: Case, id: string, member: Omit<CollectionMember, "added">): boolean {
   const store = load(c);
-  const col = store.collections.find((x) => x.id === id || x.name === id);
+  const col = store.collections.find((x) => x.id === id);
   if (!col) return false;
   if (!col.members.some((m) => m.ref === member.ref)) {
     col.members.push({ ...member, added: new Date().toISOString() });
@@ -179,7 +181,7 @@ export function addMember(c: Case, id: string, member: Omit<CollectionMember, "a
 
 export function removeMember(c: Case, id: string, ref: string): boolean {
   const store = load(c);
-  const col = store.collections.find((x) => x.id === id || x.name === id);
+  const col = store.collections.find((x) => x.id === id); // id-only (see addMember)
   if (!col) return false;
   const before = col.members.length;
   col.members = col.members.filter((m) => m.ref !== ref);
