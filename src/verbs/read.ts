@@ -72,6 +72,11 @@ export const askVerb: VerbSpec = {
     // index of a target's videos) instead of the local case memory. The id/name
     // resolves through the case mirror to the real tinycloud collection id.
     if (ctx.opts.collection) {
+      // a tinycloud collection ask/probe has no time filter — reject --since
+      // rather than silently ignoring it and answering unbounded.
+      if (ctx.opts.since) {
+        return [askError("--since isn't supported with --collection (a tinycloud collection query has no time filter); drop one of them")];
+      }
       const value = String(ctx.opts.collection);
       const colId = findCollection(ctx.case, value)?.id ?? value;
       const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined;

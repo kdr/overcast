@@ -166,7 +166,7 @@ show/delete ops run on tinycloud.
 # media-descriptions → ask / probe across every indexed video
 overcast collection create case-media --type media-descriptions --json
 overcast scan --pull --json                          # gather the target's videos into the case
-overcast collection add --all --to <id> --json       # register every captured/watched video
+overcast collection add --all --to <id> --json       # register every captured/sensed video
 overcast ask "what objections came up?" --collection <id> --json
 overcast ask "moments a document is signed" --collection <id> --probe --json
 

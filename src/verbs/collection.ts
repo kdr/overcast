@@ -55,8 +55,9 @@ function resolveMediaRef(c: Case, ref: string): { ref: string; recordId?: string
 const AV_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mp3|m4a|wav|flac|ogg|aac)$/i;
 const isAv = (ref: string) => /^https?:\/\//i.test(ref) || AV_RE.test(ref);
 
-/** Unique AV media refs the case has captured/watched (the videos gathered while
- *  investigating the target) — what `collection add --all` registers. Deliberately
+/** Unique AV media refs the case has captured or sensed (the media gathered while
+ *  investigating the target) — what `collection add --all` registers: `capture`
+ *  (fetched media) plus anything sensed via `watch`/`listen`/`face`. Deliberately
  *  excludes `scan` hits: their media.ref is a page/listing URL (and isAv accepts
  *  any http(s)), so they'd pollute the collection with non-video links — the
  *  actual media arrives via `capture` (scan --pull → capture record). */
@@ -64,7 +65,7 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
   const out: Array<{ ref: string; recordId: string }> = [];
   const seen = new Set<string>();
   for (const r of c.records()) {
-    if (!["capture", "watch", "face"].includes(r.verb)) continue;
+    if (!["capture", "watch", "listen", "face"].includes(r.verb)) continue;
     // a face SEARCH record's media.ref is the QUERY image, not a case video — skip.
     if (r.verb === "face" && (r.payload as Record<string, unknown> | undefined)?.op === "search") continue;
     const ref = r.media?.ref;
@@ -98,7 +99,7 @@ export const collectionVerb: VerbSpec = {
     "(ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). " +
     "`create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` " +
     "registers a video (a path, URL, or a case record id) — `--all` registers every video the case has " +
-    "captured/watched for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` " +
+    "captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` " +
     "prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection " +
     "<id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).",
   args: [
@@ -112,7 +113,7 @@ export const collectionVerb: VerbSpec = {
     { name: "schema", summary: "create entities: path to a JSON schema file", type: "string" },
     { name: "to", summary: "add: target collection id/name", type: "string" },
     { name: "from", summary: "remove: collection id/name to remove the video from", type: "string" },
-    { name: "all", summary: "add: register every video the case has captured/watched", type: "boolean" },
+    { name: "all", summary: "add: register every video the case has captured or sensed (watch/listen/face)", type: "boolean" },
     { name: "remote", summary: "list: also query tinycloud for all account collections", type: "boolean" },
     { name: "no-upload", summary: "add: don't upload (use an already-uploaded source)", type: "boolean" },
     { name: "no-download", summary: "add: don't materialize the source locally", type: "boolean" },
@@ -162,26 +163,28 @@ export const collectionVerb: VerbSpec = {
 
     // ---- add ----
     if (action === "add") {
-      const target = resolveTarget(c, ctx.opts.to ? String(ctx.opts.to) : undefined, ctx.opts.type ? String(normalizeCollectionType(String(ctx.opts.type)) ?? "") : undefined);
+      const typeHint = ctx.opts.type ? normalizeCollectionType(String(ctx.opts.type)) : undefined;
+      const target = resolveTarget(c, ctx.opts.to ? String(ctx.opts.to) : undefined, typeHint);
       if (target.error) return [err(`collection add: ${target.error}`)];
       const id = target.id!;
       // Ensure the target is in the local mirror — it may have been created
       // outside this case and referenced only by id. Without this, addMember
-      // no-ops (collection absent) and `add --all` re-adds the same videos on
-      // every run. Type is unknown until a `show`/`create` records it.
-      if (!findCollection(c, id)) addCollection(c, { id, type: "unknown", name: id });
+      // no-ops (collection absent) and `add --all` re-adds the same videos every
+      // run. Record the --type hint when given so face auto-resolution can find
+      // it; otherwise "unknown" (face --match falls back to those candidates).
+      if (!findCollection(c, id)) addCollection(c, { id, type: typeHint ?? "unknown", name: id });
       const addOpts = {
         ...tcOpts,
         noUpload: ctx.opts["no-upload"] === true,
         noDownload: ctx.opts["no-download"] === true,
       };
 
-      // --all: register every captured/watched video not already a member.
+      // --all: register every captured/sensed video not already a member.
       if (ctx.opts.all === true) {
         const col = findCollection(c, id);
         const members = new Set(col?.members.map((m) => m.ref) ?? []);
         const vids = caseVideoRefs(c).filter((v) => !members.has(v.ref));
-        if (vids.length === 0) return [err("collection add --all: no new captured/watched videos to register")];
+        if (vids.length === 0) return [err("collection add --all: no new captured/sensed videos to register")];
         const recs: OvercastRecord[] = [];
         for (const v of vids) {
           const { rec } = await tcCollectionAdd(v.ref, id, addOpts);

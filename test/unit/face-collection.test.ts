@@ -20,7 +20,7 @@ import {
   envelopeData,
   tinycloudBase,
 } from "../../src/providers/tinycloud/envelope.ts";
-import { runFace } from "../../src/providers/tinycloud/face.ts";
+import { runFace, faceArgv } from "../../src/providers/tinycloud/face.ts";
 import {
   normalizeCollectionType,
   addCollection,
@@ -388,4 +388,81 @@ test("tinycloudBaseFromRun extracts the leading command of a bound tinycloud run
   assert.equal(tinycloudBaseFromRun("tinycloud face {{input}} --json"), "tinycloud");
   assert.equal(tinycloudBaseFromRun("tinycloud-beta face detect {{input}}"), "tinycloud-beta");
   assert.equal(tinycloudBaseFromRun("/opt/tc/tinycloud library collections list --json"), "/opt/tc/tinycloud");
+});
+
+// ---- Bugbot round-2 regressions --------------------------------------------
+
+test("mapTinycloudState: an UNRECOGNIZED status never maps to ready (#R2-6)", () => {
+  assert.equal(mapTinycloudState({ status: "analyzing" }, {}, 0), "pending");
+  assert.equal(mapTinycloudState({ status: "analyzing" }, {}, null), "pending");
+  assert.equal(mapTinycloudState({ status: "weird" }, {}, 1), "error");
+  assert.equal(mapTinycloudState({ status: "weird" }, {}, 2), "needs_credentials");
+});
+
+test("faceArgv repeats --in per collection, not one --in with many values (#R2-4)", () => {
+  const a = faceArgv({ op: "search", image: "q.jpg", collections: ["col_a", "col_b"] });
+  assert.equal(a.filter((t) => t === "--in").length, 2);
+  assert.ok(a.join(" ").includes("--in collection:col_a --in collection:col_b"));
+});
+
+test("ask --collection rejects --since (no time filter on a collection query) (#R2-5)", async () => {
+  const [rec] = await askVerb.run(ctx("q?", { collection: "col_x", since: "24h" }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /--since/);
+});
+
+test("face --collection that resolves to no id is a usage error, not an unscoped run (#R2-1)", async () => {
+  const [rec] = await faceVerb.run(ctx(clip, { collection: " , " }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /no valid collection id/);
+});
+
+test("face --match + a video + --collection errors instead of ignoring --collection (#R2-3)", async () => {
+  const [rec] = await faceVerb.run(ctx(clip, { match: face, collection: "col_x" }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /can't combine with a video/);
+});
+
+test("collection add --type face types the stub so face --match auto-resolves it (#R2-2)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-stubtype-"));
+  const video = join(cdir, "v.mp4"); writeFileSync(video, "x");
+  const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    await collectionVerb.run({ input: "add", rest: [video], opts: { to: "col_face", type: "face" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(findCollection(openCase(cdir), "col_face")?.type, "face-analysis");
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal((rec.payload as Record<string, unknown>).op, "search");
+    assert.equal((rec.payload as Record<string, unknown>).collection, "col_face");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("face --match auto-resolves a lone UNKNOWN-typed stub when no face collection exists (#R2-2b)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-stubunk-"));
+  const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_u", type: "unknown", name: "col_u" });
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal((rec.payload as Record<string, unknown>).op, "search");
+    assert.equal((rec.payload as Record<string, unknown>).collection, "col_u");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("collection add --all includes listen-sensed media (#R2-7)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-listenall-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_l", type: "media-descriptions", name: "l" });
+    c.writeRecord(makeRecord({ verb: "listen", payload: { transcript: "hi" }, media: { ref: "/tmp/call.m4a" }, state: "ready" }));
+    await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_l" }, case: openCase(cdir), profile: defaultProfile() });
+    const members = findCollection(openCase(cdir), "col_l")!.members.map((m) => m.ref);
+    assert.deepEqual(members, ["/tmp/call.m4a"]);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
 });

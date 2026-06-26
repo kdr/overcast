@@ -130,24 +130,37 @@ export const faceVerb: VerbSpec = {
     let collections: string[] | undefined;
 
     if (image && video) {
+      // match is video-scoped (find this face IN this clip); --collection is for
+      // search/list and can't combine with it — fail clearly instead of ignoring it.
+      if (collectionFlag) {
+        return [err("--collection can't combine with a video for --match: drop the video to search the collection, or drop --collection to match within the video")];
+      }
       op = "match";
     } else if (image && !video) {
       // search the face across a face-analysis collection (case-wide).
       if (collectionFlag) {
         collections = resolveCollectionIds(c, collectionFlag);
+        // a flag that resolves to nothing (whitespace/comma-only) must not run an
+        // unscoped search — surface it as the user error it is.
+        if (!collections.length) return [err(`--collection '${collectionFlag}' has no valid collection id`)];
       } else {
-        const faceCols = collectionsByType(c, "face-analysis");
-        if (faceCols.length === 1) collections = [faceCols[0].id];
-        else if (faceCols.length === 0) {
+        // auto-pick the case's sole face collection. A collection added by raw id
+        // (not created here) is mirrored with type "unknown" when no --type was
+        // given, so fall back to those candidates rather than erroring.
+        let cands = collectionsByType(c, "face-analysis");
+        if (cands.length === 0) cands = collectionsByType(c, "unknown");
+        if (cands.length === 1) collections = [cands[0].id];
+        else if (cands.length === 0) {
           return [err("face --match needs a video to search, or a face-analysis collection — create one with `overcast collection create <name> --type face` and add videos, then retry")];
         } else {
-          return [err(`face --match matched ${faceCols.length} face collections; pass --collection <id> (one of: ${faceCols.map((x) => x.id).join(", ")})`)];
+          return [err(`face --match matched ${cands.length} collections; pass --collection <id> (one of: ${cands.map((x) => x.id).join(", ")})`)];
         }
       }
       op = "search";
     } else if (video && collectionFlag) {
       // list the video's stored detections within the collection.
       collections = resolveCollectionIds(c, collectionFlag);
+      if (!collections.length) return [err(`--collection '${collectionFlag}' has no valid collection id`)];
       op = "list";
     } else if (video) {
       op = "detect";

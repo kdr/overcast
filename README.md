@@ -99,7 +99,7 @@ overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person, ranked
 
 # 5) index the target's videos into a collection, then search across ALL of them
 overcast collection create faces --type face --json
-overcast collection add --all --to <face-col-id> --json   # register every captured/watched video
+overcast collection add --all --to <face-col-id> --json   # register every captured/sensed video
 overcast face --match ./suspect.jpg --collection <face-col-id> --json   # find them across the index
 
 # 6) launch the interactive agent (pi TUI) in the current case

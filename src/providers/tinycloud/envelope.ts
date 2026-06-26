@@ -82,8 +82,17 @@ export function mapTinycloudState(
     case "failed":
       return "error";
   }
-  // No explicit status: derive from the exit code. tinycloud uses 2 for a cred
-  // gap; overcast's own exec contract uses 13 — accept both.
+  const status = rawStatus(env, data);
+  // An explicit but UNRECOGNIZED status is never trusted as success — a new/future
+  // async state must not read as "ready" off a 0 exit. Treat a non-zero exit as
+  // the failure (or cred gap) it signals, and exit 0 / no code as in-progress.
+  if (status) {
+    if (code === 2 || code === 13) return "needs_credentials";
+    if (code != null && code !== 0) return "error";
+    return "pending";
+  }
+  // No status at all: derive purely from the exit code. tinycloud uses 2 for a
+  // cred gap; overcast's own exec contract uses 13 — accept both.
   if (code === 0) return "ready";
   if (code === 2 || code === 13) return "needs_credentials";
   if (code === 3) return "pending"; // needs_upload / needs_download

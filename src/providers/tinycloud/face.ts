@@ -106,7 +106,7 @@ function firstAnchor(faces: Array<Record<string, unknown>>): number | undefined 
 
 /** Build the `tinycloud face <op> …` sub-argv from params (input is split-safe
  *  — each ref is its own argv token). */
-function faceArgv(p: FaceParams): string[] {
+export function faceArgv(p: FaceParams): string[] {
   const a: string[] = ["face", p.op];
   if (p.op === "detect") {
     if (p.source) a.push(p.source);
@@ -118,9 +118,12 @@ function faceArgv(p: FaceParams): string[] {
   } else if (p.op === "search") {
     if (p.image) a.push(p.image);
   }
-  // collection target (list/search) → `--in collection:<id>` (search may repeat)
+  // collection target (list/search) → a repeated `--in collection:<id>` per
+  // collection (search can span several), not one --in with multiple values.
   if ((p.op === "list" || p.op === "search") && p.collections?.length) {
-    a.push("--in", ...p.collections.map((c) => (c.startsWith("collection:") ? c : `collection:${c}`)));
+    for (const cId of p.collections) {
+      a.push("--in", cId.startsWith("collection:") ? cId : `collection:${cId}`);
+    }
   }
   if (p.op === "match" && p.maxFaces != null) a.push("--max-faces", String(p.maxFaces));
   if ((p.op === "match") && p.minSimilarity != null) a.push("--min-similarity", String(p.minSimilarity));

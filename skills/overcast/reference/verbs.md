@@ -238,14 +238,14 @@ Emits `scan.hit` records.
 
 ### `overcast collection`
 
-A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured/watched for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection <id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).
+A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection <id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).
 
 ```
 overcast collection <action> [arg] [options]
 
   Manage tinycloud collections that index a target's videos (create/add/list/show/delete/remove/entities).
 
-  A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured/watched for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection <id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).
+  A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection <id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).
 
 Arguments:
   action           create | add | list | show | delete | remove | entities
@@ -258,7 +258,7 @@ Options:
   --schema <string>      create entities: path to a JSON schema file
   --to <string>          add: target collection id/name
   --from <string>        remove: collection id/name to remove the video from
-  --all                  add: register every video the case has captured/watched
+  --all                  add: register every video the case has captured or sensed (watch/listen/face)
   --remote               list: also query tinycloud for all account collections
   --no-upload            add: don't upload (use an already-uploaded source)
   --no-download          add: don't materialize the source locally

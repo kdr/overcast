@@ -104,7 +104,7 @@ per TYPE — build one from the videos you gather for a target, then query it:
 # 1) index the target's videos (media-descriptions = ask/probe; face = find a person)
 overcast collection create case-media --type media-descriptions --json
 overcast scan --pull --json                       # pull the target's videos into the case
-overcast collection add --all --to <col-id> --json   # register every captured/watched video
+overcast collection add --all --to <col-id> --json   # register every captured/sensed video
 
 # 2a) media-descriptions → ask / probe across ALL indexed videos
 overcast ask "what objections came up?" --collection <col-id> --json
