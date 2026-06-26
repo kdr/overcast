@@ -186,7 +186,9 @@ export const collectionVerb: VerbSpec = {
       if (ctx.opts.type && !typeHint) {
         return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts)`)];
       }
-      const target = resolveTarget(c, ctx.opts.to ? String(ctx.opts.to) : undefined, typeHint);
+      // `!= null` (not truthy) so a provided-but-empty `--to=` reaches resolveTarget
+      // as a blank value it rejects, rather than being treated as omitted (→ sole).
+      const target = resolveTarget(c, ctx.opts.to != null ? String(ctx.opts.to) : undefined, typeHint);
       if (target.error) return [err(`collection add: ${target.error}`)];
       const id = target.id!;
       // Ensure the target is in the local mirror — it may have been created
@@ -285,7 +287,7 @@ export const collectionVerb: VerbSpec = {
     if (action === "remove") {
       const arg = ctx.rest[0];
       if (!arg) return [err("usage: collection remove <video|record-id> --from <id>")];
-      const from = resolveTarget(c, ctx.opts.from ? String(ctx.opts.from) : undefined);
+      const from = resolveTarget(c, ctx.opts.from != null ? String(ctx.opts.from) : undefined);
       if (from.error) return [err(`collection remove: ${from.error}`)];
       const { ref } = resolveMediaRef(c, arg);
       const { rec } = await tcCollectionRemove(ref, from.id!, tcOpts);

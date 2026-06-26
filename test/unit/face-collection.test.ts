@@ -786,6 +786,29 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+// ---- Bugbot round-12 regression --------------------------------------------
+
+test("empty-string collection flags (--collection=, --to=) are rejected, not treated as omitted (#R12-1)", async () => {
+  // ask --collection= must NOT silently fall back to local memory
+  const [a] = await askVerb.run(ctx("q?", { collection: "" }));
+  assert.equal(a.state, "error");
+  assert.match(a.error ?? "", /--collection requires/);
+  // face --collection= must NOT auto-pick / run unscoped
+  const [f] = await faceVerb.run(ctx(clip, { collection: "" }));
+  assert.equal(f.state, "error");
+  assert.match(f.error ?? "", /--collection requires/);
+  // collection add <vid> --to= must NOT target the case's sole collection
+  const cdir = mkdtempSync(join(tmpdir(), "oc-emptyto-"));
+  const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    const [r] = await collectionVerb.run({ input: "add", rest: [vid], opts: { to: "" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(r.state, "error");
+    assert.match(r.error ?? "", /blank collection id/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
 // ---- Bugbot round-11 regression --------------------------------------------
 
 test("collection target rejects a BLANK explicit id but allows an omitted one (#R11)", async () => {

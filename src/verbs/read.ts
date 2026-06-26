@@ -69,8 +69,10 @@ export const askVerb: VerbSpec = {
       }
     }
     // --probe/--scope only apply to a tinycloud collection query (--collection);
-    // --scope only in probe mode. Reject misuse rather than silently ignoring it.
-    if (!ctx.opts.collection && (ctx.opts.probe === true || ctx.opts.scope)) {
+    // --scope only in probe mode. Gate on `== null` (truly omitted), so an empty
+    // `--collection=` still routes into the collection branch below (which rejects
+    // it) rather than being mistaken for a local-memory ask.
+    if (ctx.opts.collection == null && (ctx.opts.probe === true || ctx.opts.scope)) {
       return [askError("--probe/--scope only apply with --collection (a media-descriptions collection)")];
     }
     if (ctx.opts.scope && ctx.opts.probe !== true) {
@@ -78,8 +80,10 @@ export const askVerb: VerbSpec = {
     }
     // --collection: answer over a tinycloud media-descriptions collection (the
     // index of a target's videos) instead of the local case memory. The id/name
-    // resolves through the case mirror to the real tinycloud collection id.
-    if (ctx.opts.collection) {
+    // resolves through the case mirror to the real tinycloud collection id. Gate on
+    // `!= null` so a PROVIDED-but-empty `--collection=` is rejected here, not
+    // silently treated as omitted (→ a local-memory ask).
+    if (ctx.opts.collection != null) {
       // a tinycloud collection ask/probe supports only --probe/--scope/--limit;
       // the local-memory flags (--deep/--memory/--verb) and the --since time
       // filter don't apply — reject them rather than silently ignoring them.

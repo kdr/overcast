@@ -155,7 +155,12 @@ export const faceVerb: VerbSpec = {
       image = r.ref;
     }
     const video = ctx.input ? resolveMediaRef(c, ctx.input) : undefined;
-    const collectionFlag = ctx.opts.collection ? String(ctx.opts.collection) : undefined;
+    // `!= null` (not truthy) so a provided-but-empty `--collection=` is caught as a
+    // user error below rather than treated as omitted (→ silent detect/auto-pick).
+    const collectionFlag = ctx.opts.collection != null ? String(ctx.opts.collection) : undefined;
+    if (collectionFlag !== undefined && !collectionFlag.trim()) {
+      return [err("--collection requires a collection id or name")];
+    }
 
     // validate the numeric flags up front (covers both the custom + default
     // paths) — reject 0/negative/out-of-range/non-finite like ask/entities,
@@ -269,6 +274,9 @@ export const faceVerb: VerbSpec = {
       // falls back to OVERCAST_TINYCLOUD_CMD / `tinycloud` when unbound.
       base: tinycloudBaseFromRun(binding?.run),
       env: providerEnv(c.mediaDir),
+      // long media: match watch/listen's 15-min headroom (and the custom-face
+      // branch above), not runTinycloud's 10-min default.
+      timeoutMs: 15 * 60_000,
       signal: ctx.signal,
     });
     rec.meta = { ...rec.meta, case: c.dir };
