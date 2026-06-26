@@ -1,5 +1,6 @@
 // Generate a CLI argv parser + --help from a VerbSpec (one spec → CLI surface).
 
+import { expandHome, expandHomeArg } from "../fs-path.js";
 import type { VerbSpec, FlagSpec } from "./types.js";
 
 export interface ParsedInvocation {
@@ -91,10 +92,15 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
     }
   }
 
+  // expand a leading `~`/`~/` in every path-bearing value (positionals + string
+  // flags) at this one boundary — the TUI/slash/CLI hand us args literally, with
+  // no shell to do it. A value starting with `~/` is unambiguously a path.
+  const expandedOpts: typeof opts = {};
+  for (const [k, v] of Object.entries(opts)) expandedOpts[k] = expandHomeArg(v);
   return {
-    input: positionals[0],
-    rest: positionals.slice(1),
-    opts,
+    input: positionals[0] !== undefined ? expandHome(positionals[0]) : undefined,
+    rest: positionals.slice(1).map(expandHome),
+    opts: expandedOpts,
     help,
     errors,
   };

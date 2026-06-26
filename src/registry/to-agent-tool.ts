@@ -10,6 +10,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
 import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
+import { expandHome, expandHomeArg } from "../fs-path.js";
 import { renderRecord, pageCommand } from "../render.js";
 import type { Case } from "../case.js";
 import type { Profile } from "../profile.js";
@@ -213,15 +214,17 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
     execute: async (_toolCallId, params: Record<string, unknown>, signal) => {
       const c = deps.getCase();
       c.ensure();
+      // expand a leading `~`/`~/` in path-bearing values — the agent passes args
+      // literally (no shell), so `~/clip.mov` would otherwise be a missing file.
       const opts: VerbContext["opts"] = {};
       for (const f of spec.flags) {
         if (params[f.name] !== undefined)
-          opts[f.name] = params[f.name] as string | number | boolean;
+          opts[f.name] = expandHomeArg(params[f.name]) as string | number | boolean;
       }
       // reconstruct positional input + rest from the declared args
       const positionals: string[] = [];
       for (const arg of spec.args) {
-        if (params[arg.name] !== undefined) positionals.push(String(params[arg.name]));
+        if (params[arg.name] !== undefined) positionals.push(expandHome(String(params[arg.name])));
       }
       const input = positionals[0];
 
