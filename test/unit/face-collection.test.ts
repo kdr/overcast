@@ -39,6 +39,7 @@ import { collectionVerb } from "../../src/verbs/collection.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { doctorVerb } from "../../src/verbs/setup.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
+import { pageCommand } from "../../src/render.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
@@ -138,7 +139,7 @@ test("runFace match → similarity-ranked matches; reference image recorded", as
   assert.equal(p.op, "match");
   assert.equal(p.reference, "suspect.jpg");
   const faces = p.faces as Array<Record<string, unknown>>;
-  assert.equal(faces[0].similarity, 0.925); // tinycloud's 0–1 scale
+  assert.equal(faces[0].similarity, 92.5); // tinycloud's 0–100 percent scale
   assert.equal(faces[0].thumbnail, "data:image/jpeg;base64,AAAA");
   assert.equal(rec.media?.ref, "clip.mp4");
 });
@@ -151,7 +152,7 @@ test("runFace search → media.ref is the query image, no seek anchor; collectio
   const faces = p.faces as Array<Record<string, unknown>>;
   assert.equal(faces.length, 2);
   assert.equal(faces[0].file, "vid1.mp4");
-  assert.equal(faces[0].similarity, 0.88); // score → similarity (0–1 scale)
+  assert.equal(faces[0].similarity, 88); // score → similarity (0–100 scale)
   assert.equal(rec.media?.ref, "suspect.jpg");
   assert.equal(rec.media?.at, undefined); // search spans videos → no single anchor
 });
@@ -635,12 +636,12 @@ test("face --collection rejects a non-face-analysis collection type (#R6-2)", as
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("face rejects invalid numeric flags (--limit 0, --min-similarity 1.5 — tinycloud's 0–1 scale) (#R6-3)", async () => {
+test("face rejects invalid numeric flags (--limit 0, --min-similarity 150 — tinycloud's 0–100 scale) (#R6-3)", async () => {
   const [a] = await faceVerb.run(ctx(clip, { limit: 0 }));
   assert.equal(a.state, "error");
   assert.match(a.error ?? "", /invalid --limit/);
-  // tinycloud similarity is 0–1, so > 1 is invalid (caught by the live e2e smoke)
-  const [b] = await faceVerb.run(ctx(clip, { "min-similarity": 1.5, match: face }));
+  // tinycloud similarity is a 0–100 percent, so > 100 is invalid; a value like 90 is valid
+  const [b] = await faceVerb.run(ctx(clip, { "min-similarity": 150, match: face }));
   assert.equal(b.state, "error");
   assert.match(b.error ?? "", /invalid --min-similarity/);
 });
@@ -751,7 +752,7 @@ test("a pinned full-path tinycloud face binding runs ALL ops via runFace, not th
     const [rec] = await faceVerb.run({ input: vid, rest: [], opts: { match: img }, case: c, profile: p });
     const pl = rec.payload as Record<string, unknown>;
     assert.equal(pl.op, "match"); // op resolved + routed through runFace, not the template's `detect`
-    assert.equal((pl.faces as Array<Record<string, unknown>>)[0].similarity, 0.925); // the fixture's `face match` result (0–1)
+    assert.equal((pl.faces as Array<Record<string, unknown>>)[0].similarity, 92.5); // the fixture's `face match` result (0–100)
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -795,6 +796,18 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+test("writeRecord stamps the case dir + pageCommand embeds --case (paging works from any cwd) (#P2)", () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-pagecase-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    const rec = makeRecord({ verb: "face", payload: { op: "detect", faces: [{ at: 0 }], count: 1 }, state: "ready" });
+    c.writeRecord(rec);
+    assert.equal(rec.meta?.case, cdir); // every persisted record carries its case
+    assert.ok(pageCommand(rec, { withCase: true }).includes(`--case ${cdir}`), "single-record page hint embeds the owning case dir");
+    assert.ok(!pageCommand(rec).includes("--case"), "compact (multi-record) locator stays case-free");
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
 // ---- Face headline summary (first-run ergonomics) --------------------------
 
 test("face detect synthesizes a headline summary (count + frames + 'not unique people' caveat), ahead of the faces blob", async () => {
@@ -809,10 +822,17 @@ test("face detect synthesizes a headline summary (count + frames + 'not unique p
   assert.ok(keys.indexOf("count") < keys.indexOf("detailed"), "count precedes the detailed blob");
 });
 
-test("face match summary reports match count + best similarity", async () => {
+test("face match summary reports moment count, span + similarity percent; moments is the compact timeline", async () => {
   const rec = await runFace({ op: "match", image: "suspect.jpg", source: "clip.mp4" }, { base: BASE });
-  assert.match(String((rec.payload as Record<string, unknown>).summary), /1 match for the reference/);
-  assert.match(String((rec.payload as Record<string, unknown>).summary), /0\.93/); // best similarity 0.925 → 0.93
+  const p = rec.payload as Record<string, unknown>;
+  assert.match(String(p.summary), /reference face matched at 1 moment/);
+  assert.match(String(p.summary), /92\.5%/); // similarity is a 0–100 percent
+  // moments = compact {at, similarity} (no box/thumbnail), before the faces[] blob
+  const moments = p.moments as Array<Record<string, unknown>>;
+  assert.equal(moments.length, 1);
+  assert.deepEqual(moments[0], { at: 12, similarity: 92.5 });
+  const keys = Object.keys(p);
+  assert.ok(keys.indexOf("moments") < keys.indexOf("faces"));
 });
 
 test("case memory get on an unknown id names the current case (the per-case wrong-cwd footgun)", async () => {

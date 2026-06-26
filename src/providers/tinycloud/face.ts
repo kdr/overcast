@@ -24,7 +24,7 @@ export interface FaceParams {
   collections?: string[];
   /** match: cap returned matches (tinycloud: 1–4000) */
   maxFaces?: number;
-  /** match/search: similarity/score floor (0–1, tinycloud's scale) */
+  /** match/search: similarity/score floor (0–100, tinycloud's percent scale) */
   minSimilarity?: number;
   /** detect/match: sampling fps + time window */
   fps?: number;
@@ -120,23 +120,47 @@ function atStart(f: Record<string, unknown>): number | undefined {
  * actually identifies a person.
  */
 function summarizeFaces(op: FaceOp, faces: Array<Record<string, unknown>>, count: number): string {
+  const ts = [...new Set(faces.map(atStart).filter((t): t is number => t !== undefined))].sort((a, b) => a - b);
+  const span = ts.length ? ` (${ts[0]}s–${ts[ts.length - 1]}s)` : "";
+  // similarity/score is tinycloud's 0–100 scale; render it as a percent range so
+  // the reader sees confidence at a glance (e.g. "~100.0%" or "61.2–99.9%").
+  const sims = faces.map((f) => f.similarity).filter((s): s is number => typeof s === "number");
+  const simPct = (() => {
+    if (!sims.length) return "";
+    const lo = Math.min(...sims), hi = Math.max(...sims);
+    return lo.toFixed(1) === hi.toFixed(1) ? ` at ~${hi.toFixed(1)}% similarity` : ` at ${lo.toFixed(1)}–${hi.toFixed(1)}% similarity`;
+  })();
+  const n = (noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
   if (op === "detect") {
     if (count === 0) return "no faces detected in this clip";
-    const ts = [...new Set(faces.map(atStart).filter((t): t is number => t !== undefined))].sort((a, b) => a - b);
-    const span = ts.length ? ` (${ts[0]}s–${ts[ts.length - 1]}s)` : "";
     const frames = ts.length ? ` across ${ts.length} frame${ts.length === 1 ? "" : "s"}${span}` : "";
-    return `${count} face detection${count === 1 ? "" : "s"}${frames} — boxes per sampled frame, not unique people; use \`--match <photo>\` to find a specific person`;
+    return `${n("face detection")}${frames} — boxes per sampled frame, not unique people; use \`--match <photo>\` to find a specific person`;
   }
   if (op === "match") {
     if (count === 0) return "the reference face was not found in this clip";
-    const sims = faces.map((f) => f.similarity).filter((s): s is number => typeof s === "number");
-    const best = sims.length ? ` (best similarity ${Math.max(...sims).toFixed(2)})` : "";
-    return `${count} match${count === 1 ? "" : "es"} for the reference face${best}`;
+    return `reference face matched at ${n("moment")}${span}${simPct}`;
   }
   if (op === "search") {
-    return count === 0 ? "no matches for that face across the collection" : `${count} match${count === 1 ? "" : "es"} for that face across the collection`;
+    return count === 0 ? "no matches for that face across the collection" : `${n("match")} for that face across the collection${simPct}`;
   }
-  return count === 0 ? "no faces indexed in the collection" : `${count} face${count === 1 ? "" : "s"} in the collection`;
+  return count === 0 ? "no faces indexed in the collection" : `${n("face")} in the collection`;
+}
+
+/** A compact, COMPLETE projection of the faces — just the time anchor (+ similarity
+ *  / file when present), dropping the heavy box + thumbnail. This is the clean
+ *  "when/where" timeline a reader actually wants, small enough to page in one go
+ *  (or show inline for a few items) without wading through the full faces[] blob. */
+function toMoments(faces: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return faces
+    .map((f) => {
+      const m: Record<string, unknown> = {};
+      if (f.at !== undefined) m.at = f.at;
+      if (typeof f.similarity === "number") m.similarity = Math.round(f.similarity * 10) / 10; // 1-dp % for a readable timeline
+      if (f.file !== undefined) m.file = f.file;
+      return m;
+    })
+    .filter((m) => Object.keys(m).length > 0)
+    .sort((a, b) => (atStart(a) ?? 0) - (atStart(b) ?? 0));
 }
 
 /** Build the `tinycloud face <op> …` sub-argv from params (input is split-safe
@@ -219,6 +243,9 @@ export async function runFace(p: FaceParams, opts: FaceOptions = {}): Promise<Ov
   if (typeof out.env.summary === "string" && out.env.summary.trim()) payload.provider_summary = out.env.summary;
   if (p.image && (p.op === "match" || p.op === "search")) payload.reference = p.image;
   if (p.collections?.length) payload.collection = p.collections.length === 1 ? p.collections[0] : p.collections;
+  // the compact "when/where" timeline (before the heavy faces[] blob) — the answer
+  // most reads want, cleanly pageable on its own.
+  if (faces.length) payload.moments = toMoments(faces);
   payload.faces = faces;
   payload.detailed = out.data;
 

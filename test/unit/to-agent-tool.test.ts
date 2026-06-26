@@ -87,7 +87,8 @@ test("a huge record previews with a paging pointer (does not dump the field)", a
     makeRecord({ id: "rec_huge01", verb: "watch", payload: { content: big, transcript: "" } }),
   ]);
   assert.doesNotMatch(text, /X{500}/); // previewed, not dumped (preview width ~200)
-  assert.match(text, /case memory get rec_huge01 --field <name>/);
+  // single-record hint embeds --case (works from any cwd) before --field
+  assert.match(text, /case memory get rec_huge01 --case \S+ --field <name>/);
 });
 
 test("an explicit page-chunk record is always shown in full, even over budget", async () => {

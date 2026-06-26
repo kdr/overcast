@@ -95,7 +95,7 @@ Options:
   --match <string>       Reference face image to find (path/URL/record-id)
   --collection <string>  Face-analysis collection id/name to search or list within (comma-list ok; default: the case's face collection)
   --max-faces <number>   match: cap returned matches (1–4000)
-  --min-similarity <number> match/search: similarity floor (0–1)
+  --min-similarity <number> match/search: similarity floor (0–100)
   --thumbnails           detect/match: include per-face thumbnail URLs
   --fps <number>         detect/match: sampling frames per second
   --start <string>       detect/match: window start (SS or timecode)
