@@ -84,7 +84,7 @@ export const faceVerb: VerbSpec = {
     { name: "fps", summary: "detect/match: sampling frames per second", type: "number" },
     { name: "start", summary: "detect/match: window start (SS or timecode)", type: "string" },
     { name: "end", summary: "detect/match: window end (SS or timecode)", type: "string" },
-    { name: "limit", summary: "list/search: max results", type: "number" },
+    { name: "limit", summary: "detect/list/search: max results (match uses --max-faces)", type: "number" },
     { name: "offset", summary: "list/search: result offset", type: "number" },
     { name: "group-by", summary: "search: group results by file", type: "string" },
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },

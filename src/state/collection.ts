@@ -128,10 +128,14 @@ export function addCollection(
   return created;
 }
 
+/** Remove a mirrored collection by its tinycloud id ONLY — callers resolve a
+ *  user-given name to the id first (findCollection), so matching `name` here too
+ *  would let one delete drop an unrelated entry that merely shares the string as
+ *  its display name. */
 export function removeCollection(c: Case, id: string): boolean {
   const store = load(c);
   const before = store.collections.length;
-  store.collections = store.collections.filter((x) => x.id !== id && x.name !== id);
+  store.collections = store.collections.filter((x) => x.id !== id);
   save(c, store);
   return store.collections.length < before;
 }

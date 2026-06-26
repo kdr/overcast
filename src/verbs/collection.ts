@@ -233,7 +233,7 @@ export const collectionVerb: VerbSpec = {
       const target = resolveTarget(c, ctx.rest[0]);
       if (target.error) return [err(`collection delete: ${target.error}`)];
       const { rec } = await tcCollectionDelete(target.id!, tcOpts);
-      if (rec.state === "ready") removeCollection(c, target.id!);
+      if (accepted(rec)) removeCollection(c, target.id!);
       rec.meta = { ...rec.meta, case: c.dir };
       return [rec];
     }
@@ -246,7 +246,9 @@ export const collectionVerb: VerbSpec = {
       if (from.error) return [err(`collection remove: ${from.error}`)];
       const { ref } = resolveMediaRef(c, arg);
       const { rec } = await tcCollectionRemove(ref, from.id!, tcOpts);
-      if (rec.state === "ready") removeMember(c, from.id!, ref);
+      // mirror on ready OR pending (an async remove still removed the member),
+      // matching how `add` tracks membership via accepted().
+      if (accepted(rec)) removeMember(c, from.id!, ref);
       rec.meta = { ...rec.meta, case: c.dir };
       return [rec];
     }

@@ -466,3 +466,45 @@ test("collection add --all includes listen-sensed media (#R2-7)", async () => {
     rmSync(cdir, { recursive: true, force: true });
   }
 });
+
+// ---- Bugbot round-3 regressions --------------------------------------------
+
+test("ask --collection rejects local-memory flags --deep/--memory/--verb (#R3-1)", async () => {
+  for (const opt of [{ deep: true }, { memory: "local" }, { verb: "watch" }] as const) {
+    const [rec] = await askVerb.run(ctx("q?", { collection: "col_x", ...opt }));
+    assert.equal(rec.state, "error", `expected error for ${JSON.stringify(opt)}`);
+    assert.match(rec.error ?? "", /supported with --collection/);
+  }
+});
+
+test("removeCollection matches by id only, never display name (#R3-2)", () => {
+  const c = openCase(mkdtempSync(join(tmpdir(), "oc-rmcol-")));
+  c.ensure();
+  // col_b's NAME collides with col_a's id — deleting col_a must not drop col_b.
+  addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
+  addCollection(c, { id: "col_b", type: "media-descriptions", name: "col_a" });
+  assert.equal(removeCollection(c, "col_a"), true);
+  const left = listCollections(c).map((x) => x.id);
+  assert.deepEqual(left, ["col_b"]); // only the id match removed
+});
+
+test("faceArgv forwards --limit for detect/list/search but never match (#R3-3)", () => {
+  assert.ok(faceArgv({ op: "detect", source: "v.mp4", limit: 5 }).includes("--limit"));
+  assert.ok(faceArgv({ op: "search", image: "q.jpg", collections: ["c"], limit: 5 }).includes("--limit"));
+  assert.ok(!faceArgv({ op: "match", image: "q.jpg", source: "v.mp4", limit: 5 }).includes("--limit"));
+});
+
+test("collection remove updates the mirror on an accepted op (#R3-4)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-rmmem-"));
+  const video = join(cdir, "v.mp4"); writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_r", type: "media-descriptions", name: "r" });
+    addMember(c, "col_r", { ref: video });
+    assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 1);
+    await collectionVerb.run({ input: "remove", rest: [video], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});

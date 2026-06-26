@@ -133,7 +133,9 @@ export function faceArgv(p: FaceParams): string[] {
   if ((p.op === "detect" || p.op === "match") && p.end) a.push("--end", p.end);
   if ((p.op === "detect" || p.op === "match") && p.thumbnails) a.push("--thumbnails");
   if (p.op === "search" && p.groupByFile) a.push("--group-by", "file");
-  if (p.limit != null) a.push("--limit", String(p.limit));
+  // --limit caps results for detect/list/search; match caps with --max-faces, so
+  // never forward --limit there (tinycloud face match has no such flag).
+  if (p.op !== "match" && p.limit != null) a.push("--limit", String(p.limit));
   if ((p.op === "list" || p.op === "search") && p.offset != null) a.push("--offset", String(p.offset));
   a.push("--json");
   return a;

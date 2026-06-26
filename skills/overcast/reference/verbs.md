@@ -100,7 +100,7 @@ Options:
   --fps <number>         detect/match: sampling frames per second
   --start <string>       detect/match: window start (SS or timecode)
   --end <string>         detect/match: window end (SS or timecode)
-  --limit <number>       list/search: max results
+  --limit <number>       detect/list/search: max results (match uses --max-faces)
   --offset <number>      list/search: result offset
   --group-by <string>    search: group results by file
   --format <string>      Output surface: json | md | txt
