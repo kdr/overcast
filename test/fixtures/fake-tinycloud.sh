@@ -32,8 +32,8 @@ esac
 if [ "$top" = "face" ]; then
   case "$sub" in
     detect)  echo '{"tinycloud":"1","kind":"face","status":"ready","summary":"2 faces detected","data":{"faces":[{"timestamp":1.5,"bounding_box":{"top":0.10,"left":0.20,"width":0.30,"height":0.40}},{"timestamp":4.0,"bounding_box":{"top":0.20,"left":0.10,"width":0.20,"height":0.30}}],"count":2}}' ;;
-    match)   echo '{"tinycloud":"1","kind":"face","status":"ready","summary":"1 match","data":{"matches":[{"timestamp":12.0,"similarity":92.5,"bounding_box":{"top":0.1,"left":0.1,"width":0.2,"height":0.2},"thumbnail":"data:image/jpeg;base64,AAAA"}],"count":1}}' ;;
-    search)  echo '{"tinycloud":"1","kind":"face","status":"ready","data":{"matches":[{"file":"vid1.mp4","timestamp":3.2,"score":88.0},{"file":"vid2.mp4","timestamp":7.7,"score":81.0}],"count":2}}' ;;
+    match)   echo '{"tinycloud":"1","kind":"face","status":"ready","summary":"1 match","data":{"matches":[{"timestamp":12.0,"similarity":0.925,"bounding_box":{"top":0.1,"left":0.1,"width":0.2,"height":0.2},"thumbnail":"data:image/jpeg;base64,AAAA"}],"count":1}}' ;;
+    search)  echo '{"tinycloud":"1","kind":"face","status":"ready","data":{"matches":[{"file":"vid1.mp4","timestamp":3.2,"score":0.88},{"file":"vid2.mp4","timestamp":7.7,"score":0.81}],"count":2}}' ;;
     list)    echo '{"tinycloud":"1","kind":"face","status":"ready","data":{"faces":[{"face_id":"f_1","timestamp":2.0,"bounding_box":{"top":0.1,"left":0.1,"width":0.2,"height":0.2}}],"count":1}}' ;;
     *)       echo '{"tinycloud":"1","status":"error","error":{"message":"unknown face op"}}'; exit 1 ;;
   esac

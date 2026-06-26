@@ -96,7 +96,7 @@ Options:
   --collection <string>  Face-analysis collection id/name to search or list within (comma-list ok; default: the case's face collection)
   --max-faces <number>   match: cap returned matches (1–4000)
   --min-similarity <number> match/search: similarity floor (0–1)
-  --thumbnails           Include face thumbnails
+  --thumbnails           detect/match: include per-face thumbnail URLs
   --fps <number>         detect/match: sampling frames per second
   --start <string>       detect/match: window start (SS or timecode)
   --end <string>         detect/match: window end (SS or timecode)
@@ -241,7 +241,7 @@ Emits `scan.hit` records.
 A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection <id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).
 
 ```
-overcast collection <action> [arg] [options]
+overcast collection <action> [arg] [arg2] [options]
 
   Manage tinycloud collections that index a target's videos (create/add/list/show/delete/remove/entities).
 
@@ -249,7 +249,8 @@ overcast collection <action> [arg] [options]
 
 Arguments:
   action           create | add | list | show | delete | remove | entities
-  arg              name (create) · video/record-id (add/remove) · collection id (show/delete) · collection id (entities)
+  arg              name (create) · video/record-id (add/remove) · collection id (show/delete/entities)
+  arg2             entities: the video/record-id (collection entities <id> <video>)
 
 Options:
   --type <string>        create: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)

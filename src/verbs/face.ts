@@ -66,9 +66,14 @@ function resolveFaceCollections(c: Case, value: string): { ids: string[]; error?
 /** Validate a numeric face flag (only when provided): returns an error string on
  *  a missing-after-coerce (non-finite) or out-of-bounds value, else undefined. */
 function badNumber(opts: VerbContext["opts"], name: string, ok: (n: number) => boolean, expect: string): string | undefined {
-  if (opts[name] == null) return undefined;
-  const n = Number(opts[name]);
-  if (!Number.isFinite(n) || !ok(n)) return `invalid --${name}: ${opts[name]} (expected ${expect})`;
+  const raw = opts[name];
+  if (raw == null) return undefined;
+  // a provided-but-empty `--min-similarity=`/`--offset=` coerces to 0 (Number("")),
+  // which can pass an inclusive lower bound — reject it as a user error, like the
+  // blank string flags, instead of silently applying a 0 floor.
+  if (typeof raw === "string" && !raw.trim()) return `invalid --${name}: (empty) (expected ${expect})`;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !ok(n)) return `invalid --${name}: ${raw} (expected ${expect})`;
   return undefined;
 }
 
@@ -89,7 +94,10 @@ export function tinycloudBaseFromRun(run?: string): string | undefined {
   if (!run || !run.trim()) return undefined;
   const out: string[] = [];
   for (const t of run.trim().split(/\s+/)) {
-    if (TC_SUBCOMMANDS.includes(t) || t.startsWith("{{") || t.startsWith("-")) break;
+    // stop at the tinycloud subcommand or the {{input}} placeholder — but KEEP any
+    // leading global flags/values (e.g. `tinycloud --config x face …`) in the base
+    // so they aren't dropped (which both lost the flag AND broke subcommand detection).
+    if (TC_SUBCOMMANDS.includes(t) || t.startsWith("{{")) break;
     out.push(t);
   }
   return out.length ? out.join(" ") : undefined;
@@ -128,7 +136,7 @@ export const faceVerb: VerbSpec = {
     { name: "collection", summary: "Face-analysis collection id/name to search or list within (comma-list ok; default: the case's face collection)", type: "string" },
     { name: "max-faces", summary: "match: cap returned matches (1–4000)", type: "number" },
     { name: "min-similarity", summary: "match/search: similarity floor (0–1)", type: "number" },
-    { name: "thumbnails", summary: "Include face thumbnails", type: "boolean" },
+    { name: "thumbnails", summary: "detect/match: include per-face thumbnail URLs", type: "boolean" },
     { name: "fps", summary: "detect/match: sampling frames per second", type: "number" },
     { name: "start", summary: "detect/match: window start (SS or timecode)", type: "string" },
     { name: "end", summary: "detect/match: window end (SS or timecode)", type: "string" },

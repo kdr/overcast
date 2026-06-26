@@ -93,7 +93,9 @@ export function mapTinycloudState(
   if (mapped === "ready" || mapped === "pending") {
     if (code === 2 || code === 13) return "needs_credentials";
     if (code === 3) return "pending"; // needs_upload / needs_download legitimately exit 3
-    if (code != null && code !== 0) return "error";
+    // any other non-zero exit — INCLUDING a null code (killed by signal: segfault /
+    // OOM / SIGTERM) — contradicts a ready/pending status, so never record success.
+    if (code !== 0) return "error";
     return mapped;
   }
   // An explicit but UNRECOGNIZED status is never trusted as success — a new/future

@@ -11,10 +11,14 @@ import type { Case } from "../case.js";
 
 /** Record verbs whose media.ref is registerable/analyzable case media. Excludes
  *  `scan` — its media.ref is a page/listing URL that still passes isAv for any
- *  http(s); the actual media arrives via `capture` (scan --pull → capture). */
-export const MEDIA_VERBS = ["capture", "watch", "listen", "face"];
+ *  http(s); the actual media arrives via `capture` (scan --pull → capture).
+ *  Includes `enhance` (its media.ref is a real upscaled/denoised video). */
+export const MEDIA_VERBS = ["capture", "watch", "listen", "face", "enhance"];
 
-const AV_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mp3|m4a|wav|flac|ogg|aac)$/i;
+// Broad enough to cover what tinycloud/ffmpeg actually accept — `watch`/`listen`
+// don't gate on extension at all, so collection/face intake mustn't be narrower
+// and silently drop a valid clip (e.g. a transport-stream .ts or an .opus track).
+const AV_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf|mp3|m4a|wav|flac|ogg|oga|opus|aac|wma|aiff?)$/i;
 
 /** Whether a ref looks like audio/video the senses/collections can use. */
 export const isAv = (ref: string): boolean => /^https?:\/\//i.test(ref) || AV_RE.test(ref);

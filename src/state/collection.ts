@@ -76,7 +76,12 @@ export function normalizeCollectionType(input: string): CollectionType | undefin
 function load(c: Case): CollectionStore {
   if (!existsSync(c.collectionsFile)) return { collections: [] };
   try {
-    return JSON.parse(readFileSync(c.collectionsFile, "utf8")) as CollectionStore;
+    const parsed = JSON.parse(readFileSync(c.collectionsFile, "utf8")) as Partial<CollectionStore>;
+    // guard valid-JSON-but-wrong-shape (hand edit, partial write, schema drift):
+    // every caller does .find/.filter/.map on .collections, so a non-array would
+    // throw on every command and never self-heal. Fall back to empty instead.
+    if (!parsed || !Array.isArray(parsed.collections)) return { collections: [] };
+    return parsed as CollectionStore;
   } catch {
     return { collections: [] };
   }

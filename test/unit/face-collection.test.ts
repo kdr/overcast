@@ -34,7 +34,7 @@ import {
 } from "../../src/state/collection.ts";
 import { faceVerb, tinycloudBaseFromRun } from "../../src/verbs/face.ts";
 import { collectionVerb } from "../../src/verbs/collection.ts";
-import { askVerb } from "../../src/verbs/read.ts";
+import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { doctorVerb } from "../../src/verbs/setup.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -135,7 +135,7 @@ test("runFace match → similarity-ranked matches; reference image recorded", as
   assert.equal(p.op, "match");
   assert.equal(p.reference, "suspect.jpg");
   const faces = p.faces as Array<Record<string, unknown>>;
-  assert.equal(faces[0].similarity, 92.5);
+  assert.equal(faces[0].similarity, 0.925); // tinycloud's 0–1 scale
   assert.equal(faces[0].thumbnail, "data:image/jpeg;base64,AAAA");
   assert.equal(rec.media?.ref, "clip.mp4");
 });
@@ -148,7 +148,7 @@ test("runFace search → media.ref is the query image, no seek anchor; collectio
   const faces = p.faces as Array<Record<string, unknown>>;
   assert.equal(faces.length, 2);
   assert.equal(faces[0].file, "vid1.mp4");
-  assert.equal(faces[0].similarity, 88); // score → similarity
+  assert.equal(faces[0].similarity, 0.88); // score → similarity (0–1 scale)
   assert.equal(rec.media?.ref, "suspect.jpg");
   assert.equal(rec.media?.at, undefined); // search spans videos → no single anchor
 });
@@ -588,13 +588,18 @@ test("resolveCollectionRef errors on an ambiguous name; findCollection returns u
   assert.equal(resolveCollectionRef(c, "col_1").entry?.id, "col_1"); // an exact id still resolves
 });
 
-test("collection entities fails early on a missing local video (#R5-4)", async () => {
+test("collection entities does NOT require the local file (reads remote pre-extracted data) (#R5-4 → code-review [6])", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-entex-"));
   try {
     const c = openCase(cdir); c.ensure();
-    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_x", join(cdir, "nope.mp4")], opts: {}, case: openCase(cdir), profile: defaultProfile() });
-    assert.equal(rec.state, "error");
-    assert.match(rec.error ?? "", /video not found/);
+    // a video indexed remotely whose local file is gone must still be readable for
+    // its extracted entities — same stance as `collection remove` (requireExists:false).
+    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_x", join(cdir, "gone.mp4")], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.notEqual(rec.state, "error"); // no "video not found"
+    // ...but a non-AV ref is still rejected (the filter still runs)
+    const [bad] = await collectionVerb.run({ input: "entities", rest: ["col_x", join(cdir, "notes.txt")], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(bad.state, "error");
+    assert.match(bad.error ?? "", /not a video\/audio/);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
@@ -743,7 +748,7 @@ test("a pinned full-path tinycloud face binding runs ALL ops via runFace, not th
     const [rec] = await faceVerb.run({ input: vid, rest: [], opts: { match: img }, case: c, profile: p });
     const pl = rec.payload as Record<string, unknown>;
     assert.equal(pl.op, "match"); // op resolved + routed through runFace, not the template's `detect`
-    assert.equal((pl.faces as Array<Record<string, unknown>>)[0].similarity, 92.5); // the fixture's `face match` result
+    assert.equal((pl.faces as Array<Record<string, unknown>>)[0].similarity, 0.925); // the fixture's `face match` result (0–1)
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -784,6 +789,95 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
     assert.equal(rec.state, "pending"); // the fixture's async remove
     assert.equal((rec.payload as Record<string, unknown>).removed, true); // payload agrees with the mirror update
     assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0); // mirror pruned
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+// ---- Code-review (max) findings --------------------------------------------
+
+test("media-ref isAv accepts the broader set watch/listen take (.ts transport stream) — code-review [0]", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-avfmt-"));
+  const ts = join(cdir, "stream.ts"); writeFileSync(ts, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
+    const [rec] = await collectionVerb.run({ input: "add", rest: [ts], opts: { to: "col_a" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.notEqual(rec.state, "error"); // a .ts clip is no longer rejected as "not a video"
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection declares a 3rd positional so `entities <id> <video>` is reachable from the agent surface — code-review [3]", () => {
+  assert.equal(collectionVerb.args.length, 3);
+  assert.equal(collectionVerb.args[2].name, "arg2");
+});
+
+test("bare `collection delete` (no id) errors instead of deleting the sole collection — code-review [9]", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-baredel-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    const [rec] = await collectionVerb.run({ input: "delete", rest: [], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /explicit id/);
+    assert.equal(listCollections(openCase(cdir)).length, 1); // the sole collection survives
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection add --to a typed collection with a conflicting --type errors — code-review [4]", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-typeconf-"));
+  const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_md", type: "media-descriptions", name: "md" });
+    const [rec] = await collectionVerb.run({ input: "add", rest: [vid], opts: { to: "col_md", type: "face" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /conflicts with collection/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("face accepts an enhance record's video (MEDIA_VERBS includes enhance) — code-review [7]", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-faceenh-"));
+  const enhanced = join(cdir, "enhanced.mp4"); writeFileSync(enhanced, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    const e = makeRecord({ verb: "enhance", payload: {}, media: { ref: enhanced }, state: "ready" });
+    c.writeRecord(e);
+    const [rec] = await faceVerb.run({ input: e.id, rest: [], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.notEqual(rec.state, "error"); // an enhanced clip is a valid face source
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("face rejects an empty --min-similarity= (not silently a 0 floor) — code-review [min-sim]", async () => {
+  const [rec] = await faceVerb.run(ctx(clip, { "min-similarity": "", match: face }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /invalid --min-similarity/);
+});
+
+test("mapTinycloudState: a null exit (signal kill) on a ready/pending status is an error — code-review [10]", () => {
+  assert.equal(mapTinycloudState({ status: "ready" }, {}, null), "error");
+  assert.equal(mapTinycloudState({ status: "pending" }, {}, null), "error");
+});
+
+test("collection mirror load() tolerates a valid-JSON-but-wrong-shape file — code-review [12]", () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-badshape-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    writeFileSync(c.collectionsFile, JSON.stringify({ collections: null }));
+    assert.deepEqual(listCollections(openCase(cdir)), []); // no throw
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("tinycloudBaseFromRun keeps leading global flags before the subcommand — code-review [1/5/8]", () => {
+  assert.equal(tinycloudBaseFromRun("tinycloud --config /etc/tc.toml face detect {{input}}"), "tinycloud --config /etc/tc.toml");
+  assert.equal(tinycloudBaseFromRun("/opt/tc/tinycloud face detect {{input}}"), "/opt/tc/tinycloud");
+});
+
+test("brief rejects an empty --scope= (not the full unfiltered brief) — code-review [brief]", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-briefscope-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: { scope: "" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /--scope requires a value/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 

@@ -115,7 +115,11 @@ export const collectionVerb: VerbSpec = {
     "<id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).",
   args: [
     { name: "action", summary: VALID_ACTIONS.join(" | "), required: true },
-    { name: "arg", summary: "name (create) · video/record-id (add/remove) · collection id (show/delete) · collection id (entities)", required: false },
+    { name: "arg", summary: "name (create) · video/record-id (add/remove) · collection id (show/delete/entities)", required: false },
+    // `entities <id> <video>` needs a SECOND positional — declared so the pi
+    // AgentTool surface (which rebuilds positionals strictly from spec.args) can
+    // supply it, not just the raw CLI/slash parsers. Mirrors setup's action/a/b.
+    { name: "arg2", summary: "entities: the video/record-id (collection entities <id> <video>)", required: false },
   ],
   flags: [
     { name: "type", summary: "create: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)", type: "string" },
@@ -200,6 +204,11 @@ export const collectionVerb: VerbSpec = {
       // run. Record the --type hint when given so face auto-resolution can find
       // it; otherwise "unknown" (face --match falls back to those candidates).
       const existing = findCollection(c, id);
+      // a --type hint that CONTRADICTS the target's known type is a mistake, not a
+      // silent no-op — reject it so the video isn't indexed into the wrong type.
+      if (existing && typeHint && existing.type !== "unknown" && existing.type !== typeHint) {
+        return [err(`collection add: --type ${typeHint} conflicts with collection ${id}'s type '${existing.type}' — omit --type, or target a ${typeHint} collection`)];
+      }
       if (!existing) {
         addCollection(c, { id, type: typeHint ?? "unknown", name: id });
       } else if (typeHint && existing.type === "unknown") {
@@ -285,6 +294,9 @@ export const collectionVerb: VerbSpec = {
       // silently delete the case's sole collection.
       const stray = strayTargetFlag(ctx);
       if (stray) return [err(`collection delete takes a positional id: \`collection delete <id>\` (saw ${stray}, which doesn't apply here)`)];
+      // delete requires an EXPLICIT id — unlike show, it must never fall back to the
+      // case's sole collection (a bare `collection delete` would be silent data loss).
+      if (!ctx.rest[0]) return [err("usage: collection delete <id> (an explicit id is required — delete won't default to your only collection)")];
       const target = resolveTarget(c, ctx.rest[0]);
       if (target.error) return [err(`collection delete: ${target.error}`)];
       const { rec } = await tcCollectionDelete(target.id!, tcOpts);
@@ -345,9 +357,10 @@ export const collectionVerb: VerbSpec = {
         return [err(`collection ${colEntry.id} is type '${colEntry.type}', not entities — \`collection entities\` only reads entities collections`)];
       }
       const colId = colEntry?.id ?? id;
-      // same media filters as `add` (reject scan/non-ready/face-search/non-AV, not
-      // just a missing local path), so a scan hit's page URL isn't sent as the video.
-      const v = resolveVideoArg(c, videoArg, "collection entities");
+      // same media filters as `add` (reject scan/face-search/non-AV refs), but
+      // requireExists:false — entities reads PRE-EXTRACTED data for a video already
+      // indexed remotely, so its local file may be gone (matches `remove`).
+      const v = resolveVideoArg(c, videoArg, "collection entities", { requireExists: false, requireReady: false });
       if (v.error) return [err(v.error)];
       const { rec } = await tcCollectionEntities(colId, v.ref!, { ...tcOpts, limit, offset });
       rec.meta = { ...rec.meta, case: c.dir };

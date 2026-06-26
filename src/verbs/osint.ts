@@ -26,6 +26,7 @@ import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { parseSince } from "../providers/memory/local.js";
+import { isAv } from "./media-ref.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
@@ -170,11 +171,10 @@ function hostSourceType(url: string): string {
 
 /** Whether a captured artifact is audio/video the default watch/listen senses
  *  can process — so a `web` hit captured as an .html page isn't auto-routed to
- *  tinycloud watch (which would just error every pass). */
-function isSenseableMedia(ref: string): boolean {
-  if (/^https?:\/\//i.test(ref)) return true; // a remote AV URL
-  return /\.(mp4|m4v|mov|webm|mkv|avi|mp3|m4a|wav|flac|ogg|aac)$/i.test(ref);
-}
+ *  tinycloud watch (which would just error every pass). Shares the single
+ *  audio/video allowlist with collection/face intake (media-ref.ts) so the
+ *  auto-route gate and the registration gate can't drift apart. */
+const isSenseableMedia = isAv;
 
 /** The source provider type a scan.hit came from (from its meta.provider). */
 function hitSourceType(rec: OvercastRecord | undefined): string | undefined {

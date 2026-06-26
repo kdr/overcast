@@ -285,6 +285,12 @@ export const briefVerb: VerbSpec = {
   providerKey: "brief",
   run: async (ctx) => {
     let records = ctx.case.records();
+    // a provided-but-blank `--scope=` is a user error (it would otherwise fall
+    // through to the positional / no-filter and silently emit the FULL brief),
+    // consistent with ask/face/collection rejecting blank flags.
+    if (ctx.opts.scope != null && !String(ctx.opts.scope).trim()) {
+      return [readError("brief", "--scope requires a value (since:<when> | verb:<kind>)")];
+    }
     // scope filter: since:<when> | verb:<kind>. Scope may arrive via --scope or
     // as a positional argument (the prompt system passes it positionally).
     const scope = (ctx.opts.scope ? String(ctx.opts.scope) : ctx.input ?? "").trim();
