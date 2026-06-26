@@ -104,6 +104,41 @@ function firstAnchor(faces: Array<Record<string, unknown>>): number | undefined 
   return undefined;
 }
 
+/** The start-second of a normalized face's `at` (number or [start,end] span). */
+function atStart(f: Record<string, unknown>): number | undefined {
+  const a = f.at;
+  if (typeof a === "number") return a;
+  if (Array.isArray(a) && typeof a[0] === "number") return a[0];
+  return undefined;
+}
+
+/**
+ * A one-line, human-readable headline for a face record — the FIRST thing a
+ * reader (or agent) sees, so the basic question is answered without paging the
+ * raw faces[] blob. Crucially flags that `detect` counts boxes per sampled frame,
+ * NOT unique people (tinycloud detect doesn't cluster), and points at the op that
+ * actually identifies a person.
+ */
+function summarizeFaces(op: FaceOp, faces: Array<Record<string, unknown>>, count: number): string {
+  if (op === "detect") {
+    if (count === 0) return "no faces detected in this clip";
+    const ts = [...new Set(faces.map(atStart).filter((t): t is number => t !== undefined))].sort((a, b) => a - b);
+    const span = ts.length ? ` (${ts[0]}s–${ts[ts.length - 1]}s)` : "";
+    const frames = ts.length ? ` across ${ts.length} frame${ts.length === 1 ? "" : "s"}${span}` : "";
+    return `${count} face detection${count === 1 ? "" : "s"}${frames} — boxes per sampled frame, not unique people; use \`--match <photo>\` to find a specific person`;
+  }
+  if (op === "match") {
+    if (count === 0) return "the reference face was not found in this clip";
+    const sims = faces.map((f) => f.similarity).filter((s): s is number => typeof s === "number");
+    const best = sims.length ? ` (best similarity ${Math.max(...sims).toFixed(2)})` : "";
+    return `${count} match${count === 1 ? "" : "es"} for the reference face${best}`;
+  }
+  if (op === "search") {
+    return count === 0 ? "no matches for that face across the collection" : `${count} match${count === 1 ? "" : "es"} for that face across the collection`;
+  }
+  return count === 0 ? "no faces indexed in the collection" : `${count} face${count === 1 ? "" : "s"} in the collection`;
+}
+
 /** Build the `tinycloud face <op> …` sub-argv from params (input is split-safe
  *  — each ref is its own argv token). */
 export function faceArgv(p: FaceParams): string[] {
@@ -172,15 +207,20 @@ export async function runFace(p: FaceParams, opts: FaceOptions = {}): Promise<Ov
     toSeconds(out.data.count) ?? toSeconds(out.data.total) ?? faces.length;
   const anchor = firstAnchor(faces);
 
+  // headline FIRST (so the record reads cleanly without paging the faces[] blob).
+  // Always synthesize: it's tailored per op and — for detect — carries the crucial
+  // "boxes per frame, not unique people" caveat that tinycloud's terse
+  // "Detected N face(s)." omits. Keep tinycloud's own line too when it adds info.
   const payload: Record<string, unknown> = {
     op: p.op,
-    faces,
+    summary: summarizeFaces(p.op, faces, typeof count === "number" ? count : faces.length),
     count,
-    detailed: out.data,
   };
+  if (typeof out.env.summary === "string" && out.env.summary.trim()) payload.provider_summary = out.env.summary;
   if (p.image && (p.op === "match" || p.op === "search")) payload.reference = p.image;
   if (p.collections?.length) payload.collection = p.collections.length === 1 ? p.collections[0] : p.collections;
-  if (typeof out.env.summary === "string") payload.summary = out.env.summary;
+  payload.faces = faces;
+  payload.detailed = out.data;
 
   const media = mediaRef
     ? { ref: mediaRef, at: p.op === "search" ? undefined : anchor }

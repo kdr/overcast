@@ -38,6 +38,7 @@ import { faceVerb } from "../../src/verbs/face.ts";
 import { collectionVerb } from "../../src/verbs/collection.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { doctorVerb } from "../../src/verbs/setup.ts";
+import { caseVerb } from "../../src/verbs/case.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
@@ -791,6 +792,37 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
     assert.equal(rec.state, "pending"); // the fixture's async remove
     assert.equal((rec.payload as Record<string, unknown>).removed, true); // payload agrees with the mirror update
     assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0); // mirror pruned
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+// ---- Face headline summary (first-run ergonomics) --------------------------
+
+test("face detect synthesizes a headline summary (count + frames + 'not unique people' caveat), ahead of the faces blob", async () => {
+  const rec = await runFace({ op: "detect", source: "clip.mp4" }, { base: BASE });
+  const p = rec.payload as Record<string, unknown>;
+  assert.match(String(p.summary), /2 face detections/);
+  assert.match(String(p.summary), /not unique people/); // the key caveat the first run lacked
+  assert.match(String(p.summary), /--match/);           // points at the op that finds a person
+  assert.equal(p.provider_summary, "2 faces detected");  // tinycloud's own terse line kept too
+  const keys = Object.keys(p);
+  assert.ok(keys.indexOf("summary") < keys.indexOf("faces"), "summary precedes the faces[] blob");
+  assert.ok(keys.indexOf("count") < keys.indexOf("detailed"), "count precedes the detailed blob");
+});
+
+test("face match summary reports match count + best similarity", async () => {
+  const rec = await runFace({ op: "match", image: "suspect.jpg", source: "clip.mp4" }, { base: BASE });
+  assert.match(String((rec.payload as Record<string, unknown>).summary), /1 match for the reference/);
+  assert.match(String((rec.payload as Record<string, unknown>).summary), /0\.93/); // best similarity 0.925 → 0.93
+});
+
+test("case memory get on an unknown id names the current case (the per-case wrong-cwd footgun)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-nocase-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    const [rec] = await caseVerb.run({ input: "memory", rest: ["get", "rec_nope"], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /per-case/);
+    assert.ok((rec.error ?? "").includes(cdir), "error names the current case dir");
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 

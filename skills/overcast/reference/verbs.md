@@ -79,14 +79,14 @@ Emits `image.analysis` records.
 
 ### `overcast face`
 
-Default provider: tinycloud. `face <video>` detects faces (normalized boxes + timestamps). `face <video> --match ref.jpg` finds that person in the video, ranked by similarity. `face --match ref.jpg --collection <id>` searches the face across a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id. Emits a face.analysis record with faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
+Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --collection <id>` to search a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
 
 ```
 overcast face [input] [options]
 
   Detect, match, or search faces in video (and across face-analysis collections).
 
-  Default provider: tinycloud. `face <video>` detects faces (normalized boxes + timestamps). `face <video> --match ref.jpg` finds that person in the video, ranked by similarity. `face --match ref.jpg --collection <id>` searches the face across a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id. Emits a face.analysis record with faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
+  Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --collection <id>` to search a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
 
 Arguments:
   input            Video to analyze (path/URL/record-id); omit with --match + --collection to search the index
