@@ -22,6 +22,12 @@ if [ "$mode" = "ready_exit1" ]; then
   echo '{"tinycloud":"1","status":"ready","data":{"faces":[],"count":0}}'
   exit 1
 fi
+if [ "$mode" = "pending_error" ]; then
+  # a "pending" envelope that ALSO carries an error (exit 0) — a failed ingest, not
+  # in-progress; must map to error, never satisfy accepted().
+  echo '{"tinycloud":"1","status":"pending","error":{"code":"ingest","message":"ingest failed"}}'
+  exit 0
+fi
 
 top="${1:-}"; sub="${2:-}"; sub2="${3:-}"
 

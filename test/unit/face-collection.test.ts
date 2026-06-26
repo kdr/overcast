@@ -328,6 +328,19 @@ test("runTinycloud: a 'ready' envelope with a non-zero exit is an error, not suc
   }
 });
 
+test("runTinycloud: a 'pending' envelope carrying an error is an error, not in-progress", async () => {
+  const saved = process.env.OVERCAST_FAKE_TC_MODE;
+  process.env.OVERCAST_FAKE_TC_MODE = "pending_error";
+  try {
+    const rec = await runFace({ op: "detect", source: "clip.mp4" }, { base: BASE });
+    assert.equal(rec.state, "error"); // downgraded from pending — must not satisfy accepted()
+    assert.ok(rec.error);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;
+    else process.env.OVERCAST_FAKE_TC_MODE = saved;
+  }
+});
+
 test("ask --collection rejects an invalid --limit instead of dropping it (#6)", async () => {
   const [rec] = await askVerb.run(ctx("q?", { collection: "col_x", limit: 0 }));
   assert.equal(rec.state, "error");
@@ -1032,6 +1045,27 @@ test("collection mirror load() tolerates a valid-JSON-but-wrong-shape file — c
 test("tinycloudBaseFromRun keeps leading global flags before the subcommand — code-review [1/5/8]", () => {
   assert.equal(tinycloudBaseFromRun("tinycloud --config /etc/tc.toml face detect {{input}}"), "tinycloud --config /etc/tc.toml");
   assert.equal(tinycloudBaseFromRun("/opt/tc/tinycloud face detect {{input}}"), "/opt/tc/tinycloud");
+});
+
+test("tinycloudBaseFromRun is quote-aware: a spaced binary/path stays one token (round-trips)", () => {
+  const base = tinycloudBaseFromRun("'/My Tools/tinycloud' --config '/etc/my dir/tc.toml' face detect {{input}}");
+  assert.equal(base, "'/My Tools/tinycloud' --config '/etc/my dir/tc.toml'");
+  // re-tokenizing (as tinycloudBase does downstream) yields the right tokens, not a split path
+  assert.deepEqual(tinycloudBase(base), ["/My Tools/tinycloud", "--config", "/etc/my dir/tc.toml"]);
+});
+
+test("face rejects an op-specific flag set for the wrong op (silently dropped otherwise)", async () => {
+  // --min-similarity is match/search only — on a plain detect it would be ignored
+  const [a] = await faceVerb.run(ctx(clip, { "min-similarity": 90 }));
+  assert.equal(a.state, "error");
+  assert.match(a.error ?? "", /--min-similarity doesn't apply to face detect/);
+  // --limit is detect/list/search — never forwarded for match (match uses --max-faces)
+  const [b] = await faceVerb.run(ctx(clip, { match: face, limit: 5 }));
+  assert.equal(b.state, "error");
+  assert.match(b.error ?? "", /--limit doesn't apply to face match/);
+  // sanity: the flag on its correct op is fine (detect + --limit)
+  const [ok] = await faceVerb.run(ctx(clip, { limit: 5 }));
+  assert.notEqual(ok.state, "error");
 });
 
 test("brief rejects an empty --scope= (not the full unfiltered brief) — code-review [brief]", async () => {

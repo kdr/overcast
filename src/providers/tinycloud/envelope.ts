@@ -44,11 +44,15 @@ export const TC_SUBCOMMANDS = ["face", "library", "ask", "probe", "watch", "list
 export function tinycloudBaseFromRun(run?: string): string | undefined {
   if (!run || !run.trim()) return undefined;
   const out: string[] = [];
-  for (const t of run.trim().split(/\s+/)) {
+  // quote-aware tokenization so a pinned binary / --config PATH that contains
+  // spaces (e.g. `'/My Tools/tinycloud'`) stays ONE token, not several.
+  for (const t of tokenizeCommand(run)) {
     if (TC_SUBCOMMANDS.includes(t) || t.startsWith("{{")) break;
     out.push(t);
   }
-  return out.length ? out.join(" ") : undefined;
+  // re-quote any token with whitespace so the base re-tokenizes back to one token
+  // downstream (tinycloudBase runs tokenizeCommand on it again).
+  return out.length ? out.map((t) => (/\s/.test(t) ? `'${t}'` : t)).join(" ") : undefined;
 }
 
 /** The top-level envelope object (defensive: a non-object parses to {}). */
@@ -236,7 +240,10 @@ export async function runTinycloud(
   // exit on a ready/pending status → error/needs_credentials). Only the error
   // ENVELOPE (an `error` field on an exit-0 ready record) needs a final override.
   let state = mapTinycloudState(env, data, res.code);
-  if (envError && state === "ready") state = "error";
+  // an `error` field means failure regardless of the status — downgrade BOTH ready
+  // AND pending (a "pending" envelope carrying an error is a failed ingest, not an
+  // in-progress one; left as pending it would wrongly satisfy collection's accepted()).
+  if (envError && (state === "ready" || state === "pending")) state = "error";
 
   // Attach a message only for non-success states; ready/pending carry none.
   let error: string | undefined;

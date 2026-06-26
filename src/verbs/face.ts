@@ -221,6 +221,27 @@ export const faceVerb: VerbSpec = {
       return [err("face requires a video (to detect/match), or --match <image> with --collection (to search). See `overcast face --help`.")];
     }
 
+    // op-specific flags: faceArgv only forwards each flag to the ops it applies to,
+    // so a flag set for the WRONG op would be silently dropped (the user thinks
+    // they filtered but didn't). Reject the mismatch, like the --collection guards.
+    const FLAG_OPS: Record<string, FaceOp[]> = {
+      "max-faces": ["match"],
+      "min-similarity": ["match", "search"],
+      fps: ["detect", "match"],
+      start: ["detect", "match"],
+      end: ["detect", "match"],
+      thumbnails: ["detect", "match"],
+      limit: ["detect", "list", "search"],
+      offset: ["list", "search"],
+      "group-by": ["search"],
+    };
+    for (const [flag, ops] of Object.entries(FLAG_OPS)) {
+      const provided = flag === "thumbnails" ? ctx.opts[flag] === true : ctx.opts[flag] != null;
+      if (provided && !ops.includes(op)) {
+        return [err(`--${flag} doesn't apply to face ${op} (only: ${ops.join(", ")})`)];
+      }
+    }
+
     // A custom face provider takes over (pass-through) with the SAME resolved op +
     // collections, so a bound provider behaves like the default tinycloud path. A
     // tinycloud-style binding (incl. a pinned binary/path) is NOT custom — it runs
