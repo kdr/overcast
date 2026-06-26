@@ -35,6 +35,7 @@ import {
 import { providerEnv } from "../providers/provider-env.js";
 import { resolveVideoArg, isRegisterableMediaRecord } from "./media-ref.js";
 import { badNumber, numFlag } from "./validate.js";
+import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
 import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -144,7 +145,11 @@ export const collectionVerb: VerbSpec = {
     const c = ctx.case;
     const action = ctx.input;
     const env = providerEnv(c.mediaDir);
-    const tcOpts = { env, signal: ctx.signal };
+    // honor a pinned tinycloud in the profile (`setup provider collection
+    // "/path/to/tinycloud …"`) the same way `face` honors its binding — else
+    // OVERCAST_TINYCLOUD_CMD / `tinycloud` on PATH (via tinycloudBase).
+    const base = tinycloudBaseFromRun(ctx.profile.providers?.collection?.run);
+    const tcOpts = { env, signal: ctx.signal, base };
 
     if (action && !VALID_ACTIONS.includes(action)) {
       return [err(`unknown collection action '${action}' (expected ${VALID_ACTIONS.join(" | ")})`)];

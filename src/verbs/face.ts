@@ -11,6 +11,7 @@
 import { existsSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { runFace, type FaceOp, type FaceParams } from "../providers/tinycloud/face.js";
+import { tinycloudBaseFromRun, TC_SUBCOMMANDS } from "../providers/tinycloud/envelope.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { collectionsByType, resolveCollectionRef } from "../state/collection.js";
@@ -69,26 +70,6 @@ const num = (v: unknown): number | undefined => {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
 };
-
-/** The leading command of a bound tinycloud `run` template — everything before
- *  the first subcommand / {{input}} / flag — used as runFace's base so a bound
- *  tinycloud binary/wrapper (e.g. `tinycloud-beta …`) is honored rather than
- *  silently ignored. A fully non-tinycloud binding is handled by isCustomBinding
- *  (pass-through) instead; here we only reach a tinycloud-style binding. */
-const TC_SUBCOMMANDS = ["face", "library", "ask", "probe", "watch", "listen"];
-
-export function tinycloudBaseFromRun(run?: string): string | undefined {
-  if (!run || !run.trim()) return undefined;
-  const out: string[] = [];
-  for (const t of run.trim().split(/\s+/)) {
-    // stop at the tinycloud subcommand or the {{input}} placeholder — but KEEP any
-    // leading global flags/values (e.g. `tinycloud --config x face …`) in the base
-    // so they aren't dropped (which both lost the flag AND broke subcommand detection).
-    if (TC_SUBCOMMANDS.includes(t) || t.startsWith("{{")) break;
-    out.push(t);
-  }
-  return out.length ? out.join(" ") : undefined;
-}
 
 /** Is this `face` binding a tinycloud invocation (possibly a PINNED binary/path,
  *  e.g. `/opt/tc/tinycloud face detect {{input}}`) rather than a standalone custom

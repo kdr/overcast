@@ -19,6 +19,7 @@ import {
   tinycloudError,
   envelopeData,
   tinycloudBase,
+  tinycloudBaseFromRun,
 } from "../../src/providers/tinycloud/envelope.ts";
 import { runFace, faceArgv } from "../../src/providers/tinycloud/face.ts";
 import {
@@ -32,7 +33,7 @@ import {
   removeMember,
   collectionsByType,
 } from "../../src/state/collection.ts";
-import { faceVerb, tinycloudBaseFromRun } from "../../src/verbs/face.ts";
+import { faceVerb } from "../../src/verbs/face.ts";
 import { collectionVerb } from "../../src/verbs/collection.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { doctorVerb } from "../../src/verbs/setup.ts";
@@ -790,6 +791,25 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
     assert.equal((rec.payload as Record<string, unknown>).removed, true); // payload agrees with the mirror update
     assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0); // mirror pruned
   } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+// ---- Round 18 --------------------------------------------------------------
+
+test("collection honors a pinned tinycloud in providers.collection (not just env/PATH)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-colbase-"));
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = "/nonexistent/tc-DOES-NOT-EXIST"; // env fallback would fail
+    const c = openCase(cdir); c.ensure();
+    const prof = defaultProfile();
+    prof.providers = { ...prof.providers, collection: { run: `${BASE} library collections {{x}}` } };
+    const [rec] = await collectionVerb.run({ input: "create", rest: ["pin-test"], opts: { type: "media-descriptions" }, case: openCase(cdir), profile: prof });
+    assert.equal(rec.state, "ready"); // created via the PINNED profile base (fixture), not the bad env fallback
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
 });
 
 // ---- Round 17 + shared-validator holistic pass -----------------------------

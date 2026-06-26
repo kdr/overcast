@@ -8,6 +8,7 @@ import { makeRecord, isMetaRecord, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
+import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
 import { resolveCollectionRef } from "../state/collection.js";
 import { badNumber } from "./validate.js";
 import { providerEnv } from "../providers/provider-env.js";
@@ -111,6 +112,9 @@ export const askVerb: VerbSpec = {
         scope: ctx.opts.scope ? String(ctx.opts.scope) : undefined,
         limit,
         env: providerEnv(ctx.case.mediaDir),
+        // honor a pinned tinycloud in the profile (same as the `collection` verb),
+        // not just OVERCAST_TINYCLOUD_CMD / `tinycloud` on PATH.
+        base: tinycloudBaseFromRun(ctx.profile.providers?.collection?.run),
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: ctx.case.dir };

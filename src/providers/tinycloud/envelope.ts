@@ -29,6 +29,28 @@ export function tinycloudBase(override?: string): string[] {
   return tokenizeCommand(raw);
 }
 
+/** tinycloud subcommands — the boundary where a bound `run` template's base ends. */
+export const TC_SUBCOMMANDS = ["face", "library", "ask", "probe", "watch", "listen"];
+
+/**
+ * The leading command of a bound tinycloud `run` template — everything before the
+ * first subcommand / `{{input}}` placeholder, KEEPING any leading global flags
+ * (e.g. `tinycloud --config x face …` → `tinycloud --config x`). Used as the
+ * `base` override so a pinned tinycloud binary/wrapper is honored across every
+ * tinycloud-backed verb (face/collection/ask), not just the one that parsed it.
+ * Returns undefined for an empty/absent run (→ falls back to OVERCAST_TINYCLOUD_CMD
+ * / `tinycloud`).
+ */
+export function tinycloudBaseFromRun(run?: string): string | undefined {
+  if (!run || !run.trim()) return undefined;
+  const out: string[] = [];
+  for (const t of run.trim().split(/\s+/)) {
+    if (TC_SUBCOMMANDS.includes(t) || t.startsWith("{{")) break;
+    out.push(t);
+  }
+  return out.length ? out.join(" ") : undefined;
+}
+
 /** The top-level envelope object (defensive: a non-object parses to {}). */
 export function envelopeOf(parsed: unknown): Record<string, unknown> {
   return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
