@@ -13,7 +13,7 @@ import { makeRecord, type OvercastRecord } from "../record.js";
 import { runFace, type FaceOp, type FaceParams } from "../providers/tinycloud/face.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
-import { findCollection, collectionsByType } from "../state/collection.js";
+import { collectionsByType, resolveCollectionRef } from "../state/collection.js";
 import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -30,14 +30,31 @@ function resolveMediaRef(c: Case, ref: string): string {
 }
 
 /** Resolve a --collection value (id or name, comma-list ok) to tinycloud
- *  collection id(s): a mirrored name/id maps to its real id; an unknown value is
- *  assumed to already be a tinycloud id. */
-function resolveCollectionIds(c: Case, value: string): string[] {
-  return value
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((v) => findCollection(c, v)?.id ?? v);
+ *  collection id(s) for a face op. Surfaces an ambiguous-name error (like
+ *  ask/collection) instead of passing a raw name, and rejects a mirrored
+ *  collection whose type isn't face-analysis. Unmirrored values pass through as
+ *  raw ids; a value that resolves to nothing yields an empty list. */
+function resolveFaceCollections(c: Case, value: string): { ids: string[]; error?: string } {
+  const ids: string[] = [];
+  for (const v of value.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const ref = resolveCollectionRef(c, v);
+    if (ref.error) return { ids: [], error: ref.error };
+    const entry = ref.entry;
+    if (entry && entry.type !== "face-analysis" && entry.type !== "unknown") {
+      return { ids: [], error: `collection ${entry.id} is type '${entry.type}', not face-analysis — face --match/list only read face-analysis collections` };
+    }
+    ids.push(entry?.id ?? v);
+  }
+  return { ids };
+}
+
+/** Validate a numeric face flag (only when provided): returns an error string on
+ *  a missing-after-coerce (non-finite) or out-of-bounds value, else undefined. */
+function badNumber(opts: VerbContext["opts"], name: string, ok: (n: number) => boolean, expect: string): string | undefined {
+  if (opts[name] == null) return undefined;
+  const n = Number(opts[name]);
+  if (!Number.isFinite(n) || !ok(n)) return `invalid --${name}: ${opts[name]} (expected ${expect})`;
+  return undefined;
 }
 
 const num = (v: unknown): number | undefined => {
@@ -98,6 +115,17 @@ export const faceVerb: VerbSpec = {
     const video = ctx.input ? resolveMediaRef(c, ctx.input) : undefined;
     const collectionFlag = ctx.opts.collection ? String(ctx.opts.collection) : undefined;
 
+    // validate the numeric flags up front (covers both the custom + default
+    // paths) — reject 0/negative/out-of-range/non-finite like ask/entities,
+    // rather than forwarding a junk value to the provider.
+    const numErr =
+      badNumber(ctx.opts, "max-faces", (n) => n > 0, "a positive number") ??
+      badNumber(ctx.opts, "min-similarity", (n) => n >= 0 && n <= 100, "0–100") ??
+      badNumber(ctx.opts, "fps", (n) => n > 0, "a positive number") ??
+      badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number") ??
+      badNumber(ctx.opts, "offset", (n) => n >= 0, "a non-negative number");
+    if (numErr) return [err(numErr)];
+
     // A custom face provider takes over (pass-through). Hand it the primary
     // media (video, else the query image) and forward the face flags so a bound
     // provider can implement detect/match/search itself.
@@ -139,10 +167,12 @@ export const faceVerb: VerbSpec = {
     } else if (image && !video) {
       // search the face across a face-analysis collection (case-wide).
       if (collectionFlag) {
-        collections = resolveCollectionIds(c, collectionFlag);
+        const r = resolveFaceCollections(c, collectionFlag);
+        if (r.error) return [err(r.error)];
         // a flag that resolves to nothing (whitespace/comma-only) must not run an
         // unscoped search — surface it as the user error it is.
-        if (!collections.length) return [err(`--collection '${collectionFlag}' has no valid collection id`)];
+        if (!r.ids.length) return [err(`--collection '${collectionFlag}' has no valid collection id`)];
+        collections = r.ids;
       } else {
         // auto-pick the case's sole face collection. A collection added by raw id
         // (not created here) is mirrored with type "unknown" when no --type was
@@ -159,8 +189,10 @@ export const faceVerb: VerbSpec = {
       op = "search";
     } else if (video && collectionFlag) {
       // list the video's stored detections within the collection.
-      collections = resolveCollectionIds(c, collectionFlag);
-      if (!collections.length) return [err(`--collection '${collectionFlag}' has no valid collection id`)];
+      const r = resolveFaceCollections(c, collectionFlag);
+      if (r.error) return [err(r.error)];
+      if (!r.ids.length) return [err(`--collection '${collectionFlag}' has no valid collection id`)];
+      collections = r.ids;
       op = "list";
     } else if (video) {
       op = "detect";

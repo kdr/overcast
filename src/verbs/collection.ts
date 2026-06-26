@@ -287,7 +287,10 @@ export const collectionVerb: VerbSpec = {
         if (!Number.isFinite(n) || n < 0) return [err(`collection entities: invalid --offset '${ctx.opts.offset}' (expected a non-negative number)`)];
         offset = n;
       }
-      const colId = findCollection(c, id)?.id ?? id;
+      // resolve the collection id, surfacing an ambiguous-name error (like ask/add).
+      const colRef = resolveCollectionRef(c, id);
+      if (colRef.error) return [err(`collection entities: ${colRef.error}`)];
+      const colId = colRef.entry?.id ?? id;
       const { ref } = resolveMediaRef(c, videoArg);
       // fail early on a local-path typo (matches `add`), not late at the provider.
       if (!/^https?:\/\//i.test(ref) && !existsSync(ref)) {

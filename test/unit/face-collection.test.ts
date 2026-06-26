@@ -598,3 +598,39 @@ test("collection entities fails early on a missing local video (#R5-4)", async (
     rmSync(cdir, { recursive: true, force: true });
   }
 });
+
+// ---- Bugbot round-6 regressions --------------------------------------------
+
+test("face --collection rejects an ambiguous display name (#R6-1)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-faceamb-"));
+  const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_1", type: "face-analysis", name: "faces" });
+    addCollection(c, { id: "col_2", type: "face-analysis", name: "faces" });
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img, collection: "faces" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /matches 2 collections/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("face --collection rejects a non-face-analysis collection type (#R6-2)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-facetype-"));
+  const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_m", type: "media-descriptions", name: "media" });
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img, collection: "col_m" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /not face-analysis/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("face rejects invalid numeric flags (--limit 0, --min-similarity 150) (#R6-3)", async () => {
+  const [a] = await faceVerb.run(ctx(clip, { limit: 0 }));
+  assert.equal(a.state, "error");
+  assert.match(a.error ?? "", /invalid --limit/);
+  const [b] = await faceVerb.run(ctx(clip, { "min-similarity": 150, match: face }));
+  assert.equal(b.state, "error");
+  assert.match(b.error ?? "", /invalid --min-similarity/);
+});
