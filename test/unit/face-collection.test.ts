@@ -821,6 +821,31 @@ test("writeRecord stamps the case dir + pageCommand embeds --case (paging works 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+// ---- Holistic output consistency: collection-read ops get headlines too -----
+
+test("face list (collection) summary matches detect's shape (span + 'not unique people') + moments", async () => {
+  const rec = await runFace({ op: "list", source: "clip.mp4", collections: ["col_x"] }, { base: BASE });
+  const p = rec.payload as Record<string, unknown>;
+  assert.match(String(p.summary), /stored face detection/);
+  assert.match(String(p.summary), /not unique people/);
+  assert.ok(Array.isArray(p.moments)); // same pageable timeline the on-demand ops emit
+});
+
+test("collection ops lead with a synthesized summary headline (show file-status, create, entities)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-colsum-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_fake123", type: "media-descriptions", name: "fixture" });
+    // show: a file-status headline (fixture has 1 completed + 1 pending)
+    const [show] = await collectionVerb.run({ input: "show", rest: ["col_fake123"], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.match(String((show.payload as Record<string, unknown>).summary), /2 videos:.*1 ready.*1 processing/);
+    assert.equal(Object.keys(show.payload as Record<string, unknown>)[1], "summary"); // headline near the top (after op)
+    // create: "created <type> collection '<name>'"
+    const [create] = await collectionVerb.run({ input: "create", rest: ["acme"], opts: { type: "media-descriptions" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.match(String((create.payload as Record<string, unknown>).summary), /created media-descriptions collection/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
 // ---- Face headline summary (first-run ergonomics) --------------------------
 
 test("face detect synthesizes a headline summary (count + frames + 'not unique people' caveat), ahead of the faces blob", async () => {

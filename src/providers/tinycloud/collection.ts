@@ -9,16 +9,74 @@ import { runTinycloud, type RunTinycloudOpts, type TinycloudOutcome } from "./en
 
 const META = (op: string) => ({ provider: "tinycloud", model: "cloudglue", op });
 
+const base = (ref: unknown): string => {
+  const s = typeof ref === "string" ? ref : "";
+  return s.replace(/[?#].*$/, "").replace(/\/+$/, "").split("/").pop() || s;
+};
+
+/** Normalize a collection file's status into ready / processing / failed. */
+function fileStatus(f: unknown): "ready" | "processing" | "failed" | "other" {
+  const s = f && typeof f === "object" && typeof (f as Record<string, unknown>).status === "string" ? ((f as Record<string, unknown>).status as string).toLowerCase() : "";
+  if (/(ready|complete|done|success|indexed)/.test(s)) return "ready";
+  if (/(fail|error)/.test(s)) return "failed";
+  if (/(pending|process|upload|index|queue|run|wait)/.test(s)) return "processing";
+  return "other";
+}
+
+/** A one-line headline per collection op — the FIRST thing a reader (or agent)
+ *  sees, so the record reads cleanly like the sense verbs do, without paging the
+ *  files[]/entities[]/detailed blobs. */
+function summarizeCollection(op: string, extra: Record<string, unknown>, state: string | undefined): string | undefined {
+  const pending = state === "pending";
+  const num = (v: unknown) => (typeof v === "number" ? v : 0);
+  switch (op) {
+    case "create":
+      return `${pending ? "provisioning" : "created"} ${extra.type ?? ""} collection${extra.name ? ` '${extra.name}'` : ""}`.replace(/\s+/g, " ").trim();
+    case "add":
+      return `${pending ? "queued" : "added"} ${base(extra.file)} for indexing${pending ? " — processing server-side, ask once ready" : ""}`;
+    case "remove":
+      return `removed ${base(extra.file)} from the collection`;
+    case "delete":
+      return pending ? "collection deletion queued" : "collection deleted";
+    case "list": {
+      const c = num(extra.count);
+      return `${c} collection${c === 1 ? "" : "s"} in this account`;
+    }
+    case "entities": {
+      const c = num(extra.count);
+      return c === 0 ? `no entities extracted from ${base(extra.file)}` : `${c} entit${c === 1 ? "y" : "ies"} extracted from ${base(extra.file)}`;
+    }
+    case "show": {
+      const files = Array.isArray(extra.files) ? extra.files : [];
+      const by = { ready: 0, processing: 0, failed: 0, other: 0 };
+      for (const f of files) by[fileStatus(f)]++;
+      const parts: string[] = [];
+      if (by.ready) parts.push(`${by.ready} ready`);
+      if (by.processing) parts.push(`${by.processing} processing`);
+      if (by.failed) parts.push(`${by.failed} failed`);
+      if (by.other) parts.push(`${by.other} other`);
+      return `${files.length} video${files.length === 1 ? "" : "s"}${parts.length ? `: ${parts.join(", ")}` : ""}`;
+    }
+  }
+  return undefined;
+}
+
 /** Build a `collection` record from a tinycloud outcome, always keeping the raw
- *  data under `detailed` so nothing is lost when our field guesses miss. */
+ *  data under `detailed` so nothing is lost when our field guesses miss. Leads with
+ *  a synthesized `summary` headline (consistent with the sense verbs); tinycloud's
+ *  own terse line, if any, is kept as `provider_summary`. */
 function collectionRecord(
   op: string,
   out: TinycloudOutcome,
   extra: Record<string, unknown>,
   media?: { ref: string },
 ): OvercastRecord {
-  const payload: Record<string, unknown> = { op, ...extra, detailed: out.data };
-  if (typeof out.env.summary === "string") payload.summary = out.env.summary;
+  const payload: Record<string, unknown> = { op };
+  const summary = summarizeCollection(op, extra, out.state);
+  if (summary) payload.summary = summary;
+  if (typeof out.env.summary === "string" && out.env.summary.trim()) payload.provider_summary = out.env.summary;
+  Object.assign(payload, extra);
+  payload.detailed = out.data;
   return makeRecord({
     verb: "collection",
     format: "json",

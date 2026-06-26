@@ -143,7 +143,11 @@ function summarizeFaces(op: FaceOp, faces: Array<Record<string, unknown>>, count
   if (op === "search") {
     return count === 0 ? "no matches for that face across the collection" : `${n("match")} for that face across the collection${simPct}`;
   }
-  return count === 0 ? "no faces indexed in the collection" : `${n("face")} in the collection`;
+  // list: a video's STORED detections in a face-analysis collection — same shape as
+  // detect (one box per sampled frame), so carry the same span + "not people" caveat.
+  if (count === 0) return "no faces stored for this video in the collection";
+  const frames = ts.length ? ` across ${ts.length} frame${ts.length === 1 ? "" : "s"}${span}` : "";
+  return `${count} stored face detection${count === 1 ? "" : "s"}${frames} — one box per sampled frame, not unique people (with thumbnails)`;
 }
 
 /** A compact, COMPLETE projection of the faces — just the time anchor (+ similarity
