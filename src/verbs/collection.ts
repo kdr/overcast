@@ -96,6 +96,27 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
   return out;
 }
 
+/** Resolve a single video arg (path/URL/record-id) for `add`/`entities`, applying
+ *  the same filters: a case record must be captured/sensed media (not a `scan`
+ *  hit's page URL), ready, and not a face-search query image; the ref must exist
+ *  (local) and be AV. Returns the resolved ref (+ recordId) or an error. */
+function resolveVideoArg(c: Case, arg: string, label: string): { ref?: string; recordId?: string; error?: string } {
+  const { ref, recordId } = resolveMediaRef(c, arg);
+  if (recordId) {
+    const src = c.recordById(recordId);
+    if (src && !MEDIA_VERBS.includes(src.verb)) {
+      return { error: `${label}: record ${arg} is a ${src.verb} record, not captured/sensed media — capture it first (e.g. \`scan --pull\`) then use the capture, or pass a path/URL` };
+    }
+    if (src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
+    if (src?.verb === "face" && (src.payload as Record<string, unknown> | undefined)?.op === "search") {
+      return { error: `${label}: record ${arg} is a face search (its media is the query image, not a video)` };
+    }
+  }
+  if (!/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: video not found: ${ref}` };
+  if (!isAv(ref)) return { error: `${label}: ${ref} is not a video/audio file` };
+  return { ref, recordId };
+}
+
 /** Resolve the target collection id for add/show/delete: an explicit value, else
  *  the case's sole mirrored collection (optionally filtered by type). A value that
  *  was PROVIDED but is blank/whitespace is a user error (like ask/face reject blank
@@ -194,6 +215,9 @@ export const collectionVerb: VerbSpec = {
 
     // ---- add ----
     if (action === "add") {
+      // `add` targets with --to; --from is `remove`'s flag. Reject it rather than
+      // ignoring it and falling back to the sole collection (wrong target).
+      if (ctx.opts.from != null) return [err("collection add targets with --to, not --from")];
       const typeHint = ctx.opts.type != null ? normalizeCollectionType(String(ctx.opts.type)) : undefined;
       // a typo'd OR empty --type must error here (like `create`), not be silently
       // dropped — otherwise the stub stays "unknown" and face auto-pick/type guards
@@ -242,27 +266,11 @@ export const collectionVerb: VerbSpec = {
 
       const arg = ctx.rest[0];
       if (!arg) return [err("usage: collection add <video|record-id> --to <id> (or --all)")];
-      const { ref, recordId } = resolveMediaRef(c, arg);
-      // when the arg is a case record, apply the same filters as `--all`: only
-      // captured/sensed media (not a `scan` hit's page URL), ready, and not a
-      // face-search record (media = query image) — surface why rather than
-      // indexing junk.
-      if (recordId) {
-        const src = c.recordById(recordId);
-        if (src && !MEDIA_VERBS.includes(src.verb)) {
-          return [err(`collection add: record ${arg} is a ${src.verb} record, not captured/sensed media — capture it first (e.g. \`scan --pull\`) then add the capture, or pass a path/URL`)];
-        }
-        if (src && !isReady(src)) return [err(`collection add: record ${arg} isn't ready (state=${src.state ?? "?"})`)];
-        if (src?.verb === "face" && (src.payload as Record<string, unknown> | undefined)?.op === "search") {
-          return [err(`collection add: record ${arg} is a face search (its media is the query image, not a video)`)];
-        }
-      }
-      if (!/^https?:\/\//i.test(ref) && !existsSync(ref)) {
-        return [err(`collection add: video not found: ${ref}`)];
-      }
-      if (!isAv(ref)) return [err(`collection add: ${ref} is not a video/audio file`)];
+      const v = resolveVideoArg(c, arg, "collection add");
+      if (v.error) return [err(v.error)];
+      const ref = v.ref!;
       const { rec } = await tcCollectionAdd(ref, id, addOpts);
-      if (accepted(rec)) addMember(c, id, { ref, recordId });
+      if (accepted(rec)) addMember(c, id, { ref, recordId: v.recordId });
       rec.meta = { ...rec.meta, case: c.dir };
       return [rec];
     }
@@ -306,6 +314,9 @@ export const collectionVerb: VerbSpec = {
 
     // ---- remove ----
     if (action === "remove") {
+      // `remove` targets with --from; --to is `add`'s flag. Reject it rather than
+      // ignoring it and falling back to the sole collection (wrong target).
+      if (ctx.opts.to != null) return [err("collection remove targets with --from, not --to")];
       const arg = ctx.rest[0];
       if (!arg) return [err("usage: collection remove <video|record-id> --from <id>")];
       const from = resolveTarget(c, ctx.opts.from != null ? String(ctx.opts.from) : undefined);
@@ -348,12 +359,11 @@ export const collectionVerb: VerbSpec = {
         return [err(`collection ${colEntry.id} is type '${colEntry.type}', not entities — \`collection entities\` only reads entities collections`)];
       }
       const colId = colEntry?.id ?? id;
-      const { ref } = resolveMediaRef(c, videoArg);
-      // fail early on a local-path typo (matches `add`), not late at the provider.
-      if (!/^https?:\/\//i.test(ref) && !existsSync(ref)) {
-        return [err(`collection entities: video not found: ${ref}`)];
-      }
-      const { rec } = await tcCollectionEntities(colId, ref, { ...tcOpts, limit, offset });
+      // same media filters as `add` (reject scan/non-ready/face-search/non-AV, not
+      // just a missing local path), so a scan hit's page URL isn't sent as the video.
+      const v = resolveVideoArg(c, videoArg, "collection entities");
+      if (v.error) return [err(v.error)];
+      const { rec } = await tcCollectionEntities(colId, v.ref!, { ...tcOpts, limit, offset });
       rec.meta = { ...rec.meta, case: c.dir };
       return [rec];
     }

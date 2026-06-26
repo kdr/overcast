@@ -786,6 +786,34 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+// ---- Bugbot round-15 regressions -------------------------------------------
+
+test("collection add/remove reject the inapplicable target flag (--from on add, --to on remove) (#R15-1)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-wrongflag-"));
+  const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    const [a] = await collectionVerb.run({ input: "add", rest: [vid], opts: { from: "col_only" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.match(a.error ?? "", /targets with --to/);
+    const [r] = await collectionVerb.run({ input: "remove", rest: [vid], opts: { to: "col_only" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.match(r.error ?? "", /targets with --from/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection entities applies add's media filters (rejects a scan record) (#R15-2)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-entfilt-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_e", type: "entities", name: "e" });
+    const scan = makeRecord({ verb: "scan", payload: { url: "https://x/post" }, media: { ref: "https://x/post" }, state: "ready" });
+    c.writeRecord(scan);
+    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_e", scan.id], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /is a scan record/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
 // ---- Bugbot round-14 regressions -------------------------------------------
 
 test("collection create rejects a whitespace-only name and a whitespace-only entities --prompt (#R14-1/#R14-2)", async () => {
