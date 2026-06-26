@@ -46,6 +46,21 @@ const num = (v: unknown): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
+/** The leading command of a bound tinycloud `run` template — everything before
+ *  the first subcommand / {{input}} / flag — used as runFace's base so a bound
+ *  tinycloud binary/wrapper (e.g. `tinycloud-beta …`) is honored rather than
+ *  silently ignored. A fully non-tinycloud binding is handled by isCustomBinding
+ *  (pass-through) instead; here we only reach a tinycloud-style binding. */
+export function tinycloudBaseFromRun(run?: string): string | undefined {
+  if (!run || !run.trim()) return undefined;
+  const out: string[] = [];
+  for (const t of run.trim().split(/\s+/)) {
+    if (["face", "library", "ask", "probe", "watch", "listen"].includes(t) || t.startsWith("{{") || t.startsWith("-")) break;
+    out.push(t);
+  }
+  return out.length ? out.join(" ") : undefined;
+}
+
 export const faceVerb: VerbSpec = {
   name: "face",
   group: "sense",
@@ -91,7 +106,10 @@ export const faceVerb: VerbSpec = {
       const primary = video ?? image;
       if (!primary) return [err("face requires a video, or --match <image> with --collection")];
       const extraArgs: string[] = [];
-      if (image && video) extraArgs.push("--match", image);
+      // Forward --match whenever a reference image is present (not only when a
+      // video is too) so a collection-wide SEARCH is distinguishable from detect:
+      // a bound provider keys on --match (+ --collection) vs a bare video input.
+      if (image) extraArgs.push("--match", image);
       if (collectionFlag) extraArgs.push("--collection", collectionFlag);
       for (const f of ["max-faces", "min-similarity", "fps", "start", "end", "limit", "offset", "group-by"]) {
         if (ctx.opts[f] != null) extraArgs.push(`--${f}`, String(ctx.opts[f]));
@@ -162,6 +180,9 @@ export const faceVerb: VerbSpec = {
     };
 
     const rec = await runFace(params, {
+      // honor a bound tinycloud command/wrapper (consistent with watch/listen);
+      // falls back to OVERCAST_TINYCLOUD_CMD / `tinycloud` when unbound.
+      base: tinycloudBaseFromRun(binding?.run),
       env: providerEnv(c.mediaDir),
       signal: ctx.signal,
     });

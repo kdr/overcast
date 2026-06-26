@@ -56,12 +56,17 @@ const AV_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mp3|m4a|wav|flac|ogg|aac)$/i;
 const isAv = (ref: string) => /^https?:\/\//i.test(ref) || AV_RE.test(ref);
 
 /** Unique AV media refs the case has captured/watched (the videos gathered while
- *  investigating the target) — what `collection add --all` registers. */
+ *  investigating the target) — what `collection add --all` registers. Deliberately
+ *  excludes `scan` hits: their media.ref is a page/listing URL (and isAv accepts
+ *  any http(s)), so they'd pollute the collection with non-video links — the
+ *  actual media arrives via `capture` (scan --pull → capture record). */
 function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
   const out: Array<{ ref: string; recordId: string }> = [];
   const seen = new Set<string>();
   for (const r of c.records()) {
-    if (!["capture", "watch", "scan", "face"].includes(r.verb)) continue;
+    if (!["capture", "watch", "face"].includes(r.verb)) continue;
+    // a face SEARCH record's media.ref is the QUERY image, not a case video — skip.
+    if (r.verb === "face" && (r.payload as Record<string, unknown> | undefined)?.op === "search") continue;
     const ref = r.media?.ref;
     if (!ref || seen.has(ref) || !isAv(ref)) continue;
     seen.add(ref);
@@ -160,6 +165,11 @@ export const collectionVerb: VerbSpec = {
       const target = resolveTarget(c, ctx.opts.to ? String(ctx.opts.to) : undefined, ctx.opts.type ? String(normalizeCollectionType(String(ctx.opts.type)) ?? "") : undefined);
       if (target.error) return [err(`collection add: ${target.error}`)];
       const id = target.id!;
+      // Ensure the target is in the local mirror — it may have been created
+      // outside this case and referenced only by id. Without this, addMember
+      // no-ops (collection absent) and `add --all` re-adds the same videos on
+      // every run. Type is unknown until a `show`/`create` records it.
+      if (!findCollection(c, id)) addCollection(c, { id, type: "unknown", name: id });
       const addOpts = {
         ...tcOpts,
         noUpload: ctx.opts["no-upload"] === true,

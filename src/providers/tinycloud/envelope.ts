@@ -183,6 +183,11 @@ export async function runTinycloud(
   // An error message present on an otherwise-"ready" envelope means failure —
   // error wins (defensive against a provider that sets data but also errors).
   if (envError && state === "ready") state = "error";
+  // A non-zero exit contradicts a "ready" status (tinycloud maps ready→exit 0),
+  // so never emit a success-shaped record for it — treat it as a failure, the
+  // same stance runWatch takes. (pending may legitimately exit 3 for
+  // needs_upload/download, so only override "ready".)
+  if (res.code !== 0 && state === "ready") state = "error";
 
   // Attach a message only for non-success states; ready/pending carry none.
   let error: string | undefined;

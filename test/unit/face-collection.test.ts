@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
+import { makeRecord } from "../../src/record.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 import {
@@ -30,7 +31,7 @@ import {
   removeMember,
   collectionsByType,
 } from "../../src/state/collection.ts";
-import { faceVerb } from "../../src/verbs/face.ts";
+import { faceVerb, tinycloudBaseFromRun } from "../../src/verbs/face.ts";
 import { collectionVerb } from "../../src/verbs/collection.ts";
 import { askVerb } from "../../src/verbs/read.ts";
 
@@ -304,4 +305,87 @@ test("ask --collection routes to tinycloud collection ask (answer + citations)",
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;
   }
+});
+
+// ---- Bugbot round-1 regressions --------------------------------------------
+
+test("runTinycloud: a 'ready' envelope with a non-zero exit is an error, not success (#4)", async () => {
+  const saved = process.env.OVERCAST_FAKE_TC_MODE;
+  process.env.OVERCAST_FAKE_TC_MODE = "ready_exit1";
+  try {
+    const rec = await runFace({ op: "detect", source: "clip.mp4" }, { base: BASE });
+    assert.equal(rec.state, "error");
+    assert.ok(rec.error);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;
+    else process.env.OVERCAST_FAKE_TC_MODE = saved;
+  }
+});
+
+test("ask --collection rejects an invalid --limit instead of dropping it (#6)", async () => {
+  const [rec] = await askVerb.run(ctx("q?", { collection: "col_x", limit: 0 }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /--limit/);
+});
+
+test("collection add to an UNMIRRORED id records a stub + tracks the member (#2)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-colmir-"));
+  const video = join(cdir, "v.mp4");
+  writeFileSync(video, "x");
+  const mkc = (input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext =>
+    ({ input, rest, opts, case: openCase(cdir), profile: defaultProfile() });
+  try {
+    const c = openCase(cdir); c.ensure();
+    assert.equal(findCollection(c, "col_remote"), undefined); // not created via this case
+    const [rec] = await collectionVerb.run(mkc("add", [video], { to: "col_remote" }));
+    assert.notEqual(rec.state, "error");
+    const col = findCollection(openCase(cdir), "col_remote");
+    assert.ok(col, "stub mirror entry created for the remote-only collection");
+    assert.equal(col!.members.length, 1);
+    assert.equal(col!.members[0].ref, video);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("collection add --all registers captured/watched videos but NOT scan page URLs (#1)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-colall-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
+    c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: "/tmp/clipA.mp4" }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "scan", payload: { url: "https://news.example/post" }, media: { ref: "https://news.example/post" }, state: "ready" }));
+    const recs = await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_a" }, case: openCase(cdir), profile: defaultProfile() });
+    const members = findCollection(openCase(cdir), "col_a")!.members.map((m) => m.ref);
+    assert.deepEqual(members, ["/tmp/clipA.mp4"]); // the .mp4 only; the scan page URL is excluded
+    assert.equal(recs.length, 1); // exactly one tinycloud add (the video)
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("custom face provider receives --match for a collection-wide search (#3)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-faceprov-"));
+  const prov = join(cdir, "face-prov.sh");
+  writeFileSync(prov, '#!/usr/bin/env bash\nif printf "%s " "$@" | grep -q -- --match; then m=true; else m=false; fi\necho "{\\"verb\\":\\"face\\",\\"payload\\":{\\"got_match\\":$m},\\"state\\":\\"ready\\"}"\n');
+  chmodSync(prov, 0o755);
+  const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    const p = defaultProfile();
+    p.providers = { ...p.providers, face: { type: "exec", run: `bash ${prov} {{input}}` } };
+    // search: --match image + --collection, no video → the custom branch must forward --match
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img, collection: "col_face" }, case: c, profile: p });
+    assert.equal(rec.state, "ready");
+    assert.equal((rec.payload as Record<string, unknown>).got_match, true);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("tinycloudBaseFromRun extracts the leading command of a bound tinycloud run (#5)", () => {
+  assert.equal(tinycloudBaseFromRun(undefined), undefined);
+  assert.equal(tinycloudBaseFromRun("tinycloud face {{input}} --json"), "tinycloud");
+  assert.equal(tinycloudBaseFromRun("tinycloud-beta face detect {{input}}"), "tinycloud-beta");
+  assert.equal(tinycloudBaseFromRun("/opt/tc/tinycloud library collections list --json"), "/opt/tc/tinycloud");
 });

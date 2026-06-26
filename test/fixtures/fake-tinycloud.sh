@@ -5,7 +5,7 @@
 # by echoing realistic JSON envelopes (skills/tinycloud/reference/envelope.md).
 # Bind via OVERCAST_TINYCLOUD_CMD="bash test/fixtures/fake-tinycloud.sh", or pass
 # base:"bash …" to runFace/runTinycloud directly. Set OVERCAST_FAKE_TC_MODE=
-# error|cred to exercise the failure/credential-gap mapping.
+# error|cred|ready_exit1 to exercise the failure/credential-gap/contradictory-exit mapping.
 set -uo pipefail
 
 mode="${OVERCAST_FAKE_TC_MODE:-ok}"
@@ -15,6 +15,11 @@ if [ "$mode" = "cred" ]; then
 fi
 if [ "$mode" = "error" ]; then
   echo '{"tinycloud":"1","status":"error","error":{"code":"boom","message":"something broke"}}'
+  exit 1
+fi
+if [ "$mode" = "ready_exit1" ]; then
+  # contradictory: a "ready" envelope but a non-zero exit — must NOT map to ready.
+  echo '{"tinycloud":"1","status":"ready","data":{"faces":[],"count":0}}'
   exit 1
 fi
 

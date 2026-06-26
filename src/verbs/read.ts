@@ -59,16 +59,22 @@ export const askVerb: VerbSpec = {
     if (!ctx.input) {
       return [askError("ask requires a question")];
     }
+    // a non-finite/non-positive --limit is a user error, not a silent fall-back to
+    // the default breadth — validated up front so BOTH the local-memory and the
+    // --collection paths reject it (matches scan/case/monitor).
+    if (ctx.opts.limit != null) {
+      const n = Number(ctx.opts.limit);
+      if (!Number.isFinite(n) || n <= 0) {
+        return [askError(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
+      }
+    }
     // --collection: answer over a tinycloud media-descriptions collection (the
     // index of a target's videos) instead of the local case memory. The id/name
     // resolves through the case mirror to the real tinycloud collection id.
     if (ctx.opts.collection) {
       const value = String(ctx.opts.collection);
       const colId = findCollection(ctx.case, value)?.id ?? value;
-      const limit =
-        ctx.opts.limit != null && Number.isFinite(Number(ctx.opts.limit)) && Number(ctx.opts.limit) > 0
-          ? Number(ctx.opts.limit)
-          : undefined;
+      const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined;
       const rec = await tcAsk(ctx.input, colId, {
         probe: ctx.opts.probe === true,
         scope: ctx.opts.scope ? String(ctx.opts.scope) : undefined,
@@ -82,14 +88,6 @@ export const askVerb: VerbSpec = {
     // an unparseable --since is a user error, not a silent "no time bound"
     if (ctx.opts.since && parseSince(String(ctx.opts.since)) == null) {
       return [askError(`invalid --since value: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
-    }
-    // a non-finite/non-positive --limit is a user error, not a silent fall-back to
-    // the default recall breadth (matches scan/case/monitor).
-    if (ctx.opts.limit != null) {
-      const n = Number(ctx.opts.limit);
-      if (!Number.isFinite(n) || n <= 0) {
-        return [askError(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
-      }
     }
     const available = resolveMemory(ctx.case, ctx.profile);
     let providers = available;
