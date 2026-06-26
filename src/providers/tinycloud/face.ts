@@ -130,7 +130,8 @@ function summarizeFaces(op: FaceOp, faces: Array<Record<string, unknown>>, count
     const lo = Math.min(...sims), hi = Math.max(...sims);
     return lo.toFixed(1) === hi.toFixed(1) ? ` at ~${hi.toFixed(1)}% similarity` : ` at ${lo.toFixed(1)}–${hi.toFixed(1)}% similarity`;
   })();
-  const n = (noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+  // pluralize correctly — "match" → "matches" (es after s/x/ch/sh), not "matchs".
+  const n = (noun: string) => `${count} ${noun}${count === 1 ? "" : /(s|x|ch|sh)$/.test(noun) ? "es" : "s"}`;
   if (op === "detect") {
     if (count === 0) return "no faces detected in this clip";
     const frames = ts.length ? ` across ${ts.length} frame${ts.length === 1 ? "" : "s"}${span}` : "";

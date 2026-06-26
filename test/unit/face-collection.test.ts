@@ -144,6 +144,13 @@ test("runFace match → similarity-ranked matches; reference image recorded", as
   assert.equal(rec.media?.ref, "clip.mp4");
 });
 
+test("face search summary pluralizes 'matches' correctly (not 'matchs')", async () => {
+  const rec = await runFace({ op: "search", image: "suspect.jpg", collections: ["col_x"] }, { base: BASE });
+  const s = String((rec.payload as Record<string, unknown>).summary);
+  assert.match(s, /2 matches for that face/);
+  assert.doesNotMatch(s, /matchs/);
+});
+
 test("runFace search → media.ref is the query image, no seek anchor; collection recorded", async () => {
   const rec = await runFace({ op: "search", image: "suspect.jpg", collections: ["col_x"] }, { base: BASE });
   const p = rec.payload as Record<string, unknown>;
