@@ -179,6 +179,11 @@ export const collectionVerb: VerbSpec = {
     // ---- add ----
     if (action === "add") {
       const typeHint = ctx.opts.type ? normalizeCollectionType(String(ctx.opts.type)) : undefined;
+      // a typo'd --type must error here (like `create`), not be silently dropped —
+      // otherwise the stub stays "unknown" and face auto-pick/type guards confuse later.
+      if (ctx.opts.type && !typeHint) {
+        return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts)`)];
+      }
       const target = resolveTarget(c, ctx.opts.to ? String(ctx.opts.to) : undefined, typeHint);
       if (target.error) return [err(`collection add: ${target.error}`)];
       const id = target.id!;

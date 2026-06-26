@@ -35,6 +35,7 @@ import {
 import { faceVerb, tinycloudBaseFromRun } from "../../src/verbs/face.ts";
 import { collectionVerb } from "../../src/verbs/collection.ts";
 import { askVerb } from "../../src/verbs/read.ts";
+import { doctorVerb } from "../../src/verbs/setup.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
@@ -742,5 +743,45 @@ test("a pinned full-path tinycloud face binding runs ALL ops via runFace, not th
     const pl = rec.payload as Record<string, unknown>;
     assert.equal(pl.op, "match"); // op resolved + routed through runFace, not the template's `detect`
     assert.equal((pl.faces as Array<Record<string, unknown>>)[0].similarity, 92.5); // the fixture's `face match` result
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+// ---- Bugbot round-10 regressions -------------------------------------------
+
+test("collection add rejects an invalid --type (not silently dropped) (#R10-1)", async () => {
+  const [rec] = await collectionVerb.run(ctx("add", { type: "facce", to: "col_x" }, ["vid"]));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /unknown --type/);
+});
+
+test("doctor warns about missing tinycloud even when watch/listen are custom-bound (#R10-2)", async () => {
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  process.env.OVERCAST_TINYCLOUD_CMD = "oc-no-such-tinycloud-binary";
+  const cdir = mkdtempSync(join(tmpdir(), "oc-doctor-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    const p = defaultProfile();
+    p.providers = { ...p.providers, watch: { type: "exec", run: "bash custom-watch.sh {{input}}" }, listen: { type: "exec", run: "bash custom-listen.sh {{input}}" } };
+    const [rec] = await doctorVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: p, home: cdir });
+    const warnings = (rec.payload as Record<string, unknown>).warnings as string[];
+    assert.ok(warnings.some((w) => /tinycloud CLI missing/.test(w)), `expected a tinycloud-missing warning; got ${JSON.stringify(warnings)}`);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("collection remove: a pending async op reports removed:true AND prunes the mirror (no contradiction) (#R10-3)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-rmpend-"));
+  const video = join(cdir, "v.mp4"); writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_r", type: "media-descriptions", name: "r" });
+    addMember(c, "col_r", { ref: video });
+    const [rec] = await collectionVerb.run({ input: "remove", rest: [video], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "pending"); // the fixture's async remove
+    assert.equal((rec.payload as Record<string, unknown>).removed, true); // payload agrees with the mirror update
+    assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0); // mirror pruned
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });

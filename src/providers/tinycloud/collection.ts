@@ -103,10 +103,15 @@ export async function tcCollectionList(o: CollectionRunOpts = {}): Promise<{ rec
   return { rec };
 }
 
+// An accepted op (ready OR an async pending) is reflected as done in the payload,
+// matching the verb's mirror update (which prunes on ready||pending) — so the
+// payload boolean can't contradict `.overcast/collections.json`.
+const accepted = (s: string | undefined) => s === "ready" || s === "pending";
+
 /** `library collections delete <id>`. */
 export async function tcCollectionDelete(collectionId: string, o: CollectionRunOpts = {}): Promise<{ rec: OvercastRecord }> {
   const out = await runTinycloud(["library", "collections", "delete", collectionId, "--json"], o);
-  const rec = collectionRecord("delete", out, { collection: collectionId, deleted: out.state === "ready" });
+  const rec = collectionRecord("delete", out, { collection: collectionId, deleted: accepted(out.state) });
   return { rec };
 }
 
@@ -117,7 +122,7 @@ export async function tcCollectionRemove(
   o: CollectionRunOpts = {},
 ): Promise<{ rec: OvercastRecord }> {
   const out = await runTinycloud(["library", "collections", "remove", video, "--from", collectionId, "--json"], o);
-  const rec = collectionRecord("remove", out, { collection: collectionId, file: video, removed: out.state === "ready" }, { ref: video });
+  const rec = collectionRecord("remove", out, { collection: collectionId, file: video, removed: accepted(out.state) }, { ref: video });
   return { rec };
 }
 

@@ -47,7 +47,7 @@ if [ "$top" = "library" ] && [ "$sub" = "collections" ]; then
     show)     echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"id":"col_fake123","files":[{"file_id":"file_abc","status":"completed"},{"file_id":"file_def","status":"pending"}]}}' ;;
     list)     echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"collections":[{"id":"col_fake123","type":"media-descriptions","name":"fixture"}]}}' ;;
     delete)   echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"deleted":true,"id":"col_fake123"}}' ;;
-    remove)   echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"removed":true}}' ;;
+    remove)   echo '{"tinycloud":"1","kind":"collection","status":"pending","data":{"status":"pending"}}' ;;
     entities) echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"entities":[{"name":"ACME Corp","type":"organization"},{"name":"Jane Doe","type":"person"}],"count":2}}' ;;
     *)        echo '{"tinycloud":"1","status":"error","error":{"message":"unknown collections op"}}'; exit 1 ;;
   esac

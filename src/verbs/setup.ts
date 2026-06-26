@@ -276,8 +276,15 @@ export const doctorVerb: VerbSpec = {
       if (b.endpoint || b.module) return true;
       return b.run ? !/^\s*tinycloud\b/.test(b.run) : false;
     });
-    if (!checks.find((c) => c.name === "tinycloud")?.ok && !hasCustomSense) {
-      warnings.push("tinycloud CLI missing and no custom watch/listen provider bound — the default senses will fail");
+    // tinycloud missing is ALWAYS a warning: face / collection / `ask --collection`
+    // call it by default and can't be fully bound away, so a custom watch/listen
+    // provider only spares those two verbs — not the rest.
+    if (!checks.find((c) => c.name === "tinycloud")?.ok) {
+      warnings.push(
+        hasCustomSense
+          ? "tinycloud CLI missing — face/collection/`ask --collection` still call it and will fail (watch/listen are bound to custom providers)"
+          : "tinycloud CLI missing and no custom watch/listen provider bound — watch/listen/face/collection will fail",
+      );
     }
     if (tcOld) {
       warnings.push(`tinycloud is older than ${MIN_TINYCLOUD} — the face + collection verbs need ≥ ${MIN_TINYCLOUD} (run \`tinycloud update\`)`);
