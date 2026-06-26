@@ -33,6 +33,7 @@ import {
   normalizeCollectionType,
 } from "../state/collection.js";
 import { providerEnv } from "../providers/provider-env.js";
+import { MEDIA_VERBS, isAv, resolveVideoArg } from "./media-ref.js";
 import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -56,22 +57,6 @@ function strayTargetFlag(ctx: VerbContext): string | undefined {
   return undefined;
 }
 
-/** A case record id → its media.ref; otherwise the ref as-is (path / URL). */
-function resolveMediaRef(c: Case, ref: string): { ref: string; recordId?: string } {
-  const rec = c.recordById(ref);
-  if (rec?.media?.ref) return { ref: rec.media.ref, recordId: rec.id };
-  return { ref };
-}
-
-const AV_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mp3|m4a|wav|flac|ogg|aac)$/i;
-const isAv = (ref: string) => /^https?:\/\//i.test(ref) || AV_RE.test(ref);
-
-/** Record verbs whose media.ref is registerable case media (captured/sensed).
- *  Deliberately excludes `scan` (media.ref is a page/listing URL that still
- *  passes isAv for any http(s)) — the actual media arrives via `capture`. Used by
- *  both `add --all` and single `add <record-id>` so they filter identically. */
-const MEDIA_VERBS = ["capture", "watch", "listen", "face"];
-
 /** Unique AV media refs the case has captured or sensed (the media gathered while
  *  investigating the target) — what `collection add --all` registers: `capture`
  *  (fetched media) plus anything sensed via `watch`/`listen`/`face`. Deliberately
@@ -94,34 +79,6 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
     out.push({ ref, recordId: r.id });
   }
   return out;
-}
-
-/** Resolve a single video arg (path/URL/record-id) and apply media filters: a case
- *  record must be captured/sensed media (not a `scan` hit's page URL) and not a
- *  face-search query image; the ref must be AV. `add`/`entities` also require the
- *  record be ready and the local file exist; `remove` disables both (you should be
- *  able to un-index a video whose record errored or whose local file is gone). */
-function resolveVideoArg(
-  c: Case,
-  arg: string,
-  label: string,
-  opts: { requireReady?: boolean; requireExists?: boolean } = {},
-): { ref?: string; recordId?: string; error?: string } {
-  const { requireReady = true, requireExists = true } = opts;
-  const { ref, recordId } = resolveMediaRef(c, arg);
-  if (recordId) {
-    const src = c.recordById(recordId);
-    if (src && !MEDIA_VERBS.includes(src.verb)) {
-      return { error: `${label}: record ${arg} is a ${src.verb} record, not captured/sensed media — capture it first (e.g. \`scan --pull\`) then use the capture, or pass a path/URL` };
-    }
-    if (requireReady && src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
-    if (src?.verb === "face" && (src.payload as Record<string, unknown> | undefined)?.op === "search") {
-      return { error: `${label}: record ${arg} is a face search (its media is the query image, not a video)` };
-    }
-  }
-  if (requireExists && !/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: video not found: ${ref}` };
-  if (!isAv(ref)) return { error: `${label}: ${ref} is not a video/audio file` };
-  return { ref, recordId };
 }
 
 /** Resolve the target collection id for add/show/delete: an explicit value, else
@@ -288,6 +245,11 @@ export const collectionVerb: VerbSpec = {
       const v = resolveVideoArg(c, arg, "collection add");
       if (v.error) return [err(v.error)];
       const ref = v.ref!;
+      // dedupe like `--all` (which filters existing members) — don't re-submit a
+      // video already in the collection to tinycloud.
+      if (findCollection(c, id)?.members.some((m) => m.ref === ref)) {
+        return [makeRecord({ verb: "collection", format: "json", payload: { op: "add", collection: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" })];
+      }
       const { rec } = await tcCollectionAdd(ref, id, addOpts);
       if (accepted(rec)) addMember(c, id, { ref, recordId: v.recordId });
       rec.meta = { ...rec.meta, case: c.dir };

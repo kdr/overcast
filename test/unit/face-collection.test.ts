@@ -786,6 +786,41 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+// ---- Holistic pass (theme closure) -----------------------------------------
+
+test("mapTinycloudState: a 'pending' (or 'ready') status with a failure exit is an error", () => {
+  assert.equal(mapTinycloudState({ status: "pending" }, {}, 1), "error");
+  assert.equal(mapTinycloudState({ status: "pending" }, {}, 2), "needs_credentials");
+  assert.equal(mapTinycloudState({ status: "pending" }, {}, 3), "pending"); // needs_upload/download legitimately exits 3
+  assert.equal(mapTinycloudState({ status: "pending" }, {}, 0), "pending");
+  assert.equal(mapTinycloudState({ status: "ready" }, {}, 1), "error");
+});
+
+test("face video input applies the shared media filters (rejects a scan record)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-facevid-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    const scan = makeRecord({ verb: "scan", payload: { url: "https://x/p" }, media: { ref: "https://x/p.html" }, state: "ready" });
+    c.writeRecord(scan);
+    const [rec] = await faceVerb.run({ input: scan.id, rest: [], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /is a scan record|not a video/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("single collection add dedupes an already-registered video (no re-submit)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-dedupe-"));
+  const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_d", type: "media-descriptions", name: "d" });
+    addMember(c, "col_d", { ref: vid });
+    const [rec] = await collectionVerb.run({ input: "add", rest: [vid], opts: { to: "col_d" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "ready");
+    assert.equal((rec.payload as Record<string, unknown>).already_member, true);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
 // ---- Bugbot round-16 regressions -------------------------------------------
 
 test("collection remove applies media filters but allows a gone file / errored record (#R16-1)", async () => {

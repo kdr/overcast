@@ -61,12 +61,19 @@ export function mapTinycloudState(
   data: Record<string, unknown>,
   code: number | null,
 ): RecordState {
-  switch (rawStatus(env, data)) {
+  const status = rawStatus(env, data);
+  // The status is tinycloud's INTENT; the exit code is the actual OUTCOME. Map the
+  // status, then reconcile with the exit code so a contradiction (ready/pending but
+  // a failure exit) never reads as success — tinycloud maps ready AND pending to
+  // exit 0, so a non-zero exit on either is the failure/cred-gap it signals.
+  let mapped: RecordState | undefined;
+  switch (status) {
     case "ready":
     case "completed":
     case "ok":
     case "success":
-      return "ready";
+      mapped = "ready";
+      break;
     case "pending":
     case "processing":
     case "running":
@@ -74,7 +81,8 @@ export function mapTinycloudState(
     case "paused":
     case "needs_upload":
     case "needs_download":
-      return "pending";
+      mapped = "pending";
+      break;
     case "needs_credentials":
     case "needs_auth":
       return "needs_credentials";
@@ -82,7 +90,12 @@ export function mapTinycloudState(
     case "failed":
       return "error";
   }
-  const status = rawStatus(env, data);
+  if (mapped === "ready" || mapped === "pending") {
+    if (code === 2 || code === 13) return "needs_credentials";
+    if (code === 3) return "pending"; // needs_upload / needs_download legitimately exit 3
+    if (code != null && code !== 0) return "error";
+    return mapped;
+  }
   // An explicit but UNRECOGNIZED status is never trusted as success — a new/future
   // async state must not read as "ready" off a 0 exit. Treat a non-zero exit as
   // the failure (or cred gap) it signals, and exit 0 / no code as in-progress.
@@ -188,15 +201,11 @@ export async function runTinycloud(
   const env = envelopeOf(parsed);
   const data = envelopeData(parsed);
   const envError = tinycloudError(env, data);
+  // mapTinycloudState already reconciles the status with the exit code (a non-zero
+  // exit on a ready/pending status → error/needs_credentials). Only the error
+  // ENVELOPE (an `error` field on an exit-0 ready record) needs a final override.
   let state = mapTinycloudState(env, data, res.code);
-  // An error message present on an otherwise-"ready" envelope means failure —
-  // error wins (defensive against a provider that sets data but also errors).
   if (envError && state === "ready") state = "error";
-  // A non-zero exit contradicts a "ready" status (tinycloud maps ready→exit 0),
-  // so never emit a success-shaped record for it — treat it as a failure, the
-  // same stance runWatch takes. (pending may legitimately exit 3 for
-  // needs_upload/download, so only override "ready".)
-  if (res.code !== 0 && state === "ready") state = "error";
 
   // Attach a message only for non-success states; ready/pending carry none.
   let error: string | undefined;

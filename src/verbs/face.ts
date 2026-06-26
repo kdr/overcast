@@ -14,20 +14,13 @@ import { runFace, type FaceOp, type FaceParams } from "../providers/tinycloud/fa
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { collectionsByType, resolveCollectionRef } from "../state/collection.js";
+import { resolveVideoArg } from "./media-ref.js";
 import type { Case } from "../case.js";
 import type { ProviderDescriptor } from "../profile.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "face", format: "json", payload: { error: message }, error: message, state: "error" });
-}
-
-/** Resolve a media ref: a case record id → its media.ref; otherwise the ref
- *  as-is (path / URL). Mirrors view/capture id resolution. */
-function resolveMediaRef(c: Case, ref: string): string {
-  const rec = c.recordById(ref);
-  if (rec?.media?.ref) return rec.media.ref;
-  return ref;
 }
 
 const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|avif)$/i;
@@ -161,7 +154,16 @@ export const faceVerb: VerbSpec = {
       if (r.error) return [err(r.error)];
       image = r.ref;
     }
-    const video = ctx.input ? resolveMediaRef(c, ctx.input) : undefined;
+    // the video input goes through the SAME media validation as collection
+    // add/entities (reject a scan record's page URL, a non-AV ref, a face-search
+    // query image, a missing local file). requireReady:false — a video file is
+    // analyzable regardless of whether a prior sense finished.
+    let video: string | undefined;
+    if (ctx.input) {
+      const v = resolveVideoArg(c, ctx.input, "face video", { requireReady: false });
+      if (v.error) return [err(v.error)];
+      video = v.ref;
+    }
     // `!= null` (not truthy) so a provided-but-empty `--collection=` is caught as a
     // user error below rather than treated as omitted (→ silent detect/auto-pick).
     const collectionFlag = ctx.opts.collection != null ? String(ctx.opts.collection) : undefined;
@@ -180,12 +182,10 @@ export const faceVerb: VerbSpec = {
       badNumber(ctx.opts, "offset", (n) => n >= 0, "a non-negative number");
     if (numErr) return [err(numErr)];
 
-    // A local file input that doesn't exist (and isn't a URL) is a clear user
-    // error — fail before shipping a bogus ref to a provider.
-    for (const [label, ref] of [["video", video], ["--match image", image]] as const) {
-      if (ref && !/^https?:\/\//i.test(ref) && !existsSync(ref)) {
-        return [err(`${label} not found: ${ref}`)];
-      }
+    // the --match image (a direct path) must exist too (resolveImageRef only
+    // type-checks a record-resolved ref; a direct path is trusted until here).
+    if (image && !/^https?:\/\//i.test(image) && !existsSync(image)) {
+      return [err(`--match image not found: ${image}`)];
     }
 
     // Resolve which face op the given inputs select. This runs BEFORE the custom
