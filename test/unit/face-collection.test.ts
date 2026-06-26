@@ -26,6 +26,7 @@ import {
   addCollection,
   listCollections,
   findCollection,
+  resolveCollectionRef,
   removeCollection,
   addMember,
   removeMember,
@@ -552,4 +553,48 @@ test("collection entities validates --limit/--offset like ask (#R4-6)", async ()
   const [rec] = await collectionVerb.run(ctx("entities", { limit: 0 }, ["col_x", "vid"]));
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /invalid --limit/);
+});
+
+// ---- Bugbot round-5 regressions --------------------------------------------
+
+test("ask --collection rejects a blank value (#R5-1)", async () => {
+  const [rec] = await askVerb.run(ctx("q?", { collection: "   " }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /--collection requires/);
+});
+
+test("ask --collection rejects a non-media-descriptions collection (#R5-2)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-asktype-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_f", type: "face-analysis", name: "faces" });
+    const [rec] = await askVerb.run({ input: "q?", rest: [], opts: { collection: "col_f" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /not media-descriptions/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("resolveCollectionRef errors on an ambiguous name; findCollection returns undefined (#R5-3)", () => {
+  const c = openCase(mkdtempSync(join(tmpdir(), "oc-dupname-")));
+  c.ensure();
+  addCollection(c, { id: "col_1", type: "media-descriptions", name: "calls" });
+  addCollection(c, { id: "col_2", type: "media-descriptions", name: "calls" });
+  const r = resolveCollectionRef(c, "calls");
+  assert.match(r.error ?? "", /matches 2 collections/);
+  assert.equal(findCollection(c, "calls"), undefined); // ambiguity-safe
+  assert.equal(resolveCollectionRef(c, "col_1").entry?.id, "col_1"); // an exact id still resolves
+});
+
+test("collection entities fails early on a missing local video (#R5-4)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-entex-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_x", join(cdir, "nope.mp4")], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /video not found/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
 });

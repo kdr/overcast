@@ -25,6 +25,7 @@ import {
 import {
   listCollections,
   findCollection,
+  resolveCollectionRef,
   addCollection,
   removeCollection,
   addMember,
@@ -82,9 +83,13 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
 /** Resolve the target collection id for add/show/delete: an explicit value, else
  *  the case's sole mirrored collection (optionally filtered by type). */
 function resolveTarget(c: Case, explicit?: string, type?: string): { id?: string; error?: string } {
-  if (explicit) {
-    const found = findCollection(c, explicit);
-    return { id: found?.id ?? explicit };
+  // a whitespace-only value is treated as missing (fall through to sole-collection
+  // resolution), never shipped as a junk id.
+  const ex = explicit?.trim();
+  if (ex) {
+    const ref = resolveCollectionRef(c, ex); // errors on an ambiguous display name
+    if (ref.error) return { error: ref.error };
+    return { id: ref.entry?.id ?? ex };
   }
   let cols = listCollections(c);
   if (type) cols = cols.filter((x) => x.type === type);
@@ -284,6 +289,10 @@ export const collectionVerb: VerbSpec = {
       }
       const colId = findCollection(c, id)?.id ?? id;
       const { ref } = resolveMediaRef(c, videoArg);
+      // fail early on a local-path typo (matches `add`), not late at the provider.
+      if (!/^https?:\/\//i.test(ref) && !existsSync(ref)) {
+        return [err(`collection entities: video not found: ${ref}`)];
+      }
       const { rec } = await tcCollectionEntities(colId, ref, { ...tcOpts, limit, offset });
       rec.meta = { ...rec.meta, case: c.dir };
       return [rec];

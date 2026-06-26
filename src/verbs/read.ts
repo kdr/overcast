@@ -8,7 +8,7 @@ import { makeRecord, isMetaRecord, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
-import { findCollection } from "../state/collection.js";
+import { resolveCollectionRef } from "../state/collection.js";
 import { providerEnv } from "../providers/provider-env.js";
 import type { QueryOpts } from "../providers/memory/types.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -89,8 +89,18 @@ export const askVerb: VerbSpec = {
       if (unsupported.length) {
         return [askError(`--${unsupported.join(", --")} ${unsupported.length > 1 ? "aren't" : "isn't"} supported with --collection (it queries a tinycloud collection, not local case memory)`)];
       }
-      const value = String(ctx.opts.collection);
-      const colId = findCollection(ctx.case, value)?.id ?? value;
+      const value = String(ctx.opts.collection).trim();
+      if (!value) return [askError("--collection requires a collection id or name")];
+      // resolve through the mirror: error on an ambiguous display name, and on a
+      // mirrored collection whose type isn't ask-able (ask/probe only read
+      // media-descriptions). An unmirrored value is passed through as a raw id.
+      const ref = resolveCollectionRef(ctx.case, value);
+      if (ref.error) return [askError(ref.error)];
+      const entry = ref.entry;
+      if (entry && entry.type !== "media-descriptions" && entry.type !== "unknown") {
+        return [askError(`collection ${entry.id} is type '${entry.type}', not media-descriptions — ask/probe only reads media-descriptions collections (use \`face --match … --collection\` for face-analysis, \`collection entities\` for entities)`)];
+      }
+      const colId = entry?.id ?? value;
       const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined;
       const rec = await tcAsk(ctx.input, colId, {
         probe: ctx.opts.probe === true,

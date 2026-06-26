@@ -95,10 +95,34 @@ export function collectionsByType(c: Case, type: CollectionType | string): Colle
   return load(c).collections.filter((x) => x.type === type);
 }
 
-/** Resolve a collection by id (exact) or, failing that, by name. */
+/** Resolve a collection by id (exact) or by a UNIQUE display name. An ambiguous
+ *  name (shared by >1 entry) returns undefined here — callers should use
+ *  resolveCollectionRef when they want a clear ambiguity error. */
 export function findCollection(c: Case, idOrName: string): CollectionEntry | undefined {
   const all = load(c).collections;
-  return all.find((x) => x.id === idOrName) ?? all.find((x) => x.name === idOrName);
+  const byId = all.find((x) => x.id === idOrName);
+  if (byId) return byId;
+  const byName = all.filter((x) => x.name === idOrName);
+  return byName.length === 1 ? byName[0] : undefined;
+}
+
+/** Resolve an id/name to a single mirror entry, distinguishing "ambiguous name"
+ *  (an error) from "not mirrored" (the value is likely a raw remote id). An id
+ *  match always wins; a name shared by >1 entry is an error rather than a silent
+ *  first-match that could hit the wrong index. */
+export function resolveCollectionRef(
+  c: Case,
+  idOrName: string,
+): { entry?: CollectionEntry; error?: string } {
+  const all = load(c).collections;
+  const byId = all.find((x) => x.id === idOrName);
+  if (byId) return { entry: byId };
+  const byName = all.filter((x) => x.name === idOrName);
+  if (byName.length > 1) {
+    return { error: `'${idOrName}' matches ${byName.length} collections by name; use the id (${byName.map((x) => x.id).join(", ")})` };
+  }
+  if (byName.length === 1) return { entry: byName[0] };
+  return {}; // not in the mirror — treat as a raw tinycloud id
 }
 
 /** Record a newly-created collection in the mirror (upsert by id). */
