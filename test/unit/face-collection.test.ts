@@ -440,15 +440,15 @@ test("collection add --type face types the stub so face --match auto-resolves it
   }
 });
 
-test("face --match auto-resolves a lone UNKNOWN-typed stub when no face collection exists (#R2-2b)", async () => {
+test("face --match does NOT auto-pick an unknown-typed stub (must be classified/explicit) (#R7-3)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-stubunk-"));
   const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_u", type: "unknown", name: "col_u" });
+    addCollection(c, { id: "col_u", type: "unknown", name: "col_u" }); // an untyped stub
     const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img }, case: openCase(cdir), profile: defaultProfile() });
-    assert.equal((rec.payload as Record<string, unknown>).op, "search");
-    assert.equal((rec.payload as Record<string, unknown>).collection, "col_u");
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /face-analysis collection/);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
@@ -633,4 +633,48 @@ test("face rejects invalid numeric flags (--limit 0, --min-similarity 150) (#R6-
   const [b] = await faceVerb.run(ctx(clip, { "min-similarity": 150, match: face }));
   assert.equal(b.state, "error");
   assert.match(b.error ?? "", /invalid --min-similarity/);
+});
+
+// ---- Bugbot round-7 regressions --------------------------------------------
+
+test("collection entities rejects a non-entities collection type (#R7-1)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-enttype-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_m", type: "media-descriptions", name: "m" });
+    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_m", "vid"], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /not entities/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("face --match rejects a record id whose media isn't an image (#R7-2)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-matchrec-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    const watch = makeRecord({ verb: "watch", payload: { content: "x" }, media: { ref: "/tmp/clip.mp4" }, state: "ready" });
+    c.writeRecord(watch);
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: watch.id, collection: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /isn't a face image/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("custom face provider gets the auto-picked sole face collection + op (#R7-4)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-custres-"));
+  const prov = join(cdir, "fp.sh");
+  writeFileSync(prov, '#!/usr/bin/env bash\nargs="$*"\nc=""; o=""\nif echo "$args" | grep -q -- "--collection col_f"; then c=yes; fi\nif echo "$args" | grep -q -- "--op search"; then o=yes; fi\necho "{\\"verb\\":\\"face\\",\\"payload\\":{\\"got_collection\\":\\"$c\\",\\"got_op\\":\\"$o\\"},\\"state\\":\\"ready\\"}"\n');
+  chmodSync(prov, 0o755);
+  const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_f", type: "face-analysis", name: "faces" });
+    const p = defaultProfile();
+    p.providers = { ...p.providers, face: { type: "exec", run: `bash ${prov} {{input}}` } };
+    // no --collection: the custom path must apply the same sole-face-collection auto-pick + op resolution
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img }, case: c, profile: p });
+    assert.equal(rec.state, "ready");
+    assert.equal((rec.payload as Record<string, unknown>).got_collection, "yes");
+    assert.equal((rec.payload as Record<string, unknown>).got_op, "yes");
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
 });

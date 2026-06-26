@@ -29,6 +29,24 @@ function resolveMediaRef(c: Case, ref: string): string {
   return ref;
 }
 
+const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|avif)$/i;
+
+/** Resolve a --match face-IMAGE ref. A path/URL is used as-is; a case record id
+ *  resolves to its media ONLY when that media looks like an image — a watch/
+ *  listen (or non-search face) record's ref is the analyzed video/audio, not a
+ *  face photo, so reject it with a clear local error instead of matching against
+ *  the wrong media. */
+function resolveImageRef(c: Case, ref: string): { ref?: string; error?: string } {
+  const rec = c.recordById(ref);
+  if (!rec) return { ref }; // a direct path / URL — trust the user's choice
+  const m = rec.media?.ref;
+  if (!m) return { error: `--match record ${ref} has no media` };
+  if (!/^https?:\/\//i.test(m) && !IMG_RE.test(m)) {
+    return { error: `--match record ${ref} resolves to ${m}, which isn't a face image — pass a face image (jpg/png) or an image record (e.g. a see/capture of a photo)` };
+  }
+  return { ref: m };
+}
+
 /** Resolve a --collection value (id or name, comma-list ok) to tinycloud
  *  collection id(s) for a face op. Surfaces an ambiguous-name error (like
  *  ask/collection) instead of passing a raw name, and rejects a mirrored
@@ -111,7 +129,14 @@ export const faceVerb: VerbSpec = {
   providerKey: "face",
   run: async (ctx) => {
     const c = ctx.case;
-    const image = ctx.opts.match ? resolveMediaRef(c, String(ctx.opts.match)) : undefined;
+    // --match is a face image: a path/URL is used as-is; a record id resolves only
+    // when its media is an image (not an analyzed video/audio).
+    let image: string | undefined;
+    if (ctx.opts.match) {
+      const r = resolveImageRef(c, String(ctx.opts.match));
+      if (r.error) return [err(r.error)];
+      image = r.ref;
+    }
     const video = ctx.input ? resolveMediaRef(c, ctx.input) : undefined;
     const collectionFlag = ctx.opts.collection ? String(ctx.opts.collection) : undefined;
 
@@ -126,37 +151,19 @@ export const faceVerb: VerbSpec = {
       badNumber(ctx.opts, "offset", (n) => n >= 0, "a non-negative number");
     if (numErr) return [err(numErr)];
 
-    // A custom face provider takes over (pass-through). Hand it the primary
-    // media (video, else the query image) and forward the face flags so a bound
-    // provider can implement detect/match/search itself.
-    const binding = ctx.profile.providers?.face;
-    if (isCustomBinding(binding)) {
-      const primary = video ?? image;
-      if (!primary) return [err("face requires a video, or --match <image> with --collection")];
-      const extraArgs: string[] = [];
-      // Forward --match whenever a reference image is present (not only when a
-      // video is too) so a collection-wide SEARCH is distinguishable from detect:
-      // a bound provider keys on --match (+ --collection) vs a bare video input.
-      if (image) extraArgs.push("--match", image);
-      if (collectionFlag) extraArgs.push("--collection", collectionFlag);
-      for (const f of ["max-faces", "min-similarity", "fps", "start", "end", "limit", "offset", "group-by"]) {
-        if (ctx.opts[f] != null) extraArgs.push(`--${f}`, String(ctx.opts[f]));
+    // A local file input that doesn't exist (and isn't a URL) is a clear user
+    // error — fail before shipping a bogus ref to a provider.
+    for (const [label, ref] of [["video", video], ["--match image", image]] as const) {
+      if (ref && !/^https?:\/\//i.test(ref) && !existsSync(ref)) {
+        return [err(`${label} not found: ${ref}`)];
       }
-      if (ctx.opts.thumbnails === true) extraArgs.push("--thumbnails");
-      const rec = await runBoundProvider("face", binding!, primary, {
-        env: providerEnv(c.mediaDir),
-        extraArgs,
-        timeoutMs: 15 * 60_000,
-        signal: ctx.signal,
-      });
-      rec.meta = { ...rec.meta, case: c.dir };
-      return [rec];
     }
 
-    // Resolve which tinycloud face op the given inputs select.
+    // Resolve which face op the given inputs select. This runs BEFORE the custom
+    // branch so a bound provider gets the same op + resolved collections (with the
+    // same ambiguity/type-guard/auto-pick) as the default tinycloud path.
     let op: FaceOp;
     let collections: string[] | undefined;
-
     if (image && video) {
       // match is video-scoped (find this face IN this clip); --collection is for
       // search/list and can't combine with it — fail clearly instead of ignoring it.
@@ -174,16 +181,16 @@ export const faceVerb: VerbSpec = {
         if (!r.ids.length) return [err(`--collection '${collectionFlag}' has no valid collection id`)];
         collections = r.ids;
       } else {
-        // auto-pick the case's sole face collection. A collection added by raw id
-        // (not created here) is mirrored with type "unknown" when no --type was
-        // given, so fall back to those candidates rather than erroring.
-        let cands = collectionsByType(c, "face-analysis");
-        if (cands.length === 0) cands = collectionsByType(c, "unknown");
+        // auto-pick the case's sole FACE-ANALYSIS collection. An untyped stub
+        // (`collection add` by raw id without --type) stays "unknown" and is NOT
+        // assumed to be a face index — classify it with `--type face` or pass
+        // --collection explicitly.
+        const cands = collectionsByType(c, "face-analysis");
         if (cands.length === 1) collections = [cands[0].id];
         else if (cands.length === 0) {
-          return [err("face --match needs a video to search, or a face-analysis collection — create one with `overcast collection create <name> --type face` and add videos, then retry")];
+          return [err("face --match needs a video to search, or a face-analysis collection — create one with `overcast collection create <name> --type face` (or classify an added one with `collection add … --type face`), then retry")];
         } else {
-          return [err(`face --match matched ${cands.length} collections; pass --collection <id> (one of: ${cands.map((x) => x.id).join(", ")})`)];
+          return [err(`face --match matched ${cands.length} face collections; pass --collection <id> (one of: ${cands.map((x) => x.id).join(", ")})`)];
         }
       }
       op = "search";
@@ -200,12 +207,26 @@ export const faceVerb: VerbSpec = {
       return [err("face requires a video (to detect/match), or --match <image> with --collection (to search). See `overcast face --help`.")];
     }
 
-    // A local file input that doesn't exist (and isn't a URL) is a clear user
-    // error — fail before shipping a bogus ref to tinycloud.
-    for (const [label, ref] of [["video", video], ["--match image", image]] as const) {
-      if (ref && !/^https?:\/\//i.test(ref) && !existsSync(ref)) {
-        return [err(`${label} not found: ${ref}`)];
+    // A custom face provider takes over (pass-through) with the SAME resolved op +
+    // collections, so a bound provider behaves like the default tinycloud path.
+    const binding = ctx.profile.providers?.face;
+    if (isCustomBinding(binding)) {
+      const primary = op === "search" ? image! : video!;
+      const extraArgs: string[] = ["--op", op];
+      if (image && (op === "match" || op === "search")) extraArgs.push("--match", image);
+      if (collections?.length) extraArgs.push("--collection", collections.join(","));
+      for (const f of ["max-faces", "min-similarity", "fps", "start", "end", "limit", "offset", "group-by"]) {
+        if (ctx.opts[f] != null) extraArgs.push(`--${f}`, String(ctx.opts[f]));
       }
+      if (ctx.opts.thumbnails === true) extraArgs.push("--thumbnails");
+      const rec = await runBoundProvider("face", binding!, primary, {
+        env: providerEnv(c.mediaDir),
+        extraArgs,
+        timeoutMs: 15 * 60_000,
+        signal: ctx.signal,
+      });
+      rec.meta = { ...rec.meta, case: c.dir };
+      return [rec];
     }
 
     const params: FaceParams = {

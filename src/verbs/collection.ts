@@ -287,10 +287,16 @@ export const collectionVerb: VerbSpec = {
         if (!Number.isFinite(n) || n < 0) return [err(`collection entities: invalid --offset '${ctx.opts.offset}' (expected a non-negative number)`)];
         offset = n;
       }
-      // resolve the collection id, surfacing an ambiguous-name error (like ask/add).
+      // resolve the collection id, surfacing an ambiguous-name error (like ask/add)
+      // and rejecting a mirrored collection whose type isn't entities (entities are
+      // only readable from an entities collection), consistent with ask/face.
       const colRef = resolveCollectionRef(c, id);
       if (colRef.error) return [err(`collection entities: ${colRef.error}`)];
-      const colId = colRef.entry?.id ?? id;
+      const colEntry = colRef.entry;
+      if (colEntry && colEntry.type !== "entities" && colEntry.type !== "unknown") {
+        return [err(`collection ${colEntry.id} is type '${colEntry.type}', not entities — \`collection entities\` only reads entities collections`)];
+      }
+      const colId = colEntry?.id ?? id;
       const { ref } = resolveMediaRef(c, videoArg);
       // fail early on a local-path typo (matches `add`), not late at the provider.
       if (!/^https?:\/\//i.test(ref) && !existsSync(ref)) {
