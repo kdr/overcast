@@ -154,7 +154,9 @@ export const collectionVerb: VerbSpec = {
     if (action === "create") {
       const name = ctx.rest[0];
       if (!name) return [err("usage: collection create <name> --type <media-descriptions|entities|face-analysis>")];
-      const rawType = ctx.opts.type ? String(ctx.opts.type) : "media-descriptions";
+      // `!= null` so a provided-but-empty `--type=` flows to normalizeCollectionType
+      // (→ unknown-type error) instead of silently defaulting like an omitted flag.
+      const rawType = ctx.opts.type != null ? String(ctx.opts.type) : "media-descriptions";
       const type = normalizeCollectionType(rawType);
       if (!type) {
         return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts)`)];
@@ -180,10 +182,11 @@ export const collectionVerb: VerbSpec = {
 
     // ---- add ----
     if (action === "add") {
-      const typeHint = ctx.opts.type ? normalizeCollectionType(String(ctx.opts.type)) : undefined;
-      // a typo'd --type must error here (like `create`), not be silently dropped —
-      // otherwise the stub stays "unknown" and face auto-pick/type guards confuse later.
-      if (ctx.opts.type && !typeHint) {
+      const typeHint = ctx.opts.type != null ? normalizeCollectionType(String(ctx.opts.type)) : undefined;
+      // a typo'd OR empty --type must error here (like `create`), not be silently
+      // dropped — otherwise the stub stays "unknown" and face auto-pick/type guards
+      // confuse later. `!= null` catches a provided-but-empty `--type=`.
+      if (ctx.opts.type != null && !typeHint) {
         return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts)`)];
       }
       // `!= null` (not truthy) so a provided-but-empty `--to=` reaches resolveTarget

@@ -786,6 +786,23 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+// ---- Bugbot round-13 regression --------------------------------------------
+
+test("empty-string --match / --type are rejected, not treated as omitted (#R13)", async () => {
+  // face --match= must NOT silently run detect
+  const [f] = await faceVerb.run(ctx(clip, { match: "" }));
+  assert.equal(f.state, "error");
+  assert.match(f.error ?? "", /--match requires/);
+  // collection create --type= must NOT silently default to media-descriptions
+  const [cr] = await collectionVerb.run(ctx("create", { type: "" }, ["c"]));
+  assert.equal(cr.state, "error");
+  assert.match(cr.error ?? "", /unknown --type/);
+  // collection add --type= must NOT silently drop the type
+  const [ad] = await collectionVerb.run(ctx("add", { type: "", to: "col_x" }, ["vid"]));
+  assert.equal(ad.state, "error");
+  assert.match(ad.error ?? "", /unknown --type/);
+});
+
 // ---- Bugbot round-12 regression --------------------------------------------
 
 test("empty-string collection flags (--collection=, --to=) are rejected, not treated as omitted (#R12-1)", async () => {

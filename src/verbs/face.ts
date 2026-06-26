@@ -149,8 +149,12 @@ export const faceVerb: VerbSpec = {
     // --match is a face image: a path/URL is used as-is; a record id resolves only
     // when its media is an image (not an analyzed video/audio).
     let image: string | undefined;
-    if (ctx.opts.match) {
-      const r = resolveImageRef(c, String(ctx.opts.match));
+    if (ctx.opts.match != null) {
+      // `!= null` + blank reject so a provided-but-empty `--match=` is a user
+      // error, not silently treated as omitted (→ detect instead of match/search).
+      const raw = String(ctx.opts.match);
+      if (!raw.trim()) return [err("--match requires a face image (path/URL/record-id)")];
+      const r = resolveImageRef(c, raw);
       if (r.error) return [err(r.error)];
       image = r.ref;
     }
