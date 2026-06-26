@@ -15,6 +15,7 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { collectionsByType, resolveCollectionRef } from "../state/collection.js";
 import { resolveVideoArg } from "./media-ref.js";
+import { badNumber } from "./validate.js";
 import type { Case } from "../case.js";
 import type { ProviderDescriptor } from "../profile.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -61,20 +62,6 @@ function resolveFaceCollections(c: Case, value: string): { ids: string[]; error?
     ids.push(entry?.id ?? v);
   }
   return { ids };
-}
-
-/** Validate a numeric face flag (only when provided): returns an error string on
- *  a missing-after-coerce (non-finite) or out-of-bounds value, else undefined. */
-function badNumber(opts: VerbContext["opts"], name: string, ok: (n: number) => boolean, expect: string): string | undefined {
-  const raw = opts[name];
-  if (raw == null) return undefined;
-  // a provided-but-empty `--min-similarity=`/`--offset=` coerces to 0 (Number("")),
-  // which can pass an inclusive lower bound — reject it as a user error, like the
-  // blank string flags, instead of silently applying a 0 floor.
-  if (typeof raw === "string" && !raw.trim()) return `invalid --${name}: (empty) (expected ${expect})`;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || !ok(n)) return `invalid --${name}: ${raw} (expected ${expect})`;
-  return undefined;
 }
 
 const num = (v: unknown): number | undefined => {
@@ -177,6 +164,14 @@ export const faceVerb: VerbSpec = {
     const collectionFlag = ctx.opts.collection != null ? String(ctx.opts.collection) : undefined;
     if (collectionFlag !== undefined && !collectionFlag.trim()) {
       return [err("--collection requires a collection id or name")];
+    }
+    // a provided-but-blank `--start=`/`--end=` is a user error (it would otherwise
+    // be treated as omitted and run the full clip), matching the blank-flag hygiene
+    // used for --match/--collection/--min-similarity.
+    for (const f of ["start", "end"] as const) {
+      if (ctx.opts[f] != null && !String(ctx.opts[f]).trim()) {
+        return [err(`--${f} requires a timestamp (seconds or hh:mm:ss)`)];
+      }
     }
 
     // validate the numeric flags up front (covers both the custom + default

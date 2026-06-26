@@ -9,6 +9,7 @@ import { resolveMemory, fanOutAnswer } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
 import { resolveCollectionRef } from "../state/collection.js";
+import { badNumber } from "./validate.js";
 import { providerEnv } from "../providers/provider-env.js";
 import type { QueryOpts } from "../providers/memory/types.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -59,15 +60,11 @@ export const askVerb: VerbSpec = {
     if (!ctx.input) {
       return [askError("ask requires a question")];
     }
-    // a non-finite/non-positive --limit is a user error, not a silent fall-back to
-    // the default breadth — validated up front so BOTH the local-memory and the
-    // --collection paths reject it (matches scan/case/monitor).
-    if (ctx.opts.limit != null) {
-      const n = Number(ctx.opts.limit);
-      if (!Number.isFinite(n) || n <= 0) {
-        return [askError(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
-      }
-    }
+    // a non-finite/non-positive/blank --limit is a user error, not a silent fall-back
+    // to the default breadth — validated up front (via the SHARED validator) so BOTH
+    // the local-memory and the --collection paths reject it.
+    const limitErr = badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number");
+    if (limitErr) return [askError(limitErr)];
     // --probe/--scope only apply to a tinycloud collection query (--collection);
     // --scope only in probe mode. Gate on `== null` (truly omitted), so an empty
     // `--collection=` still routes into the collection branch below (which rejects

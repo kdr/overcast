@@ -792,6 +792,82 @@ test("collection remove: a pending async op reports removed:true AND prunes the 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
+// ---- Round 17 + shared-validator holistic pass -----------------------------
+
+test("face rejects a blank --start= / --end= (window-flag hygiene)", async () => {
+  const [a] = await faceVerb.run(ctx(clip, { start: "" }));
+  assert.equal(a.state, "error"); assert.match(a.error ?? "", /--start requires/);
+  const [b] = await faceVerb.run(ctx(clip, { end: "" }));
+  assert.equal(b.state, "error"); assert.match(b.error ?? "", /--end requires/);
+});
+
+test("collection entities rejects a misused --to/--from", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-entflag-"));
+  const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_e", type: "entities", name: "e" });
+    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_e", vid], opts: { to: "col_e" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /don't apply/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection add --type matches a sole unknown stub (resolveTarget keeps unknown)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-stub-"));
+  const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_u", type: "unknown", name: "col_u" });
+    const [rec] = await collectionVerb.run({ input: "add", rest: [vid], opts: { type: "face" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.notEqual(rec.state, "error"); // the sole unknown stub is upgraded + used, not "no collections"
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection add --all rejects a stray positional video", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-allpos-"));
+  const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
+    const [rec] = await collectionVerb.run({ input: "add", rest: [vid], opts: { all: true, to: "col_a" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /--all registers every/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection add --all surfaces failed senses instead of 'no videos'", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-allfail-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_f", type: "media-descriptions", name: "f" });
+    c.writeRecord(makeRecord({ verb: "watch", payload: {}, media: { ref: "/tmp/x.mp4" }, state: "error" }));
+    const [rec] = await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_f" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /failed to sense/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection add --all pending count ignores a face-search record (shared predicate)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-allsearch-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_s", type: "media-descriptions", name: "s" });
+    // a pending face SEARCH record (media = query image) must NOT be counted as a pending video
+    c.writeRecord(makeRecord({ verb: "face", payload: { op: "search" }, media: { ref: "/tmp/q.jpg" }, state: "pending" }));
+    const [rec] = await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_s" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /no new captured\/sensed videos/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("collection entities rejects a blank --offset= (shared numeric validator; was empty→0)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-entoff-"));
+  const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addCollection(c, { id: "col_o", type: "entities", name: "o" });
+    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_o", vid], opts: { offset: "" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /invalid --offset/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
 // ---- Code-review (max) findings --------------------------------------------
 
 test("media-ref isAv accepts the broader set watch/listen take (.ts transport stream) — code-review [0]", async () => {

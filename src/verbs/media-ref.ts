@@ -6,7 +6,7 @@
 // rule can't drift between verbs (the root cause of the review cascade).
 
 import { existsSync } from "node:fs";
-import { isReady } from "../record.js";
+import { isReady, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
 
 /** Record verbs whose media.ref is registerable/analyzable case media. Excludes
@@ -22,6 +22,17 @@ const AV_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv
 
 /** Whether a ref looks like audio/video the senses/collections can use. */
 export const isAv = (ref: string): boolean => /^https?:\/\//i.test(ref) || AV_RE.test(ref);
+
+/** Whether a case RECORD is registerable case media: a captured/sensed verb, an
+ *  AV `media.ref`, and NOT a face SEARCH (whose media is the query image, not a
+ *  case video). State-agnostic — callers add the readiness/pending gate they need.
+ *  The single predicate behind `add --all`'s register list AND its pending/failed
+ *  accounting, so the two can't drift (e.g. counting a face-search as "pending"). */
+export function isRegisterableMediaRecord(r: OvercastRecord): boolean {
+  if (!MEDIA_VERBS.includes(r.verb)) return false;
+  if (r.verb === "face" && (r.payload as Record<string, unknown> | undefined)?.op === "search") return false;
+  return !!r.media?.ref && isAv(r.media.ref);
+}
 
 /** A case record id → its media.ref (+ the record id); otherwise the ref as-is
  *  (path / URL). Mirrors view/capture id resolution. */

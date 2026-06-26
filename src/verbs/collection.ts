@@ -33,7 +33,8 @@ import {
   normalizeCollectionType,
 } from "../state/collection.js";
 import { providerEnv } from "../providers/provider-env.js";
-import { MEDIA_VERBS, isAv, resolveVideoArg } from "./media-ref.js";
+import { resolveVideoArg, isRegisterableMediaRecord } from "./media-ref.js";
+import { badNumber, numFlag } from "./validate.js";
 import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -67,14 +68,12 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
   const out: Array<{ ref: string; recordId: string }> = [];
   const seen = new Set<string>();
   for (const r of c.records()) {
-    if (!MEDIA_VERBS.includes(r.verb)) continue;
-    // skip non-ready senses: a failed/credential-gapped watch can still set
-    // media.ref to the input path — registering those would pollute the collection.
-    if (!isReady(r)) continue;
-    // a face SEARCH record's media.ref is the QUERY image, not a case video — skip.
-    if (r.verb === "face" && (r.payload as Record<string, unknown> | undefined)?.op === "search") continue;
-    const ref = r.media?.ref;
-    if (!ref || seen.has(ref) || !isAv(ref)) continue;
+    // shared predicate (registerable verb + AV ref + not a face-search query image)
+    // so --all's register list and its pending/failed accounting use one rule; here
+    // we add the readiness gate (a failed/cred-gapped sense's ref would pollute).
+    if (!isRegisterableMediaRecord(r) || !isReady(r)) continue;
+    const ref = r.media!.ref!;
+    if (seen.has(ref)) continue;
     seen.add(ref);
     out.push({ ref, recordId: r.id });
   }
@@ -95,7 +94,9 @@ function resolveTarget(c: Case, explicit?: string, type?: string): { id?: string
     return { id: ref.entry?.id ?? ex };
   }
   let cols = listCollections(c);
-  if (type) cols = cols.filter((x) => x.type === type);
+  // keep `unknown` stubs in a type-filtered fallback — `add` upgrades a stub's type
+  // once a target resolves, so a sole unknown stub must still match `--type face`.
+  if (type) cols = cols.filter((x) => x.type === type || x.type === "unknown");
   if (cols.length === 1) return { id: cols[0].id };
   if (cols.length === 0) return { error: "no collections in this case — create one with `overcast collection create <name> --type <media|entities|face>`" };
   return { error: `multiple collections; specify one (ids: ${cols.map((x) => x.id).join(", ")})` };
@@ -223,20 +224,28 @@ export const collectionVerb: VerbSpec = {
 
       // --all: register every captured/sensed video not already a member.
       if (ctx.opts.all === true) {
+        // --all reads the whole case, not a positional — a stray video arg is a
+        // mistake (it would be silently ignored if other videos exist).
+        if (ctx.rest[0]) return [err("collection add: --all registers every case video — drop the positional video, or omit --all to add just that one")];
         const col = findCollection(c, id);
         const members = new Set(col?.members.map((m) => m.ref) ?? []);
         const vids = caseVideoRefs(c).filter((v) => !members.has(v.ref));
         if (vids.length === 0) {
-          // distinguish "nothing here" from "still processing" — caseVideoRefs only
-          // returns READY media, so report in-flight pending records rather than a
-          // misleading "no videos" (consistent with single add erroring on pending).
-          const pending = c.records().filter(
-            (r) => MEDIA_VERBS.includes(r.verb) && r.state === "pending" && r.media?.ref && isAv(r.media.ref) && !members.has(r.media.ref),
-          ).length;
+          // caseVideoRefs only returns READY media not already a member — so when
+          // it's empty, distinguish "still processing" and "sensing failed" from a
+          // genuinely empty case (same accounting predicate, so a face-search query
+          // image is never miscounted as a pending/failed video).
+          const unregistered = c
+            .records()
+            .filter((r) => isRegisterableMediaRecord(r) && !members.has(r.media!.ref!));
+          const pending = unregistered.filter((r) => r.state === "pending").length;
+          const failed = unregistered.filter((r) => r.state !== "pending" && !isReady(r)).length;
           return [err(
             pending > 0
               ? `collection add --all: ${pending} video(s) still processing (pending) — rerun once they're ready`
-              : "collection add --all: no new captured/sensed videos to register",
+              : failed > 0
+                ? `collection add --all: ${failed} video(s) failed to sense (state=error/needs_credentials) — re-run the sense, then --all`
+                : "collection add --all: no new captured/sensed videos to register",
           )];
         }
         const recs: OvercastRecord[] = [];
@@ -330,23 +339,24 @@ export const collectionVerb: VerbSpec = {
 
     // ---- entities ----
     if (action === "entities") {
+      // entities takes a POSITIONAL collection id; --to/--from are add/remove flags
+      // and don't apply — reject them rather than silently using the positional
+      // (consistent with add/remove/show/delete).
+      if (ctx.opts.to != null || ctx.opts.from != null) {
+        return [err("collection entities takes a positional id: `collection entities <id> <video>` (--to/--from don't apply here)")];
+      }
       const id = ctx.rest[0]?.trim(); // trim so a blank/padded id doesn't bypass mirror lookup
       const videoArg = ctx.rest[1];
       if (!id || !videoArg) return [err("usage: collection entities <collection-id> <video|record-id>")];
-      // validate the numeric paging flags (matches ask) — a 0/negative/NaN value
-      // must not become a bad flag on the tinycloud CLI.
-      let limit: number | undefined;
-      if (ctx.opts.limit != null) {
-        const n = Number(ctx.opts.limit);
-        if (!Number.isFinite(n) || n <= 0) return [err(`collection entities: invalid --limit '${ctx.opts.limit}' (expected a positive number)`)];
-        limit = n;
-      }
-      let offset: number | undefined;
-      if (ctx.opts.offset != null) {
-        const n = Number(ctx.opts.offset);
-        if (!Number.isFinite(n) || n < 0) return [err(`collection entities: invalid --offset '${ctx.opts.offset}' (expected a non-negative number)`)];
-        offset = n;
-      }
+      // validate the numeric paging flags via the SHARED validator (matches face/ask)
+      // — it also rejects a blank `--offset=`, which the old inline `n < 0` check let
+      // through as 0 (Number("") === 0).
+      const numErr =
+        badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number") ??
+        badNumber(ctx.opts, "offset", (n) => n >= 0, "a non-negative number");
+      if (numErr) return [err(`collection entities: ${numErr}`)];
+      const limit = numFlag(ctx.opts, "limit");
+      const offset = numFlag(ctx.opts, "offset");
       // resolve the collection id, surfacing an ambiguous-name error (like ask/add)
       // and rejecting a mirrored collection whose type isn't entities (entities are
       // only readable from an entities collection), consistent with ask/face.
