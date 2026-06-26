@@ -21,11 +21,13 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `watch` — Analyze a video into a reusable, time-anchored record (content/transcript/detailed).
 - `listen` — Transcribe and analyze audio (or a video's audio track) into an audio.analysis record.
 - `see` — Understand an image or a single video frame (caption, OCR, detections).
+- `face` — Detect, match, or search faces in video (and across face-analysis collections).
 - `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `scan` — Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
+- `collection` — Manage tinycloud collections that index a target's videos (create/add/list/show/delete/remove/entities).
 - `target` — Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
 - `source` — Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
 - `prebrief` — Stand up a case: name + target + source in one shot (non-interactive via flags).
@@ -44,6 +46,8 @@ Run any verb from bash and parse the JSON record:
 ```bash
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
+overcast face ./clip.mp4 --json           # detect faces (boxes + timestamps)
+overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video
 overcast ask "every white van, with timestamps" --json
 overcast brief --export ./brief.html
 ```
@@ -51,6 +55,33 @@ overcast brief --export ./brief.html
 `overcast commands --json` dumps the authoritative verb registry. Full man
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
 read it when you need a verb's exact flags).
+
+### Faces & collections (register a target's videos, then ask / find a person)
+
+A **collection** is a tinycloud (Cloudglue) index of videos, searchable one way
+per TYPE — build one from the videos you gather for a target, then query it:
+
+```bash
+# 1) index the target's videos (media-descriptions = ask/probe; face = find a person)
+overcast collection create case-media --type media-descriptions --json
+overcast scan --pull --json                       # pull the target's videos into the case
+overcast collection add --all --to <col-id> --json   # register every captured/sensed video
+
+# 2a) media-descriptions → ask / probe across ALL indexed videos
+overcast ask "what objections came up?" --collection <col-id> --json
+overcast ask "moments a contract is signed" --collection <col-id> --probe --json
+
+# 2b) face-analysis → find a specific person across the index
+overcast collection create faces --type face --json
+overcast collection add --all --to <face-col-id> --json
+overcast face --match ./suspect.jpg --collection <face-col-id> --json
+
+# 2c) entities → same-schema extraction per video
+overcast collection create people --type entities --prompt "people, orgs, locations" --json
+overcast collection entities <ent-col-id> ./clip.mp4 --json
+```
+
+`face` needs tinycloud ≥ 0.3.4 (`overcast doctor` flags an older install).
 
 ### Reading large records
 

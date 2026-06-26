@@ -7,6 +7,7 @@ import { runWatch } from "../providers/tinycloud/watch.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
+import { faceVerb } from "../verbs/face.js";
 import {
   scanVerb,
   captureVerb,
@@ -15,6 +16,7 @@ import {
   sourceVerb,
   prebriefVerb,
 } from "../verbs/osint.js";
+import { collectionVerb } from "../verbs/collection.js";
 import { askVerb, briefVerb } from "../verbs/read.js";
 import { caseVerb } from "../verbs/case.js";
 import { setupVerb, providerVerb, doctorVerb } from "../verbs/setup.js";
@@ -65,11 +67,13 @@ export const VERBS: VerbSpec[] = [
   watchVerb,
   listenVerb,
   seeVerb,
+  faceVerb,
   enhanceVerb,
   viewVerb,
   scanVerb,
   captureVerb,
   monitorVerb,
+  collectionVerb,
   targetVerb,
   sourceVerb,
   prebriefVerb,

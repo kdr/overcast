@@ -25,7 +25,9 @@ the CLI from any harness. The brain LLM is BYO; the default perception backend i
   `brew install ffmpeg` · `apt install ffmpeg` · <https://ffmpeg.org/download.html>
   (or point `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` at specific binaries).
 - **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
-  default `watch` / `listen` backend (Cloudglue); set `CLOUDGLUE_API_KEY`.
+  default `watch` / `listen` / `face` / `collection` backend (Cloudglue); set
+  `CLOUDGLUE_API_KEY`. The `face` + `collection` verbs need **tinycloud ≥ 0.3.4**
+  (`tinycloud update`); override the invocation with `OVERCAST_TINYCLOUD_CMD`.
 - **yt-dlp** on `PATH` — only for the `youtube` / `tiktok` capture sources.
 
 `overcast doctor` verifies all of these.
@@ -91,7 +93,16 @@ overcast scan --pull --json            # enumerate sources → capture → sense
 overcast ask "every white van, with timestamps" --json
 overcast brief --export ./brief.html
 
-# 4) launch the interactive agent (pi TUI) in the current case
+# 4) faces: detect, or find a specific person in a clip
+overcast face ./clip.mp4 --json                       # who is in this video
+overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person, ranked by similarity
+
+# 5) index the target's videos into a collection, then search across ALL of them
+overcast collection create faces --type face --json
+overcast collection add --all --to <face-col-id> --json   # register every captured/sensed video
+overcast face --match ./suspect.jpg --collection <face-col-id> --json   # find them across the index
+
+# 6) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
 
@@ -112,6 +123,7 @@ surface + env vars.)
 | `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue) |
 | `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
 | `see` | caption / OCR / detect on an image or video frame (turnkey HF, or bind a VLM) |
+| `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis collection |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
 
@@ -121,13 +133,14 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; `--pull` to capture + sense each hit |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
+| `collection` | index a target's videos into a tinycloud collection (media-descriptions / entities / face-analysis) → searchable corpus |
 | `target` / `source` | manage the standing scope + where to look |
 | `prebrief` | stand up a case (name + target + source) in one shot |
 
 **Read** — synthesize the case
 | verb | does |
 |---|---|
-| `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations |
+| `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--collection <id>` answers over a media-descriptions collection (`--probe` for moment search) |
 | `brief` | timeline / findings report; `--export` to md/html |
 | `case` | inspect/manage the case: `init` / `info` / `records` / `memory` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
 
@@ -155,9 +168,9 @@ authoring guide in [`docs/providers.md`](docs/providers.md).
 
 | class | verbs | shipped providers |
 |---|---|---|
-| **sense** | watch / listen / see / enhance | Cloudglue (default), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
+| **sense** | watch / listen / see / face / enhance | Cloudglue (default), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
 | **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave) |
-| **memory** | ask / brief | local (always on) |
+| **memory** | ask / brief | local (always on); a tinycloud `collection` (media-descriptions) via `ask --collection` |
 
 ### Profiles
 

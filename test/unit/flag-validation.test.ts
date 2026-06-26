@@ -5,8 +5,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
+import { expandHome } from "../../src/fs-path.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { scanVerb, monitorVerb } from "../../src/verbs/osint.ts";
@@ -16,14 +17,18 @@ import { parseVerbArgs } from "../../src/registry/to-cli.ts";
 import { VERBS } from "../../src/registry/verbs.ts";
 import type { VerbContext, OvercastRecord, VerbSpec } from "../../src/registry/types.ts";
 
-test("the CLI parser rejects a non-numeric value for ANY declared number flag", () => {
+test("the CLI parser rejects a non-numeric OR empty value for ANY declared number flag", () => {
   const spec = { name: "x", summary: "", description: "", args: [], outputKind: "x", group: "read",
     flags: [{ name: "limit", summary: "", type: "number" }] } as unknown as VerbSpec;
   assert.ok(parseVerbArgs(spec, ["--limit", "abc"]).errors.some((e) => /--limit expects a number/.test(e)));
   assert.ok(parseVerbArgs(spec, ["--limit=nope"]).errors.some((e) => /--limit expects a number/.test(e)));
+  // a blank `--limit=` must NOT coerce to 0 (Number("")===0) and silently pass an
+  // inclusive lower bound downstream — the parser rejects it here, for every verb.
+  assert.ok(parseVerbArgs(spec, ["--limit="]).errors.some((e) => /--limit expects a number/.test(e)));
   const okp = parseVerbArgs(spec, ["--limit", "7"]);
   assert.equal(okp.errors.length, 0);
   assert.equal(okp.opts.limit, 7);
+  assert.equal(parseVerbArgs(spec, ["--limit", "0"]).errors.length, 0); // a real 0 is still valid
   // every real number flag in the registry inherits this (parse-layer, one place)
   for (const v of VERBS) {
     for (const f of v.flags.filter((f) => f.type === "number")) {
@@ -31,8 +36,29 @@ test("the CLI parser rejects a non-numeric value for ANY declared number flag", 
         parseVerbArgs(v, [`--${f.name}`, "notanumber"]).errors.some((e) => new RegExp(`--${f.name} expects a number`).test(e)),
         `${v.name} --${f.name} should reject a non-numeric value`,
       );
+      assert.ok(
+        parseVerbArgs(v, [`--${f.name}=`]).errors.some((e) => new RegExp(`--${f.name} expects a number`).test(e)),
+        `${v.name} --${f.name} should reject a blank value`,
+      );
     }
   }
+});
+
+test("expandHome expands a leading ~ / ~/ and leaves everything else alone", () => {
+  assert.equal(expandHome("~"), homedir());
+  assert.equal(expandHome("~/Downloads/clip.mov"), join(homedir(), "Downloads/clip.mov"));
+  assert.equal(expandHome("/abs/path.mp4"), "/abs/path.mp4");
+  assert.equal(expandHome("rel/path.mp4"), "rel/path.mp4");
+  assert.equal(expandHome("https://x/v.mp4"), "https://x/v.mp4");
+  assert.equal(expandHome("~user/x"), "~user/x"); // another user's home is left to the shell
+});
+
+test("parseVerbArgs expands a leading ~/ in the positional AND path flags (no shell to do it)", () => {
+  const spec = { name: "face", summary: "", description: "", args: [{ name: "input" }], outputKind: "x", group: "sense",
+    flags: [{ name: "match", summary: "", type: "string" }] } as unknown as VerbSpec;
+  const p = parseVerbArgs(spec, ["~/Downloads/bbq.mp4", "--match", "~/photos/me.jpg"]);
+  assert.equal(p.input, join(homedir(), "Downloads/bbq.mp4"));
+  assert.equal(p.opts.match, join(homedir(), "photos/me.jpg"));
 });
 
 function ctx(dir: string, input: string | undefined, rest: string[], opts: VerbContext["opts"]): VerbContext {

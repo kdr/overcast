@@ -1,5 +1,6 @@
 // Generate a CLI argv parser + --help from a VerbSpec (one spec → CLI surface).
 
+import { expandHome, expandHomeArg } from "../fs-path.js";
 import type { VerbSpec, FlagSpec } from "./types.js";
 
 export interface ParsedInvocation {
@@ -37,11 +38,14 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
     }
   };
   // a number flag with a non-numeric value is a parse error (names the original
-  // token, not the coerced NaN) — one check for EVERY number flag.
+  // token, not the coerced NaN) — one check for EVERY number flag. A blank value
+  // (`--flag=`) is rejected here too: `Number("")` is 0 (finite), so without this
+  // an empty flag would silently coerce to 0 and pass any inclusive lower bound
+  // (e.g. --offset / --min-similarity), defeating the verbs' blank-flag hygiene.
   const checkNumber = (flag: FlagSpec, value: string) => {
-    if (flag.type === "number" && !Number.isFinite(Number(value))) {
-      errors.push(`--${flag.name} expects a number (got '${value}')`);
-    }
+    if (flag.type !== "number") return;
+    if (!value.trim()) errors.push(`--${flag.name} expects a number (got an empty value)`);
+    else if (!Number.isFinite(Number(value))) errors.push(`--${flag.name} expects a number (got '${value}')`);
   };
 
   for (const f of spec.flags) {
@@ -88,10 +92,15 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
     }
   }
 
+  // expand a leading `~`/`~/` in every path-bearing value (positionals + string
+  // flags) at this one boundary — the TUI/slash/CLI hand us args literally, with
+  // no shell to do it. A value starting with `~/` is unambiguously a path.
+  const expandedOpts: typeof opts = {};
+  for (const [k, v] of Object.entries(opts)) expandedOpts[k] = expandHomeArg(v);
   return {
-    input: positionals[0],
-    rest: positionals.slice(1),
-    opts,
+    input: positionals[0] !== undefined ? expandHome(positionals[0]) : undefined,
+    rest: positionals.slice(1).map(expandHome),
+    opts: expandedOpts,
     help,
     errors,
   };

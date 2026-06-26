@@ -56,6 +56,9 @@ export class Case {
   get sourcesFile(): string {
     return join(this.storeDir, "sources.json");
   }
+  get collectionsFile(): string {
+    return join(this.storeDir, "collections.json");
+  }
   get seenFile(): string {
     return join(this.storeDir, "seen.json");
   }
@@ -102,6 +105,11 @@ export class Case {
    */
   writeRecord(rec: OvercastRecord): string {
     mkdirSync(this.recordsDir, { recursive: true });
+    // stamp the owning case dir on every persisted record (mutating in place, so
+    // the same object — rendered right after — carries it). This lets the "page it"
+    // hint embed `--case <dir>`, so re-reading a record works from ANY cwd (the
+    // common agent footgun: cd elsewhere, then `case memory get` finds nothing).
+    rec.meta = { ...rec.meta, case: this.dir };
     const file = join(this.recordsDir, `${rec.verb}.jsonl`);
     appendRecordJSONL(file, rec);
     return file;

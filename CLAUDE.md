@@ -22,7 +22,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
   **exactly `0.80.1`**. Don't float these; treat upgrades as reviewed changes.
 - `@cloudglue/cloudglue-js` — the default sense backend (via the tinycloud CLI,
   `exec`). Cloudglue is **also** a pickable *brain* LLM provider (anthropic-messages
-  API) so it appears in `/model` — never forced.
+  API) so it appears in `/model` — never forced. The tinycloud CLI is a runtime
+  prerequisite (like ffmpeg), not an npm dep; `face` + `collection` need **≥ 0.3.4**.
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
@@ -54,8 +55,11 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `OVERCAST_FFMPEG`/`OVERCAST_FFPROBE`); `overcast doctor` checks it's installed.
 8. **No CDN.** Publish to npm directly (pi package + bun binary).
 9. **tinycloud = public verbs only.** Call tinycloud through its CLI verbs
-   (`tinycloud watch`, `tinycloud listen`) — never import its internal libs. Map
-   the output to the loose record at the exec boundary.
+   (`tinycloud watch`, `tinycloud listen`, `tinycloud face …`, `tinycloud library
+   collections …`, `tinycloud ask --in collection:…`) — never import its internal
+   libs. Map the envelope to the loose record at the exec boundary; the shared
+   mapper is `src/providers/tinycloud/envelope.ts` (`runTinycloud`). Override the
+   invocation with `OVERCAST_TINYCLOUD_CMD` (the offline-test + custom-path knob).
 10. **No permission system / sandbox** (pi default). Treat untrusted media and
     scraped content as prompt-injection vectors.
 
@@ -67,22 +71,28 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Senses** — `watch` (shot-detect + all-modality describe → `content` /
   `transcript` / `detailed`), `listen` (speech transcript; `--describe` for the
   full audio-scene), `see` (caption / OCR / open-vocab detect — turnkey Hugging
-  Face, bindable fal, local OWLv2 via `examples/providers/detect`), `enhance`
-  (system ffmpeg or a bound model), `view` (HTML media player).
+  Face, bindable fal, local OWLv2 via `examples/providers/detect`), `face` (tinycloud
+  ≥ 0.3.4: detect faces, `--match <img>` to find a person in a clip, or search a
+  face-analysis collection), `enhance` (system ffmpeg or a bound model), `view`
+  (HTML media player).
 - **OSINT** — `scan`, `capture`, `monitor` (sources: youtube / tiktok / web;
-  `--since` recency filter); `target` / `source` manage scope; `prebrief` stands up
-  a case in one shot.
-- **Read** — `ask` (cited retrieval over case memory), `brief` (timeline/findings
-  report), `case` (inspect/manage the case + its records; `case memory get <id>
-  --field <name> --offset/--limit` pages a large record field in full — the
-  non-truncating way to read a `watch` `content`/`listen` transcript, vs raw jsonl).
+  `--since` recency filter); `collection` (create/add/list/show/delete/remove/entities —
+  index a target's videos into a tinycloud collection: media-descriptions →
+  `ask --collection`, entities → `collection entities`, face-analysis → `face`);
+  `target` / `source` manage scope; `prebrief` stands up a case in one shot.
+- **Read** — `ask` (cited retrieval over case memory; `--collection <id>` answers
+  over a tinycloud media-descriptions collection, `--probe` for moment search),
+  `brief` (timeline/findings report), `case` (inspect/manage the case + its records;
+  `case memory get <id> --field <name> --offset/--limit` pages a large record field
+  in full — the non-truncating way to read a `watch` `content`/`listen` transcript,
+  vs raw jsonl).
 - **Config / dist** — `setup` (bind providers + brain LLM, manage profiles),
   `provider` (init/list/describe), `doctor` (preflight), `skills` (generate/install).
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
-Slash commands (TUI): `/target /source /case /prebrief /view /setup` (extension
-commands) and `/ask /brief` (prompt templates in `prompts/`), plus pi built-ins
-(`/model /tree /session /resume`).
+Slash commands (TUI): `/target /source /collection /case /prebrief /view /setup`
+(extension commands) and `/ask /brief` (prompt templates in `prompts/`), plus pi
+built-ins (`/model /tree /session /resume`).
 
 ## Commands
 

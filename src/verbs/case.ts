@@ -125,7 +125,11 @@ export const caseVerb: VerbSpec = {
         if (!id) return [err("usage: case memory get <record-id> [--field <name>] [--offset N] [--limit M]")];
         const rec = ctx.case.recordById(id);
         if (!rec) {
-          return [makeRecord({ verb: "case", format: "json", payload: { record: id, found: false }, state: "error", error: `no record ${id}` })];
+          // records are per-case — a record saved in one case isn't visible from
+          // another. Name the current case so a wrong-cwd lookup is obvious (the
+          // common footgun: `cd`-ing elsewhere before re-reading a record).
+          const msg = `no record ${id} in this case (${ctx.case.dir}) — records are per-case; cd back to the case you ran it in, or pass --case <dir>`;
+          return [makeRecord({ verb: "case", format: "json", payload: { record: id, found: false, case: ctx.case.dir }, state: "error", error: msg })];
         }
 
         // A record's payload is a set of named fields — object keys, or the single

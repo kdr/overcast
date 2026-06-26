@@ -7,6 +7,11 @@ import { resolve, extname } from "node:path";
 import { makeRecord, isMetaRecord, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
+import { tcAsk } from "../providers/tinycloud/collection.js";
+import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
+import { resolveCollectionRef } from "../state/collection.js";
+import { badNumber } from "./validate.js";
+import { providerEnv } from "../providers/provider-env.js";
 import type { QueryOpts } from "../providers/memory/types.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -40,6 +45,9 @@ export const askVerb: VerbSpec = {
   args: [{ name: "question", summary: "The question to answer", required: true }],
   flags: [
     { name: "deep", summary: "Agentic semantic search (cloudglue)", type: "boolean" },
+    { name: "collection", summary: "Answer over a media-descriptions collection (id/name) via tinycloud, not local memory", type: "string" },
+    { name: "probe", summary: "With --collection: semantic moment search (probe) instead of Q&A (ask)", type: "boolean" },
+    { name: "scope", summary: "With --collection --probe: file | segment", type: "string" },
     { name: "memory", summary: "Restrict to specific memory provider ids", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
     { name: "verb", summary: "Restrict to record kinds (comma list)", type: "string" },
@@ -53,17 +61,68 @@ export const askVerb: VerbSpec = {
     if (!ctx.input) {
       return [askError("ask requires a question")];
     }
+    // a non-finite/non-positive/blank --limit is a user error, not a silent fall-back
+    // to the default breadth — validated up front (via the SHARED validator) so BOTH
+    // the local-memory and the --collection paths reject it.
+    const limitErr = badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number");
+    if (limitErr) return [askError(limitErr)];
+    // --probe/--scope only apply to a tinycloud collection query (--collection);
+    // --scope only in probe mode. Gate on `== null` (truly omitted), so an empty
+    // `--collection=` still routes into the collection branch below (which rejects
+    // it) rather than being mistaken for a local-memory ask.
+    if (ctx.opts.collection == null && (ctx.opts.probe === true || ctx.opts.scope)) {
+      return [askError("--probe/--scope only apply with --collection (a media-descriptions collection)")];
+    }
+    if (ctx.opts.scope != null && !String(ctx.opts.scope).trim()) {
+      return [askError("--scope requires a value (file | segment)")];
+    }
+    if (ctx.opts.scope && ctx.opts.probe !== true) {
+      return [askError("--scope only applies with --probe (probe = semantic moment search)")];
+    }
+    // --collection: answer over a tinycloud media-descriptions collection (the
+    // index of a target's videos) instead of the local case memory. The id/name
+    // resolves through the case mirror to the real tinycloud collection id. Gate on
+    // `!= null` so a PROVIDED-but-empty `--collection=` is rejected here, not
+    // silently treated as omitted (→ a local-memory ask).
+    if (ctx.opts.collection != null) {
+      // a tinycloud collection ask/probe supports only --probe/--scope/--limit;
+      // the local-memory flags (--deep/--memory/--verb) and the --since time
+      // filter don't apply — reject them rather than silently ignoring them.
+      const unsupported = (["deep", "memory", "verb", "since"] as const).filter(
+        (f) => ctx.opts[f] != null && ctx.opts[f] !== false,
+      );
+      if (unsupported.length) {
+        return [askError(`--${unsupported.join(", --")} ${unsupported.length > 1 ? "aren't" : "isn't"} supported with --collection (it queries a tinycloud collection, not local case memory)`)];
+      }
+      const value = String(ctx.opts.collection).trim();
+      if (!value) return [askError("--collection requires a collection id or name")];
+      // resolve through the mirror: error on an ambiguous display name, and on a
+      // mirrored collection whose type isn't ask-able (ask/probe only read
+      // media-descriptions). An unmirrored value is passed through as a raw id.
+      const ref = resolveCollectionRef(ctx.case, value);
+      if (ref.error) return [askError(ref.error)];
+      const entry = ref.entry;
+      if (entry && entry.type !== "media-descriptions" && entry.type !== "unknown") {
+        return [askError(`collection ${entry.id} is type '${entry.type}', not media-descriptions — ask/probe only reads media-descriptions collections (use \`face --match … --collection\` for face-analysis, \`collection entities\` for entities)`)];
+      }
+      const colId = entry?.id ?? value;
+      const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined;
+      const rec = await tcAsk(ctx.input, colId, {
+        probe: ctx.opts.probe === true,
+        scope: ctx.opts.scope ? String(ctx.opts.scope) : undefined,
+        limit,
+        env: providerEnv(ctx.case.mediaDir),
+        // honor a pinned tinycloud in the profile (same as the `collection` verb),
+        // not just OVERCAST_TINYCLOUD_CMD / `tinycloud` on PATH.
+        base: tinycloudBaseFromRun(ctx.profile.providers?.collection?.run),
+        signal: ctx.signal,
+      });
+      rec.meta = { ...rec.meta, case: ctx.case.dir };
+      return [rec];
+    }
     // an unparseable --since is a user error, not a silent "no time bound"
     if (ctx.opts.since && parseSince(String(ctx.opts.since)) == null) {
       return [askError(`invalid --since value: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
-    }
-    // a non-finite/non-positive --limit is a user error, not a silent fall-back to
-    // the default recall breadth (matches scan/case/monitor).
-    if (ctx.opts.limit != null) {
-      const n = Number(ctx.opts.limit);
-      if (!Number.isFinite(n) || n <= 0) {
-        return [askError(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
-      }
     }
     const available = resolveMemory(ctx.case, ctx.profile);
     let providers = available;
@@ -227,6 +286,12 @@ export const briefVerb: VerbSpec = {
   providerKey: "brief",
   run: async (ctx) => {
     let records = ctx.case.records();
+    // a provided-but-blank `--scope=` is a user error (it would otherwise fall
+    // through to the positional / no-filter and silently emit the FULL brief),
+    // consistent with ask/face/collection rejecting blank flags.
+    if (ctx.opts.scope != null && !String(ctx.opts.scope).trim()) {
+      return [readError("brief", "--scope requires a value (since:<when> | verb:<kind>)")];
+    }
     // scope filter: since:<when> | verb:<kind>. Scope may arrive via --scope or
     // as a positional argument (the prompt system passes it positionally).
     const scope = (ctx.opts.scope ? String(ctx.opts.scope) : ctx.input ?? "").trim();

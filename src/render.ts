@@ -89,11 +89,17 @@ export function pageTargetId(rec: OvercastRecord): string {
 /** The exact `overcast case memory get …` command to read a record's content in
  *  full. SINGLE source of the paging-command syntax — preview hints and
  *  agent-tool locators both call it, so they can never disagree. */
-export function pageCommand(rec: OvercastRecord): string {
+export function pageCommand(rec: OvercastRecord, opts: { withCase?: boolean } = {}): string {
   const id = pageTargetId(rec);
+  // For a SINGLE-record hint, embed the record's owning case so the command works
+  // from ANY cwd (records are per-case; the agent often `cd`s away before
+  // re-reading). NOT for compact multi-record locators — repeating a path per
+  // record would bloat batch output. Quote a dir with spaces.
+  const dir = opts.withCase && typeof rec.meta?.case === "string" ? rec.meta.case : undefined;
+  const caseArg = dir ? ` --case ${/\s/.test(dir) ? `'${dir}'` : dir}` : "";
   return typeof rec.payload === "string"
-    ? `overcast case memory get ${id} --offset 0 [--limit M]`
-    : `overcast case memory get ${id} --field <name> [--offset N] [--limit M]`;
+    ? `overcast case memory get ${id}${caseArg} --offset 0 [--limit M]`
+    : `overcast case memory get ${id}${caseArg} --field <name> [--offset N] [--limit M]`;
 }
 
 export type FieldType = "string" | "number" | "boolean" | "array" | "object" | "null";
@@ -225,7 +231,7 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
   const lossy = fields.some(
     (f) => !(f.type === "string" ? f.chars <= previewChars : f.type === "number" || f.type === "boolean" || f.type === "null"),
   );
-  const hint = lossy ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read it with: ${pageCommand(rec)}` : "";
+  const hint = lossy ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read it with: ${pageCommand(rec, { withCase: true })}` : "";
   return `${h} payload:\n${lines.join("\n")}${hint}`;
 }
 
