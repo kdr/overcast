@@ -80,6 +80,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   index a target's videos into a tinycloud collection: media-descriptions →
   `ask --collection`, entities → `collection entities`, face-analysis → `face`);
   `target` / `source` manage scope; `prebrief` stands up a case in one shot.
+  Built-in source refs: `youtube:@handle`, `youtube:search:<query>`,
+  `youtube:playlist:<id>` or a YouTube URL; `tiktok:@user`, `tiktok:#tag`;
+  `web:<query>`.
 - **Read** — `ask` (cited retrieval over case memory; `--collection <id>` answers
   over a tinycloud media-descriptions collection, `--probe` for moment search),
   `brief` (timeline/findings report), `case` (inspect/manage the case + its records;

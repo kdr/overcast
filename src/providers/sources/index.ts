@@ -3,8 +3,8 @@
 // `fetch(item) -> capture media`. Same exec wire contract as sense providers;
 // output is mapped to the loose record at THIS boundary.
 //
-// Built-in descriptors: youtube (yt-dlp), tiktok (Apify). Any type can be
-// overridden/added via env `OVERCAST_SOURCE_<TYPE>_CMD=<base command>` — the
+// Built-in descriptors: youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave).
+// Any type can be overridden/added via env `OVERCAST_SOURCE_<TYPE>_CMD=<base command>` — the
 // base command is invoked as `<base> enumerate ...` / `<base> fetch ...`. This
 // is how the e2e binds a committed fixture source provider offline.
 
@@ -28,7 +28,7 @@ export interface SourceDescriptor {
   needs?: string;
 }
 
-/** Built-in source descriptors. yt-dlp / apify are gated by deps/creds. */
+/** Built-in source descriptors. yt-dlp / Apify / web search are gated by deps/creds. */
 /**
  * Tokenize a command string respecting single/double quotes, so a base command
  * whose path contains spaces can be bound (e.g. `"/My Tools/bridge" enumerate`).

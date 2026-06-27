@@ -108,9 +108,9 @@ overcast see ./clip.mp4  --detect "weapon, hard hat" --json      # video → fra
 ## Source providers (built-in types)
 
 `scan`/`monitor` enumerate sources; `capture` fetches. Built-in types resolve to shipped scripts:
-- **`youtube`** — yt-dlp (no key). `source add youtube:@handle` · `youtube:search:"…"` · `youtube:playlist:<id>`.
-- **`tiktok`** — Apify (`APIFY_TOKEN`). `source add tiktok:@user` · `tiktok:#tag`.
-- **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). `source add web:"<query>"` → web search hits.
+- **`youtube`** — yt-dlp (no key). Supported refs: `youtube:@handle` for a channel's videos; `youtube:search:<query>` or `youtube:<keyword>` for keyword search; `youtube:playlist:<id>` or `youtube:<full YouTube URL>` for playlists/video URLs.
+- **`tiktok`** — Apify (`APIFY_TOKEN`). Supported refs: `tiktok:@user` for profile videos and `tiktok:#tag` for hashtag videos. TikTok keyword search is not a built-in mode.
+- **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). Supported ref: `web:<query>` for web search hits.
 - Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
 Each responds to `describe` offline:
