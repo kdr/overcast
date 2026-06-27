@@ -1,9 +1,10 @@
 // `case` verb — inspect/manage the current case (the .overcast/ store). Case is
 // a folder (invariant #4); this is the read/seed surface over it + the bound
-// memory providers. Subcommands: init | info | records | memory.
+// memory providers. Subcommands: init | info | records | memory | clear.
 
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase } from "../case.js";
+import { humanSize } from "../render.js";
 import { resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { payloadFields, fieldText, fieldNames, getField } from "../render.js";
@@ -16,15 +17,16 @@ function err(message: string): OvercastRecord {
 export const caseVerb: VerbSpec = {
   name: "case",
   group: "state",
-  summary: "Inspect/manage the current case: init | info | records | memory.",
+  summary: "Inspect/manage the current case: init | info | records | memory | clear.",
   description:
     "A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; " +
     "`case info` shows state; `case records [--verb] [--since]` lists records; " +
     "`case memory <list|get|search> [q]` routes to the bound memory providers. " +
+    "`case clear` previews what would be lost; add `--yes` to clear records/media/state while preserving the case id. " +
     "`case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] " +
     "[--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.",
   args: [
-    { name: "action", summary: "init | info | records | memory", required: true },
+    { name: "action", summary: "init | info | records | memory | clear", required: true },
     { name: "sub", summary: "memory subcommand (list|get|search), or dir for init" },
     { name: "arg", summary: "record id (memory get) or query (memory search)" },
   ],
@@ -35,6 +37,7 @@ export const caseVerb: VerbSpec = {
     { name: "field", summary: "Payload field to read in full (memory get)", type: "string" },
     { name: "offset", summary: "Start char offset when paging a field (memory get)", type: "number" },
     { name: "limit", summary: "Max records/passages, or max chars when paging a field", type: "number" },
+    { name: "yes", summary: "Confirm destructive case clear", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
@@ -81,6 +84,55 @@ export const caseVerb: VerbSpec = {
           verb: "case",
           format: "json",
           payload: { dir: c.dir, initialized: exists, info: exists ? c.info() : null, records: recs.length, counts },
+          state: "ready",
+        }),
+      ];
+    }
+
+    if (action === "clear") {
+      const confirmed = ctx.opts.yes === true;
+      const before = confirmed ? ctx.case.clear() : ctx.case.clearSummary();
+      const lost = {
+        records: before.records,
+        counts: before.counts,
+        media_files: before.media.files,
+        media_size: humanSize(before.media.bytes),
+        index_files: before.index.files,
+        index_size: humanSize(before.index.bytes),
+        state_files: before.stateFiles,
+      };
+      if (!confirmed) {
+        return [
+          makeRecord({
+            verb: "case",
+            format: "json",
+            payload: {
+              dir: before.dir,
+              initialized: before.initialized,
+              info: before.info,
+              will_lose: lost,
+              confirmation_required: true,
+              confirm_with: "overcast case clear --yes",
+              note: "case id/name are preserved; records, media, index, targets, sources, collections, and seen state are cleared",
+            },
+            meta: { transient: true },
+            state: "pending",
+          }),
+        ];
+      }
+      return [
+        makeRecord({
+          verb: "case",
+          format: "json",
+          payload: {
+            dir: before.dir,
+            initialized: before.initialized,
+            info: before.info,
+            cleared: true,
+            lost,
+            preserved: ["case.json"],
+          },
+          meta: { transient: true },
           state: "ready",
         }),
       ];
@@ -235,6 +287,6 @@ export const caseVerb: VerbSpec = {
       return [err("usage: case memory <list|get|search> [arg]")];
     }
 
-    return [err("usage: case <init|info|records|memory>")];
+    return [err("usage: case <init|info|records|memory|clear>")];
   },
 };

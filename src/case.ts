@@ -4,10 +4,12 @@
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
   readdirSync,
+  rmSync,
 } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -25,6 +27,22 @@ export interface CaseInfo {
   created: string;
   /** optional profile pin (profile name) */
   profile?: string;
+}
+
+export interface CaseStoreEntrySummary {
+  files: number;
+  bytes: number;
+}
+
+export interface CaseClearSummary {
+  dir: string;
+  initialized: boolean;
+  info: CaseInfo | null;
+  records: number;
+  counts: Record<string, number>;
+  media: CaseStoreEntrySummary;
+  index: CaseStoreEntrySummary;
+  stateFiles: string[];
 }
 
 /** A case is a directory; this wraps its `.overcast/` store paths + I/O. */
@@ -123,6 +141,43 @@ export class Case {
   recordById(id: string): OvercastRecord | undefined {
     return this.records().find((r) => r.id === id);
   }
+
+  /** Summarize resettable case contents without mutating the store. */
+  clearSummary(): CaseClearSummary {
+    const recs = this.records();
+    const counts: Record<string, number> = {};
+    for (const r of recs) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
+    return {
+      dir: this.dir,
+      initialized: this.exists(),
+      info: this.exists() ? this.info() : null,
+      records: recs.length,
+      counts,
+      media: summarizeTree(this.mediaDir),
+      index: summarizeTree(this.indexDir),
+      stateFiles: [
+        this.targetFile,
+        this.sourcesFile,
+        this.collectionsFile,
+        this.seenFile,
+      ].filter(existsSync).map((f) => basename(f)),
+    };
+  }
+
+  /** Clear records/media/index/state while preserving case.json and the case id. */
+  clear(): CaseClearSummary {
+    const summary = this.clearSummary();
+    rmSync(this.recordsDir, { recursive: true, force: true });
+    rmSync(this.mediaDir, { recursive: true, force: true });
+    rmSync(this.indexDir, { recursive: true, force: true });
+    rmSync(this.targetFile, { force: true });
+    rmSync(this.sourcesFile, { force: true });
+    rmSync(this.collectionsFile, { force: true });
+    rmSync(this.seenFile, { force: true });
+    mkdirSync(this.recordsDir, { recursive: true });
+    mkdirSync(this.mediaDir, { recursive: true });
+    return summary;
+  }
 }
 
 /** Open the case rooted at `dir` (default cwd). Does not create the store. */
@@ -134,4 +189,23 @@ export function openCase(dir: string = process.cwd()): Case {
 export function recordFiles(c: Case): string[] {
   if (!existsSync(c.recordsDir)) return [];
   return readdirSync(c.recordsDir).filter((f) => f.endsWith(".jsonl"));
+}
+
+function summarizeTree(path: string): CaseStoreEntrySummary {
+  let files = 0;
+  let bytes = 0;
+  const visit = (p: string) => {
+    if (!existsSync(p)) return;
+    const st = lstatSync(p);
+    if (st.isDirectory()) {
+      for (const name of readdirSync(p)) visit(join(p, name));
+      return;
+    }
+    if (st.isFile()) {
+      files++;
+      bytes += st.size;
+    }
+  };
+  visit(path);
+  return { files, bytes };
 }

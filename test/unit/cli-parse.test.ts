@@ -1,8 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseVerbArgs } from "../../src/registry/to-cli.ts";
 import { runCli, type CliIO } from "../../src/cli.ts";
 import { watchVerb } from "../../src/registry/verbs.ts";
+import { openCase } from "../../src/case.ts";
+import { makeRecord } from "../../src/record.ts";
 
 function capture(): { io: CliIO; out: () => string; err: () => string } {
   let o = "";
@@ -44,4 +49,20 @@ test("runCli: commands --json lists watch (offline, no cloud)", async () => {
   assert.equal(code, 0);
   const parsed = JSON.parse(c.out());
   assert.ok(parsed.verbs.some((v: { name: string }) => v.name === "watch"));
+});
+
+test("runCli: case clear --yes does not leave a new case record behind", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-cli-clear-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "hi" } }));
+    const cap = capture();
+    const code = await runCli(["case", "clear", "--yes", "--case", dir, "--json"], cap.io);
+    assert.equal(code, 0);
+    assert.equal(openCase(dir).records().length, 0);
+    assert.equal(JSON.parse(cap.out()).payload.cleared, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

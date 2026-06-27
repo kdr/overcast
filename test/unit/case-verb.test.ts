@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
@@ -33,6 +33,40 @@ test("case records --verb filters", async () => {
     assert.equal(recs.length, 1);
   });
 });
+
+test("case clear previews what will be lost and requires --yes", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    writeFileSync(c.sourcesFile, JSON.stringify({ sources: [] }));
+
+    const [rec] = await caseVerb.run(ctx(dir, "clear"));
+    assert.equal(rec.state, "pending");
+    assert.equal(rec.meta?.transient, true);
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.confirmation_required, true);
+    assert.match(String(p.confirm_with), /case clear --yes/);
+    assert.equal(((p.will_lose as Record<string, unknown>).records), 2);
+    assert.equal(c.records().length, 2, "preview leaves records intact");
+    assert.equal(existsSync(c.sourcesFile), true, "preview leaves state intact");
+  });
+});
+
+test("case clear --yes clears records and state without persisting itself", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    writeFileSync(c.sourcesFile, JSON.stringify({ sources: [] }));
+
+    const [rec] = await caseVerb.run(ctx(dir, "clear", [], { yes: true }));
+    assert.equal(rec.state, "ready");
+    assert.equal(rec.meta?.transient, true);
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.cleared, true);
+    assert.equal(((p.lost as Record<string, unknown>).records), 2);
+    assert.equal(c.records().length, 0);
+    assert.equal(existsSync(c.sourcesFile), false);
+  });
+});
+
 test("case memory search returns passages", async () => {
   await withCase(async (dir) => {
     const [rec] = await caseVerb.run(ctx(dir, "memory", ["search", "white", "van"]));

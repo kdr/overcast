@@ -368,17 +368,17 @@ Emits `source` records.
 
 ### `overcast case`
 
-A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 ```
 overcast case <action> [sub] [arg] [options]
 
-  Inspect/manage the current case: init | info | records | memory.
+  Inspect/manage the current case: init | info | records | memory | clear.
 
-  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 Arguments:
-  action           init | info | records | memory
+  action           init | info | records | memory | clear
   sub              memory subcommand (list|get|search), or dir for init
   arg              record id (memory get) or query (memory search)
 
@@ -389,6 +389,7 @@ Options:
   --field <string>       Payload field to read in full (memory get)
   --offset <number>      Start char offset when paging a field (memory get)
   --limit <number>       Max records/passages, or max chars when paging a field
+  --yes                  Confirm destructive case clear
   --json                 JSON output
   --format <string>      json | md | txt
 ```
