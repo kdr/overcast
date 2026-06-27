@@ -27,6 +27,8 @@ function err(verb: string, message: string): OvercastRecord {
 /** Minimum tinycloud the face + collection verbs need (`face match` landed in
  *  0.3.4). Older installs run watch/listen fine but lack faces/collections. */
 export const MIN_TINYCLOUD = "0.3.4";
+/** Latest tinycloud version this overcast build documents and recommends. */
+export const RECOMMENDED_TINYCLOUD = "0.3.6";
 
 function parseSemver(s: string): [number, number, number] | undefined {
   const m = s.match(/(\d+)\.(\d+)\.(\d+)/);
@@ -238,19 +240,21 @@ export const doctorVerb: VerbSpec = {
 
     // tinycloud CLI (default sense backend). Honor OVERCAST_TINYCLOUD_CMD so a
     // custom path/wrapper is the one actually checked. Parse the version to flag
-    // installs older than the face/collection minimum.
+    // installs older than the face/collection minimum and recommend the latest
+    // documented tinycloud build when an older-but-compatible CLI is present.
     const [tcCmd, ...tcLead] = tinycloudBase();
     const tc = await execCapture(tcCmd, [...tcLead, "--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
     const tcVer = parseSemver(`${tc.stdout} ${tc.stderr}`);
     const tcOld = tcVer ? semverLt(tcVer, parseSemver(MIN_TINYCLOUD)!) : false;
+    const tcBehind = tcVer ? semverLt(tcVer, parseSemver(RECOMMENDED_TINYCLOUD)!) : false;
     checks.push({
       name: "tinycloud",
       ok: tc.code === 0,
       detail:
         tc.code !== 0
-          ? "tinycloud CLI not on PATH (install: `npm i -g @cloudglue/tinycloud` or `tinycloud install --latest`)"
+          ? `tinycloud CLI not on PATH (install latest: \`npm i -g @cloudglue/tinycloud@${RECOMMENDED_TINYCLOUD}\` or \`tinycloud install --latest\`)`
           : tcVer
-            ? `${tcVer.join(".")}${tcOld ? ` (face/collection verbs need ≥ ${MIN_TINYCLOUD} — run \`tinycloud update\`)` : ""}`
+            ? `${tcVer.join(".")}${tcOld ? ` (face/collection verbs need ≥ ${MIN_TINYCLOUD} — run \`tinycloud update\`)` : tcBehind ? ` (update recommended: latest tested ${RECOMMENDED_TINYCLOUD}; run \`tinycloud update\`)` : ""}`
             : "CLI available",
     });
 
@@ -288,6 +292,8 @@ export const doctorVerb: VerbSpec = {
     }
     if (tcOld) {
       warnings.push(`tinycloud is older than ${MIN_TINYCLOUD} — the face + collection verbs need ≥ ${MIN_TINYCLOUD} (run \`tinycloud update\`)`);
+    } else if (tcBehind) {
+      warnings.push(`tinycloud ${tcVer?.join(".")} is older than the recommended ${RECOMMENDED_TINYCLOUD} — run \`tinycloud update\` to pick up the latest face validation and reliability behavior`);
     }
     if (!checks.find((c) => c.name === "cloudglue")?.ok) {
       warnings.push("no Cloudglue key — the default sense backend and the Cloudglue brain are unavailable");

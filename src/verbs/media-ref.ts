@@ -35,10 +35,16 @@ export function isRegisterableMediaRecord(r: OvercastRecord): boolean {
 }
 
 /** A case record id → its media.ref (+ the record id); otherwise the ref as-is
- *  (path / URL). Mirrors view/capture id resolution. */
+ *  (path / URL). Also resolves capture payload ids (`cap_...`) because those are
+ *  the human-facing handles capture emits. Mirrors view/capture id resolution. */
 export function resolveMediaRef(c: Case, ref: string): { ref: string; recordId?: string } {
   const rec = c.recordById(ref);
   if (rec?.media?.ref) return { ref: rec.media.ref, recordId: rec.id };
+  const byCapture = c.records().find((r) => {
+    if (r.verb !== "capture" || !r.media?.ref || !r.payload || typeof r.payload !== "object") return false;
+    return (r.payload as Record<string, unknown>).capture_id === ref;
+  });
+  if (byCapture?.media?.ref) return { ref: byCapture.media.ref, recordId: byCapture.id };
   return { ref };
 }
 

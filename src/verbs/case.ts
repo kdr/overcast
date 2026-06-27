@@ -25,7 +25,8 @@ export const caseVerb: VerbSpec = {
     "[--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.",
   args: [
     { name: "action", summary: "init | info | records | memory", required: true },
-    { name: "arg", summary: "dir (init), record id (memory get), or query (memory search)" },
+    { name: "sub", summary: "memory subcommand (list|get|search), or dir for init" },
+    { name: "arg", summary: "record id (memory get) or query (memory search)" },
   ],
   flags: [
     { name: "name", summary: "Case name (init)", type: "string" },

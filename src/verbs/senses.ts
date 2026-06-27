@@ -10,6 +10,7 @@ import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
 import { execCapture, parseFirstJson } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
+import { resolveVideoArg } from "./media-ref.js";
 import {
   probe,
   enhance as ffEnhance,
@@ -54,6 +55,9 @@ export const listenVerb: VerbSpec = {
     if (!ctx.input) {
       return [errorRecord("listen", "listen requires an audio/video input")];
     }
+    const resolved = resolveVideoArg(ctx.case, ctx.input, "listen input", { requireReady: false });
+    if (resolved.error) return [errorRecord("listen", resolved.error)];
+    const input = resolved.ref ?? ctx.input;
     const describe = ctx.opts.describe === true;
     const binding = ctx.profile.providers?.listen;
     // forward the declared listen flags to a custom provider, and give it the
@@ -63,13 +67,13 @@ export const listenVerb: VerbSpec = {
     if (ctx.opts.diarize === true) extraArgs.push("--diarize");
     if (ctx.opts.lang) extraArgs.push("--lang", String(ctx.opts.lang));
     const rec = isCustomBinding(binding)
-      ? await runBoundProvider("listen", binding!, ctx.input, {
+      ? await runBoundProvider("listen", binding!, input, {
           env: providerEnv(ctx.case.mediaDir),
           extraArgs,
           timeoutMs: 15 * 60_000,
           signal: ctx.signal,
         })
-      : await runListen(ctx.input, {
+      : await runListen(input, {
           run: binding?.run,
           describe,
           signal: ctx.signal,

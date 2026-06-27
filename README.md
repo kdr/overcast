@@ -27,7 +27,8 @@ the CLI from any harness. The brain LLM is BYO; the default perception backend i
 - **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
   default `watch` / `listen` / `face` / `collection` backend (Cloudglue); set
   `CLOUDGLUE_API_KEY`. The `face` + `collection` verbs need **tinycloud ≥ 0.3.4**
-  (`tinycloud update`); override the invocation with `OVERCAST_TINYCLOUD_CMD`.
+  and overcast currently recommends **0.3.6** (`npm i -g @cloudglue/tinycloud@0.3.6`
+  or `tinycloud update`); override the invocation with `OVERCAST_TINYCLOUD_CMD`.
 - **yt-dlp** on `PATH` — only for the `youtube` / `tiktok` capture sources.
 
 `overcast doctor` verifies all of these.
@@ -95,7 +96,7 @@ overcast brief --export ./brief.html
 
 # 4) faces: detect, or find a specific person in a clip
 overcast face ./clip.mp4 --json                       # who is in this video
-overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person, ranked by similarity
+overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/PNG query image), ranked by similarity
 
 # 5) index the target's videos into a collection, then search across ALL of them
 overcast collection create faces --type face --json
@@ -209,6 +210,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 **Default perception (tinycloud / Cloudglue)**
 - `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)
 - `CLOUDGLUE_BASE_URL` — endpoint (default `https://api.cloudglue.dev`)
+- `TINYCLOUD_HTTP_RETRIES`, `TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS`, `TINYCLOUD_JOB_WAIT_TIMEOUT_MS` — tinycloud 0.3.6 Cloudglue retry/upload/job-wait knobs inherited by overcast's default providers
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
 - `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — turnkey `see` + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`

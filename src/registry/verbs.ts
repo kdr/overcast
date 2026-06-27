@@ -8,6 +8,7 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
 import { faceVerb } from "../verbs/face.js";
+import { resolveVideoArg } from "../verbs/media-ref.js";
 import {
   scanVerb,
   captureVerb,
@@ -50,13 +51,27 @@ export const watchVerb: VerbSpec = {
         }),
       ];
     }
+    const resolved = resolveVideoArg(ctx.case, ctx.input, "watch input", { requireReady: false });
+    if (resolved.error) {
+      return [
+        makeRecord({
+          verb: "watch",
+          format: "json",
+          payload: { content: "", transcript: "", detailed: null },
+          media: { ref: ctx.input },
+          error: resolved.error,
+          state: "error",
+        }),
+      ];
+    }
+    const input = resolved.ref ?? ctx.input;
     // resolve the run template from the active profile binding (else default).
     const binding = ctx.profile.providers?.watch;
     // A custom provider already emits a record → dispatch by transport. Only the
     // tinycloud default needs envelope→record mapping.
     const rec = isCustomBinding(binding)
-      ? await runBoundProvider("watch", binding!, ctx.input, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal })
-      : await runWatch(ctx.input, { run: binding?.run, signal: ctx.signal });
+      ? await runBoundProvider("watch", binding!, input, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal })
+      : await runWatch(input, { run: binding?.run, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     return [rec];
   },

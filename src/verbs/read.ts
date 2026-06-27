@@ -51,7 +51,7 @@ export const askVerb: VerbSpec = {
     { name: "memory", summary: "Restrict to specific memory provider ids", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
     { name: "verb", summary: "Restrict to record kinds (comma list)", type: "string" },
-    { name: "limit", summary: "Max passages", type: "number" },
+    { name: "limit", summary: "Max local passages; with --collection --probe, max probe results", type: "number" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -85,7 +85,13 @@ export const askVerb: VerbSpec = {
     // `!= null` so a PROVIDED-but-empty `--collection=` is rejected here, not
     // silently treated as omitted (→ a local-memory ask).
     if (ctx.opts.collection != null) {
-      // a tinycloud collection ask/probe supports only --probe/--scope/--limit;
+      // tinycloud collection Q&A supports --probe; --scope/--limit apply only
+      // to probe. Reject unsupported flags instead of silently dropping them.
+      if (ctx.opts.limit != null && ctx.opts.probe !== true) {
+        return [askError("--limit with --collection only applies with --probe (tinycloud ask does not support a limit flag)")];
+      }
+      // a tinycloud collection ask/probe supports only --probe/--scope/--limit
+      // (with --scope/--limit probe-only, above);
       // the local-memory flags (--deep/--memory/--verb) and the --since time
       // filter don't apply — reject them rather than silently ignoring them.
       const unsupported = (["deep", "memory", "verb", "since"] as const).filter(

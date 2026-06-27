@@ -150,6 +150,45 @@ test("listen --describe surfaces an audio-scene description (full describe mode)
 });
 function __dirname_compat() { return dirname(fileURLToPath(import.meta.url)); }
 
+test("listen preserves object-shaped tinycloud error envelope messages", async () => {
+  const { writeFileSync, chmodSync } = await import("node:fs");
+  const prov = join(dir, "listen-error-object.sh");
+  writeFileSync(
+    prov,
+    '#!/usr/bin/env bash\nprintf \'{"status":"error","data":null,"error":{"code":"upstream","message":"enable_visual_scene_description is not available for audio files"}}\\n\'\n',
+  );
+  chmodSync(prov, 0o755);
+  const rec = await runListen("clip.m4a", { run: `bash ${prov} {{input}}`, describe: true });
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /upstream: enable_visual_scene_description is not available for audio files/);
+});
+
+test("listen audio-only describe fallback does not mask a failed speech retry", async () => {
+  const { writeFileSync, chmodSync, mkdirSync } = await import("node:fs");
+  const bin = join(dir, "fake-tinycloud-bin");
+  mkdirSync(bin, { recursive: true });
+  const tinycloud = join(bin, "tinycloud");
+  writeFileSync(
+    tinycloud,
+    `#!/usr/bin/env bash
+if printf '%s\\n' "$@" | grep -q -- --speech-only; then
+  printf '{"status":"needs_credentials","error":{"code":"no_key","message":"set CLOUDGLUE_API_KEY"}}\\n'
+  exit 13
+fi
+printf '{"status":"error","data":null,"error":{"code":"upstream","message":"enable_visual_scene_description is not available for audio files"}}\\n'
+`,
+  );
+  chmodSync(tinycloud, 0o755);
+  const rec = await runListen("clip.m4a", {
+    describe: true,
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+  });
+  assert.equal(rec.state, "needs_credentials");
+  assert.match(rec.error ?? "", /set CLOUDGLUE_API_KEY/);
+  assert.notEqual(rec.meta?.mode, "speech_fallback");
+  assert.equal("warning" in (rec.payload as Record<string, unknown>), false);
+});
+
 test("see forwards --ocr/--prompt to the bound provider (extraArgs)", async () => {
   const { writeFileSync, chmodSync } = await import("node:fs");
   const prov = join(dir, "see-args.sh");

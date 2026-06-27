@@ -8,6 +8,7 @@ import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
 import { toAgentTool, verbCallLine } from "../../src/registry/to-agent-tool.ts";
 import type { VerbSpec } from "../../src/registry/types.ts";
+import { caseVerb } from "../../src/verbs/case.ts";
 
 test("verbCallLine: class-colored ⟦ TAG ⟧ ▸ arg (semantic split + primary arg)", () => {
   const watch = { name: "watch", args: [{ name: "url" }] } as unknown as VerbSpec;
@@ -149,4 +150,24 @@ test("greedy budget: small records inline, the big one previews (mixed batch)", 
   assert.match(text, /SMALL-ANSWER-MARKER/); // small one fully inlined
   assert.doesNotMatch(text, /B{500}/); // big one previewed (not dumped)
   assert.match(text, /emitted 2 record\(s\)/);
+});
+
+test("case memory get tool schema forwards subcommand and record id", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-agent-case-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    const rec = makeRecord({ verb: "watch", payload: { content: "full text", transcript: "" }, media: { ref: "v.mp4" } });
+    c.writeRecord(rec);
+    const tool = toAgentTool(caseVerb, {
+      getCase: () => c,
+      getProfile: () => defaultProfile(),
+    });
+    const res = (await tool.execute("call_1", { action: "memory", sub: "get", arg: rec.id }, undefined as never)) as {
+      content: Array<{ type: string; text: string }>;
+    };
+    assert.match(res.content[0].text, new RegExp(`record: ${rec.id}`));
+    assert.doesNotMatch(res.content[0].text, /usage: case memory/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

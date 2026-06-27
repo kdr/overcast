@@ -47,7 +47,7 @@ Run any verb from bash and parse the JSON record:
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
 overcast face ./clip.mp4 --json           # detect faces (boxes + timestamps)
-overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video
+overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video (JPEG/PNG query image)
 overcast ask "every white van, with timestamps" --json
 overcast brief --export ./brief.html
 ```
@@ -81,7 +81,9 @@ overcast collection create people --type entities --prompt "people, orgs, locati
 overcast collection entities <ent-col-id> ./clip.mp4 --json
 ```
 
-`face` needs tinycloud ≥ 0.3.4 (`overcast doctor` flags an older install).
+`face` needs tinycloud ≥ 0.3.4 (`overcast doctor` flags an older install);
+overcast currently recommends tinycloud 0.3.6 for the latest face validation and
+CLI reliability behavior.
 
 ### Reading large records
 

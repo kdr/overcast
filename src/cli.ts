@@ -88,6 +88,7 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["CLOUDGLUE_API_KEY", "Cloudglue key for the default watch/listen/face/collection backend + turnkey brain (else ~/.tinycloud/config.json)"],
       ["CLOUDGLUE_BASE_URL", "Cloudglue endpoint (default https://api.cloudglue.dev)"],
       ["OVERCAST_TINYCLOUD_CMD", "Override the tinycloud invocation for face/collection/ask-collection (a path or wrapper, e.g. a pinned binary)"],
+      ["TINYCLOUD_HTTP_RETRIES / TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS / TINYCLOUD_JOB_WAIT_TIMEOUT_MS", "tinycloud 0.3.6 Cloudglue reliability knobs inherited by default providers"],
     ],
   },
   {

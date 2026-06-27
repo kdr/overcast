@@ -44,6 +44,53 @@ function transcriptFromSegments(data: Record<string, unknown>): string {
   return lines.join("\n");
 }
 
+function textFromVttCue(raw: string): { speaker?: string; text: string } | undefined {
+  const cleaned = raw.replace(/\s+/g, " ").trim();
+  if (!cleaned) return undefined;
+  const voice = cleaned.match(/^<v\s+([^>]+)>(.*)<\/v>$/i);
+  if (voice) return { speaker: voice[1].trim(), text: voice[2].trim() };
+  return { text: cleaned.replace(/<\/?[^>]+>/g, "").trim() };
+}
+
+/** Tinycloud full describe writes speech to a WebVTT sidecar. Convert it to a
+ * readable speaker transcript so watch records expose spoken words inline. */
+function transcriptFromVttPath(path: string): string {
+  if (!existsSync(path)) return "";
+  let vtt = "";
+  try {
+    vtt = readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+  const out: Array<{ speaker?: string; text: string }> = [];
+  for (const block of vtt.split(/\n\s*\n/)) {
+    const lines = block.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length || lines[0] === "WEBVTT") continue;
+    const cue = lines.findIndex((l) => /-->/u.test(l));
+    if (cue < 0) continue;
+    const parsed = textFromVttCue(lines.slice(cue + 1).join(" "));
+    if (!parsed?.text) continue;
+    const last = out[out.length - 1];
+    if (last && last.speaker === parsed.speaker) last.text += ` ${parsed.text}`;
+    else out.push(parsed);
+  }
+  return out.map((x) => (x.speaker ? `${x.speaker}: ${x.text}` : x.text)).join("\n");
+}
+
+function transcriptFromSidecar(data: Record<string, unknown>): string {
+  const candidates: unknown[] = [data.vtt_path, data.speech_vtt_path];
+  if (data.describe && typeof data.describe === "object") {
+    const d = data.describe as Record<string, unknown>;
+    candidates.push(d.vtt_path, d.speech_vtt_path);
+  }
+  for (const c of candidates) {
+    if (typeof c !== "string") continue;
+    const t = transcriptFromVttPath(c);
+    if (t) return t;
+  }
+  return "";
+}
+
 /** A per-segment markdown breakdown (start–end · description — summary). */
 function segmentBreakdown(data: Record<string, unknown>): string {
   const segs = data.segments;
@@ -192,9 +239,9 @@ export async function runWatch(
 
   const content = contentMarkdown(data);
   const transcript =
-    typeof data.transcript === "string"
+    typeof data.transcript === "string" && data.transcript.trim()
       ? (data.transcript as string)
-      : transcriptFromSegments(data);
+      : transcriptFromSegments(data) || transcriptFromSidecar(data);
 
   // tinycloud may return a pending job envelope (async). Check BOTH the
   // top-level envelope and the unwrapped data object (the pending marker can
