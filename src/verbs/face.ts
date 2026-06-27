@@ -25,7 +25,14 @@ function err(message: string): OvercastRecord {
   return makeRecord({ verb: "face", format: "json", payload: { error: message }, error: message, state: "error" });
 }
 
-const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|avif)$/i;
+const FACE_QUERY_IMAGE_RE = /\.(jpe?g|png)$/i;
+
+function faceQueryImageError(ref: string): string | undefined {
+  const clean = ref.replace(/[?#].*$/, "");
+  return FACE_QUERY_IMAGE_RE.test(clean)
+    ? undefined
+    : `--match image must be a JPEG or PNG: ${ref} (tinycloud 0.3.6 rejects webp/heic/gif/bmp/tiff/avif at preflight)`;
+}
 
 /** Resolve a --match face-IMAGE ref. A path/URL is used as-is; a case record id
  *  resolves to its media ONLY when that media looks like an image — a watch/
@@ -37,11 +44,12 @@ function resolveImageRef(c: Case, ref: string): { ref?: string; error?: string }
   if (!rec) return { ref }; // a direct path / URL — trust the user's choice
   const m = rec.media?.ref;
   if (!m) return { error: `--match record ${ref} has no media` };
-  // require an image extension for a record-resolved ref — local AND http (strip
-  // any query/fragment) — so a watch/capture/scan record pointing at a video or
-  // page URL is rejected, not accepted as a face image.
-  if (!IMG_RE.test(m.replace(/[?#].*$/, ""))) {
-    return { error: `--match record ${ref} resolves to ${m}, which isn't a face image — pass a face image (jpg/png) or an image record (e.g. a see/capture of a photo)` };
+  // tinycloud 0.3.6 accepts only JPEG/PNG query images for match/search. Check a
+  // record-resolved ref here so a watch/capture/scan record pointing at a video,
+  // page URL, or unsupported image format is rejected before spawning tinycloud.
+  const imageErr = faceQueryImageError(m);
+  if (imageErr) {
+    return { error: `--match record ${ref} resolves to ${m}; ${imageErr}` };
   }
   return { ref: m };
 }
@@ -95,13 +103,13 @@ export const faceVerb: VerbSpec = {
     "`face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or " +
     "`face --match ref.jpg --collection <id>` to search a registered face-analysis collection (case-wide); " +
     "`face <video> --collection <id>` lists that video's stored detections. The video/reference may be a " +
-    "path, URL, or a case record id. Emits a face.analysis record whose `summary` is the headline, plus " +
+    "path, URL, or a case record id; the reference image for --match must be JPEG/PNG. Emits a face.analysis record whose `summary` is the headline, plus " +
     "faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.",
   args: [
     { name: "input", summary: "Video to analyze (path/URL/record-id); omit with --match + --collection to search the index", required: false },
   ],
   flags: [
-    { name: "match", summary: "Reference face image to find (path/URL/record-id)", type: "string" },
+    { name: "match", summary: "Reference face image to find (JPEG/PNG path/URL/record-id)", type: "string" },
     { name: "collection", summary: "Face-analysis collection id/name to search or list within (comma-list ok; default: the case's face collection)", type: "string" },
     { name: "max-faces", summary: "match: cap returned matches (1–4000)", type: "number" },
     { name: "min-similarity", summary: "match/search: similarity floor (0–100)", type: "number" },
@@ -171,6 +179,10 @@ export const faceVerb: VerbSpec = {
     // type-checks a record-resolved ref; a direct path is trusted until here).
     if (image && !/^https?:\/\//i.test(image) && !existsSync(image)) {
       return [err(`--match image not found: ${image}`)];
+    }
+    if (image) {
+      const imageErr = faceQueryImageError(image);
+      if (imageErr) return [err(imageErr)];
     }
 
     // Resolve which face op the given inputs select. This runs BEFORE the custom

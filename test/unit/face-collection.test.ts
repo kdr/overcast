@@ -4,7 +4,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -354,6 +354,41 @@ test("ask --collection rejects an invalid --limit instead of dropping it (#6)", 
   assert.match(rec.error ?? "", /--limit/);
 });
 
+test("ask --collection rejects --limit unless probing; probe forwards it", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-asklimit-"));
+  const log = join(cdir, "argv.txt");
+  const fake = join(cdir, "tc.sh");
+  writeFileSync(
+    fake,
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(log)}\necho '{"tinycloud":"1","kind":"'$1'","status":"ready","data":{"answer":"ok","citations":[]}}'\n`,
+  );
+  chmodSync(fake, 0o755);
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  process.env.OVERCAST_TINYCLOUD_CMD = `bash ${fake}`;
+  try {
+    const c = openCase(cdir);
+    c.ensure();
+    const mk = (opts: VerbContext["opts"]): VerbContext => ({
+      input: "q?",
+      rest: [],
+      opts,
+      case: c,
+      profile: defaultProfile(),
+    });
+    const [bad] = await askVerb.run(mk({ collection: "col_x", limit: 3 }));
+    assert.equal(bad.state, "error");
+    assert.match(bad.error ?? "", /--limit with --collection only applies with --probe/);
+    await askVerb.run(mk({ collection: "col_x", probe: true, limit: 3 }));
+    const lines = readFileSync(log, "utf8").trim().split(/\n/);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0], /^probe q\? --in collection:col_x --limit 3 --json$/);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("collection add to an UNMIRRORED id records a stub + tracks the member (#2)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-colmir-"));
   const video = join(cdir, "v.mp4");
@@ -687,7 +722,25 @@ test("face --match rejects a record id whose media isn't an image (#R7-2)", asyn
     c.writeRecord(watch);
     const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: watch.id, collection: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
-    assert.match(rec.error ?? "", /isn't a face image/);
+    assert.match(rec.error ?? "", /JPEG or PNG/);
+  } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+test("face --match rejects unsupported query-image formats locally (tinycloud 0.3.6 gate)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-matchfmt-"));
+  const v = join(cdir, "clip.mp4"); writeFileSync(v, "x");
+  const webp = join(cdir, "suspect.webp"); writeFileSync(webp, "x");
+  try {
+    const [direct] = await faceVerb.run({ input: v, rest: [], opts: { match: webp }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(direct.state, "error");
+    assert.match(direct.error ?? "", /JPEG or PNG/);
+
+    const c = openCase(cdir); c.ensure();
+    const imageRec = makeRecord({ verb: "capture", payload: {}, media: { ref: webp }, state: "ready" });
+    c.writeRecord(imageRec);
+    const [byRecord] = await faceVerb.run({ input: v, rest: [], opts: { match: imageRec.id }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(byRecord.state, "error");
+    assert.match(byRecord.error ?? "", /JPEG or PNG/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -798,6 +851,19 @@ test("doctor warns about missing tinycloud even when watch/listen are custom-bou
   } finally {
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("doctor warns when tinycloud is below the recommended version", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-doctor-tcver-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    const [rec] = await doctorVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile(), home: cdir });
+    const warnings = (rec.payload as Record<string, unknown>).warnings as string[];
+    assert.equal(rec.state, "error");
+    assert.ok(warnings.some((w) => /recommended 0\.3\.6/.test(w) && /tinycloud update/.test(w)), `expected a tinycloud update warning; got ${JSON.stringify(warnings)}`);
+  } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
 });
@@ -1235,7 +1301,7 @@ test("face --match record rejects an http video/page media.ref (#R14-4)", async 
     c.writeRecord(w);
     const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: w.id, collection: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
-    assert.match(rec.error ?? "", /isn't a face image/);
+    assert.match(rec.error ?? "", /JPEG or PNG/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 

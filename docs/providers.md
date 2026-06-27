@@ -136,7 +136,8 @@ collections** surfaces (invariant #9: public verbs only; mapped to the loose
 record by the shared `runTinycloud` boundary in
 [`src/providers/tinycloud/envelope.ts`](../src/providers/tinycloud/envelope.ts)).
 Point `OVERCAST_TINYCLOUD_CMD` at a specific binary/wrapper if `tinycloud` isn't
-on `PATH`; `overcast doctor` reports the installed version and warns below 0.3.4.
+on `PATH`; `overcast doctor` reports the installed version, warns below 0.3.4,
+and recommends the latest tested tinycloud, currently 0.3.6.
 
 ### `face` — detect / match / search
 
@@ -144,14 +145,16 @@ One verb resolves to one of four tinycloud face ops from the inputs given:
 
 ```bash
 overcast face ./clip.mp4 --json                          # detect: who is in this video (boxes + timestamps)
-overcast face ./clip.mp4 --match ./suspect.jpg --json    # match: find this person in the clip, ranked by similarity
+overcast face ./clip.mp4 --match ./suspect.jpg --json    # match: find this person in the clip (JPEG/PNG query image), ranked by similarity
 overcast face --match ./suspect.jpg --collection <id> --json   # search a face-analysis collection (case-wide)
 overcast face ./clip.mp4 --collection <id> --json        # list a video's stored detections in a collection
 ```
 
 Emits a `face.analysis` record: `faces[]` is normalized (`at`, `box`,
 `similarity`, `thumbnail?`) and the full provider data survives in `detailed`.
-The video/reference may be a path, URL, or a case record id. Bind your own
+The video/reference may be a path, URL, or a case record id. The `--match`
+query image must be JPEG/PNG; tinycloud 0.3.6 rejects webp/heic/gif/bmp/tiff/avif
+at preflight. Bind your own
 detector with `setup provider face <spec>` like any sense (it receives the media
 plus `--match`/`--collection`/… as flags).
 
@@ -193,4 +196,5 @@ accept a path, URL, or a case record id (a `capture`/`watch` record → its medi
 
 `overcast doctor` checks pi, the system ffmpeg/ffprobe, Cloudglue creds, the
 tinycloud CLI **and its version** (`face`/`collection` need ≥ 0.3.4), the
-home/profiles, and the active provider bindings.
+home/profiles, and the active provider bindings. Version 0.3.6 is the current
+recommended tinycloud build.

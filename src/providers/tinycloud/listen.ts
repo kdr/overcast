@@ -16,6 +16,16 @@ function envelopeData(parsed: unknown): Record<string, unknown> {
   return {};
 }
 
+function providerErrorMessage(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const o = value as Record<string, unknown>;
+  const code = typeof o.code === "string" ? o.code : "";
+  const message = typeof o.message === "string" ? o.message : "";
+  if (code && message) return `${code}: ${message}`;
+  return message || code;
+}
+
 /** Coerce a timestamp to seconds, tolerating numeric strings ("12.5"). */
 function toSeconds(v: unknown): number | undefined {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -167,10 +177,7 @@ export async function runListen(
   // An error envelope is a failure even when JSON parsed and exit was 0 — the
   // record's state/error is authoritative, so surface it instead of storing a
   // silent "ready" listen record (mirrors runWatch).
-  const envError =
-    (typeof envObj.error === "string" && envObj.error) ||
-    (typeof (data.error as string) === "string" && (data.error as string)) ||
-    "";
+  const envError = providerErrorMessage(envObj.error) || providerErrorMessage(data.error);
   // A non-zero exit OR an error envelope is a failure even when JSON parsed —
   // apply them together (like runWatch), and treat exit 13 as a cred gap.
   if (
@@ -180,6 +187,30 @@ export async function runListen(
     data.status === "error" ||
     Boolean(envError)
   ) {
+    const visualDescribeUnavailable =
+      opts.describe &&
+      !(opts.run && opts.run.trim()) &&
+      /(?:enable_visual_scene_description|visual scene description) is not available for audio files/i.test(envError);
+    if (visualDescribeUnavailable) {
+      const fallback = await runListen(input, {
+        ...opts,
+        describe: false,
+        run: undefined,
+      });
+      if (fallback.state !== "ready") return fallback;
+      fallback.payload = {
+        ...(fallback.payload as Record<string, unknown>),
+        description: "",
+        warning:
+          "tinycloud full describe is not available for audio-only files; used speech-only transcript instead.",
+      };
+      fallback.meta = {
+        ...fallback.meta,
+        mode: "speech_fallback",
+        warning: envError,
+      };
+      return fallback;
+    }
     return makeRecord({
       verb: "listen",
       format: "json",

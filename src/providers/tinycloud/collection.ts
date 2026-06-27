@@ -217,7 +217,7 @@ export async function tcAsk(
   const verb = o.probe ? "probe" : "ask";
   const args = [verb, question, "--in", `collection:${collectionId}`];
   if (o.probe && o.scope) args.push("--scope", o.scope);
-  if (o.limit != null) args.push("--limit", String(o.limit));
+  if (o.probe && o.limit != null) args.push("--limit", String(o.limit));
   args.push("--json");
   const out = await runTinycloud(args, o);
 

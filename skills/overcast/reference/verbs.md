@@ -79,20 +79,20 @@ Emits `image.analysis` records.
 
 ### `overcast face`
 
-Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --collection <id>` to search a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
+Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --collection <id>` to search a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id; the reference image for --match must be JPEG/PNG. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
 
 ```
 overcast face [input] [options]
 
   Detect, match, or search faces in video (and across face-analysis collections).
 
-  Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --collection <id>` to search a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
+  Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --collection <id>` to search a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id; the reference image for --match must be JPEG/PNG. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
 
 Arguments:
   input            Video to analyze (path/URL/record-id); omit with --match + --collection to search the index
 
 Options:
-  --match <string>       Reference face image to find (path/URL/record-id)
+  --match <string>       Reference face image to find (JPEG/PNG path/URL/record-id)
   --collection <string>  Face-analysis collection id/name to search or list within (comma-list ok; default: the case's face collection)
   --max-faces <number>   match: cap returned matches (1–4000)
   --min-similarity <number> match/search: similarity floor (0–100)
@@ -295,7 +295,7 @@ Options:
   --memory <string>      Restrict to specific memory provider ids
   --since <string>       Time filter (e.g. 24h, 2026-06-01)
   --verb <string>        Restrict to record kinds (comma list)
-  --limit <number>       Max passages
+  --limit <number>       Max local passages; with --collection --probe, max probe results
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -371,7 +371,7 @@ Emits `source` records.
 A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 ```
-overcast case <action> [arg] [options]
+overcast case <action> [sub] [arg] [options]
 
   Inspect/manage the current case: init | info | records | memory.
 
@@ -379,7 +379,8 @@ overcast case <action> [arg] [options]
 
 Arguments:
   action           init | info | records | memory
-  arg              dir (init), record id (memory get), or query (memory search)
+  sub              memory subcommand (list|get|search), or dir for init
+  arg              record id (memory get) or query (memory search)
 
 Options:
   --name <string>        Case name (init)

@@ -23,7 +23,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 - `@cloudglue/cloudglue-js` — the default sense backend (via the tinycloud CLI,
   `exec`). Cloudglue is **also** a pickable *brain* LLM provider (anthropic-messages
   API) so it appears in `/model` — never forced. The tinycloud CLI is a runtime
-  prerequisite (like ffmpeg), not an npm dep; `face` + `collection` need **≥ 0.3.4**.
+  prerequisite (like ffmpeg), not an npm dep; `face` + `collection` need **≥ 0.3.4**,
+  and current docs recommend tinycloud **0.3.6**.
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
@@ -72,7 +73,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `transcript` / `detailed`), `listen` (speech transcript; `--describe` for the
   full audio-scene), `see` (caption / OCR / open-vocab detect — turnkey Hugging
   Face, bindable fal, local OWLv2 via `examples/providers/detect`), `face` (tinycloud
-  ≥ 0.3.4: detect faces, `--match <img>` to find a person in a clip, or search a
+  ≥ 0.3.4: detect faces, `--match <img>` (JPEG/PNG) to find a person in a clip, or search a
   face-analysis collection), `enhance` (system ffmpeg or a bound model), `view`
   (HTML media player).
 - **OSINT** — `scan`, `capture`, `monitor` (sources: youtube / tiktok / web;

@@ -1,9 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { runWatch } from "../../src/providers/tinycloud/watch.ts";
+import { openCase } from "../../src/case.ts";
+import { makeRecord } from "../../src/record.ts";
+import { defaultProfile } from "../../src/profile.ts";
+import { watchVerb } from "../../src/registry/verbs.ts";
+import { tmpdir } from "node:os";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HERE, "..", "fixtures", "fake-watch.sh");
@@ -37,6 +42,58 @@ test("runWatch maps a real tinycloud envelope to the loose record (via fixture p
   // meta carries provider + extracted title/duration
   assert.equal(rec.meta?.provider, "tinycloud");
   assert.equal(rec.meta?.title, detailed.title);
+});
+
+test("runWatch fills transcript from tinycloud's speech.vtt sidecar", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchvtt-"));
+  try {
+    const vtt = join(dir, "speech.vtt");
+    writeFileSync(vtt, `WEBVTT
+
+1
+00:00:00.000 --> 00:00:01.000
+<v Bobby Lee>That's cool.</v>
+
+2
+00:00:01.000 --> 00:00:02.000
+<v Bobby Lee>That's amazing.</v>
+
+3
+00:00:02.000 --> 00:00:03.000
+<v Theo Von>Are there birth fears?</v>
+`);
+    const json = JSON.stringify({ status: "ready", data: { title: "clip", summary: "summary", transcript: "", describe: { vtt_path: vtt }, segments: [] } });
+    const script = join(dir, "watch.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
+    const p = rec.payload as Record<string, unknown>;
+    assert.match(String(p.transcript), /Bobby Lee: That's cool\. That's amazing\./);
+    assert.match(String(p.transcript), /Theo Von: Are there birth fears\?/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("watch resolves capture_id handles before dispatching to a provider", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchcap-"));
+  const media = join(dir, "clip.mp4");
+  try {
+    writeFileSync(media, "x");
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "capture", payload: { capture_id: "cap_clip.mp4" }, media: { ref: media }, state: "ready" }));
+    const script = join(dir, "provider.sh");
+    writeFileSync(script, '#!/usr/bin/env bash\nprintf \'{"verb":"watch","payload":{"input":"%s"},"media":{"ref":"%s"},"state":"ready"}\\n\' "$1" "$1"\n');
+    chmodSync(script, 0o755);
+    const p = defaultProfile();
+    p.providers = { ...p.providers, watch: { type: "exec", run: `bash ${script} {{input}}` } };
+    const [rec] = await watchVerb.run({ input: "cap_clip.mp4", rest: [], opts: {}, case: c, profile: p });
+    assert.equal(rec.state, "ready");
+    assert.equal((rec.payload as Record<string, unknown>).input, media);
+    assert.equal(rec.media?.ref, media);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("runWatch returns an error record when the provider emits no JSON", async () => {
