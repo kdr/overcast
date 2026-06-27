@@ -85,6 +85,7 @@ Run any verb from bash and parse the JSON record:
 \`\`\`bash
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
+overcast note "rear plate is missing" --ref <record-id> --at 12-18 --json
 overcast face ./clip.mp4 --json           # detect faces (boxes + timestamps)
 overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video (JPEG/PNG query image)
 overcast ask "every white van, with timestamps" --json

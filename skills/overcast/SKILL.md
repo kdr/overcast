@@ -30,6 +30,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `collection` — Manage tinycloud collections that index a target's videos (create/add/list/show/delete/remove/entities).
 - `target` — Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
 - `source` — Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
+- `note` — Add a human observation/finding to the case, optionally anchored to evidence.
 - `prebrief` — Stand up a case: name + target + source in one shot (non-interactive via flags).
 - `ask` — Natural-language query over the case memory; answers with record.id + media.at citations.
 - `brief` — Synthesize the case records into a report (timeline + findings); --export to md/html.
@@ -46,6 +47,7 @@ Run any verb from bash and parse the JSON record:
 ```bash
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
+overcast note "rear plate is missing" --ref <record-id> --at 12-18 --json
 overcast face ./clip.mp4 --json           # detect faces (boxes + timestamps)
 overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video (JPEG/PNG query image)
 overcast ask "every white van, with timestamps" --json

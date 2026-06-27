@@ -20,6 +20,7 @@ import {
 import { collectionVerb } from "../verbs/collection.js";
 import { askVerb, briefVerb } from "../verbs/read.js";
 import { caseVerb } from "../verbs/case.js";
+import { noteVerb } from "../verbs/note.js";
 import { setupVerb, providerVerb, doctorVerb } from "../verbs/setup.js";
 import { skillsVerb } from "../verbs/skills.js";
 import type { VerbSpec } from "./types.js";
@@ -91,6 +92,7 @@ export const VERBS: VerbSpec[] = [
   collectionVerb,
   targetVerb,
   sourceVerb,
+  noteVerb,
   prebriefVerb,
   askVerb,
   briefVerb,

@@ -94,16 +94,19 @@ overcast scan --pull --json            # enumerate sources → capture → sense
 overcast ask "every white van, with timestamps" --json
 overcast brief --export ./brief.html
 
-# 4) faces: detect, or find a specific person in a clip
+# 4) add a human observation anchored to evidence
+overcast note "rear plate is missing" --ref <watch-record-id> --at 12-18 --tag vehicle --json
+
+# 5) faces: detect, or find a specific person in a clip
 overcast face ./clip.mp4 --json                       # who is in this video
 overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/PNG query image), ranked by similarity
 
-# 5) index the target's videos into a collection, then search across ALL of them
+# 6) index the target's videos into a collection, then search across ALL of them
 overcast collection create faces --type face --json
 overcast collection add --all --to <face-col-id> --json   # register every captured/sensed video
 overcast face --match ./suspect.jpg --collection <face-col-id> --json   # find them across the index
 
-# 6) launch the interactive agent (pi TUI) in the current case
+# 7) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
 
@@ -135,7 +138,7 @@ surface + env vars.)
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
 | `collection` | index a target's videos into a tinycloud collection (media-descriptions / entities / face-analysis) → searchable corpus |
-| `target` / `source` | manage the standing scope + where to look |
+| `target` / `source` / `note` | manage the standing scope, where to look, and human-authored observations |
 | `prebrief` | stand up a case (name + target + source) in one shot |
 
 **Read** — synthesize the case
