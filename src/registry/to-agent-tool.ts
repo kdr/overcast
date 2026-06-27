@@ -262,8 +262,10 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
       }
 
       // skip a record explicitly tagged for a different case (already persisted
-      // there) — e.g. `case init <other-dir>`.
+      // there) — e.g. `case init <other-dir>`. Transient records are user-facing
+      // control results, not case history.
       for (const rec of records) {
+        if (rec.meta?.transient === true) continue;
         if (rec.meta?.case && rec.meta.case !== c.dir) continue;
         c.writeRecord(rec);
       }

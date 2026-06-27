@@ -327,7 +327,9 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
 
     // persist into the active case, but skip a record explicitly tagged for a
     // different case (e.g. `case init <other-dir>` already wrote it there).
+    // Transient records are user-facing control results, not case history.
     for (const rec of records) {
+      if (rec.meta?.transient === true) continue;
       if (rec.meta?.case && rec.meta.case !== c.dir) continue;
       c.writeRecord(rec);
     }
