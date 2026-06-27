@@ -52,6 +52,15 @@ overcast ask "every white van, with timestamps" --json
 overcast brief --export ./brief.html
 ```
 
+Built-in source refs for `source add <type>:<ref>`:
+
+- `youtube:@handle` — enumerate a channel's videos.
+- `youtube:search:<query>` or `youtube:<keyword>` — YouTube keyword search.
+- `youtube:playlist:<id>` or `youtube:<full YouTube URL>` — enumerate a playlist/video URL.
+- `tiktok:@user` — enumerate a TikTok profile.
+- `tiktok:#tag` — enumerate a TikTok hashtag.
+- `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
+
 `overcast commands --json` dumps the authoritative verb registry. Full man
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
 read it when you need a verb's exact flags).

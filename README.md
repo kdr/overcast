@@ -173,6 +173,15 @@ authoring guide in [`docs/providers.md`](docs/providers.md).
 | **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave) |
 | **memory** | ask / brief | local (always on); a tinycloud `collection` (media-descriptions) via `ask --collection` |
 
+Built-in source refs:
+
+- `youtube:@handle` — enumerate a channel's videos.
+- `youtube:search:<query>` or `youtube:<keyword>` — YouTube keyword search.
+- `youtube:playlist:<id>` or `youtube:<full YouTube URL>` — enumerate a playlist/video URL.
+- `tiktok:@user` — enumerate a TikTok profile.
+- `tiktok:#tag` — enumerate a TikTok hashtag.
+- `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
+
 ### Profiles
 
 A **profile** is a named set of bindings — per-verb providers plus the brain LLM —

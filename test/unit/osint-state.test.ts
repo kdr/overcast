@@ -105,10 +105,16 @@ test("tokenizeCommand respects quotes (spaced command paths)", () => {
 
 import { builtinDescriptor } from "../../src/providers/sources/index.ts";
 
-test("builtinDescriptor resolves youtube/tiktok to shipped scripts; env override wins", () => {
+test("builtinDescriptor resolves built-in source scripts; env override wins", () => {
   const yt = builtinDescriptor("youtube");
+  const tt = builtinDescriptor("tiktok");
+  const web = builtinDescriptor("web");
   assert.ok(yt, "youtube descriptor present in dev");
+  assert.ok(tt, "tiktok descriptor present in dev");
+  assert.ok(web, "web descriptor present in dev");
   assert.match(yt!.base.join(" "), /youtube\.sh$/);
+  assert.match(tt!.base.join(" "), /tiktok\.sh$/);
+  assert.match(web!.base.join(" "), /web\.sh$/);
   assert.equal(builtinDescriptor("nope"), undefined);
   // env override takes precedence and is quote-aware
   process.env.OVERCAST_SOURCE_YOUTUBE_CMD = 'bash "/x y/z.sh"';
