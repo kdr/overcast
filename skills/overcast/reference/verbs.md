@@ -366,6 +366,32 @@ Options:
 
 Emits `source` records.
 
+### `overcast note`
+
+Creates a primary human-authored `note` record. Notes are searchable by `ask`, included in `brief`, visible in `case records`, and can cite media via `--ref <record-id|capture-id|path|url>` plus `--at <seconds|start-end|timecode>`. Use `--tag` for comma-separated labels and `--confidence` for the analyst's confidence marker.
+
+```
+overcast note <text> [options]
+
+  Add a human observation/finding to the case, optionally anchored to evidence.
+
+  Creates a primary human-authored `note` record. Notes are searchable by `ask`, included in `brief`, visible in `case records`, and can cite media via `--ref <record-id|capture-id|path|url>` plus `--at <seconds|start-end|timecode>`. Use `--tag` for comma-separated labels and `--confidence` for the analyst's confidence marker.
+
+Arguments:
+  text             Observation/finding text
+
+Options:
+  --ref <string>         Evidence record id, capture id, media path, or URL to anchor this note
+  --at <string>          Anchor time: seconds, hh:mm:ss, or start-end span
+  --tag <string>         Comma-separated labels (e.g. vehicle,contradiction)
+  --confidence <string>  Analyst confidence marker (e.g. low|medium|high)
+  --title <string>       Short note title
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `note` records.
+
 ### `overcast case`
 
 A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.

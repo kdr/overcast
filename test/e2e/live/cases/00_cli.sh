@@ -9,9 +9,13 @@ ver="$(ocg version --json)"
 assert_eq "$C.version" "0.80.1" "$(echo "$ver" | jq -r '.pi')" "pi pinned at 0.80.1"
 assert_nonempty "$C.binary_runs" "$(echo "$ver" | jq -r '.overcast')" "binary reports overcast version"
 
-cond "the verb registry exposes all 18 verbs"
-n="$(ocg commands --json | jq '.verbs|length')"
-assert_eq "$C.commands" "18" "$n" "18 verbs in the registry"
+cond "the verb registry exposes the public verbs"
+cmds="$(ocg commands --json)"
+n="$(echo "$cmds" | jq '.verbs|length')"
+if [ "${n:-0}" -ge 21 ]; then ok "$C.commands_count" "$n verbs in the registry"; else fail "$C.commands_count" "expected at least 21 verbs, got $n"; fi
+for verb in watch listen see face enhance view scan capture monitor collection target source note prebrief ask brief case setup provider doctor skills; do
+  if echo "$cmds" | jq -e --arg v "$verb" '.verbs[]|select(.name==$v)' >/dev/null; then ok "$C.commands_$verb" "$verb listed"; else fail "$C.commands_$verb" "$verb missing from registry"; fi
+done
 
 cond "overcast --help documents every provider env var"
 help="$(ocg --help)"
