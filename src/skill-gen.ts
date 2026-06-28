@@ -110,8 +110,8 @@ read it when you need a verb's exact flags).
 
 \`overcast ask "question"\` is the zero-config way to search the whole case:
 notes, sensed media records, scan/capture artifacts, and other primary evidence
-records. Operational/read records (\`setup\`, \`doctor\`, \`index\`, \`ask\`,
-\`case\`, etc.) are excluded from case memory and briefs so setup probes,
+records. Operational/read records (\`setup\`, \`doctor\`, \`index\`, \`target\`,
+\`source\`, \`prebrief\`, \`ask\`, \`case\`, etc.) are excluded from case memory and briefs so setup probes,
 remote-index bookkeeping, and prior answers are not cited as evidence.
 It uses the always-on \`local-grep\` backend over verb-specific indexable fields
 (\`note.text\`, \`watch.content\`, \`listen.transcript\`, scan titles/snippets, …)

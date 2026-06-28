@@ -131,7 +131,7 @@ default is `local-grep`, which scans indexable fields from `.overcast/records`
 (`note.text`, `watch.content`, `listen.transcript`, scan titles/snippets, etc.).
 Only primary evidence records are eligible for memory and briefs: read/meta and
 operational bookkeeping records (`ask`, `brief`, `case`, `setup`, `doctor`,
-`index`, legacy `collection`, etc.) are excluded even if they contain matching
+`index`, `target`, `source`, `prebrief`, legacy `collection`, etc.) are excluded even if they contain matching
 text. Remote indexes stay explicit through the case index mirror and
 `ask --index`. `face` records are also excluded from general case memory:
 boxes, matches, and stored detections are typed face evidence, not descriptive video

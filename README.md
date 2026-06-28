@@ -87,7 +87,7 @@ npx skills add kdr/overcast           # vercel-labs/skills; pulls skills from th
 steers the agent to start with zero-config `ask`, rebuild qmd before semantic
 queries, use `ask --deep` for configured semantic memory, and bind remote indexes
 with `index attach` instead of note bookkeeping. Case memory is evidence-only:
-setup/doctor/index/read bookkeeping is excluded from `ask` and `brief`, and
+setup/doctor/index/target/source/prebrief/read bookkeeping is excluded from `ask` and `brief`, and
 typed face records are not used as general case-search content. When a local video
 is added to an index before it has been watched, `index add` creates missing
 `watch` evidence for local-grep/qmd memory instead of relying on face detection.

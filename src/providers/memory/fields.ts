@@ -43,14 +43,10 @@ const FIELD_POLICY: Record<string, string[]> = {
     "detailed.summary",
   ],
   see: ["caption", "ocr", "text", "summary", "detections", "objects", "labels"],
-  face: ["summary", "provider_summary", "faces", "moments"],
   note: ["title", "text", "tags", "confidence", "ref"],
   scan: ["title", "snippet", "url", "source", "published"],
   capture: ["title", "snippet", "text", "path", "source", "kind"],
   enhance: ["summary", "path", "ops", "output"],
-  target: ["name", "prompt", "image", "description"],
-  source: ["type", "ref", "name", "query"],
-  prebrief: ["target", "source", "summary", "name"],
 };
 
 function stringify(v: unknown): string | undefined {

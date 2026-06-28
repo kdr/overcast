@@ -49,6 +49,9 @@ test("case memory excludes operational and read/meta records from local and qmd 
     c.writeRecord(makeRecord({ verb: "doctor", payload: { summary: "DOCTOR_NOISE qmd available" } }));
     c.writeRecord(makeRecord({ verb: "index", payload: { summary: "INDEX_NOISE remote attach" } }));
     c.writeRecord(makeRecord({ verb: "collection", payload: { summary: "COLLECTION_NOISE remote list" } }));
+    c.writeRecord(makeRecord({ verb: "target", payload: { name: "TARGET_NOISE case target" } }));
+    c.writeRecord(makeRecord({ verb: "source", payload: { name: "SOURCE_NOISE case source", ref: "web:query" } }));
+    c.writeRecord(makeRecord({ verb: "prebrief", payload: { summary: "PREBRIEF_NOISE case kickoff" } }));
     c.writeRecord(makeRecord({ verb: "case", payload: { summary: "CASE_NOISE memory status" } }));
     c.writeRecord(makeRecord({ verb: "ask", payload: { text: "ASK_NOISE prior answer", citations: [] } }));
     c.writeRecord(makeRecord({ verb: "face", payload: { op: "detect", summary: "FACE_DETECT_NOISE 36 face boxes" }, media: { ref: "faces.mp4" } }));
@@ -75,7 +78,7 @@ test("case memory excludes operational and read/meta records from local and qmd 
     const docsDir = join(c.indexDir, "case-search", "qmd", "docs");
     const docs = readdirSync(docsDir).map((name) => readFileSync(join(docsDir, name), "utf8")).join("\n");
     assert.match(docs, /EVIDENCE_MARKER/);
-    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|CASE_NOISE|ASK_NOISE|FACE_DETECT_NOISE|FACE_MATCH_NOISE|FACE_SEARCH_NOISE|FACE_LIST_NOISE/);
+    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|TARGET_NOISE|SOURCE_NOISE|PREBRIEF_NOISE|CASE_NOISE|ASK_NOISE|FACE_DETECT_NOISE|FACE_MATCH_NOISE|FACE_SEARCH_NOISE|FACE_LIST_NOISE/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -736,11 +739,14 @@ test("brief excludes meta and operational records from timeline and counts", asy
     c.writeRecord(makeRecord({ verb: "setup", payload: { summary: "SETUP_CHUNK" } }));
     c.writeRecord(makeRecord({ verb: "doctor", payload: { summary: "DOCTOR_CHUNK" } }));
     c.writeRecord(makeRecord({ verb: "index", payload: { summary: "INDEX_CHUNK" } }));
+    c.writeRecord(makeRecord({ verb: "target", payload: { name: "TARGET_CHUNK" } }));
+    c.writeRecord(makeRecord({ verb: "source", payload: { name: "SOURCE_CHUNK", ref: "web:query" } }));
+    c.writeRecord(makeRecord({ verb: "prebrief", payload: { summary: "PREBRIEF_CHUNK" } }));
     const [rec] = await briefVerb.run(ctx(c, undefined, {}));
     const p = rec.payload as Record<string, unknown>;
     const report = p.report as string;
     assert.match(report, /EVIDENCE_MARKER/); // the real evidence IS present
-    assert.doesNotMatch(report, /OLD_REPORT_BODY|ASK_ANSWER|CASE_CHUNK|SETUP_CHUNK|DOCTOR_CHUNK|INDEX_CHUNK/);
+    assert.doesNotMatch(report, /OLD_REPORT_BODY|ASK_ANSWER|CASE_CHUNK|SETUP_CHUNK|DOCTOR_CHUNK|INDEX_CHUNK|TARGET_CHUNK|SOURCE_CHUNK|PREBRIEF_CHUNK/);
     assert.equal(p.total, 1); // only the 1 evidence record counted
     assert.deepEqual(p.counts, { watch: 1 });
   } finally {
