@@ -100,6 +100,20 @@ test("case setup without flags explains the case is not set up yet", async () =>
   });
 });
 
+test("case setup without flags does not say completed setup is missing", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const records = await caseVerb.run(ctx(dir, "setup", [], { target: "done", yes: true }));
+    c.writeRecord(records.at(-1)!);
+
+    const [rec] = await caseVerb.run(ctx(dir, "setup"));
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal(payload.completed, true);
+    assert.equal(payload.status, "case setup complete");
+    assert.doesNotMatch(String(payload.note), /not been set up yet/);
+  });
+});
+
 test("case setup --yes seeds setup.json from existing registries", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
@@ -256,6 +270,24 @@ test("case setup attach index upgrades a planned index instead of duplicating it
     assert.equal(indexes[0].id, "idx_faces");
     assert.equal(indexes[0].name, "Faces");
     assert.deepEqual((saved.default_signals as Record<string, unknown>).Faces, undefined);
+    assert.deepEqual((saved.default_signals as Record<string, unknown>).idx_faces, ["face", "index add"]);
+    assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0].indexes, ["idx_faces"]);
+  });
+});
+
+test("case setup two-part index edit preserves existing attached id", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { index: "idx_faces:face-analysis:Faces", video: "clip.mp4", yes: true }));
+    c.writeRecord(records.at(-1)!);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { index: "Faces:face-analysis", yes: true }));
+    c.writeRecord(records.at(-1)!);
+
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const indexes = saved.indexes as Array<Record<string, unknown>>;
+    assert.equal(indexes.length, 1);
+    assert.equal(indexes[0].id, "idx_faces");
     assert.deepEqual((saved.default_signals as Record<string, unknown>).idx_faces, ["face", "index add"]);
     assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0].indexes, ["idx_faces"]);
   });

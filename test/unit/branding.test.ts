@@ -57,6 +57,18 @@ test("OvercastHeader: setup cue can refresh after first render", () => {
   h.dispose();
 });
 
+test("OvercastHeader: setup cue change requests a render after reveal", () => {
+  let pending = true;
+  let renders = 0;
+  const tui = { requestRender: () => { renders++; } };
+  const h = new OvercastHeader(tui as never, { ...headerOpts, setup: () => (pending ? "case not set up" : undefined) });
+  setStart(h, 4000);
+  pending = false;
+  (h as unknown as { pollSetup: () => void }).pollSetup();
+  h.dispose();
+  assert.equal(renders, 1);
+});
+
 test("opLabel: each verb cycles its OWN variations (independent per-verb cursors)", () => {
   // Interleave an unrelated verb between every scan call. With per-verb cursors,
   // scan still covers all 4 of its variations; a single shared counter would skip

@@ -209,14 +209,24 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   for (const index of indexes) {
     const existing = setup.indexes.find((i) => (index.id && (i.id === index.id || i.name === index.name)) || (!index.id && i.name === index.name));
     const previousSignalKey = existing ? setupIndexRef(existing) : undefined;
-    if (existing) Object.assign(existing, index);
-    else setup.indexes.push(index);
-    const signalKey = setupIndexRef(index);
+    const current = existing ?? index;
+    if (existing) {
+      const priorId = existing.id;
+      const priorMode = existing.mode;
+      Object.assign(existing, index);
+      if (!index.id && priorId) {
+        existing.id = priorId;
+        existing.mode = priorMode ?? "attach";
+      }
+    } else {
+      setup.indexes.push(index);
+    }
+    const signalKey = setupIndexRef(current);
     if (previousSignalKey && previousSignalKey !== signalKey) delete setup.default_signals[previousSignalKey];
-    setup.default_signals[signalKey] = index.default_signals;
+    setup.default_signals[signalKey] = current.default_signals;
     indexRoutesChanged = true;
-    operations.push(`${index.mode === "attach" ? "index attach" : "index create planned"}: ${signalKey}`);
-    if (apply && index.id) addIndex(ctx.case, { id: index.id, name: index.name, type: index.type });
+    operations.push(`${current.mode === "attach" ? "index attach" : "index create planned"}: ${signalKey}`);
+    if (apply && current.id) addIndex(ctx.case, { id: current.id, name: current.name, type: current.type });
   }
   if (removeIndexes.length) {
     const removedIndexes = setup.indexes.filter((i) => removeIndexes.includes(i.id ?? "") || removeIndexes.includes(i.name));
@@ -388,14 +398,15 @@ export const caseVerb: VerbSpec = {
         "video",
         "folder",
       ].some((k) => ctx.opts[k] != null);
-	      if (!hasInputs && sub !== "plan" && ctx.opts.yes !== true) {
+      if (!hasInputs && sub !== "plan" && ctx.opts.yes !== true) {
+        const setupCompleted = saved?.completed ?? false;
         return [
           makeRecord({
             verb: "case",
             format: "json",
-	            payload: {
-	              completed: saved?.completed ?? false,
-	              status: saved?.completed ? "case setup complete" : "case has not been set up yet",
+            payload: {
+              completed: setupCompleted,
+              status: setupCompleted ? "case setup complete" : "case has not been set up yet",
 	              setup_file: ctx.case.setupFile,
 	              wizard_steps: [
 	                "1. Case name",
@@ -410,8 +421,10 @@ export const caseVerb: VerbSpec = {
 	                "overcast case setup plan --target \"target\" --source \"web:query\"",
 	                "overcast case setup edit --target \"new target\" --yes",
 	              ],
-	              note: "case has not been set up yet; in the TUI, ask the user one wizard question at a time, or pass setup flags directly on the CLI",
-	            },
+              note: setupCompleted
+                ? "case setup is complete; use case setup status/show to inspect it or case setup edit to change it"
+                : "case has not been set up yet; in the TUI, ask the user one wizard question at a time, or pass setup flags directly on the CLI",
+            },
             meta: { transient: true },
             state: "pending",
           }),
