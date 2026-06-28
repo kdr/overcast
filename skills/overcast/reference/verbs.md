@@ -191,20 +191,21 @@ Emits `media.crop` records.
 
 ### `overcast scan`
 
-Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon).
+Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
 
 ```
 overcast scan  [options]
 
-  Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
+  Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 
-  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon).
+  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
 
 Options:
   --query <string>       Ad-hoc keyword search across sources
   --source <string>      Restrict to source ids/types (comma list)
   --since <string>       Only items newer than e.g. 24h, 2026-06-01
   --limit <number>       Max hits per source
+  --local                Scan local case media/indexes instead of external sources
   --pull                 Auto-capture + sense each hit
   --pipe <string>        Sense to run on pulled hits (watch|listen)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
@@ -423,29 +424,41 @@ Emits `note` records.
 
 ### `overcast case`
 
-A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 ```
 overcast case <action> [sub] [arg] [options]
 
-  Inspect/manage the current case: init | info | records | memory | clear.
+  Inspect/manage the current case: init | setup | info | records | memory | clear.
 
-  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 Arguments:
-  action           init | info | records | memory | clear
-  sub              memory subcommand (list|get|search), or dir for init
+  action           init | setup | info | records | memory | clear
+  sub              setup/memory subcommand, or dir for init
   arg              record id (memory get), query (memory search), or index action
 
 Options:
-  --name <string>        Case name (init)
+  --name <string>        Case name (init/setup/edit)
+  --target <string>      setup/edit: comma-separated target values to add
+  --remove-target <string> setup/edit: comma-separated target ids/values to remove
+  --note <string>        setup/edit: comma-separated notes to add as local evidence
+  --source <string>      setup/edit: comma-separated source specs (<type>:<ref>) to add
+  --remove-source <string> setup/edit: comma-separated source ids/specs to remove
+  --index <string>       setup/edit: comma-separated indexes (name:type or id:type:name)
+  --remove-index <string> setup/edit: comma-separated index ids/names to remove
+  --signals <string>     setup/edit: comma-separated signals for new indexes/videos
+  --video <string>       setup/edit: comma-separated local videos/URLs to route
+  --folder <string>      setup/edit: comma-separated local media folders to remember
+  --no-index             setup/edit: save setup routes without starting remote collection ingestion
+  --dry-run              setup/edit: preview without saving or applying
   --verb <string>        Filter records by kind
   --since <string>       Time filter (e.g. 24h, 2026-06-01)
   --field <string>       Payload field to read in full (memory get)
   --offset <number>      Start char offset when paging a field (memory get)
   --limit <number>       Max records/passages, or max chars when paging a field
   --memory <string>      Memory provider/backend for case memory index (e.g. local-grep, qmd)
-  --yes                  Confirm destructive case clear
+  --yes                  Confirm destructive case clear or non-interactive setup apply
   --json                 JSON output
   --format <string>      json | md | txt
 ```

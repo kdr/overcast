@@ -87,7 +87,7 @@ npx skills add kdr/overcast           # vercel-labs/skills; pulls skills from th
 steers the agent to start with zero-config `ask`, rebuild qmd before semantic
 queries, use `ask --deep` for configured semantic memory, and bind remote indexes
 with `index attach` instead of note bookkeeping. Case memory is evidence-only:
-setup/doctor/index/target/source/prebrief/read bookkeeping is excluded from `ask` and `brief`.
+case setup/doctor/index/target/source/prebrief/read bookkeeping is excluded from `ask` and `brief`.
 Face/object detection records index only compact summaries/counts/moments, not
 raw box arrays or thumbnails; `crop` records are searchable evidence artifacts
 with source record/media/crop-source/time/class/id/box provenance. Use
@@ -106,8 +106,9 @@ such as qmd before clearing local state.
 # 1) analyze a video → a reusable, time-anchored record
 overcast watch ./clip.mp4 --json
 
-# 2) stand up a case, give it a target + a source, sweep it
-overcast prebrief "dock-incident" --target "white van at pier 9" --source web:"pier 9 dock incident"
+# 2) run first-run case setup, give it a target + a source, sweep it
+overcast case setup --name "dock-incident" --target "white van at pier 9" --source web:"pier 9 dock incident" --yes
+overcast case setup status --json
 overcast scan --pull --json            # enumerate sources → capture → sense each hit
 
 # 3) ask questions over everything the case has accumulated (with citations)
@@ -163,7 +164,7 @@ surface + env vars.)
 **OSINT** — search / capture / monitor
 | verb | does |
 |---|---|
-| `scan` | sweep registered sources for the target; `--pull` to capture + sense each hit |
+| `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
 | `index` | index a target's videos into a searchable corpus (media-descriptions / entities / face-analysis) |
@@ -175,12 +176,40 @@ surface + env vars.)
 |---|---|
 | `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--deep` uses configured semantic memory such as qmd; `--index <id>` answers over a media-descriptions index (`--probe` for moment search) |
 | `brief` | timeline / findings report; `--export` to md/html |
-| `case` | inspect/manage the case: `init` / `info` / `records` / `memory` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
+| `case` | inspect/manage the case: `init` / `setup` / `info` / `records` / `memory` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
 
 **Config / SDK / dist** — `setup` (bind providers + brain LLM), `provider`
 (init/list/describe), `doctor` (preflight), `skills` (generate/install).
 
 **Base verbs** come from pi: `read` `write` `edit` `bash` `grep` `find` `ls`.
+
+### Case setup
+
+`case setup` is the first-run case wizard and the later setup-management
+surface. It saves the mutable current setup to `.overcast/setup.json` and emits
+immutable `case` history records with `payload.op = "startup_setup"` or
+`"startup_setup_update"`. Those operational setup records are excluded from
+case memory/briefs; setup notes are emitted as normal `note` evidence.
+Setup always configures one local case-search backend: `local-grep` by default,
+or `qmd` when you want configured local semantic memory. Local memory defaults
+to `note`, `watch`, `listen`, `see`, and `scan` evidence, including source/search
+metadata from web, YouTube, TikTok, and similar scans. Remote collections are
+additive and optional: `face-analysis` / `media-descriptions` / `entities` are
+tinycloud-backed for scale and portability. When setup applies with local videos
+routed to remote collections, overcast starts collection creation/ingestion
+immediately; use `--no-index` to save the setup without starting remote ingest.
+
+```bash
+overcast case setup plan --target "@pier9" --memory local-grep --source "web:pier 9" --index "media:media" --json
+overcast case setup --name "dock-incident" --target "@pier9" --memory local-grep --source "web:pier 9" --yes --json
+overcast case setup show --json
+overcast case setup edit --target "new subject" --source "youtube:@channel" --yes --json
+```
+
+When a case is local-media-only, `overcast scan` does not dead-end on missing
+sources: it scans local setup/media/index state, and if an image target plus a
+face-analysis index exist it runs the face-index match. Use `overcast scan
+--local` to force this local scan even after adding external sources.
 
 ---
 

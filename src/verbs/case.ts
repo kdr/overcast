@@ -3,7 +3,7 @@
 // memory providers. Subcommands: init | info | records | memory | clear.
 
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase } from "../case.js";
@@ -12,14 +12,396 @@ import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.
 import { parseSince } from "../providers/memory/local.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { payloadFields, fieldText, fieldNames, getField } from "../render.js";
+import { addSource, listSources, parseSourceSpec, removeSource } from "../state/source.js";
+import { addTarget, listTargets, removeTarget } from "../state/target.js";
+import { addIndex, listIndexes, normalizeIndexType, removeIndex } from "../state/index.js";
+import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex } from "../state/setup.js";
+import { indexVerb } from "./index.js";
+import { isAv } from "./media-ref.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "case", format: "json", payload: { error: message }, error: message, state: "error" });
 }
 
+const DEFAULT_SIGNAL_BY_INDEX_TYPE: Record<string, string[]> = {
+  "media-descriptions": ["watch", "index add"],
+  "face-analysis": ["face", "index add"],
+  entities: ["watch", "index add"],
+};
+const DEFAULT_LOCAL_MEMORY_SIGNALS = ["note", "watch", "listen", "see", "scan"];
+
+function csv(v: unknown): string[] {
+  if (v == null) return [];
+  return String(v).split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function normalizeSetupMemory(input: string): string | undefined {
+  const value = input.trim().toLowerCase();
+  if (value === "local" || value === "local-grep") return "local-grep";
+  if (value === "qmd") return "qmd";
+  return undefined;
+}
+
+function summarizeSavedSetup(setup: CaseSetup | undefined): Record<string, unknown> {
+  return setupSummary(setup);
+}
+
+function parseIndexSpec(spec: string, signals: string[]): SetupIndex {
+  const parts = spec.split(":").map((p) => p.trim()).filter(Boolean);
+  let id: string | undefined;
+  let name = parts[0] ?? spec;
+  let rawType = parts[1] ?? "media-descriptions";
+  if (parts.length >= 3) {
+    id = parts[0];
+    rawType = parts[1];
+    name = parts.slice(2).join(":");
+  }
+  const type = normalizeIndexType(rawType) ?? rawType;
+  return {
+    id,
+    name,
+    type,
+    mode: id ? "attach" : "create",
+    default_signals: signals.length ? signals : (DEFAULT_SIGNAL_BY_INDEX_TYPE[type] ?? []),
+  };
+}
+
+function setupHealth(ctx: VerbContext, setup: CaseSetup | undefined): Record<string, unknown> {
+  const mirrored = new Set(listIndexes(ctx.case).map((i) => i.id));
+  const missingIndexes = (setup?.indexes ?? [])
+    .filter((i) => i.id && !mirrored.has(i.id))
+    .map((i) => i.id);
+  const incompleteIndexes = (setup?.indexes ?? [])
+    .filter((i) => !i.id && i.mode !== "attach")
+    .map((i) => ({ name: i.name, type: i.type }));
+  const missingVideos = (setup?.media.videos ?? [])
+    .filter((v) => !/^https?:\/\//i.test(v) && !existsSync(v));
+  return {
+    setup: summarizeSavedSetup(setup),
+    registry: {
+      targets: listTargets(ctx.case).length,
+      sources: listSources(ctx.case).length,
+      indexes: listIndexes(ctx.case).length,
+    },
+    missing_indexes: missingIndexes,
+    incomplete_indexes: incompleteIndexes,
+    missing_videos: missingVideos,
+  };
+}
+
+interface SetupChange {
+  setup: CaseSetup;
+  operations: string[];
+  noteRecords: OvercastRecord[];
+}
+
+const accepted = (rec: OvercastRecord) => rec.state === "ready" || rec.state === "pending";
+
+function cloneSetup(setup: CaseSetup): CaseSetup {
+  return JSON.parse(JSON.stringify(setup)) as CaseSetup;
+}
+
+function targetValuesForRemoval(ctx: VerbContext, removals: string[]): Set<string> {
+  const values = new Set(removals);
+  for (const existing of listTargets(ctx.case)) {
+    if (removals.includes(existing.id)) values.add(existing.value);
+  }
+  return values;
+}
+
+function sourceSpecsForRemoval(ctx: VerbContext, removals: string[]): Set<string> {
+  const specs = new Set(removals);
+  for (const existing of listSources(ctx.case)) {
+    if (removals.includes(existing.id)) specs.add(`${existing.type}:${existing.ref}`);
+  }
+  return specs;
+}
+
+function setupFromExistingRegistries(ctx: VerbContext, caseName: string): CaseSetup {
+  const setup = emptySetup(caseName);
+  setup.targets = listTargets(ctx.case).map((t) => t.value);
+  setup.sources = listSources(ctx.case).map((s) => `${s.type}:${s.ref}`);
+  setup.indexes = listIndexes(ctx.case).map((i) => {
+    const type = normalizeIndexType(i.type) ?? i.type;
+    const defaultSignals = DEFAULT_SIGNAL_BY_INDEX_TYPE[type] ?? [];
+    setup.default_signals[i.id] = defaultSignals;
+    return {
+      id: i.id,
+      name: i.name,
+      type,
+      mode: "attach",
+      default_signals: defaultSignals,
+    };
+  });
+  const videoRefs = [...new Set(listIndexes(ctx.case).flatMap((i) => i.members.map((m) => m.ref)))];
+  setup.media.videos = videoRefs;
+  setup.media.routes = videoRefs.map((ref) => ({
+    ref,
+    signals: ["watch"],
+    indexes: setup.indexes.map(setupIndexRef),
+  }));
+  return setup;
+}
+
+function setupIndexRef(index: SetupIndex): string {
+  return index.id ?? index.name;
+}
+
+function refreshSetupRouteIndexes(setup: CaseSetup): void {
+  const indexRefs = setup.indexes.map(setupIndexRef);
+  for (const route of setup.media.routes) route.indexes = [...indexRefs];
+}
+
+function addVideoRoute(setup: CaseSetup, ref: string, signals: string[]): void {
+  if (!setup.media.videos.includes(ref)) setup.media.videos.push(ref);
+  const route = setup.media.routes.find((r) => r.ref === ref);
+  const indexRefs = setup.indexes.map(setupIndexRef);
+  if (route) {
+    route.signals = signals.length ? signals : route.signals;
+    route.indexes = indexRefs.length ? indexRefs : route.indexes;
+  } else {
+    setup.media.routes.push({ ref, signals: signals.length ? signals : ["watch"], indexes: indexRefs });
+  }
+}
+
+function folderMediaFiles(folder: string): string[] {
+  if (!existsSync(folder)) return [];
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile() && isAv(path)) out.push(path);
+    }
+  };
+  try {
+    if (statSync(folder).isDirectory()) walk(folder);
+    else if (statSync(folder).isFile() && isAv(folder)) out.push(folder);
+  } catch {
+    return [];
+  }
+  return out.sort();
+}
+
+function isImageTargetRef(ref: string): boolean {
+  return /\.(avif|bmp|gif|jpe?g|png|tiff?|webp)(?:[?#].*)?$/i.test(ref);
+}
+
+function remoteIndexId(rec: OvercastRecord): string | undefined {
+  const payload = rec.payload && typeof rec.payload === "object" ? rec.payload as Record<string, unknown> : {};
+  const detailed = payload.detailed && typeof payload.detailed === "object" ? payload.detailed as Record<string, unknown> : {};
+  const collection = detailed.collection && typeof detailed.collection === "object" ? detailed.collection as Record<string, unknown> : {};
+  for (const value of [payload.id, payload.index, payload.collection_id, detailed.id, detailed.collection_id, collection.id]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function indexingOperationLabel(recs: OvercastRecord[]): "indexing started" | "index already member" | "indexing attempted" {
+  if (recs.some((rec) => {
+    const payload = rec.payload && typeof rec.payload === "object" ? rec.payload as Record<string, unknown> : {};
+    return accepted(rec) && payload.already_member !== true;
+  })) return "indexing started";
+  if (recs.some((rec) => {
+    const payload = rec.payload && typeof rec.payload === "object" ? rec.payload as Record<string, unknown> : {};
+    return accepted(rec) && payload.already_member === true;
+  })) return "index already member";
+  return "indexing attempted";
+}
+
+async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations: string[]): Promise<OvercastRecord[]> {
+  const records: OvercastRecord[] = [];
+  const createdByName = new Map<string, string>();
+
+  for (const index of setup.indexes) {
+    if (index.id) continue;
+    const recs = await indexVerb.run({
+      ...ctx,
+      input: "create",
+      rest: [index.name],
+      opts: { type: index.type },
+    });
+    records.push(...recs);
+    const created = recs.find(accepted);
+    const id = created ? remoteIndexId(created) : undefined;
+    if (!id) {
+      operations.push(`index create attempted: ${index.name}`);
+      continue;
+    }
+    const oldRef = setupIndexRef(index);
+    index.id = id;
+    index.mode = "attach";
+    createdByName.set(oldRef, id);
+    setup.default_signals[id] = setup.default_signals[oldRef] ?? index.default_signals;
+    if (oldRef !== id) delete setup.default_signals[oldRef];
+    operations.push(`index created: ${index.name} (${id})`);
+  }
+
+  if (createdByName.size) {
+    for (const route of setup.media.routes) {
+      route.indexes = route.indexes.map((ref) => createdByName.get(ref) ?? ref);
+    }
+  }
+  refreshSetupRouteIndexes(setup);
+
+  for (const route of setup.media.routes) {
+    for (const index of setup.indexes) {
+      const id = index.id;
+      if (!id || !route.indexes.includes(id)) continue;
+      const signals = new Set([...route.signals, ...(setup.default_signals[id] ?? index.default_signals)]);
+      if (!signals.has("index add")) continue;
+      const recs = await indexVerb.run({
+        ...ctx,
+        input: "add",
+        rest: [route.ref],
+        opts: { to: id, type: index.type },
+      });
+      records.push(...recs);
+      operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
+    }
+  }
+
+  return records;
+}
+
+function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup" | "startup_setup_update", apply: boolean): SetupChange {
+  const signals = csv(ctx.opts.signals);
+  const targets = csv(ctx.opts.target);
+  const removeTargets = csv(ctx.opts["remove-target"]);
+  const notes = csv(ctx.opts.note);
+  const sources = csv(ctx.opts.source);
+  const removeSources = csv(ctx.opts["remove-source"]);
+  const memories = csv(ctx.opts.memory);
+  const indexSignals = memories.length ? [] : signals;
+  const indexes = csv(ctx.opts.index).map((s) => parseIndexSpec(s, indexSignals));
+  const removeIndexes = csv(ctx.opts["remove-index"]);
+  const videos = csv(ctx.opts.video);
+  const folders = csv(ctx.opts.folder);
+  const setup = cloneSetup(base);
+  const operations: string[] = [];
+  const noteRecords: OvercastRecord[] = [];
+  let indexRoutesChanged = false;
+
+  if (ctx.opts.name) {
+    setup.case_name = String(ctx.opts.name);
+    operations.push(`case name: ${setup.case_name}`);
+    if (apply) ctx.case.setName(setup.case_name);
+  }
+  for (const t of targets) {
+    if (!setup.targets.includes(t)) setup.targets.push(t);
+    operations.push(`target add: ${t}`);
+    if (apply && !listTargets(ctx.case).some((x) => x.value === t)) addTarget(ctx.case, t, { image: isImageTargetRef(t) });
+  }
+  if (removeTargets.length) {
+    const removeTargetValues = targetValuesForRemoval(ctx, removeTargets);
+    setup.targets = setup.targets.filter((t) => !removeTargetValues.has(t));
+    for (const t of removeTargets) {
+      operations.push(`target remove: ${t}`);
+      if (apply) {
+        for (const existing of listTargets(ctx.case).filter((x) => x.id === t || x.value === t)) removeTarget(ctx.case, existing.id);
+      }
+    }
+  }
+  for (const note of notes) {
+    const isNew = !setup.notes.includes(note);
+    if (isNew) setup.notes.push(note);
+    operations.push(isNew ? "note add" : "note already present");
+    if (apply && isNew) {
+      noteRecords.push(makeRecord({
+        verb: "note",
+        format: "json",
+        payload: { text: note, source: "case setup" },
+        meta: { case: ctx.case.dir },
+        state: "ready",
+      }));
+    }
+  }
+  for (const spec of sources) {
+    if (!setup.sources.includes(spec)) setup.sources.push(spec);
+    operations.push(`source add: ${spec}`);
+    if (apply && !listSources(ctx.case).some((s) => `${s.type}:${s.ref}` === spec)) addSource(ctx.case, spec);
+  }
+  if (memories.length) {
+    const backend = normalizeSetupMemory(memories.at(-1)!)!;
+    setup.memory = {
+      backend,
+      signals: signals.length ? signals : (setup.memory?.signals ?? DEFAULT_LOCAL_MEMORY_SIGNALS),
+    };
+    operations.push(`memory backend: ${backend} (${setup.memory.signals.join(", ")})`);
+  } else {
+    setup.memory ??= { backend: "local-grep", signals: DEFAULT_LOCAL_MEMORY_SIGNALS };
+  }
+  if (removeSources.length) {
+    const removeSourceSpecs = sourceSpecsForRemoval(ctx, removeSources);
+    setup.sources = setup.sources.filter((s) => !removeSourceSpecs.has(s));
+    for (const spec of removeSources) {
+      operations.push(`source remove: ${spec}`);
+      if (apply) {
+        const parsed = parseSourceSpec(spec);
+        for (const existing of listSources(ctx.case).filter((s) => s.id === spec || (s.type === parsed.type && s.ref === parsed.ref))) {
+          removeSource(ctx.case, existing.id);
+        }
+      }
+    }
+  }
+  for (const index of indexes) {
+    const existing = setup.indexes.find((i) => (index.id && (i.id === index.id || i.name === index.name)) || (!index.id && i.name === index.name));
+    const previousSignalKey = existing ? setupIndexRef(existing) : undefined;
+    const current = existing ?? index;
+    if (existing) {
+      const priorId = existing.id;
+      const priorMode = existing.mode;
+      Object.assign(existing, index);
+      if (!index.id && priorId) {
+        existing.id = priorId;
+        existing.mode = priorMode ?? "attach";
+      }
+    } else {
+      setup.indexes.push(index);
+    }
+    const signalKey = setupIndexRef(current);
+    if (previousSignalKey && previousSignalKey !== signalKey) delete setup.default_signals[previousSignalKey];
+    setup.default_signals[signalKey] = current.default_signals;
+    indexRoutesChanged = true;
+    operations.push(`${current.mode === "attach" ? "index attach" : "index create planned"}: ${signalKey}`);
+    if (apply && current.id) addIndex(ctx.case, { id: current.id, name: current.name, type: current.type });
+  }
+  if (removeIndexes.length) {
+    const removedIndexes = setup.indexes.filter((i) => removeIndexes.includes(i.id ?? "") || removeIndexes.includes(i.name));
+    setup.indexes = setup.indexes.filter((i) => !removeIndexes.includes(i.id ?? "") && !removeIndexes.includes(i.name));
+    for (const index of removedIndexes) delete setup.default_signals[setupIndexRef(index)];
+    indexRoutesChanged ||= removedIndexes.length > 0;
+    for (const id of removeIndexes) {
+      operations.push(`index remove: ${id}`);
+      if (apply) {
+        for (const existing of listIndexes(ctx.case).filter((i) => i.id === id || i.name === id)) removeIndex(ctx.case, existing.id);
+      }
+    }
+  }
+  for (const video of videos) {
+    addVideoRoute(setup, video, signals);
+    operations.push(`video route: ${video}`);
+  }
+  if (indexRoutesChanged) refreshSetupRouteIndexes(setup);
+  for (const folder of folders) {
+    if (!setup.media.folders.includes(folder)) setup.media.folders.push(folder);
+    const files = folderMediaFiles(folder);
+    for (const file of files) addVideoRoute(setup, file, signals);
+    operations.push(`folder select: ${folder}${files.length ? ` (${files.length} media files)` : " (no media files found)"}`);
+  }
+  if (!operations.length && op === "startup_setup") operations.push("save empty setup");
+
+  setup.updated_at = new Date().toISOString();
+  return { setup, operations, noteRecords };
+}
+
 function quoteCommandArg(arg: string): string {
   return /^[A-Za-z0-9_./:=@+-]+$/.test(arg) ? arg : JSON.stringify(arg);
+}
+
+function incompletePlannedIndexes(setup: CaseSetup): SetupIndex[] {
+  return setup.indexes.filter((index) => !index.id && index.mode !== "attach");
 }
 
 function currentCliInvocation(): { cmd: string; args: string[] } {
@@ -35,28 +417,41 @@ function currentCliInvocation(): { cmd: string; args: string[] } {
 export const caseVerb: VerbSpec = {
   name: "case",
   group: "state",
-  summary: "Inspect/manage the current case: init | info | records | memory | clear.",
+  summary: "Inspect/manage the current case: init | setup | info | records | memory | clear.",
   description:
     "A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; " +
+    "`case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; " +
     "`case info` shows state; `case records [--verb] [--since]` lists records; " +
     "`case memory <list|get|search|index> [q]` routes to the bound memory providers. " +
     "`case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. " +
     "`case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] " +
     "[--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.",
   args: [
-    { name: "action", summary: "init | info | records | memory | clear", required: true },
-    { name: "sub", summary: "memory subcommand (list|get|search), or dir for init" },
+    { name: "action", summary: "init | setup | info | records | memory | clear", required: true },
+    { name: "sub", summary: "setup/memory subcommand, or dir for init" },
     { name: "arg", summary: "record id (memory get), query (memory search), or index action" },
   ],
   flags: [
-    { name: "name", summary: "Case name (init)", type: "string" },
+    { name: "name", summary: "Case name (init/setup/edit)", type: "string" },
+    { name: "target", summary: "setup/edit: comma-separated target values to add", type: "string" },
+    { name: "remove-target", summary: "setup/edit: comma-separated target ids/values to remove", type: "string" },
+    { name: "note", summary: "setup/edit: comma-separated notes to add as local evidence", type: "string" },
+    { name: "source", summary: "setup/edit: comma-separated source specs (<type>:<ref>) to add", type: "string" },
+    { name: "remove-source", summary: "setup/edit: comma-separated source ids/specs to remove", type: "string" },
+    { name: "index", summary: "setup/edit: comma-separated indexes (name:type or id:type:name)", type: "string" },
+    { name: "remove-index", summary: "setup/edit: comma-separated index ids/names to remove", type: "string" },
+    { name: "signals", summary: "setup/edit: comma-separated signals for new indexes/videos", type: "string" },
+    { name: "video", summary: "setup/edit: comma-separated local videos/URLs to route", type: "string" },
+    { name: "folder", summary: "setup/edit: comma-separated local media folders to remember", type: "string" },
+    { name: "no-index", summary: "setup/edit: save setup routes without starting remote collection ingestion", type: "boolean" },
+    { name: "dry-run", summary: "setup/edit: preview without saving or applying", type: "boolean" },
     { name: "verb", summary: "Filter records by kind", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
     { name: "field", summary: "Payload field to read in full (memory get)", type: "string" },
     { name: "offset", summary: "Start char offset when paging a field (memory get)", type: "number" },
     { name: "limit", summary: "Max records/passages, or max chars when paging a field", type: "number" },
     { name: "memory", summary: "Memory provider/backend for case memory index (e.g. local-grep, qmd)", type: "string" },
-    { name: "yes", summary: "Confirm destructive case clear", type: "boolean" },
+    { name: "yes", summary: "Confirm destructive case clear or non-interactive setup apply", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
@@ -106,6 +501,116 @@ export const caseVerb: VerbSpec = {
           state: "ready",
         }),
       ];
+    }
+
+    if (action === "setup") {
+      const sub = ctx.rest[0] ?? "apply";
+      const saved = loadSetup(ctx.case);
+      if (sub === "status") {
+        return [makeRecord({ verb: "case", format: "json", payload: setupHealth(ctx, saved), state: "ready" })];
+      }
+      if (sub === "show") {
+        return [
+          makeRecord({
+            verb: "case",
+            format: "json",
+            payload: saved ? { ...saved } : { completed: false, setup_file: ctx.case.setupFile },
+            state: saved ? "ready" : "pending",
+          }),
+        ];
+      }
+      if (sub !== "apply" && sub !== "edit" && sub !== "plan") {
+        return [err("usage: case setup [status|show|edit|plan] [--name ... --target ... --source ... --index ... --video ... --yes]")];
+      }
+
+      const hasInputs = [
+        "name",
+        "target",
+        "remove-target",
+        "note",
+        "source",
+        "remove-source",
+        "index",
+        "remove-index",
+        "signals",
+        "video",
+        "folder",
+        "memory",
+      ].some((k) => ctx.opts[k] != null);
+      if (!hasInputs && sub !== "plan" && ctx.opts.yes !== true) {
+        const setupCompleted = saved?.completed ?? false;
+        return [
+          makeRecord({
+            verb: "case",
+            format: "json",
+            payload: {
+              completed: setupCompleted,
+              status: setupCompleted ? "case setup complete" : "case has not been set up yet",
+              setup_file: ctx.case.setupFile,
+              wizard_steps: [
+                "1. Case name",
+                "2. Investigation target",
+                "3. Sources or local media",
+                "4. Indexes/search destinations",
+                "5. Notes",
+                "6. Preview and apply",
+              ],
+              next: [
+                "overcast case setup --name \"Case name\" --target \"target\" --memory local-grep --source \"web:query\" --yes",
+                "overcast case setup plan --target \"target\" --memory local-grep --source \"web:query\"",
+                "overcast case setup edit --target \"new target\" --yes",
+              ],
+              note: setupCompleted
+                ? "case setup is complete; use case setup status/show to inspect it or case setup edit to change it"
+                : "case has not been set up yet; in the TUI, ask the user one wizard question at a time, or pass setup flags directly on the CLI",
+            },
+            meta: { transient: true },
+            state: "pending",
+          }),
+        ];
+      }
+
+      const isPlan = sub === "plan" || ctx.opts["dry-run"] === true || ctx.opts.yes !== true;
+      const caseName = saved?.case_name ?? (ctx.case.exists() ? ctx.case.info().name : ctx.case.dir.split(/[\\/]/).filter(Boolean).at(-1) ?? "case");
+      const base = saved ?? setupFromExistingRegistries(ctx, caseName);
+      for (const memory of csv(ctx.opts.memory)) {
+        if (!normalizeSetupMemory(memory)) return [err(`case setup needs one local memory backend: local-grep or qmd (got '${memory}')`)];
+      }
+      const op = saved ? "startup_setup_update" : "startup_setup";
+      const before = summarizeSavedSetup(saved);
+      const change = buildSetupChange(ctx, base, op, !isPlan);
+      if (!isPlan) {
+        change.setup.completed = false;
+        saveSetup(ctx.case, change.setup);
+      }
+      const workRecords = !isPlan && ctx.opts["no-index"] !== true ? await applySetupIndexing(ctx, change.setup, change.operations) : [];
+      const incompleteIndexes = incompletePlannedIndexes(change.setup);
+      if (incompleteIndexes.length) change.setup.completed = false;
+      else if (!isPlan) change.setup.completed = true;
+      const after = summarizeSavedSetup(change.setup);
+      const setupRecord = makeRecord({
+        verb: "case",
+        format: "json",
+        payload: {
+          op,
+          saved: !isPlan,
+          setup_file: ctx.case.setupFile,
+          before,
+          after,
+          applied_operations: isPlan ? [] : change.operations,
+          planned_operations: change.operations,
+          incomplete_indexes: incompleteIndexes.map((index) => ({ name: index.name, type: index.type })),
+          confirmation_required: isPlan && sub !== "plan" && ctx.opts["dry-run"] !== true,
+          confirm_with: isPlan && sub !== "plan" && ctx.opts["dry-run"] !== true ? "overcast case setup ... --yes" : undefined,
+        },
+        meta: isPlan ? { transient: true } : { case: ctx.case.dir },
+        state: isPlan || incompleteIndexes.length ? "pending" : "ready",
+      });
+      if (!isPlan) {
+        change.setup.last_update_record_id = setupRecord.id;
+        saveSetup(ctx.case, change.setup);
+      }
+      return [...change.noteRecords, ...workRecords, setupRecord];
     }
 
     if (action === "clear") {
@@ -429,6 +934,6 @@ export const caseVerb: VerbSpec = {
       return [err("usage: case memory <list|get|search|index> [arg]")];
     }
 
-    return [err("usage: case <init|info|records|memory|clear>")];
+    return [err("usage: case <init|setup|info|records|memory|clear>")];
   },
 };

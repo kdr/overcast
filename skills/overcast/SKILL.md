@@ -25,7 +25,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.
-- `scan` — Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
+- `scan` — Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
 - `index` — Manage tinycloud indexes that index a target's videos (create/attach/add/list/show/delete/remove/entities).
@@ -35,7 +35,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `prebrief` — Stand up a case: name + target + source in one shot (non-interactive via flags).
 - `ask` — Natural-language query over the case memory; answers with record.id + media.at citations.
 - `brief` — Synthesize the case records into a report (timeline + findings); --export to md/html.
-- `case` — Inspect/manage the current case: init | info | records | memory | clear.
+- `case` — Inspect/manage the current case: init | setup | info | records | memory | clear.
 - `setup` — Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|show).
 - `provider` — Run a provider's init hook, or list/describe bound providers (provider init|list|describe).
 - `doctor` — Preflight: check pi version, ffmpeg/ffprobe, Cloudglue creds, tinycloud, provider bindings.

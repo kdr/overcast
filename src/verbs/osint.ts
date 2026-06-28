@@ -20,6 +20,8 @@ import {
   removeSource,
 } from "../state/source.js";
 import { addTarget, listTargets, removeTarget, primaryTarget } from "../state/target.js";
+import { listIndexes } from "../state/index.js";
+import { loadSetup } from "../state/setup.js";
 import { loadSeen, saveSeen, hitKey } from "../state/seen.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { runListen } from "../providers/tinycloud/listen.js";
@@ -27,10 +29,75 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { parseSince } from "../providers/memory/local.js";
 import { isAv } from "./media-ref.js";
+import { faceVerb } from "./face.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
   return makeRecord({ verb, format: "json", payload: { error: message }, error: message, state: "error" });
+}
+
+function scanFlagError(ctx: VerbContext, verb = "scan"): OvercastRecord | undefined {
+  if (ctx.opts.limit != null) {
+    const n = Number(ctx.opts.limit);
+    if (!Number.isFinite(n) || n <= 0) {
+      return err(verb, `invalid --limit: ${ctx.opts.limit} (expected a positive number)`);
+    }
+  }
+  const since = ctx.opts.since ? String(ctx.opts.since) : undefined;
+  if (since && parseSince(since) == null) {
+    return err(verb, `invalid --since: ${since} (expected e.g. 24h, 7d, 2026-06-01)`);
+  }
+  return undefined;
+}
+
+function localMediaRefs(ctx: VerbContext): string[] {
+  const setup = loadSetup(ctx.case);
+  const refs = [
+    ...(setup?.media.videos ?? []),
+    ...ctx.case.records().flatMap((r) => (r.media?.ref && isAv(r.media.ref) ? [r.media.ref] : [])),
+    ...listIndexes(ctx.case).flatMap((i) => i.members.map((m) => m.ref)),
+  ];
+  return [...new Set(refs)].filter((ref) => !/^https?:\/\//i.test(ref) ? existsSync(ref) : true).sort();
+}
+
+async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
+  const targets = listTargets(ctx.case);
+  const imageTargets = targets.filter((t) => t.kind === "image");
+  const nameTargets = targets.filter((t) => t.kind !== "image").map((t) => t.value);
+  const indexes = listIndexes(ctx.case);
+  const faceIndexes = indexes.filter((i) => i.type === "face-analysis");
+  const mediaIndexes = indexes.filter((i) => i.type === "media-descriptions");
+  const refs = localMediaRefs(ctx);
+  const suggested: string[] = [];
+  if (imageTargets.length && faceIndexes.length) {
+    suggested.push(`overcast face --match ${imageTargets.at(-1)!.value} --index ${faceIndexes.map((i) => i.id).join(",")}`);
+  }
+  if (nameTargets.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1)} and what is happening?`)}`);
+  if (mediaIndexes.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1) ?? "the target"} and what is happening?`)} --index ${mediaIndexes[0].id} --probe`);
+
+  const summary = makeRecord({
+    verb: "scan",
+    format: "json",
+    payload: {
+      op: "local",
+      summary: `local scan: ${refs.length} media file${refs.length === 1 ? "" : "s"}, ${faceIndexes.length} face index${faceIndexes.length === 1 ? "" : "es"}, ${mediaIndexes.length} media-description index${mediaIndexes.length === 1 ? "" : "es"}`,
+      reason: "no enabled external sources; scanned local setup, case memory, and mirrored indexes instead",
+      targets: targets.map((t) => ({ id: t.id, kind: t.kind, value: t.value })),
+      media: refs,
+      indexes: indexes.map((i) => ({ id: i.id, name: i.name, type: i.type, members: i.members.length })),
+      suggested_commands: suggested,
+    },
+    meta: { provider: "scan:local", case: ctx.case.dir },
+    state: "ready",
+  });
+
+  if (imageTargets.length && faceIndexes.length) {
+    const match = imageTargets.at(-1)!.value;
+    const index = faceIndexes.map((i) => i.id).join(",");
+    const faceRecords = await faceVerb.run({ ...ctx, input: undefined, rest: [], opts: { match, index } });
+    return [summary, ...faceRecords];
+  }
+  return [summary];
 }
 
 // ---- scan ------------------------------------------------------------------
@@ -46,20 +113,10 @@ async function enumerateAll(ctx: VerbContext, verb = "scan"): Promise<OvercastRe
   const targetValue = primaryTarget(ctx.case)?.value;
   // a non-finite --limit is rejected rather than forwarded as "NaN"
   let limit: number | undefined;
-  if (ctx.opts.limit != null) {
-    const n = Number(ctx.opts.limit);
-    if (!Number.isFinite(n) || n <= 0) {
-      return [err(verb, `invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
-    }
-    limit = n;
-  }
+  const flagError = scanFlagError(ctx, verb);
+  if (flagError) return [flagError];
+  if (ctx.opts.limit != null) limit = Number(ctx.opts.limit);
   const since = ctx.opts.since ? String(ctx.opts.since) : undefined;
-  // an unparseable --since is a user error, not a silent "no time bound" — reject
-  // it here rather than forwarding a bogus value to source scripts (which each
-  // degrade differently).
-  if (since && parseSince(since) == null) {
-    return [err(verb, `invalid --since: ${since} (expected e.g. 24h, 7d, 2026-06-01)`)];
-  }
 
   if (sources.length === 0) {
     return [err(verb, "no sources registered/enabled (try `overcast source add <type>:<ref>`)")];
@@ -94,17 +151,20 @@ async function enumerateAll(ctx: VerbContext, verb = "scan"): Promise<OvercastRe
 export const scanVerb: VerbSpec = {
   name: "scan",
   group: "osint",
-  summary: "Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).",
+  summary: "Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).",
   description:
     "Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit " +
     "--query overrides, and the active target is the fallback when a source has no ref. With --pull, " +
-    "each AV hit is immediately captured and routed to a sense (one-shot recon).",
+    "each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no " +
+    "enabled external sources, scan falls back to local case media/indexes and can run a face-index " +
+    "search when an image target and face-analysis index are available.",
   args: [],
   flags: [
     { name: "query", summary: "Ad-hoc keyword search across sources", type: "string" },
     { name: "source", summary: "Restrict to source ids/types (comma list)", type: "string" },
     { name: "since", summary: "Only items newer than e.g. 24h, 2026-06-01", type: "string" },
     { name: "limit", summary: "Max hits per source", type: "number" },
+    { name: "local", summary: "Scan local case media/indexes instead of external sources", type: "boolean" },
     { name: "pull", summary: "Auto-capture + sense each hit", type: "boolean" },
     { name: "pipe", summary: "Sense to run on pulled hits (watch|listen)", type: "string" },
     { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
@@ -114,6 +174,10 @@ export const scanVerb: VerbSpec = {
   outputKind: "scan.hit",
   providerKey: "scan",
   run: async (ctx) => {
+    const flagError = scanFlagError(ctx);
+    if (flagError) return [flagError];
+    if (ctx.opts.local === true) return scanLocalCase(ctx);
+    if (!ctx.opts.source && !ctx.opts.query && resolveSources(ctx.case, undefined).length === 0) return scanLocalCase(ctx);
     const hits = await enumerateAll(ctx);
     if (!ctx.opts.pull) return hits;
 

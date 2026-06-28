@@ -39,6 +39,36 @@ test("OvercastHeader: boot frame hides the status until the decrypt reveal finis
   assert.ok(out.includes("REC"), "deck readout is shown immediately");
 });
 
+test("OvercastHeader: settled frame can show first-run setup cue", () => {
+  const h = new OvercastHeader(null, { ...headerOpts, setup: "case not set up" });
+  setStart(h, 4000);
+  const out = h.render(160).join("\n");
+  h.dispose();
+  assert.match(out, /\[[^\]]*SETUP[^\]]*\][^\n]*case not set up/, "setup cue appears in startup status row");
+});
+
+test("OvercastHeader: setup cue can refresh after first render", () => {
+  let pending = true;
+  const h = new OvercastHeader(null, { ...headerOpts, setup: () => (pending ? "case not set up" : undefined) });
+  setStart(h, 4000);
+  assert.match(h.render(160).join("\n"), /\[[^\]]*SETUP[^\]]*\][^\n]*case not set up/);
+  pending = false;
+  assert.doesNotMatch(h.render(160).join("\n"), /case not set up/);
+  h.dispose();
+});
+
+test("OvercastHeader: setup cue change requests a render after reveal", () => {
+  let pending = true;
+  let renders = 0;
+  const tui = { requestRender: () => { renders++; } };
+  const h = new OvercastHeader(tui as never, { ...headerOpts, setup: () => (pending ? "case not set up" : undefined) });
+  setStart(h, 4000);
+  pending = false;
+  (h as unknown as { pollSetup: () => void }).pollSetup();
+  h.dispose();
+  assert.equal(renders, 1);
+});
+
 test("opLabel: each verb cycles its OWN variations (independent per-verb cursors)", () => {
   // Interleave an unrelated verb between every scan call. With per-verb cursors,
   // scan still covers all 4 of its variations; a single shared counter would skip

@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildSystemPrompt } from "../../src/extension/system-prompt.ts";
+import { openCase } from "../../src/case.ts";
+import { emptySetup, saveSetup } from "../../src/state/setup.ts";
 
 test("agent system prompt teaches the index/search lifecycle", () => {
   const prompt = buildSystemPrompt();
@@ -12,4 +17,37 @@ test("agent system prompt teaches the index/search lifecycle", () => {
   assert.match(prompt, /index add <video> --to <id>/);
   assert.match(prompt, /create missing `watch` evidence/);
   assert.match(prompt, /Do not run face detection just\s+to populate local-grep or qmd case search/);
+});
+
+test("agent system prompt hides setup hint after completed setup", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-prompt-"));
+  const prev = process.env.OVERCAST_CASE;
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    process.env.OVERCAST_CASE = dir;
+    assert.match(buildSystemPrompt(), /overcast case setup/);
+    assert.match(buildSystemPrompt(), /This case has not been set up yet/);
+    assert.match(buildSystemPrompt(), /Do not ask all setup questions at once/);
+    assert.match(buildSystemPrompt(), /Ask exactly one setup question at a time/);
+    assert.match(buildSystemPrompt(), /source type options/);
+    assert.match(buildSystemPrompt(), /choose exactly one\s+local case-search backend/);
+    assert.match(buildSystemPrompt(), /not optional/);
+    assert.match(buildSystemPrompt(), /`local-grep` by default/);
+    assert.match(buildSystemPrompt(), /`qmd` when the user wants configured local semantic memory/);
+    assert.match(buildSystemPrompt(), /`note`, `watch`, `listen`, `see`, and `scan`/);
+    assert.match(buildSystemPrompt(), /remote tinycloud-backed collections/);
+    assert.match(buildSystemPrompt(), /Do not offer `rich-transcripts`/);
+    assert.match(buildSystemPrompt(), /indexing has started\/queued/);
+    assert.match(buildSystemPrompt(), /run `overcast case setup plan/);
+
+    const setup = emptySetup(c.info().name);
+    setup.completed = true;
+    saveSetup(c, setup);
+    assert.doesNotMatch(buildSystemPrompt(), /First-run case setup/);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

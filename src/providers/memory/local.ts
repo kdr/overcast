@@ -52,7 +52,10 @@ export class LocalMemoryProvider implements MemoryProvider {
   readonly id = "local-grep";
   readonly backend = "local-grep";
   readonly aliases = ["local"];
-  constructor(private readonly case_: Case) {}
+  private readonly verbs?: Set<string>;
+  constructor(private readonly case_: Case, opts: { verbs?: string[] } = {}) {
+    this.verbs = opts.verbs?.length ? new Set(opts.verbs) : undefined;
+  }
 
   // records are already persisted by the case store; write is a no-op for the
   // local provider (the JSONL store IS the index source). Kept for the interface.
@@ -63,8 +66,14 @@ export class LocalMemoryProvider implements MemoryProvider {
   query(q: string, opts: QueryOpts = {}): Passage[] {
     const qTokens = tokenize(q);
     let records = this.case_.records().filter(isMemoryRecord);
-    if (opts.verbs && opts.verbs.length) {
-      const set = new Set(opts.verbs);
+    const hasVerbFilter = !!opts.verbs?.length || !!this.verbs;
+    const verbs = opts.verbs?.length
+      ? this.verbs
+        ? opts.verbs.filter((verb) => this.verbs!.has(verb))
+        : opts.verbs
+      : [...(this.verbs ?? [])];
+    if (hasVerbFilter) {
+      const set = new Set(verbs);
       records = records.filter((r) => set.has(r.verb));
     }
     if (opts.since) {

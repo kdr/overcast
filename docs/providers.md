@@ -117,6 +117,11 @@ overcast crop <see-record-id> --all --class person --json        # materialize d
 - **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). Supported ref: `web:<query>` for web search hits.
 - Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
+For local-media-only cases, `scan` falls back to local case media/indexes instead
+of erroring on missing sources. If an image target and face-analysis index are
+present, it runs the face-index search; use `scan --local` to force this local
+path even when external sources are registered.
+
 Each responds to `describe` offline:
 
 ```bash
@@ -182,6 +187,33 @@ is installed or configured.
 For typed remote retrieval, `ask --index <id>` queries a tinycloud-backed
 **media-descriptions** index directly (see below) — the public-verb realization
 of the portable/remote tier.
+
+## Case setup state
+
+`case setup` is the first-run case wizard and setup-management namespace. It
+saves the mutable current setup model in `.overcast/setup.json`: case name,
+targets, setup notes, sources, indexes/default signals, selected local media,
+and per-video routing. Every apply/edit also emits an immutable `case` record
+with `payload.op = "startup_setup"` or `"startup_setup_update"`, before/after
+summaries, and the planned/applied operations. Those records are operational
+history and remain excluded from memory/brief evidence; notes added through
+setup are separate `note` records and stay searchable. Setup treats local case
+search and remote collections separately: exactly one local backend is always
+configured (`local-grep` by default for local keyword/citation search, or `qmd`
+for configured local semantic memory). Local memory defaults to `note`, `watch`,
+`listen`, `see`, and `scan` evidence, including source/search metadata from web,
+YouTube, TikTok, and similar scans. `face-analysis`, `media-descriptions`, and
+`entities` are optional tinycloud-backed remote collections for larger/portable
+video search. When setup applies with local videos routed to remote collections,
+overcast creates or attaches those collections and starts `index add` ingestion
+immediately; pass `--no-index` when you only want to save the setup state.
+
+```bash
+overcast case setup plan --target "@pier9" --memory local-grep --source "web:pier 9" --json
+overcast case setup --name "dock-incident" --target "@pier9" --memory local-grep --source "web:pier 9" --yes --json
+overcast case setup status --json
+overcast case setup edit --source "youtube:@channel" --yes --json
+```
 
 ## Faces (`face`) and indexes (`index`) — tinycloud ≥ 0.3.4
 

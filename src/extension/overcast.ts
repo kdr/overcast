@@ -16,6 +16,7 @@ import { VERBS } from "../registry/verbs.js";
 import { toAgentTool } from "../registry/to-agent-tool.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveCloudglue, resolveHome } from "../profile.js";
+import { loadSetup } from "../state/setup.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { OvercastHeader, OvercastFooter, workingIndicator, opLabel, idleLabel } from "./branding.js";
 import { registerSlashCommands } from "./slash.js";
@@ -30,6 +31,11 @@ function contextFileLabel(cwd: string): string {
     if (existsSync(join(cwd, f))) return `${f} loaded`;
   }
   return "";
+}
+
+function setupHintLabel(cwd: string): string | undefined {
+  const setup = loadSetup(openCase(cwd));
+  return setup?.completed ? undefined : "case not set up";
 }
 
 const CLOUDGLUE_MODEL_ID = "tinycloud:advanced";
@@ -175,6 +181,7 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
             contextFile,
             tools: VERBS.length,
             model: modelId,
+            setup: () => setupHintLabel(cwd),
           }),
       );
     }
@@ -254,8 +261,7 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   });
 
   // --- System prompt (persona + verb cheatsheet). --------------------------
-  const systemPrompt = buildSystemPrompt();
-  pi.on("before_agent_start", () => ({ systemPrompt }));
+  pi.on("before_agent_start", () => ({ systemPrompt: buildSystemPrompt() }));
 
   // --- Register every verb as a pi tool, bound to the session case + profile.
   // The launcher surfaces --case/--profile/--home via env so the agent tools

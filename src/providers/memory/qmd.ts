@@ -16,6 +16,7 @@ export interface QmdMemoryConfig {
   command?: string;
   collection?: string;
   model?: string;
+  verbs?: string[];
   clearTemplate?: string;
   indexTemplate?: string;
   embedTemplate?: string;
@@ -188,6 +189,7 @@ export class QmdMemoryProvider implements MemoryProvider {
   private readonly indexTemplate?: string;
   private readonly embedTemplate?: string;
   private readonly queryTemplate?: string;
+  private readonly verbs?: Set<string>;
 
   constructor(private readonly case_: Case, cfg: QmdMemoryConfig = {}) {
     this.id = cfg.id ?? "qmd";
@@ -201,6 +203,7 @@ export class QmdMemoryProvider implements MemoryProvider {
     this.indexTemplate = cfg.indexTemplate;
     this.embedTemplate = cfg.embedTemplate;
     this.queryTemplate = cfg.queryTemplate;
+    this.verbs = cfg.verbs?.length ? new Set(cfg.verbs) : undefined;
   }
 
   write(_record: OvercastRecord): void {
@@ -209,7 +212,7 @@ export class QmdMemoryProvider implements MemoryProvider {
 
   async status(): Promise<MemoryIndexStatus> {
     const manifest = this.readManifest();
-    const records = this.case_.records().filter(isMemoryRecord);
+    const records = this.memoryRecords();
     const docs = records.map(indexableDocument).filter((d): d is IndexableDocument => !!d);
     const fingerprint = docsFingerprint(docs);
     const compatible = manifest &&
@@ -233,7 +236,7 @@ export class QmdMemoryProvider implements MemoryProvider {
   }
 
   async rebuild(): Promise<MemoryIndexStatus> {
-    const records = this.case_.records().filter(isMemoryRecord);
+    const records = this.memoryRecords();
     const docs = records.map(indexableDocument).filter((d): d is IndexableDocument => !!d);
     rmSync(this.docsDir, { recursive: true, force: true });
     mkdirSync(this.docsDir, { recursive: true });
@@ -323,7 +326,7 @@ export class QmdMemoryProvider implements MemoryProvider {
   async query(q: string, opts: QueryOpts = {}): Promise<Passage[]> {
     const st = await this.status();
     if (st.state !== "ready") return [];
-    const records = new Map(this.case_.records().map((r) => [r.id, r]));
+    const records = new Map(this.memoryRecords().map((r) => [r.id, r]));
     const vars = {
       cmd: this.command,
       query: q,
@@ -339,10 +342,11 @@ export class QmdMemoryProvider implements MemoryProvider {
     const res = await execCapture(argv[0], argv.slice(1), { timeoutMs: 5 * 60_000 }).catch(() => undefined);
     if (!res || res.code !== 0) return [];
     let passages = parseQmdPassages(res.stdout);
-    if (opts.verbs && opts.verbs.length) {
+    if (opts.verbs?.length) {
       const verbs = new Set(opts.verbs);
       passages = passages.filter((p) => verbs.has(records.get(p.recordId)?.verb ?? p.verb));
     }
+    if (this.verbs) passages = passages.filter((p) => this.verbs!.has(records.get(p.recordId)?.verb ?? p.verb));
     if (opts.since) {
       const cutoff = parseSince(opts.since);
       if (cutoff == null) throw new Error(`invalid since value: ${opts.since}`);
@@ -353,6 +357,12 @@ export class QmdMemoryProvider implements MemoryProvider {
       });
     }
     return passages.slice(0, opts.limit ?? 8);
+  }
+
+  private memoryRecords(): OvercastRecord[] {
+    const records = this.case_.records().filter(isMemoryRecord);
+    if (!this.verbs) return records;
+    return records.filter((r) => this.verbs!.has(r.verb));
   }
 
   async answer(q: string, opts: QueryOpts = {}): Promise<Answer> {
