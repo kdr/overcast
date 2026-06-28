@@ -65,6 +65,43 @@ test("setup provider persists a binding to the profile; doctor + provider list s
   }
 });
 
+test("provider setup plan is non-mutating and apply writes catalog choices to a profile", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-provider-setup-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-provider-home-"));
+  try {
+    const [plan] = await providerVerb.run(ctx(dir, home, "setup", ["plan"], { verb: "listen", choice: "elevenlabs", profile: "recon" }));
+    assert.equal(plan.state, "pending");
+    assert.equal((plan.payload as Record<string, unknown>).saved, false);
+    assert.equal(loadProfile({ home, profile: "recon" }).providers?.listen, undefined);
+
+    const [apply] = await providerVerb.run(ctx(dir, home, "setup", ["apply"], { verb: "listen", choice: "elevenlabs", profile: "recon", yes: true }));
+    assert.equal(apply.state, "ready");
+    const p = loadProfile({ home, profile: "recon" });
+    assert.equal(p.providers?.listen.type, "exec");
+    assert.match(p.providers?.listen.run ?? "", /elevenlabs\/listen\.sh/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("provider setup preset can clear built-in bindings such as ffmpeg enhance", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-provider-preset-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-provider-preset-home-"));
+  try {
+    const [apply] = await providerVerb.run(ctx(dir, home, "setup", ["apply"], { preset: "cloudglue", profile: "cloud", yes: true }));
+    assert.equal(apply.state, "ready");
+    const p = loadProfile({ home, profile: "cloud" });
+    assert.equal(p.providers?.watch.type, "exec");
+    assert.equal(p.providers?.listen.type, "exec");
+    assert.equal(p.providers?.face.type, "exec");
+    assert.equal(p.providers?.enhance, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor reports core checks (pi/ffmpeg/ffprobe runnable) with structured results", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-doc-"));
   const home = mkdtempSync(join(tmpdir(), "oc-dhome-"));

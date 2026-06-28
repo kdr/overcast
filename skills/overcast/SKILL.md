@@ -32,12 +32,13 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `target` — Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
 - `source` — Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
 - `note` — Add a human observation/finding to the case, optionally anchored to evidence.
+- `finding` — Review automated target matches (list|accept|dismiss).
 - `prebrief` — Stand up a case: name + target + source in one shot (non-interactive via flags).
 - `ask` — Natural-language query over the case memory; answers with record.id + media.at citations.
 - `brief` — Synthesize the case records into a report (timeline + findings); --export to md/html.
 - `case` — Inspect/manage the current case: init | setup | info | records | memory | clear.
 - `setup` — Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|show).
-- `provider` — Run a provider's init hook, or list/describe bound providers (provider init|list|describe).
+- `provider` — Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).
 - `doctor` — Preflight: check pi version, ffmpeg/ffprobe, Cloudglue creds, tinycloud, provider bindings.
 - `skills` — Generate the flagship overcast skill + reference from the registry, or install into a harness.
 
@@ -48,6 +49,7 @@ Run any verb from bash and parse the JSON record:
 ```bash
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
+overcast finding list --json              # review automated target matches
 overcast note "rear plate is missing" --ref <record-id> --at 12-18 --json
 overcast face ./clip.mp4 --thumbnails --json  # detect faces (boxes + provider frame thumbnails)
 overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video (JPEG/PNG query image)
@@ -169,3 +171,28 @@ overcast case memory get <record-id> --field content --offset 0 --limit 16000 --
 `overcast doctor` checks readiness (pi, system ffmpeg, Cloudglue creds, the
 tinycloud CLI). `overcast setup provider <verb> <spec>` rebinds a verb to your
 own provider with no code changes.
+
+For reusable provider setup, prefer the catalog-backed profile workflow:
+
+```bash
+overcast provider setup show --profile default --json
+overcast provider setup plan --preset cloudglue --profile default --json
+overcast provider setup apply --preset cloudglue --profile default --yes --json
+overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+overcast provider init listen --profile recon --json
+overcast doctor --profile recon --json
+```
+
+Provider setup is profile/global state and can span many cases. Case setup is
+per-investigation state: target, sources/media, memory/indexes, and automation
+policy.
+
+```bash
+overcast case setup edit \
+  --provider "listen:elevenlabs,see:local-detect" \
+  --provider-indexable "listen,see" \
+  --auto-sense "watch,listen" \
+  --auto-index-new \
+  --findings review \
+  --yes --json
+```

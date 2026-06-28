@@ -212,6 +212,40 @@ test("case setup plan reports unresolved remote indexes as incomplete", async ()
   });
 });
 
+test("case setup stores provider policy, automation, and findings settings", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const records = await caseVerb.run(ctx(dir, "setup", [], {
+      provider: "listen:elevenlabs,see:local-detect",
+      "provider-indexable": "listen,see",
+      "auto-sense": "watch,listen",
+      "auto-index-new": true,
+      findings: "review",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const providers = saved.providers as Record<string, Record<string, unknown>>;
+    assert.equal(providers.listen.choice, "elevenlabs");
+    assert.equal(providers.listen.indexable, true);
+    assert.equal(providers.see.choice, "local-detect");
+    assert.deepEqual(saved.automation, { auto_sense: ["watch", "listen"], auto_index_new: true });
+    assert.deepEqual(saved.findings, { mode: "review" });
+  });
+});
+
+test("case setup rejects unknown provider choices and finding modes", async () => {
+  await withCase(async (dir) => {
+    const [badProvider] = await caseVerb.run(ctx(dir, "setup", ["plan"], { provider: "listen:nope" }));
+    assert.equal(badProvider.state, "error");
+    assert.match(badProvider.error ?? "", /unknown provider choice/);
+    const [badFinding] = await caseVerb.run(ctx(dir, "setup", ["plan"], { findings: "auto-delete" }));
+    assert.equal(badFinding.state, "error");
+    assert.match(badFinding.error ?? "", /unknown --findings mode/);
+  });
+});
+
 test("case setup plan does not initialize an unopened case store", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-setup-plan-"));
   try {

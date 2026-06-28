@@ -30,6 +30,9 @@ import { providerEnv } from "../providers/provider-env.js";
 import { parseSince } from "../providers/memory/local.js";
 import { isAv } from "./media-ref.js";
 import { faceVerb } from "./face.js";
+import { seeVerb, enhanceVerb } from "./senses.js";
+import { indexVerb } from "./index.js";
+import { makeFinding } from "./finding.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
@@ -199,8 +202,17 @@ export const scanVerb: VerbSpec = {
           const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
           // only auto-sense AV captures; honor an explicit --pipe for anything.
           if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-            const sensed = await pipeSense(ctx, "scan", explicitPipe ?? "watch", cap.media.ref);
-            if (sensed) out.push(sensed);
+            if (explicitPipe) {
+              const sensed = await pipeSense(ctx, "scan", explicitPipe, cap.media.ref);
+              if (sensed) out.push(sensed);
+            } else {
+              const automated = await runSetupAutomation(ctx, "scan", cap.media.ref);
+              if (automated.length) out.push(...automated);
+              else {
+                const sensed = await pipeSense(ctx, "scan", "watch", cap.media.ref);
+                if (sensed) out.push(sensed);
+              }
+            }
           }
         }
       } catch (e) {
@@ -327,6 +339,83 @@ async function pipeSense(
   // an unknown --pipe value (typo, or see/enhance) must surface, not silently
   // produce nothing — labelled with the ACTIVE command (monitor/scan).
   return err(caller, `unknown --pipe '${verb}' (expected watch | listen)`);
+}
+
+async function runAutomationSense(ctx: VerbContext, caller: string, verb: string, ref: string): Promise<OvercastRecord> {
+  if (verb === "watch" || verb === "listen") {
+    const rec = await pipeSense(ctx, caller, verb, ref);
+    return rec ?? err(caller, `sense '${verb}' produced no record`);
+  }
+  if (verb === "see") {
+    const [rec] = await seeVerb.run({ ...ctx, input: ref, rest: [], opts: {} });
+    return rec;
+  }
+  if (verb === "face") {
+    const [rec] = await faceVerb.run({ ...ctx, input: ref, rest: [], opts: {} });
+    return rec;
+  }
+  if (verb === "enhance") {
+    const [rec] = await enhanceVerb.run({ ...ctx, input: ref, rest: [], opts: {} });
+    return rec;
+  }
+  return err(caller, `unknown automated sense '${verb}'`);
+}
+
+function payloadText(rec: OvercastRecord): string {
+  if (typeof rec.payload === "string") return rec.payload;
+  try {
+    return JSON.stringify(rec.payload);
+  } catch {
+    return "";
+  }
+}
+
+function automatedFindings(ctx: VerbContext, rec: OvercastRecord, trigger: string): OvercastRecord[] {
+  const setup = loadSetup(ctx.case);
+  if (setup?.findings?.mode !== "review" || rec.state === "error" || rec.state === "needs_credentials") return [];
+  const haystack = payloadText(rec).toLowerCase();
+  const out: OvercastRecord[] = [];
+  for (const target of listTargets(ctx.case).filter((t) => t.kind !== "image").map((t) => t.value)) {
+    const needle = target.trim().toLowerCase();
+    if (!needle || !haystack.includes(needle)) continue;
+    out.push(makeFinding({
+      text: `Automated match for target '${target}' in ${rec.verb} record ${rec.id}`,
+      target,
+      sourceRecord: rec,
+      trigger,
+    }));
+  }
+  return out;
+}
+
+async function autoIndexNewMedia(ctx: VerbContext, ref: string): Promise<OvercastRecord[]> {
+  const setup = loadSetup(ctx.case);
+  if (setup?.automation?.auto_index_new !== true) return [];
+  const out: OvercastRecord[] = [];
+  for (const index of setup.indexes ?? []) {
+    if (!index.id) continue;
+    const signals = new Set([...(index.default_signals ?? []), ...(setup.default_signals[index.id] ?? [])]);
+    if (!signals.has("index add")) continue;
+    const recs = await indexVerb.run({ ...ctx, input: "add", rest: [ref], opts: { to: index.id, type: index.type } });
+    out.push(...recs);
+  }
+  return out;
+}
+
+async function runSetupAutomation(ctx: VerbContext, caller: string, ref: string): Promise<OvercastRecord[]> {
+  const setup = loadSetup(ctx.case);
+  const chain = setup?.automation?.auto_sense ?? [];
+  if (!chain.length) return [];
+  const out: OvercastRecord[] = [];
+  let currentRef = ref;
+  for (const verb of chain) {
+    const rec = await runAutomationSense(ctx, caller, verb, currentRef);
+    rec.meta = { ...rec.meta, case: ctx.case.dir, triggered_by: `${caller}:automation` };
+    out.push(rec, ...automatedFindings(ctx, rec, `${caller}:${verb}`));
+    if (rec.state !== "error" && rec.state !== "needs_credentials" && rec.media?.ref) currentRef = rec.media.ref;
+  }
+  out.push(...await autoIndexNewMedia(ctx, currentRef));
+  return out;
 }
 
 /** Best-effort media extension from leading magic bytes (so a piped clip lands
@@ -479,12 +568,21 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
       } else {
         const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
         if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-          const sensed = await pipeSense(ctx, "monitor", explicitPipe ?? "watch", cap.media.ref);
-          if (sensed) out.push(sensed);
-          const st = sensed?.state;
-          if (st === "needs_credentials") { transient = true; procCredGaps++; }
-          else if (st === "pending") { transient = true; }
-          else if (st === "error") { procError = true; }
+          const sensedRecords = explicitPipe
+            ? [await pipeSense(ctx, "monitor", explicitPipe, cap.media.ref)].filter((r): r is OvercastRecord => !!r)
+            : await runSetupAutomation(ctx, "monitor", cap.media.ref);
+          if (sensedRecords.length) out.push(...sensedRecords);
+          else {
+            const sensed = await pipeSense(ctx, "monitor", "watch", cap.media.ref);
+            if (sensed) sensedRecords.push(sensed);
+            if (sensed) out.push(sensed);
+          }
+          for (const sensed of sensedRecords) {
+            const st = sensed.state;
+            if (st === "needs_credentials") { transient = true; procCredGaps++; }
+            else if (st === "pending") { transient = true; }
+            else if (st === "error") { procError = true; }
+          }
         }
       }
     } catch (e) {

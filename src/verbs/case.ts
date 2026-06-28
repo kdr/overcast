@@ -18,6 +18,7 @@ import { addIndex, listIndexes, normalizeIndexType, removeIndex } from "../state
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex } from "../state/setup.js";
 import { indexVerb } from "./index.js";
 import { isAv } from "./media-ref.js";
+import { findProviderChoice } from "../providers/catalog.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -34,6 +35,15 @@ const DEFAULT_LOCAL_MEMORY_SIGNALS = ["note", "watch", "listen", "see", "scan"];
 function csv(v: unknown): string[] {
   if (v == null) return [];
   return String(v).split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function parseProviderSelections(v: unknown): Array<{ verb: string; choice: string }> {
+  return csv(v).map((spec) => {
+    const idx = spec.indexOf(":");
+    return idx < 0
+      ? { verb: "", choice: spec.trim() }
+      : { verb: spec.slice(0, idx).trim(), choice: spec.slice(idx + 1).trim() };
+  });
 }
 
 function normalizeSetupMemory(input: string): string | undefined {
@@ -278,6 +288,10 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   const removeIndexes = csv(ctx.opts["remove-index"]);
   const videos = csv(ctx.opts.video);
   const folders = csv(ctx.opts.folder);
+  const providerSelections = parseProviderSelections(ctx.opts.provider);
+  const indexableProviders = new Set(csv(ctx.opts["provider-indexable"]));
+  const autoSense = csv(ctx.opts["auto-sense"]);
+  const findingsMode = ctx.opts.findings != null ? String(ctx.opts.findings).trim().toLowerCase() : "";
   const setup = cloneSetup(base);
   const operations: string[] = [];
   const noteRecords: OvercastRecord[] = [];
@@ -390,6 +404,50 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     for (const file of files) addVideoRoute(setup, file, signals);
     operations.push(`folder select: ${folder}${files.length ? ` (${files.length} media files)` : " (no media files found)"}`);
   }
+  if (providerSelections.length) {
+    setup.providers ??= {};
+    for (const selection of providerSelections) {
+      const choice = findProviderChoice(selection.verb, selection.choice);
+      if (!selection.verb || !selection.choice || !choice) {
+        operations.push(`provider selection invalid: ${selection.verb || "(missing verb)"}:${selection.choice || "(missing choice)"}`);
+        continue;
+      }
+      setup.providers[selection.verb] = {
+        verb: selection.verb,
+        choice: selection.choice,
+        profile: ctx.profileName ?? ctx.profile.name,
+        indexable: indexableProviders.has(selection.verb) || choice.indexableDefault === true,
+        descriptor: choice.descriptor,
+        env: choice.env ?? [],
+        missing_env: (choice.env ?? []).filter((name) => !process.env[name]),
+        updated_at: new Date().toISOString(),
+      };
+      operations.push(`provider policy: ${selection.verb}:${selection.choice}`);
+    }
+  }
+  if (indexableProviders.size && !providerSelections.length) {
+    setup.providers ??= {};
+    for (const verb of indexableProviders) {
+      const existing = setup.providers[verb] ?? { verb, choice: "configured", profile: ctx.profileName ?? ctx.profile.name };
+      setup.providers[verb] = { ...existing, indexable: true, updated_at: new Date().toISOString() };
+      operations.push(`provider indexable: ${verb}`);
+    }
+  }
+  if (autoSense.length || ctx.opts["auto-index-new"] != null) {
+    setup.automation = {
+      auto_sense: autoSense.length ? autoSense : (setup.automation?.auto_sense ?? []),
+      auto_index_new: ctx.opts["auto-index-new"] === true || setup.automation?.auto_index_new === true,
+    };
+    operations.push(`automation: senses=${setup.automation.auto_sense.join(",") || "none"} auto_index_new=${setup.automation.auto_index_new}`);
+  } else {
+    setup.automation ??= { auto_sense: [], auto_index_new: false };
+  }
+  if (findingsMode) {
+    setup.findings = { mode: findingsMode };
+    operations.push(`findings: ${findingsMode}`);
+  } else {
+    setup.findings ??= { mode: "off" };
+  }
   if (!operations.length && op === "startup_setup") operations.push("save empty setup");
 
   setup.updated_at = new Date().toISOString();
@@ -441,6 +499,11 @@ export const caseVerb: VerbSpec = {
     { name: "index", summary: "setup/edit: comma-separated indexes (name:type or id:type:name)", type: "string" },
     { name: "remove-index", summary: "setup/edit: comma-separated index ids/names to remove", type: "string" },
     { name: "signals", summary: "setup/edit: comma-separated signals for new indexes/videos", type: "string" },
+    { name: "provider", summary: "setup/edit: comma-separated provider choices (<verb>:<choice>) for this case", type: "string" },
+    { name: "provider-indexable", summary: "setup/edit: comma-separated provider output verbs eligible for memory/indexing", type: "string" },
+    { name: "auto-sense", summary: "setup/edit: comma-separated senses to run on newly captured media", type: "string" },
+    { name: "auto-index-new", summary: "setup/edit: automatically add newly analyzed media to configured indexes", type: "boolean" },
+    { name: "findings", summary: "setup/edit: automated finding workflow (off | review)", type: "string" },
     { name: "video", summary: "setup/edit: comma-separated local videos/URLs to route", type: "string" },
     { name: "folder", summary: "setup/edit: comma-separated local media folders to remember", type: "string" },
     { name: "no-index", summary: "setup/edit: save setup routes without starting remote collection ingestion", type: "boolean" },
@@ -533,6 +596,11 @@ export const caseVerb: VerbSpec = {
         "index",
         "remove-index",
         "signals",
+        "provider",
+        "provider-indexable",
+        "auto-sense",
+        "auto-index-new",
+        "findings",
         "video",
         "folder",
         "memory",
@@ -575,6 +643,19 @@ export const caseVerb: VerbSpec = {
       const base = saved ?? setupFromExistingRegistries(ctx, caseName);
       for (const memory of csv(ctx.opts.memory)) {
         if (!normalizeSetupMemory(memory)) return [err(`case setup needs one local memory backend: local-grep or qmd (got '${memory}')`)];
+      }
+      for (const selection of parseProviderSelections(ctx.opts.provider)) {
+        if (!selection.verb || !selection.choice || !findProviderChoice(selection.verb, selection.choice)) {
+          return [err(`unknown provider choice '${selection.choice || "(missing)"}' for verb '${selection.verb || "(missing)"}'`)];
+        }
+      }
+      for (const verb of csv(ctx.opts["auto-sense"])) {
+        if (!["watch", "listen", "see", "face", "enhance"].includes(verb)) {
+          return [err(`unknown --auto-sense verb '${verb}' (expected watch, listen, see, face, enhance)`)];
+        }
+      }
+      if (ctx.opts.findings != null && !["off", "review"].includes(String(ctx.opts.findings).trim().toLowerCase())) {
+        return [err(`unknown --findings mode '${ctx.opts.findings}' (expected off | review)`)];
       }
       const op = saved ? "startup_setup_update" : "startup_setup";
       const before = summarizeSavedSetup(saved);

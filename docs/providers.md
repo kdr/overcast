@@ -41,6 +41,62 @@ travel with `--profile`. **Rebinding a verb requires no overcast code changes** 
 the default tinycloud `watch`/`listen` and the `see` placeholder are just the
 out-of-the-box descriptors.
 
+## Provider setup wizard and non-interactive profiles
+
+Use `provider setup` when you want a catalog-backed, scriptable profile setup
+instead of hand-writing provider specs. This is usually **profile/global** work:
+run it once per machine/profile, then reuse that profile across cases.
+
+```bash
+overcast provider setup show --profile recon --json
+overcast provider setup plan --preset cloudglue --profile recon --json
+overcast provider setup apply --preset cloudglue --profile recon --yes --json
+overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+overcast provider init listen --profile recon --json
+overcast doctor --profile recon --json
+```
+
+`plan` never writes the profile. `apply` requires `--yes`; without it, the command
+returns a pending confirmation record with the exact planned changes. The older
+`setup provider <verb> <spec>` command remains the expert/manual escape hatch.
+
+Catalog presets:
+
+| preset | choices |
+|---|---|
+| `cloudglue` | `watch:tinycloud`, `listen:tinycloud`, `face:tinycloud`, `enhance:ffmpeg` |
+| `hf` | `see:hf`, `enhance:hf` |
+| `fal` | `see:fal`, `enhance:fal` |
+| `elevenlabs` | `listen:elevenlabs`, `enhance:elevenlabs` |
+| `local-detect` | `see:local-detect` |
+
+Common environment:
+
+| choice | env |
+|---|---|
+| `tinycloud` | `CLOUDGLUE_API_KEY` |
+| `hf` | `HF_TOKEN` |
+| `fal` | `FAL_KEY` |
+| `elevenlabs` | `ELEVENLABS_API_KEY` |
+| `local-detect` | optional `DETECT_MODEL` |
+
+After provider/profile setup, use `case setup` for per-investigation policy:
+
+```bash
+overcast case setup edit \
+  --provider "listen:elevenlabs,see:local-detect" \
+  --provider-indexable "listen,see" \
+  --auto-sense "watch,listen" \
+  --auto-index-new \
+  --findings review \
+  --yes --json
+```
+
+This records which provider choices the case expects, which outputs can feed
+local memory/indexing, and whether `scan --pull` / `monitor` should run senses
+automatically for newly discovered media. Explicit `--pipe` on `scan` or
+`monitor` still overrides setup automation for that run.
+
 ## Hugging Face providers (turnkey when `HF_TOKEN` is set)
 
 overcast ships Hugging Face Inference API providers so `see` and model-based

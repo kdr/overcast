@@ -422,6 +422,29 @@ Options:
 
 Emits `note` records.
 
+### `overcast finding`
+
+Lists and reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+
+```
+overcast finding <action> [id] [options]
+
+  Review automated target matches (list|accept|dismiss).
+
+  Lists and reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+
+Arguments:
+  action           list | accept | dismiss
+  id               finding id for accept/dismiss
+
+Options:
+  --state <string>       list: open | accepted | dismissed | all
+  --json                 Shorthand for --format json
+  --format <string>      json | md | txt
+```
+
+Emits `finding` records.
+
 ### `overcast case`
 
 A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
@@ -448,6 +471,11 @@ Options:
   --index <string>       setup/edit: comma-separated indexes (name:type or id:type:name)
   --remove-index <string> setup/edit: comma-separated index ids/names to remove
   --signals <string>     setup/edit: comma-separated signals for new indexes/videos
+  --provider <string>    setup/edit: comma-separated provider choices (<verb>:<choice>) for this case
+  --provider-indexable <string> setup/edit: comma-separated provider output verbs eligible for memory/indexing
+  --auto-sense <string>  setup/edit: comma-separated senses to run on newly captured media
+  --auto-index-new       setup/edit: automatically add newly analyzed media to configured indexes
+  --findings <string>    setup/edit: automated finding workflow (off | review)
   --video <string>       setup/edit: comma-separated local videos/URLs to route
   --folder <string>      setup/edit: comma-separated local media folders to remember
   --no-index             setup/edit: save setup routes without starting remote collection ingestion
@@ -516,20 +544,25 @@ Emits `setup` records.
 
 ### `overcast provider`
 
-`provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
+`provider setup plan|apply|show` configures catalog-backed provider choices for a profile. `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
 
 ```
 overcast provider <action> [verb] [options]
 
-  Run a provider's init hook, or list/describe bound providers (provider init|list|describe).
+  Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).
 
-  `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
+  `provider setup plan|apply|show` configures catalog-backed provider choices for a profile. `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
 
 Arguments:
-  action           init | list | describe
-  verb             verb whose provider to init/describe
+  action           setup | init | list | describe
+  verb             setup subcommand, or verb whose provider to init/describe
 
 Options:
+  --profile <string>     Profile name to write/read (default: active/default)
+  --verb <string>        provider setup: verb to configure
+  --choice <string>      provider setup: catalog choice id
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|local-detect)
+  --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt
 ```

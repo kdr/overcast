@@ -22,6 +22,7 @@ import { indexVerb } from "../verbs/index.js";
 import { askVerb, briefVerb } from "../verbs/read.js";
 import { caseVerb } from "../verbs/case.js";
 import { noteVerb } from "../verbs/note.js";
+import { findingVerb } from "../verbs/finding.js";
 import { setupVerb, providerVerb, doctorVerb } from "../verbs/setup.js";
 import { skillsVerb } from "../verbs/skills.js";
 import type { VerbSpec } from "./types.js";
@@ -95,6 +96,7 @@ export const VERBS: VerbSpec[] = [
   targetVerb,
   sourceVerb,
   noteVerb,
+  findingVerb,
   prebriefVerb,
   askVerb,
   briefVerb,

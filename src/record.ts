@@ -76,6 +76,10 @@ export function isMetaRecord(rec: Pick<OvercastRecord, "verb">): boolean {
 /** Whether a record should be eligible for case memory/search evidence. */
 export function isMemoryRecord(rec: Pick<OvercastRecord, "verb"> & Partial<Pick<OvercastRecord, "payload" | "state">>): boolean {
   if (META_VERBS.has(rec.verb) || OPERATIONAL_VERBS.has(rec.verb)) return false;
+  if (rec.verb === "finding" && rec.payload && typeof rec.payload === "object") {
+    const status = (rec.payload as Record<string, unknown>).status;
+    if (status === "dismissed") return false;
+  }
   return isReady(rec);
 }
 

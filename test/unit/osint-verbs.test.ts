@@ -11,6 +11,7 @@ import { scanVerb, captureVerb, monitorVerb } from "../../src/verbs/osint.ts";
 import { addSource } from "../../src/state/source.ts";
 import { addTarget } from "../../src/state/target.ts";
 import { addIndex, addMember } from "../../src/state/index.ts";
+import { emptySetup, saveSetup } from "../../src/state/setup.ts";
 import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
@@ -107,6 +108,31 @@ test("capture copies a local media ref into the case store", async () => {
   assert.equal(rec.state, "ready");
   assert.ok(existsSync(rec.media!.ref));
   assert.match((rec.payload as Record<string, unknown>).path as string, /\.overcast\/media\//);
+});
+
+test("scan --pull uses setup automation and emits review findings", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-auto-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    addTarget(c, "Hacker News");
+    const setup = emptySetup("auto");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["watch"], auto_index_new: false };
+    setup.findings = { mode: "review" };
+    saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    assert.ok(recs.some((r) => r.verb === "watch"));
+    const findings = recs.filter((r) => r.verb === "finding");
+    assert.ok(findings.length >= 1);
+    assert.equal((findings[0].payload as Record<string, unknown>).target, "Hacker News");
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
 });
 
 test("monitor --once diffs the seen-set: new items first pass, none second", async () => {
