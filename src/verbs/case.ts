@@ -63,6 +63,9 @@ function setupHealth(ctx: VerbContext, setup: CaseSetup | undefined): Record<str
   const missingIndexes = (setup?.indexes ?? [])
     .filter((i) => i.id && !mirrored.has(i.id))
     .map((i) => i.id);
+  const incompleteIndexes = (setup?.indexes ?? [])
+    .filter((i) => !i.id && i.mode !== "attach")
+    .map((i) => ({ name: i.name, type: i.type }));
   const missingVideos = (setup?.media.videos ?? [])
     .filter((v) => !/^https?:\/\//i.test(v) && !existsSync(v));
   return {
@@ -73,6 +76,7 @@ function setupHealth(ctx: VerbContext, setup: CaseSetup | undefined): Record<str
       indexes: listIndexes(ctx.case).length,
     },
     missing_indexes: missingIndexes,
+    incomplete_indexes: incompleteIndexes,
     missing_videos: missingVideos,
   };
 }
@@ -150,6 +154,18 @@ function remoteIndexId(rec: OvercastRecord): string | undefined {
   return undefined;
 }
 
+function indexingOperationLabel(recs: OvercastRecord[]): "indexing started" | "index already member" | "indexing attempted" {
+  if (recs.some((rec) => {
+    const payload = rec.payload && typeof rec.payload === "object" ? rec.payload as Record<string, unknown> : {};
+    return accepted(rec) && payload.already_member !== true;
+  })) return "indexing started";
+  if (recs.some((rec) => {
+    const payload = rec.payload && typeof rec.payload === "object" ? rec.payload as Record<string, unknown> : {};
+    return accepted(rec) && payload.already_member === true;
+  })) return "index already member";
+  return "indexing attempted";
+}
+
 async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations: string[]): Promise<OvercastRecord[]> {
   const records: OvercastRecord[] = [];
   const createdByName = new Map<string, string>();
@@ -198,7 +214,7 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
         opts: { to: id, type: index.type },
       });
       records.push(...recs);
-      operations.push(`${recs.some(accepted) ? "indexing started" : "indexing attempted"}: ${route.ref} -> ${id}`);
+      operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
     }
   }
 
@@ -343,6 +359,10 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
 
 function quoteCommandArg(arg: string): string {
   return /^[A-Za-z0-9_./:=@+-]+$/.test(arg) ? arg : JSON.stringify(arg);
+}
+
+function incompletePlannedIndexes(setup: CaseSetup): SetupIndex[] {
+  return setup.indexes.filter((index) => !index.id && index.mode !== "attach");
 }
 
 function currentCliInvocation(): { cmd: string; args: string[] } {
@@ -518,7 +538,8 @@ export const caseVerb: VerbSpec = {
       const before = summarizeSavedSetup(saved);
       const change = buildSetupChange(ctx, base, op, !isPlan);
       const workRecords = !isPlan && ctx.opts["no-index"] !== true ? await applySetupIndexing(ctx, change.setup, change.operations) : [];
-      if (!isPlan) change.setup.completed = true;
+      const incompleteIndexes = !isPlan ? incompletePlannedIndexes(change.setup) : [];
+      if (!isPlan) change.setup.completed = incompleteIndexes.length === 0;
       const after = summarizeSavedSetup(change.setup);
       const setupRecord = makeRecord({
         verb: "case",
@@ -531,11 +552,12 @@ export const caseVerb: VerbSpec = {
           after,
           applied_operations: isPlan ? [] : change.operations,
           planned_operations: change.operations,
+          incomplete_indexes: incompleteIndexes.map((index) => ({ name: index.name, type: index.type })),
           confirmation_required: isPlan && sub !== "plan" && ctx.opts["dry-run"] !== true,
           confirm_with: isPlan && sub !== "plan" && ctx.opts["dry-run"] !== true ? "overcast case setup ... --yes" : undefined,
         },
         meta: isPlan ? { transient: true } : { case: ctx.case.dir },
-        state: isPlan ? "pending" : "ready",
+        state: isPlan || incompleteIndexes.length ? "pending" : "ready",
       });
       if (!isPlan) {
         change.setup.last_update_record_id = setupRecord.id;

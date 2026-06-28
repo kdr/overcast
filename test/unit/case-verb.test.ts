@@ -345,6 +345,68 @@ test("case setup apply creates remote indexes and starts routed video indexing",
   });
 });
 
+test("case setup remains incomplete when remote index creation does not return an id", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const video = join(dir, "clip.mp4");
+    writeFileSync(video, "fake");
+    const prevCmd = process.env.OVERCAST_TINYCLOUD_CMD;
+    const prevMode = process.env.OVERCAST_FAKE_TC_MODE;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${join(process.cwd(), "test/fixtures/fake-tinycloud.sh")}`;
+    process.env.OVERCAST_FAKE_TC_MODE = "cred";
+    try {
+      const records = await caseVerb.run(ctx(dir, "setup", [], {
+        index: "Scenes:media-descriptions",
+        video,
+        yes: true,
+      }));
+      const setupRecord = records.at(-1)!;
+      c.writeRecord(setupRecord);
+
+      assert.equal(setupRecord.state, "pending");
+      assert.deepEqual((setupRecord.payload as Record<string, unknown>).incomplete_indexes, [{ name: "Scenes", type: "media-descriptions" }]);
+      const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+      assert.equal(saved.completed, false);
+
+      const [status] = await caseVerb.run(ctx(dir, "setup", ["status"]));
+      assert.deepEqual((status.payload as Record<string, unknown>).incomplete_indexes, [{ name: "Scenes", type: "media-descriptions" }]);
+    } finally {
+      if (prevCmd === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+      else process.env.OVERCAST_TINYCLOUD_CMD = prevCmd;
+      if (prevMode === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;
+      else process.env.OVERCAST_FAKE_TC_MODE = prevMode;
+    }
+  });
+});
+
+test("case setup edit does not say indexing started for existing index members", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const video = join(dir, "clip.mp4");
+    writeFileSync(video, "fake");
+    const prev = process.env.OVERCAST_TINYCLOUD_CMD;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${join(process.cwd(), "test/fixtures/fake-tinycloud.sh")}`;
+    try {
+      let records = await caseVerb.run(ctx(dir, "setup", [], {
+        index: "Scenes:media-descriptions",
+        video,
+        yes: true,
+      }));
+      for (const rec of records) c.writeRecord(rec);
+
+      records = await caseVerb.run(ctx(dir, "setup", ["edit"], { source: "web:second", yes: true }));
+      const setupRecord = records.at(-1)!;
+      c.writeRecord(setupRecord);
+      const operations = (setupRecord.payload as Record<string, unknown>).applied_operations as string[];
+      assert.equal(operations.some((op) => op.includes("index already member")), true);
+      assert.equal(operations.some((op) => op.includes("indexing started")), false);
+    } finally {
+      if (prev === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+      else process.env.OVERCAST_TINYCLOUD_CMD = prev;
+    }
+  });
+});
+
 test("case setup defaults to local-grep memory and records selected local memory backend", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
