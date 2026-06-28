@@ -23,10 +23,14 @@ test("finding list/accept/dismiss uses append-only review records", async () => 
 
     const [listed] = await findingVerb.run(ctx(dir, "list"));
     assert.equal((((listed.payload as Record<string, unknown>).findings as unknown[]).length), 1);
+    assert.equal(isMemoryRecord(listed), false);
 
     const [dismissed] = await findingVerb.run(ctx(dir, "dismiss", [finding.id]));
     c.writeRecord(dismissed);
     assert.equal((dismissed.payload as Record<string, unknown>).status, "dismissed");
+    const [badReviewTarget] = await findingVerb.run(ctx(dir, "accept", [dismissed.id]));
+    assert.equal(badReviewTarget.state, "error");
+    assert.match(badReviewTarget.error ?? "", /root finding id/);
 
     const [open] = await findingVerb.run(ctx(dir, "list"));
     assert.equal((((open.payload as Record<string, unknown>).findings as unknown[]).length), 0);
@@ -37,4 +41,3 @@ test("finding list/accept/dismiss uses append-only review records", async () => 
     rmSync(dir, { recursive: true, force: true });
   }
 });
-

@@ -79,6 +79,7 @@ export function isMemoryRecord(rec: Pick<OvercastRecord, "verb"> & Partial<Pick<
   if (rec.verb === "finding" && rec.payload && typeof rec.payload === "object") {
     const payload = rec.payload as Record<string, unknown>;
     if (typeof payload.finding_id === "string") return false;
+    if (typeof payload.source_record !== "string") return false;
     const status = payload.status;
     if (status === "dismissed") return false;
   }

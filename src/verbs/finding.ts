@@ -76,6 +76,9 @@ export const findingVerb: VerbSpec = {
     if (!id) return [err(`finding ${action} requires a finding id`)];
     const original = ctx.case.recordById(id);
     if (!original || original.verb !== "finding") return [err(`finding not found: ${id}`)];
+    if (original.payload && typeof original.payload === "object" && typeof (original.payload as Record<string, unknown>).finding_id === "string") {
+      return [err(`finding ${action} requires a root finding id, not a review record id`)];
+    }
     const status = action === "accept" ? "accepted" : "dismissed";
     return [
       makeRecord({
@@ -89,4 +92,3 @@ export const findingVerb: VerbSpec = {
     ];
   },
 };
-
