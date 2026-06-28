@@ -11,6 +11,7 @@ import { badNumber } from "./validate.js";
 import type { VerbSpec } from "../registry/types.js";
 
 type CropKind = "face" | "object";
+const THUMBNAIL_FETCH_TIMEOUT_MS = 15_000;
 
 interface Candidate {
   sourceRecord: OvercastRecord;
@@ -145,7 +146,33 @@ function boxObject(raw: unknown): Record<string, unknown> | undefined {
   return raw && typeof raw === "object" ? raw as Record<string, unknown> : undefined;
 }
 
-function normalizeBox(raw: unknown, media: { width: number; height: number }, pad: number, square: boolean): CropBox | undefined {
+function boolish(v: unknown): boolean | undefined {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (["true", "yes", "1"].includes(s)) return true;
+    if (["false", "no", "0"].includes(s)) return false;
+  }
+  return undefined;
+}
+
+function explicitNormalized(box: Record<string, unknown>, item: Record<string, unknown> | undefined): boolean | undefined {
+  const raw =
+    boolish(box.normalized) ??
+    boolish(box.is_normalized) ??
+    boolish(box.relative) ??
+    boolish(item?.box_normalized) ??
+    boolish(item?.normalized);
+  if (raw !== undefined) return raw;
+  const space = str(box.coordinate_space) ?? str(box.coord_space) ?? str(box.space) ?? str(box.units) ??
+    str(item?.box_space) ?? str(item?.coordinate_space) ?? str(item?.coord_space);
+  if (!space) return undefined;
+  if (/^(normalized|relative|ratio|fraction)$/i.test(space)) return true;
+  if (/^(pixel|pixels|absolute|image)$/i.test(space)) return false;
+  return undefined;
+}
+
+export function normalizeBox(raw: unknown, media: { width: number; height: number }, pad: number, square: boolean, item?: Record<string, unknown>): CropBox | undefined {
   const b = boxObject(raw);
   if (!b) return undefined;
   let x: number | undefined;
@@ -167,7 +194,9 @@ function normalizeBox(raw: unknown, media: { width: number; height: number }, pa
   }
   if (x === undefined || y === undefined || w === undefined || h === undefined || w <= 0 || h <= 0) return undefined;
 
-  const normalized = Math.max(Math.abs(x), Math.abs(y), Math.abs(w), Math.abs(h)) <= 1;
+  const vals = [x, y, w, h];
+  const looksUnitScaled = Math.max(...vals.map(Math.abs)) <= 1 && vals.some((v) => v > 0 && v < 1 && !Number.isInteger(v));
+  const normalized = explicitNormalized(b, item) ?? looksUnitScaled;
   if (normalized) {
     x *= media.width;
     w *= media.width;
@@ -256,9 +285,18 @@ async function materializeThumbnail(url: string, outDir: string, id: string): Pr
   mkdirSync(frameDir, { recursive: true });
   const out = join(frameDir, `${safePart(id)}${extFromUrl(url)}`);
   if (existsSync(out)) return out;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`download failed ${res.status} ${res.statusText}`);
-  writeFileSync(out, Buffer.from(await res.arrayBuffer()));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), THUMBNAIL_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`download failed ${res.status} ${res.statusText}`);
+    writeFileSync(out, Buffer.from(await res.arrayBuffer()));
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw new Error(`download timed out after ${THUMBNAIL_FETCH_TIMEOUT_MS}ms`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   return out;
 }
 
@@ -352,7 +390,7 @@ export const cropVerb: VerbSpec = {
         }
         infos.set(media, info);
       }
-      const box = normalizeBox(cand.rawBox, info, pad, square);
+      const box = normalizeBox(cand.rawBox, info, pad, square, cand.item);
       if (!box) {
         recs.push(err(`detection ${cand.id} has an unsupported or empty box`));
         continue;

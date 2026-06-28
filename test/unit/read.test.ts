@@ -40,7 +40,7 @@ test("indexable field policy prefers verb-specific fields, including notes", () 
   assert.match(fields.map((f) => f.text).join("\n"), /white van/);
 });
 
-test("case memory excludes operational/read records but indexes compact face summaries and crop evidence", async () => {
+test("case memory excludes operational/read/error records but indexes compact face summaries and crop evidence", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-memory-filter-"));
   try {
     const c = openCase(dir);
@@ -56,12 +56,16 @@ test("case memory excludes operational/read records but indexes compact face sum
     c.writeRecord(makeRecord({ verb: "ask", payload: { text: "ASK_NOISE prior answer", citations: [] } }));
     c.writeRecord(makeRecord({ verb: "face", payload: { op: "detect", summary: "FACE_SUMMARY_MARKER 36 face boxes", faces: [{ box: { x: 1, y: 2, width: 3, height: 4 }, thumbnail: "NOISY_FACE_BLOB" }] }, media: { ref: "faces.mp4" } }));
     c.writeRecord(makeRecord({ verb: "crop", payload: { summary: "CROP_MARKER cropped face from faces.mp4", class: "face", detection_id: "face_1", crop: "crop.jpg", original_box: { noisy: "RAW_BOX_NOISE" } }, media: { ref: "crop.jpg" } }));
+    c.writeRecord(makeRecord({ verb: "crop", payload: { error: "CROP_ERROR_MARKER failed crop should not become evidence" }, state: "error", error: "crop failed" }));
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "WATCH_ERROR_MARKER failed watch should not become evidence" }, state: "error", error: "watch failed" }));
     c.writeRecord(makeRecord({ verb: "note", payload: { text: "EVIDENCE_MARKER Zurich train station" } }));
 
     const local = new LocalMemoryProvider(c);
     assert.equal(local.status().documents, 3);
     assert.deepEqual(local.query("NOISE", { limit: 10 }), []);
     assert.equal(local.query("SETUP_NOISE", { verbs: ["setup"], limit: 10 }).length, 0);
+    assert.equal(local.query("CROP_ERROR_MARKER", { limit: 10 }).length, 0);
+    assert.equal(local.query("WATCH_ERROR_MARKER", { limit: 10 }).length, 0);
     assert.equal(local.query("FACE_SUMMARY_MARKER", { limit: 10 })[0]?.verb, "face");
     assert.equal(local.query("CROP_MARKER", { limit: 10 })[0]?.verb, "crop");
     const localHits = local.query("Zurich train", { limit: 10 });
@@ -80,7 +84,7 @@ test("case memory excludes operational/read records but indexes compact face sum
     assert.match(docs, /EVIDENCE_MARKER/);
     assert.match(docs, /FACE_SUMMARY_MARKER/);
     assert.match(docs, /CROP_MARKER/);
-    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|TARGET_NOISE|SOURCE_NOISE|PREBRIEF_NOISE|CASE_NOISE|ASK_NOISE|NOISY_FACE_BLOB|RAW_BOX_NOISE/);
+    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|TARGET_NOISE|SOURCE_NOISE|PREBRIEF_NOISE|CASE_NOISE|ASK_NOISE|CROP_ERROR_MARKER|WATCH_ERROR_MARKER|NOISY_FACE_BLOB|RAW_BOX_NOISE/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

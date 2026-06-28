@@ -7,7 +7,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runListen } from "../../src/providers/tinycloud/listen.ts";
 import { seeVerb, enhanceVerb, viewVerb } from "../../src/verbs/senses.ts";
-import { cropVerb } from "../../src/verbs/crop.ts";
+import { cropVerb, normalizeBox } from "../../src/verbs/crop.ts";
 import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
@@ -205,6 +205,21 @@ test("crop materializes a data URL thumbnail before cropping", async () => {
   assert.match(p.crop_source_media as string, /\.frames\/f_data_t4\.jpg$/);
   assert.ok(existsSync(p.crop_source_media as string));
   assert.ok(existsSync(rec.media!.ref));
+});
+
+test("crop keeps tiny pixel boxes in pixel space unless explicitly normalized", async () => {
+  assert.deepEqual(
+    normalizeBox({ xmin: 0, ymin: 0, xmax: 1, ymax: 1 }, { width: 128, height: 96 }, 0, false),
+    { x: 0, y: 0, width: 1, height: 1 },
+  );
+  assert.deepEqual(
+    normalizeBox({ xmin: 0, ymin: 0, xmax: 1, ymax: 1 }, { width: 128, height: 96 }, 0, false, { box_normalized: true }),
+    { x: 0, y: 0, width: 128, height: 96 },
+  );
+  assert.deepEqual(
+    normalizeBox({ left: 0.25, top: 0.25, width: 0.5, height: 0.5 }, { width: 128, height: 96 }, 0, false),
+    { x: 32, y: 24, width: 64, height: 48 },
+  );
 });
 
 test("view escapes a media path with quotes/specials (no HTML/attr breakage)", async () => {
