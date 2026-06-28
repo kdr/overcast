@@ -8,6 +8,7 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
 import { faceVerb } from "../verbs/face.js";
+import { cropVerb } from "../verbs/crop.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
 import {
   scanVerb,
@@ -86,6 +87,7 @@ export const VERBS: VerbSpec[] = [
   faceVerb,
   enhanceVerb,
   viewVerb,
+  cropVerb,
   scanVerb,
   captureVerb,
   monitorVerb,

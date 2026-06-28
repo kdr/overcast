@@ -89,10 +89,12 @@ overcast setup provider see "exec:python3 examples/providers/detect/detect.py"
 
 overcast see ./scene.jpg --detect "car, person, license plate" --json
 overcast see ./clip.mp4  --detect "weapon, hard hat" --json      # video → frames sampled, each box carries `at`
+overcast crop <see-record-id> --all --class person --json        # materialize detections as cropped evidence
 ```
 
 - Default model **OWLv2** (`google/owlv2-base-patch16-ensemble`) — small, CPU-friendly. Switch to **Grounding DINO** with `DETECT_MODEL=IDEA-Research/grounding-dino-tiny`. Both run through the `zero-shot-object-detection` pipeline, so `--detect` is the open-vocabulary candidate-label list.
-- Emits a `see` record: `payload.detections = [{ label, score, box:{xmin,ymin,xmax,ymax}, at? }]` (the `at` second is present for video frames) plus `payload.counts` per label.
+- Emits a `see` record: `payload.detections = [{ label, score, box:{xmin,ymin,xmax,ymax}, at? }]` (the `at` second is present for video frames) plus `payload.counts` per label. Local memory indexes compact counts/categories, not the raw detection array.
+- Run `overcast crop <see-record-id> --all [--class person]` to write cropped JPEG evidence under `.overcast/media/crops/`. Each crop record carries source record/media, crop source media, timestamp/frame, class/id, confidence, and bbox provenance and is searchable case evidence.
 - Env: `DETECT_MODEL`, `DETECT_THRESHOLD` (default 0.1), `DETECT_MAX_FRAMES` (default 8). overcast passes `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` (the system ffmpeg/ffprobe) so video frame extraction works.
 - *Note:* `nvidia/LocateAnything-3B` is a higher-quality open-vocab grounding model but it's a 3B VLM (~7.7 GB, GPU-class); swap it in via a local-transformers provider if you have the hardware.
 
@@ -133,11 +135,14 @@ Only primary evidence records are eligible for memory and briefs: read/meta and
 operational bookkeeping records (`ask`, `brief`, `case`, `setup`, `doctor`,
 `index`, `target`, `source`, `prebrief`, legacy `collection`, etc.) are excluded even if they contain matching
 text. Remote indexes stay explicit through the case index mirror and
-`ask --index`. `face` records are also excluded from general case memory:
-boxes, matches, and stored detections are typed face evidence, not descriptive video
-content. For local videos, `index add <video> --to <id>` creates a missing
-`watch` record before registering the video remotely so local-grep has useful
-content immediately and qmd can ingest it on the next rebuild.
+`ask --index`. Face and object detection records are searchable only through
+compact summary fields (summaries, counts, categories, moments), not raw boxes,
+thumbnail blobs, or full detection arrays. `crop` records are fully searchable
+evidence because they are curated local media artifacts with source
+record/media/time/class/id/box provenance. For local videos, `index add <video>
+--to <id>` creates a missing `watch` record before registering the video remotely
+so local-grep has useful descriptive content immediately and qmd can ingest it
+on the next rebuild.
 `local` remains an alias for scripts. Inspect it with:
 
 ```bash
@@ -193,10 +198,11 @@ and recommends the latest tested tinycloud, currently 0.3.6.
 One verb resolves to one of four tinycloud face ops from the inputs given:
 
 ```bash
-overcast face ./clip.mp4 --json                          # detect: who is in this video (boxes + timestamps)
+overcast face ./clip.mp4 --thumbnails --json             # detect: who is in this video (boxes + provider frame thumbnails)
 overcast face ./clip.mp4 --match ./suspect.jpg --json    # match: find this person in the clip (JPEG/PNG query image), ranked by similarity
 overcast face --match ./suspect.jpg --index <id> --json   # search a face-analysis index (case-wide)
 overcast face ./clip.mp4 --index <id> --json        # list a video's stored detections in an index
+overcast crop <face-record-id> --all --class face --json  # crop detections into local evidence images
 ```
 
 Emits a `face.analysis` record: `faces[]` is normalized (`at`, `box`,
@@ -206,6 +212,13 @@ query image must be JPEG/PNG; tinycloud 0.3.6 rejects webp/heic/gif/bmp/tiff/avi
 at preflight. Bind your own
 detector with `setup provider face <spec>` like any sense (it receives the media
 plus `--match`/`--index`/… as flags).
+
+`face` records index their compact headline/moments for case memory, but not the
+raw `faces[]` boxes or thumbnails. Use `crop` when you need durable, searchable
+cropped face images; pass `--thumbnails` to preserve provider frame images for
+crop extraction when available. `crop` is separate from `enhance`: `enhance`
+transforms a whole media item, while `crop` extracts cited regions from
+detection evidence.
 
 ### `index` — index a target's videos, then read by type
 

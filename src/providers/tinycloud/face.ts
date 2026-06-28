@@ -86,6 +86,8 @@ function normalizeFace(o: Record<string, unknown>): Record<string, unknown> {
   if (sim !== undefined) out.similarity = sim;
   const id = pick(o, ["face_id", "faceId", "id"]);
   if (id !== undefined) out.face_id = id;
+  const frameId = pick(o, ["frame_id", "frameId"]);
+  if (frameId !== undefined) out.frame_id = frameId;
   const file = pick(o, ["file", "source", "source_id", "sourceId", "video", "file_id", "fileId"]);
   if (file !== undefined) out.file = file;
   const thumb = pick(o, ["thumbnail", "thumb", "thumbnail_url", "thumbnailUrl", "image"]);
