@@ -21,7 +21,7 @@ the CLI from any harness. The brain LLM is BYO; the default perception backend i
 ### Prerequisites
 
 - **FFmpeg** — `ffmpeg` + `ffprobe` on your `PATH` (the internal media toolkit
-  for `enhance`, frame extraction, and `view`).
+  for `enhance`, frame extraction, detection crops, and `view`).
   `brew install ffmpeg` · `apt install ffmpeg` · <https://ffmpeg.org/download.html>
   (or point `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` at specific binaries).
 - **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
@@ -87,10 +87,14 @@ npx skills add kdr/overcast           # vercel-labs/skills; pulls skills from th
 steers the agent to start with zero-config `ask`, rebuild qmd before semantic
 queries, use `ask --deep` for configured semantic memory, and bind remote indexes
 with `index attach` instead of note bookkeeping. Case memory is evidence-only:
-setup/doctor/index/target/source/prebrief/read bookkeeping is excluded from `ask` and `brief`, and
-typed face records are not used as general case-search content. When a local video
-is added to an index before it has been watched, `index add` creates missing
-`watch` evidence for local-grep/qmd memory instead of relying on face detection.
+setup/doctor/index/target/source/prebrief/read bookkeeping is excluded from `ask` and `brief`.
+Face/object detection records index only compact summaries/counts/moments, not
+raw box arrays or thumbnails; `crop` records are searchable evidence artifacts
+with source record/media/crop-source/time/class/id/box provenance. Use
+`face --thumbnails` when you want face crop records to preserve and crop from
+provider frame images when available. When a local video is
+added to an index before it has been watched, `index add` creates missing
+`watch` evidence for local-grep/qmd memory instead of relying on detections.
 Confirmed `case clear --yes` also drops configured materialized memory indexes
 such as qmd before clearing local state.
 
@@ -114,17 +118,23 @@ overcast brief --export ./brief.html
 overcast note "rear plate is missing" --ref <watch-record-id> --at 12-18 --tag vehicle --json
 
 # 5) faces: detect, or find a specific person in a clip
-overcast face ./clip.mp4 --json                       # who is in this video
+overcast face ./clip.mp4 --thumbnails --json          # who is in this video + frame thumbnails for exact crops
 overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/PNG query image), ranked by similarity
+overcast crop <face-record-id> --all --class face --json # write cropped face images as evidence
 
-# 6) index the target's videos, then search across ALL of them
+# 6) objects: bind a detector, find boxes, and crop them
+overcast setup provider see "exec:python3 examples/providers/detect/detect.py"
+overcast see ./clip.mp4 --detect "person, car, license plate" --json
+overcast crop <see-record-id> --all --class person --json
+
+# 7) index the target's videos, then search across ALL of them
 overcast index create faces --type face --json
 overcast index attach existing-face-index --type face --json       # or bind an existing remote index
 overcast index add --all --to <face-col-id> --json   # register every captured/sensed video
 overcast index add ./local.mp4 --to <face-col-id> --json # creates missing watch evidence locally
 overcast face --match ./suspect.jpg --index <face-col-id> --json   # find them across the index
 
-# 7) launch the interactive agent (pi TUI) in the current case
+# 8) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
 
@@ -148,6 +158,7 @@ surface + env vars.)
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
+| `crop` | materialize face/object detections as cropped image records with provenance |
 
 **OSINT** — search / capture / monitor
 | verb | does |

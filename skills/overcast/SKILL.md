@@ -24,6 +24,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `face` — Detect, match, or search faces in video (and across face-analysis indexes).
 - `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
+- `crop` — Materialize face/object detections as cropped image records with provenance.
 - `scan` — Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
@@ -48,8 +49,9 @@ Run any verb from bash and parse the JSON record:
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
 overcast note "rear plate is missing" --ref <record-id> --at 12-18 --json
-overcast face ./clip.mp4 --json           # detect faces (boxes + timestamps)
+overcast face ./clip.mp4 --thumbnails --json  # detect faces (boxes + provider frame thumbnails)
 overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video (JPEG/PNG query image)
+overcast crop <face-or-see-record-id> --all --class face --json  # materialize detection crops as evidence
 overcast ask "every white van, with timestamps" --json
 overcast case memory index status --json  # inspect default local-grep case search
 overcast brief --export ./brief.html
@@ -101,8 +103,14 @@ plain `ask` stays on local-grep, and `ask --deep` selects configured
 semantic providers such as qmd. The first qmd rebuild downloads/caches
 `embeddinggemma-300M-Q8_0`; rebuilds replace the named qmd collection before
 re-adding docs, so rerunning after new notes/watch records is safe.
-`face` records are excluded from general case memory; use `watch` /
-`listen` / `note` evidence for local-grep and qmd search content.
+`face` records contribute compact summary/moment fields to memory, not raw
+box/thumbnail blobs. `see` detection records likewise index counts/categories
+instead of the full detection array. Use `crop <record-id> --all` to turn
+face/object detections into local cropped image evidence records; crop records
+are fully memory-eligible and preserve source record, source media, crop source
+media, timestamp, class/id, confidence, and box provenance. Use
+`face --thumbnails` before `crop` when you want provider frame images
+preserved for crop extraction.
 `overcast doctor` reports qmd when installed or configured.
 
 ### Faces & indexes (register a target's videos, then ask / find a person)
@@ -127,6 +135,8 @@ overcast index create faces --type face --json
 overcast index attach existing-face-index --type face --json
 overcast index add --all --to <face-index-id> --json
 overcast face --match ./suspect.jpg --index <face-index-id> --json
+overcast face ./clip.mp4 --thumbnails --json
+overcast crop <face-record-id> --all --class face --out ./.overcast/media/crops --json
 
 # 2c) entities → same-schema extraction per video
 overcast index create people --type entities --prompt "people, orgs, locations" --json
@@ -135,11 +145,11 @@ overcast index entities <entity-index-id> ./clip.mp4 --json
 
 `face` needs tinycloud ≥ 0.3.4 (`overcast doctor` flags an older install);
 overcast currently recommends tinycloud 0.3.6 for the latest face validation and
-CLI reliability behavior. Do not run `face ./clip.mp4` merely to populate
-general case search; face records are typed face evidence and are excluded from
-local-grep/qmd memory. If a local video lacks content evidence, add it to
-the index with `overcast index add ./clip.mp4 --to <id>`; overcast will create
-the missing `watch` record for local case memory.
+CLI reliability behavior. Face detection counts are boxes per sampled frame, not
+unique people; use `--match <photo>` for a specific person and `crop` when
+you need durable cropped image evidence. If a local video lacks descriptive
+content evidence, add it to the index with `overcast index add ./clip.mp4 --to
+<id>`; overcast will create the missing `watch` record for local case memory.
 
 ### Reading large records
 

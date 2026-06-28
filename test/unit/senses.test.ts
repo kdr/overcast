@@ -7,9 +7,11 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runListen } from "../../src/providers/tinycloud/listen.ts";
 import { seeVerb, enhanceVerb, viewVerb } from "../../src/verbs/senses.ts";
+import { cropVerb } from "../../src/verbs/crop.ts";
 import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
+import { makeRecord } from "../../src/record.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -109,6 +111,64 @@ test("view --no-open writes an HTML player and emits a view record", async () =>
   assert.equal(p.mode, "video");
   assert.equal(p.opened, false);
   assert.ok(existsSync(p.viewer as string));
+});
+
+test("crop materializes a face detection as a local evidence record", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const face = makeRecord({
+    verb: "face",
+    payload: {
+      op: "detect",
+      summary: "one face",
+      faces: [{ face_id: "f_1", at: 0.2, box: { left: 0.25, top: 0.25, width: 0.5, height: 0.5 } }],
+    },
+    media: { ref: clip, at: 0.2 },
+  });
+  c.writeRecord(face);
+  const [rec] = await cropVerb.run({ input: face.id, rest: [], opts: { all: true, square: true }, case: c, profile: defaultProfile() });
+  assert.equal(rec.verb, "crop");
+  assert.equal(rec.state, "ready");
+  assert.ok(existsSync(rec.media!.ref));
+  const p = rec.payload as Record<string, unknown>;
+  assert.equal(p.source_record, face.id);
+  assert.equal(p.detection_id, "f_1");
+  assert.equal(p.class, "face");
+});
+
+test("crop prefers a face thumbnail frame over seeking the source video", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const thumb = join(dir, "face-frame.jpg");
+  execFileSync(
+    FFMPEG_PATH,
+    ["-y", "-f", "lavfi", "-i", "testsrc=size=200x120:rate=1:duration=1", "-frames:v", "1", thumb],
+    { stdio: "ignore" },
+  );
+  const face = makeRecord({
+    verb: "face",
+    payload: {
+      op: "detect",
+      summary: "one face with provider frame",
+      faces: [{
+        face_id: "f_thumb",
+        frame_id: "frame_4",
+        at: 4,
+        box: { left: 0.2, top: 0.1, width: 0.4, height: 0.5 },
+        thumbnail: thumb,
+      }],
+    },
+    media: { ref: clip, at: 4 },
+  });
+  c.writeRecord(face);
+  const [rec] = await cropVerb.run({ input: face.id, rest: [], opts: { all: true }, case: c, profile: defaultProfile() });
+  assert.equal(rec.state, "ready");
+  const p = rec.payload as Record<string, unknown>;
+  assert.equal(p.source_media, clip);
+  assert.equal(p.crop_source_media, thumb);
+  assert.equal(p.thumbnail, thumb);
+  assert.equal(p.frame_id, "frame_4");
+  assert.ok(existsSync(rec.media!.ref));
 });
 
 test("view escapes a media path with quotes/specials (no HTML/attr breakage)", async () => {

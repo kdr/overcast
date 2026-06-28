@@ -40,7 +40,7 @@ test("indexable field policy prefers verb-specific fields, including notes", () 
   assert.match(fields.map((f) => f.text).join("\n"), /white van/);
 });
 
-test("case memory excludes operational and read/meta records from local and qmd indexes", async () => {
+test("case memory excludes operational/read records but indexes compact face summaries and crop evidence", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-memory-filter-"));
   try {
     const c = openCase(dir);
@@ -54,16 +54,16 @@ test("case memory excludes operational and read/meta records from local and qmd 
     c.writeRecord(makeRecord({ verb: "prebrief", payload: { summary: "PREBRIEF_NOISE case kickoff" } }));
     c.writeRecord(makeRecord({ verb: "case", payload: { summary: "CASE_NOISE memory status" } }));
     c.writeRecord(makeRecord({ verb: "ask", payload: { text: "ASK_NOISE prior answer", citations: [] } }));
-    c.writeRecord(makeRecord({ verb: "face", payload: { op: "detect", summary: "FACE_DETECT_NOISE 36 face boxes" }, media: { ref: "faces.mp4" } }));
-    c.writeRecord(makeRecord({ verb: "face", payload: { op: "match", summary: "FACE_MATCH_NOISE ranked person match" }, media: { ref: "faces.mp4" } }));
-    c.writeRecord(makeRecord({ verb: "face", payload: { op: "search", summary: "FACE_SEARCH_NOISE cross-index person match" } }));
-    c.writeRecord(makeRecord({ verb: "face", payload: { op: "list", summary: "FACE_LIST_NOISE stored face detections" }, media: { ref: "faces.mp4" } }));
+    c.writeRecord(makeRecord({ verb: "face", payload: { op: "detect", summary: "FACE_SUMMARY_MARKER 36 face boxes", faces: [{ box: { x: 1, y: 2, width: 3, height: 4 }, thumbnail: "NOISY_FACE_BLOB" }] }, media: { ref: "faces.mp4" } }));
+    c.writeRecord(makeRecord({ verb: "crop", payload: { summary: "CROP_MARKER cropped face from faces.mp4", class: "face", detection_id: "face_1", crop: "crop.jpg", original_box: { noisy: "RAW_BOX_NOISE" } }, media: { ref: "crop.jpg" } }));
     c.writeRecord(makeRecord({ verb: "note", payload: { text: "EVIDENCE_MARKER Zurich train station" } }));
 
     const local = new LocalMemoryProvider(c);
-    assert.equal(local.status().documents, 1);
+    assert.equal(local.status().documents, 3);
     assert.deepEqual(local.query("NOISE", { limit: 10 }), []);
     assert.equal(local.query("SETUP_NOISE", { verbs: ["setup"], limit: 10 }).length, 0);
+    assert.equal(local.query("FACE_SUMMARY_MARKER", { limit: 10 })[0]?.verb, "face");
+    assert.equal(local.query("CROP_MARKER", { limit: 10 })[0]?.verb, "crop");
     const localHits = local.query("Zurich train", { limit: 10 });
     assert.equal(localHits.length, 1);
     assert.equal(localHits[0].verb, "note");
@@ -74,11 +74,13 @@ test("case memory excludes operational and read/meta records from local and qmd 
     const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
     const rebuilt = await qmd.rebuild();
     assert.equal(rebuilt.state, "ready");
-    assert.equal(rebuilt.documents, 1);
+    assert.equal(rebuilt.documents, 3);
     const docsDir = join(c.indexDir, "case-search", "qmd", "docs");
     const docs = readdirSync(docsDir).map((name) => readFileSync(join(docsDir, name), "utf8")).join("\n");
     assert.match(docs, /EVIDENCE_MARKER/);
-    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|TARGET_NOISE|SOURCE_NOISE|PREBRIEF_NOISE|CASE_NOISE|ASK_NOISE|FACE_DETECT_NOISE|FACE_MATCH_NOISE|FACE_SEARCH_NOISE|FACE_LIST_NOISE/);
+    assert.match(docs, /FACE_SUMMARY_MARKER/);
+    assert.match(docs, /CROP_MARKER/);
+    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|TARGET_NOISE|SOURCE_NOISE|PREBRIEF_NOISE|CASE_NOISE|ASK_NOISE|NOISY_FACE_BLOB|RAW_BOX_NOISE/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -157,6 +157,43 @@ export async function extractFrame(
   return out;
 }
 
+export interface CropBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Extract a cropped still from an image/video. For videos, `second` selects the
+ * source frame; for still images it is ignored by ffmpeg. */
+export async function cropStill(
+  input: string,
+  box: CropBox,
+  out: string,
+  second?: number,
+): Promise<string> {
+  ensureDir(dirname(out));
+  const x = Math.max(0, Math.floor(box.x));
+  const y = Math.max(0, Math.floor(box.y));
+  const width = Math.max(1, Math.floor(box.width));
+  const height = Math.max(1, Math.floor(box.height));
+  const args = ["-y"];
+  if (second != null && Number.isFinite(second)) args.push("-ss", String(second));
+  args.push(
+    "-i",
+    input,
+    "-frames:v",
+    "1",
+    "-vf",
+    `crop=${width}:${height}:${x}:${y}`,
+    "-q:v",
+    "2",
+    out,
+  );
+  await execFileP(FFMPEG_PATH, args, { maxBuffer: 32 * 1024 * 1024 });
+  return out;
+}
+
 /** Render an audio spectrogram to a PNG via ffmpeg's native showspectrumpic. */
 export async function spectrogram(input: string, outDir: string): Promise<string> {
   ensureDir(outDir);

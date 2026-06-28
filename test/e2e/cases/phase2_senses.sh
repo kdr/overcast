@@ -27,10 +27,10 @@ casedir="$SMOKE_DIR/case_senses"; mkdir -p "$casedir"
 # phases append more verbs, so assert presence, not the exact set).
 verbs="$($OVERCAST commands --json | jq -r '.verbs[].name')"
 missing=""
-for v in watch listen see enhance view; do
+for v in watch listen see enhance view crop; do
   echo "$verbs" | grep -qx "$v" || missing="$missing $v"
 done
-if [ -z "$missing" ]; then ok "senses.verb_surface" "commands --json lists watch/listen/see/enhance/view"; else fail "senses.verb_surface" "missing verbs:$missing"; fi
+if [ -z "$missing" ]; then ok "senses.verb_surface" "commands --json lists watch/listen/see/enhance/view/crop"; else fail "senses.verb_surface" "missing verbs:$missing"; fi
 
 # enhance: ffmpeg op -> media.enhanced with output media.ref
 eout="$($OVERCAST enhance "$clip" --ops grayscale --json --case "$casedir" 2>/dev/null)"
@@ -46,6 +46,20 @@ save_json "phase2_view" "$vout" >/dev/null
 assert_eq "view.mode" "video" "$(jq -r '.payload.mode' <<<"$vout")" "view detects video"
 vhtml="$(jq -r '.payload.viewer' <<<"$vout")"
 if [ -f "$vhtml" ] && grep -q "OVERCAST VIEW" "$vhtml"; then ok "view.html_written" "self-contained player generated"; else fail "view.html_written" "no player html"; fi
+
+# crop: materialize face detections into local crop evidence records. The fake
+# tinycloud fixture exercises the real face envelope mapper before crop reads
+# the resulting face record by id.
+fout="$(OVERCAST_TINYCLOUD_CMD="bash $REPO/test/fixtures/fake-tinycloud.sh" $OVERCAST face "$clip" --json --case "$casedir" 2>/dev/null)"
+save_json "phase2_face_for_crop" "$fout" >/dev/null
+assert_eq "crop.face_state" "ready" "$(jq -r '.state' <<<"$fout")" "fixture face detect ready"
+face_id="$(jq -r '.id' <<<"$fout")"
+cout="$($OVERCAST crop "$face_id" --all --limit 1 --json --case "$casedir" 2>/dev/null)"
+save_json "phase2_crop" "$cout" >/dev/null
+assert_eq "crop.verb" "crop" "$(jq -r '.verb' <<<"$cout")" "crop emits crop record"
+assert_eq "crop.state" "ready" "$(jq -r '.state' <<<"$cout")" "crop ready"
+crop_path="$(jq -r '.media.ref' <<<"$cout")"
+if [ -f "$crop_path" ]; then ok "crop.output_exists" "crop image written"; else fail "crop.output_exists" "no crop at $crop_path"; fi
 
 # see: with NO provider configured (HF token unset), it's the placeholder.
 # (When HF_TOKEN/a binding is present, see routes to that provider instead.)

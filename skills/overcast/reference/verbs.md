@@ -158,6 +158,35 @@ Options:
 
 Emits `view` records.
 
+### `overcast crop`
+
+Takes a face or see detection record and writes cropped still images under .overcast/media/crops/. For detections with frame thumbnails, crop uses the supplied frame image as the crop source. Each crop record preserves the source record, source media, crop source media, timestamp/frame, class/id, confidence, and box. Use --all, --id, --class, or --kind to select detections; crops are memory-friendly evidence artifacts.
+
+```
+overcast crop <input> [options]
+
+  Materialize face/object detections as cropped image records with provenance.
+
+  Takes a face or see detection record and writes cropped still images under .overcast/media/crops/. For detections with frame thumbnails, crop uses the supplied frame image as the crop source. Each crop record preserves the source record, source media, crop source media, timestamp/frame, class/id, confidence, and box. Use --all, --id, --class, or --kind to select detections; crops are memory-friendly evidence artifacts.
+
+Arguments:
+  input            Detection record id (face/see)
+
+Options:
+  --all                  Crop every matching detection
+  --id <string>          Crop one detection/face/track id
+  --class <string>       Filter by class/label, e.g. face, person, car
+  --kind <string>        Filter detection kind: face | object
+  --pad <number>         Expand the crop box by a fraction, e.g. 0.15
+  --square               Make the crop square around the detection box
+  --limit <number>       Maximum crops to write
+  --out <string>         Output directory (default .overcast/media/crops)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `media.crop` records.
+
 ## OSINT
 
 ### `overcast scan`
