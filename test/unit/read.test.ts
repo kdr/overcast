@@ -243,6 +243,20 @@ test("resolveMemory honors case setup qmd backend and local signal filter", asyn
   });
 });
 
+test("resolveMemory honors case setup local-grep over profile qmd", async () => {
+  await withCase(async (c) => {
+    const setup = emptySetup("memory-test");
+    setup.completed = true;
+    setup.memory = { backend: "local-grep", signals: ["note", "watch"] };
+    saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.memory = [{ type: "exec", backend: "qmd", id: "qmd", command: "qmd" }];
+
+    const providers = resolveMemory(c, profile);
+    assert.deepEqual(providers.map((p) => p.id), ["local-grep"]);
+  });
+});
+
 function ctx(c: ReturnType<typeof openCase>, input: string | undefined, opts: VerbContext["opts"] = {}): VerbContext {
   return { input, rest: [], opts, case: c, profile: defaultProfile() };
 }

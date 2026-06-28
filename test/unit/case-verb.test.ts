@@ -397,6 +397,30 @@ test("case setup apply creates remote indexes and starts routed video indexing",
   });
 });
 
+test("case setup memory signals do not replace remote index ingestion defaults", async () => {
+  await withCase(async (dir) => {
+    const video = join(dir, "clip.mp4");
+    writeFileSync(video, "fake");
+    const prev = process.env.OVERCAST_TINYCLOUD_CMD;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${join(process.cwd(), "test/fixtures/fake-tinycloud.sh")}`;
+    try {
+      const records = await caseVerb.run(ctx(dir, "setup", [], {
+        memory: "local-grep",
+        signals: "note,watch",
+        index: "Scenes:media-descriptions",
+        video,
+        yes: true,
+      }));
+      assert.equal(records.some((r) => r.verb === "index" && (r.payload as Record<string, unknown>).op === "add"), true);
+      const setupRecord = records.at(-1)!;
+      assert.match(JSON.stringify((setupRecord.payload as Record<string, unknown>).applied_operations), /indexing started/);
+    } finally {
+      if (prev === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+      else process.env.OVERCAST_TINYCLOUD_CMD = prev;
+    }
+  });
+});
+
 test("case setup remains incomplete when remote index creation does not return an id", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);

@@ -272,11 +272,12 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   const notes = csv(ctx.opts.note);
   const sources = csv(ctx.opts.source);
   const removeSources = csv(ctx.opts["remove-source"]);
-  const indexes = csv(ctx.opts.index).map((s) => parseIndexSpec(s, signals));
+  const memories = csv(ctx.opts.memory);
+  const indexSignals = memories.length ? [] : signals;
+  const indexes = csv(ctx.opts.index).map((s) => parseIndexSpec(s, indexSignals));
   const removeIndexes = csv(ctx.opts["remove-index"]);
   const videos = csv(ctx.opts.video);
   const folders = csv(ctx.opts.folder);
-  const memories = csv(ctx.opts.memory);
   const setup = cloneSetup(base);
   const operations: string[] = [];
   const noteRecords: OvercastRecord[] = [];

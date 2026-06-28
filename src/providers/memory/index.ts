@@ -14,21 +14,23 @@ export function resolveMemory(case_: Case, profile?: Profile): MemoryProvider[] 
   const verbs = setupMemory?.signals?.length ? setupMemory.signals : undefined;
   const providers: MemoryProvider[] = [new LocalMemoryProvider(case_, { verbs })];
   let hasQmd = false;
-  for (const spec of profile?.memory ?? []) {
-    const backend = (spec.backend ?? spec.id ?? "").toLowerCase();
-    if (backend === "qmd") {
-      hasQmd = true;
-      providers.push(new QmdMemoryProvider(case_, {
-        id: spec.id,
-        command: spec.command ?? spec.run,
-        collection: spec.collection,
-        model: spec.model,
-        verbs,
-        clearTemplate: spec.clearTemplate,
-        indexTemplate: spec.indexTemplate,
-        embedTemplate: spec.embedTemplate,
-        queryTemplate: spec.queryTemplate,
-      }));
+  if (!setupMemory || setupMemory.backend === "qmd") {
+    for (const spec of profile?.memory ?? []) {
+      const backend = (spec.backend ?? spec.id ?? "").toLowerCase();
+      if (backend === "qmd") {
+        hasQmd = true;
+        providers.push(new QmdMemoryProvider(case_, {
+          id: spec.id,
+          command: spec.command ?? spec.run,
+          collection: spec.collection,
+          model: spec.model,
+          verbs,
+          clearTemplate: spec.clearTemplate,
+          indexTemplate: spec.indexTemplate,
+          embedTemplate: spec.embedTemplate,
+          queryTemplate: spec.queryTemplate,
+        }));
+      }
     }
   }
   if (setupMemory?.backend === "qmd" && !hasQmd) providers.push(new QmdMemoryProvider(case_, { verbs }));
