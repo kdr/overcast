@@ -578,6 +578,10 @@ export const caseVerb: VerbSpec = {
       const op = saved ? "startup_setup_update" : "startup_setup";
       const before = summarizeSavedSetup(saved);
       const change = buildSetupChange(ctx, base, op, !isPlan);
+      if (!isPlan) {
+        change.setup.completed = false;
+        saveSetup(ctx.case, change.setup);
+      }
       const workRecords = !isPlan && ctx.opts["no-index"] !== true ? await applySetupIndexing(ctx, change.setup, change.operations) : [];
       const incompleteIndexes = incompletePlannedIndexes(change.setup);
       if (incompleteIndexes.length) change.setup.completed = false;
