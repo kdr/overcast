@@ -28,10 +28,18 @@ const DEFAULT_SIGNAL_BY_INDEX_TYPE: Record<string, string[]> = {
   "face-analysis": ["face", "index add"],
   entities: ["watch", "index add"],
 };
+const DEFAULT_LOCAL_MEMORY_SIGNALS = ["note", "watch", "listen", "see", "scan"];
 
 function csv(v: unknown): string[] {
   if (v == null) return [];
   return String(v).split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function normalizeSetupMemory(input: string): string | undefined {
+  const value = input.trim().toLowerCase();
+  if (value === "local" || value === "local-grep") return "local-grep";
+  if (value === "qmd") return "qmd";
+  return undefined;
 }
 
 function summarizeSavedSetup(setup: CaseSetup | undefined): Record<string, unknown> {
@@ -278,14 +286,14 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     if (apply && !listSources(ctx.case).some((s) => `${s.type}:${s.ref}` === spec)) addSource(ctx.case, spec);
   }
   if (memories.length) {
-    const backend = memories.at(-1)!;
+    const backend = normalizeSetupMemory(memories.at(-1)!)!;
     setup.memory = {
       backend,
-      signals: signals.length ? signals : (setup.memory?.signals ?? ["note", "watch", "listen", "see"]),
+      signals: signals.length ? signals : (setup.memory?.signals ?? DEFAULT_LOCAL_MEMORY_SIGNALS),
     };
     operations.push(`memory backend: ${backend} (${setup.memory.signals.join(", ")})`);
   } else {
-    setup.memory ??= { backend: "local-grep", signals: ["note", "watch", "listen", "see"] };
+    setup.memory ??= { backend: "local-grep", signals: DEFAULT_LOCAL_MEMORY_SIGNALS };
   }
   if (removeSources.length) {
     const removeSourceSpecs = sourceSpecsForRemoval(ctx, removeSources);
@@ -533,13 +541,17 @@ export const caseVerb: VerbSpec = {
 
       const isPlan = sub === "plan" || ctx.opts["dry-run"] === true || ctx.opts.yes !== true;
       const caseName = saved?.case_name ?? (ctx.case.exists() ? ctx.case.info().name : ctx.case.dir.split(/[\\/]/).filter(Boolean).at(-1) ?? "case");
-	      const base = saved ?? setupFromExistingRegistries(ctx, caseName);
+      const base = saved ?? setupFromExistingRegistries(ctx, caseName);
+      for (const memory of csv(ctx.opts.memory)) {
+        if (!normalizeSetupMemory(memory)) return [err(`case setup needs one local memory backend: local-grep or qmd (got '${memory}')`)];
+      }
       const op = saved?.completed ? "startup_setup_update" : "startup_setup";
       const before = summarizeSavedSetup(saved);
       const change = buildSetupChange(ctx, base, op, !isPlan);
       const workRecords = !isPlan && ctx.opts["no-index"] !== true ? await applySetupIndexing(ctx, change.setup, change.operations) : [];
-      const incompleteIndexes = !isPlan ? incompletePlannedIndexes(change.setup) : [];
-      if (!isPlan) change.setup.completed = incompleteIndexes.length === 0;
+      const incompleteIndexes = incompletePlannedIndexes(change.setup);
+      if (incompleteIndexes.length) change.setup.completed = false;
+      else if (!isPlan) change.setup.completed = true;
       const after = summarizeSavedSetup(change.setup);
       const setupRecord = makeRecord({
         verb: "case",

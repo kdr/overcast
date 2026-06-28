@@ -31,8 +31,11 @@ test("agent system prompt hides setup hint after completed setup", () => {
     assert.match(buildSystemPrompt(), /Do not ask all setup questions at once/);
     assert.match(buildSystemPrompt(), /Ask exactly one setup question at a time/);
     assert.match(buildSystemPrompt(), /source type options/);
-    assert.match(buildSystemPrompt(), /local-grep` \(default/);
-    assert.match(buildSystemPrompt(), /qmd` \(local semantic/);
+    assert.match(buildSystemPrompt(), /choose exactly one\s+local case-search backend/);
+    assert.match(buildSystemPrompt(), /not optional/);
+    assert.match(buildSystemPrompt(), /`local-grep` by default/);
+    assert.match(buildSystemPrompt(), /`qmd` when the user wants configured local semantic memory/);
+    assert.match(buildSystemPrompt(), /`note`, `watch`, `listen`, `see`, and `scan`/);
     assert.match(buildSystemPrompt(), /remote tinycloud-backed collections/);
     assert.match(buildSystemPrompt(), /Do not offer `rich-transcripts`/);
     assert.match(buildSystemPrompt(), /indexing has started\/queued/);

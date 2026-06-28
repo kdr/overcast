@@ -203,6 +203,15 @@ test("case setup plan does not save or apply", async () => {
   });
 });
 
+test("case setup plan reports unresolved remote indexes as incomplete", async () => {
+  await withCase(async (dir) => {
+    const [plan] = await caseVerb.run(ctx(dir, "setup", ["plan"], { index: "Scenes:media-descriptions" }));
+    const payload = plan.payload as Record<string, unknown>;
+    assert.deepEqual(payload.incomplete_indexes, [{ name: "Scenes", type: "media-descriptions" }]);
+    assert.equal(((payload.after as Record<string, unknown>).completed), false);
+  });
+});
+
 test("case setup plan does not initialize an unopened case store", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-setup-plan-"));
   try {
@@ -413,12 +422,20 @@ test("case setup defaults to local-grep memory and records selected local memory
     let records = await caseVerb.run(ctx(dir, "setup", [], { target: "alpha", yes: true }));
     c.writeRecord(records.at(-1)!);
     let saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
-    assert.deepEqual(saved.memory, { backend: "local-grep", signals: ["note", "watch", "listen", "see"] });
+    assert.deepEqual(saved.memory, { backend: "local-grep", signals: ["note", "watch", "listen", "see", "scan"] });
 
     records = await caseVerb.run(ctx(dir, "setup", ["edit"], { memory: "qmd", signals: "note,watch", yes: true }));
     c.writeRecord(records.at(-1)!);
     saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
     assert.deepEqual(saved.memory, { backend: "qmd", signals: ["note", "watch"] });
+  });
+});
+
+test("case setup rejects skipping the local memory backend", async () => {
+  await withCase(async (dir) => {
+    const [rec] = await caseVerb.run(ctx(dir, "setup", [], { memory: "skip", yes: true }));
+    assert.equal(rec.state, "error");
+    assert.match(String(rec.error), /local memory backend: local-grep or qmd/);
   });
 });
 

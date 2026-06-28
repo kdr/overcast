@@ -48,7 +48,7 @@ export function emptySetup(caseName: string, now = new Date().toISOString()): Ca
     targets: [],
     notes: [],
     sources: [],
-    memory: { backend: "local-grep", signals: ["note", "watch", "listen", "see"] },
+    memory: { backend: "local-grep", signals: ["note", "watch", "listen", "see", "scan"] },
     indexes: [],
     default_signals: {},
     media: { folders: [], videos: [], routes: [] },
@@ -62,7 +62,7 @@ export function loadSetup(c: Case): CaseSetup | undefined {
   try {
     const parsed = JSON.parse(readFileSync(c.setupFile, "utf8")) as CaseSetup;
     if (parsed && parsed.version === 1) {
-      parsed.memory ??= { backend: "local-grep", signals: ["note", "watch", "listen", "see"] };
+      parsed.memory ??= { backend: "local-grep", signals: ["note", "watch", "listen", "see", "scan"] };
       return parsed;
     }
   } catch {

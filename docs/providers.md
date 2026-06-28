@@ -193,13 +193,15 @@ with `payload.op = "startup_setup"` or `"startup_setup_update"`, before/after
 summaries, and the planned/applied operations. Those records are operational
 history and remain excluded from memory/brief evidence; notes added through
 setup are separate `note` records and stay searchable. Setup treats local case
-search and remote collections separately: `local-grep` is selected by default
-for local keyword/citation search, `qmd` can be selected for local semantic
-memory, and `face-analysis`, `media-descriptions`, and `entities` are
-tinycloud-backed remote collections for larger/portable video search. When
-setup applies with local videos routed to remote collections, overcast creates
-or attaches those collections and starts `index add` ingestion immediately; pass
-`--no-index` when you only want to save the setup state.
+search and remote collections separately: exactly one local backend is always
+configured (`local-grep` by default for local keyword/citation search, or `qmd`
+for configured local semantic memory). Local memory defaults to `note`, `watch`,
+`listen`, `see`, and `scan` evidence, including source/search metadata from web,
+YouTube, TikTok, and similar scans. `face-analysis`, `media-descriptions`, and
+`entities` are optional tinycloud-backed remote collections for larger/portable
+video search. When setup applies with local videos routed to remote collections,
+overcast creates or attaches those collections and starts `index add` ingestion
+immediately; pass `--no-index` when you only want to save the setup state.
 
 ```bash
 overcast case setup plan --target "@pier9" --memory local-grep --source "web:pier 9" --json
