@@ -128,6 +128,34 @@ test("local provider keeps distinct matching array fields with the same path", a
   }
 });
 
+test("case memory search preserves distinct same-record snippets", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-case-search-snippets-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({
+      verb: "watch",
+      payload: {
+        data: {
+          segments: [
+            { description: "Zurich train station transit tip" },
+            { description: "Zurich old town walking tip" },
+          ],
+        },
+      },
+      media: { ref: "zurich.mp4" },
+    }));
+    const [rec] = await caseVerb.run({ input: "memory", rest: ["search", "Zurich", "tip"], opts: { limit: 5 }, case: c, profile: defaultProfile() });
+    assert.equal(rec.state, "ready");
+    const passages = (rec.payload as Record<string, unknown>).passages as Array<Record<string, unknown>>;
+    assert.equal(passages.filter((p) => p.recordId === c.records()[0].id).length, 2);
+    assert.ok(passages.some((p) => /train station/.test(String(p.text))));
+    assert.ok(passages.some((p) => /old town/.test(String(p.text))));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("fanOutAnswer merges + dedups citations across providers", async () => {
   await withCase(async (c) => {
     const local = new LocalMemoryProvider(c);

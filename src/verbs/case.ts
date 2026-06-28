@@ -341,7 +341,7 @@ export const caseVerb: VerbSpec = {
         const batches = await Promise.all(selected.map((p) => p.query(q, { limit })));
         const seen = new Set<string>();
         const passages = batches.flat().filter((p) => {
-          const key = `${p.recordId}|${JSON.stringify(p.at)}|${p.field ?? ""}|${p.provider ?? ""}`;
+          const key = `${p.recordId}|${JSON.stringify(p.at)}|${p.field ?? ""}|${p.provider ?? ""}|${p.text}`;
           if (seen.has(key)) return false;
           seen.add(key);
           return true;

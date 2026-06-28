@@ -108,7 +108,11 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
 }
 
 function hasWatchRecord(c: Case, ref: string): boolean {
-  return c.records().some((r) => r.verb === "watch" && r.media?.ref === ref && isReady(r));
+  return c.records().some((r) => {
+    if (r.verb !== "watch" || r.media?.ref !== ref) return false;
+    const state = String(r.state ?? "ready");
+    return state !== "error" && state !== "needs_credentials";
+  });
 }
 
 async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Promise<OvercastRecord | undefined> {

@@ -465,6 +465,25 @@ test("index add --all emits watch records for captured local videos missing watc
   }
 });
 
+test("index add does not re-watch a local video with pending watch evidence", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-pendingwatch-"));
+  const video = join(cdir, "v.mp4");
+  writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_face", type: "face-analysis", name: "faces" });
+    c.writeRecord(makeRecord({ verb: "watch", payload: { summary: "watch still processing" }, media: { ref: video }, state: "pending" }));
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const recs = await indexVerb.run({ input: "add", rest: [video], opts: { to: "col_face" }, case: openCase(cdir), profile });
+    assert.ok(recs.some((r) => r.verb === "index"));
+    assert.ok(!recs.some((r) => r.verb === "watch"), "pending watch evidence should prevent duplicate watch work");
+    assert.ok(!recs.some((r) => r.verb === "face"));
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("custom face provider receives --match for a index-wide search (#3)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-faceprov-"));
   const prov = join(cdir, "face-prov.sh");
