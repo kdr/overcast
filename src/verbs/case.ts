@@ -103,6 +103,15 @@ function sourceSpecsForRemoval(ctx: VerbContext, removals: string[]): Set<string
   return specs;
 }
 
+function setupIndexRef(index: SetupIndex): string {
+  return index.id ?? index.name;
+}
+
+function refreshSetupRouteIndexes(setup: CaseSetup): void {
+  const indexRefs = setup.indexes.map(setupIndexRef);
+  for (const route of setup.media.routes) route.indexes = [...indexRefs];
+}
+
 function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup" | "startup_setup_update", apply: boolean): SetupChange {
   const signals = csv(ctx.opts.signals);
   const targets = csv(ctx.opts.target);
@@ -117,6 +126,7 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   const setup = cloneSetup(base);
   const operations: string[] = [];
   const noteRecords: OvercastRecord[] = [];
+  let indexRoutesChanged = false;
 
   if (ctx.opts.name) {
     setup.case_name = String(ctx.opts.name);
@@ -171,15 +181,22 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     }
   }
   for (const index of indexes) {
-    const existing = setup.indexes.find((i) => (index.id && i.id === index.id) || (!index.id && i.name === index.name));
+    const existing = setup.indexes.find((i) => (index.id && (i.id === index.id || i.name === index.name)) || (!index.id && i.name === index.name));
+    const previousSignalKey = existing ? setupIndexRef(existing) : undefined;
     if (existing) Object.assign(existing, index);
     else setup.indexes.push(index);
-    setup.default_signals[index.id ?? index.name] = index.default_signals;
-    operations.push(`${index.mode === "attach" ? "index attach" : "index create planned"}: ${index.id ?? index.name}`);
+    const signalKey = setupIndexRef(index);
+    if (previousSignalKey && previousSignalKey !== signalKey) delete setup.default_signals[previousSignalKey];
+    setup.default_signals[signalKey] = index.default_signals;
+    indexRoutesChanged = true;
+    operations.push(`${index.mode === "attach" ? "index attach" : "index create planned"}: ${signalKey}`);
     if (apply && index.id) addIndex(ctx.case, { id: index.id, name: index.name, type: index.type });
   }
   if (removeIndexes.length) {
+    const removedIndexes = setup.indexes.filter((i) => removeIndexes.includes(i.id ?? "") || removeIndexes.includes(i.name));
     setup.indexes = setup.indexes.filter((i) => !removeIndexes.includes(i.id ?? "") && !removeIndexes.includes(i.name));
+    for (const index of removedIndexes) delete setup.default_signals[setupIndexRef(index)];
+    indexRoutesChanged ||= removedIndexes.length > 0;
     for (const id of removeIndexes) {
       operations.push(`index remove: ${id}`);
       if (apply) {
@@ -190,7 +207,7 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   for (const video of videos) {
     if (!setup.media.videos.includes(video)) setup.media.videos.push(video);
     const route = setup.media.routes.find((r) => r.ref === video);
-    const indexRefs = setup.indexes.map((i) => i.id ?? i.name);
+    const indexRefs = setup.indexes.map(setupIndexRef);
     if (route) {
       route.signals = signals.length ? signals : route.signals;
       route.indexes = indexRefs.length ? indexRefs : route.indexes;
@@ -199,6 +216,7 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     }
     operations.push(`video route: ${video}`);
   }
+  if (indexRoutesChanged) refreshSetupRouteIndexes(setup);
   for (const folder of folders) {
     if (!setup.media.folders.includes(folder)) setup.media.folders.push(folder);
     operations.push(`folder select: ${folder}`);

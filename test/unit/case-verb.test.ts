@@ -198,6 +198,45 @@ test("case setup remove-target/remove-source by registry id syncs setup.json", a
   });
 });
 
+test("case setup attach index upgrades a planned index instead of duplicating it", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { index: "Faces:face-analysis", video: "clip.mp4", yes: true }));
+    c.writeRecord(records.at(-1)!);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { index: "idx_faces:face-analysis:Faces", yes: true }));
+    c.writeRecord(records.at(-1)!);
+
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const indexes = saved.indexes as Array<Record<string, unknown>>;
+    assert.equal(indexes.length, 1);
+    assert.equal(indexes[0].id, "idx_faces");
+    assert.equal(indexes[0].name, "Faces");
+    assert.deepEqual((saved.default_signals as Record<string, unknown>).Faces, undefined);
+    assert.deepEqual((saved.default_signals as Record<string, unknown>).idx_faces, ["face", "index add"]);
+    assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0].indexes, ["idx_faces"]);
+  });
+});
+
+test("case setup index-only edits refresh saved video route indexes", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { index: "idx_a:media-descriptions:A", video: "clip.mp4", yes: true }));
+    c.writeRecord(records.at(-1)!);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { index: "idx_b:media-descriptions:B", yes: true }));
+    c.writeRecord(records.at(-1)!);
+    let saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0].indexes, ["idx_a", "idx_b"]);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { "remove-index": "idx_a", yes: true }));
+    c.writeRecord(records.at(-1)!);
+    saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0].indexes, ["idx_b"]);
+    assert.deepEqual((saved.default_signals as Record<string, unknown>).idx_a, undefined);
+  });
+});
+
 test("operational setup records remain excluded from memory", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
