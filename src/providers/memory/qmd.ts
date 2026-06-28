@@ -1,0 +1,220 @@
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Case } from "../../case.js";
+import { isMetaRecord, type OvercastRecord } from "../../record.js";
+import { execCapture } from "../exec.js";
+import { tokenizeCommand } from "../sources/index.js";
+import { indexableDocument, type IndexableDocument } from "./fields.js";
+import { LocalMemoryProvider } from "./local.js";
+import type { Answer, MemoryIndexStatus, MemoryProvider, Passage, QueryOpts } from "./types.js";
+
+export const DEFAULT_QMD_MODEL = "embeddinggemma-300M-Q8_0";
+
+export interface QmdMemoryConfig {
+  id?: string;
+  command?: string;
+  collection?: string;
+  model?: string;
+  indexTemplate?: string;
+  queryTemplate?: string;
+}
+
+function safeName(s: string): string {
+  return s.replace(/[^a-zA-Z0-9_.-]+/g, "_").slice(0, 160);
+}
+
+function renderTemplate(template: string, vars: Record<string, string>): string[] {
+  return tokenizeCommand(template).flatMap((tok) => {
+    const m = tok.match(/^\{\{(\w+)\}\}$/);
+    if (m) {
+      if (!vars[m[1]]) return [];
+      return m[1] === "cmd" ? tokenizeCommand(vars[m[1]]) : [vars[m[1]]];
+    }
+    let out = tok;
+    for (const [k, v] of Object.entries(vars)) out = out.replaceAll(`{{${k}}}`, v);
+    return out ? [out] : [];
+  });
+}
+
+function docMarkdown(doc: IndexableDocument): string {
+  const at = doc.media?.at != null ? (Array.isArray(doc.media.at) ? doc.media.at.join("-") : String(doc.media.at)) : "";
+  return [
+    `# ${doc.title}`,
+    "",
+    `record_id: ${doc.recordId}`,
+    `verb: ${doc.verb}`,
+    doc.media?.ref ? `media_ref: ${doc.media.ref}` : "",
+    at ? `media_at: ${at}` : "",
+    doc.time ? `time: ${doc.time}` : "",
+    "",
+    doc.text,
+    "",
+  ].filter(Boolean).join("\n");
+}
+
+function parseQmdPassages(stdout: string, fallback: Passage[]): Passage[] {
+  const trimmed = stdout.trim();
+  if (!trimmed) return fallback;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const arr = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).results)
+        ? ((parsed as Record<string, unknown>).results as unknown[])
+        : [];
+    const passages: Passage[] = [];
+    for (const item of arr) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as Record<string, unknown>;
+      const text = String(o.text ?? o.content ?? o.snippet ?? o.body ?? "").trim();
+      const metadata = (o.metadata && typeof o.metadata === "object" ? o.metadata : {}) as Record<string, unknown>;
+      const recordId = String(o.recordId ?? o.record_id ?? metadata.recordId ?? metadata.record_id ?? "").trim();
+      if (!recordId || !text) continue;
+      passages.push({
+        recordId,
+        verb: String(o.verb ?? metadata.verb ?? "record"),
+        text,
+        score: Number(o.score ?? o.similarity ?? 1),
+        provider: "qmd",
+      });
+    }
+    return passages.length ? passages : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export class QmdMemoryProvider implements MemoryProvider {
+  readonly id: string;
+  readonly backend = "qmd";
+  readonly aliases = ["qmd"];
+  private readonly local: LocalMemoryProvider;
+  private readonly command: string;
+  private readonly collection: string;
+  private readonly model: string;
+  private readonly docsDir: string;
+  private readonly manifestFile: string;
+  private readonly indexTemplate?: string;
+  private readonly queryTemplate?: string;
+
+  constructor(private readonly case_: Case, cfg: QmdMemoryConfig = {}) {
+    this.id = cfg.id ?? "qmd";
+    this.local = new LocalMemoryProvider(case_);
+    this.command = cfg.command ?? process.env.OVERCAST_QMD_CMD ?? "qmd";
+    this.collection = cfg.collection ?? `overcast-${safeName(case_.info().id)}`;
+    this.model = cfg.model ?? process.env.OVERCAST_QMD_MODEL ?? DEFAULT_QMD_MODEL;
+    this.docsDir = join(case_.indexDir, "case-search", "qmd", "docs");
+    this.manifestFile = join(case_.indexDir, "case-search", "qmd", "manifest.json");
+    this.indexTemplate = cfg.indexTemplate;
+    this.queryTemplate = cfg.queryTemplate;
+  }
+
+  write(_record: OvercastRecord): void {
+    // Materialization is batched via rebuild/status; per-record writes stay cheap.
+  }
+
+  async status(): Promise<MemoryIndexStatus> {
+    const manifest = this.readManifest();
+    const records = this.case_.records().filter((r) => !isMetaRecord(r));
+    const docs = records.map(indexableDocument).filter(Boolean).length;
+    const state = manifest && manifest.documents === docs && manifest.model === this.model ? "ready" : manifest ? "stale" : "missing";
+    return {
+      provider: this.id,
+      backend: this.backend,
+      state,
+      documents: manifest?.documents ?? 0,
+      records: records.length,
+      path: this.docsDir,
+      model: this.model,
+      config: { collection: this.collection, command: this.command },
+      updated: manifest?.updated,
+    };
+  }
+
+  async rebuild(): Promise<MemoryIndexStatus> {
+    const records = this.case_.records().filter((r) => !isMetaRecord(r));
+    const docs = records.map(indexableDocument).filter((d): d is IndexableDocument => !!d);
+    rmSync(this.docsDir, { recursive: true, force: true });
+    mkdirSync(this.docsDir, { recursive: true });
+    for (const doc of docs) {
+      writeFileSync(join(this.docsDir, `${safeName(doc.id)}.md`), docMarkdown(doc), "utf8");
+    }
+    const manifest = {
+      provider: this.id,
+      backend: this.backend,
+      model: this.model,
+      collection: this.collection,
+      command: this.command,
+      documents: docs.length,
+      records: records.length,
+      updated: new Date().toISOString(),
+    };
+    mkdirSync(join(this.manifestFile, ".."), { recursive: true });
+    writeFileSync(this.manifestFile, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+
+    const vars = {
+      cmd: this.command,
+      docs: this.docsDir,
+      collection: this.collection,
+      model: this.model,
+      manifest: this.manifestFile,
+    };
+    const template = this.indexTemplate ?? "{{cmd}} collection add {{docs}} --name {{collection}} --model {{model}} --json";
+    const argv = renderTemplate(template, vars);
+    if (argv.length) {
+      const res = await execCapture(argv[0], argv.slice(1), { timeoutMs: 15 * 60_000 }).catch((e) => ({
+        code: 127,
+        stdout: "",
+        stderr: (e as Error).message,
+      }));
+      if (res.code !== 0) {
+        return { ...(await this.status()), state: "error", error: res.stderr || res.stdout || `qmd exited ${res.code}` };
+      }
+    }
+    return { ...(await this.status()), state: "ready", documents: docs.length, records: records.length };
+  }
+
+  async query(q: string, opts: QueryOpts = {}): Promise<Passage[]> {
+    const st = await this.status();
+    if (st.state !== "ready") await this.rebuild();
+    const fallback = this.local.query(q, opts).map((p) => ({ ...p, provider: this.id }));
+    const vars = {
+      cmd: this.command,
+      query: q,
+      collection: this.collection,
+      model: this.model,
+      limit: String(opts.limit ?? 8),
+      docs: this.docsDir,
+    };
+    const template = this.queryTemplate ?? "{{cmd}} search {{query}} --collection {{collection}} --limit {{limit}} --json";
+    const argv = renderTemplate(template, vars);
+    if (!argv.length) return fallback;
+    const res = await execCapture(argv[0], argv.slice(1), { timeoutMs: 5 * 60_000 }).catch(() => undefined);
+    if (!res || res.code !== 0) return fallback;
+    return parseQmdPassages(res.stdout, fallback).slice(0, opts.limit ?? 8);
+  }
+
+  async answer(q: string, opts: QueryOpts = {}): Promise<Answer> {
+    const passages = await this.query(q, opts);
+    if (passages.length === 0) return { text: `No records in this case match "${q}".`, citations: [] };
+    const lines = [`Found ${passages.length} relevant record(s) for "${q}" via qmd:`, ""];
+    for (const p of passages) {
+      const at = p.at != null ? ` @${Array.isArray(p.at) ? p.at.join("-") : p.at}s` : "";
+      lines.push(`- [${p.recordId}${at}] (${p.verb}) ${p.text}`);
+    }
+    return { text: lines.join("\n"), citations: passages.map((p) => ({ recordId: p.recordId, at: p.at, verb: p.verb })) };
+  }
+
+  async deepsearch(q: string, opts: QueryOpts = {}): Promise<Passage[]> {
+    return this.query(q, opts);
+  }
+
+  private readManifest(): { documents: number; records: number; model: string; updated?: string } | undefined {
+    if (!existsSync(this.manifestFile)) return undefined;
+    try {
+      return JSON.parse(readFileSync(this.manifestFile, "utf8")) as { documents: number; records: number; model: string; updated?: string };
+    } catch {
+      return undefined;
+    }
+  }
+}

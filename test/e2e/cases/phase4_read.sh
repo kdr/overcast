@@ -18,6 +18,15 @@ c.writeRecord(makeRecord({verb:'watch',payload:{content:'Daytime footage of an e
 c.writeRecord(makeRecord({verb:'scan',payload:{title:'dock cam feed',url:'http://x/feed'}}));
 " 2>"$SMOKE_DIR/phase4_seed.err"
 
+real_media="${OC_VIDEO_VISUAL:-$(smoke_clip)}"
+if [ -f "$real_media" ]; then
+  real_note="$($OVERCAST note 'Real media artifact: Hacker News browsing video is available for case search' --ref "$real_media" --tag real-media,artifact --json --case "$casedir" 2>/dev/null)"
+  save_json "phase4_real_note" "$real_note" >/dev/null
+  assert_eq "note.real_media_state" "ready" "$(jq -r '.state' <<<"$real_note")" "real media-backed note ready"
+else
+  fail "note.real_media_state" "real media missing: $real_media"
+fi
+
 # human-authored notes are first-class case records: searchable, citable, and
 # included in briefs. Anchor this one to the first watch record's media span.
 watch_id="$(node --import tsx -e "import {openCase} from '$REPO/src/case.ts'; const c=openCase('$casedir'); console.log(c.records().find(r=>r.verb==='watch').id)")"
@@ -42,6 +51,31 @@ if jq -e '.payload.text|test("white van";"i")' >/dev/null <<<"$ask"; then ok "as
 note_ask="$($OVERCAST ask 'missing rear plate' --json --case "$casedir" 2>/dev/null)"
 save_json "phase4_note_ask" "$note_ask" >/dev/null
 if jq -e '.payload.citations[]|select(.verb=="note")' >/dev/null <<<"$note_ask"; then ok "ask.cites_note" "ask cites the human note"; else fail "ask.cites_note" "ask did not cite note"; fi
+
+real_ask="$($OVERCAST ask 'Hacker News browsing video artifact' --json --case "$casedir" 2>/dev/null)"
+save_json "phase4_real_ask" "$real_ask" >/dev/null
+if jq -e '.payload.citations[]|select(.verb=="note")' >/dev/null <<<"$real_ask"; then ok "ask.real_media_note" "ask finds real media-backed note"; else fail "ask.real_media_note" "ask missed real media-backed note"; fi
+
+idx="$($OVERCAST case memory index status --json --case "$casedir" 2>/dev/null)"
+save_json "phase4_memory_index_status" "$idx" >/dev/null
+assert_eq "memory.index.default_backend" "local-grep" "$(jq -r '.payload.memory_index[0].backend' <<<"$idx")" "default case-search backend"
+assert_eq "memory.index.default_state" "ready" "$(jq -r '.payload.memory_index[0].state' <<<"$idx")" "default case-search status ready"
+
+fake_qmd="$SMOKE_DIR/fake-qmd.sh"
+cat >"$fake_qmd" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = "search" ]; then
+  echo '[{"record_id":"rec_fake_qmd","verb":"note","text":"qmd e2e result","score":8}]'
+else
+  echo '{"ok":true}'
+fi
+SH
+chmod +x "$fake_qmd"
+$OVERCAST setup memory qmd "bash $fake_qmd" --home "$casedir/.ochome" --case "$casedir" >/dev/null 2>&1
+qmd_rebuild="$($OVERCAST case memory index rebuild --memory qmd --json --home "$casedir/.ochome" --case "$casedir" 2>/dev/null)"
+save_json "phase4_qmd_rebuild" "$qmd_rebuild" >/dev/null
+assert_eq "memory.qmd.state" "ready" "$(jq -r '.state' <<<"$qmd_rebuild")" "qmd memory index rebuild ready"
+assert_eq "memory.qmd.model" "embeddinggemma-300M-Q8_0" "$(jq -r '.payload.memory_index[0].model' <<<"$qmd_rebuild")" "qmd default embedding model tracked"
 
 # brief --export writes an html report containing the timeline
 brief_html="$casedir/brief.html"

@@ -89,6 +89,7 @@ overcast note "rear plate is missing" --ref <record-id> --at 12-18 --json
 overcast face ./clip.mp4 --json           # detect faces (boxes + timestamps)
 overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video (JPEG/PNG query image)
 overcast ask "every white van, with timestamps" --json
+overcast case memory index status --json  # inspect default local-grep case search
 overcast brief --export ./brief.html
 \`\`\`
 
@@ -105,29 +106,52 @@ Built-in source refs for \`source add <type>:<ref>\`:
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
 read it when you need a verb's exact flags).
 
-### Faces & collections (register a target's videos, then ask / find a person)
+### Case search (default ask)
 
-A **collection** is a tinycloud (Cloudglue) index of videos, searchable one way
+\`overcast ask "question"\` is the zero-config way to search the whole case:
+notes, sensed media records, scan/capture artifacts, and other primary records.
+It uses the always-on \`local-grep\` backend over verb-specific indexable fields
+(\`note.text\`, \`watch.content\`, \`listen.transcript\`, scan titles/snippets, …)
+and returns cited \`record.id\` + \`media.at\` evidence. Use:
+
+\`\`\`bash
+overcast case memory list --json
+overcast case memory index status --json
+overcast ask "where did we see the white van?" --json
+\`\`\`
+
+For optional local semantic case search, bind qmd (default embedding model:
+\`embeddinggemma-300M-Q8_0\`):
+
+\`\`\`bash
+overcast setup memory qmd
+overcast case memory index rebuild --memory qmd --json
+overcast ask "where did we see the white van?" --memory qmd --json
+\`\`\`
+
+### Faces & indexes (register a target's videos, then ask / find a person)
+
+An **index** is a tinycloud-backed searchable corpus of videos, searched one way
 per TYPE — build one from the videos you gather for a target, then query it:
 
 \`\`\`bash
 # 1) index the target's videos (media-descriptions = ask/probe; face = find a person)
-overcast collection create case-media --type media-descriptions --json
+overcast index create case-media --type media-descriptions --json
 overcast scan --pull --json                       # pull the target's videos into the case
-overcast collection add --all --to <col-id> --json   # register every captured/sensed video
+overcast index add --all --to <index-id> --json   # register every captured/sensed video
 
 # 2a) media-descriptions → ask / probe across ALL indexed videos
-overcast ask "what objections came up?" --collection <col-id> --json
-overcast ask "moments a contract is signed" --collection <col-id> --probe --json
+overcast ask "what objections came up?" --index <index-id> --json
+overcast ask "moments a contract is signed" --index <index-id> --probe --json
 
 # 2b) face-analysis → find a specific person across the index
-overcast collection create faces --type face --json
-overcast collection add --all --to <face-col-id> --json
-overcast face --match ./suspect.jpg --collection <face-col-id> --json
+overcast index create faces --type face --json
+overcast index add --all --to <face-index-id> --json
+overcast face --match ./suspect.jpg --index <face-index-id> --json
 
 # 2c) entities → same-schema extraction per video
-overcast collection create people --type entities --prompt "people, orgs, locations" --json
-overcast collection entities <ent-col-id> ./clip.mp4 --json
+overcast index create people --type entities --prompt "people, orgs, locations" --json
+overcast index entities <entity-index-id> ./clip.mp4 --json
 \`\`\`
 
 \`face\` needs tinycloud ≥ 0.3.4 (\`overcast doctor\` flags an older install);
@@ -173,12 +197,12 @@ One-time setup for overcast.
    \`npm i -g @kdrrr/overcast\` for the standalone binary.
 2. **Install/update tinycloud** — the default perception backend. Get the latest
    (\`npm i -g @cloudglue/tinycloud@0.3.6\` then \`tinycloud install --latest\`, or
-   \`tinycloud update\`). The \`face\` + \`collection\` verbs need **tinycloud ≥ 0.3.4**,
+   \`tinycloud update\`). The \`face\` + \`index\` verbs need **tinycloud ≥ 0.3.4**,
    and overcast currently recommends **0.3.6**;
    override the invocation with \`OVERCAST_TINYCLOUD_CMD\` if it isn't on \`PATH\`.
 3. **Verify** — \`overcast doctor --json\` (pi pinned, ffmpeg/ffprobe runnable,
    Cloudglue key, tinycloud CLI + version).
-4. **Cloudglue key** — the default \`watch\`/\`listen\`/\`face\`/\`collection\` providers
+4. **Cloudglue key** — the default \`watch\`/\`listen\`/\`face\`/\`index\` providers
    reach Cloudglue via the tinycloud CLI; configure it (\`tinycloud setup cloudglue\`)
    or export \`CLOUDGLUE_API_KEY\`.
 

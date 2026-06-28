@@ -5,27 +5,12 @@
 import type { Case } from "../../case.js";
 import { isMetaRecord, type OvercastRecord } from "../../record.js";
 import type { MemoryProvider, Passage, QueryOpts, Answer } from "./types.js";
+import { indexableDocument } from "./fields.js";
 
 /** Flatten a record's payload into searchable text. */
 export function recordText(rec: OvercastRecord): string {
-  const parts: string[] = [rec.verb];
-  const p = rec.payload;
-  if (typeof p === "string") {
-    parts.push(p);
-  } else if (p && typeof p === "object") {
-    for (const [k, v] of Object.entries(p)) {
-      if (typeof v === "string") parts.push(v);
-      else if (typeof v === "number" || typeof v === "boolean") parts.push(String(v));
-      else if (v && typeof v === "object") {
-        // shallow stringify nested objects/arrays (e.g. detailed/segments)
-        try {
-          parts.push(JSON.stringify(v).slice(0, 4000));
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
+  const doc = indexableDocument(rec);
+  const parts: string[] = [rec.verb, doc?.text ?? ""];
   if (rec.media?.ref) parts.push(rec.media.ref);
   return parts.join(" \n");
 }
@@ -64,7 +49,9 @@ function snippet(text: string, queryTokens: string[], width = 200): string {
 }
 
 export class LocalMemoryProvider implements MemoryProvider {
-  readonly id = "local";
+  readonly id = "local-grep";
+  readonly backend = "local-grep";
+  readonly aliases = ["local"];
   constructor(private readonly case_: Case) {}
 
   // records are already persisted by the case store; write is a no-op for the
@@ -97,19 +84,34 @@ export class LocalMemoryProvider implements MemoryProvider {
     }
     const scored: Passage[] = [];
     for (const rec of records) {
-      const text = recordText(rec);
-      const s = score(qTokens, tokenize(text));
-      if (s <= 0) continue;
-      scored.push({
-        recordId: rec.id,
-        at: rec.media?.at,
-        text: snippet(text, qTokens),
-        score: s,
-        verb: rec.verb,
-      });
+      const doc = indexableDocument(rec);
+      if (!doc) continue;
+      for (const field of doc.fields) {
+        const text = `${rec.verb} ${field.path}\n${field.text}\n${rec.media?.ref ?? ""}`;
+        const s = score(qTokens, tokenize(text));
+        if (s <= 0) continue;
+        scored.push({
+          recordId: rec.id,
+          at: rec.media?.at,
+          text: snippet(text, qTokens),
+          score: s,
+          verb: rec.verb,
+          field: field.path,
+          provider: this.id,
+        });
+      }
     }
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, opts.limit ?? 8);
+    const deduped: Passage[] = [];
+    const seen = new Set<string>();
+    for (const p of scored) {
+      const key = `${p.recordId}:${p.field ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(p);
+      if (deduped.length >= (opts.limit ?? 8)) break;
+    }
+    return deduped;
   }
 
   /** Extractive grounded answer: synthesize from the top passages + cite them. */
@@ -127,6 +129,24 @@ export class LocalMemoryProvider implements MemoryProvider {
       text: lines.join("\n"),
       citations: passages.map((p) => ({ recordId: p.recordId, at: p.at, verb: p.verb })),
     };
+  }
+
+  status() {
+    const records = this.case_.records().filter((r) => !isMetaRecord(r));
+    const docs = records.map(indexableDocument).filter(Boolean).length;
+    return {
+      provider: this.id,
+      backend: this.backend,
+      state: "ready",
+      records: records.length,
+      documents: docs,
+      path: this.case_.recordsDir,
+      updated: new Date().toISOString(),
+    };
+  }
+
+  rebuild() {
+    return this.status();
   }
 }
 

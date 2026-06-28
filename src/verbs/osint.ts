@@ -172,7 +172,7 @@ function hostSourceType(url: string): string {
 /** Whether a captured artifact is audio/video the default watch/listen senses
  *  can process — so a `web` hit captured as an .html page isn't auto-routed to
  *  tinycloud watch (which would just error every pass). Shares the single
- *  audio/video allowlist with collection/face intake (media-ref.ts) so the
+ *  audio/video allowlist with index/face intake (media-ref.ts) so the
  *  auto-route gate and the registration gate can't drift apart. */
 const isSenseableMedia = isAv;
 

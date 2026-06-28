@@ -1,5 +1,5 @@
 // Shared media-ref intake for verbs that take a video/audio argument
-// (collection add/entities/remove + face). ONE place that resolves a path / URL /
+// (index add/entities/remove + face). ONE place that resolves a path / URL /
 // case-record-id to a media ref AND applies the filters Bugbot kept flagging per
 // verb: a record must be captured/sensed media (not a `scan` hit's page URL) and
 // not a face-search query image; the ref must be audio/video. Centralized so the
@@ -16,11 +16,11 @@ import type { Case } from "../case.js";
 export const MEDIA_VERBS = ["capture", "watch", "listen", "face", "enhance"];
 
 // Broad enough to cover what tinycloud/ffmpeg actually accept — `watch`/`listen`
-// don't gate on extension at all, so collection/face intake mustn't be narrower
+// don't gate on extension at all, so index/face intake mustn't be narrower
 // and silently drop a valid clip (e.g. a transport-stream .ts or an .opus track).
 const AV_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf|mp3|m4a|wav|flac|ogg|oga|opus|aac|wma|aiff?)$/i;
 
-/** Whether a ref looks like audio/video the senses/collections can use. */
+/** Whether a ref looks like audio/video the senses/indexes can use. */
 export const isAv = (ref: string): boolean => /^https?:\/\//i.test(ref) || AV_RE.test(ref);
 
 /** Whether a case RECORD is registerable case media: a captured/sensed verb, an

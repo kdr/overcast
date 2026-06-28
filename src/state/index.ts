@@ -1,52 +1,52 @@
-// collection registry = the tinycloud collections this case manages, mirrored
-// to .overcast/collections.json. A collection is a remote (Cloudglue) index of
+// index registry = the tinycloud-backed indexes this case manages, mirrored
+// to .overcast/indexes.json. An index is a remote (Cloudglue) corpus of
 // videos that makes them searchable one way per TYPE:
 //   media-descriptions → ask / probe / search   (general Q&A + semantic search)
-//   entities           → collection entities      (same schema across all videos)
+//   entities           → index entities           (same schema across all videos)
 //   face-analysis      → face list / face search  (detect + find a person)
 //   rich-transcripts   → transcript artifacts
 // The lifecycle ops live on tinycloud (create/add/show/delete); this file is the
-// LOCAL mirror so the case knows which collections + members it owns, the OSINT
+// LOCAL mirror so the case knows which indexes + members it owns, the OSINT
 // twin of the source/target registries.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Case } from "../case.js";
 
-/** The canonical tinycloud collection types. */
-export type CollectionType =
+/** The canonical tinycloud index types. */
+export type IndexType =
   | "media-descriptions"
   | "entities"
   | "face-analysis"
   | "rich-transcripts";
 
-export interface CollectionMember {
+export interface IndexMember {
   /** the video ref registered (path / URL) */
   ref: string;
   /** the case record this member came from (capture/watch/scan), if any */
   recordId?: string;
-  /** tinycloud file id, when reported by `collections add` */
+  /** tinycloud file id, when reported by `index add` */
   fileId?: string;
   added: string;
 }
 
-export interface CollectionEntry {
-  /** the tinycloud collection id (col_…) — the key ask/face/entities address */
+export interface IndexEntry {
+  /** the tinycloud-backed index id (col_…) — the key ask/face/entities address */
   id: string;
-  /** collection type (drives which read verb can use it) */
-  type: CollectionType | string;
+  /** index type (drives which read verb can use it) */
+  type: IndexType | string;
   name: string;
   description?: string;
-  members: CollectionMember[];
+  members: IndexMember[];
   created: string;
 }
 
-export interface CollectionStore {
-  collections: CollectionEntry[];
+export interface IndexStore {
+  indexes: IndexEntry[];
 }
 
 /** Friendly aliases → canonical tinycloud type. Returns undefined for unknown. */
-export function normalizeCollectionType(input: string): CollectionType | undefined {
+export function normalizeIndexType(input: string): IndexType | undefined {
   const t = input.trim().toLowerCase().replace(/_/g, "-");
   switch (t) {
     case "media-descriptions":
@@ -73,38 +73,38 @@ export function normalizeCollectionType(input: string): CollectionType | undefin
   }
 }
 
-function load(c: Case): CollectionStore {
-  if (!existsSync(c.collectionsFile)) return { collections: [] };
+function load(c: Case): IndexStore {
+  if (!existsSync(c.indexesFile)) return { indexes: [] };
   try {
-    const parsed = JSON.parse(readFileSync(c.collectionsFile, "utf8")) as Partial<CollectionStore>;
+    const parsed = JSON.parse(readFileSync(c.indexesFile, "utf8")) as Partial<IndexStore>;
     // guard valid-JSON-but-wrong-shape (hand edit, partial write, schema drift):
-    // every caller does .find/.filter/.map on .collections, so a non-array would
+    // every caller does .find/.filter/.map on .indexes, so a non-array would
     // throw on every command and never self-heal. Fall back to empty instead.
-    if (!parsed || !Array.isArray(parsed.collections)) return { collections: [] };
-    return parsed as CollectionStore;
+    if (!parsed || !Array.isArray(parsed.indexes)) return { indexes: [] };
+    return parsed as IndexStore;
   } catch {
-    return { collections: [] };
+    return { indexes: [] };
   }
 }
 
-function save(c: Case, store: CollectionStore): void {
-  mkdirSync(join(c.collectionsFile, ".."), { recursive: true });
-  writeFileSync(c.collectionsFile, JSON.stringify(store, null, 2) + "\n", "utf8");
+function save(c: Case, store: IndexStore): void {
+  mkdirSync(join(c.indexesFile, ".."), { recursive: true });
+  writeFileSync(c.indexesFile, JSON.stringify(store, null, 2) + "\n", "utf8");
 }
 
-export function listCollections(c: Case): CollectionEntry[] {
-  return load(c).collections;
+export function listIndexes(c: Case): IndexEntry[] {
+  return load(c).indexes;
 }
 
-export function collectionsByType(c: Case, type: CollectionType | string): CollectionEntry[] {
-  return load(c).collections.filter((x) => x.type === type);
+export function indexesByType(c: Case, type: IndexType | string): IndexEntry[] {
+  return load(c).indexes.filter((x) => x.type === type);
 }
 
-/** Resolve a collection by id (exact) or by a UNIQUE display name. An ambiguous
+/** Resolve an index by id (exact) or by a UNIQUE display name. An ambiguous
  *  name (shared by >1 entry) returns undefined here — callers should use
- *  resolveCollectionRef when they want a clear ambiguity error. */
-export function findCollection(c: Case, idOrName: string): CollectionEntry | undefined {
-  const all = load(c).collections;
+ *  resolveIndexRef when they want a clear ambiguity error. */
+export function findIndex(c: Case, idOrName: string): IndexEntry | undefined {
+  const all = load(c).indexes;
   const byId = all.find((x) => x.id === idOrName);
   if (byId) return byId;
   const byName = all.filter((x) => x.name === idOrName);
@@ -115,28 +115,28 @@ export function findCollection(c: Case, idOrName: string): CollectionEntry | und
  *  (an error) from "not mirrored" (the value is likely a raw remote id). An id
  *  match always wins; a name shared by >1 entry is an error rather than a silent
  *  first-match that could hit the wrong index. */
-export function resolveCollectionRef(
+export function resolveIndexRef(
   c: Case,
   idOrName: string,
-): { entry?: CollectionEntry; error?: string } {
-  const all = load(c).collections;
+): { entry?: IndexEntry; error?: string } {
+  const all = load(c).indexes;
   const byId = all.find((x) => x.id === idOrName);
   if (byId) return { entry: byId };
   const byName = all.filter((x) => x.name === idOrName);
   if (byName.length > 1) {
-    return { error: `'${idOrName}' matches ${byName.length} collections by name; use the id (${byName.map((x) => x.id).join(", ")})` };
+    return { error: `'${idOrName}' matches ${byName.length} indexes by name; use the id (${byName.map((x) => x.id).join(", ")})` };
   }
   if (byName.length === 1) return { entry: byName[0] };
   return {}; // not in the mirror — treat as a raw tinycloud id
 }
 
-/** Record a newly-created collection in the mirror (upsert by id). */
-export function addCollection(
+/** Record a newly-created index in the mirror (upsert by id). */
+export function addIndex(
   c: Case,
-  entry: { id: string; type: CollectionType | string; name: string; description?: string },
-): CollectionEntry {
+  entry: { id: string; type: IndexType | string; name: string; description?: string },
+): IndexEntry {
   const store = load(c);
-  const existing = store.collections.find((x) => x.id === entry.id);
+  const existing = store.indexes.find((x) => x.id === entry.id);
   if (existing) {
     existing.type = entry.type;
     existing.name = entry.name;
@@ -144,7 +144,7 @@ export function addCollection(
     save(c, store);
     return existing;
   }
-  const created: CollectionEntry = {
+  const created: IndexEntry = {
     id: entry.id,
     type: entry.type,
     name: entry.name,
@@ -152,30 +152,30 @@ export function addCollection(
     members: [],
     created: new Date().toISOString(),
   };
-  store.collections.push(created);
+  store.indexes.push(created);
   save(c, store);
   return created;
 }
 
-/** Remove a mirrored collection by its tinycloud id ONLY — callers resolve a
- *  user-given name to the id first (findCollection), so matching `name` here too
+/** Remove a mirrored index by its tinycloud id ONLY — callers resolve a
+ *  user-given name to the id first (findIndex), so matching `name` here too
  *  would let one delete drop an unrelated entry that merely shares the string as
  *  its display name. */
-export function removeCollection(c: Case, id: string): boolean {
+export function removeIndex(c: Case, id: string): boolean {
   const store = load(c);
-  const before = store.collections.length;
-  store.collections = store.collections.filter((x) => x.id !== id);
+  const before = store.indexes.length;
+  store.indexes = store.indexes.filter((x) => x.id !== id);
   save(c, store);
-  return store.collections.length < before;
+  return store.indexes.length < before;
 }
 
-/** Add a member video to a mirrored collection (dedupe by ref). Matches by
+/** Add a member video to a mirrored index (dedupe by ref). Matches by
  *  tinycloud id ONLY (callers resolve names first) — matching `name` too could
- *  record the member on the wrong entry, the same hazard removeCollection avoids.
+ *  record the member on the wrong entry, the same hazard removeIndex avoids.
  *  Returns false when the id isn't in the mirror. */
-export function addMember(c: Case, id: string, member: Omit<CollectionMember, "added">): boolean {
+export function addMember(c: Case, id: string, member: Omit<IndexMember, "added">): boolean {
   const store = load(c);
-  const col = store.collections.find((x) => x.id === id);
+  const col = store.indexes.find((x) => x.id === id);
   if (!col) return false;
   if (!col.members.some((m) => m.ref === member.ref)) {
     col.members.push({ ...member, added: new Date().toISOString() });
@@ -186,7 +186,7 @@ export function addMember(c: Case, id: string, member: Omit<CollectionMember, "a
 
 export function removeMember(c: Case, id: string, ref: string): boolean {
   const store = load(c);
-  const col = store.collections.find((x) => x.id === id); // id-only (see addMember)
+  const col = store.indexes.find((x) => x.id === id); // id-only (see addMember)
   if (!col) return false;
   const before = col.members.length;
   col.members = col.members.filter((m) => m.ref !== ref);

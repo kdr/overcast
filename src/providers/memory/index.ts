@@ -1,17 +1,33 @@
-// Memory fan-out (A-spec): ask/brief read across all bound memory providers and
-// merge. currently binds only the always-on local provider; later work adds the
-// cloudglue provider. The fan-out interface already accepts >1 provider.
+// Memory fan-out (A-spec): ask/brief read across all bound case-search providers
+// and merge. local-grep is always present; profiles can opt into qmd.
 
 import type { Case } from "../../case.js";
 import type { Profile } from "../../profile.js";
 import type { MemoryProvider, Answer, QueryOpts, Citation } from "./types.js";
 import { LocalMemoryProvider } from "./local.js";
+import { QmdMemoryProvider } from "./qmd.js";
 
-/** Resolve the bound memory providers for a case. Local is always present. */
-export function resolveMemory(case_: Case, _profile?: Profile): MemoryProvider[] {
+/** Resolve the bound memory providers for a case. local-grep is always present. */
+export function resolveMemory(case_: Case, profile?: Profile): MemoryProvider[] {
   const providers: MemoryProvider[] = [new LocalMemoryProvider(case_)];
-  // append a cloudglue memory provider when bound in the profile.
+  for (const spec of profile?.memory ?? []) {
+    const backend = (spec.backend ?? spec.id ?? "").toLowerCase();
+    if (backend === "qmd") {
+      providers.push(new QmdMemoryProvider(case_, {
+        id: spec.id,
+        command: spec.command ?? spec.run,
+        collection: spec.collection,
+        model: spec.model,
+        indexTemplate: spec.indexTemplate,
+        queryTemplate: spec.queryTemplate,
+      }));
+    }
+  }
   return providers;
+}
+
+export function matchesMemoryProvider(p: MemoryProvider, id: string): boolean {
+  return p.id === id || p.backend === id || (p.aliases ?? []).includes(id);
 }
 
 /**

@@ -1,4 +1,4 @@
-// Register overcast state verbs as TUI slash commands (/target /source /case
+// Register overcast state verbs as TUI slash commands (/target /source /index /case
 // /prebrief /view /setup). Each runs the verb against the cwd case and shows the
 // emitted record. (/ask /brief are prompt templates loaded from prompts/.)
 
@@ -14,7 +14,7 @@ import type { OvercastRecord } from "../record.js";
 import { renderForFormat } from "../render.js";
 import type { VerbContext } from "../registry/types.js";
 
-const SLASH_VERBS = ["target", "source", "collection", "case", "prebrief", "view", "setup"];
+const SLASH_VERBS = ["target", "source", "index", "case", "prebrief", "view", "setup"];
 const RESULT_TYPE = "overcast-result";
 
 function summarize(rec: OvercastRecord, format?: string): string {

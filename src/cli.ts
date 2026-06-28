@@ -85,9 +85,9 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
   {
     title: "overcast — default perception backend (tinycloud / Cloudglue)",
     vars: [
-      ["CLOUDGLUE_API_KEY", "Cloudglue key for the default watch/listen/face/collection backend + turnkey brain (else ~/.tinycloud/config.json)"],
+      ["CLOUDGLUE_API_KEY", "Cloudglue key for the default watch/listen/face/index backend + turnkey brain (else ~/.tinycloud/config.json)"],
       ["CLOUDGLUE_BASE_URL", "Cloudglue endpoint (default https://api.cloudglue.dev)"],
-      ["OVERCAST_TINYCLOUD_CMD", "Override the tinycloud invocation for face/collection/ask-collection (a path or wrapper, e.g. a pinned binary)"],
+      ["OVERCAST_TINYCLOUD_CMD", "Override the tinycloud invocation for face/index/ask-index (a path or wrapper, e.g. a pinned binary)"],
       ["TINYCLOUD_HTTP_RETRIES / TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS / TINYCLOUD_JOB_WAIT_TIMEOUT_MS", "tinycloud 0.3.6 Cloudglue reliability knobs inherited by default providers"],
     ],
   },
@@ -101,6 +101,13 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["FAL_SEE_MODEL / FAL_ENHANCE_IMAGE_MODEL / FAL_ENHANCE_AUDIO_MODEL", "fal model overrides"],
       ["ELEVENLABS_API_KEY / XI_API_KEY", "ElevenLabs key — listen (Scribe STT) + enhance audio (voice isolation)"],
       ["ELEVENLABS_STT_MODEL", "ElevenLabs speech-to-text model (default scribe_v1)"],
+    ],
+  },
+  {
+    title: "overcast — case search backends",
+    vars: [
+      ["OVERCAST_QMD_CMD", "qmd command/wrapper for optional case-search backend (default qmd)"],
+      ["OVERCAST_QMD_MODEL", "qmd embedding model for case-search backend (default embeddinggemma-300M-Q8_0)"],
     ],
   },
   {

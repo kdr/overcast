@@ -30,7 +30,8 @@ cat >"$ochome/profiles/fixture.json" <<JSON
 }
 JSON
 
-out="$($OVERCAST watch "browse-hackernews.mp4" --json --case "$casedir" --home "$ochome" --profile fixture 2>"$SMOKE_DIR/phase1_watch.err")"
+clip="${OC_VIDEO_VISUAL:-$(smoke_clip)}"
+out="$($OVERCAST watch "$clip" --json --case "$casedir" --home "$ochome" --profile fixture 2>"$SMOKE_DIR/phase1_watch.err")"
 rc=$?
 save_json "phase1_watch" "$out" >/dev/null
 

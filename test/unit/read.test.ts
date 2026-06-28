@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
@@ -8,7 +8,10 @@ import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
 import { LocalMemoryProvider, recordText } from "../../src/providers/memory/local.ts";
 import { resolveMemory, fanOutAnswer } from "../../src/providers/memory/index.ts";
+import { QmdMemoryProvider, DEFAULT_QMD_MODEL } from "../../src/providers/memory/qmd.ts";
+import { indexableFields } from "../../src/providers/memory/fields.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
+import { caseVerb } from "../../src/verbs/case.ts";
 import type { MemoryProvider, Passage } from "../../src/providers/memory/types.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
@@ -27,6 +30,13 @@ test("recordText flattens payload + media ref for indexing", () => {
   const t = recordText(r);
   assert.match(t, /hello world/);
   assert.match(t, /c\.mp4/);
+});
+
+test("indexable field policy prefers verb-specific fields, including notes", () => {
+  const note = makeRecord({ verb: "note", payload: { title: "rear plate", text: "white van has no rear plate", detailed: { noisy: "skip me" } } });
+  const fields = indexableFields(note);
+  assert.deepEqual(fields.map((f) => f.path), ["title", "text"]);
+  assert.match(fields.map((f) => f.text).join("\n"), /white van/);
 });
 
 test("local provider ranks the matching record first and cites media.at", async () => {
@@ -78,7 +88,8 @@ test("fanOutAnswer merges + dedups citations across providers", async () => {
 test("resolveMemory always includes the local provider", async () => {
   await withCase((c) => {
     const providers = resolveMemory(c, defaultProfile());
-    assert.ok(providers.some((p) => p.id === "local"));
+    assert.ok(providers.some((p) => p.id === "local-grep"));
+    assert.ok(providers.some((p) => p.aliases?.includes("local")));
   });
 });
 
@@ -94,7 +105,60 @@ test("ask verb returns an answer record citing record.id + media.at", async () =
     const p = rec.payload as Record<string, unknown>;
     const cites = p.citations as Array<Record<string, unknown>>;
     assert.ok(cites.length >= 1);
-    assert.match(rec.meta?.provider as string, /local/);
+    assert.match(rec.meta?.provider as string, /local-grep/);
+  });
+});
+
+test("ask --memory local alias still selects local-grep", async () => {
+  await withCase(async (c) => {
+    const [rec] = await askVerb.run(ctx(c, "white van at the docks", { memory: "local" }));
+    assert.equal(rec.state, "ready");
+    assert.match(rec.meta?.provider as string, /local-grep/);
+  });
+});
+
+test("qmd memory provider materializes docs, records model config, and queries via qmd", async () => {
+  await withCase(async (c, dir) => {
+    const log = join(dir, "qmd.log");
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+if [ "$1" = "search" ]; then
+  echo '[{"record_id":"rec_qmd","verb":"note","text":"qmd semantic hit","score":9}]'
+else
+  echo '{"ok":true}'
+fi
+`);
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    const st = await qmd.rebuild();
+    assert.equal(st.state, "ready");
+    assert.equal(st.model, DEFAULT_QMD_MODEL);
+    assert.ok(st.documents && st.documents >= 3);
+    const hits = await qmd.query("white van docks", { limit: 2 });
+    assert.equal(hits[0].recordId, "rec_qmd");
+    const calls = readFileSync(log, "utf8");
+    assert.match(calls, /collection add/);
+    assert.match(calls, /search white van docks --collection/);
+  });
+});
+
+test("case memory index status/rebuild surfaces backend compatibility", async () => {
+  await withCase(async (c, dir) => {
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, '#!/usr/bin/env bash\necho "{\\"ok\\":true}"\n');
+    chmodSync(fake, 0o755);
+    const p = defaultProfile();
+    p.memory = [{ type: "exec", backend: "qmd", id: "qmd", command: `bash ${fake}`, model: DEFAULT_QMD_MODEL }];
+    const [rebuilt] = await caseVerb.run({ input: "memory", rest: ["index", "rebuild"], opts: { memory: "qmd" }, case: c, profile: p });
+    assert.equal(rebuilt.state, "ready");
+    const statuses = (rebuilt.payload as Record<string, unknown>).memory_index as Array<Record<string, unknown>>;
+    assert.equal(statuses[0].backend, "qmd");
+    assert.equal(statuses[0].model, DEFAULT_QMD_MODEL);
+
+    const [status] = await caseVerb.run({ input: "memory", rest: ["index", "status"], opts: { memory: "qmd" }, case: c, profile: p });
+    assert.equal(status.state, "ready");
+    assert.equal((((status.payload as Record<string, unknown>).memory_index as Array<Record<string, unknown>>)[0]).state, "ready");
   });
 });
 

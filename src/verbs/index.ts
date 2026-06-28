@@ -1,15 +1,15 @@
-// `collection` verb (OSINT): manage the lifecycle of tinycloud collections — the
+// `index` verb (OSINT): manage the lifecycle of tinycloud indexes — the
 // remote (Cloudglue) indexes that make a target's videos searchable. One verb
-// fans out to the tinycloud `library collections` ops and keeps a local mirror
-// (state/collection.ts) of which collections + members this case owns.
+// fans out to tinycloud's collection ops and keeps a local mirror
+// (state/index.ts) of which indexes + members this case owns.
 //
-//   collection create <name> --type media|entities|face [--prompt|--schema]
-//   collection add <video|record-id> --to <id>     (or --all to register the case's videos)
-//   collection list | show <id> | delete <id> | remove <video> --from <id>
-//   collection entities <id> <video>               (entities collections)
+//   index create <name> --type media|entities|face [--prompt|--schema]
+//   index add <video|record-id> --to <id>     (or --all to register the case's videos)
+//   index list | show <id> | delete <id> | remove <video> --from <id>
+//   index entities <id> <video>               (entities indexes)
 //
-// Read the indexed videos with: `ask --collection <id>` (media-descriptions),
-// `face --match … --collection <id>` (face-analysis), `collection entities …`.
+// Read the indexed videos with: `ask --index <id>` (media-descriptions),
+// `face --match … --index <id>` (face-analysis), `index entities …`.
 
 import { existsSync } from "node:fs";
 import { makeRecord, isReady, type OvercastRecord } from "../record.js";
@@ -23,15 +23,15 @@ import {
   tcCollectionEntities,
 } from "../providers/tinycloud/collection.js";
 import {
-  listCollections,
-  findCollection,
-  resolveCollectionRef,
-  addCollection,
-  removeCollection,
+  listIndexes,
+  findIndex,
+  resolveIndexRef,
+  addIndex,
+  removeIndex,
   addMember,
   removeMember,
-  normalizeCollectionType,
-} from "../state/collection.js";
+  normalizeIndexType,
+} from "../state/index.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { resolveVideoArg, isRegisterableMediaRecord } from "./media-ref.js";
 import { badNumber, numFlag } from "./validate.js";
@@ -42,7 +42,20 @@ import type { VerbSpec, VerbContext } from "../registry/types.js";
 const VALID_ACTIONS = ["create", "add", "list", "show", "delete", "remove", "entities"];
 
 function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "collection", format: "json", payload: { error: message }, error: message, state: "error" });
+  return makeRecord({ verb: "index", format: "json", payload: { error: message }, error: message, state: "error" });
+}
+
+function indexRecord(rec: OvercastRecord): OvercastRecord {
+  rec.verb = "index";
+  if (rec.payload && typeof rec.payload === "object") {
+    const p = rec.payload as Record<string, unknown>;
+    if ("collection" in p && !("index" in p)) p.index = p.collection;
+    if ("collections" in p && !("indexes" in p)) p.indexes = p.collections;
+    if (typeof p.summary === "string") {
+      p.summary = p.summary.replace(/\bcollections\b/g, "indexes").replace(/\bcollection\b/g, "index");
+    }
+  }
+  return rec;
 }
 
 /** A non-failure outcome: the op was accepted (an async add lands as `pending`
@@ -51,7 +64,7 @@ const accepted = (rec: OvercastRecord) => rec.state === "ready" || rec.state ===
 
 /** show/delete take a POSITIONAL id; an `add`/`remove` target flag (--to/--from)
  *  with no positional is a misuse that must NOT fall through to the sole
- *  collection (dangerous for delete). Returns the stray flag name, else undefined. */
+ *  index (dangerous for delete). Returns the stray flag name, else undefined. */
 function strayTargetFlag(ctx: VerbContext): string | undefined {
   if (ctx.rest[0]) return undefined;
   if (ctx.opts.to != null) return "--to";
@@ -60,10 +73,10 @@ function strayTargetFlag(ctx: VerbContext): string | undefined {
 }
 
 /** Unique AV media refs the case has captured or sensed (the media gathered while
- *  investigating the target) — what `collection add --all` registers: `capture`
+ *  investigating the target) — what `index add --all` registers: `capture`
  *  (fetched media) plus anything sensed via `watch`/`listen`/`face`. Deliberately
  *  excludes `scan` hits: their media.ref is a page/listing URL (and isAv accepts
- *  any http(s)), so they'd pollute the collection with non-video links — the
+ *  any http(s)), so they'd pollute the index with non-video links — the
  *  actual media arrives via `capture` (scan --pull → capture record). */
 function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
   const out: Array<{ ref: string; recordId: string }> = [];
@@ -81,57 +94,57 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
   return out;
 }
 
-/** Resolve the target collection id for add/show/delete: an explicit value, else
- *  the case's sole mirrored collection (optionally filtered by type). A value that
+/** Resolve the target index id for add/show/delete: an explicit value, else
+ *  the case's sole mirrored index (optionally filtered by type). A value that
  *  was PROVIDED but is blank/whitespace is a user error (like ask/face reject blank
- *  --collection) — only a truly OMITTED value falls back to the sole collection, so
+ *  --index) — only a truly OMITTED value falls back to the sole index, so
  *  an empty-looking flag can't silently target (and delete) the wrong one. */
 function resolveTarget(c: Case, explicit?: string, type?: string): { id?: string; error?: string } {
   if (explicit !== undefined) {
     const ex = explicit.trim();
-    if (!ex) return { error: "a blank collection id/name was given — pass a real id/name, or omit it to use the case's sole collection" };
-    const ref = resolveCollectionRef(c, ex); // errors on an ambiguous display name
+    if (!ex) return { error: "a blank index id/name was given — pass a real id/name, or omit it to use the case's sole index" };
+    const ref = resolveIndexRef(c, ex); // errors on an ambiguous display name
     if (ref.error) return { error: ref.error };
     return { id: ref.entry?.id ?? ex };
   }
-  let cols = listCollections(c);
+  let cols = listIndexes(c);
   // keep `unknown` stubs in a type-filtered fallback — `add` upgrades a stub's type
   // once a target resolves, so a sole unknown stub must still match `--type face`.
   if (type) cols = cols.filter((x) => x.type === type || x.type === "unknown");
   if (cols.length === 1) return { id: cols[0].id };
-  if (cols.length === 0) return { error: "no collections in this case — create one with `overcast collection create <name> --type <media|entities|face>`" };
-  return { error: `multiple collections; specify one (ids: ${cols.map((x) => x.id).join(", ")})` };
+  if (cols.length === 0) return { error: "no indexes in this case — create one with `overcast index create <name> --type <media|entities|face>`" };
+  return { error: `multiple indexes; specify one (ids: ${cols.map((x) => x.id).join(", ")})` };
 }
 
-export const collectionVerb: VerbSpec = {
-  name: "collection",
+export const indexVerb: VerbSpec = {
+  name: "index",
   group: "osint",
-  summary: "Manage tinycloud collections that index a target's videos (create/add/list/show/delete/remove/entities).",
+  summary: "Manage tinycloud indexes that index a target's videos (create/add/list/show/delete/remove/entities).",
   description:
-    "A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions " +
+    "An index is a Cloudglue-backed searchable corpus of videos, searched one way per TYPE: media-descriptions " +
     "(ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). " +
     "`create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` " +
     "registers a video (a path, URL, or a case record id) — `--all` registers every video the case has " +
     "captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` " +
-    "prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection " +
-    "<id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).",
+    "prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index " +
+    "<id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).",
   args: [
     { name: "action", summary: VALID_ACTIONS.join(" | "), required: true },
-    { name: "arg", summary: "name (create) · video/record-id (add/remove) · collection id (show/delete/entities)", required: false },
+    { name: "arg", summary: "name (create) · video/record-id (add/remove) · index id (show/delete/entities)", required: false },
     // `entities <id> <video>` needs a SECOND positional — declared so the pi
     // AgentTool surface (which rebuilds positionals strictly from spec.args) can
     // supply it, not just the raw CLI/slash parsers. Mirrors setup's action/a/b.
-    { name: "arg2", summary: "entities: the video/record-id (collection entities <id> <video>)", required: false },
+    { name: "arg2", summary: "entities: the video/record-id (index entities <id> <video>)", required: false },
   ],
   flags: [
     { name: "type", summary: "create: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)", type: "string" },
     { name: "description", summary: "create: human description", type: "string" },
     { name: "prompt", summary: "create entities: free-text extraction prompt", type: "string" },
     { name: "schema", summary: "create entities: path to a JSON schema file", type: "string" },
-    { name: "to", summary: "add: target collection id/name", type: "string" },
-    { name: "from", summary: "remove: collection id/name to remove the video from", type: "string" },
+    { name: "to", summary: "add: target index id/name", type: "string" },
+    { name: "from", summary: "remove: index id/name to remove the video from", type: "string" },
     { name: "all", summary: "add: register every video the case has captured or sensed (watch/listen/face)", type: "boolean" },
-    { name: "remote", summary: "list: also query tinycloud for all account collections", type: "boolean" },
+    { name: "remote", summary: "list: also query tinycloud for all account indexes", type: "boolean" },
     { name: "no-upload", summary: "add: don't upload (use an already-uploaded source)", type: "boolean" },
     { name: "no-download", summary: "add: don't materialize the source locally", type: "boolean" },
     { name: "limit", summary: "entities: max entities", type: "number" },
@@ -139,30 +152,30 @@ export const collectionVerb: VerbSpec = {
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
-  outputKind: "collection",
-  providerKey: "collection",
+  outputKind: "index",
+  providerKey: "index",
   run: async (ctx) => {
     const c = ctx.case;
     const action = ctx.input;
     const env = providerEnv(c.mediaDir);
-    // honor a pinned tinycloud in the profile (`setup provider collection
+    // honor a pinned tinycloud in the profile (`setup provider index
     // "/path/to/tinycloud …"`) the same way `face` honors its binding — else
     // OVERCAST_TINYCLOUD_CMD / `tinycloud` on PATH (via tinycloudBase).
-    const base = tinycloudBaseFromRun(ctx.profile.providers?.collection?.run);
+    const base = tinycloudBaseFromRun(ctx.profile.providers?.index?.run);
     const tcOpts = { env, signal: ctx.signal, base };
 
     if (action && !VALID_ACTIONS.includes(action)) {
-      return [err(`unknown collection action '${action}' (expected ${VALID_ACTIONS.join(" | ")})`)];
+      return [err(`unknown index action '${action}' (expected ${VALID_ACTIONS.join(" | ")})`)];
     }
 
     // ---- create ----
     if (action === "create") {
       const name = ctx.rest[0]?.trim();
-      if (!name) return [err("usage: collection create <name> --type <media-descriptions|entities|face-analysis>")];
-      // `!= null` so a provided-but-empty `--type=` flows to normalizeCollectionType
+      if (!name) return [err("usage: index create <name> --type <media-descriptions|entities|face-analysis>")];
+      // `!= null` so a provided-but-empty `--type=` flows to normalizeIndexType
       // (→ unknown-type error) instead of silently defaulting like an omitted flag.
       const rawType = ctx.opts.type != null ? String(ctx.opts.type) : "media-descriptions";
-      const type = normalizeCollectionType(rawType);
+      const type = normalizeIndexType(rawType);
       if (!type) {
         return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts)`)];
       }
@@ -179,23 +192,23 @@ export const collectionVerb: VerbSpec = {
       const schema = ctx.opts.schema != null ? String(ctx.opts.schema) : undefined;
       const description = ctx.opts.description != null ? String(ctx.opts.description) : undefined;
       if (type === "entities" && !prompt && !schema) {
-        return [err("an entities collection needs --prompt <text> or --schema <file> (the schema to extract from every video)")];
+        return [err("an entities index needs --prompt <text> or --schema <file> (the schema to extract from every video)")];
       }
       if (schema && !existsSync(schema)) return [err(`--schema file not found: ${schema}`)];
       const { rec, id } = await tcCollectionCreate(name, type, { ...tcOpts, description, prompt, schema });
       // mirror an accepted create (ready OR an async pending that still returned
       // a real id) so the create→add-by-name flow works; a cred gap / error has no id.
-      if (id && accepted(rec)) addCollection(c, { id, type, name, description: ctx.opts.description ? String(ctx.opts.description) : undefined });
+      if (id && accepted(rec)) addIndex(c, { id, type, name, description: ctx.opts.description ? String(ctx.opts.description) : undefined });
       rec.meta = { ...rec.meta, case: c.dir };
-      return [rec];
+      return [indexRecord(rec)];
     }
 
     // ---- add ----
     if (action === "add") {
       // `add` targets with --to; --from is `remove`'s flag. Reject it rather than
-      // ignoring it and falling back to the sole collection (wrong target).
-      if (ctx.opts.from != null) return [err("collection add targets with --to, not --from")];
-      const typeHint = ctx.opts.type != null ? normalizeCollectionType(String(ctx.opts.type)) : undefined;
+      // ignoring it and falling back to the sole index (wrong target).
+      if (ctx.opts.from != null) return [err("index add targets with --to, not --from")];
+      const typeHint = ctx.opts.type != null ? normalizeIndexType(String(ctx.opts.type)) : undefined;
       // a typo'd OR empty --type must error here (like `create`), not be silently
       // dropped — otherwise the stub stays "unknown" and face auto-pick/type guards
       // confuse later. `!= null` catches a provided-but-empty `--type=`.
@@ -205,24 +218,24 @@ export const collectionVerb: VerbSpec = {
       // `!= null` (not truthy) so a provided-but-empty `--to=` reaches resolveTarget
       // as a blank value it rejects, rather than being treated as omitted (→ sole).
       const target = resolveTarget(c, ctx.opts.to != null ? String(ctx.opts.to) : undefined, typeHint);
-      if (target.error) return [err(`collection add: ${target.error}`)];
+      if (target.error) return [err(`index add: ${target.error}`)];
       const id = target.id!;
       // Ensure the target is in the local mirror — it may have been created
       // outside this case and referenced only by id. Without this, addMember
-      // no-ops (collection absent) and `add --all` re-adds the same videos every
+      // no-ops (index absent) and `add --all` re-adds the same videos every
       // run. Record the --type hint when given so face auto-resolution can find
       // it; otherwise "unknown" (face --match falls back to those candidates).
-      const existing = findCollection(c, id);
+      const existing = findIndex(c, id);
       // a --type hint that CONTRADICTS the target's known type is a mistake, not a
       // silent no-op — reject it so the video isn't indexed into the wrong type.
       if (existing && typeHint && existing.type !== "unknown" && existing.type !== typeHint) {
-        return [err(`collection add: --type ${typeHint} conflicts with collection ${id}'s type '${existing.type}' — omit --type, or target a ${typeHint} collection`)];
+        return [err(`index add: --type ${typeHint} conflicts with index ${id}'s type '${existing.type}' — omit --type, or target a ${typeHint} index`)];
       }
       if (!existing) {
-        addCollection(c, { id, type: typeHint ?? "unknown", name: id });
+        addIndex(c, { id, type: typeHint ?? "unknown", name: id });
       } else if (typeHint && existing.type === "unknown") {
-        // a later `add --type face` classifies a previously-unknown stub (addCollection upserts).
-        addCollection(c, { id, type: typeHint, name: existing.name, description: existing.description });
+        // a later `add --type face` classifies a previously-unknown stub (addIndex upserts).
+        addIndex(c, { id, type: typeHint, name: existing.name, description: existing.description });
       }
       const addOpts = {
         ...tcOpts,
@@ -234,8 +247,8 @@ export const collectionVerb: VerbSpec = {
       if (ctx.opts.all === true) {
         // --all reads the whole case, not a positional — a stray video arg is a
         // mistake (it would be silently ignored if other videos exist).
-        if (ctx.rest[0]) return [err("collection add: --all registers every case video — drop the positional video, or omit --all to add just that one")];
-        const col = findCollection(c, id);
+        if (ctx.rest[0]) return [err("index add: --all registers every case video — drop the positional video, or omit --all to add just that one")];
+        const col = findIndex(c, id);
         const members = new Set(col?.members.map((m) => m.ref) ?? []);
         const vids = caseVideoRefs(c).filter((v) => !members.has(v.ref));
         if (vids.length === 0) {
@@ -250,10 +263,10 @@ export const collectionVerb: VerbSpec = {
           const failed = unregistered.filter((r) => r.state !== "pending" && !isReady(r)).length;
           return [err(
             pending > 0
-              ? `collection add --all: ${pending} video(s) still processing (pending) — rerun once they're ready`
+              ? `index add --all: ${pending} video(s) still processing (pending) — rerun once they're ready`
               : failed > 0
-                ? `collection add --all: ${failed} video(s) failed to sense (state=error/needs_credentials) — re-run the sense, then --all`
-                : "collection add --all: no new captured/sensed videos to register",
+                ? `index add --all: ${failed} video(s) failed to sense (state=error/needs_credentials) — re-run the sense, then --all`
+                : "index add --all: no new captured/sensed videos to register",
           )];
         }
         const recs: OvercastRecord[] = [];
@@ -261,80 +274,80 @@ export const collectionVerb: VerbSpec = {
           const { rec } = await tcCollectionAdd(v.ref, id, addOpts);
           if (accepted(rec)) addMember(c, id, { ref: v.ref, recordId: v.recordId });
           rec.meta = { ...rec.meta, case: c.dir };
-          recs.push(rec);
+          recs.push(indexRecord(rec));
         }
         return recs;
       }
 
       const arg = ctx.rest[0];
-      if (!arg) return [err("usage: collection add <video|record-id> --to <id> (or --all)")];
-      const v = resolveVideoArg(c, arg, "collection add");
+      if (!arg) return [err("usage: index add <video|record-id> --to <id> (or --all)")];
+      const v = resolveVideoArg(c, arg, "index add");
       if (v.error) return [err(v.error)];
       const ref = v.ref!;
       // dedupe like `--all` (which filters existing members) — don't re-submit a
-      // video already in the collection to tinycloud.
-      if (findCollection(c, id)?.members.some((m) => m.ref === ref)) {
-        return [makeRecord({ verb: "collection", format: "json", payload: { op: "add", collection: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" })];
+      // video already in the index to tinycloud.
+      if (findIndex(c, id)?.members.some((m) => m.ref === ref)) {
+        return [makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" })];
       }
       const { rec } = await tcCollectionAdd(ref, id, addOpts);
       if (accepted(rec)) addMember(c, id, { ref, recordId: v.recordId });
       rec.meta = { ...rec.meta, case: c.dir };
-      return [rec];
+      return [indexRecord(rec)];
     }
 
     // ---- list ----
     if (action === "list" || action === undefined) {
-      const mirror = listCollections(c).map((x) => ({ id: x.id, type: x.type, name: x.name, members: x.members.length }));
+      const mirror = listIndexes(c).map((x) => ({ id: x.id, type: x.type, name: x.name, members: x.members.length }));
       if (ctx.opts.remote === true) {
         const { rec } = await tcCollectionList(tcOpts);
         (rec.payload as Record<string, unknown>).mirror = mirror;
         rec.meta = { ...rec.meta, case: c.dir };
-        return [rec];
+        return [indexRecord(rec)];
       }
-      return [makeRecord({ verb: "collection", format: "json", payload: { op: "list", collections: mirror, count: mirror.length }, meta: { case: c.dir }, state: "ready" })];
+      return [makeRecord({ verb: "index", format: "json", payload: { op: "list", indexes: mirror, count: mirror.length }, meta: { case: c.dir }, state: "ready" })];
     }
 
     // ---- show ----
     if (action === "show") {
       const stray = strayTargetFlag(ctx);
-      if (stray) return [err(`collection show takes a positional id: \`collection show <id>\` (saw ${stray}, which doesn't apply here)`)];
+      if (stray) return [err(`index show takes a positional id: \`index show <id>\` (saw ${stray}, which doesn't apply here)`)];
       const target = resolveTarget(c, ctx.rest[0]);
-      if (target.error) return [err(`collection show: ${target.error}`)];
+      if (target.error) return [err(`index show: ${target.error}`)];
       const { rec } = await tcCollectionShow(target.id!, tcOpts);
       rec.meta = { ...rec.meta, case: c.dir };
-      return [rec];
+      return [indexRecord(rec)];
     }
 
     // ---- delete ----
     if (action === "delete") {
       // guard the destructive op: a misused --to/--from with no positional must not
-      // silently delete the case's sole collection.
+      // silently delete the case's sole index.
       const stray = strayTargetFlag(ctx);
-      if (stray) return [err(`collection delete takes a positional id: \`collection delete <id>\` (saw ${stray}, which doesn't apply here)`)];
+      if (stray) return [err(`index delete takes a positional id: \`index delete <id>\` (saw ${stray}, which doesn't apply here)`)];
       // delete requires an EXPLICIT id — unlike show, it must never fall back to the
-      // case's sole collection (a bare `collection delete` would be silent data loss).
-      if (!ctx.rest[0]) return [err("usage: collection delete <id> (an explicit id is required — delete won't default to your only collection)")];
+      // case's sole index (a bare `index delete` would be silent data loss).
+      if (!ctx.rest[0]) return [err("usage: index delete <id> (an explicit id is required — delete won't default to your only index)")];
       const target = resolveTarget(c, ctx.rest[0]);
-      if (target.error) return [err(`collection delete: ${target.error}`)];
+      if (target.error) return [err(`index delete: ${target.error}`)];
       const { rec } = await tcCollectionDelete(target.id!, tcOpts);
-      if (accepted(rec)) removeCollection(c, target.id!);
+      if (accepted(rec)) removeIndex(c, target.id!);
       rec.meta = { ...rec.meta, case: c.dir };
-      return [rec];
+      return [indexRecord(rec)];
     }
 
     // ---- remove ----
     if (action === "remove") {
       // `remove` targets with --from; --to is `add`'s flag. Reject it rather than
-      // ignoring it and falling back to the sole collection (wrong target).
-      if (ctx.opts.to != null) return [err("collection remove targets with --from, not --to")];
+      // ignoring it and falling back to the sole index (wrong target).
+      if (ctx.opts.to != null) return [err("index remove targets with --from, not --to")];
       const arg = ctx.rest[0];
-      if (!arg) return [err("usage: collection remove <video|record-id> --from <id>")];
+      if (!arg) return [err("usage: index remove <video|record-id> --from <id>")];
       const from = resolveTarget(c, ctx.opts.from != null ? String(ctx.opts.from) : undefined);
-      if (from.error) return [err(`collection remove: ${from.error}`)];
+      if (from.error) return [err(`index remove: ${from.error}`)];
       // same media filters as add/entities (reject scan/face-search/non-AV refs),
       // but allow a gone local file / errored record — you should still be able to
       // un-index a video that's no longer on disk or whose sense later failed.
-      const v = resolveVideoArg(c, arg, "collection remove", { requireExists: false, requireReady: false });
+      const v = resolveVideoArg(c, arg, "index remove", { requireExists: false, requireReady: false });
       if (v.error) return [err(v.error)];
       const ref = v.ref!;
       const { rec } = await tcCollectionRemove(ref, from.id!, tcOpts);
@@ -342,49 +355,49 @@ export const collectionVerb: VerbSpec = {
       // matching how `add` tracks membership via accepted().
       if (accepted(rec)) removeMember(c, from.id!, ref);
       rec.meta = { ...rec.meta, case: c.dir };
-      return [rec];
+      return [indexRecord(rec)];
     }
 
     // ---- entities ----
     if (action === "entities") {
-      // entities takes a POSITIONAL collection id; --to/--from are add/remove flags
+      // entities takes a POSITIONAL index id; --to/--from are add/remove flags
       // and don't apply — reject them rather than silently using the positional
       // (consistent with add/remove/show/delete).
       if (ctx.opts.to != null || ctx.opts.from != null) {
-        return [err("collection entities takes a positional id: `collection entities <id> <video>` (--to/--from don't apply here)")];
+        return [err("index entities takes a positional id: `index entities <id> <video>` (--to/--from don't apply here)")];
       }
       const id = ctx.rest[0]?.trim(); // trim so a blank/padded id doesn't bypass mirror lookup
       const videoArg = ctx.rest[1];
-      if (!id || !videoArg) return [err("usage: collection entities <collection-id> <video|record-id>")];
+      if (!id || !videoArg) return [err("usage: index entities <index-id> <video|record-id>")];
       // validate the numeric paging flags via the SHARED validator (matches face/ask)
       // — it also rejects a blank `--offset=`, which the old inline `n < 0` check let
       // through as 0 (Number("") === 0).
       const numErr =
         badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number") ??
         badNumber(ctx.opts, "offset", (n) => n >= 0, "a non-negative number");
-      if (numErr) return [err(`collection entities: ${numErr}`)];
+      if (numErr) return [err(`index entities: ${numErr}`)];
       const limit = numFlag(ctx.opts, "limit");
       const offset = numFlag(ctx.opts, "offset");
-      // resolve the collection id, surfacing an ambiguous-name error (like ask/add)
-      // and rejecting a mirrored collection whose type isn't entities (entities are
-      // only readable from an entities collection), consistent with ask/face.
-      const colRef = resolveCollectionRef(c, id);
-      if (colRef.error) return [err(`collection entities: ${colRef.error}`)];
+      // resolve the index id, surfacing an ambiguous-name error (like ask/add)
+      // and rejecting a mirrored index whose type isn't entities (entities are
+      // only readable from an entities index), consistent with ask/face.
+      const colRef = resolveIndexRef(c, id);
+      if (colRef.error) return [err(`index entities: ${colRef.error}`)];
       const colEntry = colRef.entry;
       if (colEntry && colEntry.type !== "entities" && colEntry.type !== "unknown") {
-        return [err(`collection ${colEntry.id} is type '${colEntry.type}', not entities — \`collection entities\` only reads entities collections`)];
+        return [err(`index ${colEntry.id} is type '${colEntry.type}', not entities — \`index entities\` only reads entities indexes`)];
       }
       const colId = colEntry?.id ?? id;
       // same media filters as `add` (reject scan/face-search/non-AV refs), but
       // requireExists:false — entities reads PRE-EXTRACTED data for a video already
       // indexed remotely, so its local file may be gone (matches `remove`).
-      const v = resolveVideoArg(c, videoArg, "collection entities", { requireExists: false, requireReady: false });
+      const v = resolveVideoArg(c, videoArg, "index entities", { requireExists: false, requireReady: false });
       if (v.error) return [err(v.error)];
       const { rec } = await tcCollectionEntities(colId, v.ref!, { ...tcOpts, limit, offset });
       rec.meta = { ...rec.meta, case: c.dir };
-      return [rec];
+      return [indexRecord(rec)];
     }
 
-    return [err(`usage: collection <${VALID_ACTIONS.join("|")}>`)];
+    return [err(`usage: index <${VALID_ACTIONS.join("|")}>`)];
   },
 };

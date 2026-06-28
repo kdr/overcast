@@ -5,11 +5,11 @@
 import { writeFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
 import { makeRecord, isMetaRecord, type OvercastRecord } from "../record.js";
-import { resolveMemory, fanOutAnswer } from "../providers/memory/index.js";
+import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
 import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
-import { resolveCollectionRef } from "../state/collection.js";
+import { resolveIndexRef } from "../state/index.js";
 import { badNumber } from "./validate.js";
 import { providerEnv } from "../providers/provider-env.js";
 import type { QueryOpts } from "../providers/memory/types.js";
@@ -40,18 +40,18 @@ export const askVerb: VerbSpec = {
   group: "read",
   summary: "Natural-language query over the case memory; answers with record.id + media.at citations.",
   description:
-    "Retrieves over the bound memory providers (fan-out; local always on) and answers with citations " +
-    "to record.id and media.at. --deep forces agentic deepsearch (cloudglue, when bound).",
+    "Retrieves over bound case-search memory providers (local-grep always on; optional qmd) and answers " +
+    "with citations to record.id and media.at. Use --memory qmd after `setup memory qmd` for qmd-backed local semantic search.",
   args: [{ name: "question", summary: "The question to answer", required: true }],
   flags: [
-    { name: "deep", summary: "Agentic semantic search (cloudglue)", type: "boolean" },
-    { name: "collection", summary: "Answer over a media-descriptions collection (id/name) via tinycloud, not local memory", type: "string" },
-    { name: "probe", summary: "With --collection: semantic moment search (probe) instead of Q&A (ask)", type: "boolean" },
-    { name: "scope", summary: "With --collection --probe: file | segment", type: "string" },
-    { name: "memory", summary: "Restrict to specific memory provider ids", type: "string" },
+    { name: "deep", summary: "Use a provider's semantic/deep search path when available (e.g. qmd)", type: "boolean" },
+    { name: "index", summary: "Answer over a media-descriptions index (id/name) via tinycloud, not local memory", type: "string" },
+    { name: "probe", summary: "With --index: semantic moment search (probe) instead of Q&A (ask)", type: "boolean" },
+    { name: "scope", summary: "With --index --probe: file | segment", type: "string" },
+    { name: "memory", summary: "Restrict to memory provider/backend ids (local-grep/local, qmd)", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
     { name: "verb", summary: "Restrict to record kinds (comma list)", type: "string" },
-    { name: "limit", summary: "Max local passages; with --collection --probe, max probe results", type: "number" },
+    { name: "limit", summary: "Max local passages; with --index --probe, max probe results", type: "number" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -63,15 +63,15 @@ export const askVerb: VerbSpec = {
     }
     // a non-finite/non-positive/blank --limit is a user error, not a silent fall-back
     // to the default breadth — validated up front (via the SHARED validator) so BOTH
-    // the local-memory and the --collection paths reject it.
+    // the local-memory and the --index paths reject it.
     const limitErr = badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number");
     if (limitErr) return [askError(limitErr)];
-    // --probe/--scope only apply to a tinycloud collection query (--collection);
+    // --probe/--scope only apply to a tinycloud index query (--index);
     // --scope only in probe mode. Gate on `== null` (truly omitted), so an empty
-    // `--collection=` still routes into the collection branch below (which rejects
+    // `--index=` still routes into the index branch below (which rejects
     // it) rather than being mistaken for a local-memory ask.
-    if (ctx.opts.collection == null && (ctx.opts.probe === true || ctx.opts.scope)) {
-      return [askError("--probe/--scope only apply with --collection (a media-descriptions collection)")];
+    if (ctx.opts.index == null && (ctx.opts.probe === true || ctx.opts.scope)) {
+      return [askError("--probe/--scope only apply with --index (a media-descriptions index)")];
     }
     if (ctx.opts.scope != null && !String(ctx.opts.scope).trim()) {
       return [askError("--scope requires a value (file | segment)")];
@@ -79,18 +79,18 @@ export const askVerb: VerbSpec = {
     if (ctx.opts.scope && ctx.opts.probe !== true) {
       return [askError("--scope only applies with --probe (probe = semantic moment search)")];
     }
-    // --collection: answer over a tinycloud media-descriptions collection (the
+    // --index: answer over a tinycloud media-descriptions index (the
     // index of a target's videos) instead of the local case memory. The id/name
-    // resolves through the case mirror to the real tinycloud collection id. Gate on
-    // `!= null` so a PROVIDED-but-empty `--collection=` is rejected here, not
+    // resolves through the case mirror to the real tinycloud index id. Gate on
+    // `!= null` so a PROVIDED-but-empty `--index=` is rejected here, not
     // silently treated as omitted (→ a local-memory ask).
-    if (ctx.opts.collection != null) {
-      // tinycloud collection Q&A supports --probe; --scope/--limit apply only
+    if (ctx.opts.index != null) {
+      // tinycloud index Q&A supports --probe; --scope/--limit apply only
       // to probe. Reject unsupported flags instead of silently dropping them.
       if (ctx.opts.limit != null && ctx.opts.probe !== true) {
-        return [askError("--limit with --collection only applies with --probe (tinycloud ask does not support a limit flag)")];
+        return [askError("--limit with --index only applies with --probe (tinycloud ask does not support a limit flag)")];
       }
-      // a tinycloud collection ask/probe supports only --probe/--scope/--limit
+      // a tinycloud index ask/probe supports only --probe/--scope/--limit
       // (with --scope/--limit probe-only, above);
       // the local-memory flags (--deep/--memory/--verb) and the --since time
       // filter don't apply — reject them rather than silently ignoring them.
@@ -98,18 +98,18 @@ export const askVerb: VerbSpec = {
         (f) => ctx.opts[f] != null && ctx.opts[f] !== false,
       );
       if (unsupported.length) {
-        return [askError(`--${unsupported.join(", --")} ${unsupported.length > 1 ? "aren't" : "isn't"} supported with --collection (it queries a tinycloud collection, not local case memory)`)];
+        return [askError(`--${unsupported.join(", --")} ${unsupported.length > 1 ? "aren't" : "isn't"} supported with --index (it queries a tinycloud index, not local case memory)`)];
       }
-      const value = String(ctx.opts.collection).trim();
-      if (!value) return [askError("--collection requires a collection id or name")];
+      const value = String(ctx.opts.index).trim();
+      if (!value) return [askError("--index requires an index id or name")];
       // resolve through the mirror: error on an ambiguous display name, and on a
-      // mirrored collection whose type isn't ask-able (ask/probe only read
+      // mirrored index whose type isn't ask-able (ask/probe only read
       // media-descriptions). An unmirrored value is passed through as a raw id.
-      const ref = resolveCollectionRef(ctx.case, value);
+      const ref = resolveIndexRef(ctx.case, value);
       if (ref.error) return [askError(ref.error)];
       const entry = ref.entry;
       if (entry && entry.type !== "media-descriptions" && entry.type !== "unknown") {
-        return [askError(`collection ${entry.id} is type '${entry.type}', not media-descriptions — ask/probe only reads media-descriptions collections (use \`face --match … --collection\` for face-analysis, \`collection entities\` for entities)`)];
+        return [askError(`index ${entry.id} is type '${entry.type}', not media-descriptions — ask/probe only reads media-descriptions indexes (use \`face --match … --index\` for face-analysis, \`index entities\` for entities)`)];
       }
       const colId = entry?.id ?? value;
       const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined;
@@ -118,9 +118,9 @@ export const askVerb: VerbSpec = {
         scope: ctx.opts.scope ? String(ctx.opts.scope) : undefined,
         limit,
         env: providerEnv(ctx.case.mediaDir),
-        // honor a pinned tinycloud in the profile (same as the `collection` verb),
+        // honor a pinned tinycloud in the profile (same as the `index` verb),
         // not just OVERCAST_TINYCLOUD_CMD / `tinycloud` on PATH.
-        base: tinycloudBaseFromRun(ctx.profile.providers?.collection?.run),
+        base: tinycloudBaseFromRun(ctx.profile.providers?.index?.run),
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: ctx.case.dir };
@@ -133,8 +133,8 @@ export const askVerb: VerbSpec = {
     const available = resolveMemory(ctx.case, ctx.profile);
     let providers = available;
     if (ctx.opts.memory) {
-      const ids = new Set(String(ctx.opts.memory).split(",").map((s) => s.trim()));
-      providers = available.filter((p) => ids.has(p.id));
+      const ids = String(ctx.opts.memory).split(",").map((s) => s.trim()).filter(Boolean);
+      providers = available.filter((p) => ids.some((id) => matchesMemoryProvider(p, id)));
       // none matched → surface the real problem instead of "No records match"
       if (providers.length === 0) {
         return [
@@ -294,7 +294,7 @@ export const briefVerb: VerbSpec = {
     let records = ctx.case.records();
     // a provided-but-blank `--scope=` is a user error (it would otherwise fall
     // through to the positional / no-filter and silently emit the FULL brief),
-    // consistent with ask/face/collection rejecting blank flags.
+    // consistent with ask/face/index rejecting blank flags.
     if (ctx.opts.scope != null && !String(ctx.opts.scope).trim()) {
       return [readError("brief", "--scope requires a value (since:<when> | verb:<kind>)")];
     }

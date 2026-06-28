@@ -16,6 +16,7 @@ import { FFMPEG_PATH, FFPROBE_PATH, probeTool, MIN_FFMPEG } from "../media/ffmpe
 import { execCapture } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { tinycloudBase } from "../providers/tinycloud/envelope.js";
+import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
 import { PI_VERSION } from "../version.js";
 import { existsSync, readdirSync } from "node:fs";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -24,8 +25,8 @@ function err(verb: string, message: string): OvercastRecord {
   return makeRecord({ verb, format: "json", payload: { error: message }, error: message, state: "error" });
 }
 
-/** Minimum tinycloud the face + collection verbs need (`face match` landed in
- *  0.3.4). Older installs run watch/listen fine but lack faces/collections. */
+/** Minimum tinycloud the face + index verbs need (`face match` landed in
+ *  0.3.4). Older installs run watch/listen fine but lack face/index support. */
 export const MIN_TINYCLOUD = "0.3.4";
 /** Latest tinycloud version this overcast build documents and recommends. */
 export const RECOMMENDED_TINYCLOUD = "0.3.6";
@@ -91,11 +92,11 @@ export const setupVerb: VerbSpec = {
   description:
     "Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a " +
     "verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets " +
-    "the brain. `setup show` prints the active profile.",
+    "the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.",
   args: [
-    { name: "action", summary: "provider | llm | show", required: true },
-    { name: "a", summary: "verb (for provider) or provider id (for llm)" },
-    { name: "b", summary: "spec (for provider) or model (for llm)" },
+    { name: "action", summary: "provider | llm | memory | show", required: true },
+    { name: "a", summary: "verb (provider), provider id (llm), or backend (memory)" },
+    { name: "b", summary: "spec (provider), model (llm), or command (memory)" },
   ],
   flags: [
     { name: "profile", summary: "Profile name to write (default: default)", type: "string" },
@@ -129,9 +130,30 @@ export const setupVerb: VerbSpec = {
       const path = saveProfile(profile, ho);
       return [makeRecord({ verb: "setup", format: "json", payload: { llm: profile.llm, profile: name, path }, state: "ready" })];
     }
+    if (action === "memory") {
+      const backend = (ctx.rest[0] ?? "local-grep").trim();
+      if (!backend) return [err("setup", "usage: setup memory <local-grep|qmd> [command]")];
+      if (backend !== "local-grep" && backend !== "local" && backend !== "qmd") {
+        return [err("setup", `unknown memory backend '${backend}' (expected local-grep | qmd)`)];
+      }
+      if (backend === "local-grep" || backend === "local") {
+        profile.memory = [];
+      } else {
+        const command = ctx.rest[1] || undefined;
+        profile.memory = [{
+          type: "exec",
+          backend: "qmd",
+          id: "qmd",
+          command,
+          model: DEFAULT_QMD_MODEL,
+        }];
+      }
+      const path = saveProfile(profile, ho);
+      return [makeRecord({ verb: "setup", format: "json", payload: { memory: profile.memory ?? [], profile: name, path }, state: "ready" })];
+    }
     // a typo like `setup provder` must not read as a successful `show`
     if (action && action !== "show") {
-      return [err("setup", `unknown setup action '${action}' (expected provider | llm | show)`)];
+      return [err("setup", `unknown setup action '${action}' (expected provider | llm | memory | show)`)];
     }
     // show
     return [makeRecord({ verb: "setup", format: "json", payload: { profile: profile }, state: "ready" })];
@@ -240,7 +262,7 @@ export const doctorVerb: VerbSpec = {
 
     // tinycloud CLI (default sense backend). Honor OVERCAST_TINYCLOUD_CMD so a
     // custom path/wrapper is the one actually checked. Parse the version to flag
-    // installs older than the face/collection minimum and recommend the latest
+    // installs older than the face/index minimum and recommend the latest
     // documented tinycloud build when an older-but-compatible CLI is present.
     const [tcCmd, ...tcLead] = tinycloudBase();
     const tc = await execCapture(tcCmd, [...tcLead, "--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
@@ -254,7 +276,7 @@ export const doctorVerb: VerbSpec = {
         tc.code !== 0
           ? `tinycloud CLI not on PATH (install latest: \`npm i -g @cloudglue/tinycloud@${RECOMMENDED_TINYCLOUD}\` or \`tinycloud install --latest\`)`
           : tcVer
-            ? `${tcVer.join(".")}${tcOld ? ` (face/collection verbs need ≥ ${MIN_TINYCLOUD} — run \`tinycloud update\`)` : tcBehind ? ` (update recommended: latest tested ${RECOMMENDED_TINYCLOUD}; run \`tinycloud update\`)` : ""}`
+            ? `${tcVer.join(".")}${tcOld ? ` (face/index verbs need ≥ ${MIN_TINYCLOUD} — run \`tinycloud update\`)` : tcBehind ? ` (update recommended: latest tested ${RECOMMENDED_TINYCLOUD}; run \`tinycloud update\`)` : ""}`
             : "CLI available",
     });
 
@@ -280,18 +302,18 @@ export const doctorVerb: VerbSpec = {
       if (b.endpoint || b.module) return true;
       return b.run ? !/^\s*tinycloud\b/.test(b.run) : false;
     });
-    // tinycloud missing is ALWAYS a warning: face / collection / `ask --collection`
+    // tinycloud missing is ALWAYS a warning: face / index / `ask --index`
     // call it by default and can't be fully bound away, so a custom watch/listen
     // provider only spares those two verbs — not the rest.
     if (!checks.find((c) => c.name === "tinycloud")?.ok) {
       warnings.push(
         hasCustomSense
-          ? "tinycloud CLI missing — face/collection/`ask --collection` still call it and will fail (watch/listen are bound to custom providers)"
-          : "tinycloud CLI missing and no custom watch/listen provider bound — watch/listen/face/collection will fail",
+          ? "tinycloud CLI missing — face/index/`ask --index` still call it and will fail (watch/listen are bound to custom providers)"
+          : "tinycloud CLI missing and no custom watch/listen provider bound — watch/listen/face/index will fail",
       );
     }
     if (tcOld) {
-      warnings.push(`tinycloud is older than ${MIN_TINYCLOUD} — the face + collection verbs need ≥ ${MIN_TINYCLOUD} (run \`tinycloud update\`)`);
+      warnings.push(`tinycloud is older than ${MIN_TINYCLOUD} — the face + index verbs need ≥ ${MIN_TINYCLOUD} (run \`tinycloud update\`)`);
     } else if (tcBehind) {
       warnings.push(`tinycloud ${tcVer?.join(".")} is older than the recommended ${RECOMMENDED_TINYCLOUD} — run \`tinycloud update\` to pick up the latest face validation and reliability behavior`);
     }

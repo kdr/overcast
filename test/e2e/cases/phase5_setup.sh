@@ -38,7 +38,8 @@ assert_eq "setup.bound" "see" "$(jq -r '.payload.bound' <<<"$sp")" "setup bound 
 
 # REBIND listen to the python sample → runs it with NO overcast code change
 $OVERCAST setup provider listen "exec:python3 $REPO/examples/providers/python/listen.py" --home "$ochome" >/dev/null 2>&1
-lout="$($OVERCAST listen ./fake.m4a --json --home "$ochome" --profile default --case "$casedir" 2>/dev/null)"
+audio="${OC_AUDIO:-$TEST_MEDIA/sample-audio.m4a}"
+lout="$($OVERCAST listen "$audio" --json --home "$ochome" --profile default --case "$casedir" 2>/dev/null)"
 save_json "phase5_listen_rebind" "$lout" >/dev/null
 prov="$(jq -r '.meta.provider' <<<"$lout")"
 state="$(jq -r '.state' <<<"$lout")"

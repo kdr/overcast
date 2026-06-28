@@ -1,8 +1,8 @@
 // tinycloud `library collections` lifecycle + collection-backed ask/probe,
-// mapped to loose records at the exec boundary (invariants #3/#9). The `collection`
-// verb drives create/add/show/list/delete/remove/entities; `ask --collection`
-// drives tcAsk. Each function returns the mapped record plus the few extracted
-// ids the verb needs to update its local mirror (state/collection.ts).
+// mapped to loose records at the exec boundary (invariants #3/#9). Overcast's
+// public `index` verb drives create/add/show/list/delete/remove/entities;
+// `ask --index` drives tcAsk. Each function returns the mapped record plus the
+// few extracted ids the verb needs to update its local mirror (state/index.ts).
 
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { runTinycloud, type RunTinycloudOpts, type TinycloudOutcome } from "./envelope.js";
@@ -163,7 +163,7 @@ export async function tcCollectionList(o: CollectionRunOpts = {}): Promise<{ rec
 
 // An accepted op (ready OR an async pending) is reflected as done in the payload,
 // matching the verb's mirror update (which prunes on ready||pending) — so the
-// payload boolean can't contradict `.overcast/collections.json`.
+// payload boolean can't contradict `.overcast/indexes.json`.
 const accepted = (s: string | undefined) => s === "ready" || s === "pending";
 
 /** `library collections delete <id>`. */
@@ -225,8 +225,8 @@ export async function tcAsk(
     return makeRecord({
       verb: "ask",
       format: "json",
-      payload: { text: "", citations: [], question, collection: collectionId, mode: verb },
-      meta: { provider: "cloudglue", model: "cloudglue", op: verb, collection: collectionId },
+      payload: { text: "", citations: [], question, index: collectionId, mode: verb },
+      meta: { provider: "cloudglue", model: "cloudglue", op: verb, index: collectionId },
       error: out.error,
       state: out.state,
     });
@@ -249,8 +249,8 @@ export async function tcAsk(
   return makeRecord({
     verb: "ask",
     format: "md",
-    payload: { text, citations, question, collection: collectionId, mode: verb, detailed: out.data },
-    meta: { provider: "cloudglue", model: "cloudglue", op: verb, collection: collectionId },
+    payload: { text, citations, question, index: collectionId, mode: verb, detailed: out.data },
+    meta: { provider: "cloudglue", model: "cloudglue", op: verb, index: collectionId },
     state: out.state,
   });
 }

@@ -1,6 +1,6 @@
 // Shared tinycloud envelope → loose-record machinery (CLAUDE.md invariants #3/#9:
 // call tinycloud only via its public CLI verbs; map its envelope to the loose
-// record at THIS boundary). The newer face + collection verbs all emit the same
+// record at THIS boundary). The newer face + index-backed collection ops all emit the same
 // JSON envelope contract, so the parse/state/error mapping lives here once
 // instead of being re-derived per verb (the `watch`/`listen` mappers predate
 // this helper and keep their own copies to stay a low-risk pi/upgrade surface).
@@ -37,7 +37,7 @@ export const TC_SUBCOMMANDS = ["face", "library", "ask", "probe", "watch", "list
  * first subcommand / `{{input}}` placeholder, KEEPING any leading global flags
  * (e.g. `tinycloud --config x face …` → `tinycloud --config x`). Used as the
  * `base` override so a pinned tinycloud binary/wrapper is honored across every
- * tinycloud-backed verb (face/collection/ask), not just the one that parsed it.
+ * tinycloud-backed verb (face/index/ask), not just the one that parsed it.
  * Returns undefined for an empty/absent run (→ falls back to OVERCAST_TINYCLOUD_CMD
  * / `tinycloud`).
  */
@@ -163,8 +163,8 @@ export function tinycloudError(
 }
 
 /** Default exec timeout for a tinycloud op. tinycloud media work (analyze, ingest,
- *  face, collection-backed ask) is slow, so every tinycloud-backed verb shares this
- *  ceiling — face/watch/listen and collection/ask alike — rather than some using a
+ *  face, index-backed ask) is slow, so every tinycloud-backed verb shares this
+ *  ceiling — face/watch/listen and index/ask alike — rather than some using a
  *  shorter default and spuriously timing out on media the others would complete. */
 export const TINYCLOUD_TIMEOUT_MS = 15 * 60_000;
 
@@ -194,7 +194,7 @@ export interface TinycloudOutcome {
 
 /**
  * Run `tinycloud <subArgs…>` and return the parsed envelope + mapped state. The
- * single exec boundary for the face + collection verbs: a non-zero exit, an
+ * single exec boundary for the face + index-backed collection ops: a non-zero exit, an
  * unparseable stdout, or an error envelope all surface as a non-ready outcome
  * with a message (never a silent empty "ready").
  */
