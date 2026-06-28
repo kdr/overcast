@@ -13,6 +13,8 @@
 
 import { existsSync } from "node:fs";
 import { makeRecord, isReady, type OvercastRecord } from "../record.js";
+import { runWatch } from "../providers/tinycloud/watch.js";
+import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import {
   tcCollectionCreate,
   tcCollectionAdd,
@@ -41,6 +43,7 @@ import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 const VALID_ACTIONS = ["create", "attach", "add", "list", "show", "delete", "remove", "entities"];
+const LOCAL_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf)$/i;
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "index", format: "json", payload: { error: message }, error: message, state: "error" });
@@ -102,6 +105,24 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
     out.push({ ref, recordId: r.id });
   }
   return out;
+}
+
+function hasWatchRecord(c: Case, ref: string): boolean {
+  return c.records().some((r) => r.verb === "watch" && r.media?.ref === ref && isReady(r));
+}
+
+async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Promise<OvercastRecord | undefined> {
+  if (/^https?:\/\//i.test(ref) || !LOCAL_VIDEO_RE.test(ref) || !existsSync(ref) || hasWatchRecord(ctx.case, ref)) return undefined;
+  const binding = ctx.profile.providers?.watch;
+  const rec = isCustomBinding(binding)
+    ? await runBoundProvider("watch", binding!, ref, {
+        env: providerEnv(ctx.case.mediaDir),
+        timeoutMs: 15 * 60_000,
+        signal: ctx.signal,
+      })
+    : await runWatch(ref, { run: binding?.run, signal: ctx.signal });
+  rec.meta = { ...rec.meta, case: ctx.case.dir, triggered_by: "index add" };
+  return rec;
 }
 
 /** Resolve the target index id for add/show/delete: an explicit value, else
@@ -426,10 +447,12 @@ export const indexVerb: VerbSpec = {
         }
         const recs: OvercastRecord[] = [];
         for (const v of vids) {
+          const watched = await ensureLocalWatchRecord(ctx, v.ref);
           const { rec } = await tcCollectionAdd(v.ref, id, addOpts);
           if (accepted(rec)) addMember(c, id, { ref: v.ref, recordId: v.recordId });
           rec.meta = { ...rec.meta, case: c.dir };
           recs.push(indexRecord(rec));
+          if (watched) recs.push(watched);
         }
         return recs;
       }
@@ -444,10 +467,11 @@ export const indexVerb: VerbSpec = {
       if (findIndex(c, id)?.members.some((m) => m.ref === ref)) {
         return [makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" })];
       }
+      const watched = await ensureLocalWatchRecord(ctx, ref);
       const { rec } = await tcCollectionAdd(ref, id, addOpts);
       if (accepted(rec)) addMember(c, id, { ref, recordId: v.recordId });
       rec.meta = { ...rec.meta, case: c.dir };
-      return [indexRecord(rec)];
+      return watched ? [indexRecord(rec), watched] : [indexRecord(rec)];
     }
 
     // ---- list ----

@@ -51,6 +51,7 @@ test("case memory excludes operational and read/meta records from local and qmd 
     c.writeRecord(makeRecord({ verb: "collection", payload: { summary: "COLLECTION_NOISE remote list" } }));
     c.writeRecord(makeRecord({ verb: "case", payload: { summary: "CASE_NOISE memory status" } }));
     c.writeRecord(makeRecord({ verb: "ask", payload: { text: "ASK_NOISE prior answer", citations: [] } }));
+    c.writeRecord(makeRecord({ verb: "face", payload: { op: "detect", summary: "FACE_DETECT_NOISE 36 face boxes" }, media: { ref: "faces.mp4" } }));
     c.writeRecord(makeRecord({ verb: "note", payload: { text: "EVIDENCE_MARKER Zurich train station" } }));
 
     const local = new LocalMemoryProvider(c);
@@ -71,7 +72,7 @@ test("case memory excludes operational and read/meta records from local and qmd 
     const docsDir = join(c.indexDir, "case-search", "qmd", "docs");
     const docs = readdirSync(docsDir).map((name) => readFileSync(join(docsDir, name), "utf8")).join("\n");
     assert.match(docs, /EVIDENCE_MARKER/);
-    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|CASE_NOISE|ASK_NOISE/);
+    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|CASE_NOISE|ASK_NOISE|FACE_DETECT_NOISE/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -145,8 +146,35 @@ test("fanOutAnswer merges + dedups citations across providers", async () => {
     // local cites the van record; fake cites rec_shared → both present, deduped
     const ids = ans.citations.map((x) => x.recordId);
     assert.ok(ids.includes("rec_shared"));
-    assert.equal(new Set(ids).size, ids.length); // no dup citations
+    const keys = ans.citations.map((x) => JSON.stringify([x.recordId, x.at, x.verb, x.field, x.text]));
+    assert.equal(new Set(keys).size, keys.length); // no exact dup citations
   });
+});
+
+test("fanOutAnswer preserves distinct same-record field citations", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-fanout-cites-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({
+      verb: "watch",
+      payload: {
+        data: {
+          segments: [
+            { description: "Zurich train station transit tip" },
+            { description: "Zurich old town walking tip" },
+          ],
+        },
+      },
+      media: { ref: "zurich.mp4" },
+    }));
+    const ans = await fanOutAnswer([new LocalMemoryProvider(c)], "Zurich tip", { limit: 5 });
+    assert.equal(ans.citations.filter((cite) => cite.recordId === c.records()[0].id).length, 2);
+    assert.ok(ans.citations.some((cite) => /train station/.test(cite.text ?? "")));
+    assert.ok(ans.citations.some((cite) => /old town/.test(cite.text ?? "")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("resolveMemory always includes the local provider", async () => {
@@ -479,6 +507,22 @@ test("ask --deep errors instead of silently falling back to local-grep", async (
     const [rec] = await askVerb.run({ input: "white van", rest: [], opts: { deep: true }, case: c, profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /no semantic memory provider/i);
+  });
+});
+
+test("ask --deep errors when the configured qmd index is missing", async () => {
+  await withCase(async (c, dir) => {
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+echo '{"ok":true}'
+`);
+    chmodSync(fake, 0o755);
+    const p = defaultProfile();
+    p.memory = [{ type: "exec", backend: "qmd", id: "qmd", command: `bash ${fake}`, model: DEFAULT_QMD_MODEL }];
+    const [rec] = await askVerb.run({ input: "white van", rest: [], opts: { deep: true }, case: c, profile: p });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /qmd index is missing/);
+    assert.match(rec.error ?? "", /case memory index rebuild --memory qmd/);
   });
 });
 

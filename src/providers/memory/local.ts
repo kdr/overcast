@@ -123,7 +123,7 @@ export class LocalMemoryProvider implements MemoryProvider {
     }
     return {
       text: lines.join("\n"),
-      citations: passages.map((p) => ({ recordId: p.recordId, at: p.at, verb: p.verb })),
+      citations: passages.map((p) => ({ recordId: p.recordId, at: p.at, verb: p.verb, field: p.field, text: p.text })),
     };
   }
 

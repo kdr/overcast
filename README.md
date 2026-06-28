@@ -87,7 +87,10 @@ npx skills add kdr/overcast           # vercel-labs/skills; pulls skills from th
 steers the agent to start with zero-config `ask`, rebuild qmd before semantic
 queries, use `ask --deep` for configured semantic memory, and bind remote indexes
 with `index attach` instead of note bookkeeping. Case memory is evidence-only:
-setup/doctor/index/read bookkeeping is excluded from `ask` and `brief`.
+setup/doctor/index/read bookkeeping is excluded from `ask` and `brief`, and
+face-detect boxes are not used as general case-search content. When a local video
+is added to an index before it has been watched, `index add` creates missing
+`watch` evidence for local-grep/qmd memory instead of relying on face detection.
 Confirmed `case clear --yes` also drops configured materialized memory indexes
 such as qmd before clearing local state.
 
@@ -118,6 +121,7 @@ overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/P
 overcast index create faces --type face --json
 overcast index attach existing-face-index --type face --json       # or bind an existing remote index
 overcast index add --all --to <face-col-id> --json   # register every captured/sensed video
+overcast index add ./local.mp4 --to <face-col-id> --json # creates missing watch evidence locally
 overcast face --match ./suspect.jpg --index <face-col-id> --json   # find them across the index
 
 # 7) launch the interactive agent (pi TUI) in the current case

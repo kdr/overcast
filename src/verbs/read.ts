@@ -156,7 +156,12 @@ export const askVerb: VerbSpec = {
         ];
       }
     }
-    const answer = await fanOutAnswer(providers, ctx.input, queryOpts(ctx), ctx.opts.deep === true);
+    let answer;
+    try {
+      answer = await fanOutAnswer(providers, ctx.input, queryOpts(ctx), ctx.opts.deep === true);
+    } catch (e) {
+      return [askError((e as Error).message)];
+    }
     return [
       makeRecord({
         verb: "ask",

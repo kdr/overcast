@@ -410,6 +410,26 @@ test("index add to an UNMIRRORED id records a stub + tracks the member (#2)", as
   }
 });
 
+test("index add local video emits a watch record for local case memory, not a face detect", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-addwatch-"));
+  const video = join(cdir, "v.mp4");
+  writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_face", type: "face-analysis", name: "faces" });
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const recs = await indexVerb.run({ input: "add", rest: [video], opts: { to: "col_face" }, case: openCase(cdir), profile });
+    assert.equal(recs[0].verb, "index");
+    assert.equal(recs[1].verb, "watch");
+    assert.equal(recs[1].state, "ready");
+    assert.equal(recs[1].media?.ref, video);
+    assert.ok(!recs.some((r) => r.verb === "face"), "index add must not create a face-detect record for local memory");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("index add --all registers captured/watched videos but NOT scan page URLs (#1)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-colall-"));
   try {
@@ -421,6 +441,25 @@ test("index add --all registers captured/watched videos but NOT scan page URLs (
     const members = findIndex(openCase(cdir), "col_a")!.members.map((m) => m.ref);
     assert.deepEqual(members, ["/tmp/clipA.mp4"]); // the .mp4 only; the scan page URL is excluded
     assert.equal(recs.length, 1); // exactly one tinycloud add (the video)
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index add --all emits watch records for captured local videos missing watch analysis", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-allwatch-"));
+  const video = join(cdir, "clip.mp4");
+  writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_a", type: "media-descriptions", name: "a" });
+    c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: video }, state: "ready" }));
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const recs = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_a" }, case: openCase(cdir), profile });
+    assert.ok(recs.some((r) => r.verb === "index"));
+    assert.ok(recs.some((r) => r.verb === "watch" && r.media?.ref === video));
+    assert.ok(!recs.some((r) => r.verb === "face"));
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }

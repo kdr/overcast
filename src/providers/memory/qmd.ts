@@ -371,7 +371,7 @@ export class QmdMemoryProvider implements MemoryProvider {
       const at = p.at != null ? ` @${Array.isArray(p.at) ? p.at.join("-") : p.at}s` : "";
       lines.push(`- [${p.recordId}${at}] (${p.verb}) ${p.text}`);
     }
-    return { text: lines.join("\n"), citations: passages.map((p) => ({ recordId: p.recordId, at: p.at, verb: p.verb })) };
+    return { text: lines.join("\n"), citations: passages.map((p) => ({ recordId: p.recordId, at: p.at, verb: p.verb, field: p.field, text: p.text })) };
   }
 
   async deepsearch(q: string, opts: QueryOpts = {}): Promise<Passage[]> {

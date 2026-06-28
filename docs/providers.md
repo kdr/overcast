@@ -133,7 +133,11 @@ Only primary evidence records are eligible for memory and briefs: read/meta and
 operational bookkeeping records (`ask`, `brief`, `case`, `setup`, `doctor`,
 `index`, legacy `collection`, etc.) are excluded even if they contain matching
 text. Remote indexes stay explicit through the case index mirror and
-`ask --index`.
+`ask --index`. `face` detect records are also excluded from general case memory:
+boxes and per-frame detections are typed face evidence, not descriptive video
+content. For local videos, `index add <video> --to <id>` creates a missing
+`watch` record before registering the video remotely so local-grep has useful
+content immediately and qmd can ingest it on the next rebuild.
 `local` remains an alias for scripts. Inspect it with:
 
 ```bash
@@ -217,6 +221,7 @@ overcast index create case-media --type media-descriptions --json
 overcast index attach existing-media-index --json       # mirror an existing remote index into this case
 overcast scan --pull --json                          # gather the target's videos into the case
 overcast index add --all --to <id> --json       # register every captured/sensed video
+overcast index add ./local.mp4 --to <id> --json # also creates missing watch evidence locally
 overcast ask "what objections came up?" --index <id> --json
 overcast ask "moments a document is signed" --index <id> --probe --json
 

@@ -46,6 +46,11 @@ if [ "$top" = "face" ]; then
   exit 0
 fi
 
+if [ "$top" = "watch" ]; then
+  echo '{"tinycloud":"1","kind":"watch","status":"ready","data":{"title":"Fixture Watch","summary":"A fixture video indexed for local case search.","duration_seconds":5,"segments":[{"start_time":0,"end_time":5,"description":"Fixture scene","summary":"Fixture local watch analysis"}]}}'
+  exit 0
+fi
+
 if [ "$top" = "library" ] && [ "$sub" = "collections" ]; then
   case "$sub2" in
     create)   echo '{"tinycloud":"1","kind":"collection","status":"ready","result_id":"col_fake123","data":{"collection_id":"col_fake123","name":"fixture","type":"media-descriptions"}}' ;;

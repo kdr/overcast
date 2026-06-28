@@ -22,6 +22,10 @@ export interface Citation {
   recordId: string;
   at?: number | [number, number];
   verb: string;
+  /** optional source field when a provider returns field-level passages */
+  field?: string;
+  /** optional cited snippet, used to keep distinct same-record hits separate */
+  text?: string;
 }
 
 export interface Answer {
