@@ -416,7 +416,7 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
         verb: selection.verb,
         choice: selection.choice,
         profile: ctx.profileName ?? ctx.profile.name,
-        indexable: indexableProviders.has(selection.verb) || choice.indexableDefault === true,
+        indexable: indexableProviders.has(selection.verb),
         descriptor: choice.descriptor,
         env: choice.env ?? [],
         missing_env: (choice.env ?? []).filter((name) => !process.env[name]),

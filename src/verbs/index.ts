@@ -117,7 +117,13 @@ function hasWatchRecord(c: Case, ref: string): boolean {
 }
 
 async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Promise<OvercastRecord | undefined> {
-  if (/^https?:\/\//i.test(ref) || !LOCAL_VIDEO_RE.test(ref) || !existsSync(ref) || hasWatchRecord(ctx.case, ref)) return undefined;
+  if (
+    ctx.opts["__skip-local-watch"] === true ||
+    /^https?:\/\//i.test(ref) ||
+    !LOCAL_VIDEO_RE.test(ref) ||
+    !existsSync(ref) ||
+    hasWatchRecord(ctx.case, ref)
+  ) return undefined;
   const binding = providerBinding(ctx, "watch");
   const rec = isCustomBinding(binding)
     ? await runBoundProvider("watch", binding!, ref, {

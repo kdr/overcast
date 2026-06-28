@@ -379,6 +379,7 @@ function automatedFindings(ctx: VerbContext, rec: OvercastRecord, trigger: strin
   for (const target of listTargets(ctx.case).filter((t) => t.kind !== "image").map((t) => t.value)) {
     const needle = target.trim().toLowerCase();
     if (!needle || !haystack.includes(needle)) continue;
+    if (hasAutomatedFinding(ctx, rec, target)) continue;
     out.push(makeFinding({
       text: `Automated match for target '${target}' in ${rec.verb} record ${rec.id}`,
       target,
@@ -389,7 +390,18 @@ function automatedFindings(ctx: VerbContext, rec: OvercastRecord, trigger: strin
   return out;
 }
 
-async function autoIndexNewMedia(ctx: VerbContext, ref: string): Promise<OvercastRecord[]> {
+function hasAutomatedFinding(ctx: VerbContext, sourceRecord: OvercastRecord, target: string): boolean {
+  return ctx.case.records().some((rec) => {
+    if (rec.verb !== "finding" || !rec.payload || typeof rec.payload !== "object") return false;
+    const payload = rec.payload as Record<string, unknown>;
+    if (typeof payload.finding_id === "string") return false;
+    if (String(payload.target ?? "") !== target || payload.source_verb !== sourceRecord.verb) return false;
+    if (payload.source_record === sourceRecord.id) return true;
+    return !!sourceRecord.media?.ref && rec.media?.ref === sourceRecord.media.ref;
+  });
+}
+
+async function autoIndexNewMedia(ctx: VerbContext, ref: string, opts: { skipLocalWatch?: boolean } = {}): Promise<OvercastRecord[]> {
   const setup = loadSetup(ctx.case);
   if (setup?.automation?.auto_index_new !== true) return [];
   const out: OvercastRecord[] = [];
@@ -397,7 +409,16 @@ async function autoIndexNewMedia(ctx: VerbContext, ref: string): Promise<Overcas
     if (!index.id) continue;
     const signals = new Set([...(index.default_signals ?? []), ...(setup.default_signals[index.id] ?? [])]);
     if (!signals.has("index add")) continue;
-    const recs = await indexVerb.run({ ...ctx, input: "add", rest: [ref], opts: { to: index.id, type: index.type } });
+    const recs = await indexVerb.run({
+      ...ctx,
+      input: "add",
+      rest: [ref],
+      opts: {
+        to: index.id,
+        type: index.type,
+        ...(opts.skipLocalWatch ? { "__skip-local-watch": true } : {}),
+      },
+    });
     out.push(...recs);
   }
   return out;
@@ -415,8 +436,17 @@ async function runSetupAutomation(ctx: VerbContext, caller: string, ref: string)
     out.push(rec, ...automatedFindings(ctx, rec, `${caller}:${verb}`));
     if (rec.state !== "error" && rec.state !== "needs_credentials" && rec.media?.ref) currentRef = rec.media.ref;
   }
-  out.push(...await autoIndexNewMedia(ctx, currentRef));
+  out.push(...await autoIndexNewMedia(ctx, currentRef, { skipLocalWatch: hasUsableWatch(out, currentRef) }));
   return out;
+}
+
+function hasUsableWatch(records: OvercastRecord[], ref: string): boolean {
+  return records.some((r) =>
+    r.verb === "watch" &&
+    r.media?.ref === ref &&
+    r.state !== "error" &&
+    r.state !== "needs_credentials"
+  );
 }
 
 function autoSeeOpts(ctx: VerbContext): VerbContext["opts"] {
@@ -438,7 +468,7 @@ async function runDefaultWatchWithPolicy(ctx: VerbContext, caller: string, ref: 
   if (!sensed) return [];
   const out = [sensed, ...automatedFindings(ctx, sensed, `${caller}:watch`)];
   if (sensed.state !== "error" && sensed.state !== "needs_credentials") {
-    out.push(...await autoIndexNewMedia(ctx, sensed.media?.ref ?? ref));
+    out.push(...await autoIndexNewMedia(ctx, sensed.media?.ref ?? ref, { skipLocalWatch: true }));
   }
   return out;
 }
@@ -599,7 +629,7 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
           if (sensedRecords.length) out.push(...sensedRecords);
           else {
             const fallback = await runDefaultWatchWithPolicy(ctx, "monitor", cap.media.ref);
-            sensedRecords.push(...fallback.filter((r) => r.verb === "watch"));
+            sensedRecords.push(...fallback);
             out.push(...fallback);
           }
           for (const sensed of sensedRecords) {

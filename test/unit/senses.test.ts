@@ -123,6 +123,37 @@ test("case provider policy overrides profile provider binding for senses", async
   }
 });
 
+test("case enhance:ffmpeg policy suppresses a profile enhance provider", async () => {
+  const { writeFileSync, chmodSync } = await import("node:fs");
+  const d = mkdtempSync(join(tmpdir(), "oc-enhance-ffmpeg-policy-"));
+  try {
+    const localClip = join(d, "tiny.mp4");
+    execFileSync(
+      FFMPEG_PATH,
+      ["-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10:duration=1", "-pix_fmt", "yuv420p", localClip],
+      { stdio: "ignore" },
+    );
+    const profileScript = join(d, "enhance-profile.sh");
+    writeFileSync(profileScript, '#!/usr/bin/env bash\necho "{\\"verb\\":\\"enhance\\",\\"payload\\":{\\"output\\":\\"/tmp/profile.png\\"},\\"media\\":{\\"ref\\":\\"/tmp/profile.png\\"},\\"meta\\":{\\"provider\\":\\"profile-enhance\\"},\\"state\\":\\"ready\\"}"\n');
+    chmodSync(profileScript, 0o755);
+    const c = openCase(d); c.ensure();
+    const setup = emptySetup("enhance-ffmpeg");
+    setup.providers = {
+      enhance: { verb: "enhance", choice: "ffmpeg", profile: "default", indexable: false },
+    };
+    saveSetup(c, setup);
+    const p = defaultProfile();
+    p.providers = { ...p.providers, enhance: { type: "exec", run: `bash ${profileScript} {{input}}` } };
+
+    const [rec] = await enhanceVerb.run({ input: localClip, rest: [], opts: { ops: "grayscale" }, case: c, profile: p });
+    assert.equal(rec.state, "ready");
+    assert.notEqual(rec.meta?.provider, "profile-enhance");
+    assert.ok(existsSync(rec.media!.ref));
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("enhance produces media.enhanced with the output as media.ref", async () => {
   const [rec] = await enhanceVerb.run(ctx(clip, { ops: "grayscale" }));
   assert.equal(rec.verb, "enhance");

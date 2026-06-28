@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -156,6 +156,103 @@ test("scan --pull default watch emits review findings when no auto-sense chain i
     assert.ok(findings.length >= 1);
     assert.equal((findings[0].payload as Record<string, unknown>).target, "Hacker News");
   } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan --pull does not duplicate existing review findings for the same media target", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-finding-dedupe-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    addTarget(c, "Hacker News");
+    const setup = emptySetup("finding-dedupe");
+    setup.completed = true;
+    setup.automation = { auto_sense: [], auto_index_new: false };
+    setup.findings = { mode: "review" };
+    saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const first = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    assert.ok(first.some((r) => r.verb === "finding"));
+    for (const rec of first) c.writeRecord(rec);
+
+    const second = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: openCase(d), profile });
+    assert.equal(second.filter((r) => r.verb === "finding").length, 0);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan auto-index reuses the in-flight default watch instead of watching twice", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-auto-index-watch-"));
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const countFile = join(d, "watch-count");
+    const watchScript = join(d, "watch-count.sh");
+    writeFileSync(watchScript, [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      `count_file=${JSON.stringify(countFile)}`,
+      "n=0",
+      "[ -f \"$count_file\" ] && n=$(cat \"$count_file\")",
+      "printf '%s' \"$((n + 1))\" > \"$count_file\"",
+      `cat ${JSON.stringify(join(HERE, "..", "fixtures", "watch-envelope.json"))}`,
+      "",
+    ].join("\n"));
+    execFileSync("chmod", ["755", watchScript]);
+    const setup = emptySetup("auto-index-watch");
+    setup.completed = true;
+    setup.automation = { auto_sense: [], auto_index_new: true };
+    setup.indexes = [{ id: "col_fake123", name: "fixture", type: "media-descriptions", default_signals: ["index add"] }];
+    saveSetup(c, setup);
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${watchScript} {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    assert.equal(recs.filter((r) => r.verb === "watch").length, 2);
+    assert.equal(readFileSync(countFile, "utf8"), "2");
+  } finally {
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("monitor default watch reports auto-index failures as process errors", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monitor-index-error-"));
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  const prevMode = process.env.OVERCAST_FAKE_TC_MODE;
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const setup = emptySetup("monitor-index-error");
+    setup.completed = true;
+    setup.automation = { auto_sense: [], auto_index_new: true };
+    setup.indexes = [{ id: "col_fake123", name: "fixture", type: "media-descriptions", default_signals: ["index add"] }];
+    saveSetup(c, setup);
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    process.env.OVERCAST_FAKE_TC_MODE = "pending_error";
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const recs = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true }, case: c, profile });
+    const summary = recs.find((r) => r.verb === "monitor")!;
+    assert.equal(summary.state, "error");
+    assert.equal((summary.payload as Record<string, unknown>).new_items, 0);
+    assert.equal((summary.payload as Record<string, unknown>).process_errors, 2);
+  } finally {
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    if (prevMode === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;
+    else process.env.OVERCAST_FAKE_TC_MODE = prevMode;
     rmSync(d, { recursive: true, force: true });
   }
 });

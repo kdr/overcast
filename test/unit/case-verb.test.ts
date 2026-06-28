@@ -235,6 +235,23 @@ test("case setup stores provider policy, automation, and findings settings", asy
   });
 });
 
+test("case setup only marks providers indexable when provider-indexable selects them", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const records = await caseVerb.run(ctx(dir, "setup", [], {
+      provider: "listen:elevenlabs,see:local-detect",
+      "provider-indexable": "listen",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const providers = saved.providers as Record<string, Record<string, unknown>>;
+    assert.equal(providers.listen.indexable, true);
+    assert.equal(providers.see.indexable, false);
+  });
+});
+
 test("case setup edit can disable auto-index-new", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);

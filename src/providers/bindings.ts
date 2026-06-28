@@ -1,4 +1,5 @@
 import { loadSetup } from "../state/setup.js";
+import { findProviderChoice } from "./catalog.js";
 import type { ProviderDescriptor } from "../profile.js";
 import type { VerbContext } from "../registry/types.js";
 
@@ -10,8 +11,9 @@ function isProviderDescriptor(value: unknown): value is ProviderDescriptor {
 }
 
 export function providerBinding(ctx: VerbContext, verb: string): ProviderDescriptor | undefined {
-  const descriptor = loadSetup(ctx.case)?.providers?.[verb]?.descriptor;
+  const policy = loadSetup(ctx.case)?.providers?.[verb];
+  const descriptor = policy?.descriptor;
   if (isProviderDescriptor(descriptor)) return descriptor;
+  if (policy?.choice && findProviderChoice(verb, policy.choice)?.clearsBinding === true) return undefined;
   return ctx.profile.providers?.[verb];
 }
-
