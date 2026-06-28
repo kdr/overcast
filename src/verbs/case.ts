@@ -83,6 +83,26 @@ interface SetupChange {
   noteRecords: OvercastRecord[];
 }
 
+function cloneSetup(setup: CaseSetup): CaseSetup {
+  return JSON.parse(JSON.stringify(setup)) as CaseSetup;
+}
+
+function targetValuesForRemoval(ctx: VerbContext, removals: string[]): Set<string> {
+  const values = new Set(removals);
+  for (const existing of listTargets(ctx.case)) {
+    if (removals.includes(existing.id)) values.add(existing.value);
+  }
+  return values;
+}
+
+function sourceSpecsForRemoval(ctx: VerbContext, removals: string[]): Set<string> {
+  const specs = new Set(removals);
+  for (const existing of listSources(ctx.case)) {
+    if (removals.includes(existing.id)) specs.add(`${existing.type}:${existing.ref}`);
+  }
+  return specs;
+}
+
 function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup" | "startup_setup_update", apply: boolean): SetupChange {
   const signals = csv(ctx.opts.signals);
   const targets = csv(ctx.opts.target);
@@ -94,7 +114,7 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   const removeIndexes = csv(ctx.opts["remove-index"]);
   const videos = csv(ctx.opts.video);
   const folders = csv(ctx.opts.folder);
-  const setup: CaseSetup = JSON.parse(JSON.stringify(base)) as CaseSetup;
+  const setup = cloneSetup(base);
   const operations: string[] = [];
   const noteRecords: OvercastRecord[] = [];
 
@@ -109,7 +129,8 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     if (apply && !listTargets(ctx.case).some((x) => x.value === t)) addTarget(ctx.case, t);
   }
   if (removeTargets.length) {
-    setup.targets = setup.targets.filter((t) => !removeTargets.includes(t));
+    const removeTargetValues = targetValuesForRemoval(ctx, removeTargets);
+    setup.targets = setup.targets.filter((t) => !removeTargetValues.has(t));
     for (const t of removeTargets) {
       operations.push(`target remove: ${t}`);
       if (apply) {
@@ -118,9 +139,10 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     }
   }
   for (const note of notes) {
-    if (!setup.notes.includes(note)) setup.notes.push(note);
-    operations.push("note add");
-    if (apply) {
+    const isNew = !setup.notes.includes(note);
+    if (isNew) setup.notes.push(note);
+    operations.push(isNew ? "note add" : "note already present");
+    if (apply && isNew) {
       noteRecords.push(makeRecord({
         verb: "note",
         format: "json",
@@ -136,7 +158,8 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     if (apply && !listSources(ctx.case).some((s) => `${s.type}:${s.ref}` === spec)) addSource(ctx.case, spec);
   }
   if (removeSources.length) {
-    setup.sources = setup.sources.filter((s) => !removeSources.includes(s));
+    const removeSourceSpecs = sourceSpecsForRemoval(ctx, removeSources);
+    setup.sources = setup.sources.filter((s) => !removeSourceSpecs.has(s));
     for (const spec of removeSources) {
       operations.push(`source remove: ${spec}`);
       if (apply) {
@@ -182,7 +205,6 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   }
   if (!operations.length && op === "startup_setup") operations.push("save empty setup");
 
-  setup.completed = true;
   setup.updated_at = new Date().toISOString();
   return { setup, operations, noteRecords };
 }
@@ -343,11 +365,13 @@ export const caseVerb: VerbSpec = {
         ];
       }
 
-      const base = saved ?? emptySetup(ctx.case.exists() ? ctx.case.info().name : ctx.case.ensure().name);
-      const op = saved?.completed || sub === "edit" ? "startup_setup_update" : "startup_setup";
       const isPlan = sub === "plan" || ctx.opts["dry-run"] === true || ctx.opts.yes !== true;
+      const caseName = saved?.case_name ?? (ctx.case.exists() ? ctx.case.info().name : ctx.case.dir.split(/[\\/]/).filter(Boolean).at(-1) ?? "case");
+      const base = saved ?? emptySetup(caseName);
+      const op = saved?.completed ? "startup_setup_update" : "startup_setup";
       const before = summarizeSavedSetup(saved);
       const change = buildSetupChange(ctx, base, op, !isPlan);
+      if (!isPlan) change.setup.completed = true;
       const after = summarizeSavedSetup(change.setup);
       const setupRecord = makeRecord({
         verb: "case",

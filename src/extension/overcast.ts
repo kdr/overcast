@@ -254,8 +254,7 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   });
 
   // --- System prompt (persona + verb cheatsheet). --------------------------
-  const systemPrompt = buildSystemPrompt();
-  pi.on("before_agent_start", () => ({ systemPrompt }));
+  pi.on("before_agent_start", () => ({ systemPrompt: buildSystemPrompt() }));
 
   // --- Register every verb as a pi tool, bound to the session case + profile.
   // The launcher surfaces --case/--profile/--home via env so the agent tools

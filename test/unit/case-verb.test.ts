@@ -139,8 +139,62 @@ test("case setup plan does not save or apply", async () => {
     const [plan] = await caseVerb.run(ctx(dir, "setup", ["plan"], { target: "planned", source: "web:planned" }));
     assert.equal(plan.state, "pending");
     assert.equal(plan.meta?.transient, true);
+    assert.equal((((plan.payload as Record<string, unknown>).after as Record<string, unknown>).completed), false);
     assert.equal(existsSync(c.setupFile), false);
     assert.equal(listTargets(c).some((t) => t.value === "planned"), false);
+  });
+});
+
+test("case setup plan does not initialize an unopened case store", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-setup-plan-"));
+  try {
+    const [plan] = await caseVerb.run(ctx(dir, "setup", ["plan"], { target: "planned" }));
+    assert.equal(plan.state, "pending");
+    assert.equal(existsSync(openCase(dir).caseFile), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("case setup edit with no saved setup records startup_setup, not update", async () => {
+  await withCase(async (dir) => {
+    const records = await caseVerb.run(ctx(dir, "setup", ["edit"], { target: "first", yes: true }));
+    const setupRecord = records.at(-1)!;
+    assert.equal((setupRecord.payload as Record<string, unknown>).op, "startup_setup");
+  });
+});
+
+test("case setup duplicate note updates setup but emits no duplicate note record", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { note: "same note", yes: true }));
+    for (const rec of records) c.writeRecord(rec);
+    assert.equal(records.filter((r) => r.verb === "note").length, 1);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { note: "same note", yes: true }));
+    for (const rec of records) c.writeRecord(rec);
+    assert.equal(records.filter((r) => r.verb === "note").length, 0);
+    assert.equal(c.records().filter((r) => r.verb === "note" && JSON.stringify(r.payload).includes("same note")).length, 1);
+  });
+});
+
+test("case setup remove-target/remove-source by registry id syncs setup.json", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { target: "alpha", source: "web:alpha", yes: true }));
+    c.writeRecord(records.at(-1)!);
+    const targetId = listTargets(c).find((t) => t.value === "alpha")!.id;
+    const sourceId = listSources(c).find((s) => s.type === "web" && s.ref === "alpha")!.id;
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { "remove-target": targetId, "remove-source": sourceId, yes: true }));
+    const update = records.at(-1)!;
+    c.writeRecord(update);
+
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(saved.targets, []);
+    assert.deepEqual(saved.sources, []);
+    assert.equal(listTargets(c).some((t) => t.id === targetId), false);
+    assert.equal(listSources(c).some((s) => s.id === sourceId), false);
   });
 });
 
