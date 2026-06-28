@@ -13,6 +13,7 @@ import { indexableFields } from "../../src/providers/memory/fields.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
 import { setupVerb } from "../../src/verbs/setup.ts";
+import { emptySetup, saveSetup } from "../../src/state/setup.ts";
 import type { MemoryProvider, Passage } from "../../src/providers/memory/types.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
@@ -222,6 +223,23 @@ test("resolveMemory always includes the local provider", async () => {
     const providers = resolveMemory(c, defaultProfile());
     assert.ok(providers.some((p) => p.id === "local-grep"));
     assert.ok(providers.some((p) => p.aliases?.includes("local")));
+  });
+});
+
+test("resolveMemory honors case setup qmd backend and local signal filter", async () => {
+  await withCase(async (c) => {
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "white van note-only finding" } }));
+    const setup = emptySetup("memory-test");
+    setup.completed = true;
+    setup.memory = { backend: "qmd", signals: ["note"] };
+    saveSetup(c, setup);
+
+    const providers = resolveMemory(c, defaultProfile());
+    assert.ok(providers.some((p) => p.id === "qmd"));
+    const local = providers.find((p) => p.id === "local-grep")!;
+    const hits = await local.query("white van", { limit: 10 });
+    assert.ok(hits.length >= 1);
+    assert.equal(hits.every((hit) => hit.verb === "note"), true);
   });
 });
 

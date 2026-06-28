@@ -231,6 +231,20 @@ test("case setup edit with no saved setup records startup_setup, not update", as
   });
 });
 
+test("case setup registers image path targets as image targets", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const img = join(dir, "reference.webp");
+    writeFileSync(img, "fake image");
+    const records = await caseVerb.run(ctx(dir, "setup", [], { target: img, yes: true }));
+    c.writeRecord(records.at(-1)!);
+
+    const [target] = listTargets(c);
+    assert.equal(target.value, img);
+    assert.equal(target.kind, "image");
+  });
+});
+
 test("case setup duplicate note updates setup but emits no duplicate note record", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);

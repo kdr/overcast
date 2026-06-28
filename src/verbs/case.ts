@@ -184,6 +184,10 @@ function folderMediaFiles(folder: string): string[] {
   return out.sort();
 }
 
+function isImageTargetRef(ref: string): boolean {
+  return /\.(avif|bmp|gif|jpe?g|png|tiff?|webp)(?:[?#].*)?$/i.test(ref);
+}
+
 function remoteIndexId(rec: OvercastRecord): string | undefined {
   const payload = rec.payload && typeof rec.payload === "object" ? rec.payload as Record<string, unknown> : {};
   const detailed = payload.detailed && typeof payload.detailed === "object" ? payload.detailed as Record<string, unknown> : {};
@@ -286,7 +290,7 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   for (const t of targets) {
     if (!setup.targets.includes(t)) setup.targets.push(t);
     operations.push(`target add: ${t}`);
-    if (apply && !listTargets(ctx.case).some((x) => x.value === t)) addTarget(ctx.case, t);
+    if (apply && !listTargets(ctx.case).some((x) => x.value === t)) addTarget(ctx.case, t, { image: isImageTargetRef(t) });
   }
   if (removeTargets.length) {
     const removeTargetValues = targetValuesForRemoval(ctx, removeTargets);

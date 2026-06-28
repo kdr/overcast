@@ -6,18 +6,24 @@ import type { Profile } from "../../profile.js";
 import type { MemoryProvider, Answer, QueryOpts, Citation } from "./types.js";
 import { LocalMemoryProvider } from "./local.js";
 import { QmdMemoryProvider } from "./qmd.js";
+import { loadSetup } from "../../state/setup.js";
 
 /** Resolve the bound memory providers for a case. local-grep is always present. */
 export function resolveMemory(case_: Case, profile?: Profile): MemoryProvider[] {
-  const providers: MemoryProvider[] = [new LocalMemoryProvider(case_)];
+  const setupMemory = loadSetup(case_)?.memory;
+  const verbs = setupMemory?.signals?.length ? setupMemory.signals : undefined;
+  const providers: MemoryProvider[] = [new LocalMemoryProvider(case_, { verbs })];
+  let hasQmd = false;
   for (const spec of profile?.memory ?? []) {
     const backend = (spec.backend ?? spec.id ?? "").toLowerCase();
     if (backend === "qmd") {
+      hasQmd = true;
       providers.push(new QmdMemoryProvider(case_, {
         id: spec.id,
         command: spec.command ?? spec.run,
         collection: spec.collection,
         model: spec.model,
+        verbs,
         clearTemplate: spec.clearTemplate,
         indexTemplate: spec.indexTemplate,
         embedTemplate: spec.embedTemplate,
@@ -25,6 +31,7 @@ export function resolveMemory(case_: Case, profile?: Profile): MemoryProvider[] 
       }));
     }
   }
+  if (setupMemory?.backend === "qmd" && !hasQmd) providers.push(new QmdMemoryProvider(case_, { verbs }));
   return providers;
 }
 
