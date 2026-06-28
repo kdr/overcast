@@ -3,18 +3,33 @@
 // memory providers. Subcommands: init | info | records | memory | clear.
 
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase } from "../case.js";
 import { humanSize } from "../render.js";
 import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
+import { tokenizeCommand } from "../providers/sources/index.js";
 import { payloadFields, fieldText, fieldNames, getField } from "../render.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "case", format: "json", payload: { error: message }, error: message, state: "error" });
+}
+
+function quoteCommandArg(arg: string): string {
+  return /^[A-Za-z0-9_./:=@+-]+$/.test(arg) ? arg : JSON.stringify(arg);
+}
+
+function currentCliInvocation(): { cmd: string; args: string[] } {
+  if (process.env.OVERCAST_CMD) {
+    const parts = tokenizeCommand(process.env.OVERCAST_CMD);
+    if (parts.length > 0) return { cmd: parts[0], args: parts.slice(1) };
+  }
+  const script = process.argv[1];
+  if (script && existsSync(script)) return { cmd: process.execPath, args: [script] };
+  return { cmd: process.execPath, args: [] };
 }
 
 export const caseVerb: VerbSpec = {
@@ -297,7 +312,21 @@ export const caseVerb: VerbSpec = {
           }
           limit = n;
         }
-        const passages = await providers[0].query(q, { limit });
+        const requested = ctx.opts.memory ? String(ctx.opts.memory) : undefined;
+        const selected = requested
+          ? providers.filter((p) => requested.split(",").map((s) => s.trim()).filter(Boolean).some((id) => matchesMemoryProvider(p, id)))
+          : providers.filter((p) => matchesMemoryProvider(p, "local-grep"));
+        if (selected.length === 0) {
+          return [err(`no memory provider matches --memory ${requested} (available: ${providers.map((p) => p.id).join(", ") || "none"})`)];
+        }
+        const batches = await Promise.all(selected.map((p) => p.query(q, { limit })));
+        const seen = new Set<string>();
+        const passages = batches.flat().filter((p) => {
+          const key = `${p.recordId}|${JSON.stringify(p.at)}|${p.field ?? ""}|${p.provider ?? ""}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).sort((a, b) => b.score - a.score).slice(0, limit);
         return [makeRecord({ verb: "case", format: "json", payload: { query: q, passages }, state: "ready" })];
       }
       if (sub === "index") {
@@ -329,7 +358,7 @@ export const caseVerb: VerbSpec = {
           const jobsDir = join(ctx.case.indexDir, "jobs");
           mkdirSync(jobsDir, { recursive: true });
           const jobFile = join(jobsDir, `${job}.json`);
-          const cmd = process.env.OVERCAST_CMD ?? process.argv[1];
+          const invocation = currentCliInvocation();
           const args = [
             "case", "memory", "index", "rebuild",
             "--case", ctx.case.dir,
@@ -338,13 +367,17 @@ export const caseVerb: VerbSpec = {
             ...(providerName ? ["--memory", providerName] : []),
             "--json",
           ];
-          const jobPayload = { id: job, state: "queued", command: `${cmd} ${args.join(" ")}`, provider: providerName ?? "all", created: new Date().toISOString() };
+          const command = [invocation.cmd, ...invocation.args, ...args].map(quoteCommandArg).join(" ");
+          const jobPayload = { id: job, state: "queued", command, provider: providerName ?? "all", created: new Date().toISOString() };
           writeFileSync(jobFile, JSON.stringify(jobPayload, null, 2) + "\n", "utf8");
           try {
-            const child = spawn(process.execPath, [cmd, ...args], { detached: true, stdio: "ignore", env: process.env });
+            const child = spawn(invocation.cmd, [...invocation.args, ...args], { detached: true, stdio: "ignore", env: process.env });
             child.unref();
-          } catch {
-            /* status still carries the retry command */
+          } catch (e) {
+            const error = (e as Error).message;
+            const failed = { ...jobPayload, state: "error", error };
+            writeFileSync(jobFile, JSON.stringify(failed, null, 2) + "\n", "utf8");
+            return [makeRecord({ verb: "case", format: "json", payload: { job: failed, job_file: jobFile }, state: "error", error })];
           }
           return [makeRecord({ verb: "case", format: "json", payload: { job: jobPayload, job_file: jobFile }, state: "pending" })];
         }

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Case } from "../../case.js";
 import { isMetaRecord, type OvercastRecord } from "../../record.js";
 import { execCapture } from "../exec.js";
@@ -84,6 +84,20 @@ function parseQmdPassages(stdout: string, fallback: Passage[]): Passage[] {
   }
 }
 
+interface QmdManifest {
+  provider: string;
+  backend: string;
+  model: string;
+  collection: string;
+  command: string;
+  documents: number;
+  records: number;
+  state: MemoryIndexStatus["state"];
+  error?: string;
+  updated?: string;
+  indexed?: string;
+}
+
 export class QmdMemoryProvider implements MemoryProvider {
   readonly id: string;
   readonly backend = "qmd";
@@ -117,7 +131,8 @@ export class QmdMemoryProvider implements MemoryProvider {
     const manifest = this.readManifest();
     const records = this.case_.records().filter((r) => !isMetaRecord(r));
     const docs = records.map(indexableDocument).filter(Boolean).length;
-    const state = manifest && manifest.documents === docs && manifest.model === this.model ? "ready" : manifest ? "stale" : "missing";
+    const compatible = manifest && manifest.documents === docs && manifest.model === this.model && manifest.collection === this.collection;
+    const state = compatible && manifest.state === "ready" ? "ready" : manifest ? (manifest.state === "error" ? "error" : "stale") : "missing";
     return {
       provider: this.id,
       backend: this.backend,
@@ -128,6 +143,7 @@ export class QmdMemoryProvider implements MemoryProvider {
       model: this.model,
       config: { collection: this.collection, command: this.command },
       updated: manifest?.updated,
+      error: state === "error" ? manifest?.error : undefined,
     };
   }
 
@@ -139,7 +155,7 @@ export class QmdMemoryProvider implements MemoryProvider {
     for (const doc of docs) {
       writeFileSync(join(this.docsDir, `${safeName(doc.id)}.md`), docMarkdown(doc), "utf8");
     }
-    const manifest = {
+    const manifest: QmdManifest = {
       provider: this.id,
       backend: this.backend,
       model: this.model,
@@ -147,10 +163,11 @@ export class QmdMemoryProvider implements MemoryProvider {
       command: this.command,
       documents: docs.length,
       records: records.length,
+      state: "stale",
       updated: new Date().toISOString(),
     };
-    mkdirSync(join(this.manifestFile, ".."), { recursive: true });
-    writeFileSync(this.manifestFile, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+    mkdirSync(dirname(this.manifestFile), { recursive: true });
+    this.writeManifest(manifest);
 
     const vars = {
       cmd: this.command,
@@ -168,16 +185,22 @@ export class QmdMemoryProvider implements MemoryProvider {
         stderr: (e as Error).message,
       }));
       if (res.code !== 0) {
-        return { ...(await this.status()), state: "error", error: res.stderr || res.stdout || `qmd exited ${res.code}` };
+        const error = res.stderr || res.stdout || `qmd exited ${res.code}`;
+        this.writeManifest({ ...manifest, state: "error", error, updated: new Date().toISOString() });
+        return { ...(await this.status()), state: "error", error };
       }
     }
+    this.writeManifest({ ...manifest, state: "ready", indexed: new Date().toISOString(), updated: new Date().toISOString() });
     return { ...(await this.status()), state: "ready", documents: docs.length, records: records.length };
   }
 
   async query(q: string, opts: QueryOpts = {}): Promise<Passage[]> {
     const st = await this.status();
-    if (st.state !== "ready") await this.rebuild();
     const fallback = this.local.query(q, opts).map((p) => ({ ...p, provider: this.id }));
+    if (st.state !== "ready") {
+      const rebuilt = await this.rebuild();
+      if (rebuilt.state !== "ready") return fallback;
+    }
     const vars = {
       cmd: this.command,
       query: q,
@@ -209,12 +232,16 @@ export class QmdMemoryProvider implements MemoryProvider {
     return this.query(q, opts);
   }
 
-  private readManifest(): { documents: number; records: number; model: string; updated?: string } | undefined {
+  private readManifest(): QmdManifest | undefined {
     if (!existsSync(this.manifestFile)) return undefined;
     try {
-      return JSON.parse(readFileSync(this.manifestFile, "utf8")) as { documents: number; records: number; model: string; updated?: string };
+      return JSON.parse(readFileSync(this.manifestFile, "utf8")) as QmdManifest;
     } catch {
       return undefined;
     }
+  }
+
+  private writeManifest(manifest: QmdManifest): void {
+    writeFileSync(this.manifestFile, JSON.stringify(manifest, null, 2) + "\n", "utf8");
   }
 }

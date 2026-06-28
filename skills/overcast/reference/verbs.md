@@ -238,22 +238,22 @@ Emits `scan.hit` records.
 
 ### `overcast index`
 
-An index is a Cloudglue-backed searchable corpus of videos, searched one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index <id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).
+An index is a Cloudglue-backed searchable corpus of videos, searched one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `attach <remote-id-or-name>` mirrors an existing remote index into this case; `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index <id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).
 
 ```
 overcast index <action> [arg] [arg2] [options]
 
-  Manage tinycloud indexes that index a target's videos (create/add/list/show/delete/remove/entities).
+  Manage tinycloud indexes that index a target's videos (create/attach/add/list/show/delete/remove/entities).
 
-  An index is a Cloudglue-backed searchable corpus of videos, searched one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index <id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).
+  An index is a Cloudglue-backed searchable corpus of videos, searched one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `attach <remote-id-or-name>` mirrors an existing remote index into this case; `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index <id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).
 
 Arguments:
-  action           create | add | list | show | delete | remove | entities
-  arg              name (create) · video/record-id (add/remove) · index id (show/delete/entities)
+  action           create | attach | add | list | show | delete | remove | entities
+  arg              name (create) · remote id/name (attach) · video/record-id (add/remove) · index id (show/delete/entities)
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
   --schema <string>      create entities: path to a JSON schema file

@@ -137,6 +137,7 @@ per TYPE — build one from the videos you gather for a target, then query it:
 \`\`\`bash
 # 1) index the target's videos (media-descriptions = ask/probe; face = find a person)
 overcast index create case-media --type media-descriptions --json
+overcast index attach existing-remote-index --json        # bind a remote tinycloud index to this case
 overcast scan --pull --json                       # pull the target's videos into the case
 overcast index add --all --to <index-id> --json   # register every captured/sensed video
 
@@ -146,6 +147,7 @@ overcast ask "moments a contract is signed" --index <index-id> --probe --json
 
 # 2b) face-analysis → find a specific person across the index
 overcast index create faces --type face --json
+overcast index attach existing-face-index --type face --json
 overcast index add --all --to <face-index-id> --json
 overcast face --match ./suspect.jpg --index <face-index-id> --json
 

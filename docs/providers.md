@@ -189,12 +189,14 @@ plus `--match`/`--index`/… as flags).
 
 An index is a Cloudglue-backed corpus of videos, searchable one way per **type**.
 overcast keeps a local mirror in `.overcast/indexes.json` (the OSINT twin of
-the source/target registries) so the case knows what it owns; the create/add/
-show/delete ops run on tinycloud.
+the source/target registries) so the case knows what it owns; the create/attach/
+add/show/delete ops run on tinycloud. Use `attach` for an existing remote index;
+use `add` only when registering media into an index.
 
 ```bash
 # media-descriptions → ask / probe across every indexed video
 overcast index create case-media --type media-descriptions --json
+overcast index attach existing-media-index --json       # mirror an existing remote index into this case
 overcast scan --pull --json                          # gather the target's videos into the case
 overcast index add --all --to <id> --json       # register every captured/sensed video
 overcast ask "what objections came up?" --index <id> --json
@@ -202,6 +204,7 @@ overcast ask "moments a document is signed" --index <id> --probe --json
 
 # face-analysis → find a person across the whole index
 overcast index create faces --type face --json
+overcast index attach existing-face-index --type face --json
 overcast index add ./clip.mp4 --to <face-id> --json
 overcast face --match ./suspect.jpg --index <face-id> --json
 
@@ -210,6 +213,8 @@ overcast index create people --type entities --prompt "people, orgs, locations" 
 overcast index entities <ent-id> ./clip.mp4 --json
 
 overcast index list --json                      # the case's indexes (mirror)
+overcast index list --remote --json             # account-level tinycloud indexes
+overcast index attach <remote-id-or-name> --json # bind an existing remote index to the case
 overcast index show <id> --json                 # live status: files[].status
 overcast index delete <id> --json
 ```

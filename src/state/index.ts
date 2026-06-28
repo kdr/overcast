@@ -10,7 +10,7 @@
 // twin of the source/target registries.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Case } from "../case.js";
 
 /** The canonical tinycloud index types. */
@@ -45,6 +45,10 @@ export interface IndexStore {
   indexes: IndexEntry[];
 }
 
+interface LegacyCollectionStore {
+  collections?: IndexEntry[];
+}
+
 /** Friendly aliases → canonical tinycloud type. Returns undefined for unknown. */
 export function normalizeIndexType(input: string): IndexType | undefined {
   const t = input.trim().toLowerCase().replace(/_/g, "-");
@@ -74,21 +78,27 @@ export function normalizeIndexType(input: string): IndexType | undefined {
 }
 
 function load(c: Case): IndexStore {
-  if (!existsSync(c.indexesFile)) return { indexes: [] };
-  try {
-    const parsed = JSON.parse(readFileSync(c.indexesFile, "utf8")) as Partial<IndexStore>;
+  const readStore = (file: string): IndexStore => {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<IndexStore> & LegacyCollectionStore;
     // guard valid-JSON-but-wrong-shape (hand edit, partial write, schema drift):
     // every caller does .find/.filter/.map on .indexes, so a non-array would
     // throw on every command and never self-heal. Fall back to empty instead.
-    if (!parsed || !Array.isArray(parsed.indexes)) return { indexes: [] };
-    return parsed as IndexStore;
+    if (parsed && Array.isArray(parsed.indexes)) return parsed as IndexStore;
+    if (parsed && Array.isArray(parsed.collections)) return { indexes: parsed.collections };
+    return { indexes: [] };
+  };
+  try {
+    if (existsSync(c.indexesFile)) return readStore(c.indexesFile);
+    const legacyFile = join(c.storeDir, "collections.json");
+    if (existsSync(legacyFile)) return readStore(legacyFile);
+    return { indexes: [] };
   } catch {
     return { indexes: [] };
   }
 }
 
 function save(c: Case, store: IndexStore): void {
-  mkdirSync(join(c.indexesFile, ".."), { recursive: true });
+  mkdirSync(dirname(c.indexesFile), { recursive: true });
   writeFileSync(c.indexesFile, JSON.stringify(store, null, 2) + "\n", "utf8");
 }
 

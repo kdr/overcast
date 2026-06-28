@@ -103,6 +103,7 @@ overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/P
 
 # 6) index the target's videos, then search across ALL of them
 overcast index create faces --type face --json
+overcast index attach existing-face-index --type face --json       # or bind an existing remote index
 overcast index add --all --to <face-col-id> --json   # register every captured/sensed video
 overcast face --match ./suspect.jpg --index <face-col-id> --json   # find them across the index
 

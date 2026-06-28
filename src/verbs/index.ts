@@ -5,7 +5,7 @@
 //
 //   index create <name> --type media|entities|face [--prompt|--schema]
 //   index add <video|record-id> --to <id>     (or --all to register the case's videos)
-//   index list | show <id> | delete <id> | remove <video> --from <id>
+//   index list | attach <remote-id-or-name> | show <id> | delete <id> | remove <video> --from <id>
 //   index entities <id> <video>               (entities indexes)
 //
 // Read the indexed videos with: `ask --index <id>` (media-descriptions),
@@ -39,7 +39,7 @@ import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
 import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
-const VALID_ACTIONS = ["create", "add", "list", "show", "delete", "remove", "entities"];
+const VALID_ACTIONS = ["create", "attach", "add", "list", "show", "delete", "remove", "entities"];
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "index", format: "json", payload: { error: message }, error: message, state: "error" });
@@ -49,10 +49,19 @@ function indexRecord(rec: OvercastRecord): OvercastRecord {
   rec.verb = "index";
   if (rec.payload && typeof rec.payload === "object") {
     const p = rec.payload as Record<string, unknown>;
-    if ("collection" in p && !("index" in p)) p.index = p.collection;
-    if ("collections" in p && !("indexes" in p)) p.indexes = p.collections;
+    if ("collection" in p && !("index" in p)) {
+      p.index = p.collection;
+      delete p.collection;
+    }
+    if ("collections" in p && !("indexes" in p)) {
+      p.indexes = p.collections;
+      delete p.collections;
+    }
     if (typeof p.summary === "string") {
       p.summary = p.summary.replace(/\bcollections\b/g, "indexes").replace(/\bcollection\b/g, "index");
+    }
+    if (typeof p.provider_summary === "string") {
+      p.provider_summary = p.provider_summary.replace(/\bcollections\b/g, "indexes").replace(/\bcollection\b/g, "index");
     }
   }
   return rec;
@@ -116,28 +125,100 @@ function resolveTarget(c: Case, explicit?: string, type?: string): { id?: string
   return { error: `multiple indexes; specify one (ids: ${cols.map((x) => x.id).join(", ")})` };
 }
 
+function obj(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+}
+
+function nonEmpty(v: unknown): string | undefined {
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
+function remoteIndexId(o: Record<string, unknown>): string | undefined {
+  const nested = obj(o.collection);
+  return nonEmpty(o.id) ?? nonEmpty(o.collection_id) ?? nonEmpty(o.collectionId) ?? nonEmpty(nested.id);
+}
+
+function remoteIndexName(o: Record<string, unknown>): string | undefined {
+  const nested = obj(o.collection);
+  return nonEmpty(o.name) ?? nonEmpty(o.display_name) ?? nonEmpty(o.title) ?? nonEmpty(nested.name);
+}
+
+function remoteIndexType(o: Record<string, unknown>): string | undefined {
+  const nested = obj(o.collection);
+  const raw =
+    nonEmpty(o.type) ??
+    nonEmpty(o.collection_type) ??
+    nonEmpty(o.collectionType) ??
+    nonEmpty(nested.type) ??
+    nonEmpty(nested.collection_type);
+  return raw ? (normalizeIndexType(raw) ?? raw) : undefined;
+}
+
+function remoteListItems(rec: OvercastRecord): Record<string, unknown>[] {
+  const p = obj(rec.payload);
+  const d = obj(p.detailed);
+  const vals = Array.isArray(p.indexes)
+    ? p.indexes
+    : Array.isArray(p.collections)
+      ? p.collections
+      : Array.isArray(d.collections)
+        ? d.collections
+        : Array.isArray(d.items)
+          ? d.items
+          : [];
+  return vals.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+}
+
+function remoteFiles(rec: OvercastRecord): Record<string, unknown>[] {
+  const p = obj(rec.payload);
+  const d = obj(p.detailed);
+  const vals = Array.isArray(p.files)
+    ? p.files
+    : Array.isArray(d.files)
+      ? d.files
+      : Array.isArray(obj(d.collection).files)
+        ? obj(d.collection).files as unknown[]
+        : [];
+  return vals.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+}
+
+function remoteFileRef(f: Record<string, unknown>): string | undefined {
+  return (
+    nonEmpty(f.ref) ??
+    nonEmpty(f.file) ??
+    nonEmpty(f.filename) ??
+    nonEmpty(f.name) ??
+    nonEmpty(f.path) ??
+    nonEmpty(f.url) ??
+    nonEmpty(f.file_id) ??
+    nonEmpty(f.fileId) ??
+    nonEmpty(f.id)
+  );
+}
+
 export const indexVerb: VerbSpec = {
   name: "index",
   group: "osint",
-  summary: "Manage tinycloud indexes that index a target's videos (create/add/list/show/delete/remove/entities).",
+  summary: "Manage tinycloud indexes that index a target's videos (create/attach/add/list/show/delete/remove/entities).",
   description:
     "An index is a Cloudglue-backed searchable corpus of videos, searched one way per TYPE: media-descriptions " +
     "(ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). " +
-    "`create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` " +
+    "`create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `attach <remote-id-or-name>` " +
+    "mirrors an existing remote index into this case; `add <video> --to <id>` " +
     "registers a video (a path, URL, or a case record id) — `--all` registers every video the case has " +
     "captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` " +
     "prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index " +
     "<id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).",
   args: [
     { name: "action", summary: VALID_ACTIONS.join(" | "), required: true },
-    { name: "arg", summary: "name (create) · video/record-id (add/remove) · index id (show/delete/entities)", required: false },
+    { name: "arg", summary: "name (create) · remote id/name (attach) · video/record-id (add/remove) · index id (show/delete/entities)", required: false },
     // `entities <id> <video>` needs a SECOND positional — declared so the pi
     // AgentTool surface (which rebuilds positionals strictly from spec.args) can
     // supply it, not just the raw CLI/slash parsers. Mirrors setup's action/a/b.
     { name: "arg2", summary: "entities: the video/record-id (index entities <id> <video>)", required: false },
   ],
   flags: [
-    { name: "type", summary: "create: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)", type: "string" },
+    { name: "type", summary: "create/attach: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)", type: "string" },
     { name: "description", summary: "create: human description", type: "string" },
     { name: "prompt", summary: "create entities: free-text extraction prompt", type: "string" },
     { name: "schema", summary: "create entities: path to a JSON schema file", type: "string" },
@@ -161,7 +242,7 @@ export const indexVerb: VerbSpec = {
     // honor a pinned tinycloud in the profile (`setup provider index
     // "/path/to/tinycloud …"`) the same way `face` honors its binding — else
     // OVERCAST_TINYCLOUD_CMD / `tinycloud` on PATH (via tinycloudBase).
-    const base = tinycloudBaseFromRun(ctx.profile.providers?.index?.run);
+    const base = tinycloudBaseFromRun(ctx.profile.providers?.index?.run ?? ctx.profile.providers?.collection?.run);
     const tcOpts = { env, signal: ctx.signal, base };
 
     if (action && !VALID_ACTIONS.includes(action)) {
@@ -201,6 +282,78 @@ export const indexVerb: VerbSpec = {
       if (id && accepted(rec)) addIndex(c, { id, type, name, description: ctx.opts.description ? String(ctx.opts.description) : undefined });
       rec.meta = { ...rec.meta, case: c.dir };
       return [indexRecord(rec)];
+    }
+
+    // ---- attach ----
+    if (action === "attach") {
+      const requested = ctx.rest[0]?.trim();
+      if (!requested) return [err("usage: index attach <remote-index-id-or-name> [--type <media|entities|face>]")];
+      const typeHint = ctx.opts.type != null ? normalizeIndexType(String(ctx.opts.type)) : undefined;
+      if (ctx.opts.type != null && !typeHint) {
+        return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts)`)];
+      }
+
+      let remoteId = requested;
+      let remoteName: string | undefined;
+      let remoteType: string | undefined;
+      const local = findIndex(c, requested);
+      if (local) {
+        remoteId = local.id;
+        remoteName = local.name;
+        remoteType = local.type;
+      } else {
+        const listed = await tcCollectionList(tcOpts);
+        const matches = remoteListItems(listed.rec).filter((item) => {
+          const id = remoteIndexId(item);
+          const name = remoteIndexName(item);
+          return id === requested || name === requested;
+        });
+        if (matches.length > 1) {
+          return [err(`remote index name '${requested}' is ambiguous; use one of: ${matches.map((m) => remoteIndexId(m)).filter(Boolean).join(", ")}`)];
+        }
+        if (matches.length === 1) {
+          remoteId = remoteIndexId(matches[0]) ?? requested;
+          remoteName = remoteIndexName(matches[0]);
+          remoteType = remoteIndexType(matches[0]);
+        }
+      }
+
+      const { rec: shown } = await tcCollectionShow(remoteId, tcOpts);
+      if (shown.state === "error" || shown.state === "needs_credentials") {
+        shown.meta = { ...shown.meta, case: c.dir };
+        return [indexRecord(shown)];
+      }
+      const shownPayload = obj(shown.payload);
+      const shownDetailed = obj(shownPayload.detailed);
+      const shownCollection = obj(shownDetailed.collection);
+      remoteName = remoteName ?? remoteIndexName(shownPayload) ?? remoteIndexName(shownDetailed) ?? remoteIndexName(shownCollection) ?? remoteId;
+      remoteType = remoteType ?? remoteIndexType(shownPayload) ?? remoteIndexType(shownDetailed) ?? remoteIndexType(shownCollection) ?? typeHint;
+      if (typeHint && remoteType && remoteType !== "unknown" && remoteType !== typeHint) {
+        return [err(`index attach: --type ${typeHint} conflicts with remote index type '${remoteType}'`)];
+      }
+      const type = typeHint ?? remoteType ?? "unknown";
+      const entry = addIndex(c, { id: remoteId, type, name: remoteName ?? remoteId });
+      const files = remoteFiles(shown);
+      for (const f of files) {
+        const ref = remoteFileRef(f);
+        if (ref) addMember(c, remoteId, { ref, fileId: nonEmpty(f.file_id) ?? nonEmpty(f.fileId) ?? nonEmpty(f.id) });
+      }
+      return [makeRecord({
+        verb: "index",
+        format: "json",
+        payload: {
+          op: "attach",
+          summary: `attached ${type} index '${entry.name}' (${files.length} remote file${files.length === 1 ? "" : "s"})`,
+          index: entry.id,
+          name: entry.name,
+          type: entry.type,
+          files: files.length,
+          member_count: listIndexes(c).find((x) => x.id === remoteId)?.members.length ?? entry.members.length,
+          detailed: shownPayload.detailed,
+        },
+        meta: { provider: "tinycloud", model: "cloudglue", op: "attach", case: c.dir },
+        state: "ready",
+      })];
     }
 
     // ---- add ----

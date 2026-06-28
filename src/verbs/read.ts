@@ -120,7 +120,7 @@ export const askVerb: VerbSpec = {
         env: providerEnv(ctx.case.mediaDir),
         // honor a pinned tinycloud in the profile (same as the `index` verb),
         // not just OVERCAST_TINYCLOUD_CMD / `tinycloud` on PATH.
-        base: tinycloudBaseFromRun(ctx.profile.providers?.index?.run),
+        base: tinycloudBaseFromRun(ctx.profile.providers?.index?.run ?? ctx.profile.providers?.collection?.run),
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: ctx.case.dir };
@@ -131,7 +131,7 @@ export const askVerb: VerbSpec = {
       return [askError(`invalid --since value: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
     }
     const available = resolveMemory(ctx.case, ctx.profile);
-    let providers = available;
+    let providers = available.filter((p) => matchesMemoryProvider(p, "local-grep"));
     if (ctx.opts.memory) {
       const ids = String(ctx.opts.memory).split(",").map((s) => s.trim()).filter(Boolean);
       providers = available.filter((p) => ids.some((id) => matchesMemoryProvider(p, id)));

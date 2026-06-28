@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Real tinycloud `index` lifecycle (>= 0.3.4): create → list (mirror) → show
-# (live status) → delete (remote + mirror prune). Cheap metadata ops, no ingest.
+# Real tinycloud `index` lifecycle (>= 0.3.4): create → list (mirror) → attach
+# existing remote → show (live status) → delete (remote + mirror prune). Cheap metadata ops, no ingest.
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib.sh
 source "$LIVE/lib.sh"
@@ -26,6 +26,11 @@ cond "index show reports live remote status for the index"
 shw="$(OC_TIMEOUT=120 oc "$CASE" index show "$COLID" --json)"
 assert_eq "$C.show_state" "ready" "$(echo "$shw" | jq -r '.state')" "show state ready"
 assert_nonempty "$C.show_detailed" "$(echo "$shw" | jq -r '.payload.detailed // empty | tostring')" "show detailed present"
+
+cond "index attach binds an existing remote index without note bookkeeping"
+att="$(OC_TIMEOUT=120 oc "$CASE" index attach "$COLID" --type media-descriptions --json)"
+assert_eq "$C.attach_state" "ready" "$(echo "$att" | jq -r '.state')" "attach state ready"
+assert_eq "$C.attach_id" "$COLID" "$(echo "$att" | jq -r '.payload.index')" "attach returns the remote index id"
 
 cond "index delete removes it remotely and prunes the mirror"
 del="$(OC_TIMEOUT=120 oc "$CASE" index delete "$COLID" --json)"

@@ -71,7 +71,7 @@ else
 fi
 SH
 chmod +x "$fake_qmd"
-$OVERCAST setup memory qmd "bash $fake_qmd" --home "$casedir/.ochome" --case "$casedir" >/dev/null 2>&1
+$OVERCAST setup memory qmd bash "$fake_qmd" --home "$casedir/.ochome" --case "$casedir" >/dev/null 2>&1
 qmd_rebuild="$($OVERCAST case memory index rebuild --memory qmd --json --home "$casedir/.ochome" --case "$casedir" 2>/dev/null)"
 save_json "phase4_qmd_rebuild" "$qmd_rebuild" >/dev/null
 assert_eq "memory.qmd.state" "ready" "$(jq -r '.state' <<<"$qmd_rebuild")" "qmd memory index rebuild ready"

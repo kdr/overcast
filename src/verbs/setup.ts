@@ -25,6 +25,10 @@ function err(verb: string, message: string): OvercastRecord {
   return makeRecord({ verb, format: "json", payload: { error: message }, error: message, state: "error" });
 }
 
+function quoteCommandArg(arg: string): string {
+  return /^[A-Za-z0-9_./:=@+-]+$/.test(arg) ? arg : JSON.stringify(arg);
+}
+
 /** Minimum tinycloud the face + index verbs need (`face match` landed in
  *  0.3.4). Older installs run watch/listen fine but lack face/index support. */
 export const MIN_TINYCLOUD = "0.3.4";
@@ -139,7 +143,7 @@ export const setupVerb: VerbSpec = {
       if (backend === "local-grep" || backend === "local") {
         profile.memory = [];
       } else {
-        const command = ctx.rest[1] || undefined;
+        const command = ctx.rest.slice(1).map(quoteCommandArg).join(" ").trim() || undefined;
         profile.memory = [{
           type: "exec",
           backend: "qmd",

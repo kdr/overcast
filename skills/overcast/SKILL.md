@@ -27,7 +27,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `scan` — Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
-- `index` — Manage tinycloud indexes that index a target's videos (create/add/list/show/delete/remove/entities).
+- `index` — Manage tinycloud indexes that index a target's videos (create/attach/add/list/show/delete/remove/entities).
 - `target` — Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
 - `source` — Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
 - `note` — Add a human observation/finding to the case, optionally anchored to evidence.
@@ -99,6 +99,7 @@ per TYPE — build one from the videos you gather for a target, then query it:
 ```bash
 # 1) index the target's videos (media-descriptions = ask/probe; face = find a person)
 overcast index create case-media --type media-descriptions --json
+overcast index attach existing-remote-index --json        # bind a remote tinycloud index to this case
 overcast scan --pull --json                       # pull the target's videos into the case
 overcast index add --all --to <index-id> --json   # register every captured/sensed video
 
@@ -108,6 +109,7 @@ overcast ask "moments a contract is signed" --index <index-id> --probe --json
 
 # 2b) face-analysis → find a specific person across the index
 overcast index create faces --type face --json
+overcast index attach existing-face-index --type face --json
 overcast index add --all --to <face-index-id> --json
 overcast face --match ./suspect.jpg --index <face-index-id> --json
 

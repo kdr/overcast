@@ -990,6 +990,86 @@ test("index honors a pinned tinycloud in providers.index (not just env/PATH)", a
   }
 });
 
+test("index loads a legacy collections.json mirror", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-legacy-col-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    writeFileSync(join(c.storeDir, "collections.json"), JSON.stringify({
+      collections: [{
+        id: "col_legacy",
+        type: "media-descriptions",
+        name: "legacy",
+        members: [],
+        created: "2026-01-01T00:00:00Z",
+      }],
+    }));
+    assert.equal(listIndexes(c)[0].id, "col_legacy");
+    assert.equal(findIndex(c, "legacy")?.id, "col_legacy");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index and ask --index honor legacy providers.collection binding", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-legacy-provider-"));
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = "/nonexistent/tc-DOES-NOT-EXIST";
+    const c = openCase(cdir); c.ensure();
+    const prof = defaultProfile();
+    prof.providers = { ...prof.providers, collection: { type: "exec", run: `${BASE} library collections {{x}}` } };
+    const [created] = await indexVerb.run({ input: "create", rest: ["legacy-pin"], opts: { type: "media-descriptions" }, case: c, profile: prof });
+    assert.equal(created.state, "ready");
+    const [asked] = await askVerb.run({ input: "What happened?", rest: [], opts: { index: "col_fake123" }, case: c, profile: prof });
+    assert.equal(asked.state, "ready");
+    assert.match(((asked.payload as Record<string, unknown>).text as string), /objected to the price/);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index attach mirrors an existing remote index by name", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-attach-"));
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+    const c = openCase(cdir); c.ensure();
+    const [attached] = await indexVerb.run({ input: "attach", rest: ["fixture"], opts: {}, case: c, profile: defaultProfile() });
+    assert.equal(attached.state, "ready");
+    const p = attached.payload as Record<string, unknown>;
+    assert.equal(p.index, "col_fake123");
+    assert.equal(p.name, "fixture");
+    assert.equal(p.type, "media-descriptions");
+    assert.equal(p.member_count, 2);
+    assert.equal(findIndex(c, "fixture")?.id, "col_fake123");
+    assert.equal(listIndexes(c)[0].members.length, 2);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index list --remote exposes indexes, not collections, at the public layer", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-remote-list-"));
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+    const c = openCase(cdir); c.ensure();
+    const [remote] = await indexVerb.run({ input: "list", rest: [], opts: { remote: true }, case: c, profile: defaultProfile() });
+    const p = remote.payload as Record<string, unknown>;
+    assert.ok(Array.isArray(p.indexes));
+    assert.equal("collections" in p, false);
+    assert.match(String(p.summary), /index(?:es)? in this account/);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 // ---- Round 17 + shared-validator holistic pass -----------------------------
 
 test("face rejects a blank --start= / --end= (window-flag hygiene)", async () => {

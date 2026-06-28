@@ -12,6 +12,7 @@ import { QmdMemoryProvider, DEFAULT_QMD_MODEL } from "../../src/providers/memory
 import { indexableFields } from "../../src/providers/memory/fields.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
+import { setupVerb } from "../../src/verbs/setup.ts";
 import type { MemoryProvider, Passage } from "../../src/providers/memory/types.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
@@ -117,6 +118,24 @@ test("ask --memory local alias still selects local-grep", async () => {
   });
 });
 
+test("plain ask stays on local-grep even when qmd is configured", async () => {
+  await withCase(async (c, dir) => {
+    const log = join(dir, "qmd.log");
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+echo '[{"record_id":"rec_qmd","verb":"note","text":"qmd semantic hit","score":9}]'
+`);
+    chmodSync(fake, 0o755);
+    const p = defaultProfile();
+    p.memory = [{ type: "exec", backend: "qmd", id: "qmd", command: `bash ${fake}`, model: DEFAULT_QMD_MODEL }];
+    const [rec] = await askVerb.run({ input: "white van at the docks", rest: [], opts: {}, case: c, profile: p });
+    assert.equal(rec.state, "ready");
+    assert.equal(rec.meta?.provider, "local-grep");
+    assert.equal(existsSync(log), false);
+  });
+});
+
 test("qmd memory provider materializes docs, records model config, and queries via qmd", async () => {
   await withCase(async (c, dir) => {
     const log = join(dir, "qmd.log");
@@ -159,6 +178,81 @@ test("case memory index status/rebuild surfaces backend compatibility", async ()
     const [status] = await caseVerb.run({ input: "memory", rest: ["index", "status"], opts: { memory: "qmd" }, case: c, profile: p });
     assert.equal(status.state, "ready");
     assert.equal((((status.payload as Record<string, unknown>).memory_index as Array<Record<string, unknown>>)[0]).state, "ready");
+  });
+});
+
+test("qmd rebuild failure remains visible in later status", async () => {
+  await withCase(async (c, dir) => {
+    const fake = join(dir, "qmd-fail.sh");
+    writeFileSync(fake, '#!/usr/bin/env bash\necho "boom" >&2\nexit 42\n');
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    const rebuilt = await qmd.rebuild();
+    assert.equal(rebuilt.state, "error");
+    assert.match(rebuilt.error ?? "", /boom/);
+    const status = await qmd.status();
+    assert.equal(status.state, "error");
+    assert.match(status.error ?? "", /boom/);
+  });
+});
+
+test("case memory search honors --memory qmd", async () => {
+  await withCase(async (c, dir) => {
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+if [ "$1" = "search" ]; then
+  echo '[{"record_id":"rec_qmd_search","verb":"note","text":"qmd-only case search","score":9}]'
+else
+  echo '{"ok":true}'
+fi
+`);
+    chmodSync(fake, 0o755);
+    const p = defaultProfile();
+    p.memory = [{ type: "exec", backend: "qmd", id: "qmd", command: `bash ${fake}`, model: DEFAULT_QMD_MODEL }];
+    const [rec] = await caseVerb.run({ input: "memory", rest: ["search", "white", "van"], opts: { memory: "qmd" }, case: c, profile: p });
+    assert.equal(rec.state, "ready");
+    const passages = (rec.payload as Record<string, unknown>).passages as Array<Record<string, unknown>>;
+    assert.equal(passages[0].recordId, "rec_qmd_search");
+  });
+});
+
+test("setup memory qmd preserves multi-token command", async () => {
+  await withCase(async (c, dir) => {
+    const home = join(dir, "home");
+    const [rec] = await setupVerb.run({
+      input: "memory",
+      rest: ["qmd", "bash", "/tmp/fake qmd.sh"],
+      opts: {},
+      case: c,
+      profile: defaultProfile(),
+      home,
+    });
+    assert.equal(rec.state, "ready");
+    const memory = (rec.payload as Record<string, unknown>).memory as Array<Record<string, unknown>>;
+    assert.equal(memory[0].command, 'bash "/tmp/fake qmd.sh"');
+  });
+});
+
+test("case memory index start uses the configured CLI command", async () => {
+  await withCase(async (c, dir) => {
+    const fake = join(dir, "overcast-bg.sh");
+    const log = join(dir, "bg.log");
+    writeFileSync(fake, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+`);
+    chmodSync(fake, 0o755);
+    const prev = process.env.OVERCAST_CMD;
+    process.env.OVERCAST_CMD = `bash ${fake}`;
+    try {
+      const [rec] = await caseVerb.run({ input: "memory", rest: ["index", "start"], opts: { memory: "local-grep" }, case: c, profile: defaultProfile() });
+      assert.equal(rec.state, "pending");
+      const job = ((rec.payload as Record<string, unknown>).job as Record<string, unknown>);
+      assert.match(job.command as string, /overcast-bg\.sh/);
+      assert.match(job.command as string, /case memory index rebuild/);
+    } finally {
+      if (prev === undefined) delete process.env.OVERCAST_CMD;
+      else process.env.OVERCAST_CMD = prev;
+    }
   });
 });
 
