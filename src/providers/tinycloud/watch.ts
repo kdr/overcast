@@ -10,6 +10,7 @@ import {
   renderCommand,
   parseFirstJson,
 } from "../exec.js";
+import { tinycloudBase } from "./envelope.js";
 import type { ProviderDescriptor } from "../../profile.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --json";
@@ -160,8 +161,12 @@ export async function runWatch(
 ): Promise<OvercastRecord> {
   // An empty/whitespace run template (e.g. a profile binding set to "") must
   // fall back to the default — `?? DEFAULT_RUN` alone would keep "".
-  const template = opts.run && opts.run.trim() ? opts.run : DEFAULT_RUN;
-  const argv = renderCommand(template, { input });
+  const configured = opts.run?.trim();
+  const defaultPath = !configured || configured === DEFAULT_RUN;
+  const template = defaultPath ? DEFAULT_RUN : configured;
+  const argv = defaultPath
+    ? [...tinycloudBase(), "watch", input, "--json"]
+    : renderCommand(template, { input });
   const [cmd, ...args] = argv;
 
   // A template that renders to no command (all tokens dropped) would reject at

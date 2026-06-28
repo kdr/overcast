@@ -1,4 +1,4 @@
-// Face + collection coverage. The external tinycloud process is faked
+// Face + index coverage. The external tinycloud process is faked
 // (test/fixtures/fake-tinycloud.sh) so the REAL envelope→record mapping +
 // verb/op-resolution code runs offline. Uses plain dummy files (no ffmpeg).
 
@@ -24,18 +24,19 @@ import {
 } from "../../src/providers/tinycloud/envelope.ts";
 import { runFace, faceArgv } from "../../src/providers/tinycloud/face.ts";
 import {
-  normalizeCollectionType,
-  addCollection,
-  listCollections,
-  findCollection,
-  resolveCollectionRef,
-  removeCollection,
+  normalizeIndexType,
+  addIndex,
+  listIndexes,
+  findIndex,
+  resolveIndexRef,
+  removeIndex,
   addMember,
+  setMembers,
   removeMember,
-  collectionsByType,
-} from "../../src/state/collection.ts";
+  indexesByType,
+} from "../../src/state/index.ts";
 import { faceVerb } from "../../src/verbs/face.ts";
-import { collectionVerb } from "../../src/verbs/collection.ts";
+import { indexVerb } from "../../src/verbs/index.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { doctorVerb } from "../../src/verbs/setup.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
@@ -151,11 +152,11 @@ test("face search summary pluralizes 'matches' correctly (not 'matchs')", async 
   assert.doesNotMatch(s, /matchs/);
 });
 
-test("runFace search → media.ref is the query image, no seek anchor; collection recorded", async () => {
+test("runFace search → media.ref is the query image, no seek anchor; index recorded", async () => {
   const rec = await runFace({ op: "search", image: "suspect.jpg", collections: ["col_x"] }, { base: BASE });
   const p = rec.payload as Record<string, unknown>;
   assert.equal(p.op, "search");
-  assert.equal(p.collection, "col_x");
+  assert.equal(p.index, "col_x");
   const faces = p.faces as Array<Record<string, unknown>>;
   assert.equal(faces.length, 2);
   assert.equal(faces[0].file, "vid1.mp4");
@@ -187,17 +188,17 @@ test("face verb: video only → detect; --match + video → match", async () => 
   assert.equal((m.payload as Record<string, unknown>).op, "match");
 });
 
-test("face verb: --match + a single case face collection → search (no video)", async () => {
+test("face verb: --match + a single case face index → search (no video)", async () => {
   const c = openCase(dir);
   c.ensure();
-  addCollection(c, { id: "col_faceA", type: "face-analysis", name: "faces" });
+  addIndex(c, { id: "col_faceA", type: "face-analysis", name: "faces" });
   try {
     const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: face }, case: c, profile: defaultProfile() });
     const p = rec.payload as Record<string, unknown>;
     assert.equal(p.op, "search");
-    assert.equal(p.collection, "col_faceA");
+    assert.equal(p.index, "col_faceA");
   } finally {
-    removeCollection(c, "col_faceA");
+    removeIndex(c, "col_faceA");
   }
 });
 
@@ -207,42 +208,42 @@ test("face verb: no video and no match → usage error", async () => {
   assert.match(rec.error ?? "", /face requires a video/);
 });
 
-// ---- collection state mirror -----------------------------------------------
+// ---- index state mirror -----------------------------------------------
 
-test("normalizeCollectionType maps aliases; rejects unknown", () => {
-  assert.equal(normalizeCollectionType("face"), "face-analysis");
-  assert.equal(normalizeCollectionType("faces"), "face-analysis");
-  assert.equal(normalizeCollectionType("media"), "media-descriptions");
-  assert.equal(normalizeCollectionType("entities"), "entities");
-  assert.equal(normalizeCollectionType("transcripts"), "rich-transcripts");
-  assert.equal(normalizeCollectionType("nope"), undefined);
+test("normalizeIndexType maps aliases; rejects unknown", () => {
+  assert.equal(normalizeIndexType("face"), "face-analysis");
+  assert.equal(normalizeIndexType("faces"), "face-analysis");
+  assert.equal(normalizeIndexType("media"), "media-descriptions");
+  assert.equal(normalizeIndexType("entities"), "entities");
+  assert.equal(normalizeIndexType("transcripts"), "rich-transcripts");
+  assert.equal(normalizeIndexType("nope"), undefined);
 });
 
-test("collection mirror: add/find/members/remove round-trip", () => {
+test("index mirror: add/find/members/remove round-trip", () => {
   const c = openCase(mkdtempSync(join(tmpdir(), "oc-colstate-")));
   c.ensure();
-  addCollection(c, { id: "col_1", type: "media-descriptions", name: "calls" });
-  addCollection(c, { id: "col_2", type: "face-analysis", name: "faces" });
-  assert.equal(listCollections(c).length, 2);
-  assert.equal(findCollection(c, "col_1")?.name, "calls");
-  assert.equal(findCollection(c, "faces")?.id, "col_2"); // resolve by name
-  assert.equal(collectionsByType(c, "face-analysis").length, 1);
+  addIndex(c, { id: "col_1", type: "media-descriptions", name: "calls" });
+  addIndex(c, { id: "col_2", type: "face-analysis", name: "faces" });
+  assert.equal(listIndexes(c).length, 2);
+  assert.equal(findIndex(c, "col_1")?.name, "calls");
+  assert.equal(findIndex(c, "faces")?.id, "col_2"); // resolve by name
+  assert.equal(indexesByType(c, "face-analysis").length, 1);
 
   assert.equal(addMember(c, "col_1", { ref: "a.mp4" }), true);
   addMember(c, "col_1", { ref: "a.mp4" }); // dedupe by ref
   addMember(c, "col_1", { ref: "b.mp4" });
-  assert.equal(findCollection(c, "col_1")?.members.length, 2);
+  assert.equal(findIndex(c, "col_1")?.members.length, 2);
   assert.equal(addMember(c, "missing", { ref: "x" }), false);
   assert.equal(removeMember(c, "col_1", "a.mp4"), true);
-  assert.equal(findCollection(c, "col_1")?.members.length, 1);
+  assert.equal(findIndex(c, "col_1")?.members.length, 1);
 
-  assert.equal(removeCollection(c, "col_1"), true);
-  assert.equal(listCollections(c).length, 1);
+  assert.equal(removeIndex(c, "col_1"), true);
+  assert.equal(listIndexes(c).length, 1);
 });
 
-// ---- collection verb (lifecycle via the fake tinycloud) --------------------
+// ---- index verb (lifecycle via the fake tinycloud) --------------------
 
-test("collection verb: create → add → list → show → delete, mirroring locally", async () => {
+test("index verb: create → add → list → show → delete, mirroring locally", async () => {
   const saved = process.env.OVERCAST_TINYCLOUD_CMD;
   process.env.OVERCAST_TINYCLOUD_CMD = BASE;
   const cdir = mkdtempSync(join(tmpdir(), "oc-colverb-"));
@@ -254,25 +255,25 @@ test("collection verb: create → add → list → show → delete, mirroring lo
     return { input, rest, opts, case: c, profile: defaultProfile() };
   };
   try {
-    const [created] = await collectionVerb.run(mk("create", ["calls"], { type: "media" }));
+    const [created] = await indexVerb.run(mk("create", ["calls"], { type: "media" }));
     assert.equal(created.state, "ready");
     assert.equal((created.payload as Record<string, unknown>).id, "col_fake123");
-    assert.equal(listCollections(openCase(cdir)).length, 1);
+    assert.equal(listIndexes(openCase(cdir)).length, 1);
 
-    const [added] = await collectionVerb.run(mk("add", [video], { to: "col_fake123" }));
+    const [added] = await indexVerb.run(mk("add", [video], { to: "col_fake123" }));
     assert.equal(added.state, "pending"); // async ingest
-    assert.equal(findCollection(openCase(cdir), "col_fake123")?.members.length, 1);
+    assert.equal(findIndex(openCase(cdir), "col_fake123")?.members.length, 1);
 
-    const [listed] = await collectionVerb.run(mk("list"));
+    const [listed] = await indexVerb.run(mk("list"));
     const lp = listed.payload as Record<string, unknown>;
-    assert.equal((lp.collections as unknown[]).length, 1);
+    assert.equal((lp.indexes as unknown[]).length, 1);
 
-    const [shown] = await collectionVerb.run(mk("show", ["col_fake123"]));
+    const [shown] = await indexVerb.run(mk("show", ["col_fake123"]));
     assert.equal((shown.payload as Record<string, unknown>).file_count, 2);
 
-    const [deleted] = await collectionVerb.run(mk("delete", ["col_fake123"]));
+    const [deleted] = await indexVerb.run(mk("delete", ["col_fake123"]));
     assert.equal(deleted.state, "ready");
-    assert.equal(listCollections(openCase(cdir)).length, 0); // mirror pruned
+    assert.equal(listIndexes(openCase(cdir)).length, 0); // mirror pruned
   } finally {
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;
@@ -280,39 +281,39 @@ test("collection verb: create → add → list → show → delete, mirroring lo
   }
 });
 
-test("collection verb: entities collection needs --prompt/--schema; bogus action errors", async () => {
+test("index verb: entities index needs --prompt/--schema; bogus action errors", async () => {
   const saved = process.env.OVERCAST_TINYCLOUD_CMD;
   process.env.OVERCAST_TINYCLOUD_CMD = BASE;
   try {
-    const [needsPrompt] = await collectionVerb.run(ctx("create", { type: "entities" }, ["people"]));
+    const [needsPrompt] = await indexVerb.run(ctx("create", { type: "entities" }, ["people"]));
     assert.equal(needsPrompt.state, "error");
     assert.match(needsPrompt.error ?? "", /--prompt|--schema/);
 
-    const [ok] = await collectionVerb.run(ctx("create", { type: "entities", prompt: "extract people" }, ["people"]));
+    const [ok] = await indexVerb.run(ctx("create", { type: "entities", prompt: "extract people" }, ["people"]));
     assert.equal(ok.state, "ready");
 
-    const [bad] = await collectionVerb.run(ctx("frobnicate"));
+    const [bad] = await indexVerb.run(ctx("frobnicate"));
     assert.equal(bad.state, "error");
-    assert.match(bad.error ?? "", /unknown collection action/);
+    assert.match(bad.error ?? "", /unknown index action/);
   } finally {
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;
   }
 });
 
-// ---- ask --collection ------------------------------------------------------
+// ---- ask --index ------------------------------------------------------
 
-test("ask --collection routes to tinycloud collection ask (answer + citations)", async () => {
+test("ask --index routes to tinycloud index ask (answer + citations)", async () => {
   const saved = process.env.OVERCAST_TINYCLOUD_CMD;
   process.env.OVERCAST_TINYCLOUD_CMD = BASE;
   try {
-    const [rec] = await askVerb.run(ctx("What did they object to?", { collection: "col_x" }));
+    const [rec] = await askVerb.run(ctx("What did they object to?", { index: "col_x" }));
     assert.equal(rec.verb, "ask");
     assert.equal(rec.state, "ready");
     const p = rec.payload as Record<string, unknown>;
     assert.match(p.text as string, /objected to the price/);
     assert.equal((p.citations as unknown[]).length, 1);
-    assert.equal(p.collection, "col_x");
+    assert.equal(p.index, "col_x");
     assert.equal(rec.meta?.provider, "cloudglue");
   } finally {
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
@@ -348,13 +349,13 @@ test("runTinycloud: a 'pending' envelope carrying an error is an error, not in-p
   }
 });
 
-test("ask --collection rejects an invalid --limit instead of dropping it (#6)", async () => {
-  const [rec] = await askVerb.run(ctx("q?", { collection: "col_x", limit: 0 }));
+test("ask --index rejects an invalid --limit instead of dropping it (#6)", async () => {
+  const [rec] = await askVerb.run(ctx("q?", { index: "col_x", limit: 0 }));
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /--limit/);
 });
 
-test("ask --collection rejects --limit unless probing; probe forwards it", async () => {
+test("ask --index rejects --limit unless probing; probe forwards it", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-asklimit-"));
   const log = join(cdir, "argv.txt");
   const fake = join(cdir, "tc.sh");
@@ -375,10 +376,10 @@ test("ask --collection rejects --limit unless probing; probe forwards it", async
       case: c,
       profile: defaultProfile(),
     });
-    const [bad] = await askVerb.run(mk({ collection: "col_x", limit: 3 }));
+    const [bad] = await askVerb.run(mk({ index: "col_x", limit: 3 }));
     assert.equal(bad.state, "error");
-    assert.match(bad.error ?? "", /--limit with --collection only applies with --probe/);
-    await askVerb.run(mk({ collection: "col_x", probe: true, limit: 3 }));
+    assert.match(bad.error ?? "", /--limit with --index only applies with --probe/);
+    await askVerb.run(mk({ index: "col_x", probe: true, limit: 3 }));
     const lines = readFileSync(log, "utf8").trim().split(/\n/);
     assert.equal(lines.length, 1);
     assert.match(lines[0], /^probe q\? --in collection:col_x --limit 3 --json$/);
@@ -389,7 +390,7 @@ test("ask --collection rejects --limit unless probing; probe forwards it", async
   }
 });
 
-test("collection add to an UNMIRRORED id records a stub + tracks the member (#2)", async () => {
+test("index add to an UNMIRRORED id records a stub + tracks the member (#2)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-colmir-"));
   const video = join(cdir, "v.mp4");
   writeFileSync(video, "x");
@@ -397,11 +398,11 @@ test("collection add to an UNMIRRORED id records a stub + tracks the member (#2)
     ({ input, rest, opts, case: openCase(cdir), profile: defaultProfile() });
   try {
     const c = openCase(cdir); c.ensure();
-    assert.equal(findCollection(c, "col_remote"), undefined); // not created via this case
-    const [rec] = await collectionVerb.run(mkc("add", [video], { to: "col_remote" }));
+    assert.equal(findIndex(c, "col_remote"), undefined); // not created via this case
+    const [rec] = await indexVerb.run(mkc("add", [video], { to: "col_remote" }));
     assert.notEqual(rec.state, "error");
-    const col = findCollection(openCase(cdir), "col_remote");
-    assert.ok(col, "stub mirror entry created for the remote-only collection");
+    const col = findIndex(openCase(cdir), "col_remote");
+    assert.ok(col, "stub mirror entry created for the remote-only index");
     assert.equal(col!.members.length, 1);
     assert.equal(col!.members[0].ref, video);
   } finally {
@@ -409,15 +410,35 @@ test("collection add to an UNMIRRORED id records a stub + tracks the member (#2)
   }
 });
 
-test("collection add --all registers captured/watched videos but NOT scan page URLs (#1)", async () => {
+test("index add local video emits a watch record for local case memory, not a face detect", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-addwatch-"));
+  const video = join(cdir, "v.mp4");
+  writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_face", type: "face-analysis", name: "faces" });
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const recs = await indexVerb.run({ input: "add", rest: [video], opts: { to: "col_face" }, case: openCase(cdir), profile });
+    assert.equal(recs[0].verb, "index");
+    assert.equal(recs[1].verb, "watch");
+    assert.equal(recs[1].state, "ready");
+    assert.equal(recs[1].media?.ref, video);
+    assert.ok(!recs.some((r) => r.verb === "face"), "index add must not create a face-detect record for local memory");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index add --all registers captured/watched videos but NOT scan page URLs (#1)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-colall-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
+    addIndex(c, { id: "col_a", type: "media-descriptions", name: "a" });
     c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: "/tmp/clipA.mp4" }, state: "ready" }));
     c.writeRecord(makeRecord({ verb: "scan", payload: { url: "https://news.example/post" }, media: { ref: "https://news.example/post" }, state: "ready" }));
-    const recs = await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_a" }, case: openCase(cdir), profile: defaultProfile() });
-    const members = findCollection(openCase(cdir), "col_a")!.members.map((m) => m.ref);
+    const recs = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_a" }, case: openCase(cdir), profile: defaultProfile() });
+    const members = findIndex(openCase(cdir), "col_a")!.members.map((m) => m.ref);
     assert.deepEqual(members, ["/tmp/clipA.mp4"]); // the .mp4 only; the scan page URL is excluded
     assert.equal(recs.length, 1); // exactly one tinycloud add (the video)
   } finally {
@@ -425,7 +446,45 @@ test("collection add --all registers captured/watched videos but NOT scan page U
   }
 });
 
-test("custom face provider receives --match for a collection-wide search (#3)", async () => {
+test("index add --all emits watch records for captured local videos missing watch analysis", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-allwatch-"));
+  const video = join(cdir, "clip.mp4");
+  writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_a", type: "media-descriptions", name: "a" });
+    c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: video }, state: "ready" }));
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const recs = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_a" }, case: openCase(cdir), profile });
+    assert.ok(recs.some((r) => r.verb === "index"));
+    assert.ok(recs.some((r) => r.verb === "watch" && r.media?.ref === video));
+    assert.ok(!recs.some((r) => r.verb === "face"));
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index add does not re-watch a local video with pending watch evidence", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-pendingwatch-"));
+  const video = join(cdir, "v.mp4");
+  writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_face", type: "face-analysis", name: "faces" });
+    c.writeRecord(makeRecord({ verb: "watch", payload: { summary: "watch still processing" }, media: { ref: video }, state: "pending" }));
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const recs = await indexVerb.run({ input: "add", rest: [video], opts: { to: "col_face" }, case: openCase(cdir), profile });
+    assert.ok(recs.some((r) => r.verb === "index"));
+    assert.ok(!recs.some((r) => r.verb === "watch"), "pending watch evidence should prevent duplicate watch work");
+    assert.ok(!recs.some((r) => r.verb === "face"));
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("custom face provider receives --match for a index-wide search (#3)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-faceprov-"));
   const prov = join(cdir, "face-prov.sh");
   writeFileSync(prov, '#!/usr/bin/env bash\nif printf "%s " "$@" | grep -q -- --match; then m=true; else m=false; fi\necho "{\\"verb\\":\\"face\\",\\"payload\\":{\\"got_match\\":$m},\\"state\\":\\"ready\\"}"\n');
@@ -435,8 +494,8 @@ test("custom face provider receives --match for a collection-wide search (#3)", 
     const c = openCase(cdir); c.ensure();
     const p = defaultProfile();
     p.providers = { ...p.providers, face: { type: "exec", run: `bash ${prov} {{input}}` } };
-    // search: --match image + --collection, no video → the custom branch must forward --match
-    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img, collection: "col_face" }, case: c, profile: p });
+    // search: --match image + --index, no video → the custom branch must forward --match
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img, index: "col_face" }, case: c, profile: p });
     assert.equal(rec.state, "ready");
     assert.equal((rec.payload as Record<string, unknown>).got_match, true);
   } finally {
@@ -448,7 +507,7 @@ test("tinycloudBaseFromRun extracts the leading command of a bound tinycloud run
   assert.equal(tinycloudBaseFromRun(undefined), undefined);
   assert.equal(tinycloudBaseFromRun("tinycloud face {{input}} --json"), "tinycloud");
   assert.equal(tinycloudBaseFromRun("tinycloud-beta face detect {{input}}"), "tinycloud-beta");
-  assert.equal(tinycloudBaseFromRun("/opt/tc/tinycloud library collections list --json"), "/opt/tc/tinycloud");
+  assert.equal(tinycloudBaseFromRun("/opt/tc/tinycloud library indexes list --json"), "/opt/tc/tinycloud");
 });
 
 // ---- Bugbot round-2 regressions --------------------------------------------
@@ -460,41 +519,41 @@ test("mapTinycloudState: an UNRECOGNIZED status never maps to ready (#R2-6)", ()
   assert.equal(mapTinycloudState({ status: "weird" }, {}, 2), "needs_credentials");
 });
 
-test("faceArgv repeats --in per collection, not one --in with many values (#R2-4)", () => {
+test("faceArgv repeats --in per index, not one --in with many values (#R2-4)", () => {
   const a = faceArgv({ op: "search", image: "q.jpg", collections: ["col_a", "col_b"] });
   assert.equal(a.filter((t) => t === "--in").length, 2);
   assert.ok(a.join(" ").includes("--in collection:col_a --in collection:col_b"));
 });
 
-test("ask --collection rejects --since (no time filter on a collection query) (#R2-5)", async () => {
-  const [rec] = await askVerb.run(ctx("q?", { collection: "col_x", since: "24h" }));
+test("ask --index rejects --since (no time filter on a index query) (#R2-5)", async () => {
+  const [rec] = await askVerb.run(ctx("q?", { index: "col_x", since: "24h" }));
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /--since/);
 });
 
-test("face --collection that resolves to no id is a usage error, not an unscoped run (#R2-1)", async () => {
-  const [rec] = await faceVerb.run(ctx(clip, { collection: " , " }));
+test("face --index that resolves to no id is a usage error, not an unscoped run (#R2-1)", async () => {
+  const [rec] = await faceVerb.run(ctx(clip, { index: " , " }));
   assert.equal(rec.state, "error");
-  assert.match(rec.error ?? "", /no valid collection id/);
+  assert.match(rec.error ?? "", /no valid index id/);
 });
 
-test("face --match + a video + --collection errors instead of ignoring --collection (#R2-3)", async () => {
-  const [rec] = await faceVerb.run(ctx(clip, { match: face, collection: "col_x" }));
+test("face --match + a video + --index errors instead of ignoring --index (#R2-3)", async () => {
+  const [rec] = await faceVerb.run(ctx(clip, { match: face, index: "col_x" }));
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /can't combine with a video/);
 });
 
-test("collection add --type face types the stub so face --match auto-resolves it (#R2-2)", async () => {
+test("index add --type face types the stub so face --match auto-resolves it (#R2-2)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-stubtype-"));
   const video = join(cdir, "v.mp4"); writeFileSync(video, "x");
   const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    await collectionVerb.run({ input: "add", rest: [video], opts: { to: "col_face", type: "face" }, case: openCase(cdir), profile: defaultProfile() });
-    assert.equal(findCollection(openCase(cdir), "col_face")?.type, "face-analysis");
+    await indexVerb.run({ input: "add", rest: [video], opts: { to: "col_face", type: "face" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(findIndex(openCase(cdir), "col_face")?.type, "face-analysis");
     const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal((rec.payload as Record<string, unknown>).op, "search");
-    assert.equal((rec.payload as Record<string, unknown>).collection, "col_face");
+    assert.equal((rec.payload as Record<string, unknown>).index, "col_face");
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
@@ -505,23 +564,23 @@ test("face --match does NOT auto-pick an unknown-typed stub (must be classified/
   const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_u", type: "unknown", name: "col_u" }); // an untyped stub
+    addIndex(c, { id: "col_u", type: "unknown", name: "col_u" }); // an untyped stub
     const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
-    assert.match(rec.error ?? "", /face-analysis collection/);
+    assert.match(rec.error ?? "", /face-analysis index/);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
 });
 
-test("collection add --all includes listen-sensed media (#R2-7)", async () => {
+test("index add --all includes listen-sensed media (#R2-7)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-listenall-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_l", type: "media-descriptions", name: "l" });
+    addIndex(c, { id: "col_l", type: "media-descriptions", name: "l" });
     c.writeRecord(makeRecord({ verb: "listen", payload: { transcript: "hi" }, media: { ref: "/tmp/call.m4a" }, state: "ready" }));
-    await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_l" }, case: openCase(cdir), profile: defaultProfile() });
-    const members = findCollection(openCase(cdir), "col_l")!.members.map((m) => m.ref);
+    await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_l" }, case: openCase(cdir), profile: defaultProfile() });
+    const members = findIndex(openCase(cdir), "col_l")!.members.map((m) => m.ref);
     assert.deepEqual(members, ["/tmp/call.m4a"]);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
@@ -530,22 +589,22 @@ test("collection add --all includes listen-sensed media (#R2-7)", async () => {
 
 // ---- Bugbot round-3 regressions --------------------------------------------
 
-test("ask --collection rejects local-memory flags --deep/--memory/--verb (#R3-1)", async () => {
+test("ask --index rejects local-memory flags --deep/--memory/--verb (#R3-1)", async () => {
   for (const opt of [{ deep: true }, { memory: "local" }, { verb: "watch" }] as const) {
-    const [rec] = await askVerb.run(ctx("q?", { collection: "col_x", ...opt }));
+    const [rec] = await askVerb.run(ctx("q?", { index: "col_x", ...opt }));
     assert.equal(rec.state, "error", `expected error for ${JSON.stringify(opt)}`);
-    assert.match(rec.error ?? "", /supported with --collection/);
+    assert.match(rec.error ?? "", /supported with --index/);
   }
 });
 
-test("removeCollection matches by id only, never display name (#R3-2)", () => {
+test("removeIndex matches by id only, never display name (#R3-2)", () => {
   const c = openCase(mkdtempSync(join(tmpdir(), "oc-rmcol-")));
   c.ensure();
   // col_b's NAME collides with col_a's id — deleting col_a must not drop col_b.
-  addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
-  addCollection(c, { id: "col_b", type: "media-descriptions", name: "col_a" });
-  assert.equal(removeCollection(c, "col_a"), true);
-  const left = listCollections(c).map((x) => x.id);
+  addIndex(c, { id: "col_a", type: "media-descriptions", name: "a" });
+  addIndex(c, { id: "col_b", type: "media-descriptions", name: "col_a" });
+  assert.equal(removeIndex(c, "col_a"), true);
+  const left = listIndexes(c).map((x) => x.id);
   assert.deepEqual(left, ["col_b"]); // only the id match removed
 });
 
@@ -555,16 +614,16 @@ test("faceArgv forwards --limit for detect/list/search but never match (#R3-3)",
   assert.ok(!faceArgv({ op: "match", image: "q.jpg", source: "v.mp4", limit: 5 }).includes("--limit"));
 });
 
-test("collection remove updates the mirror on an accepted op (#R3-4)", async () => {
+test("index remove updates the mirror on an accepted op (#R3-4)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-rmmem-"));
   const video = join(cdir, "v.mp4"); writeFileSync(video, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_r", type: "media-descriptions", name: "r" });
+    addIndex(c, { id: "col_r", type: "media-descriptions", name: "r" });
     addMember(c, "col_r", { ref: video });
-    assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 1);
-    await collectionVerb.run({ input: "remove", rest: [video], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
-    assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0);
+    assert.equal(findIndex(openCase(cdir), "col_r")!.members.length, 1);
+    await indexVerb.run({ input: "remove", rest: [video], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(findIndex(openCase(cdir), "col_r")!.members.length, 0);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
@@ -572,63 +631,63 @@ test("collection remove updates the mirror on an accepted op (#R3-4)", async () 
 
 // ---- Bugbot round-4 regressions --------------------------------------------
 
-test("ask --scope without --probe, and --probe without --collection, are errors (#R4-1/#R4-2)", async () => {
-  const [a] = await askVerb.run(ctx("q?", { collection: "col_x", scope: "file" })); // scope, no probe
+test("ask --scope without --probe, and --probe without --index, are errors (#R4-1/#R4-2)", async () => {
+  const [a] = await askVerb.run(ctx("q?", { index: "col_x", scope: "file" })); // scope, no probe
   assert.equal(a.state, "error");
   assert.match(a.error ?? "", /--scope only applies with --probe/);
-  const [b] = await askVerb.run(ctx("q?", { probe: true })); // probe, no collection
+  const [b] = await askVerb.run(ctx("q?", { probe: true })); // probe, no index
   assert.equal(b.state, "error");
-  assert.match(b.error ?? "", /only apply with --collection/);
+  assert.match(b.error ?? "", /only apply with --index/);
 });
 
-test("collection add --type face upgrades an existing unknown stub (#R4-4)", async () => {
+test("index add --type face upgrades an existing unknown stub (#R4-4)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-typeup-"));
   const video = join(cdir, "v.mp4"); writeFileSync(video, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_x", type: "unknown", name: "col_x" });
-    await collectionVerb.run({ input: "add", rest: [video], opts: { to: "col_x", type: "face" }, case: openCase(cdir), profile: defaultProfile() });
-    assert.equal(findCollection(openCase(cdir), "col_x")?.type, "face-analysis");
+    addIndex(c, { id: "col_x", type: "unknown", name: "col_x" });
+    await indexVerb.run({ input: "add", rest: [video], opts: { to: "col_x", type: "face" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(findIndex(openCase(cdir), "col_x")?.type, "face-analysis");
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
 });
 
-test("collection add --all skips non-ready (failed) sense records (#R4-5)", async () => {
+test("index add --all skips non-ready (failed) sense records (#R4-5)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-failall-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_v", type: "media-descriptions", name: "v" });
+    addIndex(c, { id: "col_v", type: "media-descriptions", name: "v" });
     c.writeRecord(makeRecord({ verb: "watch", payload: {}, media: { ref: "/tmp/bad.mp4" }, error: "boom", state: "error" }));
     c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: "/tmp/good.mp4" }, state: "ready" }));
-    await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_v" }, case: openCase(cdir), profile: defaultProfile() });
-    const members = findCollection(openCase(cdir), "col_v")!.members.map((m) => m.ref);
+    await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_v" }, case: openCase(cdir), profile: defaultProfile() });
+    const members = findIndex(openCase(cdir), "col_v")!.members.map((m) => m.ref);
     assert.deepEqual(members, ["/tmp/good.mp4"]); // the errored watch is excluded
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
 });
 
-test("collection entities validates --limit/--offset like ask (#R4-6)", async () => {
-  const [rec] = await collectionVerb.run(ctx("entities", { limit: 0 }, ["col_x", "vid"]));
+test("index entities validates --limit/--offset like ask (#R4-6)", async () => {
+  const [rec] = await indexVerb.run(ctx("entities", { limit: 0 }, ["col_x", "vid"]));
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /invalid --limit/);
 });
 
 // ---- Bugbot round-5 regressions --------------------------------------------
 
-test("ask --collection rejects a blank value (#R5-1)", async () => {
-  const [rec] = await askVerb.run(ctx("q?", { collection: "   " }));
+test("ask --index rejects a blank value (#R5-1)", async () => {
+  const [rec] = await askVerb.run(ctx("q?", { index: "   " }));
   assert.equal(rec.state, "error");
-  assert.match(rec.error ?? "", /--collection requires/);
+  assert.match(rec.error ?? "", /--index requires/);
 });
 
-test("ask --collection rejects a non-media-descriptions collection (#R5-2)", async () => {
+test("ask --index rejects a non-media-descriptions index (#R5-2)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-asktype-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_f", type: "face-analysis", name: "faces" });
-    const [rec] = await askVerb.run({ input: "q?", rest: [], opts: { collection: "col_f" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_f", type: "face-analysis", name: "faces" });
+    const [rec] = await askVerb.run({ input: "q?", rest: [], opts: { index: "col_f" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /not media-descriptions/);
   } finally {
@@ -636,27 +695,27 @@ test("ask --collection rejects a non-media-descriptions collection (#R5-2)", asy
   }
 });
 
-test("resolveCollectionRef errors on an ambiguous name; findCollection returns undefined (#R5-3)", () => {
+test("resolveIndexRef errors on an ambiguous name; findIndex returns undefined (#R5-3)", () => {
   const c = openCase(mkdtempSync(join(tmpdir(), "oc-dupname-")));
   c.ensure();
-  addCollection(c, { id: "col_1", type: "media-descriptions", name: "calls" });
-  addCollection(c, { id: "col_2", type: "media-descriptions", name: "calls" });
-  const r = resolveCollectionRef(c, "calls");
-  assert.match(r.error ?? "", /matches 2 collections/);
-  assert.equal(findCollection(c, "calls"), undefined); // ambiguity-safe
-  assert.equal(resolveCollectionRef(c, "col_1").entry?.id, "col_1"); // an exact id still resolves
+  addIndex(c, { id: "col_1", type: "media-descriptions", name: "calls" });
+  addIndex(c, { id: "col_2", type: "media-descriptions", name: "calls" });
+  const r = resolveIndexRef(c, "calls");
+  assert.match(r.error ?? "", /matches 2 indexes/);
+  assert.equal(findIndex(c, "calls"), undefined); // ambiguity-safe
+  assert.equal(resolveIndexRef(c, "col_1").entry?.id, "col_1"); // an exact id still resolves
 });
 
-test("collection entities does NOT require the local file (reads remote pre-extracted data) (#R5-4 → code-review [6])", async () => {
+test("index entities does NOT require the local file (reads remote pre-extracted data) (#R5-4 → code-review [6])", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-entex-"));
   try {
     const c = openCase(cdir); c.ensure();
     // a video indexed remotely whose local file is gone must still be readable for
-    // its extracted entities — same stance as `collection remove` (requireExists:false).
-    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_x", join(cdir, "gone.mp4")], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    // its extracted entities — same stance as `index remove` (requireExists:false).
+    const [rec] = await indexVerb.run({ input: "entities", rest: ["col_x", join(cdir, "gone.mp4")], opts: {}, case: openCase(cdir), profile: defaultProfile() });
     assert.notEqual(rec.state, "error"); // no "video not found"
     // ...but a non-AV ref is still rejected (the filter still runs)
-    const [bad] = await collectionVerb.run({ input: "entities", rest: ["col_x", join(cdir, "notes.txt")], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    const [bad] = await indexVerb.run({ input: "entities", rest: ["col_x", join(cdir, "notes.txt")], opts: {}, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(bad.state, "error");
     assert.match(bad.error ?? "", /not a video\/audio/);
   } finally {
@@ -666,26 +725,26 @@ test("collection entities does NOT require the local file (reads remote pre-extr
 
 // ---- Bugbot round-6 regressions --------------------------------------------
 
-test("face --collection rejects an ambiguous display name (#R6-1)", async () => {
+test("face --index rejects an ambiguous display name (#R6-1)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-faceamb-"));
   const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_1", type: "face-analysis", name: "faces" });
-    addCollection(c, { id: "col_2", type: "face-analysis", name: "faces" });
-    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img, collection: "faces" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_1", type: "face-analysis", name: "faces" });
+    addIndex(c, { id: "col_2", type: "face-analysis", name: "faces" });
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img, index: "faces" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
-    assert.match(rec.error ?? "", /matches 2 collections/);
+    assert.match(rec.error ?? "", /matches 2 indexes/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("face --collection rejects a non-face-analysis collection type (#R6-2)", async () => {
+test("face --index rejects a non-face-analysis index type (#R6-2)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-facetype-"));
   const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_m", type: "media-descriptions", name: "media" });
-    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img, collection: "col_m" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_m", type: "media-descriptions", name: "media" });
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img, index: "col_m" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /not face-analysis/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
@@ -703,12 +762,12 @@ test("face rejects invalid numeric flags (--limit 0, --min-similarity 150 — ti
 
 // ---- Bugbot round-7 regressions --------------------------------------------
 
-test("collection entities rejects a non-entities collection type (#R7-1)", async () => {
+test("index entities rejects a non-entities index type (#R7-1)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-enttype-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_m", type: "media-descriptions", name: "m" });
-    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_m", "vid"], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_m", type: "media-descriptions", name: "m" });
+    const [rec] = await indexVerb.run({ input: "entities", rest: ["col_m", "vid"], opts: {}, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /not entities/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
@@ -720,7 +779,7 @@ test("face --match rejects a record id whose media isn't an image (#R7-2)", asyn
     const c = openCase(cdir); c.ensure();
     const watch = makeRecord({ verb: "watch", payload: { content: "x" }, media: { ref: "/tmp/clip.mp4" }, state: "ready" });
     c.writeRecord(watch);
-    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: watch.id, collection: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: watch.id, index: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /JPEG or PNG/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
@@ -746,51 +805,51 @@ test("face --match rejects unsupported query-image formats locally (tinycloud 0.
 
 // ---- Bugbot round-8 regressions --------------------------------------------
 
-test("single collection add filters non-ready / face-search / non-AV like --all (#R8-1)", async () => {
+test("single index add filters non-ready / face-search / non-AV like --all (#R8-1)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-add1-"));
   const good = join(cdir, "good.mp4"); writeFileSync(good, "x");
   const notav = join(cdir, "notes.txt"); writeFileSync(notav, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_x", type: "media-descriptions", name: "x" });
+    addIndex(c, { id: "col_x", type: "media-descriptions", name: "x" });
     const bad = makeRecord({ verb: "watch", payload: {}, media: { ref: good }, error: "boom", state: "error" });
     c.writeRecord(bad);
     const mk = (rest: string[]) => ({ input: "add", rest, opts: { to: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
-    const [r1] = await collectionVerb.run(mk([bad.id])); // a failed watch record
+    const [r1] = await indexVerb.run(mk([bad.id])); // a failed watch record
     assert.match(r1.error ?? "", /isn't ready/);
-    const [r2] = await collectionVerb.run(mk([notav])); // a non-AV file
+    const [r2] = await indexVerb.run(mk([notav])); // a non-AV file
     assert.match(r2.error ?? "", /not a video\/audio/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection entities trims a blank id (#R8-2)", async () => {
-  const [rec] = await collectionVerb.run(ctx("entities", {}, ["   ", "vid"]));
+test("index entities trims a blank id (#R8-2)", async () => {
+  const [rec] = await indexVerb.run(ctx("entities", {}, ["   ", "vid"]));
   assert.equal(rec.state, "error");
-  assert.match(rec.error ?? "", /usage: collection entities/);
+  assert.match(rec.error ?? "", /usage: index entities/);
 });
 
 test("addMember/removeMember match by id only, not a colliding display name (#R8-3)", () => {
   const c = openCase(mkdtempSync(join(tmpdir(), "oc-mem-")));
   c.ensure();
-  addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
-  addCollection(c, { id: "col_b", type: "media-descriptions", name: "col_a" }); // name collides with col_a's id
+  addIndex(c, { id: "col_a", type: "media-descriptions", name: "a" });
+  addIndex(c, { id: "col_b", type: "media-descriptions", name: "col_a" }); // name collides with col_a's id
   assert.equal(addMember(c, "col_a", { ref: "v.mp4" }), true);
-  assert.equal(findCollection(c, "col_a")!.members.length, 1); // recorded on col_a (the id)
-  assert.equal(findCollection(c, "col_b")!.members.length, 0); // NOT the name-colliding entry
+  assert.equal(findIndex(c, "col_a")!.members.length, 1); // recorded on col_a (the id)
+  assert.equal(findIndex(c, "col_b")!.members.length, 0); // NOT the name-colliding entry
 });
 
-test("custom face provider gets the auto-picked sole face collection + op (#R7-4)", async () => {
+test("custom face provider gets the auto-picked sole face index + op (#R7-4)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-custres-"));
   const prov = join(cdir, "fp.sh");
-  writeFileSync(prov, '#!/usr/bin/env bash\nargs="$*"\nc=""; o=""\nif echo "$args" | grep -q -- "--collection col_f"; then c=yes; fi\nif echo "$args" | grep -q -- "--op search"; then o=yes; fi\necho "{\\"verb\\":\\"face\\",\\"payload\\":{\\"got_collection\\":\\"$c\\",\\"got_op\\":\\"$o\\"},\\"state\\":\\"ready\\"}"\n');
+  writeFileSync(prov, '#!/usr/bin/env bash\nargs="$*"\nc=""; o=""\nif echo "$args" | grep -q -- "--index col_f"; then c=yes; fi\nif echo "$args" | grep -q -- "--op search"; then o=yes; fi\necho "{\\"verb\\":\\"face\\",\\"payload\\":{\\"got_collection\\":\\"$c\\",\\"got_op\\":\\"$o\\"},\\"state\\":\\"ready\\"}"\n');
   chmodSync(prov, 0o755);
   const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_f", type: "face-analysis", name: "faces" });
+    addIndex(c, { id: "col_f", type: "face-analysis", name: "faces" });
     const p = defaultProfile();
     p.providers = { ...p.providers, face: { type: "exec", run: `bash ${prov} {{input}}` } };
-    // no --collection: the custom path must apply the same sole-face-collection auto-pick + op resolution
+    // no --index: the custom path must apply the same sole-face-index auto-pick + op resolution
     const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: img }, case: c, profile: p });
     assert.equal(rec.state, "ready");
     assert.equal((rec.payload as Record<string, unknown>).got_collection, "yes");
@@ -800,14 +859,14 @@ test("custom face provider gets the auto-picked sole face collection + op (#R7-4
 
 // ---- Bugbot round-9 regressions --------------------------------------------
 
-test("single collection add rejects a scan record (page URL), like --all (#R9-1)", async () => {
+test("single index add rejects a scan record (page URL), like --all (#R9-1)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-addscan-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_x", type: "media-descriptions", name: "x" });
+    addIndex(c, { id: "col_x", type: "media-descriptions", name: "x" });
     const scan = makeRecord({ verb: "scan", payload: { url: "https://news.example/post" }, media: { ref: "https://news.example/post" }, state: "ready" });
     c.writeRecord(scan);
-    const [rec] = await collectionVerb.run({ input: "add", rest: [scan.id], opts: { to: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
+    const [rec] = await indexVerb.run({ input: "add", rest: [scan.id], opts: { to: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /is a scan record/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
@@ -831,8 +890,8 @@ test("a pinned full-path tinycloud face binding runs ALL ops via runFace, not th
 
 // ---- Bugbot round-10 regressions -------------------------------------------
 
-test("collection add rejects an invalid --type (not silently dropped) (#R10-1)", async () => {
-  const [rec] = await collectionVerb.run(ctx("add", { type: "facce", to: "col_x" }, ["vid"]));
+test("index add rejects an invalid --type (not silently dropped) (#R10-1)", async () => {
+  const [rec] = await indexVerb.run(ctx("add", { type: "facce", to: "col_x" }, ["vid"]));
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /unknown --type/);
 });
@@ -868,17 +927,17 @@ test("doctor warns when tinycloud is below the recommended version", async () =>
   }
 });
 
-test("collection remove: a pending async op reports removed:true AND prunes the mirror (no contradiction) (#R10-3)", async () => {
+test("index remove: a pending async op reports removed:true AND prunes the mirror (no contradiction) (#R10-3)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-rmpend-"));
   const video = join(cdir, "v.mp4"); writeFileSync(video, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_r", type: "media-descriptions", name: "r" });
+    addIndex(c, { id: "col_r", type: "media-descriptions", name: "r" });
     addMember(c, "col_r", { ref: video });
-    const [rec] = await collectionVerb.run({ input: "remove", rest: [video], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
+    const [rec] = await indexVerb.run({ input: "remove", rest: [video], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "pending"); // the fixture's async remove
     assert.equal((rec.payload as Record<string, unknown>).removed, true); // payload agrees with the mirror update
-    assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0); // mirror pruned
+    assert.equal(findIndex(openCase(cdir), "col_r")!.members.length, 0); // mirror pruned
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -894,9 +953,9 @@ test("writeRecord stamps the case dir + pageCommand embeds --case (paging works 
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-// ---- Holistic output consistency: collection-read ops get headlines too -----
+// ---- Holistic output consistency: index-read ops get headlines too -----
 
-test("face list (collection) summary matches detect's shape (span + 'not unique people') + moments", async () => {
+test("face list (index) summary matches detect's shape (span + 'not unique people') + moments", async () => {
   const rec = await runFace({ op: "list", source: "clip.mp4", collections: ["col_x"] }, { base: BASE });
   const p = rec.payload as Record<string, unknown>;
   assert.match(String(p.summary), /stored face detection/);
@@ -904,18 +963,18 @@ test("face list (collection) summary matches detect's shape (span + 'not unique 
   assert.ok(Array.isArray(p.moments)); // same pageable timeline the on-demand ops emit
 });
 
-test("collection ops lead with a synthesized summary headline (show file-status, create, entities)", async () => {
+test("index ops lead with a synthesized summary headline (show file-status, create, entities)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-colsum-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_fake123", type: "media-descriptions", name: "fixture" });
+    addIndex(c, { id: "col_fake123", type: "media-descriptions", name: "fixture" });
     // show: a file-status headline (fixture has 1 completed + 1 pending)
-    const [show] = await collectionVerb.run({ input: "show", rest: ["col_fake123"], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    const [show] = await indexVerb.run({ input: "show", rest: ["col_fake123"], opts: {}, case: openCase(cdir), profile: defaultProfile() });
     assert.match(String((show.payload as Record<string, unknown>).summary), /2 videos:.*1 ready.*1 processing/);
     assert.equal(Object.keys(show.payload as Record<string, unknown>)[1], "summary"); // headline near the top (after op)
-    // create: "created <type> collection '<name>'"
-    const [create] = await collectionVerb.run({ input: "create", rest: ["acme"], opts: { type: "media-descriptions" }, case: openCase(cdir), profile: defaultProfile() });
-    assert.match(String((create.payload as Record<string, unknown>).summary), /created media-descriptions collection/);
+    // create: "created <type> index '<name>'"
+    const [create] = await indexVerb.run({ input: "create", rest: ["acme"], opts: { type: "media-descriptions" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.match(String((create.payload as Record<string, unknown>).summary), /created media-descriptions index/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -959,30 +1018,135 @@ test("case memory get on an unknown id names the current case (the per-case wron
 
 // ---- Round 19 --------------------------------------------------------------
 
-test("collection create rejects a blank --schema= / --prompt= / --description= (create blank-flag sweep)", async () => {
+test("index create rejects a blank --schema= / --prompt= / --description= (create blank-flag sweep)", async () => {
   for (const f of ["schema", "prompt", "description"]) {
-    const [rec] = await collectionVerb.run({ input: "create", rest: ["c"], opts: { type: "media-descriptions", [f]: "" }, case: openCase(dir), profile: defaultProfile() });
+    const [rec] = await indexVerb.run({ input: "create", rest: ["c"], opts: { type: "media-descriptions", [f]: "" }, case: openCase(dir), profile: defaultProfile() });
     assert.equal(rec.state, "error", `--${f}= should error`);
     assert.match(rec.error ?? "", new RegExp(`--${f} requires`));
   }
 });
 
-test("the long tinycloud exec timeout is a single shared constant (collection/ask inherit it)", () => {
-  assert.equal(TINYCLOUD_TIMEOUT_MS, 15 * 60_000); // collection + ask get this via runTinycloud's default, matching face/watch/listen
+test("the long tinycloud exec timeout is a single shared constant (index/ask inherit it)", () => {
+  assert.equal(TINYCLOUD_TIMEOUT_MS, 15 * 60_000); // index + ask get this via runTinycloud's default, matching face/watch/listen
 });
 
 // ---- Round 18 --------------------------------------------------------------
 
-test("collection honors a pinned tinycloud in providers.collection (not just env/PATH)", async () => {
+test("index honors a pinned tinycloud in providers.index (not just env/PATH)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-colbase-"));
   const saved = process.env.OVERCAST_TINYCLOUD_CMD;
   try {
     process.env.OVERCAST_TINYCLOUD_CMD = "/nonexistent/tc-DOES-NOT-EXIST"; // env fallback would fail
     const c = openCase(cdir); c.ensure();
     const prof = defaultProfile();
-    prof.providers = { ...prof.providers, collection: { run: `${BASE} library collections {{x}}` } };
-    const [rec] = await collectionVerb.run({ input: "create", rest: ["pin-test"], opts: { type: "media-descriptions" }, case: openCase(cdir), profile: prof });
+    prof.providers = { ...prof.providers, index: { run: `${BASE} library indexes {{x}}` } };
+    const [rec] = await indexVerb.run({ input: "create", rest: ["pin-test"], opts: { type: "media-descriptions" }, case: openCase(cdir), profile: prof });
     assert.equal(rec.state, "ready"); // created via the PINNED profile base (fixture), not the bad env fallback
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index loads a legacy collections.json mirror", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-legacy-col-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    writeFileSync(join(c.storeDir, "collections.json"), JSON.stringify({
+      collections: [{
+        id: "col_legacy",
+        type: "media-descriptions",
+        name: "legacy",
+        members: [],
+        created: "2026-01-01T00:00:00Z",
+      }],
+    }));
+    assert.equal(listIndexes(c)[0].id, "col_legacy");
+    assert.equal(findIndex(c, "legacy")?.id, "col_legacy");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index and ask --index honor legacy providers.collection binding", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-legacy-provider-"));
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = "/nonexistent/tc-DOES-NOT-EXIST";
+    const c = openCase(cdir); c.ensure();
+    const prof = defaultProfile();
+    prof.providers = { ...prof.providers, collection: { type: "exec", run: `${BASE} library collections {{x}}` } };
+    const [created] = await indexVerb.run({ input: "create", rest: ["legacy-pin"], opts: { type: "media-descriptions" }, case: c, profile: prof });
+    assert.equal(created.state, "ready");
+    const [asked] = await askVerb.run({ input: "What happened?", rest: [], opts: { index: "col_fake123" }, case: c, profile: prof });
+    assert.equal(asked.state, "ready");
+    assert.match(((asked.payload as Record<string, unknown>).text as string), /objected to the price/);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index attach mirrors an existing remote index by name", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-attach-"));
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+    const c = openCase(cdir); c.ensure();
+    const [attached] = await indexVerb.run({ input: "attach", rest: ["fixture"], opts: {}, case: c, profile: defaultProfile() });
+    assert.equal(attached.state, "ready");
+    const p = attached.payload as Record<string, unknown>;
+    assert.equal(p.index, "col_fake123");
+    assert.equal(p.name, "fixture");
+    assert.equal(p.type, "media-descriptions");
+    assert.equal(p.member_count, 2);
+    assert.equal(findIndex(c, "fixture")?.id, "col_fake123");
+    assert.equal(listIndexes(c)[0].members.length, 2);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index attach syncs mirrored members instead of keeping stale refs", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-attach-sync-"));
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+    const c = openCase(cdir); c.ensure();
+    const [attached] = await indexVerb.run({ input: "attach", rest: ["fixture"], opts: {}, case: c, profile: defaultProfile() });
+    assert.equal(attached.state, "ready");
+    assert.equal(setMembers(c, "col_fake123", [
+      { ref: "file_abc", fileId: "file_abc" },
+      { ref: "stale.mp4", fileId: "file_stale" },
+    ]), true);
+    assert.deepEqual(listIndexes(c)[0].members.map((m) => m.ref), ["file_abc", "stale.mp4"]);
+
+    const [synced] = await indexVerb.run({ input: "attach", rest: ["fixture"], opts: {}, case: c, profile: defaultProfile() });
+    assert.equal(synced.state, "ready");
+    assert.deepEqual(listIndexes(c)[0].members.map((m) => m.ref), ["file_abc", "file_def"]);
+    assert.equal((synced.payload as Record<string, unknown>).member_count, 2);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index list --remote exposes indexes, not collections, at the public layer", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-remote-list-"));
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+    const c = openCase(cdir); c.ensure();
+    const [remote] = await indexVerb.run({ input: "list", rest: [], opts: { remote: true }, case: c, profile: defaultProfile() });
+    const p = remote.payload as Record<string, unknown>;
+    assert.ok(Array.isArray(p.indexes));
+    assert.equal("collections" in p, false);
+    assert.match(String(p.summary), /index(?:es)? in this account/);
   } finally {
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;
@@ -999,69 +1163,69 @@ test("face rejects a blank --start= / --end= (window-flag hygiene)", async () =>
   assert.equal(b.state, "error"); assert.match(b.error ?? "", /--end requires/);
 });
 
-test("collection entities rejects a misused --to/--from", async () => {
+test("index entities rejects a misused --to/--from", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-entflag-"));
   const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_e", type: "entities", name: "e" });
-    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_e", vid], opts: { to: "col_e" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_e", type: "entities", name: "e" });
+    const [rec] = await indexVerb.run({ input: "entities", rest: ["col_e", vid], opts: { to: "col_e" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /don't apply/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection add --type matches a sole unknown stub (resolveTarget keeps unknown)", async () => {
+test("index add --type matches a sole unknown stub (resolveTarget keeps unknown)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-stub-"));
   const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_u", type: "unknown", name: "col_u" });
-    const [rec] = await collectionVerb.run({ input: "add", rest: [vid], opts: { type: "face" }, case: openCase(cdir), profile: defaultProfile() });
-    assert.notEqual(rec.state, "error"); // the sole unknown stub is upgraded + used, not "no collections"
+    addIndex(c, { id: "col_u", type: "unknown", name: "col_u" });
+    const [rec] = await indexVerb.run({ input: "add", rest: [vid], opts: { type: "face" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.notEqual(rec.state, "error"); // the sole unknown stub is upgraded + used, not "no indexes"
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection add --all rejects a stray positional video", async () => {
+test("index add --all rejects a stray positional video", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-allpos-"));
   const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
-    const [rec] = await collectionVerb.run({ input: "add", rest: [vid], opts: { all: true, to: "col_a" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_a", type: "media-descriptions", name: "a" });
+    const [rec] = await indexVerb.run({ input: "add", rest: [vid], opts: { all: true, to: "col_a" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /--all registers every/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection add --all surfaces failed senses instead of 'no videos'", async () => {
+test("index add --all surfaces failed senses instead of 'no videos'", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-allfail-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_f", type: "media-descriptions", name: "f" });
+    addIndex(c, { id: "col_f", type: "media-descriptions", name: "f" });
     c.writeRecord(makeRecord({ verb: "watch", payload: {}, media: { ref: "/tmp/x.mp4" }, state: "error" }));
-    const [rec] = await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_f" }, case: openCase(cdir), profile: defaultProfile() });
+    const [rec] = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_f" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /failed to sense/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection add --all pending count ignores a face-search record (shared predicate)", async () => {
+test("index add --all pending count ignores a face-search record (shared predicate)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-allsearch-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_s", type: "media-descriptions", name: "s" });
+    addIndex(c, { id: "col_s", type: "media-descriptions", name: "s" });
     // a pending face SEARCH record (media = query image) must NOT be counted as a pending video
     c.writeRecord(makeRecord({ verb: "face", payload: { op: "search" }, media: { ref: "/tmp/q.jpg" }, state: "pending" }));
-    const [rec] = await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_s" }, case: openCase(cdir), profile: defaultProfile() });
+    const [rec] = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_s" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /no new captured\/sensed videos/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection entities rejects a blank --offset= (shared numeric validator; was empty→0)", async () => {
+test("index entities rejects a blank --offset= (shared numeric validator; was empty→0)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-entoff-"));
   const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_o", type: "entities", name: "o" });
-    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_o", vid], opts: { offset: "" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_o", type: "entities", name: "o" });
+    const [rec] = await indexVerb.run({ input: "entities", rest: ["col_o", vid], opts: { offset: "" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /invalid --offset/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
@@ -1073,38 +1237,38 @@ test("media-ref isAv accepts the broader set watch/listen take (.ts transport st
   const ts = join(cdir, "stream.ts"); writeFileSync(ts, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_a", type: "media-descriptions", name: "a" });
-    const [rec] = await collectionVerb.run({ input: "add", rest: [ts], opts: { to: "col_a" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_a", type: "media-descriptions", name: "a" });
+    const [rec] = await indexVerb.run({ input: "add", rest: [ts], opts: { to: "col_a" }, case: openCase(cdir), profile: defaultProfile() });
     assert.notEqual(rec.state, "error"); // a .ts clip is no longer rejected as "not a video"
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection declares a 3rd positional so `entities <id> <video>` is reachable from the agent surface — code-review [3]", () => {
-  assert.equal(collectionVerb.args.length, 3);
-  assert.equal(collectionVerb.args[2].name, "arg2");
+test("index declares a 3rd positional so `entities <id> <video>` is reachable from the agent surface — code-review [3]", () => {
+  assert.equal(indexVerb.args.length, 3);
+  assert.equal(indexVerb.args[2].name, "arg2");
 });
 
-test("bare `collection delete` (no id) errors instead of deleting the sole collection — code-review [9]", async () => {
+test("bare `index delete` (no id) errors instead of deleting the sole index — code-review [9]", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-baredel-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
-    const [rec] = await collectionVerb.run({ input: "delete", rest: [], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    const [rec] = await indexVerb.run({ input: "delete", rest: [], opts: {}, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /explicit id/);
-    assert.equal(listCollections(openCase(cdir)).length, 1); // the sole collection survives
+    assert.equal(listIndexes(openCase(cdir)).length, 1); // the sole index survives
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection add --to a typed collection with a conflicting --type errors — code-review [4]", async () => {
+test("index add --to a typed index with a conflicting --type errors — code-review [4]", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-typeconf-"));
   const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_md", type: "media-descriptions", name: "md" });
-    const [rec] = await collectionVerb.run({ input: "add", rest: [vid], opts: { to: "col_md", type: "face" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_md", type: "media-descriptions", name: "md" });
+    const [rec] = await indexVerb.run({ input: "add", rest: [vid], opts: { to: "col_md", type: "face" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
-    assert.match(rec.error ?? "", /conflicts with collection/);
+    assert.match(rec.error ?? "", /conflicts with index/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -1131,12 +1295,12 @@ test("mapTinycloudState: a null exit (signal kill) on a ready/pending status is 
   assert.equal(mapTinycloudState({ status: "pending" }, {}, null), "error");
 });
 
-test("collection mirror load() tolerates a valid-JSON-but-wrong-shape file — code-review [12]", () => {
+test("index mirror load() tolerates a valid-JSON-but-wrong-shape file — code-review [12]", () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-badshape-"));
   try {
     const c = openCase(cdir); c.ensure();
-    writeFileSync(c.collectionsFile, JSON.stringify({ collections: null }));
-    assert.deepEqual(listCollections(openCase(cdir)), []); // no throw
+    writeFileSync(c.indexesFile, JSON.stringify({ indexes: null }));
+    assert.deepEqual(listIndexes(openCase(cdir)), []); // no throw
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -1198,14 +1362,14 @@ test("face video input applies the shared media filters (rejects a scan record)"
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("single collection add dedupes an already-registered video (no re-submit)", async () => {
+test("single index add dedupes an already-registered video (no re-submit)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-dedupe-"));
   const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_d", type: "media-descriptions", name: "d" });
+    addIndex(c, { id: "col_d", type: "media-descriptions", name: "d" });
     addMember(c, "col_d", { ref: vid });
-    const [rec] = await collectionVerb.run({ input: "add", rest: [vid], opts: { to: "col_d" }, case: openCase(cdir), profile: defaultProfile() });
+    const [rec] = await indexVerb.run({ input: "add", rest: [vid], opts: { to: "col_d" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "ready");
     assert.equal((rec.payload as Record<string, unknown>).already_member, true);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
@@ -1213,30 +1377,30 @@ test("single collection add dedupes an already-registered video (no re-submit)",
 
 // ---- Bugbot round-16 regressions -------------------------------------------
 
-test("collection remove applies media filters but allows a gone file / errored record (#R16-1)", async () => {
+test("index remove applies media filters but allows a gone file / errored record (#R16-1)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-rmfilt-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_r", type: "media-descriptions", name: "r" });
+    addIndex(c, { id: "col_r", type: "media-descriptions", name: "r" });
     addMember(c, "col_r", { ref: "/tmp/gone.mp4" });
     const scan = makeRecord({ verb: "scan", payload: { url: "https://x/p" }, media: { ref: "https://x/p" }, state: "ready" });
     c.writeRecord(scan);
-    const [bad] = await collectionVerb.run({ input: "remove", rest: [scan.id], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
+    const [bad] = await indexVerb.run({ input: "remove", rest: [scan.id], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
     assert.match(bad.error ?? "", /is a scan record/); // a scan record is rejected
     // a gone local file is still removable (no existsSync gate on remove)
-    const [ok] = await collectionVerb.run({ input: "remove", rest: ["/tmp/gone.mp4"], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
+    const [ok] = await indexVerb.run({ input: "remove", rest: ["/tmp/gone.mp4"], opts: { from: "col_r" }, case: openCase(cdir), profile: defaultProfile() });
     assert.notEqual(ok.state, "error");
-    assert.equal(findCollection(openCase(cdir), "col_r")!.members.length, 0);
+    assert.equal(findIndex(openCase(cdir), "col_r")!.members.length, 0);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection add --all reports pending videos instead of 'no videos' (#R16-2)", async () => {
+test("index add --all reports pending videos instead of 'no videos' (#R16-2)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-allpend-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_p", type: "media-descriptions", name: "p" });
+    addIndex(c, { id: "col_p", type: "media-descriptions", name: "p" });
     c.writeRecord(makeRecord({ verb: "watch", payload: {}, media: { ref: "/tmp/inflight.mp4" }, state: "pending" }));
-    const [rec] = await collectionVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_p" }, case: openCase(cdir), profile: defaultProfile() });
+    const [rec] = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_p" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /still processing \(pending\)/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
@@ -1244,27 +1408,27 @@ test("collection add --all reports pending videos instead of 'no videos' (#R16-2
 
 // ---- Bugbot round-15 regressions -------------------------------------------
 
-test("collection add/remove reject the inapplicable target flag (--from on add, --to on remove) (#R15-1)", async () => {
+test("index add/remove reject the inapplicable target flag (--from on add, --to on remove) (#R15-1)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-wrongflag-"));
   const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
-    const [a] = await collectionVerb.run({ input: "add", rest: [vid], opts: { from: "col_only" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    const [a] = await indexVerb.run({ input: "add", rest: [vid], opts: { from: "col_only" }, case: openCase(cdir), profile: defaultProfile() });
     assert.match(a.error ?? "", /targets with --to/);
-    const [r] = await collectionVerb.run({ input: "remove", rest: [vid], opts: { to: "col_only" }, case: openCase(cdir), profile: defaultProfile() });
+    const [r] = await indexVerb.run({ input: "remove", rest: [vid], opts: { to: "col_only" }, case: openCase(cdir), profile: defaultProfile() });
     assert.match(r.error ?? "", /targets with --from/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("collection entities applies add's media filters (rejects a scan record) (#R15-2)", async () => {
+test("index entities applies add's media filters (rejects a scan record) (#R15-2)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-entfilt-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_e", type: "entities", name: "e" });
+    addIndex(c, { id: "col_e", type: "entities", name: "e" });
     const scan = makeRecord({ verb: "scan", payload: { url: "https://x/post" }, media: { ref: "https://x/post" }, state: "ready" });
     c.writeRecord(scan);
-    const [rec] = await collectionVerb.run({ input: "entities", rest: ["col_e", scan.id], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    const [rec] = await indexVerb.run({ input: "entities", rest: ["col_e", scan.id], opts: {}, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /is a scan record/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
@@ -1272,24 +1436,24 @@ test("collection entities applies add's media filters (rejects a scan record) (#
 
 // ---- Bugbot round-14 regressions -------------------------------------------
 
-test("collection create rejects a whitespace-only name and a whitespace-only entities --prompt (#R14-1/#R14-2)", async () => {
-  const [n] = await collectionVerb.run(ctx("create", { type: "media" }, ["   "]));
+test("index create rejects a whitespace-only name and a whitespace-only entities --prompt (#R14-1/#R14-2)", async () => {
+  const [n] = await indexVerb.run(ctx("create", { type: "media" }, ["   "]));
   assert.equal(n.state, "error");
-  assert.match(n.error ?? "", /usage: collection create/);
-  const [p] = await collectionVerb.run(ctx("create", { type: "entities", prompt: "   " }, ["people"]));
+  assert.match(n.error ?? "", /usage: index create/);
+  const [p] = await indexVerb.run(ctx("create", { type: "entities", prompt: "   " }, ["people"]));
   assert.equal(p.state, "error");
   assert.match(p.error ?? "", /--prompt|--schema/);
 });
 
-test("collection delete rejects a misused --to (no silent sole-collection delete) (#R14-3)", async () => {
+test("index delete rejects a misused --to (no silent sole-index delete) (#R14-3)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-stray-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
-    const [d] = await collectionVerb.run({ input: "delete", rest: [], opts: { to: "col_only" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    const [d] = await indexVerb.run({ input: "delete", rest: [], opts: { to: "col_only" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(d.state, "error");
     assert.match(d.error ?? "", /positional id/);
-    assert.equal(listCollections(openCase(cdir)).length, 1); // the sole collection was NOT deleted
+    assert.equal(listIndexes(openCase(cdir)).length, 1); // the sole index was NOT deleted
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -1299,7 +1463,7 @@ test("face --match record rejects an http video/page media.ref (#R14-4)", async 
     const c = openCase(cdir); c.ensure();
     const w = makeRecord({ verb: "watch", payload: {}, media: { ref: "https://example.com/clip.mp4" }, state: "ready" });
     c.writeRecord(w);
-    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: w.id, collection: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
+    const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: w.id, index: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /JPEG or PNG/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
@@ -1312,52 +1476,52 @@ test("empty-string --match / --type are rejected, not treated as omitted (#R13)"
   const [f] = await faceVerb.run(ctx(clip, { match: "" }));
   assert.equal(f.state, "error");
   assert.match(f.error ?? "", /--match requires/);
-  // collection create --type= must NOT silently default to media-descriptions
-  const [cr] = await collectionVerb.run(ctx("create", { type: "" }, ["c"]));
+  // index create --type= must NOT silently default to media-descriptions
+  const [cr] = await indexVerb.run(ctx("create", { type: "" }, ["c"]));
   assert.equal(cr.state, "error");
   assert.match(cr.error ?? "", /unknown --type/);
-  // collection add --type= must NOT silently drop the type
-  const [ad] = await collectionVerb.run(ctx("add", { type: "", to: "col_x" }, ["vid"]));
+  // index add --type= must NOT silently drop the type
+  const [ad] = await indexVerb.run(ctx("add", { type: "", to: "col_x" }, ["vid"]));
   assert.equal(ad.state, "error");
   assert.match(ad.error ?? "", /unknown --type/);
 });
 
 // ---- Bugbot round-12 regression --------------------------------------------
 
-test("empty-string collection flags (--collection=, --to=) are rejected, not treated as omitted (#R12-1)", async () => {
-  // ask --collection= must NOT silently fall back to local memory
-  const [a] = await askVerb.run(ctx("q?", { collection: "" }));
+test("empty-string index flags (--index=, --to=) are rejected, not treated as omitted (#R12-1)", async () => {
+  // ask --index= must NOT silently fall back to local memory
+  const [a] = await askVerb.run(ctx("q?", { index: "" }));
   assert.equal(a.state, "error");
-  assert.match(a.error ?? "", /--collection requires/);
-  // face --collection= must NOT auto-pick / run unscoped
-  const [f] = await faceVerb.run(ctx(clip, { collection: "" }));
+  assert.match(a.error ?? "", /--index requires/);
+  // face --index= must NOT auto-pick / run unscoped
+  const [f] = await faceVerb.run(ctx(clip, { index: "" }));
   assert.equal(f.state, "error");
-  assert.match(f.error ?? "", /--collection requires/);
-  // collection add <vid> --to= must NOT target the case's sole collection
+  assert.match(f.error ?? "", /--index requires/);
+  // index add <vid> --to= must NOT target the case's sole index
   const cdir = mkdtempSync(join(tmpdir(), "oc-emptyto-"));
   const vid = join(cdir, "v.mp4"); writeFileSync(vid, "x");
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
-    const [r] = await collectionVerb.run({ input: "add", rest: [vid], opts: { to: "" }, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    const [r] = await indexVerb.run({ input: "add", rest: [vid], opts: { to: "" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(r.state, "error");
-    assert.match(r.error ?? "", /blank collection id/);
+    assert.match(r.error ?? "", /blank index id/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
 // ---- Bugbot round-11 regression --------------------------------------------
 
-test("collection target rejects a BLANK explicit id but allows an omitted one (#R11)", async () => {
+test("index target rejects a BLANK explicit id but allows an omitted one (#R11)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-blanktgt-"));
   try {
     const c = openCase(cdir); c.ensure();
-    addCollection(c, { id: "col_only", type: "media-descriptions", name: "only" });
-    // a PROVIDED-but-blank id is a user error — must not silently target the sole collection
-    const [blank] = await collectionVerb.run({ input: "show", rest: ["   "], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    addIndex(c, { id: "col_only", type: "media-descriptions", name: "only" });
+    // a PROVIDED-but-blank id is a user error — must not silently target the sole index
+    const [blank] = await indexVerb.run({ input: "show", rest: ["   "], opts: {}, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(blank.state, "error");
-    assert.match(blank.error ?? "", /blank collection id/);
-    // an OMITTED id still resolves the case's sole collection (the convenience path)
-    const [omitted] = await collectionVerb.run({ input: "show", rest: [], opts: {}, case: openCase(cdir), profile: defaultProfile() });
+    assert.match(blank.error ?? "", /blank index id/);
+    // an OMITTED id still resolves the case's sole index (the convenience path)
+    const [omitted] = await indexVerb.run({ input: "show", rest: [], opts: {}, case: openCase(cdir), profile: defaultProfile() });
     assert.notEqual(omitted.state, "error");
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });

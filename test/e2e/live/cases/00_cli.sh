@@ -13,7 +13,7 @@ cond "the verb registry exposes the public verbs"
 cmds="$(ocg commands --json)"
 n="$(echo "$cmds" | jq '.verbs|length')"
 if [ "${n:-0}" -ge 21 ]; then ok "$C.commands_count" "$n verbs in the registry"; else fail "$C.commands_count" "expected at least 21 verbs, got $n"; fi
-for verb in watch listen see face enhance view scan capture monitor collection target source note prebrief ask brief case setup provider doctor skills; do
+for verb in watch listen see face enhance view scan capture monitor index target source note prebrief ask brief case setup provider doctor skills; do
   if echo "$cmds" | jq -e --arg v "$verb" '.verbs[]|select(.name==$v)' >/dev/null; then ok "$C.commands_$verb" "$verb listed"; else fail "$C.commands_$verb" "$verb missing from registry"; fi
 done
 

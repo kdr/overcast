@@ -17,7 +17,7 @@ import {
   sourceVerb,
   prebriefVerb,
 } from "../verbs/osint.js";
-import { collectionVerb } from "../verbs/collection.js";
+import { indexVerb } from "../verbs/index.js";
 import { askVerb, briefVerb } from "../verbs/read.js";
 import { caseVerb } from "../verbs/case.js";
 import { noteVerb } from "../verbs/note.js";
@@ -89,7 +89,7 @@ export const VERBS: VerbSpec[] = [
   scanVerb,
   captureVerb,
   monitorVerb,
-  collectionVerb,
+  indexVerb,
   targetVerb,
   sourceVerb,
   noteVerb,

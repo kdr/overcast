@@ -137,7 +137,7 @@ const ACCENT: Record<string, string> = {
   config: "\x1b[38;2;255;196;0m", // config/dist → amber
 };
 const SENSE = new Set(["watch", "listen", "see", "face", "enhance", "view"]);
-const OSINT = new Set(["scan", "capture", "monitor", "collection", "target", "source", "prebrief"]);
+const OSINT = new Set(["scan", "capture", "monitor", "index", "target", "source", "prebrief"]);
 const READ = new Set(["ask", "brief", "case"]);
 
 function verbAccent(name: string): string {

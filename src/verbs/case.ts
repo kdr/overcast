@@ -2,16 +2,34 @@
 // a folder (invariant #4); this is the read/seed surface over it + the bound
 // memory providers. Subcommands: init | info | records | memory | clear.
 
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase } from "../case.js";
 import { humanSize } from "../render.js";
-import { resolveMemory } from "../providers/memory/index.js";
+import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
+import { tokenizeCommand } from "../providers/sources/index.js";
 import { payloadFields, fieldText, fieldNames, getField } from "../render.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "case", format: "json", payload: { error: message }, error: message, state: "error" });
+}
+
+function quoteCommandArg(arg: string): string {
+  return /^[A-Za-z0-9_./:=@+-]+$/.test(arg) ? arg : JSON.stringify(arg);
+}
+
+function currentCliInvocation(): { cmd: string; args: string[] } {
+  if (process.env.OVERCAST_CMD) {
+    const parts = tokenizeCommand(process.env.OVERCAST_CMD);
+    if (parts.length > 0) return { cmd: parts[0], args: parts.slice(1) };
+  }
+  const script = process.argv[1];
+  if (script && existsSync(script)) return { cmd: process.execPath, args: [script] };
+  return { cmd: process.execPath, args: [] };
 }
 
 export const caseVerb: VerbSpec = {
@@ -21,14 +39,14 @@ export const caseVerb: VerbSpec = {
   description:
     "A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; " +
     "`case info` shows state; `case records [--verb] [--since]` lists records; " +
-    "`case memory <list|get|search> [q]` routes to the bound memory providers. " +
-    "`case clear` previews what would be lost; add `--yes` to clear records/media/state while preserving the case id. " +
+    "`case memory <list|get|search|index> [q]` routes to the bound memory providers. " +
+    "`case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. " +
     "`case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] " +
     "[--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.",
   args: [
     { name: "action", summary: "init | info | records | memory | clear", required: true },
     { name: "sub", summary: "memory subcommand (list|get|search), or dir for init" },
-    { name: "arg", summary: "record id (memory get) or query (memory search)" },
+    { name: "arg", summary: "record id (memory get), query (memory search), or index action" },
   ],
   flags: [
     { name: "name", summary: "Case name (init)", type: "string" },
@@ -37,6 +55,7 @@ export const caseVerb: VerbSpec = {
     { name: "field", summary: "Payload field to read in full (memory get)", type: "string" },
     { name: "offset", summary: "Start char offset when paging a field (memory get)", type: "number" },
     { name: "limit", summary: "Max records/passages, or max chars when paging a field", type: "number" },
+    { name: "memory", summary: "Memory provider/backend for case memory index (e.g. local-grep, qmd)", type: "string" },
     { name: "yes", summary: "Confirm destructive case clear", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -91,7 +110,25 @@ export const caseVerb: VerbSpec = {
 
     if (action === "clear") {
       const confirmed = ctx.opts.yes === true;
-      const before = confirmed ? ctx.case.clear() : ctx.case.clearSummary();
+      const before = ctx.case.clearSummary();
+      let memoryCleared: unknown[] = [];
+      if (confirmed) {
+        memoryCleared = await Promise.all(resolveMemory(ctx.case, ctx.profile)
+          .filter((p) => typeof p.clear === "function")
+          .map(async (p) => {
+            try {
+              return await p.clear!();
+            } catch (e) {
+              return {
+                provider: p.id,
+                backend: p.backend ?? p.id,
+                state: "error",
+                error: (e as Error).message,
+              };
+            }
+          }));
+        ctx.case.clear();
+      }
       const lost = {
         records: before.records,
         counts: before.counts,
@@ -113,7 +150,7 @@ export const caseVerb: VerbSpec = {
               will_lose: lost,
               confirmation_required: true,
               confirm_with: "overcast case clear --yes",
-              note: "case id/name are preserved; records, media, index, targets, sources, collections, and seen state are cleared",
+              note: "case id/name are preserved; records, media, indexes, targets, sources, and seen state are cleared",
             },
             meta: { transient: true },
             state: "pending",
@@ -131,6 +168,7 @@ export const caseVerb: VerbSpec = {
             cleared: true,
             lost,
             preserved: ["case.json"],
+            memory_indexes_cleared: memoryCleared,
           },
           meta: { transient: true },
           state: "ready",
@@ -171,7 +209,19 @@ export const caseVerb: VerbSpec = {
       const sub = ctx.rest[0];
       const providers = resolveMemory(ctx.case, ctx.profile);
       if (sub === "list") {
-        return [makeRecord({ verb: "case", format: "json", payload: { providers: providers.map((p) => p.id) }, state: "ready" })];
+        return [makeRecord({
+          verb: "case",
+          format: "json",
+          payload: {
+            providers: providers.map((p) => ({
+              id: p.id,
+              backend: p.backend ?? p.id,
+              aliases: p.aliases ?? [],
+              indexable: !!p.rebuild,
+            })),
+          },
+          state: "ready",
+        })];
       }
       if (sub === "get") {
         const id = ctx.rest[1];
@@ -281,10 +331,102 @@ export const caseVerb: VerbSpec = {
           }
           limit = n;
         }
-        const passages = await providers[0].query(q, { limit });
+        const requested = ctx.opts.memory ? String(ctx.opts.memory) : undefined;
+        const selected = requested
+          ? providers.filter((p) => requested.split(",").map((s) => s.trim()).filter(Boolean).some((id) => matchesMemoryProvider(p, id)))
+          : providers.filter((p) => matchesMemoryProvider(p, "local-grep"));
+        if (selected.length === 0) {
+          return [err(`no memory provider matches --memory ${requested} (available: ${providers.map((p) => p.id).join(", ") || "none"})`)];
+        }
+        const batches = await Promise.all(selected.map((p) => p.query(q, { limit })));
+        const seen = new Set<string>();
+        const passages = batches.flat().filter((p) => {
+          const key = `${p.recordId}|${JSON.stringify(p.at)}|${p.field ?? ""}|${p.provider ?? ""}|${p.text}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).sort((a, b) => b.score - a.score).slice(0, limit);
         return [makeRecord({ verb: "case", format: "json", payload: { query: q, passages }, state: "ready" })];
       }
-      return [err("usage: case memory <list|get|search> [arg]")];
+      if (sub === "index") {
+        const action = ctx.rest[1] ?? "status";
+        const providerName = ctx.opts.memory ? String(ctx.opts.memory) : undefined;
+        const selected = providerName
+          ? providers.filter((p) => matchesMemoryProvider(p, providerName))
+          : providers;
+        if (providerName && selected.length === 0) {
+          return [err(`no memory provider matches --memory ${providerName} (available: ${providers.map((p) => p.id).join(", ")})`)];
+        }
+        if (action === "status") {
+          const statuses = [];
+          for (const p of selected) {
+            statuses.push(p.status ? await p.status() : { provider: p.id, backend: p.backend ?? p.id, state: "ready" });
+          }
+          return [makeRecord({ verb: "case", format: "json", payload: { memory_index: statuses }, state: "ready" })];
+        }
+        if (action === "rebuild" || action === "retry") {
+          const statuses = [];
+          for (const p of selected) {
+            statuses.push(p.rebuild ? await p.rebuild() : { provider: p.id, backend: p.backend ?? p.id, state: "ready" });
+          }
+          const failed = statuses.filter((s) => s.state === "error");
+          return [makeRecord({ verb: "case", format: "json", payload: { memory_index: statuses }, state: failed.length ? "error" : "ready", error: failed[0]?.error })];
+        }
+        if (action === "start") {
+          const job = `job_${Date.now().toString(36)}`;
+          const jobsDir = join(ctx.case.indexDir, "jobs");
+          mkdirSync(jobsDir, { recursive: true });
+          const jobFile = join(jobsDir, `${job}.json`);
+          const invocation = currentCliInvocation();
+          const args = [
+            "case", "memory", "index", "rebuild",
+            "--case", ctx.case.dir,
+            ...(ctx.home ? ["--home", ctx.home] : []),
+            ...(ctx.profileName ? ["--profile", ctx.profileName] : []),
+            ...(providerName ? ["--memory", providerName] : []),
+            "--json",
+          ];
+          const command = [invocation.cmd, ...invocation.args, ...args].map(quoteCommandArg).join(" ");
+          const logFile = join(jobsDir, `${job}.log`);
+          const scriptFile = join(jobsDir, `${job}.sh`);
+          const jobPayload = { id: job, state: "queued", command, provider: providerName ?? "all", created: new Date().toISOString(), log_file: logFile };
+          writeFileSync(jobFile, JSON.stringify(jobPayload, null, 2) + "\n", "utf8");
+          const runningPayload = { ...jobPayload, state: "running" };
+          const readyPayload = { ...jobPayload, state: "ready" };
+          const script = [
+            "#!/bin/sh",
+            `cat > ${quoteCommandArg(jobFile)} <<'JSON'`,
+            JSON.stringify(runningPayload, null, 2),
+            "JSON",
+            `${command} > ${quoteCommandArg(logFile)} 2>&1`,
+            "rc=$?",
+            "if [ \"$rc\" -eq 0 ]; then",
+            `cat > ${quoteCommandArg(jobFile)} <<'JSON'`,
+            JSON.stringify(readyPayload, null, 2),
+            "JSON",
+            "else",
+            `cat > ${quoteCommandArg(jobFile)} <<'JSON'`,
+            JSON.stringify({ ...jobPayload, state: "error", error: "rebuild failed; see log_file" }, null, 2),
+            "JSON",
+            "fi",
+            "",
+          ].join("\n");
+          writeFileSync(scriptFile, script, "utf8");
+          chmodSync(scriptFile, 0o755);
+          try {
+            const child = spawn("/bin/sh", [scriptFile], { detached: true, stdio: "ignore", env: process.env });
+            child.unref();
+          } catch (e) {
+            const error = (e as Error).message;
+            const failed = { ...jobPayload, state: "error", error };
+            writeFileSync(jobFile, JSON.stringify(failed, null, 2) + "\n", "utf8");
+            return [makeRecord({ verb: "case", format: "json", payload: { job: failed, job_file: jobFile }, state: "error", error })];
+          }
+          return [makeRecord({ verb: "case", format: "json", payload: { job: jobPayload, job_file: jobFile }, state: "pending" })];
+        }
+        return [err("usage: case memory index <status|rebuild|start|retry> [--memory <provider>]")];
+      }
+      return [err("usage: case memory <list|get|search|index> [arg]")];
     }
 
     return [err("usage: case <init|info|records|memory|clear>")];

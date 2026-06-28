@@ -247,7 +247,7 @@ export async function runFace(p: FaceParams, opts: FaceOptions = {}): Promise<Ov
   };
   if (typeof out.env.summary === "string" && out.env.summary.trim()) payload.provider_summary = out.env.summary;
   if (p.image && (p.op === "match" || p.op === "search")) payload.reference = p.image;
-  if (p.collections?.length) payload.collection = p.collections.length === 1 ? p.collections[0] : p.collections;
+  if (p.collections?.length) payload.index = p.collections.length === 1 ? p.collections[0] : p.collections;
   // the compact "when/where" timeline (before the heavy faces[] blob) — the answer
   // most reads want, cleanly pageable on its own.
   if (faces.length) payload.moments = toMoments(faces);

@@ -126,15 +126,62 @@ bash examples/providers/sources/tiktok.sh describe
 
 ## Memory providers
 
-`ask`/`brief` read through bound **memory** providers (fan-out; the always-on
-`local` provider indexes `.overcast/records`). For collection-backed retrieval,
-`ask --collection <id>` queries a tinycloud **media-descriptions** collection
-directly (see below) — the public-verb realization of the A-spec second tier.
+`ask`/`brief` read through bound **memory** providers (fan-out). The always-on
+default is `local-grep`, which scans indexable fields from `.overcast/records`
+(`note.text`, `watch.content`, `listen.transcript`, scan titles/snippets, etc.).
+Only primary evidence records are eligible for memory and briefs: read/meta and
+operational bookkeeping records (`ask`, `brief`, `case`, `setup`, `doctor`,
+`index`, `target`, `source`, `prebrief`, legacy `collection`, etc.) are excluded even if they contain matching
+text. Remote indexes stay explicit through the case index mirror and
+`ask --index`. `face` records are also excluded from general case memory:
+boxes, matches, and stored detections are typed face evidence, not descriptive video
+content. For local videos, `index add <video> --to <id>` creates a missing
+`watch` record before registering the video remotely so local-grep has useful
+content immediately and qmd can ingest it on the next rebuild.
+`local` remains an alias for scripts. Inspect it with:
 
-## Faces (`face`) and collections (`collection`) — tinycloud ≥ 0.3.4
+```bash
+overcast case memory list --json
+overcast case memory index status --json
+overcast ask "where did we see the white van?" --json
+```
 
-These two verbs are backed by the tinycloud CLI's newer **face** and **library
-collections** surfaces (invariant #9: public verbs only; mapped to the loose
+For optional local semantic search, bind qmd:
+
+```bash
+npm install -g @tobilu/qmd
+overcast setup memory qmd
+overcast case memory index rebuild --memory qmd --json
+overcast ask "where did we see the white van?" --deep --json
+overcast ask "where did we see the white van?" --memory qmd --json
+```
+
+The qmd backend materializes markdown docs under `.overcast/index/case-search/qmd`,
+tracks the embedding model/config and a content fingerprint in
+`case memory index status`, and defaults to `embeddinggemma-300M-Q8_0`. Override
+with `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL`, or profile fields (`command`,
+`model`, `clearTemplate`, `indexTemplate`, `embedTemplate`, `queryTemplate`).
+Rebuilds remove the named qmd collection before re-adding the freshly
+materialized docs, so rerunning after new notes/watch records is safe. qmd
+queries do not auto-rebuild a missing/stale index; use
+`case memory index rebuild --memory qmd` first.
+Confirmed `case clear --yes` also best-effort removes configured qmd
+collections before deleting `.overcast/index`, so external qmd cache state does
+not survive a case reset.
+`case memory index start` creates a background rebuild job and `retry` reruns a
+failed/stale rebuild. Plain `ask` remains local-grep; `ask --deep` selects
+configured semantic providers such as qmd, and `--memory qmd` forces that
+provider explicitly. `overcast doctor` reports qmd as an optional check when it
+is installed or configured.
+
+For typed remote retrieval, `ask --index <id>` queries a tinycloud-backed
+**media-descriptions** index directly (see below) — the public-verb realization
+of the portable/remote tier.
+
+## Faces (`face`) and indexes (`index`) — tinycloud ≥ 0.3.4
+
+These two verbs are backed by the tinycloud CLI's newer **face** and underlying
+library collection surfaces (invariant #9: public verbs only; mapped to the loose
 record by the shared `runTinycloud` boundary in
 [`src/providers/tinycloud/envelope.ts`](../src/providers/tinycloud/envelope.ts)).
 Point `OVERCAST_TINYCLOUD_CMD` at a specific binary/wrapper if `tinycloud` isn't
@@ -148,8 +195,8 @@ One verb resolves to one of four tinycloud face ops from the inputs given:
 ```bash
 overcast face ./clip.mp4 --json                          # detect: who is in this video (boxes + timestamps)
 overcast face ./clip.mp4 --match ./suspect.jpg --json    # match: find this person in the clip (JPEG/PNG query image), ranked by similarity
-overcast face --match ./suspect.jpg --collection <id> --json   # search a face-analysis collection (case-wide)
-overcast face ./clip.mp4 --collection <id> --json        # list a video's stored detections in a collection
+overcast face --match ./suspect.jpg --index <id> --json   # search a face-analysis index (case-wide)
+overcast face ./clip.mp4 --index <id> --json        # list a video's stored detections in an index
 ```
 
 Emits a `face.analysis` record: `faces[]` is normalized (`at`, `box`,
@@ -158,45 +205,51 @@ The video/reference may be a path, URL, or a case record id. The `--match`
 query image must be JPEG/PNG; tinycloud 0.3.6 rejects webp/heic/gif/bmp/tiff/avif
 at preflight. Bind your own
 detector with `setup provider face <spec>` like any sense (it receives the media
-plus `--match`/`--collection`/… as flags).
+plus `--match`/`--index`/… as flags).
 
-### `collection` — index a target's videos, then read by type
+### `index` — index a target's videos, then read by type
 
-A collection is a Cloudglue index of videos, searchable one way per **type**.
-overcast keeps a local mirror in `.overcast/collections.json` (the OSINT twin of
-the source/target registries) so the case knows what it owns; the create/add/
-show/delete ops run on tinycloud.
+An index is a Cloudglue-backed corpus of videos, searchable one way per **type**.
+overcast keeps a local mirror in `.overcast/indexes.json` (the OSINT twin of
+the source/target registries) so the case knows what it owns; the create/attach/
+add/show/delete ops run on tinycloud. Use `attach` for an existing remote index;
+use `add` only when registering media into an index.
 
 ```bash
 # media-descriptions → ask / probe across every indexed video
-overcast collection create case-media --type media-descriptions --json
+overcast index create case-media --type media-descriptions --json
+overcast index attach existing-media-index --json       # mirror an existing remote index into this case
 overcast scan --pull --json                          # gather the target's videos into the case
-overcast collection add --all --to <id> --json       # register every captured/sensed video
-overcast ask "what objections came up?" --collection <id> --json
-overcast ask "moments a document is signed" --collection <id> --probe --json
+overcast index add --all --to <id> --json       # register every captured/sensed video
+overcast index add ./local.mp4 --to <id> --json # also creates missing watch evidence locally
+overcast ask "what objections came up?" --index <id> --json
+overcast ask "moments a document is signed" --index <id> --probe --json
 
 # face-analysis → find a person across the whole index
-overcast collection create faces --type face --json
-overcast collection add ./clip.mp4 --to <face-id> --json
-overcast face --match ./suspect.jpg --collection <face-id> --json
+overcast index create faces --type face --json
+overcast index attach existing-face-index --type face --json
+overcast index add ./clip.mp4 --to <face-id> --json
+overcast face --match ./suspect.jpg --index <face-id> --json
 
 # entities → same-schema extraction across all videos, fetched per video
-overcast collection create people --type entities --prompt "people, orgs, locations" --json
-overcast collection entities <ent-id> ./clip.mp4 --json
+overcast index create people --type entities --prompt "people, orgs, locations" --json
+overcast index entities <ent-id> ./clip.mp4 --json
 
-overcast collection list --json                      # the case's collections (mirror)
-overcast collection show <id> --json                 # live status: files[].status
-overcast collection delete <id> --json
+overcast index list --json                      # the case's indexes (mirror)
+overcast index list --remote --json             # account-level tinycloud indexes
+overcast index attach <remote-id-or-name> --json # bind an existing remote index to the case
+overcast index show <id> --json                 # live status: files[].status
+overcast index delete <id> --json
 ```
 
 `--type` accepts the canonical tinycloud names (`media-descriptions`,
 `entities`, `face-analysis`, `rich-transcripts`) and friendly aliases (`media`,
-`face`, …). Entities collections require `--prompt` or `--schema`. `add`/`entities`
+`face`, …). Entities indexes require `--prompt` or `--schema`. `add`/`entities`
 accept a path, URL, or a case record id (a `capture`/`watch` record → its media).
 
 ## Readiness
 
 `overcast doctor` checks pi, the system ffmpeg/ffprobe, Cloudglue creds, the
-tinycloud CLI **and its version** (`face`/`collection` need ≥ 0.3.4), the
+tinycloud CLI **and its version** (`face`/`index` need ≥ 0.3.4), the
 home/profiles, and the active provider bindings. Version 0.3.6 is the current
 recommended tinycloud build.

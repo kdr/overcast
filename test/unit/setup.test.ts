@@ -81,6 +81,25 @@ test("doctor reports core checks (pi/ffmpeg/ffprobe runnable) with structured re
   }
 });
 
+test("doctor warns when configured qmd is missing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-qmd-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-qmd-"));
+  try {
+    const [setup] = await setupVerb.run(ctx(dir, home, "memory", ["qmd", "oc-no-such-qmd-binary"]));
+    assert.equal(setup.state, "ready");
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    const qmd = checks.find((c) => c.name === "qmd");
+    assert.equal(qmd?.ok, false);
+    assert.match(qmd?.detail ?? "", /npm install -g @tobilu\/qmd/);
+    const warnings = (rec.payload as Record<string, unknown>).warnings as string[];
+    assert.ok(warnings.some((w) => /qmd memory is configured/.test(w)), `expected qmd warning; got ${JSON.stringify(warnings)}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("isTinycloudDefault distinguishes the default binding from a custom one", () => {
   assert.equal(isTinycloudDefault("tinycloud watch {{input}} --json"), true);
   assert.equal(isTinycloudDefault("python3 listen.py"), false);

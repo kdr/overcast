@@ -79,21 +79,21 @@ Emits `image.analysis` records.
 
 ### `overcast face`
 
-Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --collection <id>` to search a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id; the reference image for --match must be JPEG/PNG. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
+Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --index <id>` to search a registered face-analysis index (case-wide); `face <video> --index <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id; the reference image for --match must be JPEG/PNG. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
 
 ```
 overcast face [input] [options]
 
-  Detect, match, or search faces in video (and across face-analysis collections).
+  Detect, match, or search faces in video (and across face-analysis indexes).
 
-  Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --collection <id>` to search a registered face-analysis collection (case-wide); `face <video> --collection <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id; the reference image for --match must be JPEG/PNG. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
+  Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --index <id>` to search a registered face-analysis index (case-wide); `face <video> --index <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id; the reference image for --match must be JPEG/PNG. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
 
 Arguments:
-  input            Video to analyze (path/URL/record-id); omit with --match + --collection to search the index
+  input            Video to analyze (path/URL/record-id); omit with --match + --index to search the index
 
 Options:
   --match <string>       Reference face image to find (JPEG/PNG path/URL/record-id)
-  --collection <string>  Face-analysis collection id/name to search or list within (comma-list ok; default: the case's face collection)
+  --index <string>       Face-analysis index id/name to search or list within (comma-list ok; default: the case's face index)
   --max-faces <number>   match: cap returned matches (1–4000)
   --min-similarity <number> match/search: similarity floor (0–100)
   --thumbnails           detect/match: include per-face thumbnail URLs
@@ -236,31 +236,31 @@ Options:
 
 Emits `scan.hit` records.
 
-### `overcast collection`
+### `overcast index`
 
-A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection <id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).
+An index is a Cloudglue-backed searchable corpus of videos, searched one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `attach <remote-id-or-name>` mirrors an existing remote index into this case; `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index <id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).
 
 ```
-overcast collection <action> [arg] [arg2] [options]
+overcast index <action> [arg] [arg2] [options]
 
-  Manage tinycloud collections that index a target's videos (create/add/list/show/delete/remove/entities).
+  Manage tinycloud indexes that index a target's videos (create/attach/add/list/show/delete/remove/entities).
 
-  A collection is a Cloudglue index of videos, searchable one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --collection <id>`, `face --match … --collection <id>`, or `collection entities`. Backed by tinycloud (≥ 0.3.4).
+  An index is a Cloudglue-backed searchable corpus of videos, searched one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `attach <remote-id-or-name>` mirrors an existing remote index into this case; `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index <id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).
 
 Arguments:
-  action           create | add | list | show | delete | remove | entities
-  arg              name (create) · video/record-id (add/remove) · collection id (show/delete/entities)
-  arg2             entities: the video/record-id (collection entities <id> <video>)
+  action           create | attach | add | list | show | delete | remove | entities
+  arg              name (create) · remote id/name (attach) · video/record-id (add/remove) · index id (show/delete/entities)
+  arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
   --schema <string>      create entities: path to a JSON schema file
-  --to <string>          add: target collection id/name
-  --from <string>        remove: collection id/name to remove the video from
+  --to <string>          add: target index id/name
+  --from <string>        remove: index id/name to remove the video from
   --all                  add: register every video the case has captured or sensed (watch/listen/face)
-  --remote               list: also query tinycloud for all account collections
+  --remote               list: also query tinycloud for all account indexes
   --no-upload            add: don't upload (use an already-uploaded source)
   --no-download          add: don't materialize the source locally
   --limit <number>       entities: max entities
@@ -269,33 +269,33 @@ Options:
   --json                 Shorthand for --format json
 ```
 
-Emits `collection` records.
+Emits `index` records.
 
 ## Read
 
 ### `overcast ask`
 
-Retrieves over the bound memory providers (fan-out; local always on) and answers with citations to record.id and media.at. --deep forces agentic deepsearch (cloudglue, when bound).
+Retrieves over bound case-search memory providers (local-grep always on; optional qmd) and answers with citations to record.id and media.at. Plain ask uses local-grep; use --deep or --memory qmd after `setup memory qmd` for qmd-backed local semantic search.
 
 ```
 overcast ask <question> [options]
 
   Natural-language query over the case memory; answers with record.id + media.at citations.
 
-  Retrieves over the bound memory providers (fan-out; local always on) and answers with citations to record.id and media.at. --deep forces agentic deepsearch (cloudglue, when bound).
+  Retrieves over bound case-search memory providers (local-grep always on; optional qmd) and answers with citations to record.id and media.at. Plain ask uses local-grep; use --deep or --memory qmd after `setup memory qmd` for qmd-backed local semantic search.
 
 Arguments:
   question         The question to answer
 
 Options:
-  --deep                 Agentic semantic search (cloudglue)
-  --collection <string>  Answer over a media-descriptions collection (id/name) via tinycloud, not local memory
-  --probe                With --collection: semantic moment search (probe) instead of Q&A (ask)
-  --scope <string>       With --collection --probe: file | segment
-  --memory <string>      Restrict to specific memory provider ids
+  --deep                 Use a provider's semantic/deep search path when available (e.g. qmd)
+  --index <string>       Answer over a media-descriptions index (id/name) via tinycloud, not local memory
+  --probe                With --index: semantic moment search (probe) instead of Q&A (ask)
+  --scope <string>       With --index --probe: file | segment
+  --memory <string>      Restrict to memory provider/backend ids (local-grep/local, qmd)
   --since <string>       Time filter (e.g. 24h, 2026-06-01)
   --verb <string>        Restrict to record kinds (comma list)
-  --limit <number>       Max local passages; with --collection --probe, max probe results
+  --limit <number>       Max local passages; with --index --probe, max probe results
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -394,19 +394,19 @@ Emits `note` records.
 
 ### `overcast case`
 
-A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 ```
 overcast case <action> [sub] [arg] [options]
 
   Inspect/manage the current case: init | info | records | memory | clear.
 
-  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 Arguments:
   action           init | info | records | memory | clear
   sub              memory subcommand (list|get|search), or dir for init
-  arg              record id (memory get) or query (memory search)
+  arg              record id (memory get), query (memory search), or index action
 
 Options:
   --name <string>        Case name (init)
@@ -415,6 +415,7 @@ Options:
   --field <string>       Payload field to read in full (memory get)
   --offset <number>      Start char offset when paging a field (memory get)
   --limit <number>       Max records/passages, or max chars when paging a field
+  --memory <string>      Memory provider/backend for case memory index (e.g. local-grep, qmd)
   --yes                  Confirm destructive case clear
   --json                 JSON output
   --format <string>      json | md | txt
@@ -449,19 +450,19 @@ Emits `prebrief` records.
 
 ### `overcast setup`
 
-Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup show` prints the active profile.
+Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.
 
 ```
 overcast setup <action> [a] [b] [options]
 
   Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|show).
 
-  Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup show` prints the active profile.
+  Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.
 
 Arguments:
-  action           provider | llm | show
-  a                verb (for provider) or provider id (for llm)
-  b                spec (for provider) or model (for llm)
+  action           provider | llm | memory | show
+  a                verb (provider), provider id (llm), or backend (memory)
+  b                spec (provider), model (llm), or command (memory)
 
 Options:
   --profile <string>     Profile name to write (default: default)

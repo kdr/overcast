@@ -29,6 +29,16 @@ export interface ProviderDescriptor {
   endpoint?: string;
   /** inproc transport */
   module?: string;
+  /** optional backend/config discriminator for memory providers */
+  backend?: string;
+  id?: string;
+  model?: string;
+  collection?: string;
+  command?: string;
+  clearTemplate?: string;
+  indexTemplate?: string;
+  embedTemplate?: string;
+  queryTemplate?: string;
 }
 
 export interface Profile {
@@ -37,7 +47,7 @@ export interface Profile {
   llm?: { provider?: string; model?: string };
   /** per-verb sense-provider bindings */
   providers?: Record<string, ProviderDescriptor>;
-  /** memory provider specs (local always implicit) */
+  /** memory provider specs (local-grep always implicit) */
   memory?: ProviderDescriptor[];
   /** MCP server configs */
   mcp?: unknown[];

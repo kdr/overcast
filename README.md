@@ -25,13 +25,17 @@ the CLI from any harness. The brain LLM is BYO; the default perception backend i
   `brew install ffmpeg` · `apt install ffmpeg` · <https://ffmpeg.org/download.html>
   (or point `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` at specific binaries).
 - **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
-  default `watch` / `listen` / `face` / `collection` backend (Cloudglue); set
-  `CLOUDGLUE_API_KEY`. The `face` + `collection` verbs need **tinycloud ≥ 0.3.4**
+  default `watch` / `listen` / `face` / `index` backend (Cloudglue); set
+  `CLOUDGLUE_API_KEY`. The `face` + `index` verbs need **tinycloud ≥ 0.3.4**
   and overcast currently recommends **0.3.6** (`npm i -g @cloudglue/tinycloud@0.3.6`
   or `tinycloud update`); override the invocation with `OVERCAST_TINYCLOUD_CMD`.
+- **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
+  `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
+  `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.
 - **yt-dlp** on `PATH` — only for the `youtube` / `tiktok` capture sources.
 
-`overcast doctor` verifies all of these.
+`overcast doctor` verifies core prerequisites and reports qmd when installed or
+configured.
 
 ```bash
 npm i -g @kdrrr/overcast          # the CLI + pi package  →  `overcast`
@@ -78,6 +82,18 @@ npx skills add kdr/overcast           # vercel-labs/skills; pulls skills from th
 /plugin install overcast@overcast
 ```
 
+**Interactive/headless overcast agent** — both `overcast` and
+`overcast -p "<task>"` load the same system prompt and tool surface. The prompt
+steers the agent to start with zero-config `ask`, rebuild qmd before semantic
+queries, use `ask --deep` for configured semantic memory, and bind remote indexes
+with `index attach` instead of note bookkeeping. Case memory is evidence-only:
+setup/doctor/index/target/source/prebrief/read bookkeeping is excluded from `ask` and `brief`, and
+typed face records are not used as general case-search content. When a local video
+is added to an index before it has been watched, `index add` creates missing
+`watch` evidence for local-grep/qmd memory instead of relying on face detection.
+Confirmed `case clear --yes` also drops configured materialized memory indexes
+such as qmd before clearing local state.
+
 ---
 
 ## Quickstart
@@ -101,10 +117,12 @@ overcast note "rear plate is missing" --ref <watch-record-id> --at 12-18 --tag v
 overcast face ./clip.mp4 --json                       # who is in this video
 overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/PNG query image), ranked by similarity
 
-# 6) index the target's videos into a collection, then search across ALL of them
-overcast collection create faces --type face --json
-overcast collection add --all --to <face-col-id> --json   # register every captured/sensed video
-overcast face --match ./suspect.jpg --collection <face-col-id> --json   # find them across the index
+# 6) index the target's videos, then search across ALL of them
+overcast index create faces --type face --json
+overcast index attach existing-face-index --type face --json       # or bind an existing remote index
+overcast index add --all --to <face-col-id> --json   # register every captured/sensed video
+overcast index add ./local.mp4 --to <face-col-id> --json # creates missing watch evidence locally
+overcast face --match ./suspect.jpg --index <face-col-id> --json   # find them across the index
 
 # 7) launch the interactive agent (pi TUI) in the current case
 overcast
@@ -127,7 +145,7 @@ surface + env vars.)
 | `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue) |
 | `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
 | `see` | caption / OCR / detect on an image or video frame (turnkey HF, or bind a VLM) |
-| `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis collection |
+| `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
 
@@ -137,14 +155,14 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; `--pull` to capture + sense each hit |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `collection` | index a target's videos into a tinycloud collection (media-descriptions / entities / face-analysis) → searchable corpus |
+| `index` | index a target's videos into a searchable corpus (media-descriptions / entities / face-analysis) |
 | `target` / `source` / `note` | manage the standing scope, where to look, and human-authored observations |
 | `prebrief` | stand up a case (name + target + source) in one shot |
 
 **Read** — synthesize the case
 | verb | does |
 |---|---|
-| `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--collection <id>` answers over a media-descriptions collection (`--probe` for moment search) |
+| `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--deep` uses configured semantic memory such as qmd; `--index <id>` answers over a media-descriptions index (`--probe` for moment search) |
 | `brief` | timeline / findings report; `--export` to md/html |
 | `case` | inspect/manage the case: `init` / `info` / `records` / `memory` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
 
@@ -165,6 +183,9 @@ overcast binds verbs to backends through **providers** over one wire contract
 overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input}}"
 overcast setup provider listen  "exec:bash examples/providers/elevenlabs/listen.sh {{input}}"
 overcast setup provider enhance "http://localhost:9000"
+overcast setup memory qmd       # optional local semantic case search
+overcast case memory index rebuild --memory qmd --json
+overcast ask "where did we see the white van?" --deep --json
 ```
 
 Shipped, runnable samples live in [`examples/providers/`](examples/providers);
@@ -174,7 +195,7 @@ authoring guide in [`docs/providers.md`](docs/providers.md).
 |---|---|---|
 | **sense** | watch / listen / see / face / enhance | Cloudglue (default), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
 | **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave) |
-| **memory** | ask / brief | local (always on); a tinycloud `collection` (media-descriptions) via `ask --collection` |
+| **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
 
@@ -223,6 +244,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)
 - `CLOUDGLUE_BASE_URL` — endpoint (default `https://api.cloudglue.dev`)
 - `TINYCLOUD_HTTP_RETRIES`, `TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS`, `TINYCLOUD_JOB_WAIT_TIMEOUT_MS` — tinycloud 0.3.6 Cloudglue retry/upload/job-wait knobs inherited by overcast's default providers
+- `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; install with `npm install -g @tobilu/qmd`, then rebuild before querying qmd)
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
 - `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — turnkey `see` + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`
@@ -262,6 +284,7 @@ npm run build       # tsup (dev/library build)
 npm run typecheck   # tsc --noEmit
 npm test            # unit + offline e2e (fixture provider)
 npm run test:e2e    # full e2e (real clips + Cloudglue); OVERCAST_E2E_LIVE=1 for live cases
+E2E_VERBOSE=1 npm run test:e2e  # include exact commands + output snippets in report.md
 overcast commands --json   # the authoritative verb registry
 overcast doctor            # preflight
 ```

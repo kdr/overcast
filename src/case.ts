@@ -74,7 +74,10 @@ export class Case {
   get sourcesFile(): string {
     return join(this.storeDir, "sources.json");
   }
-  get collectionsFile(): string {
+  get indexesFile(): string {
+    return join(this.storeDir, "indexes.json");
+  }
+  get legacyCollectionsFile(): string {
     return join(this.storeDir, "collections.json");
   }
   get seenFile(): string {
@@ -158,7 +161,8 @@ export class Case {
       stateFiles: [
         this.targetFile,
         this.sourcesFile,
-        this.collectionsFile,
+        this.indexesFile,
+        this.legacyCollectionsFile,
         this.seenFile,
       ].filter(existsSync).map((f) => basename(f)),
     };
@@ -172,7 +176,8 @@ export class Case {
     rmSync(this.indexDir, { recursive: true, force: true });
     rmSync(this.targetFile, { force: true });
     rmSync(this.sourcesFile, { force: true });
-    rmSync(this.collectionsFile, { force: true });
+    rmSync(this.indexesFile, { force: true });
+    rmSync(this.legacyCollectionsFile, { force: true });
     rmSync(this.seenFile, { force: true });
     mkdirSync(this.recordsDir, { recursive: true });
     mkdirSync(this.mediaDir, { recursive: true });

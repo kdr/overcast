@@ -76,7 +76,7 @@ ocrun() {
     $OVERCAST --case "$cd" --home "$cd/.ochome" "$@"
 }
 
-# --- rich reporting ----------------------------------------------------------
+# --- optional rich reporting -------------------------------------------------
 # Each report section captures: the CONDITION under test, the exact COMMAND run,
 # and a SNIPPET of its output. Authoring pattern in a case:
 #
@@ -88,6 +88,10 @@ ocrun() {
 # ok/fail overrides below emit the markdown block, grouping multiple assertions
 # under the one command/output they share.
 DETAIL_MD="$SMOKE_DIR/detail.md"
+
+detail_enabled() {
+  case "${LIVE_E2E_VERBOSE:-${E2E_VERBOSE:-0}}" in 1|true|yes|on) return 0 ;; *) return 1 ;; esac
+}
 
 # set the condition under test (and clear any stale captured command/output so a
 # pure assertion that follows doesn't show a previous command's snippet)
@@ -109,7 +113,26 @@ ocg() {
   printf '%s' "$out"
 }
 
+snippet_output() { # <output>
+  local lines total head_lines tail_lines omitted
+  lines="${LIVE_E2E_VERBOSE_LINES:-${E2E_VERBOSE_LINES:-16}}"
+  total="$(printf '%s\n' "$1" | wc -l | tr -d ' ')"
+  if [ "${total:-0}" -le "$lines" ]; then
+    printf '%s\n' "$1" | cut -c1-200
+    return 0
+  fi
+  head_lines=$((lines / 2))
+  tail_lines=$((lines - head_lines))
+  [ "$head_lines" -lt 1 ] && head_lines=1
+  [ "$tail_lines" -lt 1 ] && tail_lines=1
+  omitted=$((total - head_lines - tail_lines))
+  printf '%s\n' "$1" | head -"$head_lines" | cut -c1-200
+  printf '... (%s lines omitted; showing tail)\n' "$omitted"
+  printf '%s\n' "$1" | tail -"$tail_lines" | cut -c1-200
+}
+
 _detail() { # <PASS|FAIL> <id> <note>
+  detail_enabled || return 0
   local cmd out key
   cmd="$(cat "$SMOKE_DIR/.cmd" 2>/dev/null)"
   out="$(cat "$SMOKE_DIR/.out" 2>/dev/null)"
@@ -119,9 +142,7 @@ _detail() { # <PASS|FAIL> <id> <note>
       printf '\n##### %s\n\n' "${_COND:-$3}"
       if [ -n "$cmd" ]; then
         printf '```console\n$ %s\n' "$cmd"
-        # snippet: first 12 lines, each capped to 200 cols (JSON event streams are wide)
-        printf '%s\n' "$out" | head -12 | cut -c1-200
-        [ "$(printf '%s\n' "$out" | wc -l)" -gt 12 ] && printf '… (output truncated)\n'
+        snippet_output "$out"
         printf '```\n\n'
       fi
     } >>"$DETAIL_MD"

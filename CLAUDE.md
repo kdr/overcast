@@ -23,7 +23,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 - `@cloudglue/cloudglue-js` — the default sense backend (via the tinycloud CLI,
   `exec`). Cloudglue is **also** a pickable *brain* LLM provider (anthropic-messages
   API) so it appears in `/model` — never forced. The tinycloud CLI is a runtime
-  prerequisite (like ffmpeg), not an npm dep; `face` + `collection` need **≥ 0.3.4**,
+  prerequisite (like ffmpeg), not an npm dep; `face` + `index` need **≥ 0.3.4**,
   and current docs recommend tinycloud **0.3.6**.
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
@@ -48,7 +48,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
    (`watch/listen/see/enhance`), **source** (`scan/capture/monitor`; youtube,
-   tiktok, web), and **memory** (`ask/brief`; local). Bindings live in the profile;
+   tiktok, web), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    transports are `exec` (default), `http`, `in-proc`. Default sense binding =
    tinycloud (exec).
 7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `view`, and frame
@@ -74,27 +74,28 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   full audio-scene), `see` (caption / OCR / open-vocab detect — turnkey Hugging
   Face, bindable fal, local OWLv2 via `examples/providers/detect`), `face` (tinycloud
   ≥ 0.3.4: detect faces, `--match <img>` (JPEG/PNG) to find a person in a clip, or search a
-  face-analysis collection), `enhance` (system ffmpeg or a bound model), `view`
+  face-analysis index), `enhance` (system ffmpeg or a bound model), `view`
   (HTML media player).
 - **OSINT** — `scan`, `capture`, `monitor` (sources: youtube / tiktok / web;
-  `--since` recency filter); `collection` (create/add/list/show/delete/remove/entities —
-  index a target's videos into a tinycloud collection: media-descriptions →
-  `ask --collection`, entities → `collection entities`, face-analysis → `face`);
+  `--since` recency filter); `index` (create/add/list/show/delete/remove/entities —
+  index a target's videos into typed indexes: media-descriptions →
+  `ask --index`, entities → `index entities`, face-analysis → `face`);
   `target` / `source` manage scope; `prebrief` stands up a case in one shot.
   Built-in source refs: `youtube:@handle`, `youtube:search:<query>`,
   `youtube:playlist:<id>` or a YouTube URL; `tiktok:@user`, `tiktok:#tag`;
   `web:<query>`.
-- **Read** — `ask` (cited retrieval over case memory; `--collection <id>` answers
-  over a tinycloud media-descriptions collection, `--probe` for moment search),
+- **Read** — `ask` (cited retrieval over case memory; `--index <id>` answers
+  over a tinycloud-backed media-descriptions index, `--probe` for moment search),
   `brief` (timeline/findings report), `case` (inspect/manage the case + its records;
   `case memory get <id> --field <name> --offset/--limit` pages a large record field
   in full — the non-truncating way to read a `watch` `content`/`listen` transcript,
-  vs raw jsonl).
+  vs raw jsonl; `case memory index status|rebuild|start|retry` manages materialized
+  case-search backends such as qmd).
 - **Config / dist** — `setup` (bind providers + brain LLM, manage profiles),
   `provider` (init/list/describe), `doctor` (preflight), `skills` (generate/install).
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
-Slash commands (TUI): `/target /source /collection /case /prebrief /view /setup`
+Slash commands (TUI): `/target /source /index /case /prebrief /view /setup`
 (extension commands) and `/ask /brief` (prompt templates in `prompts/`), plus pi
 built-ins (`/model /tree /session /resume`).
 
