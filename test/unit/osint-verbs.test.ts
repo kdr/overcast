@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,12 +9,15 @@ import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { scanVerb, captureVerb, monitorVerb } from "../../src/verbs/osint.ts";
 import { addSource } from "../../src/state/source.ts";
+import { addTarget } from "../../src/state/target.ts";
+import { addIndex, addMember } from "../../src/state/index.ts";
 import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_SOURCE = join(HERE, "..", "fixtures", "fake-source.sh");
 const FAKE_WATCH = join(HERE, "..", "fixtures", "fake-watch.sh");
+const FAKE_TINYCLOUD = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
 
 let dir: string;
 let clip: string;
@@ -66,6 +69,36 @@ test("scan enumerates the fixture source into scan.hit records", async () => {
   assert.equal(hits.length, 2);
   assert.equal((hits[0].payload as Record<string, unknown>).source, "fixture");
   assert.equal(hits[0].media?.ref, clip);
+});
+
+test("scan falls back to local case media and face index when no sources exist", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-localscan-"));
+  const prev = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    const c = openCase(d);
+    c.ensure();
+    const img = join(d, "face.jpg");
+    const video = join(d, "clip.mp4");
+    writeFileSync(img, "fake image");
+    writeFileSync(video, "fake video");
+    addTarget(c, "Will Smith");
+    addTarget(c, img, { image: true });
+    addIndex(c, { id: "idx_face", name: "faces", type: "face-analysis" });
+    addMember(c, "idx_face", { ref: video });
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
+    const summary = recs.find((r) => r.verb === "scan")!;
+    assert.equal(summary.state, "ready");
+    assert.equal((summary.payload as Record<string, unknown>).op, "local");
+    assert.deepEqual((summary.payload as Record<string, unknown>).media, [video]);
+    assert.match(JSON.stringify((summary.payload as Record<string, unknown>).suggested_commands), /face --match/);
+    assert.equal(recs.some((r) => r.verb === "face" && (r.payload as Record<string, unknown>).op === "search"), true);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prev;
+    rmSync(d, { recursive: true, force: true });
+  }
 });
 
 test("capture copies a local media ref into the case store", async () => {

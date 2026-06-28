@@ -191,20 +191,21 @@ Emits `media.crop` records.
 
 ### `overcast scan`
 
-Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon).
+Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
 
 ```
 overcast scan  [options]
 
-  Sweep registered sources for the target(s); emit scan.hit records (--pull to capture+sense).
+  Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 
-  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon).
+  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
 
 Options:
   --query <string>       Ad-hoc keyword search across sources
   --source <string>      Restrict to source ids/types (comma list)
   --since <string>       Only items newer than e.g. 24h, 2026-06-01
   --limit <number>       Max hits per source
+  --local                Scan local case media/indexes instead of external sources
   --pull                 Auto-capture + sense each hit
   --pipe <string>        Sense to run on pulled hits (watch|listen)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)

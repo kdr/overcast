@@ -164,7 +164,7 @@ surface + env vars.)
 **OSINT** — search / capture / monitor
 | verb | does |
 |---|---|
-| `scan` | sweep registered sources for the target; `--pull` to capture + sense each hit |
+| `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
 | `index` | index a target's videos into a searchable corpus (media-descriptions / entities / face-analysis) |
@@ -205,6 +205,11 @@ overcast case setup --name "dock-incident" --target "@pier9" --memory local-grep
 overcast case setup show --json
 overcast case setup edit --target "new subject" --source "youtube:@channel" --yes --json
 ```
+
+When a case is local-media-only, `overcast scan` does not dead-end on missing
+sources: it scans local setup/media/index state, and if an image target plus a
+face-analysis index exist it runs the face-index match. Use `overcast scan
+--local` to force this local scan even after adding external sources.
 
 ---
 

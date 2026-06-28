@@ -3,7 +3,7 @@
 // memory providers. Subcommands: init | info | records | memory | clear.
 
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase } from "../case.js";
@@ -17,6 +17,7 @@ import { addTarget, listTargets, removeTarget } from "../state/target.js";
 import { addIndex, listIndexes, normalizeIndexType, removeIndex } from "../state/index.js";
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex } from "../state/setup.js";
 import { indexVerb } from "./index.js";
+import { isAv } from "./media-ref.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -150,6 +151,37 @@ function setupIndexRef(index: SetupIndex): string {
 function refreshSetupRouteIndexes(setup: CaseSetup): void {
   const indexRefs = setup.indexes.map(setupIndexRef);
   for (const route of setup.media.routes) route.indexes = [...indexRefs];
+}
+
+function addVideoRoute(setup: CaseSetup, ref: string, signals: string[]): void {
+  if (!setup.media.videos.includes(ref)) setup.media.videos.push(ref);
+  const route = setup.media.routes.find((r) => r.ref === ref);
+  const indexRefs = setup.indexes.map(setupIndexRef);
+  if (route) {
+    route.signals = signals.length ? signals : route.signals;
+    route.indexes = indexRefs.length ? indexRefs : route.indexes;
+  } else {
+    setup.media.routes.push({ ref, signals: signals.length ? signals : ["watch"], indexes: indexRefs });
+  }
+}
+
+function folderMediaFiles(folder: string): string[] {
+  if (!existsSync(folder)) return [];
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile() && isAv(path)) out.push(path);
+    }
+  };
+  try {
+    if (statSync(folder).isDirectory()) walk(folder);
+    else if (statSync(folder).isFile() && isAv(folder)) out.push(folder);
+  } catch {
+    return [];
+  }
+  return out.sort();
 }
 
 function remoteIndexId(rec: OvercastRecord): string | undefined {
@@ -343,21 +375,15 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     }
   }
   for (const video of videos) {
-    if (!setup.media.videos.includes(video)) setup.media.videos.push(video);
-    const route = setup.media.routes.find((r) => r.ref === video);
-    const indexRefs = setup.indexes.map(setupIndexRef);
-    if (route) {
-      route.signals = signals.length ? signals : route.signals;
-      route.indexes = indexRefs.length ? indexRefs : route.indexes;
-    } else {
-      setup.media.routes.push({ ref: video, signals: signals.length ? signals : ["watch"], indexes: indexRefs });
-    }
+    addVideoRoute(setup, video, signals);
     operations.push(`video route: ${video}`);
   }
   if (indexRoutesChanged) refreshSetupRouteIndexes(setup);
   for (const folder of folders) {
     if (!setup.media.folders.includes(folder)) setup.media.folders.push(folder);
-    operations.push(`folder select: ${folder}`);
+    const files = folderMediaFiles(folder);
+    for (const file of files) addVideoRoute(setup, file, signals);
+    operations.push(`folder select: ${folder}${files.length ? ` (${files.length} media files)` : " (no media files found)"}`);
   }
   if (!operations.length && op === "startup_setup") operations.push("save empty setup");
 

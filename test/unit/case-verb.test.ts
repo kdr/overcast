@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
@@ -319,6 +319,35 @@ test("case setup index-only edits refresh saved video route indexes", async () =
     saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
     assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0].indexes, ["idx_b"]);
     assert.deepEqual((saved.default_signals as Record<string, unknown>).idx_a, undefined);
+  });
+});
+
+test("case setup expands selected folders into routed media files", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const folder = join(dir, "videos");
+    const nested = join(folder, "nested");
+    mkdirSync(nested, { recursive: true });
+    const a = join(folder, "a.mp4");
+    const b = join(nested, "b.mov");
+    const ignored = join(folder, "readme.txt");
+    writeFileSync(a, "a");
+    writeFileSync(b, "b");
+    writeFileSync(ignored, "ignore");
+
+    const records = await caseVerb.run(ctx(dir, "setup", [], {
+      folder,
+      index: "idx_media:media-descriptions:Media",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual((saved.media as Record<string, unknown>).folders, [folder]);
+    assert.deepEqual((saved.media as Record<string, unknown>).videos, [a, b]);
+    assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>).map((r) => r.ref), [a, b]);
+    assert.match(JSON.stringify((records.at(-1)!.payload as Record<string, unknown>).applied_operations), /folder select: .*\(2 media files\)/);
   });
 });
 

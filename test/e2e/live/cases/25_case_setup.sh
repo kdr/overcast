@@ -47,6 +47,20 @@ else
   skip "$C.apply_indexing" "no OC_TEST_MEDIA_INDEX/OC_TEST_FACE_INDEX/CLOUDGLUE_API_KEY configured"
 fi
 
+cond "scan --local inspects setup media/indexes without sweeping sources"
+local_scan="$(OC_TIMEOUT=300 oc "$CASE" scan --local --json)"
+local_scan_rec="$(echo "$local_scan" | jq -s '.[]|select(.verb=="scan" and .payload.op=="local")')"
+assert_eq "$C.local_scan_state" "ready" "$(echo "$local_scan_rec" | jq -r '.state')" "local scan ready"
+assert_eq "$C.local_scan_video" "true" "$(echo "$local_scan_rec" | jq -r --arg video "$VIDEO_SMALL" '.payload.media|index($video) != null')" "local scan sees setup video"
+if [ "${#SETUP_INDEX_ARGS[@]}" -gt 0 ]; then
+  idx_count="$(echo "$local_scan_rec" | jq -r '.payload.indexes|length')"
+  if [ "${idx_count:-0}" -ge 2 ]; then
+    ok "$C.local_scan_indexes" "local scan sees setup indexes ($idx_count)"
+  else
+    fail "$C.local_scan_indexes" "local scan did not report setup indexes"
+  fi
+fi
+
 cond "case setup edit appends a source and emits startup_setup_update"
 edit="$(oc "$CASE" case setup edit --source "youtube:@overcast-live" --yes --json)"
 update_rec="$(echo "$edit" | jq -s '.[]|select(.verb=="case" and .payload.op=="startup_setup_update")')"

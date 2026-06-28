@@ -117,6 +117,11 @@ overcast crop <see-record-id> --all --class person --json        # materialize d
 - **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). Supported ref: `web:<query>` for web search hits.
 - Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
+For local-media-only cases, `scan` falls back to local case media/indexes instead
+of erroring on missing sources. If an image target and face-analysis index are
+present, it runs the face-index search; use `scan --local` to force this local
+path even when external sources are registered.
+
 Each responds to `describe` offline:
 
 ```bash
