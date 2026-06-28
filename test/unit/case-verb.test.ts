@@ -252,6 +252,30 @@ test("case setup only marks providers indexable when provider-indexable selects 
   });
 });
 
+test("case setup provider edit preserves indexable when provider-indexable is omitted", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], {
+      provider: "listen:elevenlabs",
+      "provider-indexable": "listen",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], {
+      provider: "listen:tinycloud",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const providers = saved.providers as Record<string, Record<string, unknown>>;
+    assert.equal(providers.listen.choice, "tinycloud");
+    assert.equal(providers.listen.indexable, true);
+  });
+});
+
 test("case setup edit can disable auto-index-new", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
@@ -264,6 +288,21 @@ test("case setup edit can disable auto-index-new", async () => {
     c.writeRecord(records.at(-1)!);
     saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
     assert.deepEqual(saved.automation, { auto_sense: [], auto_index_new: false });
+  });
+});
+
+test("case setup edit can clear auto-sense with an empty value", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { "auto-sense": "watch,listen", yes: true, ...noIndex }));
+    c.writeRecord(records.at(-1)!);
+    let saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual((saved.automation as Record<string, unknown>).auto_sense, ["watch", "listen"]);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { "auto-sense": "", yes: true, ...noIndex }));
+    c.writeRecord(records.at(-1)!);
+    saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual((saved.automation as Record<string, unknown>).auto_sense, []);
   });
 });
 

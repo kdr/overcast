@@ -290,7 +290,9 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   const folders = csv(ctx.opts.folder);
   const providerSelections = parseProviderSelections(ctx.opts.provider);
   const indexableProviders = new Set(csv(ctx.opts["provider-indexable"]));
+  const indexableProvidersSpecified = ctx.opts["provider-indexable"] != null;
   const autoSense = csv(ctx.opts["auto-sense"]);
+  const autoSenseSpecified = ctx.opts["auto-sense"] != null;
   const findingsMode = ctx.opts.findings != null ? String(ctx.opts.findings).trim().toLowerCase() : "";
   const setup = cloneSetup(base);
   const operations: string[] = [];
@@ -412,11 +414,12 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
         operations.push(`provider selection invalid: ${selection.verb || "(missing verb)"}:${selection.choice || "(missing choice)"}`);
         continue;
       }
+      const existingPolicy = setup.providers[selection.verb];
       setup.providers[selection.verb] = {
         verb: selection.verb,
         choice: selection.choice,
         profile: ctx.profileName ?? ctx.profile.name,
-        indexable: indexableProviders.has(selection.verb),
+        indexable: indexableProvidersSpecified ? indexableProviders.has(selection.verb) : existingPolicy?.indexable === true,
         descriptor: choice.descriptor,
         env: choice.env ?? [],
         missing_env: (choice.env ?? []).filter((name) => !process.env[name]),
@@ -433,9 +436,9 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
       operations.push(`provider indexable: ${verb}`);
     }
   }
-  if (autoSense.length || ctx.opts["auto-index-new"] != null || ctx.opts["no-auto-index-new"] != null) {
+  if (autoSenseSpecified || ctx.opts["auto-index-new"] != null || ctx.opts["no-auto-index-new"] != null) {
     setup.automation = {
-      auto_sense: autoSense.length ? autoSense : (setup.automation?.auto_sense ?? []),
+      auto_sense: autoSenseSpecified ? autoSense : (setup.automation?.auto_sense ?? []),
       auto_index_new: ctx.opts["no-auto-index-new"] === true
         ? false
         : ctx.opts["auto-index-new"] === true
