@@ -571,7 +571,7 @@ export const caseVerb: VerbSpec = {
       for (const memory of csv(ctx.opts.memory)) {
         if (!normalizeSetupMemory(memory)) return [err(`case setup needs one local memory backend: local-grep or qmd (got '${memory}')`)];
       }
-      const op = saved?.completed ? "startup_setup_update" : "startup_setup";
+      const op = saved ? "startup_setup_update" : "startup_setup";
       const before = summarizeSavedSetup(saved);
       const change = buildSetupChange(ctx, base, op, !isPlan);
       const workRecords = !isPlan && ctx.opts["no-index"] !== true ? await applySetupIndexing(ctx, change.setup, change.operations) : [];

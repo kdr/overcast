@@ -417,6 +417,41 @@ test("case setup remains incomplete when remote index creation does not return a
   });
 });
 
+test("case setup saved-but-incomplete follow-up emits update op", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const video = join(dir, "clip.mp4");
+    writeFileSync(video, "fake");
+    const prevCmd = process.env.OVERCAST_TINYCLOUD_CMD;
+    const prevMode = process.env.OVERCAST_FAKE_TC_MODE;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${join(process.cwd(), "test/fixtures/fake-tinycloud.sh")}`;
+    process.env.OVERCAST_FAKE_TC_MODE = "cred";
+    try {
+      let records = await caseVerb.run(ctx(dir, "setup", [], {
+        index: "Scenes:media-descriptions",
+        video,
+        yes: true,
+      }));
+      c.writeRecord(records.at(-1)!);
+      assert.equal((records.at(-1)!.payload as Record<string, unknown>).op, "startup_setup");
+      assert.equal(records.at(-1)!.state, "pending");
+
+      records = await caseVerb.run(ctx(dir, "setup", [], {
+        target: "follow-up",
+        yes: true,
+        ...noIndex,
+      }));
+      const update = records.at(-1)!;
+      assert.equal((update.payload as Record<string, unknown>).op, "startup_setup_update");
+    } finally {
+      if (prevCmd === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+      else process.env.OVERCAST_TINYCLOUD_CMD = prevCmd;
+      if (prevMode === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;
+      else process.env.OVERCAST_FAKE_TC_MODE = prevMode;
+    }
+  });
+});
+
 test("case setup edit does not say indexing started for existing index members", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
