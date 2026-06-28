@@ -194,6 +194,25 @@ export function addMember(c: Case, id: string, member: Omit<IndexMember, "added"
   return true;
 }
 
+/** Replace the mirrored membership list for a remote index. Used by attach/sync
+ *  so stale remote files disappear locally instead of accumulating forever. */
+export function setMembers(c: Case, id: string, members: Omit<IndexMember, "added">[]): boolean {
+  const store = load(c);
+  const col = store.indexes.find((x) => x.id === id);
+  if (!col) return false;
+  const existingAdded = new Map(col.members.map((m) => [m.ref, m.added]));
+  const seen = new Set<string>();
+  const now = new Date().toISOString();
+  col.members = [];
+  for (const member of members) {
+    if (seen.has(member.ref)) continue;
+    seen.add(member.ref);
+    col.members.push({ ...member, added: existingAdded.get(member.ref) ?? now });
+  }
+  save(c, store);
+  return true;
+}
+
 export function removeMember(c: Case, id: string, ref: string): boolean {
   const store = load(c);
   const col = store.indexes.find((x) => x.id === id); // id-only (see addMember)

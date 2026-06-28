@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { Case } from "../../case.js";
 import { isMetaRecord, type OvercastRecord } from "../../record.js";
 import { execCapture } from "../exec.js";
 import { tokenizeCommand } from "../sources/index.js";
 import { indexableDocument, type IndexableDocument } from "./fields.js";
-import { LocalMemoryProvider } from "./local.js";
 import type { Answer, MemoryIndexStatus, MemoryProvider, Passage, QueryOpts } from "./types.js";
 
 export const DEFAULT_QMD_MODEL = "embeddinggemma-300M-Q8_0";
@@ -52,9 +52,41 @@ function docMarkdown(doc: IndexableDocument): string {
   ].filter(Boolean).join("\n");
 }
 
-function parseQmdPassages(stdout: string, fallback: Passage[]): Passage[] {
+function docsFingerprint(docs: IndexableDocument[]): string {
+  const h = createHash("sha256");
+  for (const doc of docs) {
+    h.update(JSON.stringify({
+      id: doc.id,
+      recordId: doc.recordId,
+      verb: doc.verb,
+      title: doc.title,
+      text: doc.text,
+      media: doc.media,
+      time: doc.time,
+    }));
+    h.update("\n");
+  }
+  return h.digest("hex");
+}
+
+function parseAt(value: unknown): number | [number, number] | undefined {
+  if (Array.isArray(value)) {
+    const nums = value.map(Number).filter(Number.isFinite);
+    if (nums.length >= 2) return [nums[0], nums[1]];
+    if (nums.length === 1) return nums[0];
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parts = value.split(/[-,]/).map((p) => Number(p.trim())).filter(Number.isFinite);
+    if (parts.length >= 2) return [parts[0], parts[1]];
+    if (parts.length === 1) return parts[0];
+  }
+  return undefined;
+}
+
+function parseQmdPassages(stdout: string): Passage[] {
   const trimmed = stdout.trim();
-  if (!trimmed) return fallback;
+  if (!trimmed) return [];
   try {
     const parsed = JSON.parse(trimmed) as unknown;
     const arr = Array.isArray(parsed)
@@ -70,17 +102,19 @@ function parseQmdPassages(stdout: string, fallback: Passage[]): Passage[] {
       const metadata = (o.metadata && typeof o.metadata === "object" ? o.metadata : {}) as Record<string, unknown>;
       const recordId = String(o.recordId ?? o.record_id ?? metadata.recordId ?? metadata.record_id ?? "").trim();
       if (!recordId || !text) continue;
+      const at = parseAt(o.at ?? o.media_at ?? o.mediaAt ?? metadata.at ?? metadata.media_at ?? metadata.mediaAt);
       passages.push({
         recordId,
+        at,
         verb: String(o.verb ?? metadata.verb ?? "record"),
         text,
         score: Number(o.score ?? o.similarity ?? 1),
         provider: "qmd",
       });
     }
-    return passages.length ? passages : fallback;
+    return passages;
   } catch {
-    return fallback;
+    return [];
   }
 }
 
@@ -92,6 +126,7 @@ interface QmdManifest {
   command: string;
   documents: number;
   records: number;
+  fingerprint?: string;
   state: MemoryIndexStatus["state"];
   error?: string;
   updated?: string;
@@ -102,7 +137,6 @@ export class QmdMemoryProvider implements MemoryProvider {
   readonly id: string;
   readonly backend = "qmd";
   readonly aliases = ["qmd"];
-  private readonly local: LocalMemoryProvider;
   private readonly command: string;
   private readonly collection: string;
   private readonly model: string;
@@ -113,7 +147,6 @@ export class QmdMemoryProvider implements MemoryProvider {
 
   constructor(private readonly case_: Case, cfg: QmdMemoryConfig = {}) {
     this.id = cfg.id ?? "qmd";
-    this.local = new LocalMemoryProvider(case_);
     this.command = cfg.command ?? process.env.OVERCAST_QMD_CMD ?? "qmd";
     this.collection = cfg.collection ?? `overcast-${safeName(case_.info().id)}`;
     this.model = cfg.model ?? process.env.OVERCAST_QMD_MODEL ?? DEFAULT_QMD_MODEL;
@@ -130,8 +163,13 @@ export class QmdMemoryProvider implements MemoryProvider {
   async status(): Promise<MemoryIndexStatus> {
     const manifest = this.readManifest();
     const records = this.case_.records().filter((r) => !isMetaRecord(r));
-    const docs = records.map(indexableDocument).filter(Boolean).length;
-    const compatible = manifest && manifest.documents === docs && manifest.model === this.model && manifest.collection === this.collection;
+    const docs = records.map(indexableDocument).filter((d): d is IndexableDocument => !!d);
+    const fingerprint = docsFingerprint(docs);
+    const compatible = manifest &&
+      manifest.documents === docs.length &&
+      manifest.model === this.model &&
+      manifest.collection === this.collection &&
+      manifest.fingerprint === fingerprint;
     const state = compatible && manifest.state === "ready" ? "ready" : manifest ? (manifest.state === "error" ? "error" : "stale") : "missing";
     return {
       provider: this.id,
@@ -163,6 +201,7 @@ export class QmdMemoryProvider implements MemoryProvider {
       command: this.command,
       documents: docs.length,
       records: records.length,
+      fingerprint: docsFingerprint(docs),
       state: "stale",
       updated: new Date().toISOString(),
     };
@@ -196,11 +235,7 @@ export class QmdMemoryProvider implements MemoryProvider {
 
   async query(q: string, opts: QueryOpts = {}): Promise<Passage[]> {
     const st = await this.status();
-    const fallback = this.local.query(q, opts).map((p) => ({ ...p, provider: this.id }));
-    if (st.state !== "ready") {
-      const rebuilt = await this.rebuild();
-      if (rebuilt.state !== "ready") return fallback;
-    }
+    if (st.state !== "ready") return [];
     const vars = {
       cmd: this.command,
       query: q,
@@ -211,15 +246,23 @@ export class QmdMemoryProvider implements MemoryProvider {
     };
     const template = this.queryTemplate ?? "{{cmd}} search {{query}} --collection {{collection}} --limit {{limit}} --json";
     const argv = renderTemplate(template, vars);
-    if (!argv.length) return fallback;
+    if (!argv.length) return [];
     const res = await execCapture(argv[0], argv.slice(1), { timeoutMs: 5 * 60_000 }).catch(() => undefined);
-    if (!res || res.code !== 0) return fallback;
-    return parseQmdPassages(res.stdout, fallback).slice(0, opts.limit ?? 8);
+    if (!res || res.code !== 0) return [];
+    return parseQmdPassages(res.stdout).slice(0, opts.limit ?? 8);
   }
 
   async answer(q: string, opts: QueryOpts = {}): Promise<Answer> {
+    const st = await this.status();
+    if (st.state !== "ready") {
+      const reason = st.state === "error" && st.error ? ` (${st.error})` : "";
+      return {
+        text: `qmd index is ${st.state}${reason}; run \`overcast case memory index rebuild --memory ${this.id}\` before querying qmd.`,
+        citations: [],
+      };
+    }
     const passages = await this.query(q, opts);
-    if (passages.length === 0) return { text: `No records in this case match "${q}".`, citations: [] };
+    if (passages.length === 0) return { text: `No qmd results for "${q}".`, citations: [] };
     const lines = [`Found ${passages.length} relevant record(s) for "${q}" via qmd:`, ""];
     for (const p of passages) {
       const at = p.at != null ? ` @${Array.isArray(p.at) ? p.at.join("-") : p.at}s` : "";

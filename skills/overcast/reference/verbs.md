@@ -275,14 +275,14 @@ Emits `index` records.
 
 ### `overcast ask`
 
-Retrieves over bound case-search memory providers (local-grep always on; optional qmd) and answers with citations to record.id and media.at. Use --memory qmd after `setup memory qmd` for qmd-backed local semantic search.
+Retrieves over bound case-search memory providers (local-grep always on; optional qmd) and answers with citations to record.id and media.at. Plain ask uses local-grep; use --deep or --memory qmd after `setup memory qmd` for qmd-backed local semantic search.
 
 ```
 overcast ask <question> [options]
 
   Natural-language query over the case memory; answers with record.id + media.at citations.
 
-  Retrieves over bound case-search memory providers (local-grep always on; optional qmd) and answers with citations to record.id and media.at. Use --memory qmd after `setup memory qmd` for qmd-backed local semantic search.
+  Retrieves over bound case-search memory providers (local-grep always on; optional qmd) and answers with citations to record.id and media.at. Plain ask uses local-grep; use --deep or --memory qmd after `setup memory qmd` for qmd-backed local semantic search.
 
 Arguments:
   question         The question to answer

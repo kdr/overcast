@@ -31,6 +31,7 @@ import {
   addMember,
   removeMember,
   normalizeIndexType,
+  setMembers,
 } from "../state/index.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { resolveVideoArg, isRegisterableMediaRecord } from "./media-ref.js";
@@ -334,10 +335,11 @@ export const indexVerb: VerbSpec = {
       const type = typeHint ?? remoteType ?? "unknown";
       const entry = addIndex(c, { id: remoteId, type, name: remoteName ?? remoteId });
       const files = remoteFiles(shown);
-      for (const f of files) {
+      const members = files.flatMap((f) => {
         const ref = remoteFileRef(f);
-        if (ref) addMember(c, remoteId, { ref, fileId: nonEmpty(f.file_id) ?? nonEmpty(f.fileId) ?? nonEmpty(f.id) });
-      }
+        return ref ? [{ ref, fileId: nonEmpty(f.file_id) ?? nonEmpty(f.fileId) ?? nonEmpty(f.id) }] : [];
+      });
+      setMembers(c, remoteId, members);
       return [makeRecord({
         verb: "index",
         format: "json",

@@ -41,7 +41,7 @@ export const askVerb: VerbSpec = {
   summary: "Natural-language query over the case memory; answers with record.id + media.at citations.",
   description:
     "Retrieves over bound case-search memory providers (local-grep always on; optional qmd) and answers " +
-    "with citations to record.id and media.at. Use --memory qmd after `setup memory qmd` for qmd-backed local semantic search.",
+    "with citations to record.id and media.at. Plain ask uses local-grep; use --deep or --memory qmd after `setup memory qmd` for qmd-backed local semantic search.",
   args: [{ name: "question", summary: "The question to answer", required: true }],
   flags: [
     { name: "deep", summary: "Use a provider's semantic/deep search path when available (e.g. qmd)", type: "boolean" },
@@ -131,7 +131,10 @@ export const askVerb: VerbSpec = {
       return [askError(`invalid --since value: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
     }
     const available = resolveMemory(ctx.case, ctx.profile);
-    let providers = available.filter((p) => matchesMemoryProvider(p, "local-grep"));
+    let providers = ctx.opts.deep === true
+      ? available.filter((p) => typeof p.deepsearch === "function")
+      : available.filter((p) => matchesMemoryProvider(p, "local-grep"));
+    if (providers.length === 0) providers = available.filter((p) => matchesMemoryProvider(p, "local-grep"));
     if (ctx.opts.memory) {
       const ids = String(ctx.opts.memory).split(",").map((s) => s.trim()).filter(Boolean);
       providers = available.filter((p) => ids.some((id) => matchesMemoryProvider(p, id)));

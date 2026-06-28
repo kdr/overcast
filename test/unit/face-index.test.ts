@@ -31,6 +31,7 @@ import {
   resolveIndexRef,
   removeIndex,
   addMember,
+  setMembers,
   removeMember,
   indexesByType,
 } from "../../src/state/index.ts";
@@ -1045,6 +1046,31 @@ test("index attach mirrors an existing remote index by name", async () => {
     assert.equal(p.member_count, 2);
     assert.equal(findIndex(c, "fixture")?.id, "col_fake123");
     assert.equal(listIndexes(c)[0].members.length, 2);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index attach syncs mirrored members instead of keeping stale refs", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-attach-sync-"));
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+    const c = openCase(cdir); c.ensure();
+    const [attached] = await indexVerb.run({ input: "attach", rest: ["fixture"], opts: {}, case: c, profile: defaultProfile() });
+    assert.equal(attached.state, "ready");
+    assert.equal(setMembers(c, "col_fake123", [
+      { ref: "file_abc", fileId: "file_abc" },
+      { ref: "stale.mp4", fileId: "file_stale" },
+    ]), true);
+    assert.deepEqual(listIndexes(c)[0].members.map((m) => m.ref), ["file_abc", "stale.mp4"]);
+
+    const [synced] = await indexVerb.run({ input: "attach", rest: ["fixture"], opts: {}, case: c, profile: defaultProfile() });
+    assert.equal(synced.state, "ready");
+    assert.deepEqual(listIndexes(c)[0].members.map((m) => m.ref), ["file_abc", "file_def"]);
+    assert.equal((synced.payload as Record<string, unknown>).member_count, 2);
   } finally {
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;

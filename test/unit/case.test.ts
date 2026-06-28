@@ -54,6 +54,7 @@ test("clearSummary reports resettable records, media, index, and state files", (
     writeFileSync(join(c.mediaDir, "clip.txt"), "media");
     writeFileSync(join(c.indexDir, "idx.txt"), "index");
     writeFileSync(c.sourcesFile, JSON.stringify({ sources: [] }));
+    writeFileSync(c.legacyCollectionsFile, JSON.stringify({ collections: [] }));
 
     const summary = c.clearSummary();
     assert.equal(summary.records, 1);
@@ -61,7 +62,7 @@ test("clearSummary reports resettable records, media, index, and state files", (
     assert.equal(summary.media.files, 1);
     assert.equal(summary.media.bytes, 5);
     assert.equal(summary.index.files, 1);
-    assert.deepEqual(summary.stateFiles, ["sources.json"]);
+    assert.deepEqual(summary.stateFiles, ["sources.json", "collections.json"]);
     assert.equal(c.records().length, 1, "summary does not mutate the case");
   });
 });
@@ -75,6 +76,7 @@ test("clear removes records/media/index/state while preserving case.json", () =>
     writeFileSync(join(c.mediaDir, "clip.txt"), "media");
     writeFileSync(join(c.indexDir, "idx.txt"), "index");
     writeFileSync(c.targetFile, JSON.stringify({ targets: [] }));
+    writeFileSync(c.legacyCollectionsFile, JSON.stringify({ collections: [] }));
 
     const before = c.clear();
     assert.equal(before.records, 1);
@@ -84,5 +86,6 @@ test("clear removes records/media/index/state while preserving case.json", () =>
     assert.equal(existsSync(join(c.mediaDir, "clip.txt")), false);
     assert.equal(existsSync(c.indexDir), false);
     assert.equal(existsSync(c.targetFile), false);
+    assert.equal(existsSync(c.legacyCollectionsFile), false);
   });
 });

@@ -142,15 +142,20 @@ For optional local semantic search, bind qmd:
 ```bash
 overcast setup memory qmd
 overcast case memory index rebuild --memory qmd --json
+overcast ask "where did we see the white van?" --deep --json
 overcast ask "where did we see the white van?" --memory qmd --json
 ```
 
 The qmd backend materializes markdown docs under `.overcast/index/case-search/qmd`,
-tracks the embedding model/config in `case memory index status`, and defaults to
-`embeddinggemma-300M-Q8_0`. Override with `OVERCAST_QMD_CMD`,
-`OVERCAST_QMD_MODEL`, or profile fields (`command`, `model`, `indexTemplate`,
-`queryTemplate`). `case memory index start` creates a background rebuild job and
-`retry` reruns a failed/stale rebuild.
+tracks the embedding model/config and a content fingerprint in
+`case memory index status`, and defaults to `embeddinggemma-300M-Q8_0`. Override
+with `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL`, or profile fields (`command`,
+`model`, `indexTemplate`, `queryTemplate`). qmd queries do not auto-rebuild a
+missing/stale index; use `case memory index rebuild --memory qmd` first.
+`case memory index start` creates a background rebuild job and `retry` reruns a
+failed/stale rebuild. Plain `ask` remains local-grep; `ask --deep` selects
+configured semantic providers such as qmd, and `--memory qmd` forces that
+provider explicitly.
 
 For typed remote retrieval, `ask --index <id>` queries a tinycloud-backed
 **media-descriptions** index directly (see below) — the public-verb realization
@@ -158,8 +163,8 @@ of the portable/remote tier.
 
 ## Faces (`face`) and indexes (`index`) — tinycloud ≥ 0.3.4
 
-These two verbs are backed by the tinycloud CLI's newer **face** and **library
-collections** surfaces (invariant #9: public verbs only; mapped to the loose
+These two verbs are backed by the tinycloud CLI's newer **face** and underlying
+library collection surfaces (invariant #9: public verbs only; mapped to the loose
 record by the shared `runTinycloud` boundary in
 [`src/providers/tinycloud/envelope.ts`](../src/providers/tinycloud/envelope.ts)).
 Point `OVERCAST_TINYCLOUD_CMD` at a specific binary/wrapper if `tinycloud` isn't

@@ -45,3 +45,35 @@ if [ -f "$CLIP" ]; then
 else
   skip "$C.watch" "no clip"
 fi
+
+# 4) headless JSON mode should use the index tool surface and expose real index JSON
+cond "headless JSON agent lists the case's real tinycloud index without note bookkeeping"
+IDX_NAME="oc-headless-index-$$"
+created="$(OC_TIMEOUT=120 oc "$CASE" index create "$IDX_NAME" --type media-descriptions --json)"
+COLID="$(printf '%s' "$created" | jq -r '.payload.id // empty')"
+if [ -n "$COLID" ]; then
+  prompt="Use the overcast index list command/tool for this case. Reply with JSON only, shaped exactly like {\"indexes\":[{\"id\":\"...\",\"type\":\"...\",\"name\":\"...\"}]}; include every case index you find. Do not create notes."
+  out="$(OC_TIMEOUT=240 oc "$CASE" --mode json "$prompt")"
+  invalid=0; nlines=0
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    nlines=$((nlines + 1))
+    printf '%s' "$line" | jq -e . >/dev/null 2>&1 || invalid=$((invalid + 1))
+  done <<<"$out"
+  assert_eq "$C.index_json.valid" "0" "$invalid" "headless index stream has valid JSON lines ($nlines line(s))"
+  if printf '%s' "$out" | grep -q "$COLID"; then
+    ok "$C.index_json.id" "agent JSON stream contains the created index id"
+  else
+    fail "$C.index_json.id" "agent JSON stream did not contain created index id $COLID"
+  fi
+  if printf '%s' "$out" | grep -q "media-descriptions"; then
+    ok "$C.index_json.type" "agent JSON stream contains the media-descriptions type"
+  else
+    fail "$C.index_json.type" "agent JSON stream did not contain media-descriptions"
+  fi
+  notes="$(ocrun "$CASE" case records --verb note --json 2>/dev/null | jq -r '.payload.count // 0')"
+  assert_eq "$C.index_json.no_note" "0" "${notes:-0}" "agent did not create note records for index bookkeeping"
+  oc "$CASE" index delete "$COLID" --json >/dev/null || true
+else
+  skip "$C.index_json" "could not create real tinycloud index"
+fi

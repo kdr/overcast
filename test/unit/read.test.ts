@@ -162,6 +162,73 @@ fi
   });
 });
 
+test("qmd status becomes stale when indexable content changes without a count change", async () => {
+  await withCase(async (c, dir) => {
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, '#!/usr/bin/env bash\necho "{\\"ok\\":true}"\n');
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    const rebuilt = await qmd.rebuild();
+    assert.equal(rebuilt.state, "ready");
+
+    const watchFile = join(c.recordsDir, "watch.jsonl");
+    const lines = readFileSync(watchFile, "utf8").trimEnd().split("\n");
+    const first = JSON.parse(lines[0]) as Record<string, unknown>;
+    first.payload = { content: "A red car near the marina at noon" };
+    lines[0] = JSON.stringify(first);
+    writeFileSync(watchFile, `${lines.join("\n")}\n`, "utf8");
+
+    const status = await qmd.status();
+    assert.equal(status.state, "stale");
+  });
+});
+
+test("qmd query does not auto-rebuild a missing index", async () => {
+  await withCase(async (c, dir) => {
+    const log = join(dir, "qmd.log");
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+echo '[{"record_id":"rec_qmd","verb":"note","text":"qmd semantic hit","score":9}]'
+`);
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    assert.deepEqual(await qmd.query("white van"), []);
+    assert.equal(existsSync(log), false);
+    const ans = await qmd.answer("white van");
+    assert.match(ans.text, /qmd index is missing/);
+    assert.match(ans.text, /case memory index rebuild --memory qmd/);
+  });
+});
+
+test("qmd query keeps media_at anchors and does not fall back to local-grep on search failure", async () => {
+  await withCase(async (c, dir) => {
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+if [ "$1" = "search" ]; then
+  if [ "$2" = "fail" ]; then exit 9; fi
+  echo '[{"record_id":"rec_qmd_anchor","verb":"watch","text":"semantic timestamp hit","score":9,"metadata":{"media_at":"12-18"}}]'
+else
+  echo '{"ok":true}'
+fi
+`);
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    await qmd.rebuild();
+
+    const hits = await qmd.query("white van");
+    assert.equal(hits[0].recordId, "rec_qmd_anchor");
+    assert.deepEqual(hits[0].at, [12, 18]);
+    const ans = await qmd.answer("white van");
+    assert.deepEqual(ans.citations[0].at, [12, 18]);
+
+    const failed = await qmd.query("fail");
+    assert.deepEqual(failed, []);
+    const failedAns = await qmd.answer("fail");
+    assert.equal(failedAns.text, 'No qmd results for "fail".');
+  });
+});
+
 test("case memory index status/rebuild surfaces backend compatibility", async () => {
   await withCase(async (c, dir) => {
     const fake = join(dir, "qmd.sh");
@@ -209,10 +276,35 @@ fi
     chmodSync(fake, 0o755);
     const p = defaultProfile();
     p.memory = [{ type: "exec", backend: "qmd", id: "qmd", command: `bash ${fake}`, model: DEFAULT_QMD_MODEL }];
+    const [rebuilt] = await caseVerb.run({ input: "memory", rest: ["index", "rebuild"], opts: { memory: "qmd" }, case: c, profile: p });
+    assert.equal(rebuilt.state, "ready");
     const [rec] = await caseVerb.run({ input: "memory", rest: ["search", "white", "van"], opts: { memory: "qmd" }, case: c, profile: p });
     assert.equal(rec.state, "ready");
     const passages = (rec.payload as Record<string, unknown>).passages as Array<Record<string, unknown>>;
     assert.equal(passages[0].recordId, "rec_qmd_search");
+  });
+});
+
+test("ask --deep selects configured semantic providers", async () => {
+  await withCase(async (c, dir) => {
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+if [ "$1" = "search" ]; then
+  echo '[{"record_id":"rec_qmd_deep","verb":"note","text":"deep qmd semantic hit","score":9}]'
+else
+  echo '{"ok":true}'
+fi
+`);
+    chmodSync(fake, 0o755);
+    const p = defaultProfile();
+    p.memory = [{ type: "exec", backend: "qmd", id: "qmd", command: `bash ${fake}`, model: DEFAULT_QMD_MODEL }];
+    const [rebuilt] = await caseVerb.run({ input: "memory", rest: ["index", "rebuild"], opts: { memory: "qmd" }, case: c, profile: p });
+    assert.equal(rebuilt.state, "ready");
+
+    const [rec] = await askVerb.run({ input: "white van at the docks", rest: [], opts: { deep: true }, case: c, profile: p });
+    assert.equal(rec.state, "ready");
+    assert.equal(rec.meta?.provider, "qmd");
+    assert.match(String((rec.payload as Record<string, unknown>).text), /deep qmd semantic hit/);
   });
 });
 

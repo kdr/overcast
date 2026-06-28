@@ -78,6 +78,12 @@ npx skills add kdr/overcast           # vercel-labs/skills; pulls skills from th
 /plugin install overcast@overcast
 ```
 
+**Interactive/headless overcast agent** — both `overcast` and
+`overcast -p "<task>"` load the same system prompt and tool surface. The prompt
+steers the agent to start with zero-config `ask`, rebuild qmd before semantic
+queries, use `ask --deep` for configured semantic memory, and bind remote indexes
+with `index attach` instead of note bookkeeping.
+
 ---
 
 ## Quickstart
@@ -145,7 +151,7 @@ surface + env vars.)
 **Read** — synthesize the case
 | verb | does |
 |---|---|
-| `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--index <id>` answers over a media-descriptions index (`--probe` for moment search) |
+| `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--deep` uses configured semantic memory such as qmd; `--index <id>` answers over a media-descriptions index (`--probe` for moment search) |
 | `brief` | timeline / findings report; `--export` to md/html |
 | `case` | inspect/manage the case: `init` / `info` / `records` / `memory` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
 
@@ -167,6 +173,8 @@ overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input
 overcast setup provider listen  "exec:bash examples/providers/elevenlabs/listen.sh {{input}}"
 overcast setup provider enhance "http://localhost:9000"
 overcast setup memory qmd       # optional local semantic case search
+overcast case memory index rebuild --memory qmd --json
+overcast ask "where did we see the white van?" --deep --json
 ```
 
 Shipped, runnable samples live in [`examples/providers/`](examples/providers);
@@ -176,7 +184,7 @@ authoring guide in [`docs/providers.md`](docs/providers.md).
 |---|---|---|
 | **sense** | watch / listen / see / face / enhance | Cloudglue (default), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
 | **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave) |
-| **memory** | ask / brief | `local-grep` case search (always on); optional qmd; typed tinycloud media indexes via `ask --index` |
+| **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
 
@@ -225,7 +233,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)
 - `CLOUDGLUE_BASE_URL` — endpoint (default `https://api.cloudglue.dev`)
 - `TINYCLOUD_HTTP_RETRIES`, `TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS`, `TINYCLOUD_JOB_WAIT_TIMEOUT_MS` — tinycloud 0.3.6 Cloudglue retry/upload/job-wait knobs inherited by overcast's default providers
-- `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default)
+- `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; rebuild before querying qmd)
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
 - `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — turnkey `see` + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`

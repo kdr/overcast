@@ -50,10 +50,12 @@ export async function fanOutAnswer(
     // even if it also has a plain `answer` (otherwise deepsearch is unreachable).
     if (deep && p.deepsearch) {
       const passages = await p.deepsearch(q, opts);
-      a = {
-        text: passages.map((x) => `- [${x.recordId}] ${x.text}`).join("\n"),
-        citations: passages.map((x) => ({ recordId: x.recordId, at: x.at, verb: x.verb })),
-      };
+      a = passages.length === 0 && p.answer
+        ? await p.answer(q, opts)
+        : {
+            text: passages.map((x) => `- [${x.recordId}] ${x.text}`).join("\n"),
+            citations: passages.map((x) => ({ recordId: x.recordId, at: x.at, verb: x.verb })),
+          };
     } else if (p.answer) {
       a = await p.answer(q, opts);
     } else {
