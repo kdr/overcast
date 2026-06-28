@@ -38,9 +38,14 @@ cond "real qmd indexes the case and answers through semantic memory"
 if command -v qmd >/dev/null 2>&1; then
   setup="$(oc "$CASE" setup memory qmd --json)"
   assert_eq "$C.qmd_setup" "ready" "$(echo "$setup" | jq -r '.state')" "setup memory qmd ready"
+  idx_after_setup="$(oc "$CASE" case memory index status --memory local-grep --json)"
+  assert_eq "$C.local_docs_after_setup" "1" "$(echo "$idx_after_setup" | jq -r '.payload.memory_index[0].documents')" "local-grep ignores setup/ask/case records"
   qmd_idx="$(OC_TIMEOUT=360 oc "$CASE" case memory index rebuild --memory qmd --json)"
   assert_eq "$C.qmd_rebuild" "ready" "$(echo "$qmd_idx" | jq -r '.state')" "real qmd rebuild ready"
+  assert_eq "$C.qmd_docs" "1" "$(echo "$qmd_idx" | jq -r '.payload.memory_index[0].documents')" "qmd indexes only evidence records"
   assert_eq "$C.qmd_model" "embeddinggemma-300M-Q8_0" "$(echo "$qmd_idx" | jq -r '.payload.memory_index[0].model')" "qmd default model tracked"
+  qmd_idx_again="$(OC_TIMEOUT=360 oc "$CASE" case memory index rebuild --memory qmd --json)"
+  assert_eq "$C.qmd_rebuild_again" "ready" "$(echo "$qmd_idx_again" | jq -r '.state')" "real qmd rebuild is idempotent"
   qmd_ask="$(OC_TIMEOUT=180 oc "$CASE" ask "Hacker News discussion threads comments" --deep --json)"
   assert_eq "$C.qmd_ask_state" "ready" "$(echo "$qmd_ask" | jq -r '.state')" "ask --deep via qmd ready"
   assert_eq "$C.qmd_ask_provider" "qmd" "$(echo "$qmd_ask" | jq -r '.meta.provider')" "ask --deep selects qmd"
@@ -57,6 +62,8 @@ cond "remote Cloudglue media index can be attached and queried"
 if [ -n "${OC_TEST_MEDIA_INDEX:-}" ] && require_cred "$C.remote" CLOUDGLUE_API_KEY "remote media index query"; then
   att="$(OC_TIMEOUT=120 oc "$CASE" index attach "$OC_TEST_MEDIA_INDEX" --type media-descriptions --json)"
   assert_eq "$C.remote_attach" "ready" "$(echo "$att" | jq -r '.state')" "remote media index attach ready"
+  att_again="$(OC_TIMEOUT=120 oc "$CASE" index attach "$OC_TEST_MEDIA_INDEX" --type media-descriptions --json)"
+  assert_eq "$C.remote_attach_again" "ready" "$(echo "$att_again" | jq -r '.state')" "remote media index attach is idempotent"
   remote_ask="$(OC_TIMEOUT=180 oc "$CASE" ask "Which videos are about Zurich or Tokyo travel?" --index "$OC_TEST_MEDIA_INDEX" --json)"
   assert_eq "$C.remote_ask_state" "ready" "$(echo "$remote_ask" | jq -r '.state')" "remote ask --index ready"
   assert_eq "$C.remote_ask_index" "$OC_TEST_MEDIA_INDEX" "$(echo "$remote_ask" | jq -r '.payload.index')" "remote ask records index id"
@@ -73,6 +80,8 @@ if [ -n "${OC_TEST_MEDIA_INDEX:-}" ] && require_cred "$C.remote" CLOUDGLUE_API_K
   else
     fail "$C.remote_probe_zurich" "remote probe missing Zurich citations"
   fi
+  idx_after_remote="$(oc "$CASE" case memory index status --memory local-grep --json)"
+  assert_eq "$C.local_docs_after_remote" "1" "$(echo "$idx_after_remote" | jq -r '.payload.memory_index[0].documents')" "local-grep ignores remote index bookkeeping"
 else
   skip "$C.remote" "no OC_TEST_MEDIA_INDEX configured"
 fi

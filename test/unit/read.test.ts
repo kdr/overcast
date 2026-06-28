@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, chmodSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
@@ -38,6 +38,43 @@ test("indexable field policy prefers verb-specific fields, including notes", () 
   const fields = indexableFields(note);
   assert.deepEqual(fields.map((f) => f.path), ["title", "text"]);
   assert.match(fields.map((f) => f.text).join("\n"), /white van/);
+});
+
+test("case memory excludes operational and read/meta records from local and qmd indexes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-memory-filter-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "setup", payload: { summary: "SETUP_NOISE qmd configured" } }));
+    c.writeRecord(makeRecord({ verb: "doctor", payload: { summary: "DOCTOR_NOISE qmd available" } }));
+    c.writeRecord(makeRecord({ verb: "index", payload: { summary: "INDEX_NOISE remote attach" } }));
+    c.writeRecord(makeRecord({ verb: "collection", payload: { summary: "COLLECTION_NOISE remote list" } }));
+    c.writeRecord(makeRecord({ verb: "case", payload: { summary: "CASE_NOISE memory status" } }));
+    c.writeRecord(makeRecord({ verb: "ask", payload: { text: "ASK_NOISE prior answer", citations: [] } }));
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "EVIDENCE_MARKER Zurich train station" } }));
+
+    const local = new LocalMemoryProvider(c);
+    assert.equal(local.status().documents, 1);
+    assert.deepEqual(local.query("NOISE", { limit: 10 }), []);
+    assert.equal(local.query("SETUP_NOISE", { verbs: ["setup"], limit: 10 }).length, 0);
+    const localHits = local.query("Zurich train", { limit: 10 });
+    assert.equal(localHits.length, 1);
+    assert.equal(localHits[0].verb, "note");
+
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, '#!/usr/bin/env bash\necho "{\\"ok\\":true}"\n');
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    const rebuilt = await qmd.rebuild();
+    assert.equal(rebuilt.state, "ready");
+    assert.equal(rebuilt.documents, 1);
+    const docsDir = join(c.indexDir, "case-search", "qmd", "docs");
+    const docs = readdirSync(docsDir).map((name) => readFileSync(join(docsDir, name), "utf8")).join("\n");
+    assert.match(docs, /EVIDENCE_MARKER/);
+    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|CASE_NOISE|ASK_NOISE/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("local provider ranks the matching record first and cites media.at", async () => {
@@ -183,9 +220,45 @@ fi
     const hits = await qmd.query("white van docks", { limit: 2 });
     assert.equal(hits[0].recordId, "rec_qmd");
     const calls = readFileSync(log, "utf8");
+    assert.match(calls, /collection remove/);
     assert.match(calls, /collection add/);
     assert.match(calls, /embed -c/);
     assert.match(calls, /vsearch white van docks --collection/);
+  });
+});
+
+test("qmd rebuild is idempotent when the named collection already exists", async () => {
+  await withCase(async (c, dir) => {
+    const log = join(dir, "qmd.log");
+    const state = join(dir, "collection.exists");
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+if printf '%s\\n' "$*" | grep -q 'collection remove'; then
+  rm -f ${JSON.stringify(state)}
+  echo '{"removed":true}'
+  exit 0
+fi
+if printf '%s\\n' "$*" | grep -q 'collection add'; then
+  if [ -f ${JSON.stringify(state)} ]; then
+    echo "Collection 'overcast-case' already exists." >&2
+    exit 2
+  fi
+  touch ${JSON.stringify(state)}
+  echo '{"added":true}'
+  exit 0
+fi
+echo '{"ok":true}'
+`);
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    const first = await qmd.rebuild();
+    const second = await qmd.rebuild();
+    assert.equal(first.state, "ready");
+    assert.equal(second.state, "ready");
+    const calls = readFileSync(log, "utf8").trim().split("\n");
+    assert.equal(calls.filter((line) => /collection remove/.test(line)).length, 2);
+    assert.equal(calls.filter((line) => /collection add/.test(line)).length, 2);
   });
 });
 
@@ -466,6 +539,32 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
   });
 });
 
+test("case clear drops configured qmd collection before removing local index state", async () => {
+  await withCase(async (c, dir) => {
+    const log = join(dir, "qmd-clear.log");
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+echo '{"ok":true}'
+`);
+    chmodSync(fake, 0o755);
+    const p = defaultProfile();
+    p.memory = [{ type: "exec", backend: "qmd", id: "qmd", command: `bash ${fake}`, model: DEFAULT_QMD_MODEL }];
+    const [rebuilt] = await caseVerb.run({ input: "memory", rest: ["index", "rebuild"], opts: { memory: "qmd" }, case: c, profile: p });
+    assert.equal(rebuilt.state, "ready");
+    assert.ok(existsSync(join(c.indexDir, "case-search", "qmd", "manifest.json")));
+
+    const [cleared] = await caseVerb.run({ input: "clear", rest: [], opts: { yes: true }, case: c, profile: p });
+    assert.equal(cleared.state, "ready");
+    assert.equal(existsSync(c.indexDir), false);
+    const payload = cleared.payload as Record<string, unknown>;
+    const memory = payload.memory_indexes_cleared as Array<Record<string, unknown>>;
+    assert.equal(memory[0].provider, "qmd");
+    assert.equal(memory[0].state, "missing");
+    assert.match(readFileSync(log, "utf8"), /collection remove/);
+  });
+});
+
 test("brief --scope since:<when> actually filters stale records (review fix)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-brief-"));
   try {
@@ -551,7 +650,7 @@ test("brief embeds the FULL primary field, not a 160-char stub", async () => {
   }
 });
 
-test("brief excludes meta records (prior brief, ask, case) from timeline and counts", async () => {
+test("brief excludes meta and operational records from timeline and counts", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-briefmeta-"));
   try {
     const c = openCase(dir); c.ensure();
@@ -559,11 +658,14 @@ test("brief excludes meta records (prior brief, ask, case) from timeline and cou
     c.writeRecord(makeRecord({ verb: "brief", payload: { report: "OLD_REPORT_BODY", counts: {}, total: 5 } }));
     c.writeRecord(makeRecord({ verb: "ask", payload: { text: "ASK_ANSWER", citations: [], question: "q" } }));
     c.writeRecord(makeRecord({ verb: "case", payload: { record: "rec_x", field: "content", chunk: "CASE_CHUNK" } }));
+    c.writeRecord(makeRecord({ verb: "setup", payload: { summary: "SETUP_CHUNK" } }));
+    c.writeRecord(makeRecord({ verb: "doctor", payload: { summary: "DOCTOR_CHUNK" } }));
+    c.writeRecord(makeRecord({ verb: "index", payload: { summary: "INDEX_CHUNK" } }));
     const [rec] = await briefVerb.run(ctx(c, undefined, {}));
     const p = rec.payload as Record<string, unknown>;
     const report = p.report as string;
     assert.match(report, /EVIDENCE_MARKER/); // the real evidence IS present
-    assert.doesNotMatch(report, /OLD_REPORT_BODY|ASK_ANSWER|CASE_CHUNK/); // meta excluded
+    assert.doesNotMatch(report, /OLD_REPORT_BODY|ASK_ANSWER|CASE_CHUNK|SETUP_CHUNK|DOCTOR_CHUNK|INDEX_CHUNK/);
     assert.equal(p.total, 1); // only the 1 evidence record counted
     assert.deepEqual(p.counts, { watch: 1 });
   } finally {

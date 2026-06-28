@@ -18,6 +18,7 @@ export function resolveMemory(case_: Case, profile?: Profile): MemoryProvider[] 
         command: spec.command ?? spec.run,
         collection: spec.collection,
         model: spec.model,
+        clearTemplate: spec.clearTemplate,
         indexTemplate: spec.indexTemplate,
         embedTemplate: spec.embedTemplate,
         queryTemplate: spec.queryTemplate,

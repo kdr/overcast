@@ -86,7 +86,10 @@ npx skills add kdr/overcast           # vercel-labs/skills; pulls skills from th
 `overcast -p "<task>"` load the same system prompt and tool surface. The prompt
 steers the agent to start with zero-config `ask`, rebuild qmd before semantic
 queries, use `ask --deep` for configured semantic memory, and bind remote indexes
-with `index attach` instead of note bookkeeping.
+with `index attach` instead of note bookkeeping. Case memory is evidence-only:
+setup/doctor/index/read bookkeeping is excluded from `ask` and `brief`.
+Confirmed `case clear --yes` also drops configured materialized memory indexes
+such as qmd before clearing local state.
 
 ---
 

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { Case } from "../../case.js";
-import { isMetaRecord, type OvercastRecord } from "../../record.js";
+import { isMemoryRecord, type OvercastRecord } from "../../record.js";
 import { execCapture } from "../exec.js";
 import { tokenizeCommand } from "../sources/index.js";
 import { indexableDocument, type IndexableDocument } from "./fields.js";
@@ -16,6 +16,7 @@ export interface QmdMemoryConfig {
   command?: string;
   collection?: string;
   model?: string;
+  clearTemplate?: string;
   indexTemplate?: string;
   embedTemplate?: string;
   queryTemplate?: string;
@@ -183,6 +184,7 @@ export class QmdMemoryProvider implements MemoryProvider {
   private readonly docsDir: string;
   private readonly manifestFile: string;
   private readonly indexName: string;
+  private readonly clearTemplate?: string;
   private readonly indexTemplate?: string;
   private readonly embedTemplate?: string;
   private readonly queryTemplate?: string;
@@ -195,6 +197,7 @@ export class QmdMemoryProvider implements MemoryProvider {
     this.docsDir = join(case_.indexDir, "case-search", "qmd", "docs");
     this.manifestFile = join(case_.indexDir, "case-search", "qmd", "manifest.json");
     this.indexName = join(case_.indexDir, "case-search", "qmd", "qmd-index");
+    this.clearTemplate = cfg.clearTemplate;
     this.indexTemplate = cfg.indexTemplate;
     this.embedTemplate = cfg.embedTemplate;
     this.queryTemplate = cfg.queryTemplate;
@@ -206,7 +209,7 @@ export class QmdMemoryProvider implements MemoryProvider {
 
   async status(): Promise<MemoryIndexStatus> {
     const manifest = this.readManifest();
-    const records = this.case_.records().filter((r) => !isMetaRecord(r));
+    const records = this.case_.records().filter(isMemoryRecord);
     const docs = records.map(indexableDocument).filter((d): d is IndexableDocument => !!d);
     const fingerprint = docsFingerprint(docs);
     const compatible = manifest &&
@@ -230,7 +233,7 @@ export class QmdMemoryProvider implements MemoryProvider {
   }
 
   async rebuild(): Promise<MemoryIndexStatus> {
-    const records = this.case_.records().filter((r) => !isMetaRecord(r));
+    const records = this.case_.records().filter(isMemoryRecord);
     const docs = records.map(indexableDocument).filter((d): d is IndexableDocument => !!d);
     rmSync(this.docsDir, { recursive: true, force: true });
     mkdirSync(this.docsDir, { recursive: true });
@@ -260,6 +263,7 @@ export class QmdMemoryProvider implements MemoryProvider {
       manifest: this.manifestFile,
       index: this.indexName,
     };
+    await this.removeCollection(vars);
     const template = this.indexTemplate ?? "{{cmd}} --index {{index}} collection add {{docs}} --name {{collection}} --format json";
     const argv = renderTemplate(template, vars);
     if (argv.length) {
@@ -290,6 +294,30 @@ export class QmdMemoryProvider implements MemoryProvider {
     }
     this.writeManifest({ ...manifest, state: "ready", indexed: new Date().toISOString(), updated: new Date().toISOString() });
     return { ...(await this.status()), state: "ready", documents: docs.length, records: records.length };
+  }
+
+  async clear(): Promise<MemoryIndexStatus> {
+    const vars = {
+      cmd: this.command,
+      docs: this.docsDir,
+      collection: this.collection,
+      model: this.model,
+      manifest: this.manifestFile,
+      index: this.indexName,
+    };
+    await this.removeCollection(vars);
+    rmSync(dirname(this.manifestFile), { recursive: true, force: true });
+    return {
+      provider: this.id,
+      backend: this.backend,
+      state: "missing",
+      documents: 0,
+      records: 0,
+      path: this.docsDir,
+      model: this.model,
+      config: { collection: this.collection, command: this.command, index: this.indexName },
+      updated: new Date().toISOString(),
+    };
   }
 
   async query(q: string, opts: QueryOpts = {}): Promise<Passage[]> {
@@ -361,5 +389,16 @@ export class QmdMemoryProvider implements MemoryProvider {
 
   private writeManifest(manifest: QmdManifest): void {
     writeFileSync(this.manifestFile, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  }
+
+  private async removeCollection(vars: Record<string, string>): Promise<void> {
+    const clearTemplate = this.clearTemplate ?? "{{cmd}} --index {{index}} collection remove {{collection}}";
+    const clearArgv = renderTemplate(clearTemplate, vars);
+    if (!clearArgv.length) return;
+    // qmd's collection add is not idempotent; an existing collection with the
+    // same name must be removed before re-adding the freshly materialized docs.
+    // Missing collection is fine on first build/clear, and rebuild's add/embed
+    // will surface any real qmd/index-path failure.
+    await execCapture(clearArgv[0], clearArgv.slice(1), { timeoutMs: 5 * 60_000 }).catch(() => undefined);
   }
 }

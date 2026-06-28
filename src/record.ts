@@ -56,10 +56,16 @@ export type JsonMap = { [k: string]: unknown };
  * the underlying watch/listen/see record. The single source for that boundary.
  */
 export const META_VERBS: ReadonlySet<string> = new Set(["ask", "brief", "case"]);
+export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set(["collection", "doctor", "index", "provider", "setup", "skills"]);
 
 /** Whether a record is a read/meta output (not primary evidence). */
 export function isMetaRecord(rec: Pick<OvercastRecord, "verb">): boolean {
   return META_VERBS.has(rec.verb);
+}
+
+/** Whether a record should be eligible for case memory/search evidence. */
+export function isMemoryRecord(rec: Pick<OvercastRecord, "verb">): boolean {
+  return !META_VERBS.has(rec.verb) && !OPERATIONAL_VERBS.has(rec.verb);
 }
 
 const ID_PREFIX = "rec_";

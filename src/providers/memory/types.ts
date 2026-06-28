@@ -65,4 +65,5 @@ export interface MemoryProvider {
   /** optional materialized-index lifecycle. */
   status?(): MemoryIndexStatus | Promise<MemoryIndexStatus>;
   rebuild?(): MemoryIndexStatus | Promise<MemoryIndexStatus>;
+  clear?(): MemoryIndexStatus | Promise<MemoryIndexStatus>;
 }

@@ -31,6 +31,9 @@ cond "index attach binds an existing remote index without note bookkeeping"
 att="$(OC_TIMEOUT=120 oc "$CASE" index attach "$COLID" --type media-descriptions --json)"
 assert_eq "$C.attach_state" "ready" "$(echo "$att" | jq -r '.state')" "attach state ready"
 assert_eq "$C.attach_id" "$COLID" "$(echo "$att" | jq -r '.payload.index')" "attach returns the remote index id"
+att_again="$(OC_TIMEOUT=120 oc "$CASE" index attach "$COLID" --type media-descriptions --json)"
+assert_eq "$C.attach_again_state" "ready" "$(echo "$att_again" | jq -r '.state')" "attaching the same remote index again is idempotent"
+assert_eq "$C.attach_again_mirror" "1" "$(oc "$CASE" index list --json | jq --arg id "$COLID" '[.payload.indexes[]|select(.id==$id)]|length')" "mirror still has a single entry after reattach"
 
 cond "index attach can bind reusable remote media and face indexes by id"
 if [ -n "${OC_TEST_MEDIA_INDEX:-}" ]; then

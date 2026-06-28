@@ -4,7 +4,7 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
-import { makeRecord, isMetaRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, isMemoryRecord, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
@@ -179,11 +179,10 @@ interface BriefData {
 
 /** Build a markdown brief from the case records (timeline + by-kind sections). */
 function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
-  // Exclude read/meta outputs (ask/brief/case) — they restate or duplicate
-  // primary records and would otherwise show up as noisy "findings" (e.g. a
-  // `case memory get` page slice) and inflate the counts. Same boundary as
-  // memory retrieval (isMetaRecord), so brief and search stay consistent.
-  records = records.filter((r) => !isMetaRecord(r));
+  // Exclude read/meta and operational outputs (ask/brief/case/setup/doctor/etc.)
+  // so briefs and memory search stay evidence-focused instead of citing setup
+  // probes, doctor checks, or prior read envelopes as findings.
+  records = records.filter(isMemoryRecord);
   const counts: Record<string, number> = {};
   for (const r of records) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
 

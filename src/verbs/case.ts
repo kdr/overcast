@@ -40,7 +40,7 @@ export const caseVerb: VerbSpec = {
     "A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; " +
     "`case info` shows state; `case records [--verb] [--since]` lists records; " +
     "`case memory <list|get|search|index> [q]` routes to the bound memory providers. " +
-    "`case clear` previews what would be lost; add `--yes` to clear records/media/state while preserving the case id. " +
+    "`case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. " +
     "`case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] " +
     "[--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.",
   args: [
@@ -110,7 +110,25 @@ export const caseVerb: VerbSpec = {
 
     if (action === "clear") {
       const confirmed = ctx.opts.yes === true;
-      const before = confirmed ? ctx.case.clear() : ctx.case.clearSummary();
+      const before = ctx.case.clearSummary();
+      let memoryCleared: unknown[] = [];
+      if (confirmed) {
+        memoryCleared = await Promise.all(resolveMemory(ctx.case, ctx.profile)
+          .filter((p) => typeof p.clear === "function")
+          .map(async (p) => {
+            try {
+              return await p.clear!();
+            } catch (e) {
+              return {
+                provider: p.id,
+                backend: p.backend ?? p.id,
+                state: "error",
+                error: (e as Error).message,
+              };
+            }
+          }));
+        ctx.case.clear();
+      }
       const lost = {
         records: before.records,
         counts: before.counts,
@@ -150,6 +168,7 @@ export const caseVerb: VerbSpec = {
             cleared: true,
             lost,
             preserved: ["case.json"],
+            memory_indexes_cleared: memoryCleared,
           },
           meta: { transient: true },
           state: "ready",

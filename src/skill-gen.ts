@@ -109,7 +109,10 @@ read it when you need a verb's exact flags).
 ### Case search (default ask)
 
 \`overcast ask "question"\` is the zero-config way to search the whole case:
-notes, sensed media records, scan/capture artifacts, and other primary records.
+notes, sensed media records, scan/capture artifacts, and other primary evidence
+records. Operational/read records (\`setup\`, \`doctor\`, \`index\`, \`ask\`,
+\`case\`, etc.) are excluded from case memory and briefs so setup probes,
+remote-index bookkeeping, and prior answers are not cited as evidence.
 It uses the always-on \`local-grep\` backend over verb-specific indexable fields
 (\`note.text\`, \`watch.content\`, \`listen.transcript\`, scan titles/snippets, …)
 and returns cited \`record.id\` + \`media.at\` evidence. Use:
@@ -134,8 +137,9 @@ overcast ask "where did we see the white van?" --memory qmd --json
 qmd is lifecycle-managed: rebuild/start/retry refresh the materialized index,
 plain \`ask\` stays on local-grep, and \`ask --deep\` selects configured
 semantic providers such as qmd. The first qmd rebuild downloads/caches
-\`embeddinggemma-300M-Q8_0\`; \`overcast doctor\` reports qmd when installed or
-configured.
+\`embeddinggemma-300M-Q8_0\`; rebuilds replace the named qmd collection before
+re-adding docs, so rerunning after new notes/watch records is safe.
+\`overcast doctor\` reports qmd when installed or configured.
 
 ### Faces & indexes (register a target's videos, then ask / find a person)
 

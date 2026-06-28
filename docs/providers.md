@@ -129,6 +129,11 @@ bash examples/providers/sources/tiktok.sh describe
 `ask`/`brief` read through bound **memory** providers (fan-out). The always-on
 default is `local-grep`, which scans indexable fields from `.overcast/records`
 (`note.text`, `watch.content`, `listen.transcript`, scan titles/snippets, etc.).
+Only primary evidence records are eligible for memory and briefs: read/meta and
+operational bookkeeping records (`ask`, `brief`, `case`, `setup`, `doctor`,
+`index`, legacy `collection`, etc.) are excluded even if they contain matching
+text. Remote indexes stay explicit through the case index mirror and
+`ask --index`.
 `local` remains an alias for scripts. Inspect it with:
 
 ```bash
@@ -151,9 +156,14 @@ The qmd backend materializes markdown docs under `.overcast/index/case-search/qm
 tracks the embedding model/config and a content fingerprint in
 `case memory index status`, and defaults to `embeddinggemma-300M-Q8_0`. Override
 with `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL`, or profile fields (`command`,
-`model`, `indexTemplate`, `embedTemplate`, `queryTemplate`). qmd queries do not
-auto-rebuild a missing/stale index; use `case memory index rebuild --memory qmd`
-first.
+`model`, `clearTemplate`, `indexTemplate`, `embedTemplate`, `queryTemplate`).
+Rebuilds remove the named qmd collection before re-adding the freshly
+materialized docs, so rerunning after new notes/watch records is safe. qmd
+queries do not auto-rebuild a missing/stale index; use
+`case memory index rebuild --memory qmd` first.
+Confirmed `case clear --yes` also best-effort removes configured qmd
+collections before deleting `.overcast/index`, so external qmd cache state does
+not survive a case reset.
 `case memory index start` creates a background rebuild job and `retry` reruns a
 failed/stale rebuild. Plain `ask` remains local-grep; `ask --deep` selects
 configured semantic providers such as qmd, and `--memory qmd` forces that

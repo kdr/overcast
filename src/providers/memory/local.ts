@@ -3,7 +3,7 @@
 // record's payload text. No external deps; per-case.
 
 import type { Case } from "../../case.js";
-import { isMetaRecord, type OvercastRecord } from "../../record.js";
+import { isMemoryRecord, type OvercastRecord } from "../../record.js";
 import type { MemoryProvider, Passage, QueryOpts, Answer } from "./types.js";
 import { indexableDocument } from "./fields.js";
 
@@ -62,14 +62,10 @@ export class LocalMemoryProvider implements MemoryProvider {
 
   query(q: string, opts: QueryOpts = {}): Passage[] {
     const qTokens = tokenize(q);
-    let records = this.case_.records();
+    let records = this.case_.records().filter(isMemoryRecord);
     if (opts.verbs && opts.verbs.length) {
       const set = new Set(opts.verbs);
       records = records.filter((r) => set.has(r.verb));
-    } else {
-      // Don't retrieve read/meta outputs (ask/brief/case) as evidence — they
-      // restate or duplicate primary records. Opt in explicitly via --verb.
-      records = records.filter((r) => !isMetaRecord(r));
     }
     if (opts.since) {
       const cutoff = parseSince(opts.since);
@@ -132,7 +128,7 @@ export class LocalMemoryProvider implements MemoryProvider {
   }
 
   status() {
-    const records = this.case_.records().filter((r) => !isMetaRecord(r));
+    const records = this.case_.records().filter(isMemoryRecord);
     const docs = records.map(indexableDocument).filter(Boolean).length;
     return {
       provider: this.id,
