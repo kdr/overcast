@@ -183,6 +183,24 @@ For typed remote retrieval, `ask --index <id>` queries a tinycloud-backed
 **media-descriptions** index directly (see below) — the public-verb realization
 of the portable/remote tier.
 
+## Case setup state
+
+`case setup` is the first-run case wizard and setup-management namespace. It
+saves the mutable current setup model in `.overcast/setup.json`: case name,
+targets, setup notes, sources, indexes/default signals, selected local media,
+and per-video routing. Every apply/edit also emits an immutable `case` record
+with `payload.op = "startup_setup"` or `"startup_setup_update"`, before/after
+summaries, and the planned/applied operations. Those records are operational
+history and remain excluded from memory/brief evidence; notes added through
+setup are separate `note` records and stay searchable.
+
+```bash
+overcast case setup plan --target "@pier9" --source "web:pier 9" --json
+overcast case setup --name "dock-incident" --target "@pier9" --source "web:pier 9" --yes --json
+overcast case setup status --json
+overcast case setup edit --source "youtube:@channel" --yes --json
+```
+
 ## Faces (`face`) and indexes (`index`) — tinycloud ≥ 0.3.4
 
 These two verbs are backed by the tinycloud CLI's newer **face** and underlying

@@ -1,12 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
+import { listSources } from "../../src/state/source.ts";
+import { listTargets } from "../../src/state/target.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 function withCase(fn: (dir: string) => Promise<void>) {
@@ -77,6 +79,79 @@ test("case unknown action errors", async () => {
   await withCase(async (dir) => {
     const [rec] = await caseVerb.run(ctx(dir, "frob"));
     assert.equal(rec.state, "error");
+  });
+});
+
+test("case setup status/show before and after saved setup", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const [before] = await caseVerb.run(ctx(dir, "setup", ["status"]));
+    assert.equal(((before.payload as Record<string, unknown>).setup as Record<string, unknown>).completed, false);
+
+    const records = await caseVerb.run(ctx(dir, "setup", [], {
+      name: "Harbor Case",
+      target: "white van",
+      source: "web:white van",
+      note: "startup note",
+      yes: true,
+    }));
+    const setupRecord = records.at(-1)!;
+    c.writeRecord(setupRecord);
+    assert.equal(setupRecord.state, "ready");
+    assert.equal((setupRecord.payload as Record<string, unknown>).op, "startup_setup");
+    assert.equal(existsSync(c.setupFile), true);
+
+    const [show] = await caseVerb.run(ctx(dir, "setup", ["show"]));
+    const saved = show.payload as Record<string, unknown>;
+    assert.equal(saved.case_name, "Harbor Case");
+    assert.deepEqual(saved.targets, ["white van"]);
+    assert.deepEqual(saved.sources, ["web:white van"]);
+
+    const [after] = await caseVerb.run(ctx(dir, "setup", ["status"]));
+    assert.equal(((after.payload as Record<string, unknown>).setup as Record<string, unknown>).completed, true);
+  });
+});
+
+test("case setup edit updates setup file, applies registries, and emits update record", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { target: "alpha", source: "web:alpha", yes: true }));
+    c.writeRecord(records.at(-1)!);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { target: "bravo", source: "youtube:@bravo", index: "col_face:face:Faces", yes: true }));
+    const update = records.at(-1)!;
+    c.writeRecord(update);
+    assert.equal((update.payload as Record<string, unknown>).op, "startup_setup_update");
+    assert.match(JSON.stringify((update.payload as Record<string, unknown>).applied_operations), /bravo/);
+
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.equal(saved.last_update_record_id, update.id);
+    assert.deepEqual(saved.targets, ["alpha", "bravo"]);
+    assert.deepEqual(saved.sources, ["web:alpha", "youtube:@bravo"]);
+    assert.equal(listTargets(c).some((t) => t.value === "bravo"), true);
+    assert.equal(listSources(c).some((s) => s.type === "youtube" && s.ref === "@bravo"), true);
+  });
+});
+
+test("case setup plan does not save or apply", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const [plan] = await caseVerb.run(ctx(dir, "setup", ["plan"], { target: "planned", source: "web:planned" }));
+    assert.equal(plan.state, "pending");
+    assert.equal(plan.meta?.transient, true);
+    assert.equal(existsSync(c.setupFile), false);
+    assert.equal(listTargets(c).some((t) => t.value === "planned"), false);
+  });
+});
+
+test("operational setup records remain excluded from memory", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const records = await caseVerb.run(ctx(dir, "setup", [], { target: "SETUP_ONLY_NEEDLE", yes: true }));
+    c.writeRecord(records.at(-1)!);
+
+    const [search] = await caseVerb.run(ctx(dir, "memory", ["search", "SETUP_ONLY_NEEDLE"]));
+    assert.equal(((search.payload as Record<string, unknown>).passages as unknown[]).length, 0);
   });
 });
 

@@ -423,29 +423,40 @@ Emits `note` records.
 
 ### `overcast case`
 
-A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 ```
 overcast case <action> [sub] [arg] [options]
 
-  Inspect/manage the current case: init | info | records | memory | clear.
+  Inspect/manage the current case: init | setup | info | records | memory | clear.
 
-  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 Arguments:
-  action           init | info | records | memory | clear
-  sub              memory subcommand (list|get|search), or dir for init
+  action           init | setup | info | records | memory | clear
+  sub              setup/memory subcommand, or dir for init
   arg              record id (memory get), query (memory search), or index action
 
 Options:
-  --name <string>        Case name (init)
+  --name <string>        Case name (init/setup/edit)
+  --target <string>      setup/edit: comma-separated target values to add
+  --remove-target <string> setup/edit: comma-separated target ids/values to remove
+  --note <string>        setup/edit: comma-separated notes to add as local evidence
+  --source <string>      setup/edit: comma-separated source specs (<type>:<ref>) to add
+  --remove-source <string> setup/edit: comma-separated source ids/specs to remove
+  --index <string>       setup/edit: comma-separated indexes (name:type or id:type:name)
+  --remove-index <string> setup/edit: comma-separated index ids/names to remove
+  --signals <string>     setup/edit: comma-separated signals for new indexes/videos
+  --video <string>       setup/edit: comma-separated local videos/URLs to route
+  --folder <string>      setup/edit: comma-separated local media folders to remember
+  --dry-run              setup/edit: preview without saving or applying
   --verb <string>        Filter records by kind
   --since <string>       Time filter (e.g. 24h, 2026-06-01)
   --field <string>       Payload field to read in full (memory get)
   --offset <number>      Start char offset when paging a field (memory get)
   --limit <number>       Max records/passages, or max chars when paging a field
   --memory <string>      Memory provider/backend for case memory index (e.g. local-grep, qmd)
-  --yes                  Confirm destructive case clear
+  --yes                  Confirm destructive case clear or non-interactive setup apply
   --json                 JSON output
   --format <string>      json | md | txt
 ```

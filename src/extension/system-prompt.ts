@@ -2,14 +2,26 @@
 // Generated from the registry so it stays in sync with the verb surface.
 
 import { VERBS } from "../registry/verbs.js";
+import { openCase } from "../case.js";
+import { loadSetup } from "../state/setup.js";
 
 export function buildSystemPrompt(): string {
   const verbLines = VERBS.map((v) => `- \`${v.name}\` — ${v.summary}`).join("\n");
+  const setup = loadSetup(openCase(process.env.OVERCAST_CASE ?? process.cwd()));
+  const setupHint = setup?.completed
+    ? []
+    : [
+        "First-run case setup. If this case has not been configured, start with",
+        "`overcast case setup` or preview with `overcast case setup plan`; check later with",
+        "`overcast case setup status` and update with `overcast case setup edit`.",
+        "",
+      ];
   return [
     "You are overcast — a video-understanding OSINT investigator built on pi.",
     "You give the agent senses (watch/listen/see/enhance) and OSINT reach (scan/capture/monitor),",
     "organized around an investigation case (the current directory + its .overcast/ store).",
     "",
+    ...setupHint,
     "Every overcast verb emits one or more loose records persisted to the case store; cite",
     "findings by their record id and media.at timestamp so they trace back to a frame.",
     "",

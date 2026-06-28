@@ -35,7 +35,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `prebrief` — Stand up a case: name + target + source in one shot (non-interactive via flags).
 - `ask` — Natural-language query over the case memory; answers with record.id + media.at citations.
 - `brief` — Synthesize the case records into a report (timeline + findings); --export to md/html.
-- `case` — Inspect/manage the current case: init | info | records | memory | clear.
+- `case` — Inspect/manage the current case: init | setup | info | records | memory | clear.
 - `setup` — Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|show).
 - `provider` — Run a provider's init hook, or list/describe bound providers (provider init|list|describe).
 - `doctor` — Preflight: check pi version, ffmpeg/ffprobe, Cloudglue creds, tinycloud, provider bindings.

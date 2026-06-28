@@ -58,9 +58,13 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 `11_listen` (Cloudglue + ElevenLabs) · `12_see` (HF + fal + local OWLv2) ·
 `13_enhance_view` · `20_sources` (Tavily/Apify/yt-dlp) · `21_pipeline`
 (source→capture→sense) · `22_monitor` (`--once` diff + bounded `--every`) ·
-`30_read` (ask/brief over real records) · `40_profiles` · `50_piping` (jq /
+`23_index` · `24_case_search` · `30_read` (ask/brief over real records) · `40_profiles` · `50_piping` (jq /
 chaining) · `60_dist` (binary as artifact) · `70_headless` (agent `--mode json`
 event stream + `-p` tool use + watch/persist).
+
+The offline suite also covers setup management (`phase4_setup`): `case setup
+plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
+and exclusion of setup history records from memory.
 
 ### Output
 
