@@ -39,6 +39,14 @@ test("OvercastHeader: boot frame hides the status until the decrypt reveal finis
   assert.ok(out.includes("REC"), "deck readout is shown immediately");
 });
 
+test("OvercastHeader: settled frame can show first-run setup cue", () => {
+  const h = new OvercastHeader(null, { ...headerOpts, setup: "case setup" });
+  setStart(h, 4000);
+  const out = h.render(160).join("\n");
+  h.dispose();
+  assert.match(out, /\[[^\]]*SETUP[^\]]*\][^\n]*case setup/, "setup cue appears in startup status row");
+});
+
 test("opLabel: each verb cycles its OWN variations (independent per-verb cursors)", () => {
   // Interleave an unrelated verb between every scan call. With per-verb cursors,
   // scan still covers all 4 of its variations; a single shared counter would skip

@@ -147,6 +147,8 @@ export interface HeaderOptions {
   tools: number;
   /** Active model id (e.g. "tinycloud:advanced"). */
   model: string;
+  /** First-run setup cue shown when no completed case setup exists. */
+  setup?: string;
 }
 
 // Only one header is live at a time; keep a handle so a re-created header (resize,
@@ -193,7 +195,9 @@ export class OvercastHeader implements Component {
       : `${GREEN_DIM}[${AMBER}--${GREEN_DIM}] ${PALE}no context`;
     this.statusRow =
       `${ctxTag}  ${GREEN_DIM}[${MAGENTA}${opts.tools}${GREEN_DIM}] ${PALE}tools  ` +
-      `${GREEN_DIM}[${CYAN}◆${GREEN_DIM}] ${PALE}${opts.model}${RESET}`;
+      `${GREEN_DIM}[${CYAN}◆${GREEN_DIM}] ${PALE}${opts.model}` +
+      (opts.setup ? `  ${GREEN_DIM}[${AMBER}SETUP${GREEN_DIM}] ${PALE}${opts.setup}` : "") +
+      RESET;
 
     if (activeHeader) activeHeader.dispose();
     activeHeader = this;
