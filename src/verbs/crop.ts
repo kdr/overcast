@@ -217,7 +217,41 @@ function extFromUrl(url: string): string {
   }
 }
 
-async function materializeRemote(url: string, outDir: string, id: string): Promise<string> {
+function extFromMime(mime: string): string {
+  switch (mime.toLowerCase()) {
+    case "image/jpeg":
+    case "image/jpg":
+      return ".jpg";
+    case "image/png":
+      return ".png";
+    case "image/webp":
+      return ".webp";
+    case "image/gif":
+      return ".gif";
+    default:
+      return ".jpg";
+  }
+}
+
+function materializeDataUrl(url: string, outDir: string, id: string): string {
+  const match = /^data:([^;,]+)?((?:;[^,]*)*),(.*)$/is.exec(url);
+  if (!match) throw new Error("invalid data URL");
+  const mime = match[1] || "image/jpeg";
+  const params = match[2] || "";
+  const data = match[3] || "";
+  const frameDir = join(outDir, ".frames");
+  mkdirSync(frameDir, { recursive: true });
+  const out = join(frameDir, `${safePart(id)}${extFromMime(mime)}`);
+  if (existsSync(out)) return out;
+  const buf = params.toLowerCase().includes(";base64")
+    ? Buffer.from(data, "base64")
+    : Buffer.from(decodeURIComponent(data));
+  writeFileSync(out, buf);
+  return out;
+}
+
+async function materializeThumbnail(url: string, outDir: string, id: string): Promise<string> {
+  if (/^data:/i.test(url)) return materializeDataUrl(url, outDir, id);
   const frameDir = join(outDir, ".frames");
   mkdirSync(frameDir, { recursive: true });
   const out = join(frameDir, `${safePart(id)}${extFromUrl(url)}`);
@@ -296,11 +330,11 @@ export const cropVerb: VerbSpec = {
       }
       let media = cropSource;
       const usingThumbnail = cand.thumbnailUrl != null && cropSource === cand.thumbnailUrl;
-      if (/^https?:\/\//i.test(media)) {
+      if (/^(?:https?|data):/i.test(media)) {
         try {
-          media = await materializeRemote(media, outDir, `${cand.id}${cand.at != null ? `_t${cand.at}` : ""}`);
+          media = await materializeThumbnail(media, outDir, `${cand.id}${cand.at != null ? `_t${cand.at}` : ""}`);
         } catch (e) {
-          recs.push(err(`detection ${cand.id} source frame download failed: ${(e as Error).message}`));
+          recs.push(err(`detection ${cand.id} source frame materialization failed: ${(e as Error).message}`));
           continue;
         }
       }

@@ -171,6 +171,42 @@ test("crop prefers a face thumbnail frame over seeking the source video", async 
   assert.ok(existsSync(rec.media!.ref));
 });
 
+test("crop materializes a data URL thumbnail before cropping", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const thumb = join(dir, "face-data-url.jpg");
+  execFileSync(
+    FFMPEG_PATH,
+    ["-y", "-f", "lavfi", "-i", "testsrc=size=200x120:rate=1:duration=1", "-frames:v", "1", thumb],
+    { stdio: "ignore" },
+  );
+  const dataUrl = `data:image/jpeg;base64,${readFileSync(thumb).toString("base64")}`;
+  const face = makeRecord({
+    verb: "face",
+    payload: {
+      op: "detect",
+      summary: "one face with inline provider frame",
+      faces: [{
+        face_id: "f_data",
+        at: 4,
+        box: { left: 0.2, top: 0.1, width: 0.4, height: 0.5 },
+        thumbnail: dataUrl,
+      }],
+    },
+    media: { ref: clip, at: 4 },
+  });
+  c.writeRecord(face);
+  const [rec] = await cropVerb.run({ input: face.id, rest: [], opts: { all: true }, case: c, profile: defaultProfile() });
+  assert.equal(rec.state, "ready");
+  const p = rec.payload as Record<string, unknown>;
+  assert.equal(p.source_media, clip);
+  assert.equal(p.thumbnail, dataUrl);
+  assert.notEqual(p.crop_source_media, dataUrl);
+  assert.match(p.crop_source_media as string, /\.frames\/f_data_t4\.jpg$/);
+  assert.ok(existsSync(p.crop_source_media as string));
+  assert.ok(existsSync(rec.media!.ref));
+});
+
 test("view escapes a media path with quotes/specials (no HTML/attr breakage)", async () => {
   // a clip whose name contains a double-quote and angle brackets
   const nasty = join(dir, 'a"<b> .mp4');
