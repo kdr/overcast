@@ -103,6 +103,32 @@ function sourceSpecsForRemoval(ctx: VerbContext, removals: string[]): Set<string
   return specs;
 }
 
+function setupFromExistingRegistries(ctx: VerbContext, caseName: string): CaseSetup {
+  const setup = emptySetup(caseName);
+  setup.targets = listTargets(ctx.case).map((t) => t.value);
+  setup.sources = listSources(ctx.case).map((s) => `${s.type}:${s.ref}`);
+  setup.indexes = listIndexes(ctx.case).map((i) => {
+    const type = normalizeIndexType(i.type) ?? i.type;
+    const defaultSignals = DEFAULT_SIGNAL_BY_INDEX_TYPE[type] ?? [];
+    setup.default_signals[i.id] = defaultSignals;
+    return {
+      id: i.id,
+      name: i.name,
+      type,
+      mode: "attach",
+      default_signals: defaultSignals,
+    };
+  });
+  const videoRefs = [...new Set(listIndexes(ctx.case).flatMap((i) => i.members.map((m) => m.ref)))];
+  setup.media.videos = videoRefs;
+  setup.media.routes = videoRefs.map((ref) => ({
+    ref,
+    signals: ["watch"],
+    indexes: setup.indexes.map(setupIndexRef),
+  }));
+  return setup;
+}
+
 function setupIndexRef(index: SetupIndex): string {
   return index.id ?? index.name;
 }
@@ -362,7 +388,7 @@ export const caseVerb: VerbSpec = {
         "video",
         "folder",
       ].some((k) => ctx.opts[k] != null);
-      if (!hasInputs && sub !== "plan") {
+	      if (!hasInputs && sub !== "plan" && ctx.opts.yes !== true) {
         return [
           makeRecord({
             verb: "case",
@@ -394,7 +420,7 @@ export const caseVerb: VerbSpec = {
 
       const isPlan = sub === "plan" || ctx.opts["dry-run"] === true || ctx.opts.yes !== true;
       const caseName = saved?.case_name ?? (ctx.case.exists() ? ctx.case.info().name : ctx.case.dir.split(/[\\/]/).filter(Boolean).at(-1) ?? "case");
-      const base = saved ?? emptySetup(caseName);
+	      const base = saved ?? setupFromExistingRegistries(ctx, caseName);
       const op = saved?.completed ? "startup_setup_update" : "startup_setup";
       const before = summarizeSavedSetup(saved);
       const change = buildSetupChange(ctx, base, op, !isPlan);

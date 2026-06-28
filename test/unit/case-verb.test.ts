@@ -7,8 +7,9 @@ import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
-import { listSources } from "../../src/state/source.ts";
-import { listTargets } from "../../src/state/target.ts";
+import { addSource, listSources } from "../../src/state/source.ts";
+import { addTarget, listTargets } from "../../src/state/target.ts";
+import { addIndex, addMember } from "../../src/state/index.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 function withCase(fn: (dir: string) => Promise<void>) {
@@ -96,6 +97,31 @@ test("case setup without flags explains the case is not set up yet", async () =>
       "5. Notes",
       "6. Preview and apply",
     ]);
+  });
+});
+
+test("case setup --yes seeds setup.json from existing registries", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    addTarget(c, "existing target");
+    addSource(c, "web:existing query");
+    addIndex(c, { id: "idx_existing", name: "Existing Media", type: "media-descriptions" });
+    addMember(c, "idx_existing", { ref: "existing.mp4" });
+
+    const records = await caseVerb.run(ctx(dir, "setup", [], { yes: true }));
+    const setupRecord = records.at(-1)!;
+    c.writeRecord(setupRecord);
+
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.equal(saved.completed, true);
+    assert.deepEqual(saved.targets, ["existing target"]);
+    assert.deepEqual(saved.sources, ["web:existing query"]);
+    assert.deepEqual((saved.indexes as Array<Record<string, unknown>>).map((i) => i.id), ["idx_existing"]);
+    assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0], {
+      ref: "existing.mp4",
+      signals: ["watch"],
+      indexes: ["idx_existing"],
+    });
   });
 });
 
