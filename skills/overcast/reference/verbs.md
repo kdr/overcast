@@ -449,6 +449,7 @@ Options:
   --signals <string>     setup/edit: comma-separated signals for new indexes/videos
   --video <string>       setup/edit: comma-separated local videos/URLs to route
   --folder <string>      setup/edit: comma-separated local media folders to remember
+  --no-index             setup/edit: save setup routes without starting remote collection ingestion
   --dry-run              setup/edit: preview without saving or applying
   --verb <string>        Filter records by kind
   --since <string>       Time filter (e.g. 24h, 2026-06-01)

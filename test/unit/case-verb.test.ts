@@ -21,6 +21,7 @@ function withCase(fn: (dir: string) => Promise<void>) {
 }
 const ctx = (dir: string, input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext =>
   ({ input, rest, opts, case: openCase(dir), profile: defaultProfile() });
+const noIndex = { "no-index": true };
 
 test("case info reports record count + per-verb counts", async () => {
   await withCase(async (dir) => {
@@ -175,7 +176,7 @@ test("case setup edit updates setup file, applies registries, and emits update r
     let records = await caseVerb.run(ctx(dir, "setup", [], { target: "alpha", source: "web:alpha", yes: true }));
     c.writeRecord(records.at(-1)!);
 
-    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { target: "bravo", source: "youtube:@bravo", index: "col_face:face:Faces", yes: true }));
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { target: "bravo", source: "youtube:@bravo", index: "col_face:face:Faces", yes: true, ...noIndex }));
     const update = records.at(-1)!;
     c.writeRecord(update);
     assert.equal((update.payload as Record<string, unknown>).op, "startup_setup_update");
@@ -258,10 +259,10 @@ test("case setup remove-target/remove-source by registry id syncs setup.json", a
 test("case setup attach index upgrades a planned index instead of duplicating it", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
-    let records = await caseVerb.run(ctx(dir, "setup", [], { index: "Faces:face-analysis", video: "clip.mp4", yes: true }));
+    let records = await caseVerb.run(ctx(dir, "setup", [], { index: "Faces:face-analysis", video: "clip.mp4", yes: true, ...noIndex }));
     c.writeRecord(records.at(-1)!);
 
-    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { index: "idx_faces:face-analysis:Faces", yes: true }));
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { index: "idx_faces:face-analysis:Faces", yes: true, ...noIndex }));
     c.writeRecord(records.at(-1)!);
 
     const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
@@ -278,10 +279,10 @@ test("case setup attach index upgrades a planned index instead of duplicating it
 test("case setup two-part index edit preserves existing attached id", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
-    let records = await caseVerb.run(ctx(dir, "setup", [], { index: "idx_faces:face-analysis:Faces", video: "clip.mp4", yes: true }));
+    let records = await caseVerb.run(ctx(dir, "setup", [], { index: "idx_faces:face-analysis:Faces", video: "clip.mp4", yes: true, ...noIndex }));
     c.writeRecord(records.at(-1)!);
 
-    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { index: "Faces:face-analysis", yes: true }));
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { index: "Faces:face-analysis", yes: true, ...noIndex }));
     c.writeRecord(records.at(-1)!);
 
     const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
@@ -296,19 +297,66 @@ test("case setup two-part index edit preserves existing attached id", async () =
 test("case setup index-only edits refresh saved video route indexes", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
-    let records = await caseVerb.run(ctx(dir, "setup", [], { index: "idx_a:media-descriptions:A", video: "clip.mp4", yes: true }));
+    let records = await caseVerb.run(ctx(dir, "setup", [], { index: "idx_a:media-descriptions:A", video: "clip.mp4", yes: true, ...noIndex }));
     c.writeRecord(records.at(-1)!);
 
-    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { index: "idx_b:media-descriptions:B", yes: true }));
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { index: "idx_b:media-descriptions:B", yes: true, ...noIndex }));
     c.writeRecord(records.at(-1)!);
     let saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
     assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0].indexes, ["idx_a", "idx_b"]);
 
-    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { "remove-index": "idx_a", yes: true }));
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { "remove-index": "idx_a", yes: true, ...noIndex }));
     c.writeRecord(records.at(-1)!);
     saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
     assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0].indexes, ["idx_b"]);
     assert.deepEqual((saved.default_signals as Record<string, unknown>).idx_a, undefined);
+  });
+});
+
+test("case setup apply creates remote indexes and starts routed video indexing", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const video = join(dir, "clip.mp4");
+    writeFileSync(video, "fake");
+    const prev = process.env.OVERCAST_TINYCLOUD_CMD;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${join(process.cwd(), "test/fixtures/fake-tinycloud.sh")}`;
+    try {
+      const records = await caseVerb.run(ctx(dir, "setup", [], {
+        index: "Scenes:media-descriptions",
+        video,
+        yes: true,
+      }));
+      for (const rec of records) c.writeRecord(rec);
+
+      assert.equal(records.some((r) => r.verb === "index" && (r.payload as Record<string, unknown>).op === "create"), true);
+      assert.equal(records.some((r) => r.verb === "index" && (r.payload as Record<string, unknown>).op === "add"), true);
+      assert.equal(records.some((r) => r.verb === "watch" && r.media?.ref === video), true);
+
+      const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+      const indexes = saved.indexes as Array<Record<string, unknown>>;
+      assert.equal(indexes[0].id, "col_fake123");
+      assert.deepEqual((saved.default_signals as Record<string, unknown>).col_fake123, ["watch", "index add"]);
+      assert.deepEqual(((saved.media as Record<string, unknown>).routes as Array<Record<string, unknown>>)[0].indexes, ["col_fake123"]);
+      assert.match(JSON.stringify((records.at(-1)!.payload as Record<string, unknown>).applied_operations), /indexing started/);
+    } finally {
+      if (prev === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+      else process.env.OVERCAST_TINYCLOUD_CMD = prev;
+    }
+  });
+});
+
+test("case setup defaults to local-grep memory and records selected local memory backend", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { target: "alpha", yes: true }));
+    c.writeRecord(records.at(-1)!);
+    let saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(saved.memory, { backend: "local-grep", signals: ["note", "watch", "listen", "see"] });
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { memory: "qmd", signals: "note,watch", yes: true }));
+    c.writeRecord(records.at(-1)!);
+    saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(saved.memory, { backend: "qmd", signals: ["note", "watch"] });
   });
 });
 

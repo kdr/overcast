@@ -16,6 +16,7 @@ import { addSource, listSources, parseSourceSpec, removeSource } from "../state/
 import { addTarget, listTargets, removeTarget } from "../state/target.js";
 import { addIndex, listIndexes, normalizeIndexType, removeIndex } from "../state/index.js";
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex } from "../state/setup.js";
+import { indexVerb } from "./index.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -23,10 +24,9 @@ function err(message: string): OvercastRecord {
 }
 
 const DEFAULT_SIGNAL_BY_INDEX_TYPE: Record<string, string[]> = {
-  "media-descriptions": ["watch"],
+  "media-descriptions": ["watch", "index add"],
   "face-analysis": ["face", "index add"],
   entities: ["watch", "index add"],
-  "rich-transcripts": ["listen"],
 };
 
 function csv(v: unknown): string[] {
@@ -83,6 +83,8 @@ interface SetupChange {
   noteRecords: OvercastRecord[];
 }
 
+const accepted = (rec: OvercastRecord) => rec.state === "ready" || rec.state === "pending";
+
 function cloneSetup(setup: CaseSetup): CaseSetup {
   return JSON.parse(JSON.stringify(setup)) as CaseSetup;
 }
@@ -138,6 +140,71 @@ function refreshSetupRouteIndexes(setup: CaseSetup): void {
   for (const route of setup.media.routes) route.indexes = [...indexRefs];
 }
 
+function remoteIndexId(rec: OvercastRecord): string | undefined {
+  const payload = rec.payload && typeof rec.payload === "object" ? rec.payload as Record<string, unknown> : {};
+  const detailed = payload.detailed && typeof payload.detailed === "object" ? payload.detailed as Record<string, unknown> : {};
+  const collection = detailed.collection && typeof detailed.collection === "object" ? detailed.collection as Record<string, unknown> : {};
+  for (const value of [payload.id, payload.index, payload.collection_id, detailed.id, detailed.collection_id, collection.id]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations: string[]): Promise<OvercastRecord[]> {
+  const records: OvercastRecord[] = [];
+  const createdByName = new Map<string, string>();
+
+  for (const index of setup.indexes) {
+    if (index.id) continue;
+    const recs = await indexVerb.run({
+      ...ctx,
+      input: "create",
+      rest: [index.name],
+      opts: { type: index.type },
+    });
+    records.push(...recs);
+    const created = recs.find(accepted);
+    const id = created ? remoteIndexId(created) : undefined;
+    if (!id) {
+      operations.push(`index create attempted: ${index.name}`);
+      continue;
+    }
+    const oldRef = setupIndexRef(index);
+    index.id = id;
+    index.mode = "attach";
+    createdByName.set(oldRef, id);
+    setup.default_signals[id] = setup.default_signals[oldRef] ?? index.default_signals;
+    if (oldRef !== id) delete setup.default_signals[oldRef];
+    operations.push(`index created: ${index.name} (${id})`);
+  }
+
+  if (createdByName.size) {
+    for (const route of setup.media.routes) {
+      route.indexes = route.indexes.map((ref) => createdByName.get(ref) ?? ref);
+    }
+  }
+  refreshSetupRouteIndexes(setup);
+
+  for (const route of setup.media.routes) {
+    for (const index of setup.indexes) {
+      const id = index.id;
+      if (!id || !route.indexes.includes(id)) continue;
+      const signals = new Set([...route.signals, ...(setup.default_signals[id] ?? index.default_signals)]);
+      if (!signals.has("index add")) continue;
+      const recs = await indexVerb.run({
+        ...ctx,
+        input: "add",
+        rest: [route.ref],
+        opts: { to: id, type: index.type },
+      });
+      records.push(...recs);
+      operations.push(`${recs.some(accepted) ? "indexing started" : "indexing attempted"}: ${route.ref} -> ${id}`);
+    }
+  }
+
+  return records;
+}
+
 function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup" | "startup_setup_update", apply: boolean): SetupChange {
   const signals = csv(ctx.opts.signals);
   const targets = csv(ctx.opts.target);
@@ -149,6 +216,7 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   const removeIndexes = csv(ctx.opts["remove-index"]);
   const videos = csv(ctx.opts.video);
   const folders = csv(ctx.opts.folder);
+  const memories = csv(ctx.opts.memory);
   const setup = cloneSetup(base);
   const operations: string[] = [];
   const noteRecords: OvercastRecord[] = [];
@@ -192,6 +260,16 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     if (!setup.sources.includes(spec)) setup.sources.push(spec);
     operations.push(`source add: ${spec}`);
     if (apply && !listSources(ctx.case).some((s) => `${s.type}:${s.ref}` === spec)) addSource(ctx.case, spec);
+  }
+  if (memories.length) {
+    const backend = memories.at(-1)!;
+    setup.memory = {
+      backend,
+      signals: signals.length ? signals : (setup.memory?.signals ?? ["note", "watch", "listen", "see"]),
+    };
+    operations.push(`memory backend: ${backend} (${setup.memory.signals.join(", ")})`);
+  } else {
+    setup.memory ??= { backend: "local-grep", signals: ["note", "watch", "listen", "see"] };
   }
   if (removeSources.length) {
     const removeSourceSpecs = sourceSpecsForRemoval(ctx, removeSources);
@@ -306,6 +384,7 @@ export const caseVerb: VerbSpec = {
     { name: "signals", summary: "setup/edit: comma-separated signals for new indexes/videos", type: "string" },
     { name: "video", summary: "setup/edit: comma-separated local videos/URLs to route", type: "string" },
     { name: "folder", summary: "setup/edit: comma-separated local media folders to remember", type: "string" },
+    { name: "no-index", summary: "setup/edit: save setup routes without starting remote collection ingestion", type: "boolean" },
     { name: "dry-run", summary: "setup/edit: preview without saving or applying", type: "boolean" },
     { name: "verb", summary: "Filter records by kind", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
@@ -397,6 +476,7 @@ export const caseVerb: VerbSpec = {
         "signals",
         "video",
         "folder",
+        "memory",
       ].some((k) => ctx.opts[k] != null);
       if (!hasInputs && sub !== "plan" && ctx.opts.yes !== true) {
         const setupCompleted = saved?.completed ?? false;
@@ -407,20 +487,20 @@ export const caseVerb: VerbSpec = {
             payload: {
               completed: setupCompleted,
               status: setupCompleted ? "case setup complete" : "case has not been set up yet",
-	              setup_file: ctx.case.setupFile,
-	              wizard_steps: [
-	                "1. Case name",
-	                "2. Investigation target",
-	                "3. Sources or local media",
-	                "4. Indexes/search destinations",
-	                "5. Notes",
-	                "6. Preview and apply",
-	              ],
-	              next: [
-	                "overcast case setup --name \"Case name\" --target \"target\" --source \"web:query\" --yes",
-	                "overcast case setup plan --target \"target\" --source \"web:query\"",
-	                "overcast case setup edit --target \"new target\" --yes",
-	              ],
+              setup_file: ctx.case.setupFile,
+              wizard_steps: [
+                "1. Case name",
+                "2. Investigation target",
+                "3. Sources or local media",
+                "4. Indexes/search destinations",
+                "5. Notes",
+                "6. Preview and apply",
+              ],
+              next: [
+                "overcast case setup --name \"Case name\" --target \"target\" --memory local-grep --source \"web:query\" --yes",
+                "overcast case setup plan --target \"target\" --memory local-grep --source \"web:query\"",
+                "overcast case setup edit --target \"new target\" --yes",
+              ],
               note: setupCompleted
                 ? "case setup is complete; use case setup status/show to inspect it or case setup edit to change it"
                 : "case has not been set up yet; in the TUI, ask the user one wizard question at a time, or pass setup flags directly on the CLI",
@@ -437,6 +517,7 @@ export const caseVerb: VerbSpec = {
       const op = saved?.completed ? "startup_setup_update" : "startup_setup";
       const before = summarizeSavedSetup(saved);
       const change = buildSetupChange(ctx, base, op, !isPlan);
+      const workRecords = !isPlan && ctx.opts["no-index"] !== true ? await applySetupIndexing(ctx, change.setup, change.operations) : [];
       if (!isPlan) change.setup.completed = true;
       const after = summarizeSavedSetup(change.setup);
       const setupRecord = makeRecord({
@@ -460,7 +541,7 @@ export const caseVerb: VerbSpec = {
         change.setup.last_update_record_id = setupRecord.id;
         saveSetup(ctx.case, change.setup);
       }
-      return [...change.noteRecords, setupRecord];
+      return [...change.noteRecords, ...workRecords, setupRecord];
     }
 
     if (action === "clear") {

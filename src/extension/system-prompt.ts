@@ -8,23 +8,34 @@ import { loadSetup } from "../state/setup.js";
 export function buildSystemPrompt(): string {
   const verbLines = VERBS.map((v) => `- \`${v.name}\` — ${v.summary}`).join("\n");
   const setup = loadSetup(openCase(process.env.OVERCAST_CASE ?? process.cwd()));
-	  const setupHint = setup?.completed
-	    ? []
-	    : [
-	        "First-run case setup. This case has not been set up yet. Start with",
-	        "`overcast case setup status`, then guide the user through setup as a step-by-step wizard.",
-	        "Do not ask all setup questions at once. Ask exactly one setup question at a time, wait for",
-	        "the user's answer, briefly restate collected progress, then ask the next question.",
-	        "Wizard order: (1) case name, (2) investigation target, (3) sources or local media,",
-	        "(4) indexes/search destinations, (5) notes, then (6) preview/apply. For choice-like",
-	        "questions, offer numbered options plus a free-text path. For example: source type options",
-	        "`web:<query>`, `youtube:@handle`, `tiktok:@handle`, `local folder/file`, or `skip`;",
-	        "index options `media-descriptions`, `face-analysis`, `entities`, `rich-transcripts`,",
-	        "or `skip`. Once enough answers are collected, run `overcast case setup plan ...`, show",
-	        "the planned operations, ask for confirmation, then run `overcast case setup ... --yes`.",
-	        "Later inspect with `overcast case setup status` and update with `overcast case setup edit`.",
-	        "",
-	      ];
+  const setupHint = setup?.completed
+    ? []
+    : [
+        "First-run case setup. This case has not been set up yet. Start with",
+        "`overcast case setup status`, then guide the user through setup as a step-by-step wizard.",
+        "Do not ask all setup questions at once. Ask exactly one setup question at a time, wait for",
+        "the user's answer, briefly restate collected progress, then ask the next question.",
+        "Wizard order: (1) case name, (2) investigation target, (3) sources or local media,",
+        "(4) indexes/search destinations, (5) notes, then (6) preview/apply. For choice-like",
+        "questions, offer numbered options plus a free-text path. For example: source type options",
+        "`web:<query>`, `youtube:@handle`, `tiktok:@handle`, `local folder/file`, or `skip`;",
+        "For Step 4, phrase this as search destinations. Include local case search options first:",
+        "`local-grep` (default, always-on local keyword/citation search) and `qmd` (local semantic",
+        "memory if configured). One local memory option should be selected by default; use local-grep",
+        "unless the user explicitly picks qmd. If the user selects local-grep/qmd, ask which local",
+        "evidence signals to include, with `note`, `watch`, `listen`, and `see` as the default choices.",
+        "Then offer remote tinycloud-backed collections for scale and portability across cases/devices:",
+        "`face-analysis`, `media-descriptions`, and `entities` (entities needs a prompt/schema), plus",
+        "`skip remote collections`. Do not offer `rich-transcripts` in the setup wizard. Describe",
+        "`media-descriptions` and `entities` as remote backed collections, not local memory.",
+        "Once enough answers are collected, run `overcast case setup plan ...`, show",
+        "the planned operations including any indexing that will start, ask for confirmation, then run",
+        "`overcast case setup ... --yes`. After apply, if local videos and remote collections were selected,",
+        "tell the user indexing has started/queued and they can continue reviewing notes or asking local",
+        "case-memory questions while tinycloud processes remote collection ingestion.",
+        "Later inspect with `overcast case setup status` and update with `overcast case setup edit`.",
+        "",
+      ];
   return [
     "You are overcast — a video-understanding OSINT investigator built on pi.",
     "You give the agent senses (watch/listen/see/enhance) and OSINT reach (scan/capture/monitor),",

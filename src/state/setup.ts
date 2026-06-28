@@ -24,6 +24,10 @@ export interface CaseSetup {
   targets: string[];
   notes: string[];
   sources: string[];
+  memory: {
+    backend: "local-grep" | "qmd" | string;
+    signals: string[];
+  };
   indexes: SetupIndex[];
   default_signals: Record<string, string[]>;
   media: {
@@ -44,6 +48,7 @@ export function emptySetup(caseName: string, now = new Date().toISOString()): Ca
     targets: [],
     notes: [],
     sources: [],
+    memory: { backend: "local-grep", signals: ["note", "watch", "listen", "see"] },
     indexes: [],
     default_signals: {},
     media: { folders: [], videos: [], routes: [] },
@@ -56,7 +61,10 @@ export function loadSetup(c: Case): CaseSetup | undefined {
   if (!existsSync(c.setupFile)) return undefined;
   try {
     const parsed = JSON.parse(readFileSync(c.setupFile, "utf8")) as CaseSetup;
-    if (parsed && parsed.version === 1) return parsed;
+    if (parsed && parsed.version === 1) {
+      parsed.memory ??= { backend: "local-grep", signals: ["note", "watch", "listen", "see"] };
+      return parsed;
+    }
   } catch {
     // fall through to missing/corrupt as no saved setup
   }
@@ -76,6 +84,7 @@ export function setupSummary(setup: CaseSetup | undefined): Record<string, unkno
     targets: setup.targets.length,
     notes: setup.notes.length,
     sources: setup.sources.length,
+    memory: setup.memory,
     indexes: setup.indexes.length,
     videos: setup.media.videos.length,
     folders: setup.media.folders.length,

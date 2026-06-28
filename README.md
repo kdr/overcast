@@ -190,10 +190,16 @@ surface. It saves the mutable current setup to `.overcast/setup.json` and emits
 immutable `case` history records with `payload.op = "startup_setup"` or
 `"startup_setup_update"`. Those operational setup records are excluded from
 case memory/briefs; setup notes are emitted as normal `note` evidence.
+Setup distinguishes local case search from remote collections: `local-grep` is
+the default local memory backend, `qmd` is optional local semantic memory, and
+`face-analysis` / `media-descriptions` / `entities` are tinycloud-backed remote
+collections for scale and portability. When setup applies with local videos
+routed to remote collections, overcast starts collection creation/ingestion
+immediately; use `--no-index` to save the setup without starting remote ingest.
 
 ```bash
-overcast case setup plan --target "@pier9" --source "web:pier 9" --index "media:media" --json
-overcast case setup --name "dock-incident" --target "@pier9" --source "web:pier 9" --yes --json
+overcast case setup plan --target "@pier9" --memory local-grep --source "web:pier 9" --index "media:media" --json
+overcast case setup --name "dock-incident" --target "@pier9" --memory local-grep --source "web:pier 9" --yes --json
 overcast case setup show --json
 overcast case setup edit --target "new subject" --source "youtube:@channel" --yes --json
 ```
