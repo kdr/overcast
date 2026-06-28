@@ -133,8 +133,8 @@ Only primary evidence records are eligible for memory and briefs: read/meta and
 operational bookkeeping records (`ask`, `brief`, `case`, `setup`, `doctor`,
 `index`, legacy `collection`, etc.) are excluded even if they contain matching
 text. Remote indexes stay explicit through the case index mirror and
-`ask --index`. `face` detect records are also excluded from general case memory:
-boxes and per-frame detections are typed face evidence, not descriptive video
+`ask --index`. `face` records are also excluded from general case memory:
+boxes, matches, and stored detections are typed face evidence, not descriptive video
 content. For local videos, `index add <video> --to <id>` creates a missing
 `watch` record before registering the video remotely so local-grep has useful
 content immediately and qmd can ingest it on the next rebuild.

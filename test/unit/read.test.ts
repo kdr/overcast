@@ -52,6 +52,9 @@ test("case memory excludes operational and read/meta records from local and qmd 
     c.writeRecord(makeRecord({ verb: "case", payload: { summary: "CASE_NOISE memory status" } }));
     c.writeRecord(makeRecord({ verb: "ask", payload: { text: "ASK_NOISE prior answer", citations: [] } }));
     c.writeRecord(makeRecord({ verb: "face", payload: { op: "detect", summary: "FACE_DETECT_NOISE 36 face boxes" }, media: { ref: "faces.mp4" } }));
+    c.writeRecord(makeRecord({ verb: "face", payload: { op: "match", summary: "FACE_MATCH_NOISE ranked person match" }, media: { ref: "faces.mp4" } }));
+    c.writeRecord(makeRecord({ verb: "face", payload: { op: "search", summary: "FACE_SEARCH_NOISE cross-index person match" } }));
+    c.writeRecord(makeRecord({ verb: "face", payload: { op: "list", summary: "FACE_LIST_NOISE stored face detections" }, media: { ref: "faces.mp4" } }));
     c.writeRecord(makeRecord({ verb: "note", payload: { text: "EVIDENCE_MARKER Zurich train station" } }));
 
     const local = new LocalMemoryProvider(c);
@@ -72,7 +75,7 @@ test("case memory excludes operational and read/meta records from local and qmd 
     const docsDir = join(c.indexDir, "case-search", "qmd", "docs");
     const docs = readdirSync(docsDir).map((name) => readFileSync(join(docsDir, name), "utf8")).join("\n");
     assert.match(docs, /EVIDENCE_MARKER/);
-    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|CASE_NOISE|ASK_NOISE|FACE_DETECT_NOISE/);
+    assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|CASE_NOISE|ASK_NOISE|FACE_DETECT_NOISE|FACE_MATCH_NOISE|FACE_SEARCH_NOISE|FACE_LIST_NOISE/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

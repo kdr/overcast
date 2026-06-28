@@ -101,7 +101,7 @@ plain `ask` stays on local-grep, and `ask --deep` selects configured
 semantic providers such as qmd. The first qmd rebuild downloads/caches
 `embeddinggemma-300M-Q8_0`; rebuilds replace the named qmd collection before
 re-adding docs, so rerunning after new notes/watch records is safe.
-`face` detect records are excluded from general case memory; use `watch` /
+`face` records are excluded from general case memory; use `watch` /
 `listen` / `note` evidence for local-grep and qmd search content.
 `overcast doctor` reports qmd when installed or configured.
 
@@ -136,8 +136,8 @@ overcast index entities <entity-index-id> ./clip.mp4 --json
 `face` needs tinycloud ≥ 0.3.4 (`overcast doctor` flags an older install);
 overcast currently recommends tinycloud 0.3.6 for the latest face validation and
 CLI reliability behavior. Do not run `face ./clip.mp4` merely to populate
-general case search; face-detect boxes are typed face evidence and are excluded
-from local-grep/qmd memory. If a local video lacks content evidence, add it to
+general case search; face records are typed face evidence and are excluded from
+local-grep/qmd memory. If a local video lacks content evidence, add it to
 the index with `overcast index add ./clip.mp4 --to <id>`; overcast will create
 the missing `watch` record for local case memory.
 
