@@ -475,6 +475,7 @@ Options:
   --provider-indexable <string> setup/edit: comma-separated provider output verbs eligible for memory/indexing
   --auto-sense <string>  setup/edit: comma-separated senses to run on newly captured media
   --auto-index-new       setup/edit: automatically add newly analyzed media to configured indexes
+  --no-auto-index-new    setup/edit: disable automatic indexing for newly analyzed media
   --findings <string>    setup/edit: automated finding workflow (off | review)
   --video <string>       setup/edit: comma-separated local videos/URLs to route
   --folder <string>      setup/edit: comma-separated local media folders to remember

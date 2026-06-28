@@ -235,6 +235,21 @@ test("case setup stores provider policy, automation, and findings settings", asy
   });
 });
 
+test("case setup edit can disable auto-index-new", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { "auto-index-new": true, yes: true, ...noIndex }));
+    c.writeRecord(records.at(-1)!);
+    let saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(saved.automation, { auto_sense: [], auto_index_new: true });
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { "no-auto-index-new": true, yes: true, ...noIndex }));
+    c.writeRecord(records.at(-1)!);
+    saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(saved.automation, { auto_sense: [], auto_index_new: false });
+  });
+});
+
 test("case setup rejects unknown provider choices and finding modes", async () => {
   await withCase(async (dir) => {
     const [badProvider] = await caseVerb.run(ctx(dir, "setup", ["plan"], { provider: "listen:nope" }));

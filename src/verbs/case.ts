@@ -433,10 +433,14 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
       operations.push(`provider indexable: ${verb}`);
     }
   }
-  if (autoSense.length || ctx.opts["auto-index-new"] != null) {
+  if (autoSense.length || ctx.opts["auto-index-new"] != null || ctx.opts["no-auto-index-new"] != null) {
     setup.automation = {
       auto_sense: autoSense.length ? autoSense : (setup.automation?.auto_sense ?? []),
-      auto_index_new: ctx.opts["auto-index-new"] === true || setup.automation?.auto_index_new === true,
+      auto_index_new: ctx.opts["no-auto-index-new"] === true
+        ? false
+        : ctx.opts["auto-index-new"] === true
+          ? true
+          : setup.automation?.auto_index_new === true,
     };
     operations.push(`automation: senses=${setup.automation.auto_sense.join(",") || "none"} auto_index_new=${setup.automation.auto_index_new}`);
   } else {
@@ -503,6 +507,7 @@ export const caseVerb: VerbSpec = {
     { name: "provider-indexable", summary: "setup/edit: comma-separated provider output verbs eligible for memory/indexing", type: "string" },
     { name: "auto-sense", summary: "setup/edit: comma-separated senses to run on newly captured media", type: "string" },
     { name: "auto-index-new", summary: "setup/edit: automatically add newly analyzed media to configured indexes", type: "boolean" },
+    { name: "no-auto-index-new", summary: "setup/edit: disable automatic indexing for newly analyzed media", type: "boolean" },
     { name: "findings", summary: "setup/edit: automated finding workflow (off | review)", type: "string" },
     { name: "video", summary: "setup/edit: comma-separated local videos/URLs to route", type: "string" },
     { name: "folder", summary: "setup/edit: comma-separated local media folders to remember", type: "string" },
@@ -600,6 +605,7 @@ export const caseVerb: VerbSpec = {
         "provider-indexable",
         "auto-sense",
         "auto-index-new",
+        "no-auto-index-new",
         "findings",
         "video",
         "folder",

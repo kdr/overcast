@@ -4,7 +4,7 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
-import { makeRecord, isMemoryRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, memoryRecords, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
@@ -187,7 +187,7 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
   // Exclude read/meta and operational outputs (ask/brief/case/setup/doctor/etc.)
   // so briefs and memory search stay evidence-focused instead of citing setup
   // probes, doctor checks, or prior read envelopes as findings.
-  records = records.filter(isMemoryRecord);
+  records = memoryRecords(records);
   const counts: Record<string, number> = {};
   for (const r of records) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
 

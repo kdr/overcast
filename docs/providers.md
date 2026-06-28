@@ -95,7 +95,9 @@ overcast case setup edit \
 This records which provider choices the case expects, which outputs can feed
 local memory/indexing, and whether `scan --pull` / `monitor` should run senses
 automatically for newly discovered media. Explicit `--pipe` on `scan` or
-`monitor` still overrides setup automation for that run.
+`monitor` still overrides setup automation for that run. Use
+`case setup edit --no-auto-index-new --yes --json` to disable automatic indexing
+later without removing the selected providers or auto-sense chain.
 
 ## Hugging Face providers (turnkey when `HF_TOKEN` is set)
 

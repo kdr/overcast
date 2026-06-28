@@ -268,6 +268,10 @@ overcast finding list --json            # review automated target matches
 overcast finding dismiss <finding-id> --json
 ```
 
+Use `overcast case setup edit --no-auto-index-new --yes --json` to turn off
+automatic indexing later without clearing the rest of the case automation
+policy.
+
 Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, and `local-detect`.
 Single choices use `--verb <watch|listen|see|face|enhance> --choice <id>`, such
 as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:local-detect`, or

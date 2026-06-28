@@ -26,6 +26,7 @@ import { loadSeen, saveSeen, hitKey } from "../state/seen.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
+import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { parseSince } from "../providers/memory/local.js";
 import { isAv } from "./media-ref.js";
@@ -209,8 +210,7 @@ export const scanVerb: VerbSpec = {
               const automated = await runSetupAutomation(ctx, "scan", cap.media.ref);
               if (automated.length) out.push(...automated);
               else {
-                const sensed = await pipeSense(ctx, "scan", "watch", cap.media.ref);
-                if (sensed) out.push(sensed);
+                out.push(...await runDefaultWatchWithPolicy(ctx, "scan", cap.media.ref));
               }
             }
           }
@@ -310,7 +310,7 @@ async function pipeSense(
   ref: string,
 ): Promise<OvercastRecord | undefined> {
   if (verb === "watch" || verb === "listen") {
-    const binding = ctx.profile.providers?.[verb];
+    const binding = providerBinding(ctx, verb);
     // dispatch the same way the top-level verbs do, so a bound custom provider's
     // record-mapping isn't bypassed (custom → pass-through; default → mapper).
     // Use the same generous 15-min timeout the standalone verbs give exec
@@ -347,7 +347,8 @@ async function runAutomationSense(ctx: VerbContext, caller: string, verb: string
     return rec ?? err(caller, `sense '${verb}' produced no record`);
   }
   if (verb === "see") {
-    const [rec] = await seeVerb.run({ ...ctx, input: ref, rest: [], opts: {} });
+    const opts = autoSeeOpts(ctx);
+    const [rec] = await seeVerb.run({ ...ctx, input: ref, rest: [], opts });
     return rec;
   }
   if (verb === "face") {
@@ -415,6 +416,30 @@ async function runSetupAutomation(ctx: VerbContext, caller: string, ref: string)
     if (rec.state !== "error" && rec.state !== "needs_credentials" && rec.media?.ref) currentRef = rec.media.ref;
   }
   out.push(...await autoIndexNewMedia(ctx, currentRef));
+  return out;
+}
+
+function autoSeeOpts(ctx: VerbContext): VerbContext["opts"] {
+  const setup = loadSetup(ctx.case);
+  const choice = setup?.providers?.see?.choice;
+  const run = setup?.providers?.see?.descriptor && typeof setup.providers.see.descriptor === "object"
+    ? String((setup.providers.see.descriptor as Record<string, unknown>).run ?? "")
+    : "";
+  if (choice !== "local-detect" && !/detect\.py\b/.test(run)) return {};
+  const labels = listTargets(ctx.case)
+    .filter((t) => t.kind !== "image")
+    .map((t) => t.value.trim())
+    .filter(Boolean);
+  return labels.length ? { detect: labels.join(", ") } : {};
+}
+
+async function runDefaultWatchWithPolicy(ctx: VerbContext, caller: string, ref: string): Promise<OvercastRecord[]> {
+  const sensed = await pipeSense(ctx, caller, "watch", ref);
+  if (!sensed) return [];
+  const out = [sensed, ...automatedFindings(ctx, sensed, `${caller}:watch`)];
+  if (sensed.state !== "error" && sensed.state !== "needs_credentials") {
+    out.push(...await autoIndexNewMedia(ctx, sensed.media?.ref ?? ref));
+  }
   return out;
 }
 
@@ -573,9 +598,9 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
             : await runSetupAutomation(ctx, "monitor", cap.media.ref);
           if (sensedRecords.length) out.push(...sensedRecords);
           else {
-            const sensed = await pipeSense(ctx, "monitor", "watch", cap.media.ref);
-            if (sensed) sensedRecords.push(sensed);
-            if (sensed) out.push(sensed);
+            const fallback = await runDefaultWatchWithPolicy(ctx, "monitor", cap.media.ref);
+            sensedRecords.push(...fallback.filter((r) => r.verb === "watch"));
+            out.push(...fallback);
           }
           for (const sensed of sensedRecords) {
             const st = sensed.state;

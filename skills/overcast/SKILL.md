@@ -196,3 +196,7 @@ overcast case setup edit \
   --findings review \
   --yes --json
 ```
+
+Use `overcast case setup edit --no-auto-index-new --yes --json` to disable
+automatic indexing later without removing the selected providers or auto-sense
+chain.

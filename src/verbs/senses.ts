@@ -8,6 +8,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
+import { providerBinding } from "../providers/bindings.js";
 import { execCapture, parseFirstJson } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { resolveVideoArg } from "./media-ref.js";
@@ -59,7 +60,7 @@ export const listenVerb: VerbSpec = {
     if (resolved.error) return [errorRecord("listen", resolved.error)];
     const input = resolved.ref ?? ctx.input;
     const describe = ctx.opts.describe === true;
-    const binding = ctx.profile.providers?.listen;
+    const binding = providerBinding(ctx, "listen");
     // forward the declared listen flags to a custom provider, and give it the
     // same generous timeout the tinycloud mapper uses (long media).
     const extraArgs: string[] = [];
@@ -132,7 +133,7 @@ export const seeVerb: VerbSpec = {
     //     error rather than being silently ignored), else
     //  2. the shipped Hugging Face captioner when HF_TOKEN is set (turnkey), else
     //  3. the placeholder (needs_credentials + guidance).
-    const binding = ctx.profile.providers?.see;
+    const binding = providerBinding(ctx, "see");
     const seeEnv = providerEnv(ctx.case.mediaDir);
     // forward the declared see flags to whichever provider runs (custom or HF).
     const extraArgs: string[] = [];
@@ -255,7 +256,7 @@ export const enhanceVerb: VerbSpec = {
     // A bound enhance provider (e.g. the HF model-ops provider) takes over for
     // model-based ops; the DEFAULT stays the internal ffmpeg toolkit (invariant
     // #7). Bind via `overcast setup provider enhance "exec:bash …/hf/enhance.sh"`.
-    const enhBinding = ctx.profile.providers?.enhance;
+    const enhBinding = providerBinding(ctx, "enhance");
     if (isCustomBinding(enhBinding)) {
       // dispatch by transport (exec runs it; http/inproc return an explicit
       // error) rather than silently falling back to ffmpeg when a non-exec

@@ -13,6 +13,7 @@ import { makeRecord, type OvercastRecord } from "../record.js";
 import { runFace, type FaceOp, type FaceParams } from "../providers/tinycloud/face.js";
 import { tinycloudBaseFromRun, TC_SUBCOMMANDS, TINYCLOUD_TIMEOUT_MS } from "../providers/tinycloud/envelope.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
+import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { indexesByType, resolveIndexRef } from "../state/index.js";
 import { resolveVideoArg } from "./media-ref.js";
@@ -258,7 +259,7 @@ export const faceVerb: VerbSpec = {
     // indexes, so a bound provider behaves like the default tinycloud path. A
     // tinycloud-style binding (incl. a pinned binary/path) is NOT custom — it runs
     // through runFace below so all four ops work, not just the template's subcommand.
-    const binding = ctx.profile.providers?.face;
+    const binding = providerBinding(ctx, "face");
     if (isCustomBinding(binding) && !isTinycloudFaceBinding(binding)) {
       const primary = op === "search" ? image! : video!;
       const extraArgs: string[] = ["--op", op];

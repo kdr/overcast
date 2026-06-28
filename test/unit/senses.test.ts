@@ -12,6 +12,7 @@ import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
+import { emptySetup, saveSetup } from "../../src/state/setup.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -88,6 +89,38 @@ test("see/enhance route to a bound provider (pass-through), e.g. a HF-style VLM"
   const [erec] = await enhanceVerb.run({ input: clip, rest: [], opts: {}, case: c, profile: p });
   assert.equal(erec.state, "ready");
   assert.equal(erec.meta?.provider, "hf:upscale");
+});
+
+test("case provider policy overrides profile provider binding for senses", async () => {
+  const { writeFileSync, chmodSync } = await import("node:fs");
+  const d = mkdtempSync(join(tmpdir(), "oc-sense-provider-"));
+  try {
+    const img = join(d, "img.jpg");
+    writeFileSync(img, "fake image");
+    const profileScript = join(d, "see-profile.sh");
+    writeFileSync(profileScript, '#!/usr/bin/env bash\necho "{\\"verb\\":\\"see\\",\\"payload\\":{\\"caption\\":\\"profile\\"},\\"state\\":\\"ready\\"}"\n');
+    chmodSync(profileScript, 0o755);
+    const caseScript = join(d, "see-case.sh");
+    writeFileSync(caseScript, '#!/usr/bin/env bash\necho "{\\"verb\\":\\"see\\",\\"payload\\":{\\"caption\\":\\"case\\"},\\"state\\":\\"ready\\"}"\n');
+    chmodSync(caseScript, 0o755);
+    const c = openCase(d); c.ensure();
+    const setup = emptySetup("sense-provider");
+    setup.providers = {
+      see: {
+        verb: "see",
+        choice: "case-provider",
+        descriptor: { type: "exec", run: `bash ${caseScript} {{input}}` },
+      },
+    };
+    saveSetup(c, setup);
+    const p = defaultProfile();
+    p.providers = { ...p.providers, see: { type: "exec", run: `bash ${profileScript} {{input}}` } };
+
+    const [rec] = await seeVerb.run({ input: img, rest: [], opts: {}, case: c, profile: p });
+    assert.equal((rec.payload as Record<string, unknown>).caption, "case");
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
 });
 
 test("enhance produces media.enhanced with the output as media.ref", async () => {

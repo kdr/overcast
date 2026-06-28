@@ -135,6 +135,72 @@ test("scan --pull uses setup automation and emits review findings", async () => 
   }
 });
 
+test("scan --pull default watch emits review findings when no auto-sense chain is configured", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-default-watch-finding-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    addTarget(c, "Hacker News");
+    const setup = emptySetup("default-watch-finding");
+    setup.completed = true;
+    setup.automation = { auto_sense: [], auto_index_new: false };
+    setup.findings = { mode: "review" };
+    saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    assert.ok(recs.some((r) => r.verb === "watch"));
+    const findings = recs.filter((r) => r.verb === "finding");
+    assert.ok(findings.length >= 1);
+    assert.equal((findings[0].payload as Record<string, unknown>).target, "Hacker News");
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan auto-sense see passes case targets as local-detect labels", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-auto-see-detect-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    addTarget(c, "license plate");
+    const seeScript = join(d, "see-detect.sh");
+    writeFileSync(seeScript, [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      "args=\"$*\"",
+      "case \"$args\" in",
+      "  *\"--detect license plate\"*) ;;",
+      "  *) echo \"missing detect args: $args\" >&2; exit 9 ;;",
+      "esac",
+      "printf '{\"verb\":\"see\",\"state\":\"ready\",\"payload\":{\"args\":%s}}\\n' \"$(printf '%s' \"$args\" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')\"",
+      "",
+    ].join("\n"));
+    execFileSync("chmod", ["755", seeScript]);
+    const setup = emptySetup("auto-see-detect");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["see"], auto_index_new: false };
+    setup.providers = {
+      see: {
+        verb: "see",
+        choice: "local-detect",
+        descriptor: { type: "exec", run: `bash ${seeScript} {{input}}` },
+      },
+    };
+    saveSetup(c, setup);
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile: defaultProfile() });
+    const see = recs.find((r) => r.verb === "see")!;
+    assert.equal(see.state, "ready");
+    assert.match((see.payload as Record<string, unknown>).args as string, /--detect license plate/);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("monitor --once diffs the seen-set: new items first pass, none second", async () => {
   // fresh case so seen.json starts empty
   const d2 = mkdtempSync(join(tmpdir(), "oc-mon-"));
