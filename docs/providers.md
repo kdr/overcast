@@ -140,6 +140,7 @@ overcast ask "where did we see the white van?" --json
 For optional local semantic search, bind qmd:
 
 ```bash
+npm install -g @tobilu/qmd
 overcast setup memory qmd
 overcast case memory index rebuild --memory qmd --json
 overcast ask "where did we see the white van?" --deep --json
@@ -150,12 +151,14 @@ The qmd backend materializes markdown docs under `.overcast/index/case-search/qm
 tracks the embedding model/config and a content fingerprint in
 `case memory index status`, and defaults to `embeddinggemma-300M-Q8_0`. Override
 with `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL`, or profile fields (`command`,
-`model`, `indexTemplate`, `queryTemplate`). qmd queries do not auto-rebuild a
-missing/stale index; use `case memory index rebuild --memory qmd` first.
+`model`, `indexTemplate`, `embedTemplate`, `queryTemplate`). qmd queries do not
+auto-rebuild a missing/stale index; use `case memory index rebuild --memory qmd`
+first.
 `case memory index start` creates a background rebuild job and `retry` reruns a
 failed/stale rebuild. Plain `ask` remains local-grep; `ask --deep` selects
 configured semantic providers such as qmd, and `--memory qmd` forces that
-provider explicitly.
+provider explicitly. `overcast doctor` reports qmd as an optional check when it
+is installed or configured.
 
 For typed remote retrieval, `ask --index <id>` queries a tinycloud-backed
 **media-descriptions** index directly (see below) — the public-verb realization

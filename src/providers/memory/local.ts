@@ -105,7 +105,7 @@ export class LocalMemoryProvider implements MemoryProvider {
     const deduped: Passage[] = [];
     const seen = new Set<string>();
     for (const p of scored) {
-      const key = `${p.recordId}:${p.field ?? ""}`;
+      const key = `${p.recordId}:${p.field ?? ""}:${p.text}`;
       if (seen.has(key)) continue;
       seen.add(key);
       deduped.push(p);

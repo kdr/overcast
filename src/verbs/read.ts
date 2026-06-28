@@ -131,10 +131,7 @@ export const askVerb: VerbSpec = {
       return [askError(`invalid --since value: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
     }
     const available = resolveMemory(ctx.case, ctx.profile);
-    let providers = ctx.opts.deep === true
-      ? available.filter((p) => typeof p.deepsearch === "function")
-      : available.filter((p) => matchesMemoryProvider(p, "local-grep"));
-    if (providers.length === 0) providers = available.filter((p) => matchesMemoryProvider(p, "local-grep"));
+    let providers = available.filter((p) => matchesMemoryProvider(p, "local-grep"));
     if (ctx.opts.memory) {
       const ids = String(ctx.opts.memory).split(",").map((s) => s.trim()).filter(Boolean);
       providers = available.filter((p) => ids.some((id) => matchesMemoryProvider(p, id)));
@@ -144,6 +141,17 @@ export const askVerb: VerbSpec = {
           askError(
             `no memory providers match --memory ${ctx.opts.memory} ` +
               `(available: ${available.map((p) => p.id).join(", ") || "none"})`,
+          ),
+        ];
+      }
+    }
+    if (ctx.opts.deep === true) {
+      providers = (ctx.opts.memory ? providers : available).filter((p) => typeof p.deepsearch === "function");
+      if (providers.length === 0) {
+        return [
+          askError(
+            "no semantic memory provider is configured for --deep " +
+              "(run `overcast setup memory qmd` and `overcast case memory index rebuild --memory qmd`, or use plain `ask` for local-grep)",
           ),
         ];
       }

@@ -284,6 +284,20 @@ export const doctorVerb: VerbSpec = {
             : "CLI available",
     });
 
+    const qmdSpec = (ctx.profile.memory ?? []).find((m) => (m.backend ?? m.id ?? "").toLowerCase() === "qmd");
+    const qmdConfigured = Boolean(qmdSpec || process.env.OVERCAST_QMD_CMD || process.env.OVERCAST_QMD_MODEL);
+    const qmdCmd = tokenizeCommand(qmdSpec?.command ?? qmdSpec?.run ?? process.env.OVERCAST_QMD_CMD ?? "qmd");
+    const qmd = await execCapture(qmdCmd[0], [...qmdCmd.slice(1), "--help"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    if (qmdConfigured || qmd.code === 0) {
+      checks.push({
+        name: "qmd",
+        ok: qmd.code === 0,
+        detail: qmd.code === 0
+          ? `optional semantic memory CLI available (${DEFAULT_QMD_MODEL})`
+          : "optional semantic memory CLI missing — install with `npm install -g @tobilu/qmd`",
+      });
+    }
+
     // home / profiles
     const home = resolveHome({ home: ctx.home });
     const pdir = profilesDir(home);
@@ -323,6 +337,9 @@ export const doctorVerb: VerbSpec = {
     }
     if (!checks.find((c) => c.name === "cloudglue")?.ok) {
       warnings.push("no Cloudglue key — the default sense backend and the Cloudglue brain are unavailable");
+    }
+    if (qmdConfigured && !checks.find((c) => c.name === "qmd")?.ok) {
+      warnings.push("qmd memory is configured but qmd is not available — install with `npm install -g @tobilu/qmd` or update OVERCAST_QMD_CMD");
     }
     const ok = coreOk && warnings.length === 0;
     return [

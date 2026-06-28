@@ -12,6 +12,8 @@
 #   • uses REAL clips from ~/Downloads/test-videos and hits real backends
 #
 # Output → ./.dev/smoke/live-<UTC>/ (raw JSON + report.md), gitignored.
+# Set LIVE_E2E_VERBOSE=1 or E2E_VERBOSE=1 to include exact commands + output
+# snippets in report.md.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -53,7 +55,7 @@ fi
 # media is supplied by full path via .env (OC_VIDEO_*/OC_IMAGE/OC_AUDIO) — no file
 # names baked into the repo. Summarize which are configured WITHOUT printing paths.
 media_summary() {
-  for v in OC_VIDEO_VISUAL OC_VIDEO_OBJECTS OC_VIDEO_SMALL OC_VIDEO_SPEECH OC_IMAGE OC_AUDIO; do
+  for v in OC_VIDEO_VISUAL OC_VIDEO_OBJECTS OC_VIDEO_SMALL OC_VIDEO_SPEECH OC_IMAGE OC_AUDIO OC_TEST_MEDIA_INDEX OC_TEST_FACE_INDEX; do
     [ -n "${!v:-}" ] && printf '%s ' "${v#OC_}"
   done
 }
@@ -118,10 +120,14 @@ REPORT="$SMOKE_DIR/report.md"
     echo "| $name | $(printf '%s' "$res" | tr a-z A-Z) | $note_esc |"
   done <"$RESULTS_TSV"
   echo
-  echo "## Detailed checks"
-  echo
-  echo "_Each section: the condition under test, the exact command, and an output snippet._"
-  cat "$DETAIL_MD"
+  if case "${LIVE_E2E_VERBOSE:-${E2E_VERBOSE:-0}}" in 1|true|yes|on) true ;; *) false ;; esac; then
+    echo "## Detailed checks"
+    echo
+    echo "_Each section: the condition under test, the exact command, and an output snippet._"
+    cat "$DETAIL_MD"
+  else
+    echo "_Set \`LIVE_E2E_VERBOSE=1\` or \`E2E_VERBOSE=1\` to include exact input commands and output snippets in this report._"
+  fi
 } >"$REPORT"
 
 echo "=== LIVE summary: $pass/$total passed (incl. skips), $fail failed ==="

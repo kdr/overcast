@@ -64,6 +64,32 @@ test("query respects the verb filter", async () => {
   });
 });
 
+test("local provider keeps distinct matching array fields with the same path", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-local-array-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({
+      verb: "watch",
+      payload: {
+        data: {
+          segments: [
+            { description: "Zurich travel tips near the train station" },
+            { description: "Zurich river walk and old town landmarks" },
+          ],
+        },
+      },
+      media: { ref: "zurich.mp4" },
+    }));
+    const hits = new LocalMemoryProvider(c).query("Zurich", { limit: 5 });
+    assert.equal(hits.filter((h) => h.field === "data.segments[].description").length, 2);
+    assert.ok(hits.some((h) => /train station/.test(h.text)));
+    assert.ok(hits.some((h) => /old town/.test(h.text)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("fanOutAnswer merges + dedups citations across providers", async () => {
   await withCase(async (c) => {
     const local = new LocalMemoryProvider(c);
@@ -142,7 +168,7 @@ test("qmd memory provider materializes docs, records model config, and queries v
     const fake = join(dir, "qmd.sh");
     writeFileSync(fake, `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(log)}
-if [ "$1" = "search" ]; then
+if printf '%s\\n' "$*" | grep -q ' vsearch '; then
   echo '[{"record_id":"rec_qmd","verb":"note","text":"qmd semantic hit","score":9}]'
 else
   echo '{"ok":true}'
@@ -158,7 +184,8 @@ fi
     assert.equal(hits[0].recordId, "rec_qmd");
     const calls = readFileSync(log, "utf8");
     assert.match(calls, /collection add/);
-    assert.match(calls, /search white van docks --collection/);
+    assert.match(calls, /embed -c/);
+    assert.match(calls, /vsearch white van docks --collection/);
   });
 });
 
@@ -205,8 +232,8 @@ test("qmd query keeps media_at anchors and does not fall back to local-grep on s
   await withCase(async (c, dir) => {
     const fake = join(dir, "qmd.sh");
     writeFileSync(fake, `#!/usr/bin/env bash
-if [ "$1" = "search" ]; then
-  if [ "$2" = "fail" ]; then exit 9; fi
+if printf '%s\\n' "$*" | grep -q ' vsearch '; then
+  if printf '%s\\n' "$*" | grep -q ' fail '; then exit 9; fi
   echo '[{"record_id":"rec_qmd_anchor","verb":"watch","text":"semantic timestamp hit","score":9,"metadata":{"media_at":"12-18"}}]'
 else
   echo '{"ok":true}'
@@ -227,6 +254,72 @@ fi
     const failedAns = await qmd.answer("fail");
     assert.equal(failedAns.text, 'No qmd results for "fail".');
   });
+});
+
+test("qmd parses real CLI full-body results back to record citations", async () => {
+  await withCase(async (c, dir) => {
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+if [ "$3" = "vsearch" ]; then
+  cat <<'JSON'
+[
+  {
+    "docid":"#abc",
+    "score":0.51,
+    "file":"qmd://case/rec1.md",
+    "line":7,
+    "title":"Watch rec1",
+    "body":"# Watch rec1\\n\\nrecord_id: rec_real_qmd\\nverb: watch\\nmedia_at: 12-18\\n\\nA white van appears near the docks at night with boxes.\\n"
+  }
+]
+JSON
+else
+  echo '{"ok":true}'
+fi
+`);
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    await qmd.rebuild();
+    const hits = await qmd.query("white van docks", { limit: 2 });
+    assert.equal(hits[0].recordId, "rec_real_qmd");
+    assert.equal(hits[0].verb, "watch");
+    assert.deepEqual(hits[0].at, [12, 18]);
+    assert.match(hits[0].text, /white van appears near the docks/i);
+  });
+});
+
+test("qmd query applies verb and since filters after semantic retrieval", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-qmd-filter-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    const oldNote = makeRecord({ verb: "note", payload: { text: "Zurich travel note" }, meta: { time: "2020-01-01T00:00:00Z" } });
+    const freshWatch = makeRecord({ verb: "watch", payload: { content: "Zurich travel watch" }, meta: { time: "2026-06-25T00:00:00Z" } });
+    c.writeRecord(oldNote);
+    c.writeRecord(freshWatch);
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, `#!/usr/bin/env bash
+if printf '%s\\n' "$*" | grep -q ' vsearch '; then
+  cat <<JSON
+[
+  {"record_id":"${oldNote.id}","verb":"note","text":"old Zurich note","score":9},
+  {"record_id":"${freshWatch.id}","verb":"watch","text":"fresh Zurich watch","score":8}
+]
+JSON
+else
+  echo '{"ok":true}'
+fi
+`);
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    await qmd.rebuild();
+    const watchOnly = await qmd.query("Zurich", { verbs: ["watch"], limit: 5 });
+    assert.deepEqual(watchOnly.map((h) => h.recordId), [freshWatch.id]);
+    const freshOnly = await qmd.query("Zurich", { since: "2026-01-01", limit: 5 });
+    assert.deepEqual(freshOnly.map((h) => h.recordId), [freshWatch.id]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("case memory index status/rebuild surfaces backend compatibility", async () => {
@@ -267,7 +360,7 @@ test("case memory search honors --memory qmd", async () => {
   await withCase(async (c, dir) => {
     const fake = join(dir, "qmd.sh");
     writeFileSync(fake, `#!/usr/bin/env bash
-if [ "$1" = "search" ]; then
+if printf '%s\\n' "$*" | grep -q ' vsearch '; then
   echo '[{"record_id":"rec_qmd_search","verb":"note","text":"qmd-only case search","score":9}]'
 else
   echo '{"ok":true}'
@@ -289,7 +382,7 @@ test("ask --deep selects configured semantic providers", async () => {
   await withCase(async (c, dir) => {
     const fake = join(dir, "qmd.sh");
     writeFileSync(fake, `#!/usr/bin/env bash
-if [ "$1" = "search" ]; then
+if printf '%s\\n' "$*" | grep -q ' vsearch '; then
   echo '[{"record_id":"rec_qmd_deep","verb":"note","text":"deep qmd semantic hit","score":9}]'
 else
   echo '{"ok":true}'
@@ -305,6 +398,14 @@ fi
     assert.equal(rec.state, "ready");
     assert.equal(rec.meta?.provider, "qmd");
     assert.match(String((rec.payload as Record<string, unknown>).text), /deep qmd semantic hit/);
+  });
+});
+
+test("ask --deep errors instead of silently falling back to local-grep", async () => {
+  await withCase(async (c) => {
+    const [rec] = await askVerb.run({ input: "white van", rest: [], opts: { deep: true }, case: c, profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /no semantic memory provider/i);
   });
 });
 
@@ -341,6 +442,23 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
       const job = ((rec.payload as Record<string, unknown>).job as Record<string, unknown>);
       assert.match(job.command as string, /overcast-bg\.sh/);
       assert.match(job.command as string, /case memory index rebuild/);
+      const jobFile = (rec.payload as Record<string, unknown>).job_file as string;
+      for (let i = 0; i < 50; i++) {
+        if (existsSync(log) && /case memory index rebuild/.test(readFileSync(log, "utf8"))) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.match(readFileSync(log, "utf8"), /case memory index rebuild/);
+      for (let i = 0; i < 50; i++) {
+        let state = "";
+        try {
+          state = JSON.parse(readFileSync(jobFile, "utf8")).state;
+        } catch {
+          state = "";
+        }
+        if (state === "ready") break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.equal(JSON.parse(readFileSync(jobFile, "utf8")).state, "ready");
     } finally {
       if (prev === undefined) delete process.env.OVERCAST_CMD;
       else process.env.OVERCAST_CMD = prev;

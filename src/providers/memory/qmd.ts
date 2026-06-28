@@ -6,6 +6,7 @@ import { isMetaRecord, type OvercastRecord } from "../../record.js";
 import { execCapture } from "../exec.js";
 import { tokenizeCommand } from "../sources/index.js";
 import { indexableDocument, type IndexableDocument } from "./fields.js";
+import { parseSince } from "./local.js";
 import type { Answer, MemoryIndexStatus, MemoryProvider, Passage, QueryOpts } from "./types.js";
 
 export const DEFAULT_QMD_MODEL = "embeddinggemma-300M-Q8_0";
@@ -16,6 +17,7 @@ export interface QmdMemoryConfig {
   collection?: string;
   model?: string;
   indexTemplate?: string;
+  embedTemplate?: string;
   queryTemplate?: string;
 }
 
@@ -36,6 +38,26 @@ function renderTemplate(template: string, vars: Record<string, string>): string[
   });
 }
 
+function extractJson(stdout: string): unknown {
+  const trimmed = stdout.trim();
+  if (!trimmed) return undefined;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Real qmd can print progress/warnings before the JSON array. Grab the last
+    // JSON-looking array/object so warning text does not make the result vanish.
+    const start = Math.max(trimmed.lastIndexOf("\n["), trimmed.lastIndexOf("\n{"));
+    if (start >= 0) {
+      try {
+        return JSON.parse(trimmed.slice(start + 1).trim());
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+}
+
 function docMarkdown(doc: IndexableDocument): string {
   const at = doc.media?.at != null ? (Array.isArray(doc.media.at) ? doc.media.at.join("-") : String(doc.media.at)) : "";
   return [
@@ -50,6 +72,20 @@ function docMarkdown(doc: IndexableDocument): string {
     doc.text,
     "",
   ].filter(Boolean).join("\n");
+}
+
+function frontMatterField(text: string, field: string): string | undefined {
+  const re = new RegExp(`^${field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*(.+)$`, "mi");
+  return text.match(re)?.[1]?.trim();
+}
+
+function textBody(raw: string): string {
+  return raw
+    .split("\n")
+    .filter((line) => !/^(record_id|verb|media_ref|media_at|time)\s*:/i.test(line))
+    .join("\n")
+    .replace(/^# .+\n+/, "")
+    .trim();
 }
 
 function docsFingerprint(docs: IndexableDocument[]): string {
@@ -85,10 +121,9 @@ function parseAt(value: unknown): number | [number, number] | undefined {
 }
 
 function parseQmdPassages(stdout: string): Passage[] {
-  const trimmed = stdout.trim();
-  if (!trimmed) return [];
+  const parsed = extractJson(stdout);
+  if (!parsed) return [];
   try {
-    const parsed = JSON.parse(trimmed) as unknown;
     const arr = Array.isArray(parsed)
       ? parsed
       : parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).results)
@@ -98,15 +133,20 @@ function parseQmdPassages(stdout: string): Passage[] {
     for (const item of arr) {
       if (!item || typeof item !== "object") continue;
       const o = item as Record<string, unknown>;
-      const text = String(o.text ?? o.content ?? o.snippet ?? o.body ?? "").trim();
+      const rawText = String(o.text ?? o.content ?? o.body ?? o.snippet ?? "").trim();
+      const text = textBody(rawText) || rawText;
       const metadata = (o.metadata && typeof o.metadata === "object" ? o.metadata : {}) as Record<string, unknown>;
-      const recordId = String(o.recordId ?? o.record_id ?? metadata.recordId ?? metadata.record_id ?? "").trim();
+      const recordId = String(
+        o.recordId ?? o.record_id ?? metadata.recordId ?? metadata.record_id ?? frontMatterField(rawText, "record_id") ?? "",
+      ).trim();
       if (!recordId || !text) continue;
-      const at = parseAt(o.at ?? o.media_at ?? o.mediaAt ?? metadata.at ?? metadata.media_at ?? metadata.mediaAt);
+      const at = parseAt(
+        o.at ?? o.media_at ?? o.mediaAt ?? metadata.at ?? metadata.media_at ?? metadata.mediaAt ?? frontMatterField(rawText, "media_at"),
+      );
       passages.push({
         recordId,
         at,
-        verb: String(o.verb ?? metadata.verb ?? "record"),
+        verb: String(o.verb ?? metadata.verb ?? frontMatterField(rawText, "verb") ?? "record"),
         text,
         score: Number(o.score ?? o.similarity ?? 1),
         provider: "qmd",
@@ -142,7 +182,9 @@ export class QmdMemoryProvider implements MemoryProvider {
   private readonly model: string;
   private readonly docsDir: string;
   private readonly manifestFile: string;
+  private readonly indexName: string;
   private readonly indexTemplate?: string;
+  private readonly embedTemplate?: string;
   private readonly queryTemplate?: string;
 
   constructor(private readonly case_: Case, cfg: QmdMemoryConfig = {}) {
@@ -152,7 +194,9 @@ export class QmdMemoryProvider implements MemoryProvider {
     this.model = cfg.model ?? process.env.OVERCAST_QMD_MODEL ?? DEFAULT_QMD_MODEL;
     this.docsDir = join(case_.indexDir, "case-search", "qmd", "docs");
     this.manifestFile = join(case_.indexDir, "case-search", "qmd", "manifest.json");
+    this.indexName = join(case_.indexDir, "case-search", "qmd", "qmd-index");
     this.indexTemplate = cfg.indexTemplate;
+    this.embedTemplate = cfg.embedTemplate;
     this.queryTemplate = cfg.queryTemplate;
   }
 
@@ -179,7 +223,7 @@ export class QmdMemoryProvider implements MemoryProvider {
       records: records.length,
       path: this.docsDir,
       model: this.model,
-      config: { collection: this.collection, command: this.command },
+      config: { collection: this.collection, command: this.command, index: this.indexName },
       updated: manifest?.updated,
       error: state === "error" ? manifest?.error : undefined,
     };
@@ -214,8 +258,9 @@ export class QmdMemoryProvider implements MemoryProvider {
       collection: this.collection,
       model: this.model,
       manifest: this.manifestFile,
+      index: this.indexName,
     };
-    const template = this.indexTemplate ?? "{{cmd}} collection add {{docs}} --name {{collection}} --model {{model}} --json";
+    const template = this.indexTemplate ?? "{{cmd}} --index {{index}} collection add {{docs}} --name {{collection}} --format json";
     const argv = renderTemplate(template, vars);
     if (argv.length) {
       const res = await execCapture(argv[0], argv.slice(1), { timeoutMs: 15 * 60_000 }).catch((e) => ({
@@ -229,6 +274,20 @@ export class QmdMemoryProvider implements MemoryProvider {
         return { ...(await this.status()), state: "error", error };
       }
     }
+    const embedTemplate = this.embedTemplate ?? "{{cmd}} --index {{index}} embed -c {{collection}} --no-gpu --max-docs-per-batch 64";
+    const embedArgv = renderTemplate(embedTemplate, vars);
+    if (embedArgv.length) {
+      const res = await execCapture(embedArgv[0], embedArgv.slice(1), { timeoutMs: 15 * 60_000 }).catch((e) => ({
+        code: 127,
+        stdout: "",
+        stderr: (e as Error).message,
+      }));
+      if (res.code !== 0) {
+        const error = res.stderr || res.stdout || `qmd embed exited ${res.code}`;
+        this.writeManifest({ ...manifest, state: "error", error, updated: new Date().toISOString() });
+        return { ...(await this.status()), state: "error", error };
+      }
+    }
     this.writeManifest({ ...manifest, state: "ready", indexed: new Date().toISOString(), updated: new Date().toISOString() });
     return { ...(await this.status()), state: "ready", documents: docs.length, records: records.length };
   }
@@ -236,6 +295,7 @@ export class QmdMemoryProvider implements MemoryProvider {
   async query(q: string, opts: QueryOpts = {}): Promise<Passage[]> {
     const st = await this.status();
     if (st.state !== "ready") return [];
+    const records = new Map(this.case_.records().map((r) => [r.id, r]));
     const vars = {
       cmd: this.command,
       query: q,
@@ -243,13 +303,28 @@ export class QmdMemoryProvider implements MemoryProvider {
       model: this.model,
       limit: String(opts.limit ?? 8),
       docs: this.docsDir,
+      index: this.indexName,
     };
-    const template = this.queryTemplate ?? "{{cmd}} search {{query}} --collection {{collection}} --limit {{limit}} --json";
+    const template = this.queryTemplate ?? "{{cmd}} --index {{index}} vsearch {{query}} --collection {{collection}} --format json --full -n {{limit}} --no-gpu";
     const argv = renderTemplate(template, vars);
     if (!argv.length) return [];
     const res = await execCapture(argv[0], argv.slice(1), { timeoutMs: 5 * 60_000 }).catch(() => undefined);
     if (!res || res.code !== 0) return [];
-    return parseQmdPassages(res.stdout).slice(0, opts.limit ?? 8);
+    let passages = parseQmdPassages(res.stdout);
+    if (opts.verbs && opts.verbs.length) {
+      const verbs = new Set(opts.verbs);
+      passages = passages.filter((p) => verbs.has(records.get(p.recordId)?.verb ?? p.verb));
+    }
+    if (opts.since) {
+      const cutoff = parseSince(opts.since);
+      if (cutoff == null) throw new Error(`invalid since value: ${opts.since}`);
+      passages = passages.filter((p) => {
+        const t = records.get(p.recordId)?.meta?.time;
+        const ms = t ? Date.parse(String(t)) : NaN;
+        return Number.isNaN(ms) || ms >= cutoff;
+      });
+    }
+    return passages.slice(0, opts.limit ?? 8);
   }
 
   async answer(q: string, opts: QueryOpts = {}): Promise<Answer> {

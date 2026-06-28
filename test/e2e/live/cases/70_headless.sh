@@ -77,3 +77,35 @@ if [ -n "$COLID" ]; then
 else
   skip "$C.index_json" "could not create real tinycloud index"
 fi
+
+# 5) headless agent should attach and query a reusable remote media index
+cond "headless JSON agent attaches and queries a reusable remote media index"
+if [ -n "${OC_TEST_MEDIA_INDEX:-}" ]; then
+  prompt="Use overcast tools for this case in this exact order: first run index attach ${OC_TEST_MEDIA_INDEX} --type media-descriptions, then ask 'Which videos are about Zurich travel?' with --index ${OC_TEST_MEDIA_INDEX}. Reply with JSON only, shaped like {\"index\":\"${OC_TEST_MEDIA_INDEX}\",\"answer\":\"...\"}. Do not create notes."
+  out="$(OC_TIMEOUT=360 oc "$CASE" --mode json "$prompt")"
+  invalid=0; nlines=0
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    nlines=$((nlines + 1))
+    printf '%s' "$line" | jq -e . >/dev/null 2>&1 || invalid=$((invalid + 1))
+  done <<<"$out"
+  assert_eq "$C.remote_query.valid" "0" "$invalid" "headless remote-query stream has valid JSON lines ($nlines line(s))"
+  if printf '%s' "$out" | grep -q "$OC_TEST_MEDIA_INDEX"; then
+    ok "$C.remote_query.id" "agent stream contains the reusable media index id"
+  else
+    fail "$C.remote_query.id" "agent stream did not contain media index id $OC_TEST_MEDIA_INDEX"
+  fi
+  if printf '%s' "$out" | grep -qi "Zurich"; then
+    ok "$C.remote_query.answer" "agent stream contains the remote Zurich answer"
+  else
+    fail "$C.remote_query.answer" "agent stream did not contain Zurich"
+  fi
+  mirrored="$(ocrun "$CASE" index list --json 2>/dev/null | jq --arg id "$OC_TEST_MEDIA_INDEX" '[.payload.indexes[]|select(.id==$id)]|length')"
+  assert_eq "$C.remote_query.mirror" "1" "${mirrored:-0}" "agent attached reusable media index into the mirror"
+  asks="$(ocrun "$CASE" case records --verb ask --json 2>/dev/null | jq -r '.payload.count // 0')"
+  [ "${asks:-0}" -ge 1 ] && ok "$C.remote_query.ask_record" "agent persisted $asks ask record(s)" || fail "$C.remote_query.ask_record" "agent did not persist an ask record"
+  notes="$(ocrun "$CASE" case records --verb note --json 2>/dev/null | jq -r '.payload.count // 0')"
+  assert_eq "$C.remote_query.no_note" "0" "${notes:-0}" "agent still did not create note records for index bookkeeping"
+else
+  skip "$C.remote_query" "no OC_TEST_MEDIA_INDEX configured"
+fi

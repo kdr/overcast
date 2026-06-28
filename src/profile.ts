@@ -36,6 +36,7 @@ export interface ProviderDescriptor {
   collection?: string;
   command?: string;
   indexTemplate?: string;
+  embedTemplate?: string;
   queryTemplate?: string;
 }
 

@@ -86,6 +86,7 @@ For optional local semantic case search, bind qmd (default embedding model:
 `embeddinggemma-300M-Q8_0`):
 
 ```bash
+npm install -g @tobilu/qmd
 overcast setup memory qmd
 overcast case memory index rebuild --memory qmd --json
 overcast ask "where did we see the white van?" --deep --json
@@ -94,7 +95,9 @@ overcast ask "where did we see the white van?" --memory qmd --json
 
 qmd is lifecycle-managed: rebuild/start/retry refresh the materialized index,
 plain `ask` stays on local-grep, and `ask --deep` selects configured
-semantic providers such as qmd.
+semantic providers such as qmd. The first qmd rebuild downloads/caches
+`embeddinggemma-300M-Q8_0`; `overcast doctor` reports qmd when installed or
+configured.
 
 ### Faces & indexes (register a target's videos, then ask / find a person)
 

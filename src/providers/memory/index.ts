@@ -19,6 +19,7 @@ export function resolveMemory(case_: Case, profile?: Profile): MemoryProvider[] 
         collection: spec.collection,
         model: spec.model,
         indexTemplate: spec.indexTemplate,
+        embedTemplate: spec.embedTemplate,
         queryTemplate: spec.queryTemplate,
       }));
     }

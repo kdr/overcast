@@ -29,9 +29,13 @@ the CLI from any harness. The brain LLM is BYO; the default perception backend i
   `CLOUDGLUE_API_KEY`. The `face` + `index` verbs need **tinycloud ≥ 0.3.4**
   and overcast currently recommends **0.3.6** (`npm i -g @cloudglue/tinycloud@0.3.6`
   or `tinycloud update`); override the invocation with `OVERCAST_TINYCLOUD_CMD`.
+- **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
+  `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
+  `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.
 - **yt-dlp** on `PATH` — only for the `youtube` / `tiktok` capture sources.
 
-`overcast doctor` verifies all of these.
+`overcast doctor` verifies core prerequisites and reports qmd when installed or
+configured.
 
 ```bash
 npm i -g @kdrrr/overcast          # the CLI + pi package  →  `overcast`
@@ -233,7 +237,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)
 - `CLOUDGLUE_BASE_URL` — endpoint (default `https://api.cloudglue.dev`)
 - `TINYCLOUD_HTTP_RETRIES`, `TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS`, `TINYCLOUD_JOB_WAIT_TIMEOUT_MS` — tinycloud 0.3.6 Cloudglue retry/upload/job-wait knobs inherited by overcast's default providers
-- `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; rebuild before querying qmd)
+- `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; install with `npm install -g @tobilu/qmd`, then rebuild before querying qmd)
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
 - `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — turnkey `see` + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`
@@ -273,6 +277,7 @@ npm run build       # tsup (dev/library build)
 npm run typecheck   # tsc --noEmit
 npm test            # unit + offline e2e (fixture provider)
 npm run test:e2e    # full e2e (real clips + Cloudglue); OVERCAST_E2E_LIVE=1 for live cases
+E2E_VERBOSE=1 npm run test:e2e  # include exact commands + output snippets in report.md
 overcast commands --json   # the authoritative verb registry
 overcast doctor            # preflight
 ```

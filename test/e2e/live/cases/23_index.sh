@@ -32,6 +32,22 @@ att="$(OC_TIMEOUT=120 oc "$CASE" index attach "$COLID" --type media-descriptions
 assert_eq "$C.attach_state" "ready" "$(echo "$att" | jq -r '.state')" "attach state ready"
 assert_eq "$C.attach_id" "$COLID" "$(echo "$att" | jq -r '.payload.index')" "attach returns the remote index id"
 
+cond "index attach can bind reusable remote media and face indexes by id"
+if [ -n "${OC_TEST_MEDIA_INDEX:-}" ]; then
+  media_att="$(OC_TIMEOUT=120 oc "$CASE" index attach "$OC_TEST_MEDIA_INDEX" --type media-descriptions --json)"
+  assert_eq "$C.attach_media_state" "ready" "$(echo "$media_att" | jq -r '.state')" "reusable media index attach ready"
+  assert_eq "$C.attach_media_type" "media-descriptions" "$(echo "$media_att" | jq -r '.payload.type')" "reusable media index typed"
+else
+  skip "$C.attach_media" "no OC_TEST_MEDIA_INDEX configured"
+fi
+if [ -n "${OC_TEST_FACE_INDEX:-}" ]; then
+  face_att="$(OC_TIMEOUT=120 oc "$CASE" index attach "$OC_TEST_FACE_INDEX" --type face-analysis --json)"
+  assert_eq "$C.attach_face_state" "ready" "$(echo "$face_att" | jq -r '.state')" "reusable face index attach ready"
+  assert_eq "$C.attach_face_type" "face-analysis" "$(echo "$face_att" | jq -r '.payload.type')" "reusable face index typed"
+else
+  skip "$C.attach_face" "no OC_TEST_FACE_INDEX configured"
+fi
+
 cond "index delete removes it remotely and prunes the mirror"
 del="$(OC_TIMEOUT=120 oc "$CASE" index delete "$COLID" --json)"
 assert_eq "$C.delete_state" "ready" "$(echo "$del" | jq -r '.state')" "delete state ready"

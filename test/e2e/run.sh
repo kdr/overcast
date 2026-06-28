@@ -29,6 +29,9 @@ export SMOKE_DIR="$REPO_ROOT/.dev/smoke/$UTC"
 mkdir -p "$SMOKE_DIR"
 export RESULTS_TSV="$SMOKE_DIR/results.tsv"
 : >"$RESULTS_TSV"
+export DETAIL_MD="$SMOKE_DIR/detail.md"
+: >"$DETAIL_MD"
+rm -f "$SMOKE_DIR/.reportedkey" "$SMOKE_DIR/.cmd" "$SMOKE_DIR/.out"
 
 GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
@@ -56,6 +59,10 @@ echo
 
 for c in "${cases[@]}"; do
   echo "--- case file: $(basename "$c") ---"
+  if case "${E2E_VERBOSE:-0}" in 1|true|yes|on) true ;; *) false ;; esac; then
+    printf '\n### %s\n' "$(basename "$c" .sh)" >>"$DETAIL_MD"
+    rm -f "$SMOKE_DIR/.reportedkey"
+  fi
   before=$(wc -l <"$RESULTS_TSV")
   # shellcheck disable=SC1090
   bash "$c"
@@ -106,6 +113,16 @@ REPORT="$SMOKE_DIR/report.md"
     echo "- ❌ failures present"
   else
     echo "- ✅ all green"
+  fi
+  if case "${E2E_VERBOSE:-0}" in 1|true|yes|on) true ;; *) false ;; esac; then
+    echo
+    echo "## Detailed checks"
+    echo
+    echo "_Enabled by \`E2E_VERBOSE=1\`. Each section includes the condition under test, the exact command, and a trimmed output snippet._"
+    cat "$DETAIL_MD"
+  else
+    echo
+    echo "_Set \`E2E_VERBOSE=1\` to include exact input commands and output snippets in this report._"
   fi
 } >"$REPORT"
 

@@ -3,7 +3,7 @@
 // memory providers. Subcommands: init | info | records | memory | clear.
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase } from "../case.js";
@@ -368,10 +368,34 @@ export const caseVerb: VerbSpec = {
             "--json",
           ];
           const command = [invocation.cmd, ...invocation.args, ...args].map(quoteCommandArg).join(" ");
-          const jobPayload = { id: job, state: "queued", command, provider: providerName ?? "all", created: new Date().toISOString() };
+          const logFile = join(jobsDir, `${job}.log`);
+          const scriptFile = join(jobsDir, `${job}.sh`);
+          const jobPayload = { id: job, state: "queued", command, provider: providerName ?? "all", created: new Date().toISOString(), log_file: logFile };
           writeFileSync(jobFile, JSON.stringify(jobPayload, null, 2) + "\n", "utf8");
+          const runningPayload = { ...jobPayload, state: "running" };
+          const readyPayload = { ...jobPayload, state: "ready" };
+          const script = [
+            "#!/bin/sh",
+            `cat > ${quoteCommandArg(jobFile)} <<'JSON'`,
+            JSON.stringify(runningPayload, null, 2),
+            "JSON",
+            `${command} > ${quoteCommandArg(logFile)} 2>&1`,
+            "rc=$?",
+            "if [ \"$rc\" -eq 0 ]; then",
+            `cat > ${quoteCommandArg(jobFile)} <<'JSON'`,
+            JSON.stringify(readyPayload, null, 2),
+            "JSON",
+            "else",
+            `cat > ${quoteCommandArg(jobFile)} <<'JSON'`,
+            JSON.stringify({ ...jobPayload, state: "error", error: "rebuild failed; see log_file" }, null, 2),
+            "JSON",
+            "fi",
+            "",
+          ].join("\n");
+          writeFileSync(scriptFile, script, "utf8");
+          chmodSync(scriptFile, 0o755);
           try {
-            const child = spawn(invocation.cmd, [...invocation.args, ...args], { detached: true, stdio: "ignore", env: process.env });
+            const child = spawn("/bin/sh", [scriptFile], { detached: true, stdio: "ignore", env: process.env });
             child.unref();
           } catch (e) {
             const error = (e as Error).message;
