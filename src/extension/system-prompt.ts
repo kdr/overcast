@@ -8,14 +8,23 @@ import { loadSetup } from "../state/setup.js";
 export function buildSystemPrompt(): string {
   const verbLines = VERBS.map((v) => `- \`${v.name}\` — ${v.summary}`).join("\n");
   const setup = loadSetup(openCase(process.env.OVERCAST_CASE ?? process.cwd()));
-  const setupHint = setup?.completed
-    ? []
-    : [
-        "First-run case setup. If this case has not been configured, start with",
-        "`overcast case setup` or preview with `overcast case setup plan`; check later with",
-        "`overcast case setup status` and update with `overcast case setup edit`.",
-        "",
-      ];
+	  const setupHint = setup?.completed
+	    ? []
+	    : [
+	        "First-run case setup. This case has not been set up yet. Start with",
+	        "`overcast case setup status`, then guide the user through setup as a step-by-step wizard.",
+	        "Do not ask all setup questions at once. Ask exactly one setup question at a time, wait for",
+	        "the user's answer, briefly restate collected progress, then ask the next question.",
+	        "Wizard order: (1) case name, (2) investigation target, (3) sources or local media,",
+	        "(4) indexes/search destinations, (5) notes, then (6) preview/apply. For choice-like",
+	        "questions, offer numbered options plus a free-text path. For example: source type options",
+	        "`web:<query>`, `youtube:@handle`, `tiktok:@handle`, `local folder/file`, or `skip`;",
+	        "index options `media-descriptions`, `face-analysis`, `entities`, `rich-transcripts`,",
+	        "or `skip`. Once enough answers are collected, run `overcast case setup plan ...`, show",
+	        "the planned operations, ask for confirmation, then run `overcast case setup ... --yes`.",
+	        "Later inspect with `overcast case setup status` and update with `overcast case setup edit`.",
+	        "",
+	      ];
   return [
     "You are overcast — a video-understanding OSINT investigator built on pi.",
     "You give the agent senses (watch/listen/see/enhance) and OSINT reach (scan/capture/monitor),",

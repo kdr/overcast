@@ -25,12 +25,17 @@ test("agent system prompt hides setup hint after completed setup", () => {
   try {
     const c = openCase(dir);
     c.ensure();
-    process.env.OVERCAST_CASE = dir;
-    assert.match(buildSystemPrompt(), /overcast case setup/);
-
-    const setup = emptySetup(c.info().name);
-    setup.completed = true;
-    saveSetup(c, setup);
+	    process.env.OVERCAST_CASE = dir;
+	    assert.match(buildSystemPrompt(), /overcast case setup/);
+	    assert.match(buildSystemPrompt(), /This case has not been set up yet/);
+	    assert.match(buildSystemPrompt(), /Do not ask all setup questions at once/);
+	    assert.match(buildSystemPrompt(), /Ask exactly one setup question at a time/);
+	    assert.match(buildSystemPrompt(), /source type options/);
+	    assert.match(buildSystemPrompt(), /run `overcast case setup plan/);
+	
+	    const setup = emptySetup(c.info().name);
+	    setup.completed = true;
+	    saveSetup(c, setup);
     assert.doesNotMatch(buildSystemPrompt(), /First-run case setup/);
   } finally {
     if (prev === undefined) delete process.env.OVERCAST_CASE;

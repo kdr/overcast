@@ -82,6 +82,23 @@ test("case unknown action errors", async () => {
   });
 });
 
+test("case setup without flags explains the case is not set up yet", async () => {
+  await withCase(async (dir) => {
+    const [rec] = await caseVerb.run(ctx(dir, "setup"));
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal(rec.state, "pending");
+    assert.equal(payload.status, "case has not been set up yet");
+    assert.deepEqual(payload.wizard_steps, [
+      "1. Case name",
+      "2. Investigation target",
+      "3. Sources or local media",
+      "4. Indexes/search destinations",
+      "5. Notes",
+      "6. Preview and apply",
+    ]);
+  });
+});
+
 test("case setup status/show before and after saved setup", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);

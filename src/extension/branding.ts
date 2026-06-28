@@ -148,7 +148,7 @@ export interface HeaderOptions {
   /** Active model id (e.g. "tinycloud:advanced"). */
   model: string;
   /** First-run setup cue shown when no completed case setup exists. */
-  setup?: string;
+  setup?: string | (() => string | undefined);
 }
 
 // Only one header is live at a time; keep a handle so a re-created header (resize,
@@ -165,7 +165,10 @@ export class OvercastHeader implements Component {
   private readonly wordSteady: string[]; // settled colored wordmark rows
   private readonly tagPad: number; // left pad to center the tagline
   private readonly tagRaw: string;
-  private readonly statusRow: string;
+  private readonly ctxTag: string;
+  private readonly tools: number;
+  private readonly model: string;
+  private readonly setup: string | (() => string | undefined) | undefined;
   private readonly version: string;
   private readonly maxW: number;
   private readonly ok: boolean;
@@ -190,14 +193,12 @@ export class OvercastHeader implements Component {
     this.wordSteady = this.wordRaw.map((l, i) => colorWordmarkRow(l, i));
     this.tagPad = Math.max(0, Math.floor((this.maxW - visibleWidth(this.tagRaw)) / 2));
 
-    const ctxTag = opts.contextFile
+    this.ctxTag = opts.contextFile
       ? `${GREEN_DIM}[${GREEN}OK${GREEN_DIM}] ${PALE}${opts.contextFile}`
       : `${GREEN_DIM}[${AMBER}--${GREEN_DIM}] ${PALE}no context`;
-    this.statusRow =
-      `${ctxTag}  ${GREEN_DIM}[${MAGENTA}${opts.tools}${GREEN_DIM}] ${PALE}tools  ` +
-      `${GREEN_DIM}[${CYAN}◆${GREEN_DIM}] ${PALE}${opts.model}` +
-      (opts.setup ? `  ${GREEN_DIM}[${AMBER}SETUP${GREEN_DIM}] ${PALE}${opts.setup}` : "") +
-      RESET;
+    this.tools = opts.tools;
+    this.model = opts.model;
+    this.setup = opts.setup;
 
     if (activeHeader) activeHeader.dispose();
     activeHeader = this;
@@ -239,6 +240,16 @@ export class OvercastHeader implements Component {
     return [row0, meter, row2];
   }
 
+  private statusRow(): string {
+    const setup = typeof this.setup === "function" ? this.setup() : this.setup;
+    return (
+      `${this.ctxTag}  ${GREEN_DIM}[${MAGENTA}${this.tools}${GREEN_DIM}] ${PALE}tools  ` +
+      `${GREEN_DIM}[${CYAN}◆${GREEN_DIM}] ${PALE}${this.model}` +
+      (setup ? `  ${GREEN_DIM}[${AMBER}SETUP${GREEN_DIM}] ${PALE}${setup}` : "") +
+      RESET
+    );
+  }
+
   render(width: number): string[] {
     if (!this.ok) return [];
     const elapsed = Date.now() - this.start;
@@ -255,7 +266,7 @@ export class OvercastHeader implements Component {
     const showStatus = !revealing;
     lines.push(showTag ? " ".repeat(this.tagPad) + MAGENTA_DIM + this.tagRaw + RESET : "");
     lines.push(""); // breathing room
-    lines.push(showStatus ? this.statusRow : "");
+    lines.push(showStatus ? this.statusRow() : "");
 
     return lines.map((l) => fitWidth(l, width));
   }

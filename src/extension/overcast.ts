@@ -35,7 +35,7 @@ function contextFileLabel(cwd: string): string {
 
 function setupHintLabel(cwd: string): string | undefined {
   const setup = loadSetup(openCase(cwd));
-  return setup?.completed ? undefined : "case setup";
+  return setup?.completed ? undefined : "case not set up";
 }
 
 const CLOUDGLUE_MODEL_ID = "tinycloud:advanced";
@@ -181,7 +181,7 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
             contextFile,
             tools: VERBS.length,
             model: modelId,
-            setup: setupHintLabel(cwd),
+            setup: () => setupHintLabel(cwd),
           }),
       );
     }

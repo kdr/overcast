@@ -367,16 +367,25 @@ export const caseVerb: VerbSpec = {
           makeRecord({
             verb: "case",
             format: "json",
-            payload: {
-              completed: saved?.completed ?? false,
-              setup_file: ctx.case.setupFile,
-              next: [
-                "overcast case setup --name \"Case name\" --target \"target\" --source \"web:query\" --yes",
-                "overcast case setup plan --target \"target\" --source \"web:query\"",
-                "overcast case setup edit --target \"new target\" --yes",
-              ],
-              note: "interactive prompts are not available on this CLI surface; pass setup flags or use plan/status/show",
-            },
+	            payload: {
+	              completed: saved?.completed ?? false,
+	              status: saved?.completed ? "case setup complete" : "case has not been set up yet",
+	              setup_file: ctx.case.setupFile,
+	              wizard_steps: [
+	                "1. Case name",
+	                "2. Investigation target",
+	                "3. Sources or local media",
+	                "4. Indexes/search destinations",
+	                "5. Notes",
+	                "6. Preview and apply",
+	              ],
+	              next: [
+	                "overcast case setup --name \"Case name\" --target \"target\" --source \"web:query\" --yes",
+	                "overcast case setup plan --target \"target\" --source \"web:query\"",
+	                "overcast case setup edit --target \"new target\" --yes",
+	              ],
+	              note: "case has not been set up yet; in the TUI, ask the user one wizard question at a time, or pass setup flags directly on the CLI",
+	            },
             meta: { transient: true },
             state: "pending",
           }),
