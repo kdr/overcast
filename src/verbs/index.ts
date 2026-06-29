@@ -448,16 +448,17 @@ export const indexVerb: VerbSpec = {
       // run. Record the --type hint when given so face auto-resolution can find
       // it; otherwise "unknown" (face --match falls back to those candidates).
       const existing = findIndex(c, id);
+      const hintedLocal = typeHint ? LOCAL_INDEX_TYPES.has(typeHint) : false;
       // a --type hint that CONTRADICTS the target's known type is a mistake, not a
       // silent no-op — reject it so the video isn't indexed into the wrong type.
       if (existing && typeHint && existing.type !== "unknown" && existing.type !== typeHint) {
         return [err(`index add: --type ${typeHint} conflicts with index ${id}'s type '${existing.type}' — omit --type, or target a ${typeHint} index`)];
       }
       if (!existing) {
-        addIndex(c, { id, type: typeHint ?? "unknown", name: id });
+        addIndex(c, { id, type: typeHint ?? "unknown", name: id, backend: hintedLocal ? "local" : undefined });
       } else if (typeHint && existing.type === "unknown") {
         // a later `add --type face` classifies a previously-unknown stub (addIndex upserts).
-        addIndex(c, { id, type: typeHint, name: existing.name, description: existing.description });
+        addIndex(c, { id, type: typeHint, name: existing.name, description: existing.description, backend: hintedLocal ? "local" : existing.backend });
       }
       const targetEntry = findIndex(c, id);
       if (targetEntry && isLocalIndex(targetEntry)) {

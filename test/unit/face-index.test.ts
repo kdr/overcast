@@ -287,7 +287,9 @@ test("local visual index: create/add/list/show/delete without tinycloud", async 
 test("local-only visual types require backend local and cannot be attached remotely", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-visual-db-remote-type-"));
   const video = join(cdir, "v.mp4");
+  const img = join(cdir, "logo.jpg");
   writeFileSync(video, "x");
+  writeFileSync(img, "x");
   const saved = process.env.OVERCAST_TINYCLOUD_CMD;
   process.env.OVERCAST_TINYCLOUD_CMD = BASE;
   const mk = (input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext => {
@@ -307,6 +309,12 @@ test("local-only visual types require backend local and cannot be attached remot
     assert.equal(shown.state, "ready");
     assert.notEqual((shown.payload as Record<string, unknown>).backend, "local");
     assert.equal(shown.meta?.provider, "tinycloud");
+
+    const [localAdd] = await indexVerb.run(mk("add", [img], { to: "logos", type: "image-ransac" }));
+    assert.equal(localAdd.state, "ready");
+    assert.equal(localAdd.meta?.provider, "local");
+    assert.equal((localAdd.payload as Record<string, unknown>).backend, "local");
+    assert.equal(findIndex(openCase(cdir), "logos")?.backend, "local");
   } finally {
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;
