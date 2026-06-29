@@ -11,6 +11,10 @@ import {
   generateVerbReference,
   generateFlagshipSkill,
   generateInitSkill,
+  generateSkillCreatorSkill,
+  generateMediaBugTriageSkill,
+  generateReconBriefSkill,
+  generateVisualTargetSearchSkill,
 } from "../skill-gen.js";
 import type { VerbSpec } from "../registry/types.js";
 
@@ -62,6 +66,14 @@ function isRealPackage(pkgJsonPath: string): boolean {
 
 const PKG_ROOT = resolvePackageRoot();
 const SKILLS_DIR = PKG_ROOT ? join(PKG_ROOT, "skills") : undefined;
+const SHIPPED_SKILLS = [
+  "overcast",
+  "overcast-init",
+  "overcast-skill-creator",
+  "overcast-media-bug-triage",
+  "overcast-recon-brief",
+  "overcast-visual-target-search",
+] as const;
 
 /** Harnesses `skills install` knows how to target. */
 const HARNESS_DESTS: Record<string, string> = {
@@ -94,6 +106,20 @@ function generateSkills(skillsDir: string): string[] {
   const initSkill = join(initDir, "SKILL.md");
   writeFileSync(initSkill, generateInitSkill(), "utf8");
   written.push(initSkill);
+
+  const focusedSkills: Array<[string, () => string]> = [
+    ["overcast-skill-creator", generateSkillCreatorSkill],
+    ["overcast-media-bug-triage", generateMediaBugTriageSkill],
+    ["overcast-recon-brief", generateReconBriefSkill],
+    ["overcast-visual-target-search", generateVisualTargetSearchSkill],
+  ];
+  for (const [name, generate] of focusedSkills) {
+    const dir = join(skillsDir, name);
+    mkdirSync(dir, { recursive: true });
+    const skill = join(dir, "SKILL.md");
+    writeFileSync(skill, generate(), "utf8");
+    written.push(skill);
+  }
   return written;
 }
 
@@ -106,7 +132,7 @@ function installSkills(
   mkdirSync(dest, { recursive: true });
   const copied: string[] = [];
   const missing: string[] = [];
-  for (const name of ["overcast", "overcast-init"]) {
+  for (const name of SHIPPED_SKILLS) {
     const src = join(skillsDir, name);
     if (existsSync(src)) {
       cpSync(src, join(dest, name), { recursive: true });
@@ -121,9 +147,9 @@ function installSkills(
 export const skillsVerb: VerbSpec = {
   name: "skills",
   group: "config",
-  summary: "Generate the flagship overcast skill + reference from the registry, or install into a harness.",
+  summary: "Generate shipped overcast skills + reference from the registry, or install into a harness.",
   description:
-    "`skills generate` (re)writes skills/overcast/{SKILL.md,reference/verbs.md} and skills/overcast-init " +
+    "`skills generate` (re)writes shipped skills including skills/overcast/{SKILL.md,reference/verbs.md}, skills/overcast-init, and focused workflow examples " +
     "from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.",
   args: [{ name: "action", summary: "generate | install", required: true }],
   flags: [

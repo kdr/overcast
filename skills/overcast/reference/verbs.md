@@ -627,14 +627,14 @@ Emits `doctor` records.
 
 ### `overcast skills`
 
-`skills generate` (re)writes skills/overcast/{SKILL.md,reference/verbs.md} and skills/overcast-init from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.
+`skills generate` (re)writes shipped skills including skills/overcast/{SKILL.md,reference/verbs.md}, skills/overcast-init, and focused workflow examples from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.
 
 ```
 overcast skills <action> [options]
 
-  Generate the flagship overcast skill + reference from the registry, or install into a harness.
+  Generate shipped overcast skills + reference from the registry, or install into a harness.
 
-  `skills generate` (re)writes skills/overcast/{SKILL.md,reference/verbs.md} and skills/overcast-init from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.
+  `skills generate` (re)writes shipped skills including skills/overcast/{SKILL.md,reference/verbs.md}, skills/overcast-init, and focused workflow examples from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.
 
 Arguments:
   action           generate | install
