@@ -417,6 +417,45 @@ test("scan --pull progress counts capture-path sense failures", async () => {
   }
 });
 
+test("scan --pull keeps capture credential gaps separate from hard failures", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-cred-gap-"));
+  const sourceScript = join(d, "cred-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_CRED_CMD;
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+case "\${1:-}" in
+  enumerate)
+    echo '[{"title":"needs creds","url":"https://example.test/video.mp4","source":"cred"}]'
+    ;;
+  fetch)
+    echo 'missing token' >&2
+    exit 13
+    ;;
+  *)
+    echo '{}'
+    ;;
+esac
+`);
+    process.env.OVERCAST_SOURCE_CRED_CMD = `bash ${sourceScript}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "cred:any");
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile: defaultProfile() });
+    const final = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "complete")!;
+    assert.equal(final.state, "needs_credentials");
+    assert.equal((final.payload as Record<string, unknown>).processed, 1);
+    assert.equal((final.payload as Record<string, unknown>).failed, 0);
+    assert.equal((final.payload as Record<string, unknown>).process_cred_gaps, 1);
+    assert.equal(recs.some((r) => r.verb === "capture" && r.state === "needs_credentials"), true);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_CRED_CMD;
+    else process.env.OVERCAST_SOURCE_CRED_CMD = prevSource;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan --pull default watch emits review findings when no auto-sense chain is configured", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-default-watch-finding-"));
   try {
