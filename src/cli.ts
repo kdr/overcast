@@ -351,7 +351,7 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
     // state is the authoritative hint for the exit code: a hard error → 1, a
     // setup gap (needs_credentials) → 3 (distinct, so automation can tell "broke"
     // from "needs setup"); pending/ready → 0.
-    if (records.some((r) => r.state === "error")) return 1;
+    if (records.some((r) => r.state === "error" && r.meta?.non_fatal !== true)) return 1;
     if (records.some((r) => r.state === "needs_credentials")) return 3;
     return 0;
   }

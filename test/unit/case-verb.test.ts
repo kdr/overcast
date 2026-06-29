@@ -773,6 +773,13 @@ test("case memory get redacts secrets in manifests and paged chunks", async () =
     assert.equal(payload.returned, String(payload.chunk).length);
     assert.doesNotMatch(String(payload.chunk), /sk-abcdefghijklmnopqrstuvwxyz/);
     assert.match(String(payload.chunk), /CLOUDGLUE_API_KEY=\[REDACTED\]/);
+    assert.equal(payload.total, "prefix CLOUDGLUE_API_KEY=[REDACTED] suffix".length);
+
+    const redacted = "prefix CLOUDGLUE_API_KEY=[REDACTED] suffix";
+    const [splitPage] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id], { field: "content", offset: redacted.indexOf("[REDACTED]"), limit: 6 }));
+    const splitPayload = splitPage.payload as Record<string, unknown>;
+    assert.equal(splitPayload.chunk, "[REDAC");
+    assert.doesNotMatch(String(splitPayload.chunk), /sk-|abcdefgh/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

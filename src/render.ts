@@ -55,6 +55,12 @@ export function fieldText(v: unknown): string {
   }
 }
 
+/** The exact redacted text exposed by `case memory get --field`. Redact before
+ * slicing so a secret split across page boundaries cannot leak in fragments. */
+export function pageText(v: unknown): string {
+  return redactSecrets(fieldText(v));
+}
+
 function oneLine(s: string, max: number): string {
   const t = redactSecrets(s).replace(/\s+/g, " ").trim();
   return t.length <= max ? t : t.slice(0, max) + "…";
@@ -128,9 +134,9 @@ function fieldType(v: unknown): FieldType {
 
 function oneField(name: string, v: unknown, previewChars: number): FieldInfo {
   const type = fieldType(v);
-  // size/length come from the SAME text the pager slices (fieldText), so the
+  // size/length come from the SAME text the pager slices (pageText), so the
   // manifest never disagrees with paging metadata.
-  const text = fieldText(v);
+  const text = pageText(v);
   const bytes = Buffer.byteLength(text, "utf8");
   const chars = text.length;
   const base = { name, type, size: humanSize(bytes), bytes, chars };

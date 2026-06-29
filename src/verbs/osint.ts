@@ -191,6 +191,20 @@ function scanProgress(ctx: VerbContext, payload: Record<string, unknown>, state:
   }));
 }
 
+function scanProgressState(outcome: HitProcessOutcome): string {
+  if (outcome === "pending" || outcome === "completed_with_pending") return "pending";
+  if (outcome === "needs_credentials" || outcome === "completed_with_credential_gap") return "needs_credentials";
+  if (outcome === "failed") return "error";
+  return "ready";
+}
+
+function markPartialPullErrors(records: OvercastRecord[], outcome: HitProcessOutcome): void {
+  if (outcome !== "completed_with_error") return;
+  for (const rec of records) {
+    if (rec.state === "error") rec.meta = { ...rec.meta, non_fatal: true };
+  }
+}
+
 function isTikTokUrl(ref: string): boolean {
   try {
     const host = new URL(ref).hostname.toLowerCase();
@@ -373,6 +387,7 @@ export const scanVerb: VerbSpec = {
         const item = await processPulledHit(ctx, "scan", hit);
         submitted_remote += item.submittedRemote;
         if (item.submittedRemote) out.push(scanProgress(ctx, { stage: "submitted", ref: item.ref, via: "direct-url", submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }));
+        markPartialPullErrors(item.records, item.outcome);
         const saved = item.records.map((r) => checkpoint(ctx, r));
         out.push(...saved);
         if (item.outcome === "pending" || item.outcome === "completed_with_pending") pending++;
@@ -388,7 +403,7 @@ export const scanVerb: VerbSpec = {
         }
         else completed++;
         processed++;
-        out.push(scanProgress(ctx, { stage: "processed", ref: item.ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, item.outcome === "pending" || item.outcome === "completed_with_pending" ? "pending" : item.outcome === "needs_credentials" || item.outcome === "completed_with_credential_gap" ? "needs_credentials" : item.outcome === "completed" ? "ready" : "error"));
+        out.push(scanProgress(ctx, { stage: "processed", ref: item.ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps, outcome: item.outcome }, scanProgressState(item.outcome)));
       } catch (e) {
         // a provider timeout / spawn failure rejects — record it and keep pulling
         // the remaining hits instead of aborting the whole scan.
@@ -400,7 +415,7 @@ export const scanVerb: VerbSpec = {
         out.push(scanProgress(ctx, { stage: "processed", ref: ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, "error"));
       }
     }
-    out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, failed ? "error" : process_cred_gaps ? "needs_credentials" : pending ? "pending" : "ready"));
+    out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, failed && completed === 0 ? "error" : process_cred_gaps && completed === 0 ? "needs_credentials" : pending && completed === 0 ? "pending" : "ready"));
     return out;
   },
 };
@@ -566,14 +581,24 @@ function payloadText(rec: OvercastRecord): string {
   }
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function targetMatchesEvidence(target: string, text: string): boolean {
+  const normalizedTarget = target.trim().replace(/\s+/g, " ");
+  if (!normalizedTarget) return false;
+  const phrase = normalizedTarget.split(" ").map(escapeRegex).join("\\s+");
+  return new RegExp(`(^|[^\\p{L}\\p{N}_])${phrase}(?=$|[^\\p{L}\\p{N}_])`, "iu").test(text);
+}
+
 function automatedFindings(ctx: VerbContext, rec: OvercastRecord, trigger: string, pending: OvercastRecord[] = []): OvercastRecord[] {
   const setup = loadSetup(ctx.case);
   if (setup?.findings?.mode !== "review" || rec.state === "error" || rec.state === "needs_credentials") return [];
-  const haystack = payloadText(rec).toLowerCase();
+  const haystack = payloadText(rec);
   const out: OvercastRecord[] = [];
   for (const target of listTargets(ctx.case).filter((t) => t.kind !== "image").map((t) => t.value)) {
-    const needle = target.trim().toLowerCase();
-    if (!needle || !haystack.includes(needle)) continue;
+    if (!targetMatchesEvidence(target, haystack)) continue;
     if (hasAutomatedFinding(ctx, rec, target, pending)) continue;
     out.push(makeFinding({
       text: `Automated match for target '${target}' in ${rec.verb} record ${rec.id}`,

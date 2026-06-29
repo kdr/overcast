@@ -137,6 +137,29 @@ test("scan --pull uses setup automation and emits review findings", async () => 
   }
 });
 
+test("scan --pull review findings do not use substring target matches", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-finding-substring-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    addTarget(c, "mac");
+    const setup = emptySetup("auto-substring");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["watch"], auto_index_new: false };
+    setup.findings = { mode: "review" };
+    saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, limit: 1 }, case: c, profile });
+    assert.equal(recs.some((r) => r.verb === "watch"), true);
+    assert.equal(recs.some((r) => r.verb === "finding"), false);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan --pull --pipe watch sends TikTok URLs directly to tinycloud and checkpoints progress", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-tiktok-direct-"));
   const sourceScript = join(d, "tiktok-source.sh");
@@ -412,6 +435,53 @@ test("scan --pull progress counts capture-path sense failures", async () => {
       else process.env.OVERCAST_FIXTURE_CLIP = prevClip;
       if (prevClip2 === undefined) delete process.env.OVERCAST_FIXTURE_CLIP2;
       else process.env.OVERCAST_FIXTURE_CLIP2 = prevClip2;
+    }
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan --pull partial sense errors are non-fatal progress", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-partial-nonfatal-"));
+  const failSee = join(d, "fail-see.sh");
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    writeFileSync(failSee, [
+      "#!/usr/bin/env bash",
+      "printf '%s\\n' '{\"verb\":\"see\",\"state\":\"error\",\"error\":\"see failed\",\"payload\":{\"error\":\"see failed\"}}'",
+      "",
+    ].join("\n"));
+    execFileSync("chmod", ["755", failSee]);
+    const setup = emptySetup("partial-nonfatal");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["watch", "see"], auto_index_new: false };
+    saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.providers = {
+      ...profile.providers,
+      watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` },
+      see: { type: "exec", run: `bash ${failSee} {{input}}` },
+    };
+
+    const prevClip = process.env.OVERCAST_FIXTURE_CLIP;
+    process.env.OVERCAST_FIXTURE_CLIP = clip;
+    try {
+      const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, limit: 1 }, case: c, profile });
+      const processed = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "processed")!;
+      const final = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "complete")!;
+      const see = recs.find((r) => r.verb === "see")!;
+      assert.equal(processed.state, "ready");
+      assert.equal((processed.payload as Record<string, unknown>).outcome, "completed_with_error");
+      assert.equal(final.state, "ready");
+      assert.equal((final.payload as Record<string, unknown>).completed, 2);
+      assert.equal((final.payload as Record<string, unknown>).failed, 2);
+      assert.equal(see.state, "error");
+      assert.equal(see.meta?.non_fatal, true);
+    } finally {
+      if (prevClip === undefined) delete process.env.OVERCAST_FIXTURE_CLIP;
+      else process.env.OVERCAST_FIXTURE_CLIP = prevClip;
     }
   } finally {
     rmSync(d, { recursive: true, force: true });

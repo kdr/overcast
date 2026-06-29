@@ -11,7 +11,7 @@ import { humanSize } from "../render.js";
 import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
-import { payloadFields, fieldText, fieldNames, getField } from "../render.js";
+import { payloadFields, pageText, fieldNames, getField } from "../render.js";
 import { redactSecrets } from "../env.js";
 import { addSource, listSources, parseSourceSpec, removeSource } from "../state/source.js";
 import { addTarget, listTargets, removeTarget } from "../state/target.js";
@@ -910,8 +910,8 @@ export const caseVerb: VerbSpec = {
         if (value === undefined) {
           return [err(`record ${id} has no field '${target}' (fields: ${names.join(", ")})`)];
         }
-        // same canonical text the manifest measured (guarded; never throws)
-        const text = fieldText(value);
+        // same canonical redacted text the manifest measured (guarded; never throws)
+        const text = pageText(value);
         const total = text.length;
 
         let offset = 0;
@@ -932,7 +932,6 @@ export const caseVerb: VerbSpec = {
         const chunk = text.slice(offset, offset + limit);
         const nextOffset = offset + chunk.length;
         const hasMore = nextOffset < total;
-        const redactedChunk = redactSecrets(chunk);
         return [
           makeRecord({
             verb: "case",
@@ -943,10 +942,10 @@ export const caseVerb: VerbSpec = {
               offset,
               limit,
               total,
-              returned: redactedChunk.length,
+              returned: chunk.length,
               has_more: hasMore,
               next_offset: hasMore ? nextOffset : null,
-              chunk: redactedChunk,
+              chunk,
             },
             meta: { pageTarget: id },
             state: "ready",
