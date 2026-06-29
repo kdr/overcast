@@ -213,6 +213,19 @@ export function renderTopHelp(): string {
   return lines.join("\n");
 }
 
+/** Map a verb's result records to a process exit code. `state` is the authoritative
+ *  hint: a hard error → 1, a setup gap (needs_credentials) → 3 (distinct, so
+ *  automation can tell "broke" from "needs setup"); pending/ready → 0. Records tagged
+ *  `meta.non_fatal` are subsumed by an authoritative summary record in the same result
+ *  set (e.g. `scan --pull`'s terminal `pull_progress`, which folds partial success →
+ *  ready) and must not independently fail the run; the summary itself stays untagged
+ *  and drives the code. */
+export function exitCodeForRecords(records: OvercastRecord[]): number {
+  if (records.some((r) => r.state === "error" && r.meta?.non_fatal !== true)) return 1;
+  if (records.some((r) => r.state === "needs_credentials" && r.meta?.non_fatal !== true)) return 3;
+  return 0;
+}
+
 /** Run the CLI. Returns a process exit code. */
 export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<number> {
   // Global flags may appear anywhere — including before the verb
@@ -352,12 +365,7 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
     const format = wantJson ? "json" : (parsed.opts.format as string) ?? "human";
     for (const rec of records) io.out(renderForFormat(rec, format) + "\n");
 
-    // state is the authoritative hint for the exit code: a hard error → 1, a
-    // setup gap (needs_credentials) → 3 (distinct, so automation can tell "broke"
-    // from "needs setup"); pending/ready → 0.
-    if (records.some((r) => r.state === "error" && r.meta?.non_fatal !== true)) return 1;
-    if (records.some((r) => r.state === "needs_credentials")) return 3;
-    return 0;
+    return exitCodeForRecords(records);
   }
 
   // unknown command

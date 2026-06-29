@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseVerbArgs } from "../../src/registry/to-cli.ts";
-import { runCli, type CliIO } from "../../src/cli.ts";
+import { runCli, exitCodeForRecords, type CliIO } from "../../src/cli.ts";
 import { watchVerb } from "../../src/registry/verbs.ts";
 import { openCase } from "../../src/case.ts";
 import { makeRecord } from "../../src/record.ts";
@@ -49,6 +49,24 @@ test("runCli: commands --json lists watch (offline, no cloud)", async () => {
   assert.equal(code, 0);
   const parsed = JSON.parse(c.out());
   assert.ok(parsed.verbs.some((v: { name: string }) => v.name === "watch"));
+});
+
+test("exitCodeForRecords: state maps to 0/1/3 and non_fatal is subsumed by a summary", () => {
+  const rec = (state: string, nonFatal = false) =>
+    makeRecord({ verb: "scan", payload: {}, state, meta: nonFatal ? { non_fatal: true } : undefined });
+
+  assert.equal(exitCodeForRecords([]), 0);
+  assert.equal(exitCodeForRecords([rec("ready")]), 0);
+  // a hard error fails the run; needs_credentials is a distinct setup-gap code
+  assert.equal(exitCodeForRecords([rec("error")]), 1);
+  assert.equal(exitCodeForRecords([rec("needs_credentials")]), 3);
+  // partial scan --pull: subsumed per-hit failures are non_fatal, the ready summary wins
+  assert.equal(exitCodeForRecords([rec("error", true), rec("ready")]), 0);
+  assert.equal(exitCodeForRecords([rec("needs_credentials", true), rec("ready")]), 0);
+  // a non-subsumed credential gap still surfaces as exit 3 even alongside a non_fatal error
+  assert.equal(exitCodeForRecords([rec("error", true), rec("needs_credentials")]), 3);
+  // a hard (non_fatal-less) error outranks a subsumed credential gap
+  assert.equal(exitCodeForRecords([rec("error"), rec("needs_credentials", true)]), 1);
 });
 
 test("runCli: loads launcher cwd dotenv as a base before the case overlay", async () => {

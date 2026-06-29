@@ -198,13 +198,6 @@ function scanProgressState(outcome: HitProcessOutcome): string {
   return "ready";
 }
 
-function markPartialPullErrors(records: OvercastRecord[], outcome: HitProcessOutcome): void {
-  if (outcome !== "completed_with_error") return;
-  for (const rec of records) {
-    if (rec.state === "error") rec.meta = { ...rec.meta, non_fatal: true };
-  }
-}
-
 function isTikTokUrl(ref: string): boolean {
   try {
     const host = new URL(ref).hostname.toLowerCase();
@@ -387,7 +380,6 @@ export const scanVerb: VerbSpec = {
         const item = await processPulledHit(ctx, "scan", hit);
         submitted_remote += item.submittedRemote;
         if (item.submittedRemote) out.push(scanProgress(ctx, { stage: "submitted", ref: item.ref, via: "direct-url", submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }));
-        markPartialPullErrors(item.records, item.outcome);
         const saved = item.records.map((r) => checkpoint(ctx, r));
         out.push(...saved);
         if (item.outcome === "pending" || item.outcome === "completed_with_pending") pending++;
@@ -413,6 +405,17 @@ export const scanVerb: VerbSpec = {
         const saved = checkpoint(ctx, err("scan", `pull of ${ref ?? hit.id} failed: ${(e as Error).message}`));
         out.push(saved);
         out.push(scanProgress(ctx, { stage: "processed", ref: ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, "error"));
+      }
+    }
+    // The terminal pull_progress summary is the authoritative outcome for the run:
+    // it folds partial success → ready, total failure → error, and credential gaps
+    // with no completions → needs_credentials. Mark every per-hit / per-stage error &
+    // credential-gap record it subsumes as non_fatal so the CLI exit code follows the
+    // summary, not a single partial failure within an otherwise-successful pull. The
+    // summary is built AFTER this sweep so it stays untagged and drives the code.
+    for (const rec of out) {
+      if (rec.state === "error" || rec.state === "needs_credentials") {
+        rec.meta = { ...rec.meta, non_fatal: true };
       }
     }
     out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, failed && completed === 0 ? "error" : process_cred_gaps && completed === 0 ? "needs_credentials" : pending && completed === 0 ? "pending" : "ready"));

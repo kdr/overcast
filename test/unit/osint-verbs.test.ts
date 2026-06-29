@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { scanVerb, captureVerb, monitorVerb } from "../../src/verbs/osint.ts";
+import { exitCodeForRecords } from "../../src/cli.ts";
 import { addSource } from "../../src/state/source.ts";
 import { saveSeen } from "../../src/state/seen.ts";
 import { addTarget } from "../../src/state/target.ts";
@@ -221,6 +222,52 @@ test("monitor explicit --pipe emits review findings", async () => {
     assert.equal(recs.some((r) => r.verb === "watch"), true);
     assert.equal(recs.some((r) => r.verb === "finding"), true);
   } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan --pull: a partial-success pull exits 0 with subsumed failures tagged non_fatal", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-partial-"));
+  const sourceScript = join(d, "partial-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_PARTIALFIX_CMD;
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  const url = "https://vm.tiktok.com/ZM123abc/";
+  try {
+    // one hit with a TikTok ref (completes via direct sense) + one ref-less hit
+    // (a processed failure) → a genuine partial success.
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo '[{"title":"ok","url":"${url}","source":"partialfix","media":{"ref":"${url}"}},{"title":"no ref","source":"partialfix"}]'
+else
+  echo '{}'
+fi
+`);
+    process.env.OVERCAST_SOURCE_PARTIALFIX_CMD = `bash ${sourceScript}`;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "partialfix:any");
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, pipe: "watch" }, case: c, profile: defaultProfile() });
+    const final = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "complete")!;
+    // partial success: at least one completed AND at least one failed
+    assert.equal(final.state, "ready");
+    assert.ok((final.payload as Record<string, unknown>).completed as number >= 1);
+    assert.ok((final.payload as Record<string, unknown>).failed as number >= 1);
+    // the ref-less failure is still recorded, but tagged non_fatal so it can't
+    // independently fail the run...
+    const failure = recs.find((r) => r.state === "error" && /no media\.ref or url/.test(String(r.error)));
+    assert.ok(failure, "expected a ref-less pull failure record");
+    assert.equal(failure!.meta?.non_fatal, true);
+    // ...while the authoritative summary stays untagged and drives the exit code → 0
+    assert.equal(final.meta?.non_fatal, undefined);
+    assert.equal(exitCodeForRecords(recs), 0);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_PARTIALFIX_CMD;
+    else process.env.OVERCAST_SOURCE_PARTIALFIX_CMD = prevSource;
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
     rmSync(d, { recursive: true, force: true });
   }
 });
