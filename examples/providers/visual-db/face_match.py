@@ -164,8 +164,8 @@ def main():
         fail("no faces found in local reference images", inp, args.op)
 
     threshold = args.min_similarity
-    if threshold <= 1:
-        threshold *= 100.0
+    if threshold < 0 or threshold > 100:
+        fail("--min-similarity must be between 0 and 100", inp, args.op)
 
     is_video = inp.lower().endswith(VIDEO_EXTS)
     detections = []

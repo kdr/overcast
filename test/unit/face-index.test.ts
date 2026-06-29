@@ -363,6 +363,34 @@ printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling"
   }
 });
 
+test("face provider binding deepface-local does not intercept explicit tinycloud face indexes", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-tc-index-"));
+  const video = join(cdir, "v.mp4");
+  const ref = join(cdir, "ref.jpg");
+  writeFileSync(video, "x");
+  writeFileSync(ref, "x");
+  try {
+    const c = openCase(cdir);
+    c.ensure();
+    addIndex(c, { id: "col_faces", name: "cloud-faces", type: "face-analysis" });
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, face: { type: "inproc", backend: "deepface-local", id: "deepface-local" } };
+
+    const [search] = await faceVerb.run({ input: undefined, rest: [], opts: { match: ref, index: "col_faces" }, case: c, profile });
+    assert.equal(search.state, "ready");
+    assert.equal(search.meta?.provider, "tinycloud");
+    assert.equal((search.payload as Record<string, unknown>).op, "search");
+    assert.equal((search.payload as Record<string, unknown>).index, "col_faces");
+
+    const [list] = await faceVerb.run({ input: video, rest: [], opts: { index: "col_faces" }, case: c, profile });
+    assert.equal(list.state, "ready");
+    assert.equal(list.meta?.provider, "tinycloud");
+    assert.equal((list.payload as Record<string, unknown>).op, "list");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("face with a deepface-local index does not turn list into fresh detect", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-list-"));
   const video = join(cdir, "v.mp4");
@@ -377,6 +405,12 @@ test("face with a deepface-local index does not turn list into fresh detect", as
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
+});
+
+test("deepface-local provider keeps min-similarity on the 0-100 CLI scale", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py"), "utf8");
+  assert.doesNotMatch(src, /threshold\s*\*=/);
+  assert.match(src, /threshold\s*<\s*0\s+or\s+threshold\s*>\s*100/);
 });
 
 // ---- index verb (lifecycle via the fake tinycloud) --------------------

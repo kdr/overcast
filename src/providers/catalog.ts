@@ -75,7 +75,6 @@ export function providerChoices(): ProviderChoice[] {
         backend: "deepface-local",
         id: "deepface-local",
         init: { command: `bash ${localVisionSetup} --face` },
-        describe: "Local DeepFace provider via examples/providers/visual-db/face_match.py",
       },
       env: ["OC_VISUAL_DB_PY"],
       indexableDefault: true,

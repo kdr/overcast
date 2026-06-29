@@ -232,7 +232,9 @@ export const faceVerb: VerbSpec = {
         // (`index add` by raw id without --type) stays "unknown" and is NOT
         // assumed to be a face index — classify it with `--type face` or pass
         // --index explicitly.
-        const cands = indexesByType(c, useDeepface ? "deepface-local" : "face-analysis");
+        const cands = useDeepface
+          ? indexesByType(c, "deepface-local").filter((x) => x.backend === "local")
+          : indexesByType(c, "face-analysis");
         if (cands.length === 1) indexes = [cands[0].id];
         else if (cands.length === 0) {
           return [err(useDeepface
@@ -278,7 +280,9 @@ export const faceVerb: VerbSpec = {
     }
 
     const localEntries = (indexes ?? []).map((id) => findIndex(c, id)).filter((x): x is NonNullable<ReturnType<typeof findIndex>> => !!x && x.backend === "local" && x.type === "deepface-local");
-    if (localEntries.length || useDeepface) {
+    const hasExplicitIndexes = (indexes?.length ?? 0) > 0;
+    const shouldUseDeepfaceProvider = useDeepface && !hasExplicitIndexes && (op === "detect" || op === "match");
+    if (localEntries.length || shouldUseDeepfaceProvider) {
       if (localEntries.length && (!indexes || localEntries.length !== indexes.length)) {
         return [err("can't mix local face indexes with tinycloud/raw face indexes in one face command")];
       }
