@@ -90,8 +90,9 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const refs = localMediaRefs(ctx);
   const localLimit = ctx.opts.limit != null ? Number(ctx.opts.limit) : 5;
   const localCandidatesAll = localVisualCandidates(refs, imageTargets, [...localFaceIndexes, ...localImageIndexes]);
-  const localCandidates = localCandidatesAll.slice(0, localLimit);
-  const localFaceCandidates = localCandidates.filter(isVideoRef);
+  const localImageCandidates = localCandidatesAll.slice(0, localLimit);
+  const localFaceCandidatesAll = localCandidatesAll.filter(isVideoRef);
+  const localFaceCandidates = localFaceCandidatesAll.slice(0, localLimit);
   const suggested: string[] = [];
   if (imageTargets.length && faceIndexes.length) {
     suggested.push(`overcast face --match ${imageTargets.at(-1)!.value} --index ${faceIndexes.map((i) => i.id).join(",")}`);
@@ -99,8 +100,8 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   if (imageTargets.length && localFaceIndexes.length && localFaceCandidates.length) {
     suggested.push(`overcast face ${localFaceCandidates[0]} --match ${imageTargets.at(-1)!.value} --index ${localFaceIndexes[0].id}`);
   }
-  if (imageTargets.length && localImageIndexes.length && localCandidates.length) {
-    suggested.push(`overcast image match ${localCandidates[0]} --index ${localImageIndexes[0].id}`);
+  if (imageTargets.length && localImageIndexes.length && localImageCandidates.length) {
+    suggested.push(`overcast image match ${localImageCandidates[0]} --index ${localImageIndexes[0].id}`);
   }
   if (nameTargets.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1)} and what is happening?`)}`);
   if (mediaIndexes.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1) ?? "the target"} and what is happening?`)} --index ${mediaIndexes[0].id} --probe`);
@@ -115,8 +116,10 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
       targets: targets.map((t) => ({ id: t.id, kind: t.kind, value: t.value })),
       media: refs,
       indexes: indexes.map((i) => ({ id: i.id, name: i.name, type: i.type, members: i.members.length })),
-      local_visual_candidates: localCandidates.length,
+      local_visual_candidates: localImageCandidates.length,
       local_visual_candidates_total: localCandidatesAll.length,
+      local_face_candidates: localFaceCandidates.length,
+      local_face_candidates_total: localFaceCandidatesAll.length,
       local_visual_limit: localLimit,
       suggested_commands: suggested,
     },
@@ -139,9 +142,9 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
       out.push(...faceRecords);
     }
   }
-  if (imageTargets.length && localImageIndexes.length && localCandidates.length) {
+  if (imageTargets.length && localImageIndexes.length && localImageCandidates.length) {
     const index = localImageIndexes[0].id;
-    for (const ref of localCandidates) {
+    for (const ref of localImageCandidates) {
       const imageRecords = await imageVerb.run({ ...ctx, input: "match", rest: [ref], opts: { index } });
       out.push(...imageRecords);
     }
