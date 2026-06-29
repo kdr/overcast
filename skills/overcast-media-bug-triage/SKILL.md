@@ -16,7 +16,7 @@ steps, or engineering triage notes. Use the broad `overcast` skill and
 ```bash
 overcast doctor --json
 overcast case init --json
-overcast case setup --json
+overcast case setup --yes --json
 overcast watch ./screen-recording.mp4 --json
 overcast listen ./screen-recording.mp4 --describe --json
 overcast see frame://<record-id>@<timestamp> --ocr --json

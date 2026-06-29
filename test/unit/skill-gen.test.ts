@@ -85,6 +85,16 @@ test("overcast-skill-creator teaches cases, citations, and progressive disclosur
   assert.match(skill, /overcast\/reference\/verbs\.md/);
 });
 
+test("generated workflow setup examples confirm persisted case setup", () => {
+  for (const skill of generatedSkills) {
+    const body = skill.body();
+    const setupLines = body.match(/^overcast case setup(?! (?:plan|edit|status|show)\b).*$/gm) ?? [];
+    for (const line of setupLines) {
+      assert.match(line, / --yes\b/, `${skill.name} setup example must persist with --yes: ${line}`);
+    }
+  }
+});
+
 test("reference stays in sync with commands --json (same verb set)", () => {
   const ref = generateVerbReference();
   const names = VERBS.map((v) => v.name);

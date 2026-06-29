@@ -362,7 +362,7 @@ Use this skill when <trigger conditions>.
 \`\`\`bash
 overcast doctor --json
 overcast case init --json
-overcast case setup --target "<target>" --json
+overcast case setup --target "<target>" --yes --json
 overcast <gather-or-sense-verb> <input> --json
 overcast ask "<question>" --json
 overcast brief --export ./brief.md --json
@@ -412,7 +412,7 @@ steps, or engineering triage notes. Use the broad \`overcast\` skill and
 \`\`\`bash
 overcast doctor --json
 overcast case init --json
-overcast case setup --json
+overcast case setup --yes --json
 overcast watch ./screen-recording.mp4 --json
 overcast listen ./screen-recording.mp4 --describe --json
 overcast see frame://<record-id>@<timestamp> --ocr --json
@@ -466,7 +466,7 @@ explicitly asks for ongoing monitoring. Use the broad \`overcast\` skill and
 \`\`\`bash
 overcast doctor --sources --json
 overcast case init --json
-overcast case setup --target "<target>" --source "web:<query>" --json
+overcast case setup --target "<target>" --source "web:<query>" --yes --json
 overcast scan --pull --json
 overcast finding list --json
 overcast ask "what are the relevant hits, dates, sources, and confidence levels?" --json

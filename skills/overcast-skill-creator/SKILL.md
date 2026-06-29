@@ -53,7 +53,7 @@ Use this skill when <trigger conditions>.
 ```bash
 overcast doctor --json
 overcast case init --json
-overcast case setup --target "<target>" --json
+overcast case setup --target "<target>" --yes --json
 overcast <gather-or-sense-verb> <input> --json
 overcast ask "<question>" --json
 overcast brief --export ./brief.md --json

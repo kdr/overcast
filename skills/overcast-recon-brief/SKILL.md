@@ -17,7 +17,7 @@ explicitly asks for ongoing monitoring. Use the broad `overcast` skill and
 ```bash
 overcast doctor --sources --json
 overcast case init --json
-overcast case setup --target "<target>" --source "web:<query>" --json
+overcast case setup --target "<target>" --source "web:<query>" --yes --json
 overcast scan --pull --json
 overcast finding list --json
 overcast ask "what are the relevant hits, dates, sources, and confidence levels?" --json
