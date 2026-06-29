@@ -9,7 +9,7 @@
 // is how the e2e binds a committed fixture source provider offline.
 
 import { dirname, extname, join } from "node:path";
-import { existsSync, readFileSync, renameSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, statSync } from "node:fs";
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { shippedPath } from "../../pkg.js";
@@ -190,7 +190,16 @@ function sniffExt(b: Buffer): string | undefined {
 function ensureMediaExtension(path: string): string {
   if (extname(path)) return path;
   try {
-    const ext = sniffExt(readFileSync(path, { flag: "r" }).subarray(0, 32));
+    const fd = openSync(path, "r");
+    let head: Buffer;
+    try {
+      head = Buffer.alloc(32);
+      const n = readSync(fd, head, 0, head.length, 0);
+      head = head.subarray(0, n);
+    } finally {
+      closeSync(fd);
+    }
+    const ext = sniffExt(head);
     if (!ext) return path;
     const next = `${path}${ext}`;
     if (existsSync(next)) return path;

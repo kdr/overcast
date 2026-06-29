@@ -346,7 +346,9 @@ export const scanVerb: VerbSpec = {
             if (explicitPipe || isSenseableMedia(cap.media.ref)) {
               if (explicitPipe) {
                 const sensedRecords = await runExplicitPipeWithPolicy(ctx, "scan", explicitPipe, cap.media.ref);
-                const saved = sensedRecords.map((r) => checkpoint(ctx, r));
+                const saved = sensedRecords.length
+                  ? sensedRecords.map((r) => checkpoint(ctx, r))
+                  : [checkpoint(ctx, err("scan", `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`))];
                 out.push(...saved);
                 itemRecords.push(...saved);
               } else {

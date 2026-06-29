@@ -252,6 +252,27 @@ test("monitor explicit invalid --pipe does not fall back to default watch", asyn
   }
 });
 
+test("scan explicit invalid --pipe marks pull failures instead of defaulting to success", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-explicit-no-success-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, pipe: "bogus" }, case: c, profile });
+    const final = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "complete")!;
+    assert.equal(final.state, "error");
+    assert.equal((final.payload as Record<string, unknown>).processed, 2);
+    assert.equal((final.payload as Record<string, unknown>).failed, 2);
+    assert.equal(recs.some((r) => r.verb === "watch"), false);
+    assert.equal(recs.some((r) => r.verb === "scan" && /unknown --pipe/.test(String(r.error))), true);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan --pull runs first direct auto-sense for TikTok then captures for remaining senses", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-tiktok-auto-chain-"));
   const sourceScript = join(d, "tiktok-source.sh");
