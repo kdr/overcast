@@ -18,7 +18,7 @@ import { providerEnv } from "../providers/provider-env.js";
 import { indexesByType, resolveIndexRef } from "../state/index.js";
 import { findIndex } from "../state/index.js";
 import { runLocalFace, type LocalFaceOp } from "../providers/local/vision.js";
-import { resolveVideoArg } from "./media-ref.js";
+import { isImage, resolveVideoArg } from "./media-ref.js";
 import { badNumber } from "./validate.js";
 import type { Case } from "../case.js";
 import type { ProviderDescriptor } from "../profile.js";
@@ -47,13 +47,7 @@ function resolveImageRef(c: Case, ref: string): { ref?: string; error?: string }
   if (!rec) return { ref }; // a direct path / URL — trust the user's choice
   const m = rec.media?.ref;
   if (!m) return { error: `--match record ${ref} has no media` };
-  // tinycloud 0.3.6 accepts only JPEG/PNG query images for match/search. Check a
-  // record-resolved ref here so a watch/capture/scan record pointing at a video,
-  // page URL, or unsupported image format is rejected before spawning tinycloud.
-  const imageErr = faceQueryImageError(m);
-  if (imageErr) {
-    return { error: `--match record ${ref} resolves to ${m}; ${imageErr}` };
-  }
+  if (!isImage(m)) return { error: `--match record ${ref} resolves to ${m}; not an image file` };
   return { ref: m };
 }
 
@@ -191,10 +185,7 @@ export const faceVerb: VerbSpec = {
     if (image && !/^https?:\/\//i.test(image) && !existsSync(image)) {
       return [err(`--match image not found: ${image}`)];
     }
-    if (image) {
-      const imageErr = faceQueryImageError(image);
-      if (imageErr) return [err(imageErr)];
-    }
+    if (image && !isImage(image)) return [err(`--match image must be an image file: ${image}`)];
 
     // Resolve which face op the given inputs select. This runs BEFORE the custom
     // branch so a bound provider gets the same op + resolved indexes (with the
@@ -309,6 +300,8 @@ export const faceVerb: VerbSpec = {
         limit: num(ctx.opts.limit) ?? num(ctx.opts["max-faces"]),
         maxFrames: num(ctx.opts["max-frames"]),
         fps: num(ctx.opts.fps),
+        start: ctx.opts.start ? String(ctx.opts.start) : undefined,
+        end: ctx.opts.end ? String(ctx.opts.end) : undefined,
         thumbnails: false,
         signal: ctx.signal,
       });
@@ -339,6 +332,11 @@ export const faceVerb: VerbSpec = {
       });
       rec.meta = { ...rec.meta, case: c.dir };
       return [rec];
+    }
+
+    if (image) {
+      const imageErr = faceQueryImageError(image);
+      if (imageErr) return [err(imageErr)];
     }
 
     const params: FaceParams = {

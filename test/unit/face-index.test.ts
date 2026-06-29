@@ -318,20 +318,26 @@ test("face provider binding deepface-local runs local detect/match without requi
   const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-provider-"));
   const video = join(cdir, "v.mp4");
   const ref = join(cdir, "ref.jpg");
+  const webpRef = join(cdir, "ref.webp");
   const fakePy = join(cdir, "fake-visual-db");
   writeFileSync(video, "x");
   writeFileSync(ref, "x");
+  writeFileSync(webpRef, "x");
   writeFileSync(fakePy, `#!/usr/bin/env bash
 op=""
 fps=""
 max=""
+start=""
+end=""
 for ((i=1; i<=$#; i++)); do
   arg="\${!i}"
   if [ "$arg" = "--op" ]; then j=$((i+1)); op="\${!j}"; fi
   if [ "$arg" = "--fps" ]; then j=$((i+1)); fps="\${!j}"; fi
   if [ "$arg" = "--max-frames" ]; then j=$((i+1)); max="\${!j}"; fi
+  if [ "$arg" = "--start" ]; then j=$((i+1)); start="\${!j}"; fi
+  if [ "$arg" = "--end" ]; then j=$((i+1)); end="\${!j}"; fi
 done
-printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling":{"fps":%s,"max_frames":%s}},"state":"ready","meta":{"provider":"fake-deepface"}}\\n' "$op" "\${fps:-0}" "\${max:-0}"
+printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling":{"fps":%s,"max_frames":%s,"start":"%s","end":"%s"}},"state":"ready","meta":{"provider":"fake-deepface"}}\\n' "$op" "\${fps:-0}" "\${max:-0}" "$start" "$end"
 `);
   chmodSync(fakePy, 0o755);
   const savedPy = process.env.OC_VISUAL_DB_PY;
@@ -352,10 +358,17 @@ printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling"
     assert.equal(thumbs.state, "error");
     assert.match(thumbs.error ?? "", /does not support --thumbnails/);
 
-    const [match] = await faceVerb.run(mk(video, { match: ref, fps: 0.5, "max-frames": 3 }));
+    const [match] = await faceVerb.run(mk(video, { match: ref, fps: 0.5, "max-frames": 3, start: "00:00:01", end: "3.5" }));
     assert.equal(match.state, "ready");
     assert.equal((match.payload as Record<string, unknown>).op, "match");
-    assert.equal(((match.payload as Record<string, unknown>).sampling as Record<string, unknown>).fps, 0.5);
+    const sampling = (match.payload as Record<string, unknown>).sampling as Record<string, unknown>;
+    assert.equal(sampling.fps, 0.5);
+    assert.equal(sampling.start, "00:00:01");
+    assert.equal(sampling.end, "3.5");
+
+    const [webp] = await faceVerb.run(mk(video, { match: webpRef }));
+    assert.equal(webp.state, "ready");
+    assert.equal((webp.payload as Record<string, unknown>).op, "match");
   } finally {
     if (savedPy === undefined) delete process.env.OC_VISUAL_DB_PY;
     else process.env.OC_VISUAL_DB_PY = savedPy;
@@ -953,7 +966,7 @@ test("face --match rejects a record id whose media isn't an image (#R7-2)", asyn
     c.writeRecord(watch);
     const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: watch.id, index: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
-    assert.match(rec.error ?? "", /JPEG or PNG/);
+    assert.match(rec.error ?? "", /not an image file/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 

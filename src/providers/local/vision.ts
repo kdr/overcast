@@ -27,7 +27,7 @@ function missingScript(verb: string, input: string, name: string): OvercastRecor
   });
 }
 
-function localVisionPython(): string {
+export function localVisionPython(): string {
   const configured = process.env.OVERCAST_VISUAL_DB_PY || process.env.OC_VISUAL_DB_PY;
   if (configured) return configured;
   const venvPy = shippedPath(".dev", "visual-db-py", "bin", "python");
@@ -84,6 +84,8 @@ export async function runLocalFace(
     limit?: number;
     maxFrames?: number;
     fps?: number;
+    start?: string;
+    end?: string;
     thumbnails?: boolean;
     signal?: AbortSignal;
   },
@@ -111,6 +113,8 @@ export async function runLocalFace(
   if (opts.limit != null) args.push("--limit", String(opts.limit));
   if (opts.maxFrames != null) args.push("--max-frames", String(opts.maxFrames));
   if (opts.fps != null) args.push("--fps", String(opts.fps));
+  if (opts.start) args.push("--start", opts.start);
+  if (opts.end) args.push("--end", opts.end);
   const rec = await runExecProvider("face", localVisionPython(), input, {
     env: { ...providerEnv(c.mediaDir), OVERCAST_INDEX_DIR: localIndexDir(c, opts.indexId) },
     extraArgs: [path, ...args],

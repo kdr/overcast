@@ -15,10 +15,10 @@ import {
 import { FFMPEG_PATH, FFPROBE_PATH, probeTool, MIN_FFMPEG } from "../media/ffmpeg.js";
 import { execCapture } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
-import { shippedPath } from "../pkg.js";
 import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
 import { findProviderChoice, providerChoices, PROVIDER_PRESETS, type ProviderChoice } from "../providers/catalog.js";
+import { localVisionPython } from "../providers/local/vision.js";
 import { PI_VERSION } from "../version.js";
 import { envPresent } from "../env.js";
 import { listSources } from "../state/source.js";
@@ -182,13 +182,6 @@ function effectiveProviders(profile: Profile): Record<string, Record<string, unk
     };
   }
   return out;
-}
-
-function localVisionPython(): string {
-  const configured = process.env.OVERCAST_VISUAL_DB_PY || process.env.OC_VISUAL_DB_PY;
-  if (configured) return configured;
-  const venvPy = shippedPath(".dev", "visual-db-py", "bin", "python");
-  return venvPy && existsSync(venvPy) ? venvPy : "python3";
 }
 
 // ---- setup -----------------------------------------------------------------

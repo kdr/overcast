@@ -114,12 +114,14 @@ test("scan --local runs local visual DB searches against case media", async () =
     const target = join(d, "target.jpg");
     const video = join(d, "clip.mp4");
     const video2 = join(d, "clip2.mp4");
+    const audio = join(d, "call.mp3");
     const logoRef = join(d, "logo-ref.jpg");
     const personRef = join(d, "person-ref.jpg");
     const fakePy = join(d, "fake-visual-db.sh");
     writeFileSync(target, "target image");
     writeFileSync(video, "fake video");
     writeFileSync(video2, "fake video 2");
+    writeFileSync(audio, "fake audio");
     writeFileSync(logoRef, "logo ref");
     writeFileSync(personRef, "person ref");
     writeFileSync(fakePy, `#!/usr/bin/env bash
@@ -135,6 +137,10 @@ for ((i=1; i<=$#; i++)); do
 done
 if [ "$input" = "${target}" ]; then
   echo "target image should not be scanned as candidate media" >&2
+  exit 9
+fi
+if [ "$input" = "${audio}" ]; then
+  echo "audio should not be scanned as local visual candidate media" >&2
   exit 9
 fi
 if [ "$script" = "image_match.py" ]; then
@@ -155,6 +161,7 @@ fi
     setup.completed = true;
     setup.media.videos = [video, video2];
     saveSetup(c, setup);
+    c.writeRecord(makeRecord({ verb: "listen", payload: { summary: "audio only" }, media: { ref: audio }, state: "ready" }));
 
     const recs = await scanVerb.run({ input: undefined, rest: [], opts: { local: true, limit: 1 }, case: c, profile: defaultProfile() });
     const summary = recs.find((r) => r.verb === "scan")!;

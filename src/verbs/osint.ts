@@ -29,7 +29,7 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { parseSince } from "../providers/memory/local.js";
-import { isAv } from "./media-ref.js";
+import { isAv, isImage } from "./media-ref.js";
 import { faceVerb } from "./face.js";
 import { imageVerb } from "./image.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
@@ -56,12 +56,16 @@ function scanFlagError(ctx: VerbContext, verb = "scan"): OvercastRecord | undefi
   return undefined;
 }
 
+const VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf)$/i;
+const isVideoRef = (ref: string): boolean => !/^https?:\/\//i.test(ref) && VIDEO_RE.test(ref.replace(/[?#].*$/, ""));
+const isLocalVisualRef = (ref: string): boolean => isVideoRef(ref) || isImage(ref);
+
 function localMediaRefs(ctx: VerbContext): string[] {
   const setup = loadSetup(ctx.case);
   const refs = [
     ...(setup?.media.videos ?? []),
-    ...ctx.case.records().flatMap((r) => (r.media?.ref && isAv(r.media.ref) ? [r.media.ref] : [])),
-    ...listIndexes(ctx.case).flatMap((i) => i.members.map((m) => m.ref)),
+    ...ctx.case.records().flatMap((r) => (r.media?.ref && isLocalVisualRef(r.media.ref) ? [r.media.ref] : [])),
+    ...listIndexes(ctx.case).flatMap((i) => i.members.map((m) => m.ref).filter(isLocalVisualRef)),
   ];
   return [...new Set(refs)].filter((ref) => !/^https?:\/\//i.test(ref) ? existsSync(ref) : true).sort();
 }
@@ -87,7 +91,7 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const localLimit = ctx.opts.limit != null ? Number(ctx.opts.limit) : 5;
   const localCandidatesAll = localVisualCandidates(refs, imageTargets, [...localFaceIndexes, ...localImageIndexes]);
   const localCandidates = localCandidatesAll.slice(0, localLimit);
-  const localFaceCandidates = localCandidates.filter((ref) => isAv(ref));
+  const localFaceCandidates = localCandidates.filter(isVideoRef);
   const suggested: string[] = [];
   if (imageTargets.length && faceIndexes.length) {
     suggested.push(`overcast face --match ${imageTargets.at(-1)!.value} --index ${faceIndexes.map((i) => i.id).join(",")}`);

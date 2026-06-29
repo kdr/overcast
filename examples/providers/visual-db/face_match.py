@@ -37,6 +37,8 @@ def parse():
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--fps", type=float)
     p.add_argument("--max-frames", type=int)
+    p.add_argument("--start")
+    p.add_argument("--end")
     p.add_argument("--thumbnails", action="store_true")
     p.add_argument("input")
     return p.parse_args()
@@ -63,28 +65,62 @@ def duration(path):
         return 0.0
 
 
-def sample_times(dur, max_frames, fps):
+def parse_time(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    parts = text.split(":")
+    if not 1 <= len(parts) <= 3:
+        raise ValueError("invalid timestamp: %s" % value)
+    try:
+        nums = [float(p) for p in parts]
+    except ValueError as e:
+        raise ValueError("invalid timestamp: %s" % value) from e
+    total = 0.0
+    for n in nums:
+        total = total * 60.0 + n
+    return total
+
+
+def sample_times(dur, max_frames, fps, start=None, end=None):
+    start = max(0.0, start or 0.0)
+    end = dur if end is None else max(0.0, end)
+    if dur > 0:
+        end = min(dur, end)
+    if end <= start:
+        return []
+    span = end - start
     if fps and fps > 0:
-        count = max(1, int(math.ceil(dur * fps)))
+        count = max(1, int(math.ceil(span * fps)))
         if max_frames and max_frames > 0:
             count = min(count, max_frames)
         interval = 1.0 / fps
-        return [min(dur, (i + 0.5) * interval) for i in range(count)]
+        return [min(end, start + (i + 0.5) * interval) for i in range(count)]
     count = max(1, max_frames or 8)
-    return [dur * (i + 0.5) / count for i in range(count)]
+    return [start + span * (i + 0.5) / count for i in range(count)]
 
 
-def frames(path, max_frames, fps, workdir):
+def frames(path, max_frames, fps, workdir, start=None, end=None):
     ffmpeg = os.environ.get("OVERCAST_FFMPEG") or "ffmpeg"
     dur = duration(path)
     out = []
     if dur <= 0:
         f = Path(workdir) / "f0.jpg"
-        r = subprocess.run([ffmpeg, "-y", "-i", path, "-frames:v", "1", "-q:v", "2", str(f)], capture_output=True, timeout=60)
+        cmd = [ffmpeg, "-y"]
+        if start and start > 0:
+            cmd.extend(["-ss", "%.3f" % start])
+        cmd.extend(["-i", path, "-frames:v", "1", "-q:v", "2", str(f)])
+        r = subprocess.run(cmd, capture_output=True, timeout=60)
         if r.returncode == 0 and f.exists():
-            out.append((0.0, f))
+            out.append((round(start or 0.0, 2), f))
         return out
-    for i, at in enumerate(sample_times(dur, max_frames, fps)):
+    for i, at in enumerate(sample_times(dur, max_frames, fps, start, end)):
         f = Path(workdir) / ("f%d.jpg" % i)
         r = subprocess.run([ffmpeg, "-y", "-ss", "%.3f" % at, "-i", path, "-frames:v", "1", "-q:v", "2", str(f)], capture_output=True, timeout=60)
         if r.returncode == 0 and f.exists():
@@ -166,11 +202,22 @@ def main():
     threshold = args.min_similarity
     if threshold < 0 or threshold > 100:
         fail("--min-similarity must be between 0 and 100", inp, args.op)
+    try:
+        start = parse_time(args.start)
+        end = parse_time(args.end)
+    except ValueError as e:
+        fail(str(e), inp, args.op)
+    if start is not None and start < 0:
+        fail("--start must be non-negative", inp, args.op)
+    if end is not None and end < 0:
+        fail("--end must be non-negative", inp, args.op)
+    if start is not None and end is not None and end <= start:
+        fail("--end must be greater than --start", inp, args.op)
 
     is_video = inp.lower().endswith(VIDEO_EXTS)
     detections = []
     with tempfile.TemporaryDirectory() as wd:
-        queries = frames(inp, args.max_frames, args.fps, wd) if is_video else [(None, Path(inp))]
+        queries = frames(inp, args.max_frames, args.fps, wd, start, end) if is_video else [(None, Path(inp))]
         if is_video and not queries:
             fail("could not extract frames from video", inp, args.op)
         for at, path in queries:
@@ -238,6 +285,8 @@ def main():
                 "fps": args.fps,
                 "max_frames": args.max_frames if args.max_frames is not None else (None if args.fps else 8),
                 "sampled_frames": len(queries) if is_video else 1,
+                "start": start,
+                "end": end,
             },
         },
         "media": media,
