@@ -9,6 +9,14 @@ REPO="$(cd "$DIR/../.." && pwd)"
 source "$DIR/lib.sh"
 
 casedir="$SMOKE_DIR/case_dist"; mkdir -p "$casedir"
+shipped_skills=(
+  overcast
+  overcast-init
+  overcast-skill-creator
+  overcast-media-bug-triage
+  overcast-recon-brief
+  overcast-visual-target-search
+)
 
 # generate the skill + reference from the registry
 gen="$($OVERCAST skills generate --json --case "$casedir" 2>/dev/null)"
@@ -16,6 +24,15 @@ save_json "phase7_generate" "$gen" >/dev/null
 assert_eq "skills.generate" "ready" "$(jq -r '.state' <<<"$gen")" "skills generate ok"
 [ -f "$REPO/skills/overcast/SKILL.md" ] && ok "skills.flagship" "flagship SKILL.md written" || fail "skills.flagship" "no SKILL.md"
 [ -f "$REPO/skills/overcast/reference/verbs.md" ] && ok "skills.reference" "reference/verbs.md written" || fail "skills.reference" "no reference"
+missing_generated=()
+for skill in "${shipped_skills[@]}"; do
+  [ -f "$REPO/skills/$skill/SKILL.md" ] || missing_generated+=("$skill")
+done
+if [ "${#missing_generated[@]}" -eq 0 ]; then
+  ok "skills.generated_all" "all shipped skill folders written"
+else
+  fail "skills.generated_all" "missing generated skills: ${missing_generated[*]}"
+fi
 
 # the reference is IN SYNC with commands --json (same verb count) — invariant #5
 n_cmd="$($OVERCAST commands --json 2>/dev/null | jq '.verbs|length')"
@@ -30,10 +47,14 @@ if jq -e '.plugins[0].name' "$REPO/.claude-plugin/marketplace.json" >/dev/null 2
 fakehome="$SMOKE_DIR/fakehome"; mkdir -p "$fakehome"
 inst="$(HOME="$fakehome" $OVERCAST skills install --harness claude-code --json --case "$casedir" 2>/dev/null)"
 save_json "phase7_install" "$inst" >/dev/null
-if [ -f "$fakehome/.claude/skills/overcast/SKILL.md" ] && [ -f "$fakehome/.claude/skills/overcast-init/SKILL.md" ]; then
-  ok "skills.install" "overcast + overcast-init installed to ~/.claude/skills"
+missing_installed=()
+for skill in "${shipped_skills[@]}"; do
+  [ -f "$fakehome/.claude/skills/$skill/SKILL.md" ] || missing_installed+=("$skill")
+done
+if [ "${#missing_installed[@]}" -eq 0 ]; then
+  ok "skills.install" "all shipped skills installed to ~/.claude/skills"
 else
-  fail "skills.install" "skills not installed"
+  fail "skills.install" "missing installed skills: ${missing_installed[*]}"
 fi
 
 # bun binary smoke (gated on bun availability — compile is slow-ish)

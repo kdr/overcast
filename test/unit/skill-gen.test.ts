@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generateVerbReference, generateFlagshipSkill, generateInitSkill } from "../../src/skill-gen.ts";
+import {
+  generateVerbReference,
+  generateFlagshipSkill,
+  generateInitSkill,
+  generateSkillCreatorSkill,
+  generateMediaBugTriageSkill,
+  generateReconBriefSkill,
+  generateVisualTargetSearchSkill,
+} from "../../src/skill-gen.ts";
 import { VERBS } from "../../src/registry/verbs.ts";
 
 test("verb reference is generated from the registry — every verb appears", () => {
@@ -30,6 +38,51 @@ test("overcast-init skill covers install + doctor + Cloudglue key", () => {
   assert.match(init, /name: overcast-init/);
   assert.match(init, /doctor/);
   assert.match(init, /CLOUDGLUE_API_KEY/);
+});
+
+const generatedSkills = [
+  {
+    name: "overcast-skill-creator",
+    body: generateSkillCreatorSkill,
+    verbs: ["case setup", "watch", "listen", "see", "face", "scan", "capture", "monitor", "note", "finding", "ask", "brief"],
+  },
+  {
+    name: "overcast-media-bug-triage",
+    body: generateMediaBugTriageSkill,
+    verbs: ["doctor", "case init", "case setup", "watch", "listen", "see", "note", "ask", "brief"],
+  },
+  {
+    name: "overcast-recon-brief",
+    body: generateReconBriefSkill,
+    verbs: ["doctor", "case init", "case setup", "scan", "monitor", "finding", "ask", "brief"],
+  },
+  {
+    name: "overcast-visual-target-search",
+    body: generateVisualTargetSearchSkill,
+    verbs: ["doctor", "case init", "face", "crop", "see", "index", "image", "ask", "brief"],
+  },
+];
+
+test("new shipped skills have valid front-matter and reference focused verbs", () => {
+  for (const skill of generatedSkills) {
+    const body = skill.body();
+    assert.match(body, new RegExp(`^---\\nname: ${skill.name}\\ndescription: >-`), `${skill.name} frontmatter`);
+    assert.match(body, /\n---\n\n# /, `${skill.name} closes frontmatter`);
+    assert.match(body, /overcast\/reference\/verbs\.md/, `${skill.name} links reference`);
+    for (const verb of skill.verbs) {
+      assert.ok(body.includes(verb), `${skill.name} missing ${verb}`);
+    }
+  }
+});
+
+test("overcast-skill-creator teaches cases, citations, and progressive disclosure", () => {
+  const skill = generateSkillCreatorSkill();
+  assert.match(skill, /case lifecycle/);
+  assert.match(skill, /record\.id/);
+  assert.match(skill, /media\.at/);
+  assert.match(skill, /case memory get/);
+  assert.match(skill, /Do not duplicate the\s+full verb reference/);
+  assert.match(skill, /overcast\/reference\/verbs\.md/);
 });
 
 test("reference stays in sync with commands --json (same verb set)", () => {
