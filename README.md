@@ -4,15 +4,26 @@
 
 # overcast
 
-**Senses (video / audio / image understanding) + OSINT reach (search / capture / monitor) for any agent.**
+**Video OSINT agent: senses + OSINT reach for any agent.**
 
-overcast gives an agent *eyes and ears* and *reach*, organized around an
-investigation **case**. It ships as a **pi package** (extension + skills +
-prompts + theme), a **standalone bun binary**, and **agent skills** that drive
-the CLI from any harness. The brain LLM is BYO; the default perception backend is
-[Cloudglue](https://cloudglue.dev) via the
-[Tinycloud Video Agent CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)
-([tinycloud.sh](https://www.tinycloud.sh/)).
+overcast gives an agent *senses* and *recon and targeting reach*, organized
+around an investigation **case**: a working directory with a local `.overcast/`
+store where every result is kept. Point it at a corpus, 10 clips or 1,000, and it
+turns footage into cited evidence: speech and audio with `listen`, full video
+understanding with `watch`, on-screen text and objects with `see`, faces and
+cross-corpus person search with `face`, and named entities with `index entities`.
+Results persist as evidence-only case memory, so intelligence accumulates across
+sessions instead of vanishing between runs, and `ask` answers cite the exact
+record and timestamp.
+
+Every subcommand is modular: each verb is a standalone CLI command that emits a
+portable JSON record, so you can run the whole pipeline as one agent or drop a
+single step into another recon/security workflow. overcast ships as a **pi
+package**, a **standalone bun binary**, and **agent skills** that drive the CLI
+from any harness. The brain LLM is BYO; the default perception backend is the
+[Tinycloud Video Agent CLI](https://www.npmjs.com/package/@cloudglue/tinycloud).
+Every verb runs over one provider contract, so you can rebind any sense to
+another backend or your own script with no code changes.
 
 ---
 
