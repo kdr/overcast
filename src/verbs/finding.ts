@@ -6,7 +6,7 @@ function err(message: string): OvercastRecord {
   return makeRecord({ verb: "finding", format: "json", payload: { error: message }, error: message, state: "error" });
 }
 
-function latestFindingStatus(ctx: VerbContext, id: string): string {
+export function latestFindingStatus(ctx: VerbContext, id: string): string {
   const updates = ctx.case.records().filter((r) => r.verb === "finding" && typeof r.payload === "object");
   let status = "open";
   for (const rec of updates) {

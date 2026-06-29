@@ -33,7 +33,7 @@ import { isAv } from "./media-ref.js";
 import { faceVerb } from "./face.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
 import { indexVerb } from "./index.js";
-import { makeFinding } from "./finding.js";
+import { latestFindingStatus, makeFinding } from "./finding.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
@@ -200,6 +200,19 @@ function canSenseRemoteDirect(ctx: VerbContext, verb: string, ref: string): bool
   return !isCustomBinding(providerBinding(ctx, verb));
 }
 
+function directSenseVerb(ctx: VerbContext, ref: string): string | undefined {
+  const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+  const autoChain = loadSetup(ctx.case)?.automation?.auto_sense ?? [];
+  const verb = explicitPipe || (autoChain.length === 1 ? autoChain[0] : undefined);
+  return verb && canSenseRemoteDirect(ctx, verb, ref) ? verb : undefined;
+}
+
+function pullOutcome(records: OvercastRecord[]): "completed" | "pending" | "failed" {
+  if (records.some((r) => r.state === "pending")) return "pending";
+  if (records.some((r) => r.state === "error" || r.state === "needs_credentials")) return "failed";
+  return "completed";
+}
+
 export const scanVerb: VerbSpec = {
   name: "scan",
   group: "osint",
@@ -258,39 +271,54 @@ export const scanVerb: VerbSpec = {
       if (!ref) continue;
       try {
         const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-        const autoChain = loadSetup(ctx.case)?.automation?.auto_sense ?? [];
-        const directVerb = explicitPipe || (autoChain.length === 1 ? autoChain[0] : undefined);
-        if (directVerb && canSenseRemoteDirect(ctx, directVerb, ref)) {
+        const directVerb = directSenseVerb(ctx, ref);
+        const itemRecords: OvercastRecord[] = [];
+        if (directVerb) {
           submitted_remote++;
           out.push(scanProgress(ctx, { stage: "submitted", ref, via: "direct-url", sense: directVerb, submitted_remote, completed, pending, failed }));
           const sensedRecords = explicitPipe
             ? [await pipeSense(ctx, "scan", explicitPipe, ref)].filter((r): r is OvercastRecord => !!r)
             : await runSetupAutomation(ctx, "scan", ref);
           if (sensedRecords.length) {
-            out.push(...sensedRecords.map((r) => checkpoint(ctx, r)));
-            if (sensedRecords.some((r) => r.state === "pending")) pending++;
-            else if (sensedRecords.some((r) => r.state === "error" || r.state === "needs_credentials")) failed++;
-            else completed++;
+            const saved = sensedRecords.map((r) => checkpoint(ctx, r));
+            out.push(...saved);
+            itemRecords.push(...saved);
           }
         } else {
           const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-          out.push(checkpoint(ctx, cap));
+          const savedCap = checkpoint(ctx, cap);
+          out.push(savedCap);
+          itemRecords.push(savedCap);
           if (cap.state !== "error" && cap.media?.ref) {
             // only auto-sense AV captures; honor an explicit --pipe for anything.
             if (explicitPipe || isSenseableMedia(cap.media.ref)) {
               if (explicitPipe) {
                 const sensed = await pipeSense(ctx, "scan", explicitPipe, cap.media.ref);
-                if (sensed) out.push(checkpoint(ctx, sensed));
+                if (sensed) {
+                  const saved = checkpoint(ctx, sensed);
+                  out.push(saved);
+                  itemRecords.push(saved);
+                }
               } else {
                 const automated = await runSetupAutomation(ctx, "scan", cap.media.ref);
-                if (automated.length) out.push(...automated.map((r) => checkpoint(ctx, r)));
+                if (automated.length) {
+                  const saved = automated.map((r) => checkpoint(ctx, r));
+                  out.push(...saved);
+                  itemRecords.push(...saved);
+                }
                 else {
-                  out.push(...(await runDefaultWatchWithPolicy(ctx, "scan", cap.media.ref)).map((r) => checkpoint(ctx, r)));
+                  const saved = (await runDefaultWatchWithPolicy(ctx, "scan", cap.media.ref)).map((r) => checkpoint(ctx, r));
+                  out.push(...saved);
+                  itemRecords.push(...saved);
                 }
               }
             }
           }
         }
+        const outcome = pullOutcome(itemRecords);
+        if (outcome === "pending") pending++;
+        else if (outcome === "failed") failed++;
+        else completed++;
         processed++;
         out.push(scanProgress(ctx, { stage: "processed", ref, processed, submitted_remote, completed, pending, failed }, pending ? "pending" : failed ? "error" : "ready"));
       } catch (e) {
@@ -479,6 +507,7 @@ function hasAutomatedFinding(ctx: VerbContext, sourceRecord: OvercastRecord, tar
     if (rec.verb !== "finding" || !rec.payload || typeof rec.payload !== "object") return false;
     const payload = rec.payload as Record<string, unknown>;
     if (typeof payload.finding_id === "string") return false;
+    if (latestFindingStatus(ctx, rec.id) === "dismissed") return false;
     if (String(payload.target ?? "") !== target || payload.source_verb !== sourceRecord.verb) return false;
     if (payload.source_record === sourceRecord.id) return true;
     return !!sourceRecord.media?.ref && rec.media?.ref === sourceRecord.media.ref;
@@ -698,29 +727,43 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     let transient = false;
     let procError = false;
     try {
-      const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-      out.push(cap);
-      if (cap.state === "needs_credentials") {
-        transient = true; procCredGaps++;
-      } else if (cap.state === "error" || !cap.media?.ref) {
-        procError = true;
+      const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+      const directVerb = directSenseVerb(ctx, ref);
+      if (directVerb) {
+        const sensedRecords = explicitPipe
+          ? [await pipeSense(ctx, "monitor", explicitPipe, ref)].filter((r): r is OvercastRecord => !!r)
+          : await runSetupAutomation(ctx, "monitor", ref);
+        if (sensedRecords.length) out.push(...sensedRecords);
+        for (const sensed of sensedRecords) {
+          const st = sensed.state;
+          if (st === "needs_credentials") { transient = true; procCredGaps++; }
+          else if (st === "pending") { transient = true; }
+          else if (st === "error") { procError = true; }
+        }
       } else {
-        const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-        if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-          const sensedRecords = explicitPipe
-            ? [await pipeSense(ctx, "monitor", explicitPipe, cap.media.ref)].filter((r): r is OvercastRecord => !!r)
-            : await runSetupAutomation(ctx, "monitor", cap.media.ref);
-          if (sensedRecords.length) out.push(...sensedRecords);
-          else {
-            const fallback = await runDefaultWatchWithPolicy(ctx, "monitor", cap.media.ref);
-            sensedRecords.push(...fallback);
-            out.push(...fallback);
-          }
-          for (const sensed of sensedRecords) {
-            const st = sensed.state;
-            if (st === "needs_credentials") { transient = true; procCredGaps++; }
-            else if (st === "pending") { transient = true; }
-            else if (st === "error") { procError = true; }
+        const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+        out.push(cap);
+        if (cap.state === "needs_credentials") {
+          transient = true; procCredGaps++;
+        } else if (cap.state === "error" || !cap.media?.ref) {
+          procError = true;
+        } else {
+          if (explicitPipe || isSenseableMedia(cap.media.ref)) {
+            const sensedRecords = explicitPipe
+              ? [await pipeSense(ctx, "monitor", explicitPipe, cap.media.ref)].filter((r): r is OvercastRecord => !!r)
+              : await runSetupAutomation(ctx, "monitor", cap.media.ref);
+            if (sensedRecords.length) out.push(...sensedRecords);
+            else {
+              const fallback = await runDefaultWatchWithPolicy(ctx, "monitor", cap.media.ref);
+              sensedRecords.push(...fallback);
+              out.push(...fallback);
+            }
+            for (const sensed of sensedRecords) {
+              const st = sensed.state;
+              if (st === "needs_credentials") { transient = true; procCredGaps++; }
+              else if (st === "pending") { transient = true; }
+              else if (st === "error") { procError = true; }
+            }
           }
         }
       }

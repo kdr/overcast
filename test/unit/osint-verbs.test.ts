@@ -13,6 +13,7 @@ import { addTarget } from "../../src/state/target.ts";
 import { addIndex, addMember } from "../../src/state/index.ts";
 import { emptySetup, saveSetup } from "../../src/state/setup.ts";
 import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
+import { makeRecord } from "../../src/record.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -170,6 +171,44 @@ fi
   }
 });
 
+test("scan --pull progress counts capture-path sense failures", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-progress-failure-"));
+  const failWatch = join(d, "fail-watch.sh");
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    writeFileSync(failWatch, [
+      "#!/usr/bin/env bash",
+      "printf '%s\\n' '{\"verb\":\"watch\",\"state\":\"error\",\"error\":\"watch failed\",\"payload\":{\"error\":\"watch failed\"}}'",
+      "",
+    ].join("\n"));
+    execFileSync("chmod", ["755", failWatch]);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${failWatch} {{input}}` } };
+
+    const prevClip = process.env.OVERCAST_FIXTURE_CLIP;
+    const prevClip2 = process.env.OVERCAST_FIXTURE_CLIP2;
+    process.env.OVERCAST_FIXTURE_CLIP = clip;
+    process.env.OVERCAST_FIXTURE_CLIP2 = clip2;
+    try {
+      const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, pipe: "watch" }, case: c, profile });
+      const final = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "complete")!;
+      assert.equal(final.state, "error");
+      assert.equal((final.payload as Record<string, unknown>).processed, 2);
+      assert.equal((final.payload as Record<string, unknown>).failed, 2);
+      assert.equal((final.payload as Record<string, unknown>).completed, 0);
+    } finally {
+      if (prevClip === undefined) delete process.env.OVERCAST_FIXTURE_CLIP;
+      else process.env.OVERCAST_FIXTURE_CLIP = prevClip;
+      if (prevClip2 === undefined) delete process.env.OVERCAST_FIXTURE_CLIP2;
+      else process.env.OVERCAST_FIXTURE_CLIP2 = prevClip2;
+    }
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan --pull default watch emits review findings when no auto-sense chain is configured", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-default-watch-finding-"));
   try {
@@ -221,6 +260,36 @@ test("scan --pull does not duplicate existing review findings for the same media
   }
 });
 
+test("dismissed automated findings can be re-detected for review", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-finding-redetect-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    addTarget(c, "Hacker News");
+    const setup = emptySetup("finding-redetect");
+    setup.completed = true;
+    setup.automation = { auto_sense: [], auto_index_new: false };
+    setup.findings = { mode: "review" };
+    saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const first = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    const firstFindings = first.filter((r) => r.verb === "finding");
+    assert.ok(firstFindings.length >= 1);
+    for (const rec of first) c.writeRecord(rec);
+    for (const finding of firstFindings) {
+      c.writeRecord(makeRecord({ verb: "finding", payload: { finding_id: finding.id, status: "dismissed" }, state: "ready" }));
+    }
+
+    const second = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: openCase(d), profile });
+    assert.ok(second.filter((r) => r.verb === "finding").length >= 1);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan auto-index reuses the in-flight default watch instead of watching twice", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-auto-index-watch-"));
   const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
@@ -254,6 +323,41 @@ test("scan auto-index reuses the in-flight default watch instead of watching twi
     assert.equal(recs.filter((r) => r.verb === "watch").length, 2);
     assert.equal(readFileSync(countFile, "utf8"), "2");
   } finally {
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("monitor --pipe watch sends TikTok URLs directly to tinycloud", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monitor-tiktok-direct-"));
+  const sourceScript = join(d, "tiktok-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_TTFIXTURE_CMD;
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo '[{"title":"tt","url":"https://www.tiktok.com/@willsmith/video/123","source":"ttfixture","media":{"ref":"https://www.tiktok.com/@willsmith/video/123"}}]'
+else
+  echo '{}'
+fi
+`);
+    process.env.OVERCAST_SOURCE_TTFIXTURE_CMD = `bash ${sourceScript}`;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "ttfixture:any");
+
+    const recs = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true, pipe: "watch" }, case: c, profile: defaultProfile() });
+    const summary = recs.find((r) => r.verb === "monitor")!;
+    assert.equal((summary.payload as Record<string, unknown>).new_items, 1);
+    assert.equal(recs.some((r) => r.verb === "capture"), false);
+    const watch = recs.find((r) => r.verb === "watch");
+    assert.equal(watch?.media?.ref, "https://www.tiktok.com/@willsmith/video/123");
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_TTFIXTURE_CMD;
+    else process.env.OVERCAST_SOURCE_TTFIXTURE_CMD = prevSource;
     if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
     rmSync(d, { recursive: true, force: true });
