@@ -156,18 +156,47 @@ fi
     const c = openCase(d);
     c.ensure();
     addSource(c, "ttfixture:any");
+    addTarget(c, "fixture video");
+    const setup = emptySetup("direct-pipe-finding");
+    setup.completed = true;
+    setup.findings = { mode: "review" };
+    saveSetup(c, setup);
 
     const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, pipe: "watch", limit: 1 }, case: c, profile: defaultProfile() });
     const progress = recs.filter((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).op === "pull_progress");
     assert.equal(progress.some((r) => (r.payload as Record<string, unknown>).via === "direct-url"), true);
     const watch = recs.find((r) => r.verb === "watch");
     assert.equal(watch?.media?.ref, url);
+    assert.equal(recs.some((r) => r.verb === "finding"), true);
+    assert.equal(c.records().some((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).title === "tt"), true);
     assert.equal(c.records().some((r) => r.verb === "watch" && r.media?.ref === watch?.media?.ref), true);
   } finally {
     if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_TTFIXTURE_CMD;
     else process.env.OVERCAST_SOURCE_TTFIXTURE_CMD = prevSource;
     if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("monitor explicit --pipe emits review findings", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monitor-pipe-finding-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    addTarget(c, "Hacker News");
+    const setup = emptySetup("monitor-pipe-finding");
+    setup.completed = true;
+    setup.findings = { mode: "review" };
+    saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const recs = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true, pipe: "watch" }, case: c, profile });
+    assert.equal(recs.some((r) => r.verb === "watch"), true);
+    assert.equal(recs.some((r) => r.verb === "finding"), true);
+  } finally {
     rmSync(d, { recursive: true, force: true });
   }
 });

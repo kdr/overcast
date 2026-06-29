@@ -282,6 +282,30 @@ test("case setup provider edit preserves indexable when provider-indexable is om
   });
 });
 
+test("case setup provider-indexable can clear existing indexable flags", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], {
+      provider: "listen:elevenlabs,see:local-detect",
+      "provider-indexable": "listen,see",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], {
+      "provider-indexable": "",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const providers = saved.providers as Record<string, Record<string, unknown>>;
+    assert.equal(providers.listen.indexable, false);
+    assert.equal(providers.see.indexable, false);
+  });
+});
+
 test("case setup edit can disable auto-index-new", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
@@ -728,6 +752,30 @@ test("case memory get --field pages deterministically with has_more/next_offset"
     assert.equal(b.offset, 100);
     assert.equal(b.chunk, content.slice(100, 200));
   });
+});
+
+test("case memory get redacts secrets in manifests and paged chunks", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-getsecret-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    const secret = "sk-abcdefghijklmnopqrstuvwxyz123456";
+    const content = `prefix CLOUDGLUE_API_KEY=${secret} suffix`;
+    const rec = makeRecord({ verb: "note", payload: { content } });
+    c.writeRecord(rec);
+
+    const [manifest] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id]));
+    const fields = ((manifest.payload as Record<string, unknown>).fields as Array<Record<string, unknown>>);
+    assert.doesNotMatch(String(fields[0].preview), /sk-abcdefghijklmnopqrstuvwxyz/);
+    assert.match(String(fields[0].preview), /REDACTED/);
+
+    const [page] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id], { field: "content", offset: 0, limit: content.length }));
+    const payload = page.payload as Record<string, unknown>;
+    assert.equal(payload.returned, content.length);
+    assert.doesNotMatch(String(payload.chunk), /sk-abcdefghijklmnopqrstuvwxyz/);
+    assert.match(String(payload.chunk), /CLOUDGLUE_API_KEY=\[REDACTED\]/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("case memory get --field reaches the end (has_more false, next_offset null)", async () => {

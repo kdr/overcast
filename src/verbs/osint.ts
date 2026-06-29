@@ -265,8 +265,10 @@ export const scanVerb: VerbSpec = {
     const hits = await enumerateAll(ctx);
     if (!ctx.opts.pull) return hits;
 
-    // --pull: capture + sense each non-error hit
-    const out: OvercastRecord[] = [...hits];
+    // --pull: capture + sense each non-error hit. Persist the enumerated hits
+    // before downstream progress/sense checkpoints so interrupted pulls leave a
+    // coherent case log.
+    const out: OvercastRecord[] = hits.map((hit) => checkpoint(ctx, hit));
     out.push(scanProgress(ctx, {
       stage: "started",
       total_hits: hits.filter((h) => h.state !== "error" && h.state !== "needs_credentials").length,
@@ -297,7 +299,7 @@ export const scanVerb: VerbSpec = {
           out.push(scanProgress(ctx, { stage: "submitted", ref, via: "direct-url", sense: directPlan.verb, submitted_remote, completed, pending, failed }));
           const hasRemainingAutoSense = directPlan.remainingAutoSense.length > 0;
           const sensedRecords = directPlan.explicitPipe
-            ? [await pipeSense(ctx, "scan", directPlan.verb, ref)].filter((r): r is OvercastRecord => !!r)
+            ? await runExplicitPipeWithPolicy(ctx, "scan", directPlan.verb, ref)
             : await runAutomationChain(ctx, "scan", ref, [directPlan.verb], { autoIndex: !hasRemainingAutoSense });
           if (sensedRecords.length) {
             const saved = sensedRecords.map((r) => checkpoint(ctx, r));
@@ -335,12 +337,10 @@ export const scanVerb: VerbSpec = {
             // only auto-sense AV captures; honor an explicit --pipe for anything.
             if (explicitPipe || isSenseableMedia(cap.media.ref)) {
               if (explicitPipe) {
-                const sensed = await pipeSense(ctx, "scan", explicitPipe, cap.media.ref);
-                if (sensed) {
-                  const saved = checkpoint(ctx, sensed);
-                  out.push(saved);
-                  itemRecords.push(saved);
-                }
+                const sensedRecords = await runExplicitPipeWithPolicy(ctx, "scan", explicitPipe, cap.media.ref);
+                const saved = sensedRecords.map((r) => checkpoint(ctx, r));
+                out.push(...saved);
+                itemRecords.push(...saved);
               } else {
                 const automated = await runSetupAutomation(ctx, "scan", cap.media.ref);
                 if (automated.length) {
@@ -517,6 +517,12 @@ async function runAutomationSense(ctx: VerbContext, caller: string, verb: string
     return rec;
   }
   return err(caller, `unknown automated sense '${verb}'`);
+}
+
+async function runExplicitPipeWithPolicy(ctx: VerbContext, caller: string, verb: string, ref: string): Promise<OvercastRecord[]> {
+  const sensed = await pipeSense(ctx, caller, verb, ref);
+  if (!sensed) return [];
+  return [sensed, ...automatedFindings(ctx, sensed, `${caller}:${verb}`)];
 }
 
 function payloadText(rec: OvercastRecord): string {
@@ -788,7 +794,7 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
       if (directPlan) {
         const hasRemainingAutoSense = directPlan.remainingAutoSense.length > 0;
         const sensedRecords = directPlan.explicitPipe
-          ? [await pipeSense(ctx, "monitor", directPlan.verb, ref)].filter((r): r is OvercastRecord => !!r)
+          ? await runExplicitPipeWithPolicy(ctx, "monitor", directPlan.verb, ref)
           : await runAutomationChain(ctx, "monitor", ref, [directPlan.verb], { autoIndex: !hasRemainingAutoSense });
         if (sensedRecords.length) out.push(...sensedRecords);
         else {
@@ -833,7 +839,7 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
         } else {
           if (explicitPipe || isSenseableMedia(cap.media.ref)) {
             const sensedRecords = explicitPipe
-              ? [await pipeSense(ctx, "monitor", explicitPipe, cap.media.ref)].filter((r): r is OvercastRecord => !!r)
+              ? await runExplicitPipeWithPolicy(ctx, "monitor", explicitPipe, cap.media.ref)
               : await runSetupAutomation(ctx, "monitor", cap.media.ref);
             if (sensedRecords.length) out.push(...sensedRecords);
             else {

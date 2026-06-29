@@ -12,6 +12,7 @@ import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.
 import { parseSince } from "../providers/memory/local.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { payloadFields, fieldText, fieldNames, getField } from "../render.js";
+import { redactSecrets } from "../env.js";
 import { addSource, listSources, parseSourceSpec, removeSource } from "../state/source.js";
 import { addTarget, listTargets, removeTarget } from "../state/target.js";
 import { addIndex, listIndexes, normalizeIndexType, removeIndex } from "../state/index.js";
@@ -448,13 +449,16 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
       operations.push(`provider policy: ${selection.verb}:${selection.choice}`);
     }
   }
-  if (indexableProviders.size && !providerSelections.length) {
+  if (indexableProvidersSpecified) {
     setup.providers ??= {};
+    for (const [verb, existing] of Object.entries(setup.providers)) {
+      setup.providers[verb] = { ...existing, indexable: indexableProviders.has(verb), updated_at: new Date().toISOString() };
+    }
     for (const verb of indexableProviders) {
       const existing = setup.providers[verb] ?? { verb, choice: "configured", profile: ctx.profileName ?? ctx.profile.name };
       setup.providers[verb] = { ...existing, indexable: true, updated_at: new Date().toISOString() };
-      operations.push(`provider indexable: ${verb}`);
     }
+    operations.push(`provider indexable: ${indexableProviders.size ? [...indexableProviders].join(",") : "none"}`);
   }
   if (autoSenseSpecified || ctx.opts["auto-index-new"] != null || ctx.opts["no-auto-index-new"] != null) {
     setup.automation = {
@@ -880,7 +884,7 @@ export const caseVerb: VerbSpec = {
             size: f.size,
             chars: f.chars,
             ...(f.count != null ? { count: f.count } : {}),
-            preview: f.preview,
+            preview: redactSecrets(f.preview),
           }));
           return [
             makeRecord({
@@ -928,6 +932,7 @@ export const caseVerb: VerbSpec = {
         const chunk = text.slice(offset, offset + limit);
         const nextOffset = offset + chunk.length;
         const hasMore = nextOffset < total;
+        const redactedChunk = redactSecrets(chunk);
         return [
           makeRecord({
             verb: "case",
@@ -941,7 +946,7 @@ export const caseVerb: VerbSpec = {
               returned: chunk.length,
               has_more: hasMore,
               next_offset: hasMore ? nextOffset : null,
-              chunk,
+              chunk: redactedChunk,
             },
             meta: { pageTarget: id },
             state: "ready",
