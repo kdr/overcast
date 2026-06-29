@@ -346,8 +346,10 @@ export const scanVerb: VerbSpec = {
     let submitted_remote = 0;
     let completed = 0;
     let pending = 0;
-    let failed = 0;
-    let process_cred_gaps = 0;
+    const enumerate_errors = hits.filter((h) => h.state === "error").length;
+    const enumerate_cred_gaps = hits.filter((h) => h.state === "needs_credentials").length;
+    let failed = enumerate_errors;
+    let process_cred_gaps = enumerate_cred_gaps;
     for (const hit of hits) {
       // skip enumerate FAILURES (error + needs_credentials) — they're not items to
       // capture/sense, matching monitorPass.
@@ -355,7 +357,7 @@ export const scanVerb: VerbSpec = {
       try {
         const item = await processPulledHit(ctx, "scan", hit);
         submitted_remote += item.submittedRemote;
-        if (item.submittedRemote) out.push(scanProgress(ctx, { stage: "submitted", ref: item.ref, via: "direct-url", submitted_remote, completed, pending, failed, process_cred_gaps }));
+        if (item.submittedRemote) out.push(scanProgress(ctx, { stage: "submitted", ref: item.ref, via: "direct-url", submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }));
         const saved = item.records.map((r) => checkpoint(ctx, r));
         out.push(...saved);
         if (item.outcome === "pending") pending++;
@@ -363,7 +365,7 @@ export const scanVerb: VerbSpec = {
         else if (item.outcome === "failed") failed++;
         else completed++;
         processed++;
-        out.push(scanProgress(ctx, { stage: "processed", ref: item.ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps }, item.outcome === "pending" ? "pending" : item.outcome === "needs_credentials" ? "needs_credentials" : item.outcome === "completed" ? "ready" : "error"));
+        out.push(scanProgress(ctx, { stage: "processed", ref: item.ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, item.outcome === "pending" ? "pending" : item.outcome === "needs_credentials" ? "needs_credentials" : item.outcome === "completed" ? "ready" : "error"));
       } catch (e) {
         // a provider timeout / spawn failure rejects — record it and keep pulling
         // the remaining hits instead of aborting the whole scan.
@@ -372,10 +374,10 @@ export const scanVerb: VerbSpec = {
         const ref = hitFetchRef(hit);
         const saved = checkpoint(ctx, err("scan", `pull of ${ref ?? hit.id} failed: ${(e as Error).message}`));
         out.push(saved);
-        out.push(scanProgress(ctx, { stage: "processed", ref: ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps }, "error"));
+        out.push(scanProgress(ctx, { stage: "processed", ref: ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, "error"));
       }
     }
-    out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed, process_cred_gaps }, failed ? "error" : process_cred_gaps ? "needs_credentials" : pending ? "pending" : "ready"));
+    out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, failed ? "error" : process_cred_gaps ? "needs_credentials" : pending ? "pending" : "ready"));
     return out;
   },
 };

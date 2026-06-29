@@ -456,6 +456,41 @@ esac
   }
 });
 
+test("scan --pull complete status includes enumerate failures", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-enum-fail-"));
+  const sourceScript = join(d, "enum-cred-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_ENUMCRED_CMD;
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo 'missing token' >&2
+  exit 13
+else
+  echo '{}'
+fi
+`);
+    process.env.OVERCAST_SOURCE_ENUMCRED_CMD = `bash ${sourceScript}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "enumcred:any");
+    addSource(c, "bogus:x");
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile: defaultProfile() });
+    const final = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "complete")!;
+    assert.equal(final.state, "error");
+    assert.equal((final.payload as Record<string, unknown>).processed, 0);
+    assert.equal((final.payload as Record<string, unknown>).failed, 1);
+    assert.equal((final.payload as Record<string, unknown>).process_cred_gaps, 1);
+    assert.equal((final.payload as Record<string, unknown>).enumerate_errors, 1);
+    assert.equal((final.payload as Record<string, unknown>).enumerate_cred_gaps, 1);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_ENUMCRED_CMD;
+    else process.env.OVERCAST_SOURCE_ENUMCRED_CMD = prevSource;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan --pull default watch emits review findings when no auto-sense chain is configured", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-default-watch-finding-"));
   try {

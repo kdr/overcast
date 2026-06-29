@@ -30,6 +30,49 @@ test("case dotenv override only replaces values loaded from an earlier dotenv", 
   }
 });
 
+test("case dotenv override clears previous dotenv keys absent from the next case", () => {
+  const caseA = mkdtempSync(join(tmpdir(), "oc-env-case-a-"));
+  const caseB = mkdtempSync(join(tmpdir(), "oc-env-case-b-"));
+  const key = `OC_TEST_DOTENV_${Date.now()}_A`;
+  const shared = `OC_TEST_DOTENV_${Date.now()}_SHARED`;
+  try {
+    writeFileSync(join(caseA, ".env"), `${key}=case-a\n${shared}=from-a\n`);
+    writeFileSync(join(caseB, ".env"), `${shared}=from-b\n`);
+
+    loadDotEnv(caseA, { override: true });
+    assert.equal(process.env[key], "case-a");
+    assert.equal(process.env[shared], "from-a");
+
+    loadDotEnv(caseB, { override: true });
+    assert.equal(process.env[key], undefined);
+    assert.equal(process.env[shared], "from-b");
+  } finally {
+    delete process.env[key];
+    delete process.env[shared];
+    rmSync(caseA, { recursive: true, force: true });
+    rmSync(caseB, { recursive: true, force: true });
+  }
+});
+
+test("case dotenv override without a file clears earlier dotenv values", () => {
+  const caseA = mkdtempSync(join(tmpdir(), "oc-env-case-a-"));
+  const caseB = mkdtempSync(join(tmpdir(), "oc-env-case-b-"));
+  const key = `OC_TEST_DOTENV_${Date.now()}_MISSING`;
+  try {
+    writeFileSync(join(caseA, ".env"), `${key}=case-a\n`);
+
+    loadDotEnv(caseA, { override: true });
+    assert.equal(process.env[key], "case-a");
+
+    loadDotEnv(caseB, { override: true });
+    assert.equal(process.env[key], undefined);
+  } finally {
+    delete process.env[key];
+    rmSync(caseA, { recursive: true, force: true });
+    rmSync(caseB, { recursive: true, force: true });
+  }
+});
+
 test("redactSecrets preserves innocent dotted evidence text", () => {
   const text = [
     "route aaaaaaaaaaaaaaaaaaaaaaaa.bbbbbb.cccccc was printed in the transcript",
