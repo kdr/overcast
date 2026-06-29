@@ -47,10 +47,13 @@ test("bare finding defaults to listing open findings", async () => {
     c.ensure();
     const finding = makeRecord({ verb: "finding", payload: { text: "confirmed", status: "open" }, meta: { case: c.dir } });
     c.writeRecord(finding);
+    c.writeRecord(makeRecord({ verb: "finding", payload: { error: "usage: finding create|list|accept|dismiss [id]" }, state: "error" }));
+    c.writeRecord(makeRecord({ verb: "finding", payload: { state: "open", findings: [finding] } }));
 
     const [rec] = await findingVerb.run(ctx(dir, undefined));
     const payload = rec.payload as Record<string, unknown>;
     assert.equal(payload.state, "open");
+    assert.equal(rec.meta?.transient, true);
     assert.equal((payload.findings as unknown[]).length, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -69,6 +69,13 @@ function parseAt(s: string): number | [number, number] | undefined {
   return parseStamp(s);
 }
 
+function isRootFindingRecord(rec: OvercastRecord): boolean {
+  if (rec.verb !== "finding" || rec.state === "error" || typeof rec.payload !== "object" || rec.payload == null) return false;
+  const p = rec.payload as Record<string, unknown>;
+  if (typeof p.finding_id === "string") return false;
+  return typeof p.status === "string" && typeof p.text === "string";
+}
+
 export const findingVerb: VerbSpec = {
   name: "finding",
   group: "state",
@@ -138,11 +145,10 @@ export const findingVerb: VerbSpec = {
     }
     if (action === "list") {
       const filter = ctx.opts.state ? String(ctx.opts.state) : "open";
-      const all = ctx.case.records().filter((r) => r.verb === "finding" && typeof r.payload === "object");
-      const roots = all.filter((r) => !((r.payload as Record<string, unknown>).finding_id));
+      const roots = ctx.case.records().filter(isRootFindingRecord);
       const findings = roots.map((r) => ({ ...r, review_status: latestFindingStatus(ctx, r.id) }));
       const filtered = filter === "all" ? findings : findings.filter((r) => r.review_status === filter);
-      return [makeRecord({ verb: "finding", format: "json", payload: { state: filter, findings: filtered }, state: "ready" })];
+      return [makeRecord({ verb: "finding", format: "json", payload: { state: filter, findings: filtered }, meta: { transient: true }, state: "ready" })];
     }
     if (action !== "accept" && action !== "dismiss") return [err("usage: finding create|list|accept|dismiss [id]")];
     const id = ctx.rest[0];

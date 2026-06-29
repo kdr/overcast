@@ -8,8 +8,8 @@
 // base command is invoked as `<base> enumerate ...` / `<base> fetch ...`. This
 // is how the e2e binds a committed fixture source provider offline.
 
-import { dirname, join } from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { dirname, extname, join } from "node:path";
+import { existsSync, readFileSync, renameSync, statSync } from "node:fs";
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { shippedPath } from "../../pkg.js";
@@ -171,6 +171,36 @@ export interface FetchOpts {
   timeoutMs?: number;
 }
 
+function sniffExt(b: Buffer): string | undefined {
+  const at = (off: number, s: string) => b.length >= off + s.length && b.slice(off, off + s.length).toString("latin1") === s;
+  if (at(4, "ftyp")) return ".mp4";
+  if (at(0, "RIFF") && at(8, "WEBP")) return ".webp";
+  if (at(0, "RIFF") && at(8, "WAVE")) return ".wav";
+  if (at(0, "RIFF") && at(8, "AVI ")) return ".avi";
+  if (b[0] === 0x89 && at(1, "PNG")) return ".png";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return ".jpg";
+  if (at(0, "GIF8")) return ".gif";
+  if (at(0, "OggS")) return ".ogg";
+  if (at(0, "fLaC")) return ".flac";
+  if (at(0, "ID3") || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return ".mp3";
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return ".webm";
+  return undefined;
+}
+
+function ensureMediaExtension(path: string): string {
+  if (extname(path)) return path;
+  try {
+    const ext = sniffExt(readFileSync(path, { flag: "r" }).subarray(0, 32));
+    if (!ext) return path;
+    const next = `${path}${ext}`;
+    if (existsSync(next)) return path;
+    renameSync(path, next);
+    return next;
+  } catch {
+    return path;
+  }
+}
+
 /** Fetch a source item into the case → a capture record. */
 export async function fetchSource(
   desc: SourceDescriptor,
@@ -199,7 +229,7 @@ export async function fetchSource(
   // Prefer whichever of the reported path / --out actually exists: a provider
   // that writes to --out but returns a different/relative `path` shouldn't read
   // as a failed capture. Only error when NEITHER file is present.
-  const path = reported && existsSync(reported) ? reported : opts.out;
+  let path = reported && existsSync(reported) ? reported : opts.out;
   // A provider can exit 0 yet leave no file (or a 0-byte file) on disk — don't
   // report a ready capture for media that isn't actually there.
   const size = existsSync(path) ? (() => { try { return statSync(path).size; } catch { return 0; } })() : -1;
@@ -215,6 +245,7 @@ export async function fetchSource(
       state: "error",
     });
   }
+  path = ensureMediaExtension(path);
   return makeRecord({
     verb: "capture",
     format: "json",

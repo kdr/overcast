@@ -79,11 +79,13 @@ test("bare setup and provider default to useful show/list output", async () => {
   try {
     const [setup] = await setupVerb.run(ctx(dir, home, undefined));
     assert.equal(setup.state, "ready");
+    assert.equal(setup.meta?.transient, true);
     assert.ok((setup.payload as Record<string, unknown>).profile);
 
     const [provider] = await providerVerb.run(ctx(dir, home, undefined));
     const payload = provider.payload as Record<string, unknown>;
     assert.equal(provider.state, "ready");
+    assert.equal(provider.meta?.transient, true);
     assert.equal(payload.profile, "default");
     assert.ok(payload.effective);
   } finally {

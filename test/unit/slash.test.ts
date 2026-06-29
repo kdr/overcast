@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerSlashCommands } from "../../src/extension/slash.ts";
+import { openCase } from "../../src/case.ts";
 
 type Handler = (args: string) => Promise<void>;
 
@@ -38,6 +39,8 @@ test("bare slash setup/provider/finding commands emit visible results", async ()
     assert.match(messages[0], /\[setup\].*profile/s);
     assert.match(messages[1], /\[provider\].*effective/s);
     assert.match(messages[2], /\[finding\].*findings/s);
+    assert.doesNotMatch(messages.join("\n"), /case memory get/);
+    assert.equal(openCase(dir).records().length, 0);
   } finally {
     if (prevCase === undefined) delete process.env.OVERCAST_CASE;
     else process.env.OVERCAST_CASE = prevCase;

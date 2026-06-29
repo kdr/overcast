@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
@@ -15,7 +15,7 @@ import {
   resolveSources,
 } from "../../src/state/source.ts";
 import { loadSeen, saveSeen, hitKey } from "../../src/state/seen.ts";
-import { tokenizeCommand } from "../../src/providers/sources/index.ts";
+import { fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
 import { makeRecord } from "../../src/record.ts";
 
 function withCase(fn: (c: ReturnType<typeof openCase>) => void) {
@@ -122,5 +122,28 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
     assert.deepEqual(builtinDescriptor("youtube")!.base, ["bash", "/x y/z.sh"]);
   } finally {
     delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD;
+  }
+});
+
+test("fetchSource adds a media extension when provider writes extensionless MP4", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-fetch-ext-"));
+  try {
+    const script = join(dir, "fetcher.mjs");
+    writeFileSync(script, `
+import { writeFileSync } from "node:fs";
+const out = process.argv[process.argv.indexOf("--out") + 1];
+writeFileSync(out, Buffer.from([0,0,0,24,102,116,121,112,105,115,111,109,0,0,0,0,105,115,111,109]));
+console.log(JSON.stringify({ path: out, kind: "video" }));
+`);
+    const out = join(dir, "download_without_ext");
+    const rec = await fetchSource({ type: "tiktok", base: ["node", script] }, { url: "https://www.tiktok.com/@x/video/1", out });
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal(rec.state, "ready");
+    assert.match(String(payload.path), /\.mp4$/);
+    assert.match(rec.media?.ref ?? "", /\.mp4$/);
+    assert.equal(existsSync(out), false);
+    assert.equal(existsSync(String(payload.path)), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

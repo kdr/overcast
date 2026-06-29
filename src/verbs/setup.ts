@@ -256,7 +256,7 @@ export const setupVerb: VerbSpec = {
       return [err("setup", `unknown setup action '${action}' (expected provider | llm | memory | show)`)];
     }
     // show
-    return [makeRecord({ verb: "setup", format: "json", payload: { profile: profile }, state: "ready" })];
+    return [makeRecord({ verb: "setup", format: "json", payload: { profile: profile }, meta: { transient: true }, state: "ready" })];
   },
 };
 
@@ -294,7 +294,7 @@ export const providerVerb: VerbSpec = {
     if (action === "setup") {
       const sub = ctx.rest[0] ?? "show";
       if (sub === "show") {
-        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices: providerChoices(), presets: PROVIDER_PRESETS, providers }, state: "ready" })];
+        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices: providerChoices(), presets: PROVIDER_PRESETS, providers }, meta: { transient: true }, state: "ready" })];
       }
       if (sub !== "plan" && sub !== "apply") {
         return [err("provider", "usage: provider setup [show|plan|apply] [--verb <verb> --choice <choice> | --preset <preset>] [--profile <name>] [--yes]")];
@@ -325,7 +325,7 @@ export const providerVerb: VerbSpec = {
       return [makeRecord({ verb: "provider", format: "json", payload: { ...payload, path, providers: profile.providers }, state: "ready" })];
     }
     if (action === "list") {
-      return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, providers, effective: effectiveProviders(profile) }, state: "ready" })];
+      return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, providers, effective: effectiveProviders(profile) }, meta: { transient: true }, state: "ready" })];
     }
     if (action !== "describe" && action !== "init") {
       return [err("provider", `unknown provider action '${action}' (expected setup | init | list | describe)`)];

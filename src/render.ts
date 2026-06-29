@@ -235,7 +235,11 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
   const lossy = fields.some(
     (f) => !(f.type === "string" ? f.chars <= previewChars : f.type === "number" || f.type === "boolean" || f.type === "null"),
   );
-  const hint = lossy ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read it with: ${pageCommand(rec, { withCase: true })}` : "";
+  const hint = lossy
+    ? rec.meta?.transient === true
+      ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; transient result not saved, rerun with --json for full output`
+      : `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read it with: ${pageCommand(rec, { withCase: true })}`
+    : "";
   return `${h} payload:\n${lines.join("\n")}${hint}`;
 }
 

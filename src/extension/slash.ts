@@ -11,7 +11,7 @@ import { tokenizeCommand } from "../providers/sources/index.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveHome } from "../profile.js";
 import type { OvercastRecord } from "../record.js";
-import { renderForFormat } from "../render.js";
+import { renderForFormat, renderRecord } from "../render.js";
 import type { VerbContext } from "../registry/types.js";
 import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
 
@@ -21,6 +21,9 @@ const RESULT_TYPE = "overcast-result";
 function summarize(rec: OvercastRecord, format?: string): string {
   // same format-aware renderer as the CLI, so /case memory get … --format txt
   // shows a paged chunk in full instead of a truncated preview
+  if (!format && rec.meta?.transient === true) {
+    return `▶ ${renderRecord(rec, { mode: "full", force: true })}`;
+  }
   return `▶ ${renderForFormat(rec, format)}`;
 }
 
