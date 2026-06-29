@@ -769,16 +769,64 @@ test("monitor marks successful senses seen when auto-index needs credentials", a
     assert.equal((summary1.payload as Record<string, unknown>).process_cred_gaps, 2);
     assert.equal(pass1.filter((r) => r.verb === "watch").length, 2);
     assert.equal(pass1.filter((r) => r.verb === "index" && r.state === "needs_credentials").length, 2);
+    for (const rec of pass1) c.writeRecord(rec);
 
     const pass2 = await monitorVerb.run(mkCtx());
     const summary2 = pass2.find((r) => r.verb === "monitor")!;
+    assert.equal(summary2.state, "needs_credentials");
     assert.equal((summary2.payload as Record<string, unknown>).new_items, 0);
+    assert.equal((summary2.payload as Record<string, unknown>).process_cred_gaps, 2);
     assert.equal(pass2.some((r) => r.verb === "watch"), false);
+    assert.equal(pass2.filter((r) => r.verb === "index" && r.state === "needs_credentials").length, 2);
   } finally {
     if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
     if (prevMode === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;
     else process.env.OVERCAST_FAKE_TC_MODE = prevMode;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("monitor counts partial auto-sense success while surfacing failed senses", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monitor-partial-sense-"));
+  const failWatch = join(d, "fail-watch.sh");
+  const okListen = join(d, "ok-listen.sh");
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const setup = emptySetup("monitor-partial-sense");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["watch", "listen"], auto_index_new: false };
+    saveSetup(c, setup);
+    writeFileSync(failWatch, [
+      "#!/usr/bin/env bash",
+      "printf '%s\\n' '{\"verb\":\"watch\",\"state\":\"error\",\"error\":\"watch failed\",\"payload\":{\"error\":\"watch failed\"}}'",
+      "",
+    ].join("\n"));
+    writeFileSync(okListen, [
+      "#!/usr/bin/env bash",
+      "input=\"$1\"",
+      "printf '{\"verb\":\"listen\",\"state\":\"ready\",\"media\":{\"ref\":%s},\"payload\":{\"transcript\":\"ok\"}}\\n' \"$(printf '%s' \"$input\" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')\"",
+      "",
+    ].join("\n"));
+    execFileSync("chmod", ["755", failWatch]);
+    execFileSync("chmod", ["755", okListen]);
+    const profile = defaultProfile();
+    profile.providers = {
+      ...profile.providers,
+      watch: { type: "exec", run: `bash ${failWatch} {{input}}` },
+      listen: { type: "exec", run: `bash ${okListen} {{input}}` },
+    };
+
+    const recs = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true }, case: c, profile });
+    const summary = recs.find((r) => r.verb === "monitor")!;
+    assert.equal(summary.state, "error");
+    assert.equal((summary.payload as Record<string, unknown>).new_items, 2);
+    assert.equal((summary.payload as Record<string, unknown>).process_errors, 2);
+    assert.equal(recs.filter((r) => r.verb === "watch" && r.state === "error").length, 2);
+    assert.equal(recs.filter((r) => r.verb === "listen" && r.state === "ready").length, 2);
+  } finally {
     rmSync(d, { recursive: true, force: true });
   }
 });

@@ -226,7 +226,7 @@ function directSensePlan(ctx: VerbContext, ref: string): DirectSensePlan | undef
     : undefined;
 }
 
-type HitProcessOutcome = "completed" | "completed_with_pending" | "completed_with_credential_gap" | "pending" | "failed" | "needs_credentials";
+type HitProcessOutcome = "completed" | "completed_with_error" | "completed_with_pending" | "completed_with_credential_gap" | "pending" | "failed" | "needs_credentials";
 
 interface ProcessHitResult {
   ref?: string;
@@ -243,11 +243,20 @@ function hitFetchRef(hit: OvercastRecord): string | undefined {
 function classifyHitRecords(records: OvercastRecord[]): HitProcessOutcome {
   if (records.length === 0) return "failed";
   const primary = records.filter((r) => ["capture", "watch", "listen", "see", "face", "enhance"].includes(r.verb));
+  const senses = primary.filter((r) => r.verb !== "capture");
+  const hasReadySense = senses.some((r) => r.state !== "error" && r.state !== "needs_credentials" && r.state !== "pending");
+  const auxiliary = primary.length ? records.filter((r) => !primary.includes(r)) : [];
+  if (hasReadySense) {
+    if (primary.some((r) => r.state === "error")) return "completed_with_error";
+    if (auxiliary.some((r) => r.state === "error")) return "failed";
+    if (primary.some((r) => r.state === "needs_credentials") || auxiliary.some((r) => r.state === "needs_credentials")) return "completed_with_credential_gap";
+    if (primary.some((r) => r.state === "pending") || auxiliary.some((r) => r.state === "pending")) return "completed_with_pending";
+    return "completed";
+  }
   const basis = primary.length ? primary : records;
   if (basis.some((r) => r.state === "needs_credentials")) return "needs_credentials";
   if (basis.some((r) => r.state === "pending")) return "pending";
   if (basis.some((r) => r.state === "error")) return "failed";
-  const auxiliary = primary.length ? records.filter((r) => !primary.includes(r)) : [];
   if (auxiliary.some((r) => r.state === "error")) return "failed";
   if (auxiliary.some((r) => r.state === "needs_credentials")) return "completed_with_credential_gap";
   if (auxiliary.some((r) => r.state === "pending")) return "completed_with_pending";
@@ -373,6 +382,10 @@ export const scanVerb: VerbSpec = {
           process_cred_gaps++;
         }
         else if (item.outcome === "failed") failed++;
+        else if (item.outcome === "completed_with_error") {
+          completed++;
+          failed++;
+        }
         else completed++;
         processed++;
         out.push(scanProgress(ctx, { stage: "processed", ref: item.ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, item.outcome === "pending" || item.outcome === "completed_with_pending" ? "pending" : item.outcome === "needs_credentials" || item.outcome === "completed_with_credential_gap" ? "needs_credentials" : item.outcome === "completed" ? "ready" : "error"));
@@ -447,7 +460,7 @@ async function captureRef(
     return makeRecord({
       verb: "capture",
       format: "json",
-      payload: { capture_id: "cap_" + basename(dest), path: dest, kind: "file", source: "local" },
+      payload: { capture_id: "cap_" + basename(dest), path: dest, kind: "file", source: "local", source_ref: ref },
       media: { ref: dest },
       meta: { provider: "capture:local", case: ctx.case.dir },
       state: "ready",
@@ -602,9 +615,59 @@ async function autoIndexNewMedia(ctx: VerbContext, ref: string, opts: { skipLoca
         ...(opts.skipLocalWatch ? { "__skip-local-watch": true } : {}),
       },
     });
+    for (const rec of recs) {
+      if (rec.verb === "index" && !rec.media?.ref) rec.media = { ref };
+    }
     out.push(...recs);
   }
   return out;
+}
+
+async function retryAuxiliaryForSeenHit(ctx: VerbContext, hit: OvercastRecord): Promise<OvercastRecord[]> {
+  if (loadSetup(ctx.case)?.automation?.auto_index_new !== true) return [];
+  const ref = priorSuccessfulSenseRef(ctx, hit);
+  if (!ref || !hasRetryableIndexGap(ctx, ref)) return [];
+  return autoIndexNewMedia(ctx, ref, { skipLocalWatch: true });
+}
+
+function priorSuccessfulSenseRef(ctx: VerbContext, hit: OvercastRecord): string | undefined {
+  const ref = hitFetchRef(hit);
+  if (!ref) return undefined;
+  const records = ctx.case.records().slice().reverse();
+  const cap = records.find((r) =>
+    r.verb === "capture" &&
+    r.state !== "error" &&
+    r.state !== "needs_credentials" &&
+    typeof r.media?.ref === "string" &&
+    (r.media.ref === ref ||
+      (r.payload as Record<string, unknown> | undefined)?.url === ref ||
+      (r.payload as Record<string, unknown> | undefined)?.source_ref === ref)
+  );
+  const mediaRef = cap?.media?.ref ?? ref;
+  const sensed = records.find((r) =>
+    ["watch", "listen", "see", "face", "enhance"].includes(r.verb) &&
+    r.state !== "error" &&
+    r.state !== "needs_credentials" &&
+    r.state !== "pending" &&
+    r.media?.ref === mediaRef
+  );
+  return sensed?.media?.ref;
+}
+
+function hasRetryableIndexGap(ctx: VerbContext, ref: string): boolean {
+  return ctx.case.records().some((r) =>
+    r.verb === "index" &&
+    (r.state === "needs_credentials" || r.state === "pending") &&
+    recordRef(r) === ref
+  );
+}
+
+function recordRef(rec: OvercastRecord): string | undefined {
+  const payload = rec.payload && typeof rec.payload === "object" ? rec.payload as Record<string, unknown> : {};
+  return rec.media?.ref ??
+    (typeof payload.file === "string" ? payload.file : undefined) ??
+    (typeof payload.ref === "string" ? payload.ref : undefined) ??
+    (typeof payload.path === "string" ? payload.path : undefined);
 }
 
 async function runAutomationChain(
@@ -791,7 +854,13 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
   let procCredGaps = 0; // capture/sense failures that need setup (retry-able)
   for (const hit of realHits) {
     const key = hitKey(hit);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      const retry = await retryAuxiliaryForSeenHit(ctx, hit);
+      out.push(...retry);
+      if (retry.some((r) => r.state === "error")) procErrors++;
+      if (retry.some((r) => r.state === "needs_credentials")) procCredGaps++;
+      continue;
+    }
     out.push(hit);
     // Classify the outcome:
     //  - transient (needs_credentials / pending): a recoverable gap → leave the
@@ -818,6 +887,11 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     // as a successfully-ingested new item; the summary reports it via process_errors.
     seen.add(key);
     if (outcome === "failed") procErrors++;
+    else if (outcome === "completed_with_error") {
+      procErrors++;
+      newCount++;
+      newHits.push(hit);
+    }
     else if (outcome === "completed_with_credential_gap") {
       procCredGaps++;
       newCount++;
