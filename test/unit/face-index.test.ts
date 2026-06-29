@@ -351,6 +351,9 @@ fps=""
 max=""
 start=""
 end=""
+limit=""
+offset=""
+group=""
 for ((i=1; i<=$#; i++)); do
   arg="\${!i}"
   if [ "$arg" = "--op" ]; then j=$((i+1)); op="\${!j}"; fi
@@ -358,8 +361,11 @@ for ((i=1; i<=$#; i++)); do
   if [ "$arg" = "--max-frames" ]; then j=$((i+1)); max="\${!j}"; fi
   if [ "$arg" = "--start" ]; then j=$((i+1)); start="\${!j}"; fi
   if [ "$arg" = "--end" ]; then j=$((i+1)); end="\${!j}"; fi
+  if [ "$arg" = "--limit" ]; then j=$((i+1)); limit="\${!j}"; fi
+  if [ "$arg" = "--offset" ]; then j=$((i+1)); offset="\${!j}"; fi
+  if [ "$arg" = "--group-by" ]; then j=$((i+1)); group="\${!j}"; fi
 done
-printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling":{"fps":%s,"max_frames":%s,"start":"%s","end":"%s"}},"state":"ready","meta":{"provider":"fake-deepface"}}\\n' "$op" "\${fps:-0}" "\${max:-0}" "$start" "$end"
+printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling":{"fps":%s,"max_frames":%s,"start":"%s","end":"%s"},"paging":{"limit":%s,"offset":%s,"group_by":"%s"}},"state":"ready","meta":{"provider":"fake-deepface"}}\\n' "$op" "\${fps:-0}" "\${max:-0}" "$start" "$end" "\${limit:-0}" "\${offset:-0}" "$group"
 `);
   chmodSync(fakePy, 0o755);
   const savedPy = process.env.OC_VISUAL_DB_PY;
@@ -391,6 +397,18 @@ printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling"
     const [webp] = await faceVerb.run(mk(video, { match: webpRef }));
     assert.equal(webp.state, "ready");
     assert.equal((webp.payload as Record<string, unknown>).op, "match");
+
+    const c = openCase(cdir);
+    c.ensure();
+    addIndex(c, { id: "local_faces", name: "faces", type: "deepface-local", backend: "local" });
+    addMember(c, "local_faces", { ref });
+    const [search] = await faceVerb.run(mk(undefined, { match: ref, index: "local_faces", limit: 7, offset: 2, "group-by": "file" }));
+    assert.equal(search.state, "ready");
+    assert.equal((search.payload as Record<string, unknown>).op, "search");
+    const paging = (search.payload as Record<string, unknown>).paging as Record<string, unknown>;
+    assert.equal(paging.limit, 7);
+    assert.equal(paging.offset, 2);
+    assert.equal(paging.group_by, "file");
   } finally {
     if (savedPy === undefined) delete process.env.OC_VISUAL_DB_PY;
     else process.env.OC_VISUAL_DB_PY = savedPy;

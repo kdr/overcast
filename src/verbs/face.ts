@@ -298,6 +298,8 @@ export const faceVerb: VerbSpec = {
         image,
         minSimilarity: num(ctx.opts["min-similarity"]),
         limit: num(ctx.opts.limit) ?? num(ctx.opts["max-faces"]),
+        offset: num(ctx.opts.offset),
+        groupByFile: ctx.opts["group-by"] === "file" || ctx.opts["group-by"] === true,
         maxFrames: num(ctx.opts["max-frames"]),
         fps: num(ctx.opts.fps),
         start: ctx.opts.start ? String(ctx.opts.start) : undefined,

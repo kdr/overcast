@@ -82,6 +82,8 @@ export async function runLocalFace(
     image?: string;
     minSimilarity?: number;
     limit?: number;
+    offset?: number;
+    groupByFile?: boolean;
     maxFrames?: number;
     fps?: number;
     start?: string;
@@ -111,6 +113,8 @@ export async function runLocalFace(
   if (opts.image) args.push("--match", opts.image);
   if (opts.minSimilarity != null) args.push("--min-similarity", String(opts.minSimilarity));
   if (opts.limit != null) args.push("--limit", String(opts.limit));
+  if (opts.offset != null) args.push("--offset", String(opts.offset));
+  if (opts.groupByFile) args.push("--group-by", "file");
   if (opts.maxFrames != null) args.push("--max-frames", String(opts.maxFrames));
   if (opts.fps != null) args.push("--fps", String(opts.fps));
   if (opts.start) args.push("--start", opts.start);

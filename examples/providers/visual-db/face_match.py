@@ -35,6 +35,8 @@ def parse():
     p.add_argument("--match")
     p.add_argument("--min-similarity", type=float, default=68.0)
     p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--offset", type=int, default=0)
+    p.add_argument("--group-by", choices=["file"])
     p.add_argument("--fps", type=float)
     p.add_argument("--max-frames", type=int)
     p.add_argument("--start")
@@ -202,6 +204,10 @@ def main():
     threshold = args.min_similarity
     if threshold < 0 or threshold > 100:
         fail("--min-similarity must be between 0 and 100", inp, args.op)
+    if args.limit <= 0:
+        fail("--limit must be positive", inp, args.op)
+    if args.offset < 0:
+        fail("--offset must be non-negative", inp, args.op)
     try:
         start = parse_time(args.start)
         end = parse_time(args.end)
@@ -261,7 +267,15 @@ def main():
                         item["at"] = q["at"]
                     results.append(item)
         results.sort(key=lambda x: x.get("similarity", 0), reverse=True)
-        results = results[:args.limit]
+        if args.op == "search" and args.group_by == "file":
+            grouped = {}
+            for item in results:
+                grouped.setdefault(item.get("file", ""), item)
+            results = list(grouped.values())
+        if args.op == "search":
+            results = results[args.offset:args.offset + args.limit]
+        else:
+            results = results[:args.limit]
 
     summary = {
         "detect": "no faces detected" if not results else "%d face detection%s" % (len(results), "" if len(results) == 1 else "s"),
