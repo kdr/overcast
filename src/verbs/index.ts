@@ -39,7 +39,7 @@ import {
 } from "../state/index.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { localIndexDir } from "../providers/local/vision.js";
-import { resolveVideoArg, resolveImageArg, isRegisterableMediaRecord } from "./media-ref.js";
+import { resolveVideoArg, resolveImageArg, isRegisterableMediaRecord, isImage } from "./media-ref.js";
 import { badNumber, numFlag } from "./validate.js";
 import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
 import type { Case } from "../case.js";
@@ -48,6 +48,7 @@ import type { VerbSpec, VerbContext } from "../registry/types.js";
 const VALID_ACTIONS = ["create", "attach", "add", "list", "show", "delete", "remove", "entities"];
 const LOCAL_INDEX_TYPES = new Set(["deepface-local", "image-ransac"]);
 const LOCAL_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf)$/i;
+const LOCAL_IMAGE_MEDIA_VERBS = new Set(["capture", "image", "face"]);
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "index", format: "json", payload: { error: message }, error: message, state: "error" });
@@ -108,6 +109,25 @@ function caseVideoRefs(c: Case): Array<{ ref: string; recordId: string }> {
     // we add the readiness gate (a failed/cred-gapped sense's ref would pollute).
     if (!isRegisterableMediaRecord(r) || !isReady(r)) continue;
     const ref = r.media!.ref!;
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    out.push({ ref, recordId: r.id });
+  }
+  return out;
+}
+
+/** Unique READY still-image refs the case can use as local visual references.
+ *  Unlike video `--all`, local image/deepface indexes register reference images;
+ *  reject operational query images (face search) and non-ready records so an
+ *  in-flight/failed analysis cannot silently become database material. */
+function caseImageRefs(c: Case): Array<{ ref: string; recordId: string }> {
+  const out: Array<{ ref: string; recordId: string }> = [];
+  const seen = new Set<string>();
+  for (const r of c.records()) {
+    const ref = r.media?.ref;
+    if (!ref || !isReady(r) || !isImage(ref)) continue;
+    if (!LOCAL_IMAGE_MEDIA_VERBS.has(r.verb)) continue;
+    if (r.verb === "face" && (r.payload as Record<string, unknown> | undefined)?.op === "search") continue;
     if (seen.has(ref)) continue;
     seen.add(ref);
     out.push({ ref, recordId: r.id });
@@ -472,9 +492,7 @@ export const indexVerb: VerbSpec = {
           return [err("index add: --no-upload/--no-download only apply to tinycloud indexes")];
         }
         if (ctx.opts.all === true) {
-          const imageTargets = c.records()
-            .filter((r) => r.media?.ref && /\.(jpe?g|png|webp|bmp|tiff?|gif|avif|heic)$/i.test(r.media.ref.replace(/[?#].*$/, "")))
-            .map((r) => ({ ref: r.media!.ref!, recordId: r.id }));
+          const imageTargets = caseImageRefs(c);
           const seen = new Set(targetEntry.members.map((m) => m.ref));
           const refs = imageTargets.filter((m) => !seen.has(m.ref));
           if (!refs.length) return [err("index add --all: no new image records to register in the local index")];

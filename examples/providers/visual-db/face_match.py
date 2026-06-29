@@ -154,13 +154,13 @@ def box(face):
     return face.get("facial_area") or face.get("region") or {}
 
 
-def db_faces(deepface, refs):
+def db_faces(deepface, refs, inp="", op="search"):
     out = []
     for ref in refs:
         try:
             faces = represent(deepface, ref)
-        except Exception:
-            continue
+        except Exception as e:
+            fail("local face reference analysis failed for %s: %s" % (ref, e), inp, op)
         for f in faces:
             emb = f.get("embedding")
             if emb:
@@ -181,6 +181,14 @@ def face_items(deepface, path, at=None):
     return out
 
 
+def safe_face_items(deepface, path, inp, op, at=None):
+    try:
+        return face_items(deepface, path, at)
+    except Exception as e:
+        where = "frame %.2f from %s" % (at, inp) if at is not None else str(path)
+        fail("local face analysis failed for %s: %s" % (where, e), inp, op)
+
+
 def main():
     args = parse()
     inp = args.input
@@ -197,7 +205,7 @@ def main():
     refs = [Path(r) for r in index_members(args.index_dir, args.index) if Path(r).exists()]
     if args.op == "search" and not refs:
         fail("local face index has no readable reference images", inp, args.op)
-    db = db_faces(DeepFace, refs) if refs else []
+    db = db_faces(DeepFace, refs, inp, args.op) if refs else []
     if args.op == "search" and not db:
         fail("no faces found in local reference images", inp, args.op)
 
@@ -227,10 +235,7 @@ def main():
         if is_video and not queries:
             fail("could not extract frames from video", inp, args.op)
         for at, path in queries:
-            try:
-                detections.extend(face_items(DeepFace, path, at))
-            except Exception:
-                continue
+            detections.extend(safe_face_items(DeepFace, path, inp, args.op, at))
 
     results = []
     if args.op == "detect":
@@ -241,14 +246,14 @@ def main():
             results.append(item)
     else:
         if args.op == "search":
-            query_faces = face_items(DeepFace, inp)
+            query_faces = safe_face_items(DeepFace, inp, inp, args.op)
         else:
             if not args.match:
                 fail("local face match needs --match <reference-image>", inp, args.op)
             if not Path(args.match).exists():
                 fail("reference image not found: %s" % args.match, inp, args.op)
             query_faces = detections
-            ref_faces = face_items(DeepFace, args.match)
+            ref_faces = safe_face_items(DeepFace, args.match, inp, args.op)
             if not ref_faces:
                 fail("no faces found in local reference image", inp, args.op)
             db = [{"name": Path(args.match).stem, "image_path": args.match, "embedding": f["embedding"], "box": f["box"]} for f in ref_faces]

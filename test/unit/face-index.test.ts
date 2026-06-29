@@ -4,6 +4,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -284,6 +285,46 @@ test("local visual index: create/add/list/show/delete without tinycloud", async 
   }
 });
 
+test("local index add --all only registers ready reference images", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-visual-all-"));
+  const ready = join(cdir, "ready.jpg");
+  const pending = join(cdir, "pending.jpg");
+  const failed = join(cdir, "failed.jpg");
+  const query = join(cdir, "query.jpg");
+  const duplicate = join(cdir, "duplicate.jpg");
+  const scanImage = join(cdir, "scan.jpg");
+  const video = join(cdir, "clip.mp4");
+  for (const f of [ready, pending, failed, query, duplicate, scanImage, video]) writeFileSync(f, "x");
+  const mk = (input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext => {
+    const c = openCase(cdir);
+    c.ensure();
+    return { input, rest, opts, case: c, profile: defaultProfile() };
+  };
+  try {
+    const [created] = await indexVerb.run(mk("create", ["logos"], { type: "image-ransac", local: true }));
+    const id = String((created.payload as Record<string, unknown>).index);
+
+    const c = openCase(cdir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "capture", payload: {}, media: { ref: ready }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "capture", payload: {}, media: { ref: pending }, state: "pending" }));
+    c.writeRecord(makeRecord({ verb: "capture", payload: {}, media: { ref: failed }, state: "error", error: "download failed" }));
+    c.writeRecord(makeRecord({ verb: "face", payload: { op: "search" }, media: { ref: query }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "capture", payload: {}, media: { ref: duplicate }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "scan", payload: { url: "https://example.test/logo" }, media: { ref: scanImage }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "watch", payload: {}, media: { ref: video }, state: "ready" }));
+    addMember(c, id, { ref: duplicate });
+
+    const [added] = await indexVerb.run(mk("add", [], { to: id, all: true }));
+    assert.equal(added.state, "ready");
+    const files = (added.payload as Record<string, unknown>).files as string[];
+    assert.deepEqual(files, [ready]);
+    assert.deepEqual(findIndex(openCase(cdir), id)?.members.map((m) => m.ref).sort(), [duplicate, ready].sort());
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("local-only visual types require backend local and cannot be attached remotely", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-visual-db-remote-type-"));
   const video = join(cdir, "v.mp4");
@@ -464,6 +505,38 @@ test("deepface-local provider keeps min-similarity on the 0-100 CLI scale", () =
   const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py"), "utf8");
   assert.doesNotMatch(src, /threshold\s*\*=/);
   assert.match(src, /threshold\s*<\s*0\s+or\s+threshold\s*>\s*100/);
+});
+
+test("deepface-local provider reports extraction failures instead of clean no-matches", () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-error-"));
+  const img = join(cdir, "query.jpg");
+  const script = join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py");
+  writeFileSync(img, "x");
+  writeFileSync(join(cdir, "numpy.py"), "");
+  writeFileSync(join(cdir, "deepface.py"), `class DeepFace:
+    @staticmethod
+    def represent(*args, **kwargs):
+        raise RuntimeError("represent exploded")
+`);
+  try {
+    const run = spawnSync("python3", [script, "--op", "detect", "--index", "idx", "--index-dir", join(cdir, "idx"), img], {
+      cwd: cdir,
+      env: { ...process.env, PYTHONPATH: cdir },
+      encoding: "utf8",
+    });
+    assert.equal(run.status, 0, run.stderr);
+    const rec = JSON.parse(run.stdout.trim()) as Record<string, unknown>;
+    assert.equal(rec.state, "error");
+    assert.match(String(rec.error), /local face analysis failed/);
+    assert.match(String(rec.error), /represent exploded/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("deepface-local provider has no broad exception-to-continue paths", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py"), "utf8");
+  assert.doesNotMatch(src, /except Exception(?: as \w+)?:\s*\n\s+continue/);
 });
 
 // ---- index verb (lifecycle via the fake tinycloud) --------------------
