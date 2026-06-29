@@ -121,7 +121,7 @@ function atStart(f: Record<string, unknown>): number | undefined {
  * NOT unique people (tinycloud detect doesn't cluster), and points at the op that
  * actually identifies a person.
  */
-function summarizeFaces(op: FaceOp, faces: Array<Record<string, unknown>>, count: number): string {
+function summarizeFaces(op: FaceOp, faces: Array<Record<string, unknown>>, count: number, opts: { matchThreshold?: number } = {}): string {
   const ts = [...new Set(faces.map(atStart).filter((t): t is number => t !== undefined))].sort((a, b) => a - b);
   const span = ts.length ? ` (${ts[0]}s–${ts[ts.length - 1]}s)` : "";
   // similarity/score is tinycloud's 0–100 scale; render it as a percent range so
@@ -141,6 +141,11 @@ function summarizeFaces(op: FaceOp, faces: Array<Record<string, unknown>>, count
   }
   if (op === "match") {
     if (count === 0) return "the reference face was not found in this clip";
+    const threshold = opts.matchThreshold ?? 50;
+    const max = sims.length ? Math.max(...sims) : undefined;
+    if (max != null && max < threshold) {
+      return `no face match; faces detected, max similarity ${max.toFixed(1)}%${ts.length ? span : ""}`;
+    }
     return `reference face matched at ${n("moment")}${span}${simPct}`;
   }
   if (op === "search") {
@@ -244,7 +249,7 @@ export async function runFace(p: FaceParams, opts: FaceOptions = {}): Promise<Ov
   // "Detected N face(s)." omits. Keep tinycloud's own line too when it adds info.
   const payload: Record<string, unknown> = {
     op: p.op,
-    summary: summarizeFaces(p.op, faces, typeof count === "number" ? count : faces.length),
+    summary: summarizeFaces(p.op, faces, typeof count === "number" ? count : faces.length, { matchThreshold: p.minSimilarity }),
     count,
   };
   if (typeof out.env.summary === "string" && out.env.summary.trim()) payload.provider_summary = out.env.summary;

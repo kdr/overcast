@@ -42,6 +42,7 @@ test("case clear previews what will be lost and requires --yes", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
     writeFileSync(c.sourcesFile, JSON.stringify({ sources: [] }));
+    writeFileSync(join(dir, "brief.html"), "<html></html>");
 
     const [rec] = await caseVerb.run(ctx(dir, "clear"));
     assert.equal(rec.state, "pending");
@@ -50,8 +51,10 @@ test("case clear previews what will be lost and requires --yes", async () => {
     assert.equal(p.confirmation_required, true);
     assert.match(String(p.confirm_with), /case clear --yes/);
     assert.equal(((p.will_lose as Record<string, unknown>).records), 2);
+    assert.deepEqual(((p.will_lose as Record<string, unknown>).artifacts), ["brief.html"]);
     assert.equal(c.records().length, 2, "preview leaves records intact");
     assert.equal(existsSync(c.sourcesFile), true, "preview leaves state intact");
+    assert.equal(existsSync(join(dir, "brief.html")), true, "preview leaves artifacts intact");
   });
 });
 
@@ -59,6 +62,7 @@ test("case clear --yes clears records and state without persisting itself", asyn
   await withCase(async (dir) => {
     const c = openCase(dir);
     writeFileSync(c.sourcesFile, JSON.stringify({ sources: [] }));
+    writeFileSync(join(dir, "brief.html"), "<html></html>");
 
     const [rec] = await caseVerb.run(ctx(dir, "clear", [], { yes: true }));
     assert.equal(rec.state, "ready");
@@ -66,8 +70,10 @@ test("case clear --yes clears records and state without persisting itself", asyn
     const p = rec.payload as Record<string, unknown>;
     assert.equal(p.cleared, true);
     assert.equal(((p.lost as Record<string, unknown>).records), 2);
+    assert.deepEqual(((p.lost as Record<string, unknown>).artifacts), ["brief.html"]);
     assert.equal(c.records().length, 0);
     assert.equal(existsSync(c.sourcesFile), false);
+    assert.equal(existsSync(join(dir, "brief.html")), false);
   });
 });
 
@@ -347,6 +353,28 @@ test("case setup registers image path targets as image targets", async () => {
     const [target] = listTargets(c);
     assert.equal(target.value, img);
     assert.equal(target.kind, "image");
+  });
+});
+
+test("case setup supports explicit face-ref image targets", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const img = join(dir, "reference.jpg");
+    writeFileSync(img, "fake image");
+    await caseVerb.run(ctx(dir, "setup", [], { "face-ref": img, yes: true }));
+
+    const [target] = listTargets(c);
+    assert.equal(target.value, img);
+    assert.equal(target.kind, "image");
+  });
+});
+
+test("case setup note preserves commas as one note", async () => {
+  await withCase(async (dir) => {
+    const records = await caseVerb.run(ctx(dir, "setup", [], { note: "spotted around August 4, 2024", yes: true }));
+    const notes = records.filter((r) => r.verb === "note");
+    assert.equal(notes.length, 1);
+    assert.equal((notes[0].payload as Record<string, unknown>).text, "spotted around August 4, 2024");
   });
 });
 

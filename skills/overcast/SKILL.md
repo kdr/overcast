@@ -32,7 +32,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `target` — Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
 - `source` — Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
 - `note` — Add a human observation/finding to the case, optionally anchored to evidence.
-- `finding` — Review automated target matches (list|accept|dismiss).
+- `finding` — Create and review findings (create|list|accept|dismiss).
 - `prebrief` — Stand up a case: name + target + source in one shot (non-interactive via flags).
 - `ask` — Natural-language query over the case memory; answers with record.id + media.at citations.
 - `brief` — Synthesize the case records into a report (timeline + findings); --export to md/html.

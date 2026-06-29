@@ -1,4 +1,5 @@
 import { makeRecord, type MediaRef, type OvercastRecord } from "../record.js";
+import { resolveMediaRef } from "./media-ref.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -43,26 +44,98 @@ export function makeFinding(input: {
   });
 }
 
+function textFromArgs(ctx: VerbContext): string {
+  return [ctx.rest[0], ...ctx.rest.slice(1)].filter(Boolean).join(" ").trim();
+}
+
+function parseStamp(s: string): number | undefined {
+  const raw = s.trim();
+  if (!raw) return undefined;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
+  const parts = raw.split(":");
+  if (parts.length < 2 || parts.length > 3 || !parts.every((p) => /^\d+(?:\.\d+)?$/.test(p))) return undefined;
+  const nums = parts.map(Number);
+  return nums.length === 2 ? nums[0] * 60 + nums[1] : nums[0] * 3600 + nums[1] * 60 + nums[2];
+}
+
+function parseAt(s: string): number | [number, number] | undefined {
+  const span = s.trim().match(/^(.+)-(.+)$/);
+  if (span) {
+    const start = parseStamp(span[1]);
+    const end = parseStamp(span[2]);
+    if (start == null || end == null || end < start) return undefined;
+    return [start, end];
+  }
+  return parseStamp(s);
+}
+
 export const findingVerb: VerbSpec = {
   name: "finding",
   group: "state",
-  summary: "Review automated target matches (list|accept|dismiss).",
+  summary: "Create and review findings (create|list|accept|dismiss).",
   description:
-    "Lists and reviews automated finding records emitted by setup automation. " +
+    "Creates manual findings and lists/reviews automated finding records emitted by setup automation. " +
     "`accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.",
   args: [
-    { name: "action", summary: "list | accept | dismiss", required: true },
-    { name: "id", summary: "finding id for accept/dismiss" },
+    { name: "action", summary: "create | list | accept | dismiss (default: list)" },
+    { name: "id", summary: "finding id for accept/dismiss, or text for create" },
   ],
   flags: [
     { name: "state", summary: "list: open | accepted | dismissed | all", type: "string" },
+    { name: "target", summary: "create: target/scope this finding supports", type: "string" },
+    { name: "ref", summary: "create: source record id, capture id, media path, or URL", type: "string" },
+    { name: "at", summary: "create: evidence timestamp seconds, hh:mm:ss, or start-end", type: "string" },
+    { name: "confidence", summary: "create: confidence marker or score", type: "string" },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
   outputKind: "finding",
   providerKey: "finding",
   run: async (ctx) => {
-    const action = ctx.input;
+    const action = ctx.input ?? "list";
+    if (action === "create") {
+      const text = textFromArgs(ctx);
+      if (!text) return [err("finding create requires finding text")];
+      for (const f of ["target", "ref", "at", "confidence"] as const) {
+        if (ctx.opts[f] != null && !String(ctx.opts[f]).trim()) return [err(`--${f} requires a value`)];
+      }
+      let media: MediaRef | undefined;
+      let sourceRecord: string | undefined;
+      let sourceVerb = "manual";
+      let evidenceRef: string | undefined;
+      if (ctx.opts.ref != null) {
+        const rawRef = String(ctx.opts.ref).trim();
+        const rec = ctx.case.recordById(rawRef);
+        if (rec) {
+          sourceRecord = rec.id;
+          sourceVerb = rec.verb;
+          evidenceRef = rec.media?.ref ?? rec.id;
+          if (rec.media?.ref) media = { ...rec.media };
+        } else {
+          const resolved = resolveMediaRef(ctx.case, rawRef);
+          sourceRecord = resolved.recordId;
+          evidenceRef = resolved.ref;
+          media = { ref: resolved.ref };
+        }
+      }
+      if (ctx.opts.at != null) {
+        if (!media?.ref) return [err("--at requires --ref to resolve to media")];
+        const at = parseAt(String(ctx.opts.at));
+        if (at == null) return [err(`invalid --at '${ctx.opts.at}' (expected seconds, hh:mm:ss, or start-end)`)];
+        media = { ref: media.ref, at };
+      }
+      const payload: Record<string, unknown> = {
+        text,
+        target: ctx.opts.target ? String(ctx.opts.target) : "",
+        source_record: sourceRecord ?? "manual",
+        source_verb: sourceVerb,
+        trigger: "human",
+        status: "open",
+      };
+      if (ctx.opts.confidence) payload.confidence = String(ctx.opts.confidence);
+      if (evidenceRef) payload.ref = evidenceRef;
+      return [makeRecord({ verb: "finding", format: "json", payload, media, meta: { case: ctx.case.dir, provider: "human" }, state: "ready" })];
+    }
     if (action === "list") {
       const filter = ctx.opts.state ? String(ctx.opts.state) : "open";
       const all = ctx.case.records().filter((r) => r.verb === "finding" && typeof r.payload === "object");
@@ -71,7 +144,7 @@ export const findingVerb: VerbSpec = {
       const filtered = filter === "all" ? findings : findings.filter((r) => r.review_status === filter);
       return [makeRecord({ verb: "finding", format: "json", payload: { state: filter, findings: filtered }, state: "ready" })];
     }
-    if (action !== "accept" && action !== "dismiss") return [err("usage: finding list|accept|dismiss [id]")];
+    if (action !== "accept" && action !== "dismiss") return [err("usage: finding create|list|accept|dismiss [id]")];
     const id = ctx.rest[0];
     if (!id) return [err(`finding ${action} requires a finding id`)];
     const original = ctx.case.recordById(id);

@@ -340,6 +340,23 @@ export const briefVerb: VerbSpec = {
     }
     const info = ctx.case.exists() ? ctx.case.info() : { name: "case" };
     const brief = buildBrief(records, info.name);
+    if (brief.total === 0) {
+      return [
+        makeRecord({
+          verb: "brief",
+          format: "md",
+          payload: {
+            report: brief.md,
+            counts: brief.counts,
+            total: 0,
+            export: null,
+            note: "no evidence records to brief; add watch/listen/see/face/scan/capture/note/finding records first",
+          },
+          meta: { transient: true },
+          state: "pending",
+        }),
+      ];
+    }
 
     let exported: string | undefined;
     if (ctx.opts.export) {

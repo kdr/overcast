@@ -207,7 +207,7 @@ Options:
   --limit <number>       Max hits per source
   --local                Scan local case media/indexes instead of external sources
   --pull                 Auto-capture + sense each hit
-  --pipe <string>        Sense to run on pulled hits (watch|listen)
+  --pipe <string>        Sense to run on pulled hits (watch|listen|face)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
@@ -254,7 +254,7 @@ Options:
   --query <string>       Ad-hoc keyword search across sources
   --since <string>       Only items newer than e.g. 24h, 2026-06-01
   --limit <number>       Max hits per source
-  --pipe <string>        Sense to run on new items (watch|listen)
+  --pipe <string>        Sense to run on new items (watch|listen|face)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --once                 Single diff pass then exit
   --every <string>       Continuous loop cadence (e.g. 15m, 6h)
@@ -424,21 +424,25 @@ Emits `note` records.
 
 ### `overcast finding`
 
-Lists and reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+Creates manual findings and lists/reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
 
 ```
-overcast finding <action> [id] [options]
+overcast finding [action] [id] [options]
 
-  Review automated target matches (list|accept|dismiss).
+  Create and review findings (create|list|accept|dismiss).
 
-  Lists and reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+  Creates manual findings and lists/reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
 
 Arguments:
-  action           list | accept | dismiss
-  id               finding id for accept/dismiss
+  action           create | list | accept | dismiss (default: list)
+  id               finding id for accept/dismiss, or text for create
 
 Options:
   --state <string>       list: open | accepted | dismissed | all
+  --target <string>      create: target/scope this finding supports
+  --ref <string>         create: source record id, capture id, media path, or URL
+  --at <string>          create: evidence timestamp seconds, hh:mm:ss, or start-end
+  --confidence <string>  create: confidence marker or score
   --json                 Shorthand for --format json
   --format <string>      json | md | txt
 ```
@@ -464,8 +468,10 @@ Arguments:
 Options:
   --name <string>        Case name (init/setup/edit)
   --target <string>      setup/edit: comma-separated target values to add
+  --image-target <string> setup/edit: comma-separated reference image targets to add
+  --face-ref <string>    setup/edit: alias for --image-target for face matching references
   --remove-target <string> setup/edit: comma-separated target ids/values to remove
-  --note <string>        setup/edit: comma-separated notes to add as local evidence
+  --note <string>        setup/edit: note text to add as local evidence; pass JSON array or newline-separated text for multiple notes
   --source <string>      setup/edit: comma-separated source specs (<type>:<ref>) to add
   --remove-source <string> setup/edit: comma-separated source ids/specs to remove
   --index <string>       setup/edit: comma-separated indexes (name:type or id:type:name)
@@ -524,14 +530,14 @@ Emits `prebrief` records.
 Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.
 
 ```
-overcast setup <action> [a] [b] [options]
+overcast setup [action] [a] [b] [options]
 
   Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|show).
 
   Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.
 
 Arguments:
-  action           provider | llm | memory | show
+  action           provider | llm | memory | show (default: show)
   a                verb (provider), provider id (llm), or backend (memory)
   b                spec (provider), model (llm), or command (memory)
 
@@ -548,14 +554,14 @@ Emits `setup` records.
 `provider setup plan|apply|show` configures catalog-backed provider choices for a profile. `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
 
 ```
-overcast provider <action> [verb] [options]
+overcast provider [action] [verb] [options]
 
   Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).
 
   `provider setup plan|apply|show` configures catalog-backed provider choices for a profile. `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
 
 Arguments:
-  action           setup | init | list | describe
+  action           setup | init | list | describe (default: list)
   verb             setup subcommand, or verb whose provider to init/describe
 
 Options:
@@ -580,6 +586,7 @@ overcast doctor  [options]
   Preflight: check pi version, ffmpeg/ffprobe, Cloudglue creds, tinycloud, provider bindings.
 
 Options:
+  --sources              Also check configured source-provider credentials
   --json                 JSON output
   --format <string>      json | md | txt
 ```

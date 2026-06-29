@@ -1005,6 +1005,20 @@ test("face match summary reports moment count, span + similarity percent; moment
   assert.ok(keys.indexOf("moments") < keys.indexOf("faces"));
 });
 
+test("face match summary does not call low-similarity detections a match", async () => {
+  const prev = process.env.OVERCAST_FAKE_TC_MODE;
+  try {
+    process.env.OVERCAST_FAKE_TC_MODE = "low_match";
+    const rec = await runFace({ op: "match", image: "suspect.jpg", source: "clip.mp4" }, { base: BASE });
+    const p = rec.payload as Record<string, unknown>;
+    assert.match(String(p.summary), /no face match; faces detected, max similarity 4\.1%/);
+    assert.doesNotMatch(String(p.summary), /reference face matched/);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;
+    else process.env.OVERCAST_FAKE_TC_MODE = prev;
+  }
+});
+
 test("case memory get on an unknown id names the current case (the per-case wrong-cwd footgun)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-nocase-"));
   try {

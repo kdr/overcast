@@ -1,5 +1,5 @@
-// Register overcast state verbs as TUI slash commands (/target /source /index /case
-// /prebrief /view /setup). Each runs the verb against the cwd case and shows the
+// Register common overcast verbs as TUI slash commands (/target /source /index /case
+// /prebrief /view /setup /provider /finding). Each runs the verb against the cwd case and shows the
 // emitted record. (/ask /brief are prompt templates loaded from prompts/.)
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -13,14 +13,27 @@ import { loadProfile, resolveHome } from "../profile.js";
 import type { OvercastRecord } from "../record.js";
 import { renderForFormat } from "../render.js";
 import type { VerbContext } from "../registry/types.js";
+import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
 
-const SLASH_VERBS = ["target", "source", "index", "case", "prebrief", "view", "setup"];
+const SLASH_VERBS = ["target", "source", "index", "case", "prebrief", "view", "setup", "provider", "finding"];
 const RESULT_TYPE = "overcast-result";
 
 function summarize(rec: OvercastRecord, format?: string): string {
   // same format-aware renderer as the CLI, so /case memory get … --format txt
   // shows a paged chunk in full instead of a truncated preview
   return `▶ ${renderForFormat(rec, format)}`;
+}
+
+function emitResult(pi: ExtensionAPI, text: string): void {
+  pi.sendMessage(
+    {
+      customType: RESULT_TYPE,
+      content: text,
+      display: true,
+      details: { text },
+    },
+    { triggerTurn: false },
+  );
 }
 
 /** Register the state slash-commands + the custom result renderer. */
@@ -41,7 +54,7 @@ export function registerSlashCommands(pi: ExtensionAPI): void {
         const argv = args.trim() ? tokenizeCommand(args.trim()) : [];
         const parsed = parseVerbArgs(spec, argv);
         if (parsed.errors.length) {
-          pi.appendEntry(RESULT_TYPE, { text: `▶ ${name}: ${parsed.errors.join("; ")}` });
+          emitResult(pi, `▶ ${name}: ${parsed.errors.join("; ")}`);
           return;
         }
         // honor the session case + profile (--case/--profile, surfaced via env)
@@ -64,14 +77,17 @@ export function registerSlashCommands(pi: ExtensionAPI): void {
           // skip a record tagged for a different case (already persisted there),
           // matching the CLI / agent-tool persist guards.
           for (const r of recs) {
+            if (r.meta?.transient === true) continue;
+            if (r.meta?.persisted === true) continue;
             if (r.meta?.case && r.meta.case !== c.dir) continue;
             c.writeRecord(r);
           }
           // honor --json/--format like the CLI (so a paged chunk isn't truncated)
           const fmt = parsed.opts.json ? "json" : (parsed.opts.format as string | undefined);
-          pi.appendEntry(RESULT_TYPE, { text: recs.map((r) => summarize(r, fmt)).join("\n\n") || `▶ ${name}: (no records)` });
+          emitResult(pi, recs.map((r) => summarize(r, fmt)).join("\n\n") || `▶ ${name}: (no records)`);
+          if (name === "case") maybeScheduleCaseClearReset(recs);
         } catch (e) {
-          pi.appendEntry(RESULT_TYPE, { text: `▶ ${name} failed: ${(e as Error).message}` });
+          emitResult(pi, `▶ ${name} failed: ${(e as Error).message}`);
         }
       },
     });

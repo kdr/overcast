@@ -46,7 +46,7 @@ assert_eq "source.enabled" "1" "$(jq -r '.payload.enabled' <<<"$sl")" "one enabl
 # scan --pull: enumerate -> capture -> watch round-trips into records
 scan_out="$($OVERCAST scan --pull --json "${G[@]}" 2>/dev/null)"
 save_json "phase3_scan" "$scan_out" >/dev/null
-nhits="$(jq -s '[.[]|select(.verb=="scan")]|length' <<<"$scan_out" 2>/dev/null)"
+nhits="$(jq -s '[.[]|select(.verb=="scan" and (.payload.op // "")!="pull_progress")]|length' <<<"$scan_out" 2>/dev/null)"
 ncap="$(jq -s '[.[]|select(.verb=="capture")]|length' <<<"$scan_out" 2>/dev/null)"
 nwatch="$(jq -s '[.[]|select(.verb=="watch")]|length' <<<"$scan_out" 2>/dev/null)"
 assert_eq "scan.hits" "2" "$nhits" "scan emitted 2 hits"

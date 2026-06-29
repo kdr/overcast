@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { runCli } from "../src/cli.js";
 import { routeArgv } from "../src/cli-router.js";
+import { loadDotEnv } from "../src/env.js";
 import { resolveCloudglue } from "../src/profile.js";
 
 /** Pull a global flag's value (`--name v` or `--name=v`) out of argv. A missing
@@ -43,6 +44,7 @@ function takeGlobal(argv: string[], name: string): { value?: string; rest: strin
  *    Opt back in with OVERCAST_PI_ONLINE=1.
  */
 function prepareTuiEnv(): void {
+  loadDotEnv(process.env.OVERCAST_CASE || process.cwd());
   if (!process.env.CLOUDGLUE_API_KEY) {
     const { apiKey } = resolveCloudglue();
     if (apiKey) process.env.CLOUDGLUE_API_KEY = apiKey;
@@ -80,12 +82,6 @@ function clearScreen(): void {
 }
 
 async function launchTui(argv: string[]): Promise<void> {
-  prepareTuiEnv();
-  ensureQuietStartup();
-  clearScreen();
-  // Dynamic import keeps pi out of the hot path for plain verb calls.
-  const { main } = await import("@earendil-works/pi-coding-agent");
-  const { default: overcastExtension } = await import("../src/extension/overcast.js");
   // Surface --case/--profile/--home to the extension (via env) so agent-driven
   // verbs use the session's case/profile, then drop them from pi's args.
   let piArgs = argv.filter((a) => a !== "--tui");
@@ -98,11 +94,18 @@ async function launchTui(argv: string[]): Promise<void> {
     if (value) process.env[envVar] = value;
     piArgs = rest;
   }
+  prepareTuiEnv();
+  ensureQuietStartup();
+  clearScreen();
+  // Dynamic import keeps pi out of the hot path for plain verb calls.
+  const { main } = await import("@earendil-works/pi-coding-agent");
+  const { default: overcastExtension } = await import("../src/extension/overcast.js");
   await main(piArgs, { extensionFactories: [overcastExtension] });
 }
 
 async function run(): Promise<number> {
   const argv = process.argv.slice(2);
+  loadDotEnv(process.cwd());
   // The CLI-vs-TUI decision is a pure function (src/cli-router.ts, unit-tested as a
   // truth table). "cli" runs the verb registry; "tui" launches the pi agent (a bare
   // launch, `overcast --tui`, or a pi-flag invocation like `overcast -p "…"`).

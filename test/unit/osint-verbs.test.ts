@@ -135,6 +135,41 @@ test("scan --pull uses setup automation and emits review findings", async () => 
   }
 });
 
+test("scan --pull --pipe watch sends TikTok URLs directly to tinycloud and checkpoints progress", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-tiktok-direct-"));
+  const sourceScript = join(d, "tiktok-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_TTFIXTURE_CMD;
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo '[{"title":"tt","url":"https://www.tiktok.com/@willsmith/video/123","source":"ttfixture","media":{"ref":"https://www.tiktok.com/@willsmith/video/123"}}]'
+else
+  echo '{}'
+fi
+`);
+    process.env.OVERCAST_SOURCE_TTFIXTURE_CMD = `bash ${sourceScript}`;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "ttfixture:any");
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, pipe: "watch", limit: 1 }, case: c, profile: defaultProfile() });
+    const progress = recs.filter((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).op === "pull_progress");
+    assert.equal(progress.some((r) => (r.payload as Record<string, unknown>).via === "direct-url"), true);
+    const watch = recs.find((r) => r.verb === "watch");
+    assert.equal(watch?.media?.ref, "https://www.tiktok.com/@willsmith/video/123");
+    assert.equal(c.records().some((r) => r.verb === "watch" && r.media?.ref === watch?.media?.ref), true);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_TTFIXTURE_CMD;
+    else process.env.OVERCAST_SOURCE_TTFIXTURE_CMD = prevSource;
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan --pull default watch emits review findings when no auto-sense chain is configured", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-default-watch-finding-"));
   try {

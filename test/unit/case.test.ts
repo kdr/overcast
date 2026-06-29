@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase, recordFiles } from "../../src/case.ts";
-import { makeRecord } from "../../src/record.ts";
+import { appendRecordJSONL, makeRecord } from "../../src/record.ts";
 
 function withTmp(fn: (dir: string) => void) {
   const dir = mkdtempSync(join(tmpdir(), "oc-case-"));
@@ -45,6 +45,25 @@ test("writeRecord persists per-verb JSONL and records() reads them back", () => 
   });
 });
 
+test("records() ignores stray records tagged for a different case", () => {
+  withTmp((dir) => {
+    const other = mkdtempSync(join(tmpdir(), "oc-other-case-"));
+    try {
+      const c = openCase(dir);
+      c.ensure();
+      c.writeRecord(makeRecord({ verb: "note", payload: { text: "mine" } }));
+      appendRecordJSONL(
+        join(c.recordsDir, "watch.jsonl"),
+        makeRecord({ verb: "watch", payload: { content: "not mine" }, meta: { case: other } }),
+      );
+
+      assert.deepEqual(c.records().map((r) => r.verb), ["note"]);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+});
+
 test("clearSummary reports resettable records, media, index, and state files", () => {
   withTmp((dir) => {
     const c = openCase(dir);
@@ -53,6 +72,7 @@ test("clearSummary reports resettable records, media, index, and state files", (
     mkdirSync(c.indexDir, { recursive: true });
     writeFileSync(join(c.mediaDir, "clip.txt"), "media");
     writeFileSync(join(c.indexDir, "idx.txt"), "index");
+    writeFileSync(join(dir, "brief.html"), "<html></html>");
     writeFileSync(c.sourcesFile, JSON.stringify({ sources: [] }));
     writeFileSync(c.legacyCollectionsFile, JSON.stringify({ collections: [] }));
 
@@ -62,6 +82,7 @@ test("clearSummary reports resettable records, media, index, and state files", (
     assert.equal(summary.media.files, 1);
     assert.equal(summary.media.bytes, 5);
     assert.equal(summary.index.files, 1);
+    assert.deepEqual(summary.artifacts, ["brief.html"]);
     assert.deepEqual(summary.stateFiles, ["sources.json", "collections.json"]);
     assert.equal(c.records().length, 1, "summary does not mutate the case");
   });
@@ -75,6 +96,8 @@ test("clear removes records/media/index/state while preserving case.json", () =>
     mkdirSync(c.indexDir, { recursive: true });
     writeFileSync(join(c.mediaDir, "clip.txt"), "media");
     writeFileSync(join(c.indexDir, "idx.txt"), "index");
+    writeFileSync(join(dir, "brief.html"), "<html></html>");
+    writeFileSync(join(dir, "brief.md"), "# Brief");
     writeFileSync(c.targetFile, JSON.stringify({ targets: [] }));
     writeFileSync(c.legacyCollectionsFile, JSON.stringify({ collections: [] }));
 
@@ -85,6 +108,8 @@ test("clear removes records/media/index/state while preserving case.json", () =>
     assert.equal(c.records().length, 0);
     assert.equal(existsSync(join(c.mediaDir, "clip.txt")), false);
     assert.equal(existsSync(c.indexDir), false);
+    assert.equal(existsSync(join(dir, "brief.html")), false);
+    assert.equal(existsSync(join(dir, "brief.md")), false);
     assert.equal(existsSync(c.targetFile), false);
     assert.equal(existsSync(c.legacyCollectionsFile), false);
   });

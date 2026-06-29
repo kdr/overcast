@@ -149,7 +149,55 @@ async function enumerateAll(ctx: VerbContext, verb = "scan"): Promise<OvercastRe
       out.push(err("scan", `source ${s.type} enumerate error: ${(e as Error).message}`));
     }
   }
+  const credFailures = out.filter((r) => r.state === "needs_credentials" && /source .* enumerate failed/.test(String(r.error ?? "")));
+  if (credFailures.length > 1) {
+    const affected = sources
+      .filter((s) => credFailures.some((r) => String(r.error ?? "").includes(`source ${s.type} enumerate failed`)))
+      .map((s) => `${s.type}:${s.ref}`);
+    const missing = [...new Set(credFailures.map((r) => String(r.error ?? "").includes("APIFY_TOKEN") ? "APIFY_TOKEN" : "source credentials"))];
+    out.unshift(makeRecord({
+      verb,
+      format: "json",
+      payload: {
+        blocked: true,
+        missing,
+        affected_sources: affected,
+        fix: missing.includes("APIFY_TOKEN")
+          ? "put APIFY_TOKEN in .env before launching overcast, or export it in the shell; verify with `overcast doctor --sources`"
+          : "check source-provider credentials with `overcast doctor --sources`",
+      },
+      error: `${affected.length || credFailures.length} source scan(s) blocked by missing credentials: ${missing.join(", ")}`,
+      state: "needs_credentials",
+    }));
+  }
   return out;
+}
+
+function checkpoint(ctx: VerbContext, rec: OvercastRecord): OvercastRecord {
+  rec.meta = { ...rec.meta, case: ctx.case.dir };
+  ctx.case.writeRecord(rec);
+  rec.meta = { ...rec.meta, persisted: true };
+  return rec;
+}
+
+function scanProgress(ctx: VerbContext, payload: Record<string, unknown>, state: string = "pending"): OvercastRecord {
+  return checkpoint(ctx, makeRecord({
+    verb: "scan",
+    format: "json",
+    payload: { op: "pull_progress", ...payload },
+    meta: { provider: "scan:progress", case: ctx.case.dir },
+    state,
+  }));
+}
+
+function isTikTokUrl(ref: string): boolean {
+  return /^https?:\/\/(?:www\.)?tiktok\.com\//i.test(ref);
+}
+
+function canSenseRemoteDirect(ctx: VerbContext, verb: string, ref: string): boolean {
+  if (!isTikTokUrl(ref)) return false;
+  if (verb !== "watch" && verb !== "face") return false;
+  return !isCustomBinding(providerBinding(ctx, verb));
 }
 
 export const scanVerb: VerbSpec = {
@@ -170,7 +218,7 @@ export const scanVerb: VerbSpec = {
     { name: "limit", summary: "Max hits per source", type: "number" },
     { name: "local", summary: "Scan local case media/indexes instead of external sources", type: "boolean" },
     { name: "pull", summary: "Auto-capture + sense each hit", type: "boolean" },
-    { name: "pipe", summary: "Sense to run on pulled hits (watch|listen)", type: "string" },
+    { name: "pipe", summary: "Sense to run on pulled hits (watch|listen|face)", type: "string" },
     { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
@@ -187,6 +235,18 @@ export const scanVerb: VerbSpec = {
 
     // --pull: capture + sense each non-error hit
     const out: OvercastRecord[] = [...hits];
+    out.push(scanProgress(ctx, {
+      stage: "started",
+      total_hits: hits.filter((h) => h.state !== "error" && h.state !== "needs_credentials").length,
+      requested_limit: ctx.opts.limit ?? null,
+      pipe: ctx.opts.pipe ? String(ctx.opts.pipe) : null,
+      note: "scan --pull writes progress records as each hit is submitted/processed",
+    }));
+    let processed = 0;
+    let submitted_remote = 0;
+    let completed = 0;
+    let pending = 0;
+    let failed = 0;
     for (const hit of hits) {
       // skip enumerate FAILURES (error + needs_credentials) — they're not items to
       // capture/sense, matching monitorPass.
@@ -197,30 +257,50 @@ export const scanVerb: VerbSpec = {
       const ref = hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
       if (!ref) continue;
       try {
-        const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-        out.push(cap);
-        if (cap.state !== "error" && cap.media?.ref) {
-          const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-          // only auto-sense AV captures; honor an explicit --pipe for anything.
-          if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-            if (explicitPipe) {
-              const sensed = await pipeSense(ctx, "scan", explicitPipe, cap.media.ref);
-              if (sensed) out.push(sensed);
-            } else {
-              const automated = await runSetupAutomation(ctx, "scan", cap.media.ref);
-              if (automated.length) out.push(...automated);
-              else {
-                out.push(...await runDefaultWatchWithPolicy(ctx, "scan", cap.media.ref));
+        const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+        const autoChain = loadSetup(ctx.case)?.automation?.auto_sense ?? [];
+        const directVerb = explicitPipe || (autoChain.length === 1 ? autoChain[0] : undefined);
+        if (directVerb && canSenseRemoteDirect(ctx, directVerb, ref)) {
+          submitted_remote++;
+          out.push(scanProgress(ctx, { stage: "submitted", ref, via: "direct-url", sense: directVerb, submitted_remote, completed, pending, failed }));
+          const sensedRecords = explicitPipe
+            ? [await pipeSense(ctx, "scan", explicitPipe, ref)].filter((r): r is OvercastRecord => !!r)
+            : await runSetupAutomation(ctx, "scan", ref);
+          if (sensedRecords.length) {
+            out.push(...sensedRecords.map((r) => checkpoint(ctx, r)));
+            if (sensedRecords.some((r) => r.state === "pending")) pending++;
+            else if (sensedRecords.some((r) => r.state === "error" || r.state === "needs_credentials")) failed++;
+            else completed++;
+          }
+        } else {
+          const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+          out.push(checkpoint(ctx, cap));
+          if (cap.state !== "error" && cap.media?.ref) {
+            // only auto-sense AV captures; honor an explicit --pipe for anything.
+            if (explicitPipe || isSenseableMedia(cap.media.ref)) {
+              if (explicitPipe) {
+                const sensed = await pipeSense(ctx, "scan", explicitPipe, cap.media.ref);
+                if (sensed) out.push(checkpoint(ctx, sensed));
+              } else {
+                const automated = await runSetupAutomation(ctx, "scan", cap.media.ref);
+                if (automated.length) out.push(...automated.map((r) => checkpoint(ctx, r)));
+                else {
+                  out.push(...(await runDefaultWatchWithPolicy(ctx, "scan", cap.media.ref)).map((r) => checkpoint(ctx, r)));
+                }
               }
             }
           }
         }
+        processed++;
+        out.push(scanProgress(ctx, { stage: "processed", ref, processed, submitted_remote, completed, pending, failed }, pending ? "pending" : failed ? "error" : "ready"));
       } catch (e) {
         // a provider timeout / spawn failure rejects — record it and keep pulling
         // the remaining hits instead of aborting the whole scan.
-        out.push(err("scan", `pull of ${ref} failed: ${(e as Error).message}`));
+        failed++;
+        out.push(checkpoint(ctx, err("scan", `pull of ${ref} failed: ${(e as Error).message}`)));
       }
     }
+    out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed }, failed ? "error" : pending ? "pending" : "ready"));
     return out;
   },
 };
@@ -336,9 +416,13 @@ async function pipeSense(
     r.meta = { ...r.meta, case: ctx.case.dir };
     return r;
   }
+  if (verb === "face") {
+    const [rec] = await faceVerb.run({ ...ctx, input: ref, rest: [], opts: {} });
+    return rec;
+  }
   // an unknown --pipe value (typo, or see/enhance) must surface, not silently
   // produce nothing — labelled with the ACTIVE command (monitor/scan).
-  return err(caller, `unknown --pipe '${verb}' (expected watch | listen)`);
+  return err(caller, `unknown --pipe '${verb}' (expected watch | listen | face)`);
 }
 
 async function runAutomationSense(ctx: VerbContext, caller: string, verb: string, ref: string): Promise<OvercastRecord> {
@@ -705,7 +789,7 @@ export const monitorVerb: VerbSpec = {
     { name: "query", summary: "Ad-hoc keyword search across sources", type: "string" },
     { name: "since", summary: "Only items newer than e.g. 24h, 2026-06-01", type: "string" },
     { name: "limit", summary: "Max hits per source", type: "number" },
-    { name: "pipe", summary: "Sense to run on new items (watch|listen)", type: "string" },
+    { name: "pipe", summary: "Sense to run on new items (watch|listen|face)", type: "string" },
     { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
     { name: "once", summary: "Single diff pass then exit", type: "boolean" },
     { name: "every", summary: "Continuous loop cadence (e.g. 15m, 6h)", type: "string" },

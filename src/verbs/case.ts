@@ -37,6 +37,20 @@ function csv(v: unknown): string[] {
   return String(v).split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+function textList(v: unknown): string[] {
+  if (v == null) return [];
+  const raw = String(v).trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) return parsed.map((x) => String(x).trim()).filter(Boolean);
+  } catch {
+    /* not JSON; fall through */
+  }
+  if (raw.includes("\n")) return raw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  return [raw];
+}
+
 function parseProviderSelections(v: unknown): Array<{ verb: string; choice: string }> {
   return csv(v).map((spec) => {
     const idx = spec.indexOf(":");
@@ -278,8 +292,9 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
 function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup" | "startup_setup_update", apply: boolean): SetupChange {
   const signals = csv(ctx.opts.signals);
   const targets = csv(ctx.opts.target);
+  const imageTargets = [...csv(ctx.opts["image-target"]), ...csv(ctx.opts["face-ref"])];
   const removeTargets = csv(ctx.opts["remove-target"]);
-  const notes = csv(ctx.opts.note);
+  const notes = textList(ctx.opts.note);
   const sources = csv(ctx.opts.source);
   const removeSources = csv(ctx.opts["remove-source"]);
   const memories = csv(ctx.opts.memory);
@@ -308,6 +323,11 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     if (!setup.targets.includes(t)) setup.targets.push(t);
     operations.push(`target add: ${t}`);
     if (apply && !listTargets(ctx.case).some((x) => x.value === t)) addTarget(ctx.case, t, { image: isImageTargetRef(t) });
+  }
+  for (const t of imageTargets) {
+    if (!setup.targets.includes(t)) setup.targets.push(t);
+    operations.push(`image target add: ${t}`);
+    if (apply && !listTargets(ctx.case).some((x) => x.value === t)) addTarget(ctx.case, t, { image: true });
   }
   if (removeTargets.length) {
     const removeTargetValues = targetValuesForRemoval(ctx, removeTargets);
@@ -499,8 +519,10 @@ export const caseVerb: VerbSpec = {
   flags: [
     { name: "name", summary: "Case name (init/setup/edit)", type: "string" },
     { name: "target", summary: "setup/edit: comma-separated target values to add", type: "string" },
+    { name: "image-target", summary: "setup/edit: comma-separated reference image targets to add", type: "string" },
+    { name: "face-ref", summary: "setup/edit: alias for --image-target for face matching references", type: "string" },
     { name: "remove-target", summary: "setup/edit: comma-separated target ids/values to remove", type: "string" },
-    { name: "note", summary: "setup/edit: comma-separated notes to add as local evidence", type: "string" },
+    { name: "note", summary: "setup/edit: note text to add as local evidence; pass JSON array or newline-separated text for multiple notes", type: "string" },
     { name: "source", summary: "setup/edit: comma-separated source specs (<type>:<ref>) to add", type: "string" },
     { name: "remove-source", summary: "setup/edit: comma-separated source ids/specs to remove", type: "string" },
     { name: "index", summary: "setup/edit: comma-separated indexes (name:type or id:type:name)", type: "string" },
@@ -597,6 +619,8 @@ export const caseVerb: VerbSpec = {
       const hasInputs = [
         "name",
         "target",
+        "image-target",
+        "face-ref",
         "remove-target",
         "note",
         "source",
@@ -689,6 +713,14 @@ export const caseVerb: VerbSpec = {
           after,
           applied_operations: isPlan ? [] : change.operations,
           planned_operations: change.operations,
+          work_preview: {
+            save_setup: !isPlan,
+            note_records: change.noteRecords.length,
+            local_media_files: change.setup.media.videos.length,
+            remote_indexes: change.setup.indexes.map((index) => ({ name: index.name, type: index.type, mode: index.mode ?? (index.id ? "attach" : "create") })),
+            will_start_indexing: !isPlan && ctx.opts["no-index"] !== true && change.setup.indexes.length > 0,
+            automation: change.setup.automation ?? { auto_sense: [], auto_index_new: false },
+          },
           incomplete_indexes: incompleteIndexes.map((index) => ({ name: index.name, type: index.type })),
           confirmation_required: isPlan && sub !== "plan" && ctx.opts["dry-run"] !== true,
           confirm_with: isPlan && sub !== "plan" && ctx.opts["dry-run"] !== true ? "overcast case setup ... --yes" : undefined,
@@ -731,6 +763,7 @@ export const caseVerb: VerbSpec = {
         media_size: humanSize(before.media.bytes),
         index_files: before.index.files,
         index_size: humanSize(before.index.bytes),
+        artifacts: before.artifacts,
         state_files: before.stateFiles,
       };
       if (!confirmed) {

@@ -791,6 +791,23 @@ test("brief verb builds a report and --export writes md + html", async () => {
   });
 });
 
+test("brief on an empty evidence set is transient and does not export", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-emptybrief-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    const out = join(dir, "brief.html");
+    const [rec] = await briefVerb.run(ctx(c, undefined, { export: out }));
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal(rec.state, "pending");
+    assert.equal(rec.meta?.transient, true);
+    assert.equal(payload.total, 0);
+    assert.equal(existsSync(out), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief embeds the FULL primary field, not a 160-char stub", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-brieffull-"));
   try {
