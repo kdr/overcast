@@ -315,6 +315,20 @@ test("local-only visual types require backend local and cannot be attached remot
     assert.equal(localAdd.meta?.provider, "local");
     assert.equal((localAdd.payload as Record<string, unknown>).backend, "local");
     assert.equal(findIndex(openCase(cdir), "logos")?.backend, "local");
+
+    addIndex(c, { id: "col_remote_stub", name: "remote-stub", type: "unknown" });
+    addMember(c, "col_remote_stub", { ref: video, fileId: "file_remote" });
+    const [retagPopulated] = await indexVerb.run(mk("add", [img], { to: "col_remote_stub", type: "image-ransac" }));
+    assert.equal(retagPopulated.state, "error");
+    assert.match(retagPopulated.error ?? "", /not a local visual index/);
+    assert.equal(findIndex(openCase(cdir), "col_remote_stub")?.backend, undefined);
+    assert.equal(findIndex(openCase(cdir), "col_remote_stub")?.members.length, 1);
+
+    addIndex(c, { id: "col_remote_backend", name: "remote-backend", type: "unknown", backend: "tinycloud" });
+    const [retagBackend] = await indexVerb.run(mk("add", [img], { to: "col_remote_backend", type: "deepface-local" }));
+    assert.equal(retagBackend.state, "error");
+    assert.match(retagBackend.error ?? "", /not a local visual index/);
+    assert.equal(findIndex(openCase(cdir), "col_remote_backend")?.backend, "tinycloud");
   } finally {
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;
@@ -1341,6 +1355,35 @@ test("index attach syncs mirrored members instead of keeping stale refs", async 
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;
     rmSync(cdir, { recursive: true, force: true });
   }
+});
+
+test("index attach refuses to overwrite local visual DB members", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-attach-local-"));
+  const img = join(cdir, "logo.jpg");
+  writeFileSync(img, "x");
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "logos", type: "image-ransac", name: "logos", backend: "local" });
+    addMember(c, "logos", { ref: img });
+    const [attached] = await indexVerb.run({ input: "attach", rest: ["logos"], opts: {}, case: c, profile: defaultProfile() });
+    assert.equal(attached.state, "error");
+    assert.match(attached.error ?? "", /local visual indexes cannot be attached/);
+    assert.equal(findIndex(c, "logos")?.backend, "local");
+    assert.deepEqual(findIndex(c, "logos")?.members.map((m) => m.ref), [img]);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("visual-db uv setup defaults to image mode unambiguously", () => {
+  const script = readFileSync(join(HERE, "..", "..", "scripts", "visual-db-uv.sh"), "utf8");
+  assert.doesNotMatch(script, /\$\{1:---image\}/);
+  assert.match(script, /MODE="\$\{1:-\}"/);
+  assert.match(script, /MODE="--image"/);
 });
 
 test("index list --remote exposes indexes, not collections, at the public layer", async () => {

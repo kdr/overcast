@@ -10,7 +10,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="${OVERCAST_VISUAL_DB_VENV:-$ROOT/.dev/visual-db-py}"
 PYVER="${OVERCAST_VISUAL_DB_PYTHON:-3.12}"
-MODE="${1:---image}"
+MODE="${1:-}"
+if [ -z "$MODE" ]; then
+  MODE="--image"
+fi
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "uv is required. Install it from https://docs.astral.sh/uv/ or run: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2

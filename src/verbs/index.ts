@@ -366,6 +366,9 @@ export const indexVerb: VerbSpec = {
       let remoteType: string | undefined;
       const local = findIndex(c, requested);
       if (local) {
+        if (isLocalIndex(local)) {
+          return [err(`index attach: index '${requested}' is local; local visual indexes cannot be attached from tinycloud`)];
+        }
         remoteId = local.id;
         remoteName = local.name;
         remoteType = local.type;
@@ -453,6 +456,9 @@ export const indexVerb: VerbSpec = {
       // silent no-op — reject it so the video isn't indexed into the wrong type.
       if (existing && typeHint && existing.type !== "unknown" && existing.type !== typeHint) {
         return [err(`index add: --type ${typeHint} conflicts with index ${id}'s type '${existing.type}' — omit --type, or target a ${typeHint} index`)];
+      }
+      if (existing && hintedLocal && existing.backend !== "local" && (existing.backend !== undefined || existing.members.length > 0)) {
+        return [err(`index add: index ${id} is not a local visual index; create a local ${typeHint} index first, or choose an empty target`)];
       }
       if (!existing) {
         addIndex(c, { id, type: typeHint ?? "unknown", name: id, backend: hintedLocal ? "local" : undefined });
