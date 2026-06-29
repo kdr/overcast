@@ -158,6 +158,10 @@ overcast
 A **case is just a directory** with a `.overcast/` store — switch cases with
 `cd` or `--case <dir>`. pi's per-directory sessions are the case history.
 
+For end-to-end recipes — first-run setup, person search, OSINT pulls, continuous
+monitoring, qmd memory, detection crops, and more — see
+**[`docs/flows.md`](docs/flows.md)** (common flows & usage patterns).
+
 ---
 
 ## Verbs

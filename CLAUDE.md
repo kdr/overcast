@@ -51,8 +51,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    tiktok, web), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    transports are `exec` (default), `http`, `in-proc`. Default sense binding =
    tinycloud (exec).
-7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `view`, and frame
-   extraction shell out to the **system** `ffmpeg`/`ffprobe` (PATH or
+7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `crop`, `view`,
+   and frame extraction shell out to the **system** `ffmpeg`/`ffprobe` (PATH or
    `OVERCAST_FFMPEG`/`OVERCAST_FFPROBE`); `overcast doctor` checks it's installed.
 8. **No CDN.** Publish to npm directly (pi package + bun binary).
 9. **tinycloud = public verbs only.** Call tinycloud through its CLI verbs
@@ -67,37 +67,73 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 ## Verb surface
 
 Run `overcast commands --json` for the authoritative registry, or `overcast <verb>
---help` for a man page.
+--help` for a man page. Common end-to-end flows live in
+[`docs/flows.md`](docs/flows.md); provider authoring in
+[`docs/providers.md`](docs/providers.md).
 
 - **Senses** — `watch` (shot-detect + all-modality describe → `content` /
   `transcript` / `detailed`), `listen` (speech transcript; `--describe` for the
-  full audio-scene), `see` (caption / OCR / open-vocab detect — turnkey Hugging
-  Face, bindable fal, local OWLv2 via `examples/providers/detect`), `face` (tinycloud
-  ≥ 0.3.4: detect faces, `--match <img>` (JPEG/PNG) to find a person in a clip, or search a
-  face-analysis index), `enhance` (system ffmpeg or a bound model), `view`
-  (HTML media player).
-- **OSINT** — `scan`, `capture`, `monitor` (sources: youtube / tiktok / web;
-  `--since` recency filter); `index` (create/add/list/show/delete/remove/entities —
-  index a target's videos into typed indexes: media-descriptions →
-  `ask --index`, entities → `index entities`, face-analysis → `face`);
-  `target` / `source` manage scope; `prebrief` stands up a case in one shot.
-  Built-in source refs: `youtube:@handle`, `youtube:search:<query>`,
-  `youtube:playlist:<id>` or a YouTube URL; `tiktok:@user`, `tiktok:#tag`;
-  `web:<query>`.
-- **Read** — `ask` (cited retrieval over case memory; `--index <id>` answers
-  over a tinycloud-backed media-descriptions index, `--probe` for moment search),
-  `brief` (timeline/findings report), `case` (inspect/manage the case + its records;
-  `case memory get <id> --field <name> --offset/--limit` pages a large record field
-  in full — the non-truncating way to read a `watch` `content`/`listen` transcript,
-  vs raw jsonl; `case memory index status|rebuild|start|retry` manages materialized
-  case-search backends such as qmd).
-- **Config / dist** — `setup` (bind providers + brain LLM, manage profiles),
-  `provider` (init/list/describe), `doctor` (preflight), `skills` (generate/install).
+  full audio-scene, `--diarize`, `--lang`), `see` (caption / OCR / open-vocab
+  `--detect` — turnkey Hugging Face, bindable fal, local OWLv2 via
+  `examples/providers/detect`), `face` (tinycloud ≥ 0.3.4: detect faces,
+  `--match <jpeg|png>` to find/rank a person in a clip, or `--index` to search a
+  face-analysis index), `enhance` (system ffmpeg ops or a bound model).
+- **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
+  `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
+  image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
+  `--square`).
+- **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / web;
+  `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
+  With no enabled sources, `scan` falls back to local case media/indexes
+  (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
+  typed remote tinycloud indexes: media-descriptions → `ask --index`, entities →
+  `index entities`, face-analysis → `face --index`).
+  Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
+  `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `web:<q>`.
+- **State** — `target` / `source` manage standing scope; `note` records human
+  observations (anchored via `--ref`/`--at`/`--tag`/`--confidence`); `finding`
+  (create/list/accept/dismiss) holds manual + setup-automated findings;
+  `prebrief` stands up name+target+source in one shot.
+- **Read** — `ask` (cited retrieval over case memory; `--deep`/`--memory qmd` for
+  semantic local search; `--index <id>` answers over a media-descriptions index,
+  `--probe` for moment search), `brief` (timeline/findings report, `--export`
+  md/html).
+- **Case** — `case init | setup | info | records | memory | clear`. `case setup`
+  is the first-run wizard + saved-setup manager (`status|show|edit|plan`, persisted
+  to `.overcast/setup.json`). `case memory get <id> --field <name>
+  --offset/--limit` pages a large record field in full — the non-truncating way to
+  read a `watch` `content` / `listen` transcript, vs head/tail-ing raw jsonl.
+  `case memory index status|rebuild|start|retry` manages materialized case-search
+  backends (qmd).
+- **Config / dist** — `setup` (bind brain LLM + per-verb providers, manage
+  profiles), `provider` (`setup plan|apply|show` catalog-backed profile setup, plus
+  `init|list|describe`), `doctor` (preflight; `--sources` also checks source
+  creds), `skills` (generate/install).
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
-Slash commands (TUI): `/target /source /index /case /prebrief /view /setup`
-(extension commands) and `/ask /brief` (prompt templates in `prompts/`), plus pi
-built-ins (`/model /tree /session /resume`).
+Slash commands (TUI): `/target /source /index /case /prebrief /view /setup
+/provider /finding` (extension commands) and `/ask /brief` (prompt templates in
+`prompts/`), plus pi built-ins (`/model /tree /session /resume`).
+
+## Case model & memory
+
+A case is a directory + its `.overcast/` store (records as JSONL, media, state,
+index mirrors). `case setup` saves a *mutable* setup model to
+`.overcast/setup.json` and emits *immutable* `case` history records
+(`payload.op = startup_setup` / `startup_setup_update`).
+
+Case memory is **evidence-only**. `ask` / `brief` read primary evidence
+(`watch listen see face crop note scan capture enhance` + root `finding`s) through
+bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
+`setup memory qmd`, then rebuild before querying). Read/meta and operational
+records (`ask brief case setup doctor provider skills index target source
+prebrief`, finding review-rows, dismissed findings) are excluded even when they
+match the query. `face`/`see` detections index only compact summaries / counts /
+moments — raw boxes and thumbnails stay in the record for exact reads and `crop`.
+The saved setup's memory signal list + per-provider `indexable` flags narrow what
+each case searches. Provider execution always follows the **active profile
+binding**; case setup records expected choices/policy and can clear built-ins like
+`enhance:ffmpeg`, but never pins a stale exec descriptor.
 
 ## Commands
 
