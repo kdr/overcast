@@ -284,6 +284,36 @@ test("local visual index: create/add/list/show/delete without tinycloud", async 
   }
 });
 
+test("local-only visual types require backend local and cannot be attached remotely", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-visual-db-remote-type-"));
+  const video = join(cdir, "v.mp4");
+  writeFileSync(video, "x");
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+  const mk = (input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext => {
+    const c = openCase(cdir);
+    c.ensure();
+    return { input, rest, opts, case: c, profile: defaultProfile() };
+  };
+  try {
+    const [attach] = await indexVerb.run(mk("attach", ["remote_logos"], { type: "image-ransac" }));
+    assert.equal(attach.state, "error");
+    assert.match(attach.error ?? "", /local-only/);
+
+    const c = openCase(cdir);
+    c.ensure();
+    addIndex(c, { id: "col_fake123", name: "remote-local-looking", type: "image-ransac" });
+    const [shown] = await indexVerb.run(mk("show", ["col_fake123"]));
+    assert.equal(shown.state, "ready");
+    assert.notEqual((shown.payload as Record<string, unknown>).backend, "local");
+    assert.equal(shown.meta?.provider, "tinycloud");
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("face provider binding deepface-local runs local detect/match without requiring --index", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-provider-"));
   const video = join(cdir, "v.mp4");
@@ -317,6 +347,10 @@ printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling"
     const [det] = await faceVerb.run(mk(video, { fps: 0.5, "max-frames": 3 }));
     assert.equal(det.state, "ready");
     assert.equal((det.payload as Record<string, unknown>).op, "detect");
+
+    const [thumbs] = await faceVerb.run(mk(video, { thumbnails: true }));
+    assert.equal(thumbs.state, "error");
+    assert.match(thumbs.error ?? "", /does not support --thumbnails/);
 
     const [match] = await faceVerb.run(mk(video, { match: ref, fps: 0.5, "max-frames": 3 }));
     assert.equal(match.state, "ready");

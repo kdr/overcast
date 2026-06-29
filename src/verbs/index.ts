@@ -54,7 +54,7 @@ function err(message: string): OvercastRecord {
 }
 
 function isLocalIndex(entry: { backend?: string; type: string }): boolean {
-  return entry.backend === "local" || LOCAL_INDEX_TYPES.has(entry.type);
+  return entry.backend === "local";
 }
 
 function indexRecord(rec: OvercastRecord): OvercastRecord {
@@ -356,6 +356,9 @@ export const indexVerb: VerbSpec = {
       const typeHint = ctx.opts.type != null ? normalizeIndexType(String(ctx.opts.type)) : undefined;
       if (ctx.opts.type != null && !typeHint) {
         return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac)`)];
+      }
+      if (typeHint && LOCAL_INDEX_TYPES.has(typeHint)) {
+        return [err(`index attach: ${typeHint} is local-only; create it with \`index create <name> --type ${typeHint} --local\``)];
       }
 
       let remoteId = requested;

@@ -210,7 +210,7 @@ export const faceVerb: VerbSpec = {
         if (r.error) return [err(r.error)];
         if (!r.ids.length) return [err(`--index '${indexFlag}' has no valid index id`)];
         const entries = r.ids.map((id) => findIndex(c, id)).filter(Boolean);
-        const allLocal = entries.length === r.ids.length && entries.every((e) => e!.backend === "local" || e!.type === "deepface-local");
+        const allLocal = entries.length === r.ids.length && entries.every((e) => e!.backend === "local" && e!.type === "deepface-local");
         if (!allLocal) {
           return [err(`--index can't combine with a video for ${useDeepface ? "deepface-local" : "tinycloud"} --match unless it is a deepface-local index: drop the video to search the index, or drop --index to match within the video`)];
         }
@@ -277,12 +277,15 @@ export const faceVerb: VerbSpec = {
       }
     }
 
-    const localEntries = (indexes ?? []).map((id) => findIndex(c, id)).filter((x): x is NonNullable<ReturnType<typeof findIndex>> => !!x && (x.backend === "local" || x.type === "deepface-local"));
+    const localEntries = (indexes ?? []).map((id) => findIndex(c, id)).filter((x): x is NonNullable<ReturnType<typeof findIndex>> => !!x && x.backend === "local" && x.type === "deepface-local");
     if (localEntries.length || useDeepface) {
       if (localEntries.length && (!indexes || localEntries.length !== indexes.length)) {
         return [err("can't mix local face indexes with tinycloud/raw face indexes in one face command")];
       }
       if (localEntries.length > 1) return [err("local face search/list accepts exactly one --index")];
+      if (ctx.opts.thumbnails === true) {
+        return [err("deepface-local does not support --thumbnails yet; rerun without --thumbnails or use the tinycloud face provider")];
+      }
       if (op === "list") {
         return [err("deepface-local indexes store reference images, not per-video detections; use `face <video> --match <image> --index <deepface-local-index>` to match video frames, or `index show <id>` to list DB members")];
       }
@@ -302,7 +305,7 @@ export const faceVerb: VerbSpec = {
         limit: num(ctx.opts.limit) ?? num(ctx.opts["max-faces"]),
         maxFrames: num(ctx.opts["max-frames"]),
         fps: num(ctx.opts.fps),
-        thumbnails: ctx.opts.thumbnails === true,
+        thumbnails: false,
         signal: ctx.signal,
       });
       return [rec];

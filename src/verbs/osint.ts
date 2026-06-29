@@ -80,11 +80,13 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const nameTargets = targets.filter((t) => t.kind !== "image").map((t) => t.value);
   const indexes = listIndexes(ctx.case);
   const faceIndexes = indexes.filter((i) => i.type === "face-analysis");
-  const localFaceIndexes = indexes.filter((i) => i.type === "deepface-local" || i.backend === "local" && i.type === "deepface-local");
-  const localImageIndexes = indexes.filter((i) => i.type === "image-ransac" || i.backend === "local" && i.type === "image-ransac");
+  const localFaceIndexes = indexes.filter((i) => i.backend === "local" && i.type === "deepface-local");
+  const localImageIndexes = indexes.filter((i) => i.backend === "local" && i.type === "image-ransac");
   const mediaIndexes = indexes.filter((i) => i.type === "media-descriptions");
   const refs = localMediaRefs(ctx);
-  const localCandidates = localVisualCandidates(refs, imageTargets, [...localFaceIndexes, ...localImageIndexes]);
+  const localLimit = ctx.opts.limit != null ? Number(ctx.opts.limit) : 5;
+  const localCandidatesAll = localVisualCandidates(refs, imageTargets, [...localFaceIndexes, ...localImageIndexes]);
+  const localCandidates = localCandidatesAll.slice(0, localLimit);
   const localFaceCandidates = localCandidates.filter((ref) => isAv(ref));
   const suggested: string[] = [];
   if (imageTargets.length && faceIndexes.length) {
@@ -109,6 +111,9 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
       targets: targets.map((t) => ({ id: t.id, kind: t.kind, value: t.value })),
       media: refs,
       indexes: indexes.map((i) => ({ id: i.id, name: i.name, type: i.type, members: i.members.length })),
+      local_visual_candidates: localCandidates.length,
+      local_visual_candidates_total: localCandidatesAll.length,
+      local_visual_limit: localLimit,
       suggested_commands: suggested,
     },
     meta: { provider: "scan:local", case: ctx.case.dir },
@@ -370,7 +375,7 @@ export const scanVerb: VerbSpec = {
     { name: "query", summary: "Ad-hoc keyword search across sources", type: "string" },
     { name: "source", summary: "Restrict to source ids/types (comma list)", type: "string" },
     { name: "since", summary: "Only items newer than e.g. 24h, 2026-06-01", type: "string" },
-    { name: "limit", summary: "Max hits per source", type: "number" },
+    { name: "limit", summary: "Max hits per source; with --local, max local visual DB candidates", type: "number" },
     { name: "local", summary: "Scan local case media/indexes instead of external sources", type: "boolean" },
     { name: "pull", summary: "Auto-capture + sense each hit", type: "boolean" },
     { name: "pipe", summary: "Sense to run on pulled hits (watch|listen|face)", type: "string" },

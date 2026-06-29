@@ -90,6 +90,17 @@ export async function runLocalFace(
 ): Promise<OvercastRecord> {
   const path = script("face_match.py");
   if (!path) return missingScript("face", input, "face_match.py");
+  if (opts.thumbnails) {
+    return makeRecord({
+      verb: "face",
+      format: "json",
+      payload: { input, op: opts.op, faces: [], count: 0 },
+      media: { ref: input },
+      meta: { provider: "local:face", case: c.dir },
+      error: "deepface-local does not support --thumbnails yet",
+      state: "error",
+    });
+  }
   const args = [
     "--op", opts.op,
     "--index", opts.indexId,
@@ -100,7 +111,6 @@ export async function runLocalFace(
   if (opts.limit != null) args.push("--limit", String(opts.limit));
   if (opts.maxFrames != null) args.push("--max-frames", String(opts.maxFrames));
   if (opts.fps != null) args.push("--fps", String(opts.fps));
-  if (opts.thumbnails) args.push("--thumbnails");
   const rec = await runExecProvider("face", localVisionPython(), input, {
     env: { ...providerEnv(c.mediaDir), OVERCAST_INDEX_DIR: localIndexDir(c, opts.indexId) },
     extraArgs: [path, ...args],

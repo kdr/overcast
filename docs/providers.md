@@ -248,8 +248,9 @@ For local-media-only cases, `scan` falls back to local case media/indexes instea
 of erroring on missing sources. If an image target and face-analysis or local
 visual index are present, it suggests/runs the matching search. Local visual DB
 searches scan candidate case media against the reference images already stored in
-the local indexes; they do not search the target/reference image by itself. Use
-`scan --local` to force this local path even when external sources are registered.
+the local indexes; they do not search the target/reference image by itself. Local
+visual DB fan-out is capped by `--limit` (default 5). Use `scan --local` to force
+this local path even when external sources are registered.
 
 Each responds to `describe` offline:
 

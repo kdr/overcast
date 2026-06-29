@@ -235,7 +235,7 @@ Options:
   --query <string>       Ad-hoc keyword search across sources
   --source <string>      Restrict to source ids/types (comma list)
   --since <string>       Only items newer than e.g. 24h, 2026-06-01
-  --limit <number>       Max hits per source
+  --limit <number>       Max hits per source; with --local, max local visual DB candidates
   --local                Scan local case media/indexes instead of external sources
   --pull                 Auto-capture + sense each hit
   --pipe <string>        Sense to run on pulled hits (watch|listen|face)

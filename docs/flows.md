@@ -320,7 +320,8 @@ overcast ask "What local findings mention the target?"
 `scan --local` works with zero registered sources; with an image target plus a
 face-analysis, image-ransac, or deepface-local index it runs matching directly.
 For local visual DBs, the image target is the reference and the case media are
-the candidates being searched.
+the candidates being searched. Use `--limit` to cap local visual DB fan-out
+(default 5).
 
 ### 6. One-shot OSINT pull
 

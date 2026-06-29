@@ -113,11 +113,13 @@ test("scan --local runs local visual DB searches against case media", async () =
     c.ensure();
     const target = join(d, "target.jpg");
     const video = join(d, "clip.mp4");
+    const video2 = join(d, "clip2.mp4");
     const logoRef = join(d, "logo-ref.jpg");
     const personRef = join(d, "person-ref.jpg");
     const fakePy = join(d, "fake-visual-db.sh");
     writeFileSync(target, "target image");
     writeFileSync(video, "fake video");
+    writeFileSync(video2, "fake video 2");
     writeFileSync(logoRef, "logo ref");
     writeFileSync(personRef, "person ref");
     writeFileSync(fakePy, `#!/usr/bin/env bash
@@ -151,16 +153,21 @@ fi
     addMember(c, "faces", { ref: personRef });
     const setup = emptySetup("visual-db-local-scan");
     setup.completed = true;
-    setup.media.videos = [video];
+    setup.media.videos = [video, video2];
     saveSetup(c, setup);
 
-    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { local: true }, case: c, profile: defaultProfile() });
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { local: true, limit: 1 }, case: c, profile: defaultProfile() });
     const summary = recs.find((r) => r.verb === "scan")!;
     assert.equal(summary.state, "ready");
+    assert.equal((summary.payload as Record<string, unknown>).local_visual_candidates, 1);
+    assert.equal((summary.payload as Record<string, unknown>).local_visual_candidates_total, 2);
+    assert.equal((summary.payload as Record<string, unknown>).local_visual_limit, 1);
     assert.match(JSON.stringify((summary.payload as Record<string, unknown>).suggested_commands), /image match .*clip\.mp4 --index logos/);
     assert.match(JSON.stringify((summary.payload as Record<string, unknown>).suggested_commands), /face .*clip\.mp4 --match .*target\.jpg --index faces/);
     const image = recs.find((r) => r.verb === "image")!;
     const face = recs.find((r) => r.verb === "face")!;
+    assert.equal(recs.filter((r) => r.verb === "image").length, 1);
+    assert.equal(recs.filter((r) => r.verb === "face").length, 1);
     assert.equal(image.media?.ref, video);
     assert.equal(face.media?.ref, video);
     assert.equal((face.payload as Record<string, unknown>).op, "match");
