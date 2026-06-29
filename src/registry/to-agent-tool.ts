@@ -12,6 +12,7 @@ import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
 import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
 import { expandHome, expandHomeArg } from "../fs-path.js";
 import { renderRecord, pageCommand } from "../render.js";
+import { isHtmlExportPath } from "../report/html.js";
 import type { Case } from "../case.js";
 import type { Profile } from "../profile.js";
 
@@ -127,7 +128,7 @@ function applyAgentHtmlDefaults(spec: VerbSpec, opts: VerbContext["opts"]): void
   const hasThemeFlag = spec.flags.some((f) => f.name === "theme");
   if (!hasThemeFlag || opts.theme != null) return;
   const exportPath = opts.export;
-  if (typeof exportPath === "string" && /\.html?$/i.test(exportPath.trim())) {
+  if (typeof exportPath === "string" && isHtmlExportPath(exportPath.trim())) {
     opts.theme = "csi";
   }
 }

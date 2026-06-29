@@ -36,6 +36,10 @@ export function normalizeHtmlTheme(value: unknown): HtmlTheme | undefined {
   return undefined;
 }
 
+export function isHtmlExportPath(path: string): boolean {
+  return extname(path).toLowerCase() === ".html";
+}
+
 export function escapeHtml(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")

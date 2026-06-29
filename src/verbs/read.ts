@@ -3,9 +3,9 @@
 // the bound memory providers (fan-out); currently the local provider.
 
 import { writeFileSync } from "node:fs";
-import { resolve, extname } from "node:path";
+import { resolve } from "node:path";
 import { makeRecord, memoryRecords, type OvercastRecord } from "../record.js";
-import { mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport } from "../report/html.js";
+import { isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport } from "../report/html.js";
 import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
@@ -328,7 +328,7 @@ export const briefVerb: VerbSpec = {
     let exported: string | undefined;
     if (ctx.opts.export) {
       const path = resolve(String(ctx.opts.export));
-      const isHtml = extname(path).toLowerCase() === ".html";
+      const isHtml = isHtmlExportPath(path);
       const html = theme === "csi"
         ? renderCsiTimelineReport({
             title: `Brief — ${info.name}`,

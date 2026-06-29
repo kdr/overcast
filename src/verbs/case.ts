@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase, recordFiles } from "../case.js";
 import { humanSize } from "../render.js";
-import { mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
+import { isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
 import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
@@ -743,7 +743,7 @@ export const caseVerb: VerbSpec = {
     { name: "dry-run", summary: "setup/edit: preview without saving or applying", type: "boolean" },
     { name: "verb", summary: "Filter records by kind", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
-    { name: "export", summary: "Write a case status/log HTML report", type: "string" },
+    { name: "export", summary: "Write a case status/log report (.md or .html)", type: "string" },
     { name: "theme", summary: "HTML export theme: plain | csi", type: "string", choices: ["plain", "csi"], default: "plain" },
     { name: "field", summary: "Payload field to read in full (memory get)", type: "string" },
     { name: "offset", summary: "Start char offset when paging a field (memory get)", type: "number" },
@@ -809,10 +809,11 @@ export const caseVerb: VerbSpec = {
       if (ctx.opts.export) {
         const path = resolve(String(ctx.opts.export));
         const title = `Case status — ${ctx.case.exists() ? ctx.case.info().name : "case"}`;
+        const md = statusMarkdown(title, payload);
         const html = theme === "csi"
           ? renderCsiStatusReport({ title, subtitle: ctx.case.dir, payload })
-          : mdToPlainHtml(statusMarkdown(title, payload), title);
-        writeFileSync(path, html, "utf8");
+          : mdToPlainHtml(md, title);
+        writeFileSync(path, isHtmlExportPath(path) ? html : md, "utf8");
         exported = path;
       }
       return [makeRecord({ verb: "case", format: "json", payload: { ...payload, export: exported ?? null }, state: "ready" })];
@@ -1049,7 +1050,8 @@ export const caseVerb: VerbSpec = {
         }
         limit = n;
       }
-      const view = recs.slice(0, limit).map((r) => ({
+      const limited = recs.slice(0, limit);
+      const view = limited.map((r) => ({
         id: r.id, verb: r.verb, state: r.state ?? "ready", media: r.media?.ref ?? null, at: r.media?.at ?? null,
       }));
       let exported: string | undefined;
@@ -1058,22 +1060,23 @@ export const caseVerb: VerbSpec = {
         if (!theme) return [err(`invalid --theme '${ctx.opts.theme}' (expected plain or csi)`)];
         const path = resolve(String(ctx.opts.export));
         const counts: Record<string, number> = {};
-        for (const r of recs) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
+        for (const r of limited) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
         const title = `Case records — ${ctx.case.exists() ? ctx.case.info().name : "case"}`;
+        const md = caseRecordsMarkdown(title, limited, counts);
         const html = theme === "csi"
           ? renderCsiTimelineReport({
               title,
               subtitle: ctx.case.dir,
               kind: "case log",
-              records: recs.map(recordToTimelineRecord),
+              records: limited.map(recordToTimelineRecord),
               counts,
-              total: recs.length,
+              total: limited.length,
             })
-          : mdToPlainHtml(caseRecordsMarkdown(title, recs, counts), title);
-        writeFileSync(path, html, "utf8");
+          : mdToPlainHtml(md, title);
+        writeFileSync(path, isHtmlExportPath(path) ? html : md, "utf8");
         exported = path;
       }
-      return [makeRecord({ verb: "case", format: "json", payload: { count: recs.length, records: view, export: exported ?? null }, state: "ready" })];
+      return [makeRecord({ verb: "case", format: "json", payload: { count: limited.length, records: view, export: exported ?? null }, state: "ready" })];
     }
 
     if (action === "memory") {

@@ -522,7 +522,7 @@ Options:
   --dry-run              setup/edit: preview without saving or applying
   --verb <string>        Filter records by kind
   --since <string>       Time filter (e.g. 24h, 2026-06-01)
-  --export <string>      Write a case status/log HTML report
+  --export <string>      Write a case status/log report (.md or .html)
   --theme <string>       HTML export theme: plain | csi (default: plain)
   --field <string>       Payload field to read in full (memory get)
   --offset <number>      Start char offset when paging a field (memory get)

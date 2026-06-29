@@ -900,3 +900,19 @@ test("brief html export does not reparse embedded content as markup", async () =
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("brief treats only .html as an HTML export", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefhtm-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "brief htm marker" } }));
+    const htmPath = join(dir, "brief.htm");
+    await briefVerb.run(ctx(c, undefined, { export: htmPath, theme: "csi" }));
+    const out = readFileSync(htmPath, "utf8");
+    assert.match(out, /^# Brief/m);
+    assert.doesNotMatch(out, /<html/i);
+    assert.doesNotMatch(out, /data-overcast-theme="csi"/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

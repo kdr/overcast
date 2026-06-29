@@ -177,10 +177,12 @@ test("agent tool defaults HTML exports to CSI when the verb supports themes", as
     await tool.execute("call_1", { export: join(dir, "report.html") }, undefined as never);
     await tool.execute("call_2", { export: join(dir, "report.md") }, undefined as never);
     await tool.execute("call_3", { export: join(dir, "plain.html"), theme: "plain" }, undefined as never);
+    await tool.execute("call_4", { export: join(dir, "report.htm") }, undefined as never);
 
     assert.equal(seen[0].theme, "csi");
     assert.equal(seen[1].theme, undefined);
     assert.equal(seen[2].theme, "plain");
+    assert.equal(seen[3].theme, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
