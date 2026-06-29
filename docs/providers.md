@@ -99,6 +99,18 @@ automatically for newly discovered media. Explicit `--pipe` on `scan` or
 `case setup edit --no-auto-index-new --yes --json` to disable automatic indexing
 later without removing the selected providers or auto-sense chain.
 
+Runtime execution follows the active profile binding. Case setup records
+provider choice/policy metadata and can clear built-ins such as
+`enhance:ffmpeg`, but it does not pin a stale exec descriptor after the profile
+is rebound with `provider setup apply` or `setup provider`.
+
+`scan --pull` and `monitor` use the same per-hit processing model: resolve
+`media.ref` or `payload.url`, capture when needed, run an explicit `--pipe` or
+setup automation/default watch, then classify the item as completed, pending,
+credential-blocked, or failed. Refless hits are explicit processing errors in
+both commands. Monitor records hard failures once and marks them seen; pending
+or credential-blocked items are left retryable for the next pass.
+
 ## Hugging Face providers (turnkey when `HF_TOKEN` is set)
 
 overcast ships Hugging Face Inference API providers so `see` and model-based

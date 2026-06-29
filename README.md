@@ -244,6 +244,10 @@ Provider setup has two levels:
 - **Case setup**: per investigation, choose which configured provider outputs
   are eligible for local memory/indexing and which senses should run
   automatically on newly captured media.
+  Runtime execution follows the active profile binding; case setup records
+  provider policy/choice metadata and can clear built-ins such as
+  `enhance:ffmpeg`, but it does not pin an old exec command after the profile is
+  rebound.
 
 ```bash
 # reusable profile setup
@@ -271,6 +275,13 @@ overcast finding dismiss <finding-id> --json
 Use `overcast case setup edit --no-auto-index-new --yes --json` to turn off
 automatic indexing later without clearing the rest of the case automation
 policy.
+
+`scan --pull` and `monitor` share per-hit processing semantics: resolve
+`media.ref` or `payload.url`, capture when needed, run the explicit `--pipe` or
+setup automation/default watch, then classify the item as completed, pending,
+credential-blocked, or failed. Hits with no fetchable ref/url emit explicit
+errors in both commands. `monitor` marks hard failures seen after surfacing the
+error, while pending/credential gaps remain retryable.
 
 Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, and `local-detect`.
 Single choices use `--verb <watch|listen|see|face|enhance> --choice <id>`, such

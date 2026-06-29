@@ -45,3 +45,21 @@ prov="$(jq -r '.meta.provider' <<<"$lout")"
 state="$(jq -r '.state' <<<"$lout")"
 assert_eq "rebind.provider" "whisper-local" "$prov" "listen ran the rebound sample provider"
 assert_eq "rebind.state" "needs_credentials" "$state" "sample provider's own state honored (pass-through)"
+
+# Case setup can remember a provider choice, but execution must follow the
+# active profile binding after provider setup/rebinds. This prevents a saved
+# setup descriptor from pinning stale commands.
+stale_case="$SMOKE_DIR/case_setup_stale"; mkdir -p "$stale_case"
+stale_home="$SMOKE_DIR/home_setup_stale"; mkdir -p "$stale_home"
+$OVERCAST case setup edit --provider "see:hf" --yes --case "$stale_case" --home "$stale_home" >/dev/null 2>&1
+see_script="$SMOKE_DIR/see-profile.sh"
+cat >"$see_script" <<'SH'
+#!/usr/bin/env bash
+echo '{"verb":"see","payload":{"caption":"profile"},"meta":{"provider":"profile-see"},"state":"ready"}'
+SH
+chmod +x "$see_script"
+$OVERCAST setup provider see "exec:bash $see_script" --home "$stale_home" --case "$stale_case" >/dev/null 2>&1
+img="$SMOKE_DIR/stale-provider.jpg"; printf 'fake image' >"$img"
+sout="$($OVERCAST see "$img" --json --home "$stale_home" --profile default --case "$stale_case" 2>/dev/null)"
+save_json "phase5_stale_provider" "$sout" >/dev/null
+assert_eq "provider.stale_descriptor" "profile" "$(jq -r '.payload.caption' <<<"$sout")" "active profile provider overrides stale case setup descriptor"

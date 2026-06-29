@@ -232,6 +232,38 @@ fi
   }
 });
 
+test("monitor marks hits without refs as process errors", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monitor-refless-"));
+  const sourceScript = join(d, "refless-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_REFLESS_CMD;
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo '[{"title":"no ref","source":"refless"}]'
+else
+  echo '{}'
+fi
+`);
+    process.env.OVERCAST_SOURCE_REFLESS_CMD = `bash ${sourceScript}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "refless:any");
+
+    const recs = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true }, case: c, profile: defaultProfile() });
+    const summary = recs.find((r) => r.verb === "monitor")!;
+    assert.equal(summary.state, "error");
+    assert.equal((summary.payload as Record<string, unknown>).total_hits, 1);
+    assert.equal((summary.payload as Record<string, unknown>).process_errors, 1);
+    assert.equal(recs.some((r) => r.verb === "monitor" && /no fetchable ref or url/.test(String(r.error))), true);
+    assert.equal(recs.some((r) => r.verb === "scan" && r.state === "ready" && (r.payload as Record<string, unknown>).title === "no ref"), true);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_REFLESS_CMD;
+    else process.env.OVERCAST_SOURCE_REFLESS_CMD = prevSource;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("monitor explicit invalid --pipe does not fall back to default watch", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-monitor-explicit-no-fallback-"));
   try {

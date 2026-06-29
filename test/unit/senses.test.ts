@@ -91,7 +91,7 @@ test("see/enhance route to a bound provider (pass-through), e.g. a HF-style VLM"
   assert.equal(erec.meta?.provider, "hf:upscale");
 });
 
-test("case provider policy overrides profile provider binding for senses", async () => {
+test("active profile provider binding overrides stale case setup descriptor", async () => {
   const { writeFileSync, chmodSync } = await import("node:fs");
   const d = mkdtempSync(join(tmpdir(), "oc-sense-provider-"));
   try {
@@ -117,7 +117,7 @@ test("case provider policy overrides profile provider binding for senses", async
     p.providers = { ...p.providers, see: { type: "exec", run: `bash ${profileScript} {{input}}` } };
 
     const [rec] = await seeVerb.run({ input: img, rest: [], opts: {}, case: c, profile: p });
-    assert.equal((rec.payload as Record<string, unknown>).caption, "case");
+    assert.equal((rec.payload as Record<string, unknown>).caption, "profile");
   } finally {
     rmSync(d, { recursive: true, force: true });
   }

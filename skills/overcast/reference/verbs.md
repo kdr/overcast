@@ -191,14 +191,14 @@ Emits `media.crop` records.
 
 ### `overcast scan`
 
-Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
+Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each hit uses the same media.ref/payload.url, capture, sense, and failure semantics as monitor. If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
 
 ```
 overcast scan  [options]
 
   Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 
-  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
+  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each hit uses the same media.ref/payload.url, capture, sense, and failure semantics as monitor. If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
 
 Options:
   --query <string>       Ad-hoc keyword search across sources
@@ -240,14 +240,14 @@ Emits `capture` records.
 
 ### `overcast monitor`
 
-Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
+Enumerates sources, diffs against .overcast/seen.json, and for each NEW item uses the shared scan --pull processor: resolve media.ref/payload.url, capture when needed, then run explicit --pipe or setup automation/default watch. Hard processing failures are surfaced and marked seen; pending/credential gaps remain retryable. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
 
 ```
 overcast monitor  [options]
 
   scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
 
-  Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
+  Enumerates sources, diffs against .overcast/seen.json, and for each NEW item uses the shared scan --pull processor: resolve media.ref/payload.url, capture when needed, then run explicit --pipe or setup automation/default watch. Hard processing failures are surfaced and marked seen; pending/credential gaps remain retryable. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
 
 Options:
   --source <string>      Restrict to source ids/types

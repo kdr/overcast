@@ -226,11 +226,76 @@ function directSensePlan(ctx: VerbContext, ref: string): DirectSensePlan | undef
     : undefined;
 }
 
-function pullOutcome(records: OvercastRecord[]): "completed" | "pending" | "failed" {
+type HitProcessOutcome = "completed" | "pending" | "failed" | "needs_credentials";
+
+interface ProcessHitResult {
+  ref?: string;
+  records: OvercastRecord[];
+  outcome: HitProcessOutcome;
+  submittedRemote: number;
+}
+
+function hitFetchRef(hit: OvercastRecord): string | undefined {
+  const hitUrl = (hit.payload as Record<string, unknown>)?.url;
+  return hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
+}
+
+function classifyHitRecords(records: OvercastRecord[]): HitProcessOutcome {
   if (records.length === 0) return "failed";
+  if (records.some((r) => r.state === "needs_credentials")) return "needs_credentials";
   if (records.some((r) => r.state === "pending")) return "pending";
-  if (records.some((r) => r.state === "error" || r.state === "needs_credentials")) return "failed";
+  if (records.some((r) => r.state === "error")) return "failed";
   return "completed";
+}
+
+async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hit: OvercastRecord): Promise<ProcessHitResult> {
+  const ref = hitFetchRef(hit);
+  if (!ref) {
+    const label = caller === "scan"
+      ? `pull hit ${hit.id} has no media.ref or url`
+      : `scan hit has no fetchable ref or url: ${String((hit.payload as Record<string, unknown>)?.title ?? hitKey(hit))}`;
+    return { records: [err(caller, label)], outcome: "failed", submittedRemote: 0 };
+  }
+
+  const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+  const directPlan = directSensePlan(ctx, ref);
+  const records: OvercastRecord[] = [];
+  let submittedRemote = 0;
+
+  if (directPlan) {
+    submittedRemote++;
+    const hasRemainingAutoSense = directPlan.remainingAutoSense.length > 0;
+    const sensedRecords = directPlan.explicitPipe
+      ? await runExplicitPipeWithPolicy(ctx, caller, directPlan.verb, ref)
+      : await runAutomationChain(ctx, caller, ref, [directPlan.verb], { autoIndex: !hasRemainingAutoSense });
+    records.push(...(sensedRecords.length ? sensedRecords : [err(caller, `direct ${directPlan.verb} produced no records for ${ref}`)]));
+
+    if (hasRemainingAutoSense) {
+      const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+      records.push(cap);
+      if (cap.state !== "error" && cap.state !== "needs_credentials" && cap.media?.ref) {
+        const remainingRecords = await runAutomationChain(ctx, caller, cap.media.ref, directPlan.remainingAutoSense);
+        records.push(...(remainingRecords.length ? remainingRecords : [err(caller, `automation produced no records for ${cap.media.ref}`)]));
+      }
+    }
+    return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
+  }
+
+  const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+  records.push(cap);
+  if (cap.state !== "error" && cap.state !== "needs_credentials" && cap.media?.ref) {
+    if (explicitPipe || isSenseableMedia(cap.media.ref)) {
+      if (explicitPipe) {
+        const sensedRecords = await runExplicitPipeWithPolicy(ctx, caller, explicitPipe, cap.media.ref);
+        records.push(...(sensedRecords.length ? sensedRecords : [err(caller, `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`)]));
+      } else {
+        const automated = await runSetupAutomation(ctx, caller, cap.media.ref);
+        if (automated.length) records.push(...automated);
+        else records.push(...await runDefaultWatchWithPolicy(ctx, caller, cap.media.ref));
+      }
+    }
+  }
+  return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
 }
 
 export const scanVerb: VerbSpec = {
@@ -240,7 +305,7 @@ export const scanVerb: VerbSpec = {
   description:
     "Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit " +
     "--query overrides, and the active target is the fallback when a source has no ref. With --pull, " +
-    "each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no " +
+    "each hit uses the same media.ref/payload.url, capture, sense, and failure semantics as monitor. If the case has no " +
     "enabled external sources, scan falls back to local case media/indexes and can run a face-index " +
     "search when an image target and face-analysis index are available.",
   args: [],
@@ -286,101 +351,26 @@ export const scanVerb: VerbSpec = {
       // skip enumerate FAILURES (error + needs_credentials) — they're not items to
       // capture/sense, matching monitorPass.
       if (hit.state === "error" || hit.state === "needs_credentials") continue;
-      // resolve the fetch target from media.ref OR payload.url (a hit may carry
-      // only a URL) — same fallback as monitorPass + captureRef.
-      const hitUrl = (hit.payload as Record<string, unknown>)?.url;
-      const ref = hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
-      if (!ref) {
-        failed++;
-        processed++;
-        const saved = checkpoint(ctx, err("scan", `pull hit ${hit.id} has no media.ref or url`));
-        out.push(saved);
-        out.push(scanProgress(ctx, { stage: "processed", ref: null, hit: hit.id, processed, submitted_remote, completed, pending, failed }, "error"));
-        continue;
-      }
       try {
-        const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-        const directPlan = directSensePlan(ctx, ref);
-        const itemRecords: OvercastRecord[] = [];
-        if (directPlan) {
-          submitted_remote++;
-          out.push(scanProgress(ctx, { stage: "submitted", ref, via: "direct-url", sense: directPlan.verb, submitted_remote, completed, pending, failed }));
-          const hasRemainingAutoSense = directPlan.remainingAutoSense.length > 0;
-          const sensedRecords = directPlan.explicitPipe
-            ? await runExplicitPipeWithPolicy(ctx, "scan", directPlan.verb, ref)
-            : await runAutomationChain(ctx, "scan", ref, [directPlan.verb], { autoIndex: !hasRemainingAutoSense });
-          if (sensedRecords.length) {
-            const saved = sensedRecords.map((r) => checkpoint(ctx, r));
-            out.push(...saved);
-            itemRecords.push(...saved);
-          } else {
-            const saved = checkpoint(ctx, err("scan", `direct ${directPlan.verb} produced no records for ${ref}`));
-            out.push(saved);
-            itemRecords.push(saved);
-          }
-          if (hasRemainingAutoSense) {
-            const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-            const savedCap = checkpoint(ctx, cap);
-            out.push(savedCap);
-            itemRecords.push(savedCap);
-            if (cap.state !== "error" && cap.media?.ref) {
-              const automated = await runAutomationChain(ctx, "scan", cap.media.ref, directPlan.remainingAutoSense);
-              if (automated.length) {
-                const saved = automated.map((r) => checkpoint(ctx, r));
-                out.push(...saved);
-                itemRecords.push(...saved);
-              } else {
-                const saved = checkpoint(ctx, err("scan", `automation produced no records for ${cap.media.ref}`));
-                out.push(saved);
-                itemRecords.push(saved);
-              }
-            }
-          }
-        } else {
-          const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-          const savedCap = checkpoint(ctx, cap);
-          out.push(savedCap);
-          itemRecords.push(savedCap);
-          if (cap.state !== "error" && cap.media?.ref) {
-            // only auto-sense AV captures; honor an explicit --pipe for anything.
-            if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-              if (explicitPipe) {
-                const sensedRecords = await runExplicitPipeWithPolicy(ctx, "scan", explicitPipe, cap.media.ref);
-                const saved = sensedRecords.length
-                  ? sensedRecords.map((r) => checkpoint(ctx, r))
-                  : [checkpoint(ctx, err("scan", `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`))];
-                out.push(...saved);
-                itemRecords.push(...saved);
-              } else {
-                const automated = await runSetupAutomation(ctx, "scan", cap.media.ref);
-                if (automated.length) {
-                  const saved = automated.map((r) => checkpoint(ctx, r));
-                  out.push(...saved);
-                  itemRecords.push(...saved);
-                }
-                else {
-                  const saved = (await runDefaultWatchWithPolicy(ctx, "scan", cap.media.ref)).map((r) => checkpoint(ctx, r));
-                  out.push(...saved);
-                  itemRecords.push(...saved);
-                }
-              }
-            }
-          }
-        }
-        const outcome = pullOutcome(itemRecords);
-        if (outcome === "pending") pending++;
-        else if (outcome === "failed") failed++;
+        const item = await processPulledHit(ctx, "scan", hit);
+        submitted_remote += item.submittedRemote;
+        if (item.submittedRemote) out.push(scanProgress(ctx, { stage: "submitted", ref: item.ref, via: "direct-url", submitted_remote, completed, pending, failed }));
+        const saved = item.records.map((r) => checkpoint(ctx, r));
+        out.push(...saved);
+        if (item.outcome === "pending") pending++;
+        else if (item.outcome === "failed" || item.outcome === "needs_credentials") failed++;
         else completed++;
         processed++;
-        out.push(scanProgress(ctx, { stage: "processed", ref, processed, submitted_remote, completed, pending, failed }, pending ? "pending" : failed ? "error" : "ready"));
+        out.push(scanProgress(ctx, { stage: "processed", ref: item.ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed }, item.outcome === "pending" ? "pending" : item.outcome === "completed" ? "ready" : "error"));
       } catch (e) {
         // a provider timeout / spawn failure rejects — record it and keep pulling
         // the remaining hits instead of aborting the whole scan.
         failed++;
         processed++;
-        const saved = checkpoint(ctx, err("scan", `pull of ${ref} failed: ${(e as Error).message}`));
+        const ref = hitFetchRef(hit);
+        const saved = checkpoint(ctx, err("scan", `pull of ${ref ?? hit.id} failed: ${(e as Error).message}`));
         out.push(saved);
-        out.push(scanProgress(ctx, { stage: "processed", ref, processed, submitted_remote, completed, pending, failed }, "error"));
+        out.push(scanProgress(ctx, { stage: "processed", ref: ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed }, "error"));
       }
     }
     out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed }, failed ? "error" : pending ? "pending" : "ready"));
@@ -781,106 +771,31 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     const key = hitKey(hit);
     if (seen.has(key)) continue;
     out.push(hit);
-    // capture from media.ref OR a payload.url (a scan hit may carry only a URL,
-    // no media object — `capture` falls back the same way, so monitor must too).
-    const hitUrl = (hit.payload as Record<string, unknown>)?.url;
-    const ref = hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
-    if (!ref) {
-      // nothing fetchable: surface the scan.hit, mark seen (don't re-surface every
-      // pass), but don't count it as a processed new item.
-      seen.add(key);
-      continue;
-    }
     // Classify the outcome:
     //  - transient (needs_credentials / pending): a recoverable gap → leave the
     //    item UNSEEN so a later pass retries once it's fixed.
     //  - hard error (e.g. piping `watch` at captured HTML): PERMANENT → mark seen
     //    so `monitor --every` doesn't reprocess it forever, and flag the pass.
-    let transient = false;
-    let procError = false;
+    let outcome: HitProcessOutcome = "failed";
     try {
-      const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-      const directPlan = directSensePlan(ctx, ref);
-      if (directPlan) {
-        const hasRemainingAutoSense = directPlan.remainingAutoSense.length > 0;
-        const sensedRecords = directPlan.explicitPipe
-          ? await runExplicitPipeWithPolicy(ctx, "monitor", directPlan.verb, ref)
-          : await runAutomationChain(ctx, "monitor", ref, [directPlan.verb], { autoIndex: !hasRemainingAutoSense });
-        if (sensedRecords.length) out.push(...sensedRecords);
-        else {
-          procError = true;
-          out.push(err("monitor", `direct ${directPlan.verb} produced no records for ${ref}`));
-        }
-        for (const sensed of sensedRecords) {
-          const st = sensed.state;
-          if (st === "needs_credentials") { transient = true; procCredGaps++; }
-          else if (st === "pending") { transient = true; }
-          else if (st === "error") { procError = true; }
-        }
-        if (hasRemainingAutoSense) {
-          const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-          out.push(cap);
-          if (cap.state === "needs_credentials") {
-            transient = true; procCredGaps++;
-          } else if (cap.state === "error" || !cap.media?.ref) {
-            procError = true;
-          } else {
-            const remainingRecords = await runAutomationChain(ctx, "monitor", cap.media.ref, directPlan.remainingAutoSense);
-            if (remainingRecords.length) out.push(...remainingRecords);
-            else {
-              procError = true;
-              out.push(err("monitor", `automation produced no records for ${cap.media.ref}`));
-            }
-            for (const sensed of remainingRecords) {
-              const st = sensed.state;
-              if (st === "needs_credentials") { transient = true; procCredGaps++; }
-              else if (st === "pending") { transient = true; }
-              else if (st === "error") { procError = true; }
-            }
-          }
-        }
-      } else {
-        const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-        out.push(cap);
-        if (cap.state === "needs_credentials") {
-          transient = true; procCredGaps++;
-        } else if (cap.state === "error" || !cap.media?.ref) {
-          procError = true;
-        } else {
-          if (explicitPipe || isSenseableMedia(cap.media.ref)) {
-            const sensedRecords = explicitPipe
-              ? await runExplicitPipeWithPolicy(ctx, "monitor", explicitPipe, cap.media.ref)
-              : await runSetupAutomation(ctx, "monitor", cap.media.ref);
-            if (sensedRecords.length) out.push(...sensedRecords);
-            else if (!explicitPipe) {
-              const fallback = await runDefaultWatchWithPolicy(ctx, "monitor", cap.media.ref);
-              sensedRecords.push(...fallback);
-              out.push(...fallback);
-            } else {
-              procError = true;
-              out.push(err("monitor", `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`));
-            }
-            for (const sensed of sensedRecords) {
-              const st = sensed.state;
-              if (st === "needs_credentials") { transient = true; procCredGaps++; }
-              else if (st === "pending") { transient = true; }
-              else if (st === "error") { procError = true; }
-            }
-          }
-        }
-      }
+      const item = await processPulledHit(ctx, "monitor", hit);
+      outcome = item.outcome;
+      out.push(...item.records);
     } catch (e) {
       // execCapture rejects on provider timeout / spawn failure — convert it to a
       // per-hit error so the loop keeps processing the rest (and --every keeps
       // looping) instead of throwing out of the whole pass.
-      procError = true;
-      out.push(err("monitor", `processing ${ref} failed: ${(e as Error).message}`));
+      outcome = "failed";
+      out.push(err("monitor", `processing ${hitFetchRef(hit) ?? hit.id} failed: ${(e as Error).message}`));
     }
-    if (transient) continue; // recoverable gap → leave unseen, retry next pass
+    if (outcome === "pending" || outcome === "needs_credentials") {
+      if (outcome === "needs_credentials") procCredGaps++;
+      continue;
+    }
     // a hard error is permanent → mark seen (no infinite retry) but DON'T count it
     // as a successfully-ingested new item; the summary reports it via process_errors.
     seen.add(key);
-    if (procError) procErrors++;
+    if (outcome === "failed") procErrors++;
     else { newCount++; newHits.push(hit); }
   }
   // summary state reflects BOTH enumerate-time and capture/sense failures: a hard
@@ -924,8 +839,10 @@ export const monitorVerb: VerbSpec = {
   group: "osint",
   summary: "scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.",
   description:
-    "Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe " +
-    "sense. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop " +
+    "Enumerates sources, diffs against .overcast/seen.json, and for each NEW item uses the shared scan --pull processor: " +
+    "resolve media.ref/payload.url, capture when needed, then run explicit --pipe or setup automation/default watch. " +
+    "Hard processing failures are surfaced and marked seen; pending/credential gaps remain retryable. " +
+    "--once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop " +
     "(run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; " +
     "--alert <stdout|file> mirrors new records to a sink.",
   args: [],

@@ -67,6 +67,29 @@ m2="$($OVERCAST monitor --once --pipe watch --json --case "$mcase" --home "$ocho
 new2="$(jq -s '.[]|select(.verb=="monitor")|.payload.new_items' <<<"$m2" 2>/dev/null | head -1)"
 assert_eq "monitor.second_none" "0" "$new2" "second monitor pass detects 0 new (diff works)"
 
+# Refless source hits must be visible processing failures in monitor too; they
+# are marked seen after the explicit failure so monitor --every does not loop.
+refless_src="$SMOKE_DIR/refless-source.sh"
+cat >"$refless_src" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "enumerate" ]; then
+  echo '[{"title":"no ref","source":"refless"}]'
+else
+  echo '{}'
+fi
+SH
+chmod +x "$refless_src"
+export OVERCAST_SOURCE_REFLESS_CMD="bash $refless_src"
+rcase="$SMOKE_DIR/case_monitor_refless"; mkdir -p "$rcase"
+$OVERCAST source add "refless:any" --case "$rcase" --home "$ochome" --profile fx >/dev/null 2>&1
+rm1="$($OVERCAST monitor --once --json --case "$rcase" --home "$ochome" --profile fx 2>/dev/null)"
+save_json "phase3_monitor_refless" "$rm1" >/dev/null
+rstate="$(jq -s -r '.[]|select(.verb=="monitor")|.state' <<<"$rm1" 2>/dev/null | head -1)"
+rerr="$(jq -s '[.[]|select(.verb=="monitor" and (.error // "" | test("no fetchable ref or url")))]|length' <<<"$rm1" 2>/dev/null)"
+assert_eq "monitor.refless_state" "error" "$rstate" "monitor refless hit is an error"
+assert_eq "monitor.refless_error" "1" "$rerr" "monitor emits explicit refless error"
+
 # the verb surface includes the OSINT verbs (presence check — later phases append)
 ov="$($OVERCAST commands --json 2>/dev/null | jq -r '.verbs[].name')"
 omissing=""
