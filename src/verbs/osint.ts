@@ -289,7 +289,14 @@ export const scanVerb: VerbSpec = {
       // only a URL) — same fallback as monitorPass + captureRef.
       const hitUrl = (hit.payload as Record<string, unknown>)?.url;
       const ref = hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
-      if (!ref) continue;
+      if (!ref) {
+        failed++;
+        processed++;
+        const saved = checkpoint(ctx, err("scan", `pull hit ${hit.id} has no media.ref or url`));
+        out.push(saved);
+        out.push(scanProgress(ctx, { stage: "processed", ref: null, hit: hit.id, processed, submitted_remote, completed, pending, failed }, "error"));
+        continue;
+      }
       try {
         const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
         const directPlan = directSensePlan(ctx, ref);
@@ -842,10 +849,13 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
               ? await runExplicitPipeWithPolicy(ctx, "monitor", explicitPipe, cap.media.ref)
               : await runSetupAutomation(ctx, "monitor", cap.media.ref);
             if (sensedRecords.length) out.push(...sensedRecords);
-            else {
+            else if (!explicitPipe) {
               const fallback = await runDefaultWatchWithPolicy(ctx, "monitor", cap.media.ref);
               sensedRecords.push(...fallback);
               out.push(...fallback);
+            } else {
+              procError = true;
+              out.push(err("monitor", `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`));
             }
             for (const sensed of sensedRecords) {
               const st = sensed.state;

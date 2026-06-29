@@ -201,6 +201,57 @@ test("monitor explicit --pipe emits review findings", async () => {
   }
 });
 
+test("scan --pull marks hits without refs as processed failures", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-refless-"));
+  const sourceScript = join(d, "refless-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_REFLESS_CMD;
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo '[{"title":"no ref","source":"refless"}]'
+else
+  echo '{}'
+fi
+`);
+    process.env.OVERCAST_SOURCE_REFLESS_CMD = `bash ${sourceScript}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "refless:any");
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile: defaultProfile() });
+    const final = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "complete")!;
+    assert.equal(final.state, "error");
+    assert.equal((final.payload as Record<string, unknown>).processed, 1);
+    assert.equal((final.payload as Record<string, unknown>).failed, 1);
+    assert.equal(recs.some((r) => r.verb === "scan" && r.state === "ready" && (r.payload as Record<string, unknown>).title === "no ref"), true);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_REFLESS_CMD;
+    else process.env.OVERCAST_SOURCE_REFLESS_CMD = prevSource;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("monitor explicit invalid --pipe does not fall back to default watch", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monitor-explicit-no-fallback-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const recs = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true, pipe: "bogus" }, case: c, profile });
+    const summary = recs.find((r) => r.verb === "monitor")!;
+    assert.equal(summary.state, "error");
+    assert.equal((summary.payload as Record<string, unknown>).process_errors, 2);
+    assert.equal(recs.some((r) => r.verb === "watch"), false);
+    assert.equal(recs.some((r) => r.verb === "monitor" && /unknown --pipe/.test(String(r.error))), true);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan --pull runs first direct auto-sense for TikTok then captures for remaining senses", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-tiktok-auto-chain-"));
   const sourceScript = join(d, "tiktok-source.sh");
