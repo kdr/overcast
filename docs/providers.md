@@ -1,5 +1,9 @@
 # Authoring overcast providers
 
+> For how providers fit into end-to-end investigations (setup, scan/monitor,
+> ask/brief, indexes), see [`flows.md`](flows.md). This doc is the provider
+> authoring + binding reference.
+
 overcast binds verbs to backends through **providers**. There is one wire
 contract (the **record**) and three transports: `exec` (default), `http`,
 `in-proc`. Three provider classes share the same machinery — **sense**
