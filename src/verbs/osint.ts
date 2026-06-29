@@ -483,7 +483,7 @@ function payloadText(rec: OvercastRecord): string {
   }
 }
 
-function automatedFindings(ctx: VerbContext, rec: OvercastRecord, trigger: string): OvercastRecord[] {
+function automatedFindings(ctx: VerbContext, rec: OvercastRecord, trigger: string, pending: OvercastRecord[] = []): OvercastRecord[] {
   const setup = loadSetup(ctx.case);
   if (setup?.findings?.mode !== "review" || rec.state === "error" || rec.state === "needs_credentials") return [];
   const haystack = payloadText(rec).toLowerCase();
@@ -491,7 +491,7 @@ function automatedFindings(ctx: VerbContext, rec: OvercastRecord, trigger: strin
   for (const target of listTargets(ctx.case).filter((t) => t.kind !== "image").map((t) => t.value)) {
     const needle = target.trim().toLowerCase();
     if (!needle || !haystack.includes(needle)) continue;
-    if (hasAutomatedFinding(ctx, rec, target)) continue;
+    if (hasAutomatedFinding(ctx, rec, target, pending)) continue;
     out.push(makeFinding({
       text: `Automated match for target '${target}' in ${rec.verb} record ${rec.id}`,
       target,
@@ -502,13 +502,13 @@ function automatedFindings(ctx: VerbContext, rec: OvercastRecord, trigger: strin
   return out;
 }
 
-function hasAutomatedFinding(ctx: VerbContext, sourceRecord: OvercastRecord, target: string): boolean {
-  return ctx.case.records().some((rec) => {
+function hasAutomatedFinding(ctx: VerbContext, sourceRecord: OvercastRecord, target: string, pending: OvercastRecord[] = []): boolean {
+  return [...ctx.case.records(), ...pending].some((rec) => {
     if (rec.verb !== "finding" || !rec.payload || typeof rec.payload !== "object") return false;
     const payload = rec.payload as Record<string, unknown>;
     if (typeof payload.finding_id === "string") return false;
     if (latestFindingStatus(ctx, rec.id) === "dismissed") return false;
-    if (String(payload.target ?? "") !== target || payload.source_verb !== sourceRecord.verb) return false;
+    if (String(payload.target ?? "") !== target) return false;
     if (payload.source_record === sourceRecord.id) return true;
     return !!sourceRecord.media?.ref && rec.media?.ref === sourceRecord.media.ref;
   });
@@ -546,7 +546,7 @@ async function runSetupAutomation(ctx: VerbContext, caller: string, ref: string)
   for (const verb of chain) {
     const rec = await runAutomationSense(ctx, caller, verb, currentRef);
     rec.meta = { ...rec.meta, case: ctx.case.dir, triggered_by: `${caller}:automation` };
-    out.push(rec, ...automatedFindings(ctx, rec, `${caller}:${verb}`));
+    out.push(rec, ...automatedFindings(ctx, rec, `${caller}:${verb}`, out));
     if (rec.state !== "error" && rec.state !== "needs_credentials" && rec.media?.ref) currentRef = rec.media.ref;
   }
   out.push(...await autoIndexNewMedia(ctx, currentRef, { skipLocalWatch: hasUsableWatch(out, currentRef) }));

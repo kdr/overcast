@@ -260,6 +260,44 @@ test("scan --pull does not duplicate existing review findings for the same media
   }
 });
 
+test("auto-sense chain dedupes findings across verbs for the same media target", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-finding-chain-dedupe-"));
+  const seeScript = join(d, "see-target.sh");
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    addTarget(c, "Hacker News");
+    writeFileSync(seeScript, [
+      "#!/usr/bin/env bash",
+      "printf '%s\\n' '{\"verb\":\"see\",\"state\":\"ready\",\"payload\":{\"caption\":\"Hacker News screen\"}}'",
+      "",
+    ].join("\n"));
+    execFileSync("chmod", ["755", seeScript]);
+    const setup = emptySetup("finding-chain-dedupe");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["watch", "see"], auto_index_new: false };
+    setup.findings = { mode: "review" };
+    setup.providers = {
+      see: {
+        verb: "see",
+        choice: "custom",
+        descriptor: { type: "exec", run: `bash ${seeScript} {{input}}` },
+      },
+    };
+    saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    const findings = recs.filter((r) => r.verb === "finding");
+    assert.equal(findings.length, 2);
+    assert.equal(findings.every((r) => (r.payload as Record<string, unknown>).source_verb === "watch"), true);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("dismissed automated findings can be re-detected for review", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-finding-redetect-"));
   try {

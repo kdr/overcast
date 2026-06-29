@@ -44,7 +44,7 @@ function takeGlobal(argv: string[], name: string): { value?: string; rest: strin
  *    Opt back in with OVERCAST_PI_ONLINE=1.
  */
 function prepareTuiEnv(): void {
-  loadDotEnv(process.env.OVERCAST_CASE || process.cwd());
+  loadDotEnv(process.env.OVERCAST_CASE || process.cwd(), { override: true });
   if (!process.env.CLOUDGLUE_API_KEY) {
     const { apiKey } = resolveCloudglue();
     if (apiKey) process.env.CLOUDGLUE_API_KEY = apiKey;

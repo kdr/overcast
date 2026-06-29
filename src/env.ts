@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SECRET_NAME_RE = /(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|PASS|CREDENTIAL|AUTH)(?:_|$)/i;
-const SECRET_VALUE_RE = /\b(?:apify_api_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,})\b/g;
+const SECRET_VALUE_RE = /\b(?:apify_api_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{16,}|gh[opsu]_[A-Za-z0-9_]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,})\b/g;
+const DOTENV_KEYS = new Set<string>();
 
 function unquoteEnvValue(value: string): string {
   const trimmed = value.trim();
@@ -23,8 +24,9 @@ export function loadDotEnv(dir = process.cwd(), opts: { override?: boolean } = {
     const m = raw.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
     if (!m) continue;
     const key = m[1];
-    if (!opts.override && process.env[key] !== undefined) continue;
+    if (process.env[key] !== undefined && !(opts.override && DOTENV_KEYS.has(key))) continue;
     process.env[key] = unquoteEnvValue(m[2]);
+    DOTENV_KEYS.add(key);
   }
   return file;
 }

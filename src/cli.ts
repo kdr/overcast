@@ -220,7 +220,7 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // first remaining token as the command.
   const { rest: tokens, caseDir, home, profile, errors: globalErrors } =
     extractGlobals(argv);
-  loadDotEnv(caseDir ?? process.cwd());
+  loadDotEnv(caseDir ?? process.cwd(), { override: true });
   // A leading output flag before the verb (`overcast --json watch v.mp4`,
   // `overcast --format md commands`) is moved to AFTER the command, so tokens[0]
   // is the command and every handler (top-level commands/version + verb dispatch)
