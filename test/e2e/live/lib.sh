@@ -41,6 +41,16 @@ VIDEO_SPEECH_SRC="${OC_VIDEO_SPEECH:-}"  # clear speech — listen (audio fallba
 IMAGE_FILE="${OC_IMAGE:-}"               # standalone image — see (caption / OCR / detect)
 # shellcheck disable=SC2034
 AUDIO_FILE="${OC_AUDIO:-}"               # standalone audio — listen
+# shellcheck disable=SC2034
+LOCAL_FACE_VIDEO="${OC_LOCAL_FACE_VIDEO:-}"     # local face DB: video to search
+# shellcheck disable=SC2034
+LOCAL_FACE_IMAGE="${OC_LOCAL_FACE_IMAGE:-}"     # local face DB: reference face image
+# shellcheck disable=SC2034
+LOCAL_IMAGE_REF="${OC_LOCAL_IMAGE_REF:-}"       # local image DB: reference logo/landmark
+# shellcheck disable=SC2034
+LOCAL_IMAGE_VIDEO_A="${OC_LOCAL_IMAGE_VIDEO_A:-}" # local image DB: candidate video A
+# shellcheck disable=SC2034
+LOCAL_IMAGE_VIDEO_B="${OC_LOCAL_IMAGE_VIDEO_B:-}" # local image DB: candidate video B
 
 have_media() { [ -f "$1" ]; }
 

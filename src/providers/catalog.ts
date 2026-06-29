@@ -31,6 +31,7 @@ export function providerChoices(): ProviderChoice[] {
   const elListen = sidecar("examples", "providers", "elevenlabs", "listen.sh");
   const elEnhance = sidecar("examples", "providers", "elevenlabs", "enhance.sh");
   const detect = sidecar("examples", "providers", "detect", "detect.py");
+  const localVisionSetup = sidecar("scripts", "visual-db-uv.sh");
   return [
     {
       id: "tinycloud",
@@ -62,6 +63,21 @@ export function providerChoices(): ProviderChoice[] {
       summary: "Face detect/match/search through tinycloud.",
       descriptor: exec("tinycloud face detect {{input}} --json", undefined, "tinycloud commands --json"),
       env: ["CLOUDGLUE_API_KEY"],
+      indexableDefault: true,
+    },
+    {
+      id: "deepface-local",
+      verb: "face",
+      label: "Local DeepFace",
+      summary: "Local face detect/match through DeepFace; deepface-local indexes remain the local DB/search store.",
+      descriptor: {
+        type: "inproc",
+        backend: "deepface-local",
+        id: "deepface-local",
+        init: { command: `bash ${localVisionSetup} --face` },
+        describe: "Local DeepFace provider via examples/providers/visual-db/face_match.py",
+      },
+      env: ["OC_VISUAL_DB_PY"],
       indexableDefault: true,
     },
     {
@@ -127,9 +143,9 @@ export function providerChoices(): ProviderChoice[] {
       indexableDefault: true,
     },
     {
-      id: "local-detect",
+      id: "owl-local",
       verb: "see",
-      label: "Local open-vocabulary detection",
+      label: "OWLv2 open-vocabulary detection",
       summary: "Local OWLv2/Grounding DINO object detection provider.",
       descriptor: exec(`python3 ${detect}`, `python3 ${detect} init`, `python3 ${detect} describe`),
       env: ["DETECT_MODEL"],
@@ -157,12 +173,14 @@ export const PROVIDER_PRESETS: Record<string, Array<{ verb: string; choice: stri
     { verb: "listen", choice: "elevenlabs" },
     { verb: "enhance", choice: "elevenlabs" },
   ],
-  "local-detect": [
-    { verb: "see", choice: "local-detect" },
+  "owl-local": [
+    { verb: "see", choice: "owl-local" },
+  ],
+  "deepface-local": [
+    { verb: "face", choice: "deepface-local" },
   ],
 };
 
 export function findProviderChoice(verb: string, choice: string): ProviderChoice | undefined {
   return providerChoices().find((c) => c.verb === verb && c.id === choice);
 }
-

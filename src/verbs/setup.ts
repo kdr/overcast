@@ -15,6 +15,7 @@ import {
 import { FFMPEG_PATH, FFPROBE_PATH, probeTool, MIN_FFMPEG } from "../media/ffmpeg.js";
 import { execCapture } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
+import { shippedPath } from "../pkg.js";
 import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
 import { findProviderChoice, providerChoices, PROVIDER_PRESETS, type ProviderChoice } from "../providers/catalog.js";
@@ -183,6 +184,13 @@ function effectiveProviders(profile: Profile): Record<string, Record<string, unk
   return out;
 }
 
+function localVisionPython(): string {
+  const configured = process.env.OVERCAST_VISUAL_DB_PY || process.env.OC_VISUAL_DB_PY;
+  if (configured) return configured;
+  const venvPy = shippedPath(".dev", "visual-db-py", "bin", "python");
+  return venvPy && existsSync(venvPy) ? venvPy : "python3";
+}
+
 // ---- setup -----------------------------------------------------------------
 
 export const setupVerb: VerbSpec = {
@@ -278,7 +286,7 @@ export const providerVerb: VerbSpec = {
     { name: "profile", summary: "Profile name to write/read (default: active/default)", type: "string" },
     { name: "verb", summary: "provider setup: verb to configure", type: "string" },
     { name: "choice", summary: "provider setup: catalog choice id", type: "string" },
-    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|local-detect)", type: "string" },
+    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local)", type: "string" },
     { name: "yes", summary: "provider setup apply: confirm profile changes", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -436,6 +444,25 @@ export const doctorVerb: VerbSpec = {
           : "optional semantic memory CLI missing — install with `npm install -g @tobilu/qmd`",
       });
     }
+
+    const uv = await execCapture("uv", ["--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    const localPy = localVisionPython();
+    const localVision = await execCapture(localPy, ["-c", "import cv2, numpy; print('image-ok')"], { timeoutMs: 30_000 })
+      .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    const localFace = await execCapture(localPy, ["-c", "import deepface, numpy; print('face-ok')"], { timeoutMs: 30_000 })
+      .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    checks.push({
+      name: "uv",
+      ok: uv.code === 0,
+      detail: uv.code === 0 ? (uv.stdout || uv.stderr).trim() : "uv missing — install it, then run `scripts/visual-db-uv.sh`",
+    });
+    checks.push({
+      name: "visual-db",
+      ok: localVision.code === 0,
+      detail: localVision.code === 0
+        ? `image deps OK via ${localPy}${localFace.code === 0 ? "; face deps OK" : "; face deps missing (run scripts/visual-db-uv.sh --face)"}`
+        : `image deps missing via ${localPy} — run \`scripts/visual-db-uv.sh\` and set OC_VISUAL_DB_PY if needed`,
+    });
 
     const configuredSources = listSources(ctx.case);
     const sourceTypes = new Set(configuredSources.map((s) => s.type));

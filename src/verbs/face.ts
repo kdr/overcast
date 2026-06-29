@@ -16,6 +16,8 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { indexesByType, resolveIndexRef } from "../state/index.js";
+import { findIndex } from "../state/index.js";
+import { runLocalFace, type LocalFaceOp } from "../providers/local/vision.js";
 import { resolveVideoArg } from "./media-ref.js";
 import { badNumber } from "./validate.js";
 import type { Case } from "../case.js";
@@ -66,8 +68,8 @@ function resolveFaceIndexes(c: Case, value: string): { ids: string[]; error?: st
     const ref = resolveIndexRef(c, v);
     if (ref.error) return { ids: [], error: ref.error };
     const entry = ref.entry;
-    if (entry && entry.type !== "face-analysis" && entry.type !== "unknown") {
-      return { ids: [], error: `index ${entry.id} is type '${entry.type}', not face-analysis — face --match/list only read face-analysis indexes` };
+    if (entry && entry.type !== "face-analysis" && entry.type !== "deepface-local" && entry.type !== "unknown") {
+      return { ids: [], error: `index ${entry.id} is type '${entry.type}', not face-analysis/deepface-local — face --match/list only read face indexes` };
     }
     ids.push(entry?.id ?? v);
   }
@@ -94,6 +96,10 @@ function isTinycloudFaceBinding(b?: ProviderDescriptor): boolean {
   return after.length > 0 && TC_SUBCOMMANDS.includes(after[0]);
 }
 
+function isDeepfaceFaceBinding(b?: ProviderDescriptor): boolean {
+  return b?.backend === "deepface-local" || b?.id === "deepface-local";
+}
+
 export const faceVerb: VerbSpec = {
   name: "face",
   group: "sense",
@@ -115,7 +121,8 @@ export const faceVerb: VerbSpec = {
     { name: "max-faces", summary: "match: cap returned matches (1–4000)", type: "number" },
     { name: "min-similarity", summary: "match/search: similarity floor (0–100)", type: "number" },
     { name: "thumbnails", summary: "detect/match: include per-face thumbnail URLs", type: "boolean" },
-    { name: "fps", summary: "detect/match: sampling frames per second", type: "number" },
+    { name: "fps", summary: "detect/match: sampling frames per second; local face accepts --max-frames as a cap", type: "number" },
+    { name: "max-frames", summary: "local face: video frame sample count/cap", type: "number" },
     { name: "start", summary: "detect/match: window start (SS or timecode)", type: "string" },
     { name: "end", summary: "detect/match: window end (SS or timecode)", type: "string" },
     { name: "limit", summary: "detect/list/search: max results (match uses --max-faces)", type: "number" },
@@ -128,6 +135,8 @@ export const faceVerb: VerbSpec = {
   providerKey: "face",
   run: async (ctx) => {
     const c = ctx.case;
+    const binding = providerBinding(ctx, "face");
+    const useDeepface = isDeepfaceFaceBinding(binding);
     // --match is a face image: a path/URL is used as-is; a record id resolves only
     // when its media is an image (not an analyzed video/audio).
     let image: string | undefined;
@@ -172,6 +181,7 @@ export const faceVerb: VerbSpec = {
       badNumber(ctx.opts, "max-faces", (n) => n >= 1 && n <= 4000, "1–4000") ??
       badNumber(ctx.opts, "min-similarity", (n) => n >= 0 && n <= 100, "0–100") ??
       badNumber(ctx.opts, "fps", (n) => n > 0, "a positive number") ??
+      badNumber(ctx.opts, "max-frames", (n) => n > 0, "a positive number") ??
       badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number") ??
       badNumber(ctx.opts, "offset", (n) => n >= 0, "a non-negative number");
     if (numErr) return [err(numErr)];
@@ -193,9 +203,19 @@ export const faceVerb: VerbSpec = {
     let indexes: string[] | undefined;
     if (image && video) {
       // match is video-scoped (find this face IN this clip); --index is for
-      // search/list and can't combine with it — fail clearly instead of ignoring it.
+      // search/list in tinycloud. A local face index may be provided to choose the
+      // local matcher backend while still matching inside this one clip.
       if (indexFlag) {
-        return [err("--index can't combine with a video for --match: drop the video to search the index, or drop --index to match within the video")];
+        const r = resolveFaceIndexes(c, indexFlag);
+        if (r.error) return [err(r.error)];
+        if (!r.ids.length) return [err(`--index '${indexFlag}' has no valid index id`)];
+        const entries = r.ids.map((id) => findIndex(c, id)).filter(Boolean);
+        const allLocal = entries.length === r.ids.length && entries.every((e) => e!.backend === "local" || e!.type === "deepface-local");
+        if (!allLocal) {
+          return [err(`--index can't combine with a video for ${useDeepface ? "deepface-local" : "tinycloud"} --match unless it is a deepface-local index: drop the video to search the index, or drop --index to match within the video`)];
+        }
+        if (r.ids.length !== 1) return [err("local face match accepts exactly one --index")];
+        indexes = r.ids;
       }
       op = "match";
     } else if (image && !video) {
@@ -212,12 +232,14 @@ export const faceVerb: VerbSpec = {
         // (`index add` by raw id without --type) stays "unknown" and is NOT
         // assumed to be a face index — classify it with `--type face` or pass
         // --index explicitly.
-        const cands = indexesByType(c, "face-analysis");
+        const cands = indexesByType(c, useDeepface ? "deepface-local" : "face-analysis");
         if (cands.length === 1) indexes = [cands[0].id];
         else if (cands.length === 0) {
-          return [err("face --match needs a video to search, or a face-analysis index — create one with `overcast index create <name> --type face` (or classify an added one with `index add … --type face`), then retry")];
+          return [err(useDeepface
+            ? "face --match with the deepface-local provider needs a video to match, or a deepface-local index — create one with `overcast index create <name> --type deepface-local --local`, then retry"
+            : "face --match needs a video to search, or a face-analysis index — create one with `overcast index create <name> --type face` (or classify an added one with `index add … --type face`), then retry")];
         } else {
-          return [err(`face --match matched ${cands.length} face indexes; pass --index <id> (one of: ${cands.map((x) => x.id).join(", ")})`)];
+          return [err(`face --match matched ${cands.length} ${useDeepface ? "deepface-local" : "face"} indexes; pass --index <id> (one of: ${cands.map((x) => x.id).join(", ")})`)];
         }
       }
       op = "search";
@@ -255,11 +277,41 @@ export const faceVerb: VerbSpec = {
       }
     }
 
+    const localEntries = (indexes ?? []).map((id) => findIndex(c, id)).filter((x): x is NonNullable<ReturnType<typeof findIndex>> => !!x && (x.backend === "local" || x.type === "deepface-local"));
+    if (localEntries.length || useDeepface) {
+      if (localEntries.length && (!indexes || localEntries.length !== indexes.length)) {
+        return [err("can't mix local face indexes with tinycloud/raw face indexes in one face command")];
+      }
+      if (localEntries.length > 1) return [err("local face search/list accepts exactly one --index")];
+      if (useDeepface && op !== "detect" && op !== "match" && localEntries.length !== 1) {
+        return [err("deepface-local face search/list requires exactly one deepface-local --index")];
+      }
+      if (localEntries.length === 0 && op !== "detect" && op !== "match") {
+        return [err("local face search/list requires exactly one deepface-local --index")];
+      }
+      const localOp: LocalFaceOp = op === "search" ? "search" : op === "match" ? "match" : "detect";
+      const primary = localOp === "search" ? image! : video!;
+      const rec = await runLocalFace(c, primary, {
+        op: localOp,
+        indexId: localEntries[0]?.id ?? "deepface-local",
+        image,
+        minSimilarity: num(ctx.opts["min-similarity"]),
+        limit: num(ctx.opts.limit) ?? num(ctx.opts["max-faces"]),
+        maxFrames: num(ctx.opts["max-frames"]),
+        fps: num(ctx.opts.fps),
+        thumbnails: ctx.opts.thumbnails === true,
+        signal: ctx.signal,
+      });
+      return [rec];
+    }
+    if (ctx.opts["max-frames"] != null) {
+      return [err("--max-frames only applies to local face indexes")];
+    }
+
     // A custom face provider takes over (pass-through) with the SAME resolved op +
     // indexes, so a bound provider behaves like the default tinycloud path. A
     // tinycloud-style binding (incl. a pinned binary/path) is NOT custom — it runs
     // through runFace below so all four ops work, not just the template's subcommand.
-    const binding = providerBinding(ctx, "face");
     if (isCustomBinding(binding) && !isTinycloudFaceBinding(binding)) {
       const primary = op === "search" ? image! : video!;
       const extraArgs: string[] = ["--op", op];

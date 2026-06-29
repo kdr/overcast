@@ -51,7 +51,7 @@ overcast provider init listen --profile recon --json
 overcast doctor --profile recon --json
 
 overcast case setup edit \
-  --provider "listen:elevenlabs,see:local-detect" \
+  --provider "listen:elevenlabs,see:owl-local" \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
@@ -67,6 +67,8 @@ Provider classes:
   frame extraction, detection-crop extraction, and viewer support.
 - **opt-in model/media providers** for `see` / `listen` / `enhance` — Hugging
   Face, fal.ai, ElevenLabs, and local detector/Whisper examples.
+- **visual DBs** — uv-managed OpenCV RANSAC image matching and DeepFace
+  face matching, selected by `image-ransac` / `deepface-local` index types.
 - **source providers** — external discovery and URL fetching (youtube / tiktok /
   web).
 - **case memory** over primary evidence for `ask` / `brief` / `case memory` —
@@ -168,6 +170,9 @@ Raw detection payloads are intentionally not searchable. Use exact record reads
 - **Remote media index:** `ask "..." --index <media-index>` (Q&A) or `--probe`
   (moment search).
 - **Remote face search:** `face --match ./person.jpg --index <face-index>`.
+- **Local visual search:** `image match ./clip.mp4 --index <image-ransac-index>`
+  for logos/landmarks, or `face ./clip.mp4 --match ./person.jpg --index
+  <deepface-local-index>` for local face matching.
 - **Entity index reads:** `index entities <entity-index> <video>`.
 - **Detection crops:** `crop <face-or-see-record-id> --all [--class person]`
   writes crop images and searchable crop records.
@@ -183,6 +188,17 @@ intent (`ask --index` for media-descriptions, `face --match --index` for
 face-analysis, `index entities` for entities). Plain `ask` still searches only
 local case memory.
 
+Local `image-ransac` and `deepface-local` indexes are also explicit and case-owned.
+They do not upload media and do not change the tinycloud defaults; run
+`scripts/visual-db-uv.sh --face` once per checkout/machine, then use
+`overcast doctor` to confirm `uv` and `visual-db` are ready. DeepFace face
+detection/matching is available as a profile choice (`face:deepface-local`), but the
+local searchable DB remains a case-owned `deepface-local` index. Current case setup
+should not be used to create visual DBs; create them explicitly with
+`index create --type image-ransac --local` or `index create --type deepface-local
+--local`. Local-grep/qmd ingest the visual match records and summaries, not
+binary media, embeddings, frame samples, or visualization images.
+
 ## Recommended case lifecycles
 
 ### 1. Reusable provider setup, then case policy
@@ -195,11 +211,12 @@ overcast provider setup show  --profile recon --json
 overcast provider setup plan  --preset cloudglue --profile recon --json
 overcast provider setup apply --preset cloudglue --profile recon --yes --json
 overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
 overcast provider init listen --profile recon --json
 overcast doctor --profile recon --json
 
 overcast case setup edit \
-  --provider "listen:elevenlabs,see:local-detect" \
+  --provider "listen:elevenlabs,see:owl-local" \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
@@ -231,7 +248,7 @@ overcast case setup \
   --folder ./videos \
   --index "Faces:face-analysis,Scenes:media-descriptions" \
   --memory local-grep \
-  --provider "see:local-detect" \
+  --provider "see:owl-local" \
   --provider-indexable "see" \
   --auto-sense "watch,see" \
   --findings review \
@@ -259,7 +276,33 @@ overcast view <watch-record-id>
 overcast brief --export report.md
 ```
 
-### 4. Local-media-only person search
+### 4. Local visual DB: logos, signs, landmarks, and faces
+
+When you need a local, inspectable visual match DB instead of a remote index.
+
+```bash
+scripts/visual-db-uv.sh --face
+overcast doctor --json
+overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
+
+overcast index create logos --type image-ransac --local --json
+overcast index add ./starbucks-logo.jpg --to logos --json
+overcast image match ./candidate.mp4 --index logos --fps 0.7 --draw --json
+
+overcast index create localfaces --type deepface-local --local --json
+overcast index add ./person.jpg --to localfaces --json
+overcast face ./candidate.mp4 --match ./person.jpg --index localfaces \
+  --fps 0.5 --max-frames 32 --min-similarity 20 --json
+```
+
+Use `--draw` on `image match` to write RANSAC visualizations into the case media
+store. Local face results include frame timestamps, similarity, and boxes. Use
+`--fps` for video sampling cadence; add `--max-frames` when you need to cap
+runtime. With `--profile local`, plain `face ./candidate.mp4` runs local
+DeepFace detection through the `face:deepface-local` provider; `deepface-local` indexes are
+only needed when you want a reusable/searchable local face DB.
+
+### 5. Local-media-only person search
 
 Candidate videos on disk + a reference image, no external sources.
 
@@ -277,7 +320,7 @@ overcast ask "What local findings mention the target?"
 `scan --local` works with zero registered sources; with an image target + a
 face-analysis index it runs the face-index match directly.
 
-### 5. One-shot OSINT pull
+### 6. One-shot OSINT pull
 
 Sources registered, immediate acquisition + analysis.
 
@@ -305,7 +348,7 @@ on a single run always wins over setup automation.
 > then capture/sense only likely candidates rather than `scan --pull --pipe
 > watch` over everything.
 
-### 6. Continuous monitoring
+### 7. Continuous monitoring
 
 ```bash
 overcast case setup \
@@ -329,7 +372,7 @@ media/target. Turn automation off later without editing JSON:
 overcast case setup edit --auto-sense "" --no-auto-index-new --yes --json
 ```
 
-### 7. Audio-first monitoring
+### 8. Audio-first monitoring
 
 ```bash
 overcast source add youtube:@channel
@@ -338,7 +381,7 @@ overcast note "speaker sounds different after the cut" --ref <listen-record-id> 
 overcast ask --verb listen "What was said and what background audio was present?"
 ```
 
-### 8. Default case search
+### 9. Default case search
 
 The normal CLI path — ask a question against everything already saved.
 
@@ -353,7 +396,7 @@ overcast ask "What observations mention the loading dock?"
 `local-grep` searches indexable fields and returns cited records — no index
 setup required.
 
-### 9. qmd case memory
+### 10. qmd case memory
 
 Materialized local semantic memory instead of grep-style matching.
 
@@ -370,7 +413,7 @@ evidence docs (idempotent). qmd queries do **not** auto-rebuild a missing/stale
 index — rebuild/start/retry first. Default embedding model
 `embeddinggemma-300M-Q8_0`; install with `npm install -g @tobilu/qmd`.
 
-### 10. Remote index-backed search over videos
+### 11. Remote index-backed search over videos
 
 Portable, cross-video indexed search when local records aren't enough.
 
@@ -382,7 +425,7 @@ overcast ask --index "case-videos" "Where is the product demo discussed?"
 overcast ask --index "case-videos" --probe "product demo"
 ```
 
-### 11. Face search lifecycle
+### 12. Face search lifecycle
 
 ```bash
 overcast index create "faces" --type face
@@ -394,7 +437,7 @@ overcast face --match ./person.jpg --index "faces"
 Adding a raw local video creates missing `watch` evidence for local search but
 does **not** create a `face` detect record. Search with a JPEG/PNG reference.
 
-### 12. Enhance then analyze
+### 13. Enhance then analyze
 
 ```bash
 overcast enhance ./noisy.mp4 --ops denoise,normalize
@@ -402,7 +445,7 @@ overcast watch <enhance-output-path>
 overcast ask "What is visible or said after enhancement?"
 ```
 
-### 13. Detection crop evidence
+### 14. Detection crop evidence
 
 Turn face/object boxes into durable, citable, searchable images.
 
@@ -420,7 +463,7 @@ Run `face --thumbnails` before `crop` to preserve provider frame images as crop
 sources. Each crop record cites back to source record/media/crop-source/time/
 class/id/box. `crop` is separate from `enhance` (whole-media transform).
 
-### 14. Frame-level visual inspection
+### 15. Frame-level visual inspection
 
 ```bash
 overcast watch ./clip.mp4
@@ -428,7 +471,7 @@ overcast see frame://<watch-record-id>@42 --prompt "Describe signage and visible
 overcast ask "What signage appears around 42 seconds?"
 ```
 
-### 15. Human observation / analyst flagging
+### 16. Human observation / analyst flagging
 
 ```bash
 overcast watch ./clip.mp4
@@ -493,7 +536,7 @@ overcast provider init listen --profile recon --json
 overcast doctor --profile recon --json
 ```
 
-Presets: `cloudglue` · `hf` · `fal` · `elevenlabs` · `local-detect`. Single
+Presets: `cloudglue` · `hf` · `fal` · `elevenlabs` · `owl-local` · `deepface-local`. Single
 choices use `--verb <watch|listen|see|face|enhance> --choice <id>`.
 
 ### Pin tinycloud

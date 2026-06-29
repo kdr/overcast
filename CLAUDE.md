@@ -27,6 +27,10 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
   and current docs recommend tinycloud **0.3.6**.
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
+- uv-managed visual DB Python — optional for visual DBs and
+  `face:deepface-local`: `scripts/visual-db-uv.sh --face` installs OpenCV/Numpy and
+  DeepFace/TensorFlow. Override with `OC_VISUAL_DB_PY` /
+  `OVERCAST_VISUAL_DB_PY`.
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
 
 ## Invariants (do not violate)
@@ -47,10 +51,11 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `src/registry/verbs.ts`; the CLI subcommand, the pi AgentTool, and the skill doc
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
-   (`watch/listen/see/enhance`), **source** (`scan/capture/monitor`; youtube,
+   (`watch/listen/see/face/enhance`), **source** (`scan/capture/monitor`; youtube,
    tiktok, web), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    transports are `exec` (default), `http`, `in-proc`. Default sense binding =
-   tinycloud (exec).
+   tinycloud (exec); `face:deepface-local` is the local DeepFace profile provider for
+   face detection/matching.
 7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `crop`, `view`,
    and frame extraction shell out to the **system** `ffmpeg`/`ffprobe` (PATH or
    `OVERCAST_FFMPEG`/`OVERCAST_FFPROBE`); `overcast doctor` checks it's installed.
@@ -75,9 +80,11 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `transcript` / `detailed`), `listen` (speech transcript; `--describe` for the
   full audio-scene, `--diarize`, `--lang`), `see` (caption / OCR / open-vocab
   `--detect` — turnkey Hugging Face, bindable fal, local OWLv2 via
-  `examples/providers/detect`), `face` (tinycloud ≥ 0.3.4: detect faces,
-  `--match <jpeg|png>` to find/rank a person in a clip, or `--index` to search a
-  face-analysis index), `enhance` (system ffmpeg ops or a bound model).
+  `examples/providers/detect`), `face` (tinycloud ≥ 0.3.4 by default, or
+  `face:deepface-local` locally: detect faces, `--match <jpeg|png>` to find/rank a
+  person in a clip, or `--index` to search a face-analysis / deepface-local index),
+  `image` (local OpenCV RANSAC image/video-frame matching against
+  `image-ransac` indexes), `enhance` (system ffmpeg ops or a bound model).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
@@ -87,7 +94,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   With no enabled sources, `scan` falls back to local case media/indexes
   (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
   typed remote tinycloud indexes: media-descriptions → `ask --index`, entities →
-  `index entities`, face-analysis → `face --index`).
+  `index entities`, face-analysis → `face --index`; local DBs:
+  `image-ransac` for `image match`, `deepface-local` for local face search).
   Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `web:<q>`.
 - **State** — `target` / `source` manage standing scope; `note` records human
@@ -130,6 +138,9 @@ records (`ask brief case setup doctor provider skills index target source
 prebrief`, finding review-rows, dismissed findings) are excluded even when they
 match the query. `face`/`see` detections index only compact summaries / counts /
 moments — raw boxes and thumbnails stay in the record for exact reads and `crop`.
+Local visual DB artifacts stay in typed local indexes: local-grep/qmd ingest the
+records and summaries, not binary media, embeddings, sampled frames, match
+visualizations, or raw face boxes.
 The saved setup's memory signal list + per-provider `indexable` flags narrow what
 each case searches. Provider execution always follows the **active profile
 binding**; case setup records expected choices/policy and can clear built-ins like

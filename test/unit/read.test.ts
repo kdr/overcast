@@ -120,7 +120,7 @@ test("provider-indexable case policy extends memory signals", async () => {
     c.writeRecord(makeRecord({ verb: "see", payload: { caption: "PROVIDER_INDEXABLE_MARKER visible target" } }));
     const setup = emptySetup("provider-indexable");
     setup.memory = { backend: "local-grep", signals: ["note"] };
-    setup.providers = { see: { verb: "see", choice: "local-detect", indexable: true } };
+    setup.providers = { see: { verb: "see", choice: "owl-local", indexable: true } };
     saveSetup(c, setup);
 
     const [mem] = resolveMemory(c, defaultProfile());

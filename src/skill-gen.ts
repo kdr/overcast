@@ -215,9 +215,16 @@ overcast provider setup show --profile default --json
 overcast provider setup plan --preset cloudglue --profile default --json
 overcast provider setup apply --preset cloudglue --profile default --yes --json
 overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
 overcast provider init listen --profile recon --json
 overcast doctor --profile recon --json
 \`\`\`
+
+Catalog presets include \`cloudglue\`, \`hf\`, \`fal\`, \`elevenlabs\`,
+\`owl-local\`, and \`deepface-local\`. \`face:deepface-local\` selects local DeepFace for
+plain \`face <video>\` detection and \`face <video> --match <image>\` matching;
+\`deepface-local\` remains the case-owned local face DB/index type for searchable
+reference sets.
 
 Provider setup is profile/global state and can span many cases. Case setup is
 per-investigation state: target, sources/media, memory/indexes, and automation
@@ -225,7 +232,7 @@ policy.
 
 \`\`\`bash
 overcast case setup edit \\
-  --provider "listen:elevenlabs,see:local-detect" \\
+  --provider "listen:elevenlabs,see:owl-local" \\
   --provider-indexable "listen,see" \\
   --auto-sense "watch,listen" \\
   --auto-index-new \\
@@ -261,7 +268,7 @@ One-time setup for overcast.
    and overcast currently recommends **0.3.6**;
    override the invocation with \`OVERCAST_TINYCLOUD_CMD\` if it isn't on \`PATH\`.
 3. **Verify** — \`overcast doctor --json\` (pi pinned, ffmpeg/ffprobe runnable,
-   Cloudglue key, tinycloud CLI + version).
+   Cloudglue key, tinycloud CLI + version, optional uv/visual-db readiness).
 4. **Cloudglue key** — the default \`watch\`/\`listen\`/\`face\`/\`index\` providers
    reach Cloudglue via the tinycloud CLI; configure it (\`tinycloud setup cloudglue\`)
    or export \`CLOUDGLUE_API_KEY\`.
@@ -278,8 +285,19 @@ One-time setup for overcast.
    - \`fal\` for \`see\`/\`enhance\` with \`FAL_KEY\`.
    - \`hf\` for \`see\`/\`enhance\` with \`HF_TOKEN\`.
    - \`elevenlabs\` for \`listen\`/\`enhance\` with \`ELEVENLABS_API_KEY\`.
-   - \`local-detect\` for local open-vocabulary object detection.
-6. **Case setup later** — use the main \`overcast\` skill per investigation to run
+   - \`owl-local\` for OWLv2 open-vocabulary object detection.
+   - \`deepface-local\` for local face detect/match through DeepFace.
+6. **Optional visual DB setup** — prepare visual DB Python once per
+   checkout/machine. DeepFace can be selected as a profile provider for the
+   \`face\` verb, while image/face DBs are still case-owned local indexes:
+   \`\`\`bash
+   scripts/visual-db-uv.sh --face
+   overcast doctor --json
+   overcast provider setup apply --verb face --choice deepface-local --profile default --yes --json
+   overcast index create logos --type image-ransac --local --json
+   overcast index create localfaces --type deepface-local --local --json
+   \`\`\`
+7. **Case setup later** — use the main \`overcast\` skill per investigation to run
    \`case setup\`, select targets/sources/indexes, and optionally set case-level
    automation such as \`--auto-sense\`, \`--auto-index-new\`, and \`--findings review\`.
 

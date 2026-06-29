@@ -36,6 +36,7 @@ import {
   indexesByType,
 } from "../../src/state/index.ts";
 import { faceVerb } from "../../src/verbs/face.ts";
+import { imageVerb } from "../../src/verbs/image.ts";
 import { indexVerb } from "../../src/verbs/index.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { doctorVerb } from "../../src/verbs/setup.ts";
@@ -216,6 +217,8 @@ test("normalizeIndexType maps aliases; rejects unknown", () => {
   assert.equal(normalizeIndexType("media"), "media-descriptions");
   assert.equal(normalizeIndexType("entities"), "entities");
   assert.equal(normalizeIndexType("transcripts"), "rich-transcripts");
+  assert.equal(normalizeIndexType("deepface-local"), "deepface-local");
+  assert.equal(normalizeIndexType("image"), "image-ransac");
   assert.equal(normalizeIndexType("nope"), undefined);
 });
 
@@ -239,6 +242,91 @@ test("index mirror: add/find/members/remove round-trip", () => {
 
   assert.equal(removeIndex(c, "col_1"), true);
   assert.equal(listIndexes(c).length, 1);
+});
+
+test("local visual index: create/add/list/show/delete without tinycloud", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-visual-db-"));
+  const img = join(cdir, "logo.jpg");
+  writeFileSync(img, "not a real jpeg, but enough for mirror-level add");
+  const mk = (input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext => {
+    const c = openCase(cdir);
+    c.ensure();
+    return { input, rest, opts, case: c, profile: defaultProfile() };
+  };
+  try {
+    const [created] = await indexVerb.run(mk("create", ["logos"], { type: "image-ransac", local: true }));
+    assert.equal(created.state, "ready");
+    const id = String((created.payload as Record<string, unknown>).index);
+    assert.match(id, /^local_image_ransac_/);
+    assert.equal(findIndex(openCase(cdir), id)?.backend, "local");
+
+    const [added] = await indexVerb.run(mk("add", [img], { to: id }));
+    assert.equal(added.state, "ready");
+    assert.equal((added.payload as Record<string, unknown>).backend, "local");
+    assert.equal(findIndex(openCase(cdir), id)?.members.length, 1);
+
+    const [dupe] = await imageVerb.run(mk("add", [img], { index: id }));
+    assert.equal(dupe.state, "ready");
+    assert.equal((dupe.payload as Record<string, unknown>).already_member, true);
+
+    const [listed] = await indexVerb.run(mk("list"));
+    const indexes = (listed.payload as Record<string, unknown>).indexes as Array<Record<string, unknown>>;
+    assert.equal(indexes[0].backend, "local");
+
+    const [shown] = await indexVerb.run(mk("show", [id]));
+    assert.equal((shown.payload as Record<string, unknown>).member_count, 1);
+
+    const [deleted] = await indexVerb.run(mk("delete", [id]));
+    assert.equal((deleted.payload as Record<string, unknown>).deleted, true);
+    assert.equal(findIndex(openCase(cdir), id), undefined);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("face provider binding deepface-local runs local detect/match without requiring --index", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-provider-"));
+  const video = join(cdir, "v.mp4");
+  const ref = join(cdir, "ref.jpg");
+  const fakePy = join(cdir, "fake-visual-db");
+  writeFileSync(video, "x");
+  writeFileSync(ref, "x");
+  writeFileSync(fakePy, `#!/usr/bin/env bash
+op=""
+fps=""
+max=""
+for ((i=1; i<=$#; i++)); do
+  arg="\${!i}"
+  if [ "$arg" = "--op" ]; then j=$((i+1)); op="\${!j}"; fi
+  if [ "$arg" = "--fps" ]; then j=$((i+1)); fps="\${!j}"; fi
+  if [ "$arg" = "--max-frames" ]; then j=$((i+1)); max="\${!j}"; fi
+done
+printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling":{"fps":%s,"max_frames":%s}},"state":"ready","meta":{"provider":"fake-deepface"}}\\n' "$op" "\${fps:-0}" "\${max:-0}"
+`);
+  chmodSync(fakePy, 0o755);
+  const savedPy = process.env.OC_VISUAL_DB_PY;
+  process.env.OC_VISUAL_DB_PY = fakePy;
+  const mk = (input: string | undefined, opts: VerbContext["opts"] = {}, rest: string[] = []): VerbContext => {
+    const c = openCase(cdir);
+    c.ensure();
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, face: { type: "inproc", backend: "deepface-local", id: "deepface-local" } };
+    return { input, rest, opts, case: c, profile };
+  };
+  try {
+    const [det] = await faceVerb.run(mk(video, { fps: 0.5, "max-frames": 3 }));
+    assert.equal(det.state, "ready");
+    assert.equal((det.payload as Record<string, unknown>).op, "detect");
+
+    const [match] = await faceVerb.run(mk(video, { match: ref, fps: 0.5, "max-frames": 3 }));
+    assert.equal(match.state, "ready");
+    assert.equal((match.payload as Record<string, unknown>).op, "match");
+    assert.equal(((match.payload as Record<string, unknown>).sampling as Record<string, unknown>).fps, 0.5);
+  } finally {
+    if (savedPy === undefined) delete process.env.OC_VISUAL_DB_PY;
+    else process.env.OC_VISUAL_DB_PY = savedPy;
+    rmSync(cdir, { recursive: true, force: true });
+  }
 });
 
 // ---- index verb (lifecycle via the fake tinycloud) --------------------

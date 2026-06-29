@@ -31,6 +31,7 @@ import { providerEnv } from "../providers/provider-env.js";
 import { parseSince } from "../providers/memory/local.js";
 import { isAv } from "./media-ref.js";
 import { faceVerb } from "./face.js";
+import { imageVerb } from "./image.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
 import { indexVerb } from "./index.js";
 import { latestFindingStatus, makeFinding } from "./finding.js";
@@ -71,11 +72,19 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const nameTargets = targets.filter((t) => t.kind !== "image").map((t) => t.value);
   const indexes = listIndexes(ctx.case);
   const faceIndexes = indexes.filter((i) => i.type === "face-analysis");
+  const localFaceIndexes = indexes.filter((i) => i.type === "deepface-local" || i.backend === "local" && i.type === "deepface-local");
+  const localImageIndexes = indexes.filter((i) => i.type === "image-ransac" || i.backend === "local" && i.type === "image-ransac");
   const mediaIndexes = indexes.filter((i) => i.type === "media-descriptions");
   const refs = localMediaRefs(ctx);
   const suggested: string[] = [];
   if (imageTargets.length && faceIndexes.length) {
     suggested.push(`overcast face --match ${imageTargets.at(-1)!.value} --index ${faceIndexes.map((i) => i.id).join(",")}`);
+  }
+  if (imageTargets.length && localFaceIndexes.length) {
+    suggested.push(`overcast face --match ${imageTargets.at(-1)!.value} --index ${localFaceIndexes[0].id}`);
+  }
+  if (imageTargets.length && localImageIndexes.length) {
+    suggested.push(`overcast image match ${imageTargets.at(-1)!.value} --index ${localImageIndexes[0].id}`);
   }
   if (nameTargets.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1)} and what is happening?`)}`);
   if (mediaIndexes.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1) ?? "the target"} and what is happening?`)} --index ${mediaIndexes[0].id} --probe`);
@@ -101,6 +110,12 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
     const index = faceIndexes.map((i) => i.id).join(",");
     const faceRecords = await faceVerb.run({ ...ctx, input: undefined, rest: [], opts: { match, index } });
     return [summary, ...faceRecords];
+  }
+  if (imageTargets.length && localImageIndexes.length) {
+    const match = imageTargets.at(-1)!.value;
+    const index = localImageIndexes[0].id;
+    const imageRecords = await imageVerb.run({ ...ctx, input: "match", rest: [match], opts: { index } });
+    return [summary, ...imageRecords];
   }
   return [summary];
 }
@@ -744,7 +759,7 @@ function autoSeeOpts(ctx: VerbContext): VerbContext["opts"] {
     const setup = loadSetup(ctx.case);
     const choice = setup?.providers?.see?.choice;
     const run = String(providerBinding(ctx, "see")?.run ?? "");
-    if (choice !== "local-detect" && !/detect\.py\b/.test(run)) return {};
+    if (choice !== "owl-local" && !/detect\.py\b/.test(run)) return {};
   }
   const labels = listTargets(ctx.case)
     .filter((t) => t.kind !== "image")

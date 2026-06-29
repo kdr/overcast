@@ -1001,7 +1001,7 @@ test("monitor counts partial auto-sense success while surfacing failed senses", 
   }
 });
 
-test("scan auto-sense see passes case targets as local-detect labels", async () => {
+test("scan auto-sense see passes case targets as owl-local labels", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-auto-see-detect-"));
   try {
     const c = openCase(d);
@@ -1027,7 +1027,7 @@ test("scan auto-sense see passes case targets as local-detect labels", async () 
     setup.providers = {
       see: {
         verb: "see",
-        choice: "local-detect",
+        choice: "owl-local",
         descriptor: { type: "exec", run: `bash ${seeScript} {{input}}` },
       },
     };
@@ -1042,7 +1042,7 @@ test("scan auto-sense see passes case targets as local-detect labels", async () 
   }
 });
 
-test("scan auto-sense see does not use stale case local-detect policy with a profile see binding", async () => {
+test("scan auto-sense see does not use stale case owl-local policy with a profile see binding", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-auto-see-profile-"));
   try {
     const c = openCase(d);
@@ -1055,7 +1055,7 @@ test("scan auto-sense see does not use stale case local-detect policy with a pro
     setup.providers = {
       see: {
         verb: "see",
-        choice: "local-detect",
+        choice: "owl-local",
         descriptor: { type: "exec", run: "python3 /tmp/stale/detect.py {{input}}" },
       },
     };
