@@ -524,7 +524,12 @@ async function runAutomationSense(ctx: VerbContext, caller: string, verb: string
 async function runExplicitPipeWithPolicy(ctx: VerbContext, caller: string, verb: string, ref: string): Promise<OvercastRecord[]> {
   const sensed = await pipeSense(ctx, caller, verb, ref);
   if (!sensed) return [];
-  return [sensed, ...automatedFindings(ctx, sensed, `${caller}:${verb}`)];
+  const out = [sensed, ...automatedFindings(ctx, sensed, `${caller}:${verb}`)];
+  if (sensed.state !== "error" && sensed.state !== "needs_credentials") {
+    const indexedRef = sensed.media?.ref ?? ref;
+    out.push(...await autoIndexNewMedia(ctx, indexedRef, { skipLocalWatch: hasUsableWatch([sensed], indexedRef) }));
+  }
+  return out;
 }
 
 function payloadText(rec: OvercastRecord): string {
@@ -627,12 +632,15 @@ function hasUsableWatch(records: OvercastRecord[], ref: string): boolean {
 }
 
 function autoSeeOpts(ctx: VerbContext): VerbContext["opts"] {
-  const setup = loadSetup(ctx.case);
-  const choice = setup?.providers?.see?.choice;
-  const run = setup?.providers?.see?.descriptor && typeof setup.providers.see.descriptor === "object"
-    ? String((setup.providers.see.descriptor as Record<string, unknown>).run ?? "")
-    : "";
-  if (choice !== "local-detect" && !/detect\.py\b/.test(run)) return {};
+  const profileRun = ctx.profile.providers?.see?.run;
+  if (profileRun != null) {
+    if (!/detect\.py\b/.test(String(profileRun))) return {};
+  } else {
+    const setup = loadSetup(ctx.case);
+    const choice = setup?.providers?.see?.choice;
+    const run = String(providerBinding(ctx, "see")?.run ?? "");
+    if (choice !== "local-detect" && !/detect\.py\b/.test(run)) return {};
+  }
   const labels = listTargets(ctx.case)
     .filter((t) => t.kind !== "image")
     .map((t) => t.value.trim())

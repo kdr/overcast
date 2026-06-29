@@ -614,6 +614,32 @@ test("scan auto-index reuses the in-flight default watch instead of watching twi
   }
 });
 
+test("scan explicit --pipe watch also auto-indexes new media when configured", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-pipe-auto-index-"));
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const setup = emptySetup("pipe-auto-index");
+    setup.completed = true;
+    setup.automation = { auto_sense: [], auto_index_new: true };
+    setup.indexes = [{ id: "col_fake123", name: "fixture", type: "media-descriptions", default_signals: ["index add"] }];
+    saveSetup(c, setup);
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, pipe: "watch" }, case: c, profile });
+    assert.equal(recs.filter((r) => r.verb === "watch").length, 2);
+    assert.equal(recs.filter((r) => r.verb === "index" && (r.payload as Record<string, unknown>).op === "add").length, 2);
+  } finally {
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("monitor --pipe watch sends TikTok URLs directly to tinycloud", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-monitor-tiktok-direct-"));
   const sourceScript = join(d, "tiktok-source.sh");
@@ -718,6 +744,49 @@ test("scan auto-sense see passes case targets as local-detect labels", async () 
     const see = recs.find((r) => r.verb === "see")!;
     assert.equal(see.state, "ready");
     assert.match((see.payload as Record<string, unknown>).args as string, /--detect license plate/);
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan auto-sense see does not use stale case local-detect policy with a profile see binding", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-auto-see-profile-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    addTarget(c, "license plate");
+    const setup = emptySetup("auto-see-profile");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["see"], auto_index_new: false };
+    setup.providers = {
+      see: {
+        verb: "see",
+        choice: "local-detect",
+        descriptor: { type: "exec", run: "python3 /tmp/stale/detect.py {{input}}" },
+      },
+    };
+    saveSetup(c, setup);
+
+    const seeScript = join(d, "see-profile.sh");
+    writeFileSync(seeScript, [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      "args=\"$*\"",
+      "case \"$args\" in",
+      "  *\"--detect\"*) echo \"unexpected detect args: $args\" >&2; exit 9 ;;",
+      "esac",
+      "printf '{\"verb\":\"see\",\"state\":\"ready\",\"payload\":{\"args\":%s}}\\n' \"$(printf '%s' \"$args\" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')\"",
+      "",
+    ].join("\n"));
+    execFileSync("chmod", ["755", seeScript]);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, see: { type: "exec", run: `bash ${seeScript} {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    const see = recs.find((r) => r.verb === "see")!;
+    assert.equal(see.state, "ready");
+    assert.doesNotMatch((see.payload as Record<string, unknown>).args as string, /--detect/);
   } finally {
     rmSync(d, { recursive: true, force: true });
   }
