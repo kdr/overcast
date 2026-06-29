@@ -743,6 +743,46 @@ test("monitor default watch reports auto-index failures as process errors", asyn
   }
 });
 
+test("monitor marks successful senses seen when auto-index needs credentials", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monitor-index-cred-"));
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  const prevMode = process.env.OVERCAST_FAKE_TC_MODE;
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const setup = emptySetup("monitor-index-cred");
+    setup.completed = true;
+    setup.automation = { auto_sense: [], auto_index_new: true };
+    setup.indexes = [{ id: "col_fake123", name: "fixture", type: "media-descriptions", default_signals: ["index add"] }];
+    saveSetup(c, setup);
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    process.env.OVERCAST_FAKE_TC_MODE = "cred";
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+    const mkCtx = (): VerbContext => ({ input: undefined, rest: [], opts: { once: true }, case: openCase(d), profile });
+
+    const pass1 = await monitorVerb.run(mkCtx());
+    const summary1 = pass1.find((r) => r.verb === "monitor")!;
+    assert.equal(summary1.state, "needs_credentials");
+    assert.equal((summary1.payload as Record<string, unknown>).new_items, 2);
+    assert.equal((summary1.payload as Record<string, unknown>).process_cred_gaps, 2);
+    assert.equal(pass1.filter((r) => r.verb === "watch").length, 2);
+    assert.equal(pass1.filter((r) => r.verb === "index" && r.state === "needs_credentials").length, 2);
+
+    const pass2 = await monitorVerb.run(mkCtx());
+    const summary2 = pass2.find((r) => r.verb === "monitor")!;
+    assert.equal((summary2.payload as Record<string, unknown>).new_items, 0);
+    assert.equal(pass2.some((r) => r.verb === "watch"), false);
+  } finally {
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    if (prevMode === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;
+    else process.env.OVERCAST_FAKE_TC_MODE = prevMode;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan auto-sense see passes case targets as local-detect labels", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-auto-see-detect-"));
   try {

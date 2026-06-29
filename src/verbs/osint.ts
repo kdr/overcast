@@ -226,7 +226,7 @@ function directSensePlan(ctx: VerbContext, ref: string): DirectSensePlan | undef
     : undefined;
 }
 
-type HitProcessOutcome = "completed" | "pending" | "failed" | "needs_credentials";
+type HitProcessOutcome = "completed" | "completed_with_pending" | "completed_with_credential_gap" | "pending" | "failed" | "needs_credentials";
 
 interface ProcessHitResult {
   ref?: string;
@@ -242,9 +242,15 @@ function hitFetchRef(hit: OvercastRecord): string | undefined {
 
 function classifyHitRecords(records: OvercastRecord[]): HitProcessOutcome {
   if (records.length === 0) return "failed";
-  if (records.some((r) => r.state === "needs_credentials")) return "needs_credentials";
-  if (records.some((r) => r.state === "pending")) return "pending";
-  if (records.some((r) => r.state === "error")) return "failed";
+  const primary = records.filter((r) => ["capture", "watch", "listen", "see", "face", "enhance"].includes(r.verb));
+  const basis = primary.length ? primary : records;
+  if (basis.some((r) => r.state === "needs_credentials")) return "needs_credentials";
+  if (basis.some((r) => r.state === "pending")) return "pending";
+  if (basis.some((r) => r.state === "error")) return "failed";
+  const auxiliary = primary.length ? records.filter((r) => !primary.includes(r)) : [];
+  if (auxiliary.some((r) => r.state === "error")) return "failed";
+  if (auxiliary.some((r) => r.state === "needs_credentials")) return "completed_with_credential_gap";
+  if (auxiliary.some((r) => r.state === "pending")) return "completed_with_pending";
   return "completed";
 }
 
@@ -360,12 +366,16 @@ export const scanVerb: VerbSpec = {
         if (item.submittedRemote) out.push(scanProgress(ctx, { stage: "submitted", ref: item.ref, via: "direct-url", submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }));
         const saved = item.records.map((r) => checkpoint(ctx, r));
         out.push(...saved);
-        if (item.outcome === "pending") pending++;
+        if (item.outcome === "pending" || item.outcome === "completed_with_pending") pending++;
         else if (item.outcome === "needs_credentials") process_cred_gaps++;
+        else if (item.outcome === "completed_with_credential_gap") {
+          completed++;
+          process_cred_gaps++;
+        }
         else if (item.outcome === "failed") failed++;
         else completed++;
         processed++;
-        out.push(scanProgress(ctx, { stage: "processed", ref: item.ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, item.outcome === "pending" ? "pending" : item.outcome === "needs_credentials" ? "needs_credentials" : item.outcome === "completed" ? "ready" : "error"));
+        out.push(scanProgress(ctx, { stage: "processed", ref: item.ref ?? null, hit: hit.id, processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, item.outcome === "pending" || item.outcome === "completed_with_pending" ? "pending" : item.outcome === "needs_credentials" || item.outcome === "completed_with_credential_gap" ? "needs_credentials" : item.outcome === "completed" ? "ready" : "error"));
       } catch (e) {
         // a provider timeout / spawn failure rejects — record it and keep pulling
         // the remaining hits instead of aborting the whole scan.
@@ -808,6 +818,11 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     // as a successfully-ingested new item; the summary reports it via process_errors.
     seen.add(key);
     if (outcome === "failed") procErrors++;
+    else if (outcome === "completed_with_credential_gap") {
+      procCredGaps++;
+      newCount++;
+      newHits.push(hit);
+    }
     else { newCount++; newHits.push(hit); }
   }
   // summary state reflects BOTH enumerate-time and capture/sense failures: a hard
