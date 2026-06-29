@@ -65,9 +65,13 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 `13_enhance_view` · `20_sources` (Tavily/Apify/yt-dlp) · `21_pipeline`
 (source→capture→sense) · `22_monitor` (`--once` diff + bounded `--every`) ·
 `23_index` · `24_case_search` · `16_visual_db` (local image-ransac,
-`face:deepface-local`, and deepface-local with real media) · `30_read` (ask/brief over real records) · `40_profiles` · `50_piping` (jq /
-chaining) · `60_dist` (binary as artifact) · `70_headless` (agent `--mode json`
-event stream + `-p` tool use + watch/persist).
+`face:deepface-local`, and deepface-local with real media) · `30_read`
+(ask/brief over real records) · `31_visualization` (CSI status/brief/records
+exports with real visual targets and matches) · `32_headless_visualization`
+(headless agent `--mode json` export trace, default CSI HTML theme) ·
+`40_profiles` · `50_piping` (jq / chaining) · `60_dist` (binary as artifact) ·
+`70_headless` (agent `--mode json` event stream + `-p` tool use +
+watch/persist).
 
 The offline suite also covers setup management (`phase4_setup`): `case setup
 plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
