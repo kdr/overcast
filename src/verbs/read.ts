@@ -5,6 +5,7 @@
 import { writeFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
 import { makeRecord, memoryRecords, type OvercastRecord } from "../record.js";
+import { mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport } from "../report/html.js";
 import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
@@ -180,6 +181,7 @@ interface BriefData {
   md: string;
   counts: Record<string, number>;
   total: number;
+  records: OvercastRecord[];
 }
 
 /** Build a markdown brief from the case records (timeline + by-kind sections). */
@@ -223,7 +225,7 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
     const fence = fenceFor(body);
     lines.push(fence, body, fence, "");
   }
-  return { md: lines.join("\n"), counts, total: records.length };
+  return { md: lines.join("\n"), counts, total: records.length, records: sorted };
 }
 
 // Brief is an export artifact: embed each record's primary field IN FULL (not a
@@ -251,44 +253,6 @@ function briefBody(rec: OvercastRecord): string {
   return `payload: ${Object.keys(p).join(", ") || "(empty)"}`;
 }
 
-function mdToHtml(md: string, title: string): string {
-  // minimal, dependency-free md→html for the export artifact
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const out: string[] = [];
-  let fence: string | null = null; // the opening fence string while inside a code block
-  for (const line of md.split("\n")) {
-    if (fence == null && /^`{3,}\s*$/.test(line)) {
-      fence = line.trim();
-      out.push("<pre>");
-      continue;
-    }
-    if (fence != null) {
-      // inside a fence: everything is escaped literal data, closed only by the
-      // exact matching fence — embedded #/-/``` are NOT treated as markup.
-      if (line.trim() === fence) {
-        out.push("</pre>");
-        fence = null;
-      } else {
-        out.push(esc(line));
-      }
-      continue;
-    }
-    if (/^### /.test(line)) out.push(`<h3>${esc(line.slice(4))}</h3>`);
-    else if (/^# /.test(line)) out.push(`<h1>${esc(line.slice(2))}</h1>`);
-    else if (/^## /.test(line)) out.push(`<h2>${esc(line.slice(3))}</h2>`);
-    else if (/^- /.test(line)) out.push(`<li>${esc(line.slice(2))}</li>`);
-    else if (line.trim() === "") out.push("");
-    else out.push(`<p>${esc(line)}</p>`);
-  }
-  const body = out.join("\n");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
-<style>body{background:#08120c;color:#c6f7d5;font-family:ui-monospace,monospace;max-width:840px;margin:2rem auto;padding:1rem}
-h1,h2{color:#ffc400}code{color:#00ff7f}li{margin:2px 0}
-pre{white-space:pre-wrap;word-break:break-word;background:#0d1f14;padding:8px;border-radius:4px}</style></head><body>
-${body}
-</body></html>`;
-}
-
 export const briefVerb: VerbSpec = {
   name: "brief",
   group: "read",
@@ -300,6 +264,7 @@ export const briefVerb: VerbSpec = {
   flags: [
     { name: "scope", summary: "Filter, e.g. since:24h or verb:watch", type: "string" },
     { name: "export", summary: "Write a report file (.md or .html)", type: "string" },
+    { name: "theme", summary: "HTML export theme: plain | csi", type: "string", choices: ["plain", "csi"], default: "plain" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -340,6 +305,8 @@ export const briefVerb: VerbSpec = {
     }
     const info = ctx.case.exists() ? ctx.case.info() : { name: "case" };
     const brief = buildBrief(records, info.name);
+    const theme = normalizeHtmlTheme(ctx.opts.theme);
+    if (!theme) return [readError("brief", `invalid --theme '${ctx.opts.theme}' (expected plain or csi)`)];
     if (brief.total === 0) {
       return [
         makeRecord({
@@ -362,7 +329,17 @@ export const briefVerb: VerbSpec = {
     if (ctx.opts.export) {
       const path = resolve(String(ctx.opts.export));
       const isHtml = extname(path).toLowerCase() === ".html";
-      writeFileSync(path, isHtml ? mdToHtml(brief.md, `Brief — ${info.name}`) : brief.md, "utf8");
+      const html = theme === "csi"
+        ? renderCsiTimelineReport({
+            title: `Brief — ${info.name}`,
+            subtitle: ctx.case.dir,
+            kind: "brief",
+            records: brief.records.map(recordToTimelineRecord),
+            counts: brief.counts,
+            total: brief.total,
+          })
+        : mdToPlainHtml(brief.md, `Brief — ${info.name}`);
+      writeFileSync(path, isHtml ? html : brief.md, "utf8");
       exported = path;
     }
 

@@ -378,6 +378,7 @@ overcast brief  [options]
 Options:
   --scope <string>       Filter, e.g. since:24h or verb:watch
   --export <string>      Write a report file (.md or .html)
+  --theme <string>       HTML export theme: plain | csi (default: plain)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -483,17 +484,17 @@ Emits `finding` records.
 
 ### `overcast case`
 
-A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case status` reports setup/store/memory health; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 ```
 overcast case <action> [sub] [arg] [options]
 
-  Inspect/manage the current case: init | setup | info | records | memory | clear.
+  Inspect/manage the current case: init | setup | status | info | records | memory | clear.
 
-  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case status` reports setup/store/memory health; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 Arguments:
-  action           init | setup | info | records | memory | clear
+  action           init | setup | status | info | records | memory | clear
   sub              setup/memory subcommand, or dir for init
   arg              record id (memory get), query (memory search), or index action
 
@@ -521,6 +522,8 @@ Options:
   --dry-run              setup/edit: preview without saving or applying
   --verb <string>        Filter records by kind
   --since <string>       Time filter (e.g. 24h, 2026-06-01)
+  --export <string>      Write a case status/log HTML report
+  --theme <string>       HTML export theme: plain | csi (default: plain)
   --field <string>       Payload field to read in full (memory get)
   --offset <number>      Start char offset when paging a field (memory get)
   --limit <number>       Max records/passages, or max chars when paging a field

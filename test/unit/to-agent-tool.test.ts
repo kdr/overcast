@@ -152,6 +152,40 @@ test("greedy budget: small records inline, the big one previews (mixed batch)", 
   assert.match(text, /emitted 2 record\(s\)/);
 });
 
+test("agent tool defaults HTML exports to CSI when the verb supports themes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-agent-theme-"));
+  try {
+    const seen: Array<Record<string, unknown>> = [];
+    const spec: VerbSpec = {
+      name: "brief",
+      group: "read",
+      summary: "brief",
+      args: [],
+      flags: [
+        { name: "export", summary: "export", type: "string" },
+        { name: "theme", summary: "theme", type: "string", choices: ["plain", "csi"], default: "plain" },
+      ],
+      outputKind: "brief",
+      run: async (ctx) => {
+        seen.push({ ...ctx.opts });
+        return [makeRecord({ verb: "brief", payload: { export: ctx.opts.export, theme: ctx.opts.theme } })];
+      },
+    };
+    const c = openCase(dir); c.ensure();
+    const tool = toAgentTool(spec, { getCase: () => c, getProfile: () => defaultProfile() });
+
+    await tool.execute("call_1", { export: join(dir, "report.html") }, undefined as never);
+    await tool.execute("call_2", { export: join(dir, "report.md") }, undefined as never);
+    await tool.execute("call_3", { export: join(dir, "plain.html"), theme: "plain" }, undefined as never);
+
+    assert.equal(seen[0].theme, "csi");
+    assert.equal(seen[1].theme, undefined);
+    assert.equal(seen[2].theme, "plain");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("case memory get tool schema forwards subcommand and record id", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-agent-case-"));
   try {

@@ -4,10 +4,11 @@
 
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
-import { openCase } from "../case.js";
+import { openCase, recordFiles } from "../case.js";
 import { humanSize } from "../render.js";
+import { mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
 import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
@@ -113,6 +114,204 @@ function setupHealth(ctx: VerbContext, setup: CaseSetup | undefined): Record<str
     incomplete_indexes: incompleteIndexes,
     missing_videos: missingVideos,
   };
+}
+
+async function memoryIndexStatuses(ctx: VerbContext): Promise<unknown[]> {
+  const statuses = [];
+  for (const p of resolveMemory(ctx.case, ctx.profile)) {
+    try {
+      statuses.push(p.status ? await p.status() : { provider: p.id, backend: p.backend ?? p.id, state: "ready" });
+    } catch (e) {
+      statuses.push({ provider: p.id, backend: p.backend ?? p.id, state: "error", error: (e as Error).message });
+    }
+  }
+  return statuses;
+}
+
+async function buildCaseStatus(ctx: VerbContext): Promise<Record<string, unknown>> {
+  const c = ctx.case;
+  const clear = c.clearSummary();
+  const saved = loadSetup(c);
+  const records = c.records();
+  return {
+    dir: c.dir,
+    initialized: c.exists(),
+    info: c.exists() ? c.info() : null,
+    tldr: caseStatusTldr(ctx, records, clear.counts),
+    targets: statusTargets(ctx),
+    sources: statusSources(ctx),
+    match_visualizations: statusMatchVisualizations(records),
+    setup_health: setupHealth(ctx, saved),
+    memory_index: await memoryIndexStatuses(ctx),
+    store: {
+      records: clear.records,
+      counts: clear.counts,
+      record_files: recordFiles(c),
+      media_files: clear.media.files,
+      media_size: humanSize(clear.media.bytes),
+      index_files: clear.index.files,
+      index_size: humanSize(clear.index.bytes),
+      state_files: clear.stateFiles,
+      artifacts: clear.artifacts,
+    },
+    registries: {
+      targets: listTargets(c).length,
+      sources: listSources(c).length,
+      indexes: listIndexes(c).length,
+    },
+  };
+}
+
+function statusTargets(ctx: VerbContext): Record<string, unknown>[] {
+  return listTargets(ctx.case).map((target) => ({
+    id: target.id,
+    kind: target.kind,
+    value: target.value,
+    description: target.kind === "image"
+      ? `Reference image target: ${target.value}`
+      : target.kind === "name"
+        ? `Named investigation target: ${target.value}`
+        : `Investigation prompt target: ${target.value}`,
+    image: target.kind === "image" ? target.value : undefined,
+    created: target.created,
+  }));
+}
+
+function statusSources(ctx: VerbContext): Record<string, unknown>[] {
+  return listSources(ctx.case).map((source) => ({
+    id: source.id,
+    type: source.type,
+    ref: source.ref,
+    name: source.name,
+    enabled: source.enabled,
+    description: sourceDescription(source.type, source.ref, source.enabled),
+    created: source.created,
+  }));
+}
+
+function sourceDescription(type: string, ref: string, enabled: boolean): string {
+  const state = enabled ? "enabled" : "disabled";
+  switch (type) {
+    case "youtube": return `${state} YouTube source: ${ref}`;
+    case "tiktok": return `${state} TikTok source: ${ref}`;
+    case "web": return `${state} web search source: ${ref}`;
+    case "folder": return `${state} local folder source: ${ref}`;
+    default: return `${state} ${type} source: ${ref || "(no ref)"}`;
+  }
+}
+
+function statusMatchVisualizations(records: OvercastRecord[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const record of records) {
+    if (!["image", "face"].includes(record.verb)) continue;
+    const payload = record.payload && typeof record.payload === "object" ? record.payload as Record<string, unknown> : {};
+    const paths = collectVisualRefs(payload);
+    for (const ref of paths) {
+      out.push({
+        record: record.id,
+        verb: record.verb,
+        state: record.state ?? "ready",
+        ref,
+        description: `${record.verb} visualization from ${record.id}`,
+      });
+    }
+  }
+  return out.slice(0, 12);
+}
+
+function collectVisualRefs(value: unknown): string[] {
+  const refs = new Set<string>();
+  const visit = (v: unknown, key = "") => {
+    if (typeof v === "string") {
+      if (/^data:image\//i.test(v) || (looksLikeImagePath(v) && /(?:draw|visual|thumb|thumbnail|crop|path|image)/i.test(key))) refs.add(v);
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const item of v) visit(item, key);
+      return;
+    }
+    if (v && typeof v === "object") {
+      for (const [k, child] of Object.entries(v as Record<string, unknown>)) visit(child, k);
+    }
+  };
+  visit(value);
+  return [...refs];
+}
+
+function looksLikeImagePath(value: string): boolean {
+  return /\.(avif|bmp|gif|jpe?g|png|webp)(?:[?#].*)?$/i.test(value);
+}
+
+function caseStatusTldr(ctx: VerbContext, records: OvercastRecord[], counts: Record<string, number>): Record<string, unknown> {
+  const targets = listTargets(ctx.case);
+  const targetText = targets.map((t) => t.value).slice(0, 4);
+  const readyRecords = records.filter((r) => (r.state ?? "ready") === "ready");
+  const evidenceKinds = ["watch", "listen", "see", "face", "image", "crop", "scan", "capture", "note", "finding"]
+    .filter((verb) => (counts[verb] ?? 0) > 0);
+  const headline = [
+    ctx.case.exists() ? `Case '${ctx.case.info().name}' is initialized` : "Case is not initialized",
+    targetText.length ? `tracking ${targetText.join(", ")}` : "with no standing target",
+    readyRecords.length ? `with ${readyRecords.length} ready record(s)` : "with no ready evidence yet",
+  ].join(" ");
+  const findings: string[] = [];
+  if (targetText.length) findings.push(`Targets in scope: ${targetText.join("; ")}.`);
+  if (evidenceKinds.length) findings.push(`Evidence present: ${evidenceKinds.map((verb) => `${verb} ${counts[verb]}`).join(", ")}.`);
+  for (const rec of recentEvidenceSummaries(records).slice(0, 4)) findings.push(rec);
+  if (!findings.length) findings.push("No evidence records have been added yet.");
+  const next: string[] = [];
+  if (!targetText.length) next.push("Add a target with `case setup --target ... --yes`.");
+  if (!evidenceKinds.length) next.push("Add evidence with watch/listen/see/face/image/note records.");
+  if ((counts.brief ?? 0) === 0 && evidenceKinds.length) next.push("Run `brief --export report.html --theme csi` for an evidence timeline.");
+  if (!next.length) next.push("Review the latest evidence cards and expand details for citations.");
+  return { headline, findings, next };
+}
+
+function recentEvidenceSummaries(records: OvercastRecord[]): string[] {
+  const out: string[] = [];
+  for (const rec of records.slice().reverse()) {
+    if (!["note", "finding", "face", "image", "watch", "see", "listen"].includes(rec.verb)) continue;
+    const summary = recordSummary(rec);
+    if (summary) out.push(`${rec.verb}: ${summary}`);
+  }
+  return out;
+}
+
+function recordSummary(rec: OvercastRecord): string | undefined {
+  if (rec.error) return `error: ${rec.error}`;
+  const payload = rec.payload;
+  if (typeof payload === "string") return truncateLine(payload);
+  const p = payload as Record<string, unknown>;
+  for (const key of ["summary", "text", "content", "caption", "transcript", "title", "snippet"]) {
+    const value = p[key];
+    if (typeof value === "string" && value.trim()) return truncateLine(value);
+  }
+  if (rec.verb === "face" || rec.verb === "image") {
+    const op = typeof p.op === "string" ? p.op : rec.verb;
+    const count = typeof p.count === "number" ? p.count : undefined;
+    return `${op}${count != null ? ` found ${count}` : ""}${rec.media?.ref ? ` in ${rec.media.ref}` : ""}`;
+  }
+  return undefined;
+}
+
+function truncateLine(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > 220 ? `${oneLine.slice(0, 220)}...` : oneLine;
+}
+
+function caseRecordsMarkdown(title: string, records: OvercastRecord[], counts: Record<string, number>): string {
+  const lines = [`# ${title}`, "", `**Records:** ${records.length}`, "", "## Counts", ""];
+  for (const [verb, n] of Object.entries(counts).sort()) lines.push(`- \`${verb}\`: ${n}`);
+  lines.push("", "## Timeline", "");
+  for (const r of records) {
+    const at = r.media?.at != null ? ` @${Array.isArray(r.media.at) ? r.media.at.join("-") : r.media.at}` : "";
+    const media = r.media?.ref ? ` (${r.media.ref}${at})` : "";
+    lines.push(`### \`${r.verb}\` ${r.id} [${r.state ?? "ready"}]${media}`, "");
+  }
+  return lines.join("\n");
+}
+
+function statusMarkdown(title: string, payload: Record<string, unknown>): string {
+  return [`# ${title}`, "", "```json", JSON.stringify(payload, null, 2), "```", ""].join("\n");
 }
 
 interface SetupChange {
@@ -506,17 +705,17 @@ function currentCliInvocation(): { cmd: string; args: string[] } {
 export const caseVerb: VerbSpec = {
   name: "case",
   group: "state",
-  summary: "Inspect/manage the current case: init | setup | info | records | memory | clear.",
+  summary: "Inspect/manage the current case: init | setup | status | info | records | memory | clear.",
   description:
     "A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; " +
     "`case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; " +
-    "`case info` shows state; `case records [--verb] [--since]` lists records; " +
+    "`case status` reports setup/store/memory health; `case info` shows state; `case records [--verb] [--since]` lists records; " +
     "`case memory <list|get|search|index> [q]` routes to the bound memory providers. " +
     "`case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. " +
     "`case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] " +
     "[--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.",
   args: [
-    { name: "action", summary: "init | setup | info | records | memory | clear", required: true },
+    { name: "action", summary: "init | setup | status | info | records | memory | clear", required: true },
     { name: "sub", summary: "setup/memory subcommand, or dir for init" },
     { name: "arg", summary: "record id (memory get), query (memory search), or index action" },
   ],
@@ -544,6 +743,8 @@ export const caseVerb: VerbSpec = {
     { name: "dry-run", summary: "setup/edit: preview without saving or applying", type: "boolean" },
     { name: "verb", summary: "Filter records by kind", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
+    { name: "export", summary: "Write a case status/log HTML report", type: "string" },
+    { name: "theme", summary: "HTML export theme: plain | csi", type: "string", choices: ["plain", "csi"], default: "plain" },
     { name: "field", summary: "Payload field to read in full (memory get)", type: "string" },
     { name: "offset", summary: "Start char offset when paging a field (memory get)", type: "number" },
     { name: "limit", summary: "Max records/passages, or max chars when paging a field", type: "number" },
@@ -598,6 +799,23 @@ export const caseVerb: VerbSpec = {
           state: "ready",
         }),
       ];
+    }
+
+    if (action === "status") {
+      const theme = normalizeHtmlTheme(ctx.opts.theme);
+      if (!theme) return [err(`invalid --theme '${ctx.opts.theme}' (expected plain or csi)`)];
+      const payload = await buildCaseStatus(ctx);
+      let exported: string | undefined;
+      if (ctx.opts.export) {
+        const path = resolve(String(ctx.opts.export));
+        const title = `Case status — ${ctx.case.exists() ? ctx.case.info().name : "case"}`;
+        const html = theme === "csi"
+          ? renderCsiStatusReport({ title, subtitle: ctx.case.dir, payload })
+          : mdToPlainHtml(statusMarkdown(title, payload), title);
+        writeFileSync(path, html, "utf8");
+        exported = path;
+      }
+      return [makeRecord({ verb: "case", format: "json", payload: { ...payload, export: exported ?? null }, state: "ready" })];
     }
 
     if (action === "setup") {
@@ -832,9 +1050,30 @@ export const caseVerb: VerbSpec = {
         limit = n;
       }
       const view = recs.slice(0, limit).map((r) => ({
-        id: r.id, verb: r.verb, state: r.state ?? "ready", media: r.media?.ref ?? null,
+        id: r.id, verb: r.verb, state: r.state ?? "ready", media: r.media?.ref ?? null, at: r.media?.at ?? null,
       }));
-      return [makeRecord({ verb: "case", format: "json", payload: { count: recs.length, records: view }, state: "ready" })];
+      let exported: string | undefined;
+      if (ctx.opts.export) {
+        const theme = normalizeHtmlTheme(ctx.opts.theme);
+        if (!theme) return [err(`invalid --theme '${ctx.opts.theme}' (expected plain or csi)`)];
+        const path = resolve(String(ctx.opts.export));
+        const counts: Record<string, number> = {};
+        for (const r of recs) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
+        const title = `Case records — ${ctx.case.exists() ? ctx.case.info().name : "case"}`;
+        const html = theme === "csi"
+          ? renderCsiTimelineReport({
+              title,
+              subtitle: ctx.case.dir,
+              kind: "case log",
+              records: recs.map(recordToTimelineRecord),
+              counts,
+              total: recs.length,
+            })
+          : mdToPlainHtml(caseRecordsMarkdown(title, recs, counts), title);
+        writeFileSync(path, html, "utf8");
+        exported = path;
+      }
+      return [makeRecord({ verb: "case", format: "json", payload: { count: recs.length, records: view, export: exported ?? null }, state: "ready" })];
     }
 
     if (action === "memory") {
@@ -1061,6 +1300,6 @@ export const caseVerb: VerbSpec = {
       return [err("usage: case memory <list|get|search|index> [arg]")];
     }
 
-    return [err("usage: case <init|setup|info|records|memory|clear>")];
+    return [err("usage: case <init|setup|status|info|records|memory|clear>")];
   },
 };

@@ -130,6 +130,8 @@ overcast scan --pull --json            # enumerate sources → capture → sense
 # 3) ask questions over everything the case has accumulated (with citations)
 overcast ask "every white van, with timestamps" --json
 overcast brief --export ./brief.html
+overcast case status --export ./status.html --theme csi
+overcast case records --export ./records.html --theme csi
 
 # 4) add a human observation anchored to evidence
 overcast note "rear plate is missing" --ref <watch-record-id> --at 12-18 --tag vehicle --json
@@ -166,6 +168,22 @@ overcast
 
 A **case is just a directory** with a `.overcast/` store — switch cases with
 `cd` or `--case <dir>`. pi's per-directory sessions are the case history.
+
+Use the three report surfaces for different jobs:
+
+- `brief` answers "what does the evidence say?" It reports over the same
+  evidence-only boundary as case memory, so setup/read/meta records are excluded.
+- `case records` answers "what exactly happened?" It is the append-only audit log
+  and includes operational records such as setup, target/source changes, index
+  work, asks, briefs, and status checks.
+- `case status` answers "where is this case right now?" It summarizes setup
+  health, targets, sources, indexes, memory/index state, store counts, artifacts,
+  and match visualizations when available. It is a dashboard, not evidence for
+  later memory or briefs.
+
+Direct CLI HTML exports default to the compatible `plain` theme unless
+`--theme csi` is set. Agent/TUI tool calls default `.html` exports to `csi` for
+these report surfaces, while preserving an explicit `--theme plain`.
 
 For end-to-end recipes — first-run setup, person search, OSINT pulls, continuous
 monitoring, qmd memory, detection crops, and more — see

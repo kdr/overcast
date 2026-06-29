@@ -38,6 +38,70 @@ test("case records --verb filters", async () => {
   });
 });
 
+test("case status returns combined status payload", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    addTarget(c, "subject");
+    const targetImg = join(dir, "target.png");
+    writeFileSync(targetImg, "fake png");
+    addTarget(c, targetImg, { image: true });
+    addSource(c, "web:subject");
+    addIndex(c, { id: "idx_case", name: "Case Index", type: "media-descriptions" });
+    const matchImg = join(dir, "match.jpg");
+    writeFileSync(matchImg, "fake jpg");
+    c.writeRecord(makeRecord({ verb: "image", payload: { op: "match", matches: [{ match_draw_path: matchImg }], count: 1 }, state: "ready" }));
+
+    const [rec] = await caseVerb.run(ctx(dir, "status"));
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal(rec.state, "ready");
+    assert.equal(payload.initialized, true);
+    assert.equal(((payload.store as Record<string, unknown>).records), 3);
+    assert.equal(((payload.registries as Record<string, unknown>).targets), 2);
+    assert.equal(((payload.registries as Record<string, unknown>).sources), 1);
+    assert.equal(((payload.registries as Record<string, unknown>).indexes), 1);
+    assert.ok(Array.isArray(payload.memory_index));
+    assert.match(String((payload.tldr as Record<string, unknown>).headline), /tracking subject/);
+    assert.equal((payload.targets as unknown[]).length, 2);
+    assert.equal((payload.sources as unknown[]).length, 1);
+    assert.equal((payload.match_visualizations as unknown[]).length, 1);
+  });
+});
+
+test("case status --export html --theme csi writes report", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    addTarget(c, "subject");
+    addSource(c, "web:subject");
+    const htmlPath = join(dir, "status.html");
+    const [rec] = await caseVerb.run(ctx(dir, "status", [], { export: htmlPath, theme: "csi" }));
+    const payload = rec.payload as Record<string, unknown>;
+    const html = readFileSync(htmlPath, "utf8");
+    assert.equal(payload.export, htmlPath);
+    assert.match(html, /data-overcast-theme="csi"/);
+    assert.match(html, /data-csi-status="true"/);
+    assert.match(html, /data-csi-tldr="true"/);
+    assert.match(html, /data-csi-context="true"/);
+    assert.match(html, /Case status/);
+  });
+});
+
+test("case records --export html --theme csi writes timeline", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "unsafe <b>markup</b>" }, media: { ref: "note.txt", at: 12 } }));
+    const htmlPath = join(dir, "case-log.html");
+    const [rec] = await caseVerb.run(ctx(dir, "records", [], { export: htmlPath, theme: "csi" }));
+    const payload = rec.payload as Record<string, unknown>;
+    const html = readFileSync(htmlPath, "utf8");
+    assert.equal(payload.export, htmlPath);
+    assert.match(html, /data-csi-timeline="true"/);
+    assert.match(html, /watch/);
+    assert.match(html, /note\.txt @12/);
+    assert.match(html, /&lt;b&gt;markup&lt;\/b&gt;/);
+    assert.doesNotMatch(html, /<b>markup<\/b>/);
+  });
+});
+
 test("case clear previews what will be lost and requires --yes", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);

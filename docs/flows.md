@@ -167,6 +167,12 @@ Raw detection payloads are intentionally not searchable. Use exact record reads
   `case memory index rebuild --memory qmd`.
 - **Local memory passages:** `case memory search "..."` returns snippets.
 - **Briefs:** `brief` reports over the same evidence boundary.
+- **Case status:** `case status` is a current-state dashboard: setup health,
+  targets, sources, indexes, memory/index state, store counts, artifacts, and
+  match visualizations when available.
+- **Case records:** `case records` is the append-only audit log. It includes
+  operational/read/meta records that are intentionally excluded from memory and
+  briefs, so use it for trace, provenance, and debugging.
 - **Remote media index:** `ask "..." --index <media-index>` (Q&A) or `--probe`
   (moment search).
 - **Remote face search:** `face --match ./person.jpg --index <face-index>`.
@@ -198,6 +204,14 @@ should not be used to create visual DBs; create them explicitly with
 `index create --type image-ransac --local` or `index create --type deepface-local
 --local`. Local-grep/qmd ingest the visual match records and summaries, not
 binary media, embeddings, frame samples, or visualization images.
+
+In short: open `brief` when you want the evidence narrative, `case status` when
+you want the live case dashboard, and `case records` when you need the full
+history of what the system and user did.
+
+Direct CLI HTML exports default to `plain` for compatibility. Agent/TUI tool
+calls default `.html` exports to the `csi` visualization theme when the verb
+supports themes, unless the call explicitly passes `--theme plain`.
 
 ## Recommended case lifecycles
 

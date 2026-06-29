@@ -23,6 +23,8 @@ import { PI_VERSION } from "../version.js";
 import { envPresent } from "../env.js";
 import { listSources } from "../state/source.js";
 import { existsSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
@@ -31,6 +33,17 @@ function err(verb: string, message: string): OvercastRecord {
 
 function quoteCommandArg(arg: string): string {
   return /^[A-Za-z0-9_./:=@+-]+$/.test(arg) ? arg : JSON.stringify(arg);
+}
+
+function packageRoot(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i++) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
 }
 
 /** Minimum tinycloud the face + index verbs need (`face match` landed in
@@ -437,6 +450,28 @@ export const doctorVerb: VerbSpec = {
           : "optional semantic memory CLI missing — install with `npm install -g @tobilu/qmd`",
       });
     }
+
+    const playwrightProbe = [
+      "const { existsSync } = await import('node:fs');",
+      "try {",
+      "  const { chromium } = await import('playwright');",
+      "  const executablePath = chromium.executablePath();",
+      "  if (!executablePath || !existsSync(executablePath)) throw new Error('Chromium browser payload missing');",
+      "  console.log(executablePath);",
+      "} catch (e) {",
+      "  console.error(e && e.message ? e.message : String(e));",
+      "  process.exit(1);",
+      "}",
+    ].join("\n");
+    const playwright = await execCapture(process.execPath, ["-e", playwrightProbe], { cwd: packageRoot(), timeoutMs: 15_000 })
+      .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    checks.push({
+      name: "playwright",
+      ok: playwright.code === 0,
+      detail: playwright.code === 0
+        ? `optional HTML screenshot renderer available (${playwright.stdout.trim()})`
+        : "optional HTML screenshot renderer missing — run `npm install --include=optional` and `npx playwright install chromium`",
+    });
 
     const uv = await execCapture("uv", ["--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
     const localPy = localVisionPython();

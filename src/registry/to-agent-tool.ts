@@ -123,6 +123,15 @@ function renderRecords(records: OvercastRecord[]): string {
   return parts.join("\n\n");
 }
 
+function applyAgentHtmlDefaults(spec: VerbSpec, opts: VerbContext["opts"]): void {
+  const hasThemeFlag = spec.flags.some((f) => f.name === "theme");
+  if (!hasThemeFlag || opts.theme != null) return;
+  const exportPath = opts.export;
+  if (typeof exportPath === "string" && /\.html?$/i.test(exportPath.trim())) {
+    opts.theme = "csi";
+  }
+}
+
 // --- verb HUD call tag ------------------------------------------------------
 // A cyberpunk "recording-deck" tag for the tool-call line, colored by verb class
 // (a semantic split: you read what kind of op is running by its hue). Raw
@@ -221,6 +230,7 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         if (params[f.name] !== undefined)
           opts[f.name] = expandHomeArg(params[f.name]) as string | number | boolean;
       }
+      applyAgentHtmlDefaults(spec, opts);
       // reconstruct positional input + rest from the declared args
       const positionals: string[] = [];
       for (const arg of spec.args) {

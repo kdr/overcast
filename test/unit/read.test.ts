@@ -788,7 +788,26 @@ test("brief verb builds a report and --export writes md + html", async () => {
     const html = readFileSync(htmlPath, "utf8");
     assert.match(html, /<h1>/);
     assert.match(html, /white van/);
+    assert.doesNotMatch(html, /data-overcast-theme="csi"/);
   });
+});
+
+test("brief --export html --theme csi writes escaped CSI report", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefcsi-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "seen <script>alert(1)</script> near docks" }, media: { ref: "v.mp4" } }));
+    const htmlPath = join(dir, "csi.html");
+    const [rec] = await briefVerb.run(ctx(c, undefined, { export: htmlPath, theme: "csi" }));
+    const html = readFileSync(htmlPath, "utf8");
+    assert.equal((rec.payload as Record<string, unknown>).export, htmlPath);
+    assert.match(html, /data-overcast-theme="csi"/);
+    assert.match(html, /data-csi-timeline="true"/);
+    assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("brief on an empty evidence set is transient and does not export", async () => {
