@@ -29,8 +29,9 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { parseSince } from "../providers/memory/local.js";
-import { isAv } from "./media-ref.js";
+import { isAv, isImage } from "./media-ref.js";
 import { faceVerb } from "./face.js";
+import { imageVerb } from "./image.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
 import { indexVerb } from "./index.js";
 import { latestFindingStatus, makeFinding } from "./finding.js";
@@ -55,14 +56,26 @@ function scanFlagError(ctx: VerbContext, verb = "scan"): OvercastRecord | undefi
   return undefined;
 }
 
+const VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf)$/i;
+const isVideoRef = (ref: string): boolean => !/^https?:\/\//i.test(ref) && VIDEO_RE.test(ref.replace(/[?#].*$/, ""));
+const isLocalVisualRef = (ref: string): boolean => isVideoRef(ref) || isImage(ref);
+
 function localMediaRefs(ctx: VerbContext): string[] {
   const setup = loadSetup(ctx.case);
   const refs = [
     ...(setup?.media.videos ?? []),
-    ...ctx.case.records().flatMap((r) => (r.media?.ref && isAv(r.media.ref) ? [r.media.ref] : [])),
-    ...listIndexes(ctx.case).flatMap((i) => i.members.map((m) => m.ref)),
+    ...ctx.case.records().flatMap((r) => (r.media?.ref && isLocalVisualRef(r.media.ref) ? [r.media.ref] : [])),
+    ...listIndexes(ctx.case).flatMap((i) => i.members.map((m) => m.ref).filter(isLocalVisualRef)),
   ];
   return [...new Set(refs)].filter((ref) => !/^https?:\/\//i.test(ref) ? existsSync(ref) : true).sort();
+}
+
+function localVisualCandidates(refs: string[], imageTargets: Array<{ value: string }>, localIndexes: ReturnType<typeof listIndexes>): string[] {
+  const excluded = new Set([
+    ...imageTargets.map((t) => t.value),
+    ...localIndexes.flatMap((i) => i.members.map((m) => m.ref)),
+  ]);
+  return refs.filter((ref) => !excluded.has(ref));
 }
 
 async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
@@ -71,11 +84,24 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const nameTargets = targets.filter((t) => t.kind !== "image").map((t) => t.value);
   const indexes = listIndexes(ctx.case);
   const faceIndexes = indexes.filter((i) => i.type === "face-analysis");
+  const localFaceIndexes = indexes.filter((i) => i.backend === "local" && i.type === "deepface-local");
+  const localImageIndexes = indexes.filter((i) => i.backend === "local" && i.type === "image-ransac");
   const mediaIndexes = indexes.filter((i) => i.type === "media-descriptions");
   const refs = localMediaRefs(ctx);
+  const localLimit = ctx.opts.limit != null ? Number(ctx.opts.limit) : 5;
+  const localCandidatesAll = localVisualCandidates(refs, imageTargets, [...localFaceIndexes, ...localImageIndexes]);
+  const localImageCandidates = localCandidatesAll.slice(0, localLimit);
+  const localFaceCandidatesAll = localCandidatesAll.filter(isVideoRef);
+  const localFaceCandidates = localFaceCandidatesAll.slice(0, localLimit);
   const suggested: string[] = [];
   if (imageTargets.length && faceIndexes.length) {
     suggested.push(`overcast face --match ${imageTargets.at(-1)!.value} --index ${faceIndexes.map((i) => i.id).join(",")}`);
+  }
+  if (imageTargets.length && localFaceIndexes.length && localFaceCandidates.length) {
+    suggested.push(`overcast face ${localFaceCandidates[0]} --match ${imageTargets.at(-1)!.value} --index ${localFaceIndexes[0].id}`);
+  }
+  if (imageTargets.length && localImageIndexes.length && localImageCandidates.length) {
+    suggested.push(`overcast image match ${localImageCandidates[0]} --index ${localImageIndexes[0].id}`);
   }
   if (nameTargets.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1)} and what is happening?`)}`);
   if (mediaIndexes.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1) ?? "the target"} and what is happening?`)} --index ${mediaIndexes[0].id} --probe`);
@@ -90,19 +116,40 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
       targets: targets.map((t) => ({ id: t.id, kind: t.kind, value: t.value })),
       media: refs,
       indexes: indexes.map((i) => ({ id: i.id, name: i.name, type: i.type, members: i.members.length })),
+      local_visual_candidates: localImageCandidates.length,
+      local_visual_candidates_total: localCandidatesAll.length,
+      local_face_candidates: localFaceCandidates.length,
+      local_face_candidates_total: localFaceCandidatesAll.length,
+      local_visual_limit: localLimit,
       suggested_commands: suggested,
     },
     meta: { provider: "scan:local", case: ctx.case.dir },
     state: "ready",
   });
 
+  const out: OvercastRecord[] = [summary];
   if (imageTargets.length && faceIndexes.length) {
     const match = imageTargets.at(-1)!.value;
     const index = faceIndexes.map((i) => i.id).join(",");
     const faceRecords = await faceVerb.run({ ...ctx, input: undefined, rest: [], opts: { match, index } });
-    return [summary, ...faceRecords];
+    out.push(...faceRecords);
   }
-  return [summary];
+  if (imageTargets.length && localFaceIndexes.length && localFaceCandidates.length) {
+    const match = imageTargets.at(-1)!.value;
+    const index = localFaceIndexes[0].id;
+    for (const ref of localFaceCandidates) {
+      const faceRecords = await faceVerb.run({ ...ctx, input: ref, rest: [], opts: { match, index } });
+      out.push(...faceRecords);
+    }
+  }
+  if (imageTargets.length && localImageIndexes.length && localImageCandidates.length) {
+    const index = localImageIndexes[0].id;
+    for (const ref of localImageCandidates) {
+      const imageRecords = await imageVerb.run({ ...ctx, input: "match", rest: [ref], opts: { index } });
+      out.push(...imageRecords);
+    }
+  }
+  return out;
 }
 
 // ---- scan ------------------------------------------------------------------
@@ -335,7 +382,7 @@ export const scanVerb: VerbSpec = {
     { name: "query", summary: "Ad-hoc keyword search across sources", type: "string" },
     { name: "source", summary: "Restrict to source ids/types (comma list)", type: "string" },
     { name: "since", summary: "Only items newer than e.g. 24h, 2026-06-01", type: "string" },
-    { name: "limit", summary: "Max hits per source", type: "number" },
+    { name: "limit", summary: "Max hits per source; with --local, max local visual DB candidates", type: "number" },
     { name: "local", summary: "Scan local case media/indexes instead of external sources", type: "boolean" },
     { name: "pull", summary: "Auto-capture + sense each hit", type: "boolean" },
     { name: "pipe", summary: "Sense to run on pulled hits (watch|listen|face)", type: "string" },
@@ -744,7 +791,7 @@ function autoSeeOpts(ctx: VerbContext): VerbContext["opts"] {
     const setup = loadSetup(ctx.case);
     const choice = setup?.providers?.see?.choice;
     const run = String(providerBinding(ctx, "see")?.run ?? "");
-    if (choice !== "local-detect" && !/detect\.py\b/.test(run)) return {};
+    if (choice !== "owl-local" && !/detect\.py\b/.test(run)) return {};
   }
   const labels = listTargets(ctx.case)
     .filter((t) => t.kind !== "image")

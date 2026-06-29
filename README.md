@@ -151,7 +151,16 @@ overcast index add --all --to <face-col-id> --json   # register every captured/s
 overcast index add ./local.mp4 --to <face-col-id> --json # creates missing watch evidence locally
 overcast face --match ./suspect.jpg --index <face-col-id> --json   # find them across the index
 
-# 8) launch the interactive agent (pi TUI) in the current case
+# 8) visual DBs: logos/landmarks with RANSAC, faces with a uv Python
+scripts/visual-db-uv.sh --face
+overcast index create logos --type image-ransac --local --json
+overcast index add ./starbucks-logo.jpg --to logos --json
+overcast image match ./clip.mp4 --index logos --fps 0.7 --draw --json
+overcast index create localfaces --type deepface-local --local --json
+overcast index add ./suspect.jpg --to localfaces --json
+overcast face ./clip.mp4 --match ./suspect.jpg --index localfaces --fps 0.5 --max-frames 32 --json
+
+# 9) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
 
@@ -177,6 +186,7 @@ surface + env vars.)
 | `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
 | `see` | caption / OCR / detect on an image or video frame (turnkey HF, or bind a VLM) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
+| `image` | match images/video frames against a local OpenCV RANSAC image index |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
 | `crop` | materialize face/object detections as cropped image records with provenance |
@@ -187,7 +197,7 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `index` | index a target's videos into a searchable corpus (media-descriptions / entities / face-analysis) |
+| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac` and `deepface-local` DBs |
 | `target` / `source` / `note` | manage the standing scope, where to look, and human-authored observations |
 | `prebrief` | stand up a case (name + target + source) in one shot |
 
@@ -222,15 +232,18 @@ immediately; use `--no-index` to save the setup without starting remote ingest.
 ```bash
 overcast case setup plan --target "@pier9" --memory local-grep --source "web:pier 9" --index "media:media" --json
 overcast case setup --name "dock-incident" --target "@pier9" --memory local-grep --source "web:pier 9" --yes --json
-overcast case setup edit --provider "listen:elevenlabs,see:local-detect" --auto-sense "watch,listen" --auto-index-new --findings review --yes --json
+overcast case setup edit --provider "listen:elevenlabs,see:owl-local" --auto-sense "watch,listen" --auto-index-new --findings review --yes --json
 overcast case setup show --json
 overcast case setup edit --target "new subject" --source "youtube:@channel" --yes --json
 ```
 
 When a case is local-media-only, `overcast scan` does not dead-end on missing
 sources: it scans local setup/media/index state, and if an image target plus a
-face-analysis index exist it runs the face-index match. Use `overcast scan
---local` to force this local scan even after adding external sources.
+face-analysis or local image/face index exist it suggests or runs the relevant
+match. Local visual DB scans search candidate case media against stored reference
+images, not the target image by itself, and cap candidate fan-out with
+`--limit` (default 5). Use `overcast scan --local` to force this local scan even
+after adding external sources.
 
 ---
 
@@ -275,7 +288,7 @@ overcast doctor --profile recon --json
 
 # per-case policy that uses the active profile
 overcast case setup edit \
-  --provider "listen:elevenlabs,see:local-detect" \
+  --provider "listen:elevenlabs,see:owl-local" \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
@@ -298,10 +311,39 @@ credential-blocked, or failed. Hits with no fetchable ref/url emit explicit
 errors in both commands. `monitor` marks hard failures seen after surfacing the
 error, while pending/credential gaps remain retryable.
 
-Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, and `local-detect`.
+Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`, and
+`deepface-local`.
 Single choices use `--verb <watch|listen|see|face|enhance> --choice <id>`, such
-as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:local-detect`, or
-`enhance:ffmpeg`.
+as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
+`face:deepface-local`, or `enhance:ffmpeg`.
+
+The local image DB is selected by local index type. Local face detection/matching
+can be selected as a profile provider with `face:deepface-local`, while the searchable
+local face DB is selected by the `deepface-local` index type. Create the uv-managed
+Python once, then create local indexes inside cases. `case setup --index` is for
+remote/default index creation today; use `index create --local` for visual DBs.
+
+```bash
+scripts/visual-db-uv.sh          # OpenCV/Numpy image matching
+scripts/visual-db-uv.sh --face   # plus DeepFace/TensorFlow face matching
+overcast doctor --json              # reports uv + visual-db readiness
+overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
+
+overcast index create logos --type image-ransac --local --json
+overcast index add ./logo.jpg --to logos --json
+overcast image match ./video.mp4 --index logos --fps 0.7 --draw --json
+
+overcast index create localfaces --type deepface-local --local --json
+overcast index add ./person.jpg --to localfaces --json
+overcast face ./video.mp4 --match ./person.jpg --index localfaces --fps 0.5 --max-frames 32 --json
+```
+
+Local-grep/qmd memory indexes ingest the resulting Overcast JSON records and
+human summaries, not binary media, embeddings, extracted frames, boxed crops, or
+match visualization images. Keep visual matching in the typed local indexes, and
+use notes/watch/listen/see summaries when you need text-searchable context.
+For video matching, omit both sampling flags for provider defaults, pass `--fps`
+for cadence, and add `--max-frames` when you want a hard cap.
 
 | class | verbs | shipped providers |
 |---|---|---|
@@ -372,6 +414,11 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 **Runtime / session** — `OVERCAST_HOME` (profiles, default `~/.overcast`),
 `OVERCAST_CASE` / `OVERCAST_PROFILE` (set by the launcher from `--case` / `--profile`),
 `OVERCAST_MEDIA_DIR` (set by overcast for exec providers), `OVERCAST_PI_ONLINE`.
+
+**Visual DBs** — `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`
+override the Python used by local `image-ransac` and `deepface-local` indexes. If
+unset, overcast auto-detects `.dev/visual-db-py/bin/python` created by
+`scripts/visual-db-uv.sh`, then falls back to `python3`.
 
 **Brain LLM** — BYO via pi-ai: *any* pi-ai provider key works
 (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …). Cloudglue is also a

@@ -19,9 +19,11 @@ export const MEDIA_VERBS = ["capture", "watch", "listen", "face", "enhance"];
 // don't gate on extension at all, so index/face intake mustn't be narrower
 // and silently drop a valid clip (e.g. a transport-stream .ts or an .opus track).
 const AV_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf|mp3|m4a|wav|flac|ogg|oga|opus|aac|wma|aiff?)$/i;
+const IMAGE_RE = /\.(jpe?g|png|webp|bmp|tiff?|gif|avif|heic)$/i;
 
 /** Whether a ref looks like audio/video the senses/indexes can use. */
 export const isAv = (ref: string): boolean => /^https?:\/\//i.test(ref) || AV_RE.test(ref);
+export const isImage = (ref: string): boolean => /^https?:\/\//i.test(ref) || IMAGE_RE.test(ref.replace(/[?#].*$/, ""));
 
 /** Whether a case RECORD is registerable case media: a captured/sensed verb, an
  *  AV `media.ref`, and NOT a face SEARCH (whose media is the query image, not a
@@ -84,4 +86,38 @@ export function resolveVideoArg(
   if (requireExists && !/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: video not found: ${ref}` };
   if (!isAv(ref)) return { error: `${label}: ${ref} is not a video/audio file` };
   return { ref, recordId };
+}
+
+/** Resolve + validate a still image arg (path / URL / case-record-id). */
+export function resolveImageArg(
+  c: Case,
+  arg: string,
+  label: string,
+  opts: Pick<VideoArgOpts, "requireExists" | "requireReady"> = {},
+): { ref?: string; recordId?: string; error?: string } {
+  const { requireReady = true, requireExists = true } = opts;
+  const { ref, recordId } = resolveMediaRef(c, arg);
+  if (recordId) {
+    const src = c.recordById(recordId);
+    if (requireReady && src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
+  }
+  if (requireExists && !/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: image not found: ${ref}` };
+  if (!isImage(ref)) return { error: `${label}: ${ref} is not an image file` };
+  return { ref, recordId };
+}
+
+/** Resolve a local visual query, allowing either a still image or video. */
+export function resolveVisualArg(
+  c: Case,
+  arg: string,
+  label: string,
+  opts: VideoArgOpts = {},
+): { ref?: string; recordId?: string; kind?: "image" | "video"; error?: string } {
+  const { ref, recordId } = resolveMediaRef(c, arg);
+  if (isImage(ref)) {
+    const r = resolveImageArg(c, arg, label, opts);
+    return r.error ? { error: r.error } : { ...r, kind: "image" };
+  }
+  const r = resolveVideoArg(c, arg, label, opts);
+  return r.error ? { error: r.error } : { ...r, kind: "video" };
 }

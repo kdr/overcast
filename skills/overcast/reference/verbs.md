@@ -97,7 +97,8 @@ Options:
   --max-faces <number>   match: cap returned matches (1–4000)
   --min-similarity <number> match/search: similarity floor (0–100)
   --thumbnails           detect/match: include per-face thumbnail URLs
-  --fps <number>         detect/match: sampling frames per second
+  --fps <number>         detect/match: sampling frames per second; local face accepts --max-frames as a cap
+  --max-frames <number>  local face: video frame sample count/cap
   --start <string>       detect/match: window start (SS or timecode)
   --end <string>         detect/match: window end (SS or timecode)
   --limit <number>       detect/list/search: max results (match uses --max-faces)
@@ -108,6 +109,36 @@ Options:
 ```
 
 Emits `face.analysis` records.
+
+### `overcast image`
+
+`image add <image|record-id> --index <local-image-index>` stores a reference image in a local image-ransac index. `image match <image|video|record-id> --index <local-image-index>` searches that DB using OpenCV SIFT/ORB + RANSAC.
+
+```
+overcast image <action> [input] [options]
+
+  Match images or video frames against a local RANSAC image index.
+
+  `image add <image|record-id> --index <local-image-index>` stores a reference image in a local image-ransac index. `image match <image|video|record-id> --index <local-image-index>` searches that DB using OpenCV SIFT/ORB + RANSAC.
+
+Arguments:
+  action           add | match
+  input            image/video path, URL, or record id
+
+Options:
+  --index <string>       local image-ransac index id/name
+  --to <string>          alias for --index when adding
+  --min-inliers <number> minimum RANSAC inliers
+  --min-ratio <number>   minimum inlier ratio
+  --ratio-test <number>  Lowe ratio-test threshold
+  --fps <number>         video frame sampling rate; --max-frames can cap it
+  --max-frames <number>  video frame sample count/cap
+  --draw                 write match visualization images
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `image.match` records.
 
 ### `overcast enhance`
 
@@ -204,7 +235,7 @@ Options:
   --query <string>       Ad-hoc keyword search across sources
   --source <string>      Restrict to source ids/types (comma list)
   --since <string>       Only items newer than e.g. 24h, 2026-06-01
-  --limit <number>       Max hits per source
+  --limit <number>       Max hits per source; with --local, max local visual DB candidates
   --local                Scan local case media/indexes instead of external sources
   --pull                 Auto-capture + sense each hit
   --pipe <string>        Sense to run on pulled hits (watch|listen|face)
@@ -283,7 +314,8 @@ Arguments:
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts (aliases: media, face)
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac
+  --local                create a local index instead of a tinycloud-backed index
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
   --schema <string>      create entities: path to a JSON schema file
@@ -568,7 +600,7 @@ Options:
   --profile <string>     Profile name to write/read (default: active/default)
   --verb <string>        provider setup: verb to configure
   --choice <string>      provider setup: catalog choice id
-  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|local-detect)
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local)
   --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt

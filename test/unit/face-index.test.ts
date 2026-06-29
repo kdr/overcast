@@ -4,6 +4,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -36,6 +37,7 @@ import {
   indexesByType,
 } from "../../src/state/index.ts";
 import { faceVerb } from "../../src/verbs/face.ts";
+import { imageVerb } from "../../src/verbs/image.ts";
 import { indexVerb } from "../../src/verbs/index.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { doctorVerb } from "../../src/verbs/setup.ts";
@@ -216,6 +218,8 @@ test("normalizeIndexType maps aliases; rejects unknown", () => {
   assert.equal(normalizeIndexType("media"), "media-descriptions");
   assert.equal(normalizeIndexType("entities"), "entities");
   assert.equal(normalizeIndexType("transcripts"), "rich-transcripts");
+  assert.equal(normalizeIndexType("deepface-local"), "deepface-local");
+  assert.equal(normalizeIndexType("image"), "image-ransac");
   assert.equal(normalizeIndexType("nope"), undefined);
 });
 
@@ -239,6 +243,300 @@ test("index mirror: add/find/members/remove round-trip", () => {
 
   assert.equal(removeIndex(c, "col_1"), true);
   assert.equal(listIndexes(c).length, 1);
+});
+
+test("local visual index: create/add/list/show/delete without tinycloud", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-visual-db-"));
+  const img = join(cdir, "logo.jpg");
+  writeFileSync(img, "not a real jpeg, but enough for mirror-level add");
+  const mk = (input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext => {
+    const c = openCase(cdir);
+    c.ensure();
+    return { input, rest, opts, case: c, profile: defaultProfile() };
+  };
+  try {
+    const [created] = await indexVerb.run(mk("create", ["logos"], { type: "image-ransac", local: true }));
+    assert.equal(created.state, "ready");
+    const id = String((created.payload as Record<string, unknown>).index);
+    assert.match(id, /^local_image_ransac_/);
+    assert.equal(findIndex(openCase(cdir), id)?.backend, "local");
+
+    const [added] = await indexVerb.run(mk("add", [img], { to: id }));
+    assert.equal(added.state, "ready");
+    assert.equal((added.payload as Record<string, unknown>).backend, "local");
+    assert.equal(findIndex(openCase(cdir), id)?.members.length, 1);
+
+    const [dupe] = await imageVerb.run(mk("add", [img], { index: id }));
+    assert.equal(dupe.state, "ready");
+    assert.equal((dupe.payload as Record<string, unknown>).already_member, true);
+
+    const [listed] = await indexVerb.run(mk("list"));
+    const indexes = (listed.payload as Record<string, unknown>).indexes as Array<Record<string, unknown>>;
+    assert.equal(indexes[0].backend, "local");
+
+    const [shown] = await indexVerb.run(mk("show", [id]));
+    assert.equal((shown.payload as Record<string, unknown>).member_count, 1);
+
+    const [deleted] = await indexVerb.run(mk("delete", [id]));
+    assert.equal((deleted.payload as Record<string, unknown>).deleted, true);
+    assert.equal(findIndex(openCase(cdir), id), undefined);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("local index add --all only registers ready reference images", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-visual-all-"));
+  const ready = join(cdir, "ready.jpg");
+  const pending = join(cdir, "pending.jpg");
+  const failed = join(cdir, "failed.jpg");
+  const query = join(cdir, "query.jpg");
+  const duplicate = join(cdir, "duplicate.jpg");
+  const scanImage = join(cdir, "scan.jpg");
+  const video = join(cdir, "clip.mp4");
+  for (const f of [ready, pending, failed, query, duplicate, scanImage, video]) writeFileSync(f, "x");
+  const mk = (input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext => {
+    const c = openCase(cdir);
+    c.ensure();
+    return { input, rest, opts, case: c, profile: defaultProfile() };
+  };
+  try {
+    const [created] = await indexVerb.run(mk("create", ["logos"], { type: "image-ransac", local: true }));
+    const id = String((created.payload as Record<string, unknown>).index);
+
+    const c = openCase(cdir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "capture", payload: {}, media: { ref: ready }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "capture", payload: {}, media: { ref: pending }, state: "pending" }));
+    c.writeRecord(makeRecord({ verb: "capture", payload: {}, media: { ref: failed }, state: "error", error: "download failed" }));
+    c.writeRecord(makeRecord({ verb: "face", payload: { op: "search" }, media: { ref: query }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "capture", payload: {}, media: { ref: duplicate }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "scan", payload: { url: "https://example.test/logo" }, media: { ref: scanImage }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "watch", payload: {}, media: { ref: video }, state: "ready" }));
+    addMember(c, id, { ref: duplicate });
+
+    const [added] = await indexVerb.run(mk("add", [], { to: id, all: true }));
+    assert.equal(added.state, "ready");
+    const files = (added.payload as Record<string, unknown>).files as string[];
+    assert.deepEqual(files, [ready]);
+    assert.deepEqual(findIndex(openCase(cdir), id)?.members.map((m) => m.ref).sort(), [duplicate, ready].sort());
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("local-only visual types require backend local and cannot be attached remotely", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-visual-db-remote-type-"));
+  const video = join(cdir, "v.mp4");
+  const img = join(cdir, "logo.jpg");
+  writeFileSync(video, "x");
+  writeFileSync(img, "x");
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+  const mk = (input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext => {
+    const c = openCase(cdir);
+    c.ensure();
+    return { input, rest, opts, case: c, profile: defaultProfile() };
+  };
+  try {
+    const [attach] = await indexVerb.run(mk("attach", ["remote_logos"], { type: "image-ransac" }));
+    assert.equal(attach.state, "error");
+    assert.match(attach.error ?? "", /local-only/);
+
+    const c = openCase(cdir);
+    c.ensure();
+    addIndex(c, { id: "col_fake123", name: "remote-local-looking", type: "image-ransac" });
+    const [shown] = await indexVerb.run(mk("show", ["col_fake123"]));
+    assert.equal(shown.state, "ready");
+    assert.notEqual((shown.payload as Record<string, unknown>).backend, "local");
+    assert.equal(shown.meta?.provider, "tinycloud");
+
+    const [localAdd] = await indexVerb.run(mk("add", [img], { to: "logos", type: "image-ransac" }));
+    assert.equal(localAdd.state, "ready");
+    assert.equal(localAdd.meta?.provider, "local");
+    assert.equal((localAdd.payload as Record<string, unknown>).backend, "local");
+    assert.equal(findIndex(openCase(cdir), "logos")?.backend, "local");
+
+    addIndex(c, { id: "col_remote_stub", name: "remote-stub", type: "unknown" });
+    addMember(c, "col_remote_stub", { ref: video, fileId: "file_remote" });
+    const [retagPopulated] = await indexVerb.run(mk("add", [img], { to: "col_remote_stub", type: "image-ransac" }));
+    assert.equal(retagPopulated.state, "error");
+    assert.match(retagPopulated.error ?? "", /not a local visual index/);
+    assert.equal(findIndex(openCase(cdir), "col_remote_stub")?.backend, undefined);
+    assert.equal(findIndex(openCase(cdir), "col_remote_stub")?.members.length, 1);
+
+    addIndex(c, { id: "col_remote_backend", name: "remote-backend", type: "unknown", backend: "tinycloud" });
+    const [retagBackend] = await indexVerb.run(mk("add", [img], { to: "col_remote_backend", type: "deepface-local" }));
+    assert.equal(retagBackend.state, "error");
+    assert.match(retagBackend.error ?? "", /not a local visual index/);
+    assert.equal(findIndex(openCase(cdir), "col_remote_backend")?.backend, "tinycloud");
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("face provider binding deepface-local runs local detect/match without requiring --index", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-provider-"));
+  const video = join(cdir, "v.mp4");
+  const ref = join(cdir, "ref.jpg");
+  const webpRef = join(cdir, "ref.webp");
+  const fakePy = join(cdir, "fake-visual-db");
+  writeFileSync(video, "x");
+  writeFileSync(ref, "x");
+  writeFileSync(webpRef, "x");
+  writeFileSync(fakePy, `#!/usr/bin/env bash
+op=""
+fps=""
+max=""
+start=""
+end=""
+limit=""
+offset=""
+group=""
+for ((i=1; i<=$#; i++)); do
+  arg="\${!i}"
+  if [ "$arg" = "--op" ]; then j=$((i+1)); op="\${!j}"; fi
+  if [ "$arg" = "--fps" ]; then j=$((i+1)); fps="\${!j}"; fi
+  if [ "$arg" = "--max-frames" ]; then j=$((i+1)); max="\${!j}"; fi
+  if [ "$arg" = "--start" ]; then j=$((i+1)); start="\${!j}"; fi
+  if [ "$arg" = "--end" ]; then j=$((i+1)); end="\${!j}"; fi
+  if [ "$arg" = "--limit" ]; then j=$((i+1)); limit="\${!j}"; fi
+  if [ "$arg" = "--offset" ]; then j=$((i+1)); offset="\${!j}"; fi
+  if [ "$arg" = "--group-by" ]; then j=$((i+1)); group="\${!j}"; fi
+done
+printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling":{"fps":%s,"max_frames":%s,"start":"%s","end":"%s"},"paging":{"limit":%s,"offset":%s,"group_by":"%s"}},"state":"ready","meta":{"provider":"fake-deepface"}}\\n' "$op" "\${fps:-0}" "\${max:-0}" "$start" "$end" "\${limit:-0}" "\${offset:-0}" "$group"
+`);
+  chmodSync(fakePy, 0o755);
+  const savedPy = process.env.OC_VISUAL_DB_PY;
+  process.env.OC_VISUAL_DB_PY = fakePy;
+  const mk = (input: string | undefined, opts: VerbContext["opts"] = {}, rest: string[] = []): VerbContext => {
+    const c = openCase(cdir);
+    c.ensure();
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, face: { type: "inproc", backend: "deepface-local", id: "deepface-local" } };
+    return { input, rest, opts, case: c, profile };
+  };
+  try {
+    const [det] = await faceVerb.run(mk(video, { fps: 0.5, "max-frames": 3 }));
+    assert.equal(det.state, "ready");
+    assert.equal((det.payload as Record<string, unknown>).op, "detect");
+
+    const [thumbs] = await faceVerb.run(mk(video, { thumbnails: true }));
+    assert.equal(thumbs.state, "error");
+    assert.match(thumbs.error ?? "", /does not support --thumbnails/);
+
+    const [match] = await faceVerb.run(mk(video, { match: ref, fps: 0.5, "max-frames": 3, start: "00:00:01", end: "3.5" }));
+    assert.equal(match.state, "ready");
+    assert.equal((match.payload as Record<string, unknown>).op, "match");
+    const sampling = (match.payload as Record<string, unknown>).sampling as Record<string, unknown>;
+    assert.equal(sampling.fps, 0.5);
+    assert.equal(sampling.start, "00:00:01");
+    assert.equal(sampling.end, "3.5");
+
+    const [webp] = await faceVerb.run(mk(video, { match: webpRef }));
+    assert.equal(webp.state, "ready");
+    assert.equal((webp.payload as Record<string, unknown>).op, "match");
+
+    const c = openCase(cdir);
+    c.ensure();
+    addIndex(c, { id: "local_faces", name: "faces", type: "deepface-local", backend: "local" });
+    addMember(c, "local_faces", { ref });
+    const [search] = await faceVerb.run(mk(undefined, { match: ref, index: "local_faces", limit: 7, offset: 2, "group-by": "file" }));
+    assert.equal(search.state, "ready");
+    assert.equal((search.payload as Record<string, unknown>).op, "search");
+    const paging = (search.payload as Record<string, unknown>).paging as Record<string, unknown>;
+    assert.equal(paging.limit, 7);
+    assert.equal(paging.offset, 2);
+    assert.equal(paging.group_by, "file");
+  } finally {
+    if (savedPy === undefined) delete process.env.OC_VISUAL_DB_PY;
+    else process.env.OC_VISUAL_DB_PY = savedPy;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("face provider binding deepface-local does not intercept explicit tinycloud face indexes", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-tc-index-"));
+  const video = join(cdir, "v.mp4");
+  const ref = join(cdir, "ref.jpg");
+  writeFileSync(video, "x");
+  writeFileSync(ref, "x");
+  try {
+    const c = openCase(cdir);
+    c.ensure();
+    addIndex(c, { id: "col_faces", name: "cloud-faces", type: "face-analysis" });
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, face: { type: "inproc", backend: "deepface-local", id: "deepface-local" } };
+
+    const [search] = await faceVerb.run({ input: undefined, rest: [], opts: { match: ref, index: "col_faces" }, case: c, profile });
+    assert.equal(search.state, "ready");
+    assert.equal(search.meta?.provider, "tinycloud");
+    assert.equal((search.payload as Record<string, unknown>).op, "search");
+    assert.equal((search.payload as Record<string, unknown>).index, "col_faces");
+
+    const [list] = await faceVerb.run({ input: video, rest: [], opts: { index: "col_faces" }, case: c, profile });
+    assert.equal(list.state, "ready");
+    assert.equal(list.meta?.provider, "tinycloud");
+    assert.equal((list.payload as Record<string, unknown>).op, "list");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("face with a deepface-local index does not turn list into fresh detect", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-list-"));
+  const video = join(cdir, "v.mp4");
+  writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir);
+    c.ensure();
+    addIndex(c, { id: "local_faces", name: "faces", type: "deepface-local", backend: "local" });
+    const [rec] = await faceVerb.run({ input: video, rest: [], opts: { index: "local_faces" }, case: c, profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /store reference images, not per-video detections/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("deepface-local provider keeps min-similarity on the 0-100 CLI scale", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py"), "utf8");
+  assert.doesNotMatch(src, /threshold\s*\*=/);
+  assert.match(src, /threshold\s*<\s*0\s+or\s+threshold\s*>\s*100/);
+});
+
+test("deepface-local provider reports extraction failures instead of clean no-matches", () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-error-"));
+  const img = join(cdir, "query.jpg");
+  const script = join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py");
+  writeFileSync(img, "x");
+  writeFileSync(join(cdir, "numpy.py"), "");
+  writeFileSync(join(cdir, "deepface.py"), `class DeepFace:
+    @staticmethod
+    def represent(*args, **kwargs):
+        raise RuntimeError("represent exploded")
+`);
+  try {
+    const run = spawnSync("python3", [script, "--op", "detect", "--index", "idx", "--index-dir", join(cdir, "idx"), img], {
+      cwd: cdir,
+      env: { ...process.env, PYTHONPATH: cdir },
+      encoding: "utf8",
+    });
+    assert.equal(run.status, 0, run.stderr);
+    const rec = JSON.parse(run.stdout.trim()) as Record<string, unknown>;
+    assert.equal(rec.state, "error");
+    assert.match(String(rec.error), /local face analysis failed/);
+    assert.match(String(rec.error), /represent exploded/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("deepface-local provider has no broad exception-to-continue paths", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py"), "utf8");
+  assert.doesNotMatch(src, /except Exception(?: as \w+)?:\s*\n\s+continue/);
 });
 
 // ---- index verb (lifecycle via the fake tinycloud) --------------------
@@ -781,7 +1079,7 @@ test("face --match rejects a record id whose media isn't an image (#R7-2)", asyn
     c.writeRecord(watch);
     const [rec] = await faceVerb.run({ input: undefined, rest: [], opts: { match: watch.id, index: "col_x" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
-    assert.match(rec.error ?? "", /JPEG or PNG/);
+    assert.match(rec.error ?? "", /not an image file/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -1148,6 +1446,35 @@ test("index attach syncs mirrored members instead of keeping stale refs", async 
     else process.env.OVERCAST_TINYCLOUD_CMD = saved;
     rmSync(cdir, { recursive: true, force: true });
   }
+});
+
+test("index attach refuses to overwrite local visual DB members", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-attach-local-"));
+  const img = join(cdir, "logo.jpg");
+  writeFileSync(img, "x");
+  const saved = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = BASE;
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "logos", type: "image-ransac", name: "logos", backend: "local" });
+    addMember(c, "logos", { ref: img });
+    const [attached] = await indexVerb.run({ input: "attach", rest: ["logos"], opts: {}, case: c, profile: defaultProfile() });
+    assert.equal(attached.state, "error");
+    assert.match(attached.error ?? "", /local visual indexes cannot be attached/);
+    assert.equal(findIndex(c, "logos")?.backend, "local");
+    assert.deepEqual(findIndex(c, "logos")?.members.map((m) => m.ref), [img]);
+  } finally {
+    if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = saved;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("visual-db uv setup defaults to image mode unambiguously", () => {
+  const script = readFileSync(join(HERE, "..", "..", "scripts", "visual-db-uv.sh"), "utf8");
+  assert.doesNotMatch(script, /\$\{1:---image\}/);
+  assert.match(script, /MODE="\$\{1:-\}"/);
+  assert.match(script, /MODE="--image"/);
 });
 
 test("index list --remote exposes indexes, not collections, at the public layer", async () => {

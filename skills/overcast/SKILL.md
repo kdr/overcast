@@ -22,6 +22,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `listen` — Transcribe and analyze audio (or a video's audio track) into an audio.analysis record.
 - `see` — Understand an image or a single video frame (caption, OCR, detections).
 - `face` — Detect, match, or search faces in video (and across face-analysis indexes).
+- `image` — Match images or video frames against a local RANSAC image index.
 - `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.
@@ -179,9 +180,16 @@ overcast provider setup show --profile default --json
 overcast provider setup plan --preset cloudglue --profile default --json
 overcast provider setup apply --preset cloudglue --profile default --yes --json
 overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
 overcast provider init listen --profile recon --json
 overcast doctor --profile recon --json
 ```
+
+Catalog presets include `cloudglue`, `hf`, `fal`, `elevenlabs`,
+`owl-local`, and `deepface-local`. `face:deepface-local` selects local DeepFace for
+plain `face <video>` detection and `face <video> --match <image>` matching;
+`deepface-local` remains the case-owned local face DB/index type for searchable
+reference sets.
 
 Provider setup is profile/global state and can span many cases. Case setup is
 per-investigation state: target, sources/media, memory/indexes, and automation
@@ -189,7 +197,7 @@ policy.
 
 ```bash
 overcast case setup edit \
-  --provider "listen:elevenlabs,see:local-detect" \
+  --provider "listen:elevenlabs,see:owl-local" \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \

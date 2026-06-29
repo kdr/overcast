@@ -222,7 +222,7 @@ test("case setup stores provider policy, automation, and findings settings", asy
   await withCase(async (dir) => {
     const c = openCase(dir);
     const records = await caseVerb.run(ctx(dir, "setup", [], {
-      provider: "listen:elevenlabs,see:local-detect",
+      provider: "listen:elevenlabs,see:owl-local",
       "provider-indexable": "listen,see",
       "auto-sense": "watch,listen",
       "auto-index-new": true,
@@ -235,7 +235,7 @@ test("case setup stores provider policy, automation, and findings settings", asy
     const providers = saved.providers as Record<string, Record<string, unknown>>;
     assert.equal(providers.listen.choice, "elevenlabs");
     assert.equal(providers.listen.indexable, true);
-    assert.equal(providers.see.choice, "local-detect");
+    assert.equal(providers.see.choice, "owl-local");
     assert.deepEqual(saved.automation, { auto_sense: ["watch", "listen"], auto_index_new: true });
     assert.deepEqual(saved.findings, { mode: "review" });
   });
@@ -245,7 +245,7 @@ test("case setup only marks providers indexable when provider-indexable selects 
   await withCase(async (dir) => {
     const c = openCase(dir);
     const records = await caseVerb.run(ctx(dir, "setup", [], {
-      provider: "listen:elevenlabs,see:local-detect",
+      provider: "listen:elevenlabs,see:owl-local",
       "provider-indexable": "listen",
       yes: true,
       ...noIndex,
@@ -286,7 +286,7 @@ test("case setup provider-indexable can clear existing indexable flags", async (
   await withCase(async (dir) => {
     const c = openCase(dir);
     let records = await caseVerb.run(ctx(dir, "setup", [], {
-      provider: "listen:elevenlabs,see:local-detect",
+      provider: "listen:elevenlabs,see:owl-local",
       "provider-indexable": "listen,see",
       yes: true,
       ...noIndex,

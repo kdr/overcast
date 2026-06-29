@@ -72,7 +72,8 @@ Catalog presets:
 | `hf` | `see:hf`, `enhance:hf` |
 | `fal` | `see:fal`, `enhance:fal` |
 | `elevenlabs` | `listen:elevenlabs`, `enhance:elevenlabs` |
-| `local-detect` | `see:local-detect` |
+| `owl-local` | `see:owl-local` |
+| `deepface-local` | `face:deepface-local` |
 
 Common environment:
 
@@ -82,13 +83,14 @@ Common environment:
 | `hf` | `HF_TOKEN` |
 | `fal` | `FAL_KEY` |
 | `elevenlabs` | `ELEVENLABS_API_KEY` |
-| `local-detect` | optional `DETECT_MODEL` |
+| `owl-local` | optional `DETECT_MODEL` |
+| `deepface-local` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY` |
 
 After provider/profile setup, use `case setup` for per-investigation policy:
 
 ```bash
 overcast case setup edit \
-  --provider "listen:elevenlabs,see:local-detect" \
+  --provider "listen:elevenlabs,see:owl-local" \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
@@ -172,6 +174,56 @@ overcast crop <see-record-id> --all --class person --json        # materialize d
 - Env: `DETECT_MODEL`, `DETECT_THRESHOLD` (default 0.1), `DETECT_MAX_FRAMES` (default 8). overcast passes `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` (the system ffmpeg/ffprobe) so video frame extraction works.
 - *Note:* `nvidia/LocateAnything-3B` is a higher-quality open-vocab grounding model but it's a 3B VLM (~7.7 GB, GPU-class); swap it in via a local-transformers provider if you have the hardware.
 
+## Visual DBs (`image-ransac` and `deepface-local`)
+
+Visual DBs are selected by **index type**. The DeepFace face detector can
+also be selected as a profile provider with `face:deepface-local`, but the searchable
+local face DB is still the `deepface-local` index type. The case setup wizard's
+`--index` path is for remote/default index creation today, so use `index create
+--local` per case for `image-ransac` and `deepface-local`. They use shipped Python
+providers under `examples/providers/visual-db/` and a uv-managed Python
+environment:
+
+```bash
+scripts/visual-db-uv.sh          # image matching: opencv-python + numpy
+scripts/visual-db-uv.sh --face   # face matching too: deepface + tf-keras
+overcast doctor --json              # reports uv + visual-db readiness
+
+overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
+overcast face ./clip.mp4 --profile local --fps 0.5 --max-frames 32 --json
+```
+
+If `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY` is unset, overcast first
+uses `.dev/visual-db-py/bin/python` when present, then falls back to
+`python3`.
+
+Image matching is an OpenCV SIFT/ORB + RANSAC DB for logos, buildings, signs,
+and landmarks:
+
+```bash
+overcast index create logos --type image-ransac --local --json
+overcast index add ./starbucks-logo.jpg --to logos --json
+overcast image match ./clip.mp4 --index logos --min-inliers 8 --min-ratio 0.25 --fps 0.7 --draw --json
+```
+
+Face matching is a local DeepFace DB keyed by reference images:
+
+```bash
+overcast index create localfaces --type deepface-local --local --json
+overcast index add ./person.jpg --to localfaces --json
+overcast face ./clip.mp4 --match ./person.jpg --index localfaces --fps 0.5 --max-frames 32 --min-similarity 20 --json
+overcast face --match ./person.jpg --index localfaces --json
+```
+
+Both emit ordinary Overcast records (`image.match` or `face.analysis`) and write
+local artifacts under the case `.overcast/` store. Local-grep/qmd memory indexes
+should index the records and summaries only; do not ingest raw media, embeddings,
+sampled frames, face boxes, or match visualization images as text. Add `note`,
+`watch`, `listen`, or `see` records when the visual result needs narrative
+context for text search. For videos, `--fps` controls sample cadence and
+`--max-frames` caps the sampled frames; if neither is passed, the local providers
+sample 8 frames.
+
 ## Samples (runnable, in this repo)
 
 - [`examples/providers/bash/watch.sh`](../examples/providers/bash/watch.sh) — the canonical tinycloud `watch` exec provider.
@@ -180,7 +232,8 @@ overcast crop <see-record-id> --all --class person --json        # materialize d
 - [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
 - [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN image enhance, and DeepFilterNet3 audio enhance.
-- [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — local open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
+- [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
+- [`examples/providers/visual-db/{image_match,face_match}.py`](../examples/providers/visual-db/) — local image RANSAC and DeepFace matching for visual DB indexes.
 - [`examples/providers/sources/{youtube,tiktok,web}.sh`](../examples/providers/sources/) — yt-dlp + Apify + web-search (Tavily/Brave) source providers.
 
 ## Source providers (built-in types)
@@ -192,9 +245,12 @@ overcast crop <see-record-id> --all --class person --json        # materialize d
 - Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
 For local-media-only cases, `scan` falls back to local case media/indexes instead
-of erroring on missing sources. If an image target and face-analysis index are
-present, it runs the face-index search; use `scan --local` to force this local
-path even when external sources are registered.
+of erroring on missing sources. If an image target and face-analysis or local
+visual index are present, it suggests/runs the matching search. Local visual DB
+searches scan candidate case media against the reference images already stored in
+the local indexes; they do not search the target/reference image by itself. Local
+visual DB fan-out is capped by `--limit` (default 5). Use `scan --local` to force
+this local path even when external sources are registered.
 
 Each responds to `describe` offline:
 

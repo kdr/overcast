@@ -142,6 +142,42 @@ test("provider setup plan is non-mutating and apply writes catalog choices to a 
   }
 });
 
+test("provider setup can bind face to deepface-local", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-provider-deepface-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-provider-deepface-home-"));
+  try {
+    const [apply] = await providerVerb.run(ctx(dir, home, "setup", ["apply"], { verb: "face", choice: "deepface-local", profile: "local", yes: true }));
+    assert.equal(apply.state, "ready");
+    const p = loadProfile({ home, profile: "local" });
+    assert.equal(p.providers?.face.type, "inproc");
+    assert.equal(p.providers?.face.backend, "deepface-local");
+    assert.equal(p.providers?.face.id, "deepface-local");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("provider describe returns deepface-local descriptor metadata", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-provider-deepface-desc-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-provider-deepface-desc-home-"));
+  try {
+    const [apply] = await providerVerb.run(ctx(dir, home, "setup", ["apply"], { verb: "face", choice: "deepface-local", profile: "local", yes: true }));
+    assert.equal(apply.state, "ready");
+
+    const [desc] = await providerVerb.run(ctx(dir, home, "describe", ["face"], { profile: "local" }));
+    assert.equal(desc.state, "ready");
+    const payload = desc.payload as Record<string, unknown>;
+    const descriptor = payload.descriptor as Record<string, unknown>;
+    assert.equal(descriptor.type, "inproc");
+    assert.equal(descriptor.backend, "deepface-local");
+    assert.equal(descriptor.id, "deepface-local");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("provider setup preset can clear built-in bindings such as ffmpeg enhance", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-provider-preset-"));
   const home = mkdtempSync(join(tmpdir(), "oc-provider-preset-home-"));

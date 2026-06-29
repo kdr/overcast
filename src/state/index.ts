@@ -18,7 +18,9 @@ export type IndexType =
   | "media-descriptions"
   | "entities"
   | "face-analysis"
-  | "rich-transcripts";
+  | "rich-transcripts"
+  | "deepface-local"
+  | "image-ransac";
 
 export interface IndexMember {
   /** the video ref registered (path / URL) */
@@ -35,6 +37,8 @@ export interface IndexEntry {
   id: string;
   /** index type (drives which read verb can use it) */
   type: IndexType | string;
+  /** where the searchable data lives; omitted legacy entries are tinycloud */
+  backend?: "tinycloud" | "local" | string;
   name: string;
   description?: string;
   members: IndexMember[];
@@ -67,6 +71,15 @@ export function normalizeIndexType(input: string): IndexType | undefined {
     case "face":
     case "faces":
       return "face-analysis";
+    case "deepface-local":
+    case "local-face":
+    case "local-faces":
+      return "deepface-local";
+    case "image-ransac":
+    case "image":
+    case "images":
+    case "visual":
+      return "image-ransac";
     case "rich-transcripts":
     case "rich-transcript":
     case "transcripts":
@@ -143,13 +156,14 @@ export function resolveIndexRef(
 /** Record a newly-created index in the mirror (upsert by id). */
 export function addIndex(
   c: Case,
-  entry: { id: string; type: IndexType | string; name: string; description?: string },
+  entry: { id: string; type: IndexType | string; name: string; description?: string; backend?: "tinycloud" | "local" | string },
 ): IndexEntry {
   const store = load(c);
   const existing = store.indexes.find((x) => x.id === entry.id);
   if (existing) {
     existing.type = entry.type;
     existing.name = entry.name;
+    if (entry.backend !== undefined) existing.backend = entry.backend;
     if (entry.description !== undefined) existing.description = entry.description;
     save(c, store);
     return existing;
@@ -157,6 +171,7 @@ export function addIndex(
   const created: IndexEntry = {
     id: entry.id,
     type: entry.type,
+    backend: entry.backend,
     name: entry.name,
     description: entry.description,
     members: [],
