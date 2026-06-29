@@ -4,7 +4,7 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve, extname } from "node:path";
-import { makeRecord, isMemoryRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, memoryRecords, type OvercastRecord } from "../record.js";
 import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
@@ -187,7 +187,7 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
   // Exclude read/meta and operational outputs (ask/brief/case/setup/doctor/etc.)
   // so briefs and memory search stay evidence-focused instead of citing setup
   // probes, doctor checks, or prior read envelopes as findings.
-  records = records.filter(isMemoryRecord);
+  records = memoryRecords(records);
   const counts: Record<string, number> = {};
   for (const r of records) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
 
@@ -340,6 +340,23 @@ export const briefVerb: VerbSpec = {
     }
     const info = ctx.case.exists() ? ctx.case.info() : { name: "case" };
     const brief = buildBrief(records, info.name);
+    if (brief.total === 0) {
+      return [
+        makeRecord({
+          verb: "brief",
+          format: "md",
+          payload: {
+            report: brief.md,
+            counts: brief.counts,
+            total: 0,
+            export: null,
+            note: "no evidence records to brief; add watch/listen/see/face/scan/capture/note/finding records first",
+          },
+          meta: { transient: true },
+          state: "pending",
+        }),
+      ];
+    }
 
     let exported: string | undefined;
     if (ctx.opts.export) {

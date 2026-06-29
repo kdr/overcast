@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
+import { makeFinding } from "../../src/verbs/finding.ts";
 import { LocalMemoryProvider, recordText } from "../../src/providers/memory/local.ts";
 import { resolveMemory, fanOutAnswer } from "../../src/providers/memory/index.ts";
 import { QmdMemoryProvider, DEFAULT_QMD_MODEL } from "../../src/providers/memory/qmd.ts";
@@ -86,6 +87,46 @@ test("case memory excludes operational/read/error records but indexes compact fa
     assert.match(docs, /FACE_SUMMARY_MARKER/);
     assert.match(docs, /CROP_MARKER/);
     assert.doesNotMatch(docs, /SETUP_NOISE|DOCTOR_NOISE|INDEX_NOISE|COLLECTION_NOISE|TARGET_NOISE|SOURCE_NOISE|PREBRIEF_NOISE|CASE_NOISE|ASK_NOISE|CROP_ERROR_MARKER|WATCH_ERROR_MARKER|NOISY_FACE_BLOB|RAW_BOX_NOISE/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("dismissed findings and review records are excluded from memory and briefs", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-finding-memory-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    const source = makeRecord({ verb: "watch", payload: { content: "ordinary clip" }, media: { ref: "clip.mp4" } });
+    c.writeRecord(source);
+    const finding = makeFinding({ text: "DISMISSED_FINDING_MARKER target found", target: "target", sourceRecord: source, trigger: "test" });
+    c.writeRecord(finding);
+    c.writeRecord(makeRecord({ verb: "finding", payload: { finding_id: finding.id, status: "dismissed", reviewed_at: "2026-06-28T00:00:00Z" } }));
+
+    const mem = new LocalMemoryProvider(c);
+    assert.deepEqual(mem.query("DISMISSED_FINDING_MARKER", { limit: 10 }), []);
+    const [brief] = await briefVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
+    assert.doesNotMatch((brief.payload as Record<string, unknown>).report as string, /DISMISSED_FINDING_MARKER/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("provider-indexable case policy extends memory signals", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-provider-indexable-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "see", payload: { caption: "PROVIDER_INDEXABLE_MARKER visible target" } }));
+    const setup = emptySetup("provider-indexable");
+    setup.memory = { backend: "local-grep", signals: ["note"] };
+    setup.providers = { see: { verb: "see", choice: "local-detect", indexable: true } };
+    saveSetup(c, setup);
+
+    const [mem] = resolveMemory(c, defaultProfile());
+    const hits = mem.query("PROVIDER_INDEXABLE_MARKER", { limit: 10 });
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].verb, "see");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -748,6 +789,23 @@ test("brief verb builds a report and --export writes md + html", async () => {
     assert.match(html, /<h1>/);
     assert.match(html, /white van/);
   });
+});
+
+test("brief on an empty evidence set is transient and does not export", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-emptybrief-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    const out = join(dir, "brief.html");
+    const [rec] = await briefVerb.run(ctx(c, undefined, { export: out }));
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal(rec.state, "pending");
+    assert.equal(rec.meta?.transient, true);
+    assert.equal(payload.total, 0);
+    assert.equal(existsSync(out), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("brief embeds the FULL primary field, not a 160-char stub", async () => {

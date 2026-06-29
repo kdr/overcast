@@ -265,7 +265,7 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
       // there) — e.g. `case init <other-dir>`. Transient records are user-facing
       // control results, not case history.
       for (const rec of records) {
-        if (rec.meta?.transient === true) continue;
+        if (rec.meta?.transient === true || rec.meta?.persisted === true) continue;
         if (rec.meta?.case && rec.meta.case !== c.dir) continue;
         c.writeRecord(rec);
       }

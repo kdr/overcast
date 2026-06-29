@@ -11,6 +11,7 @@
 //      (`case memory get <id> --field <name> --offset/--limit`).
 
 import type { OvercastRecord, RecordPayload, JsonMap } from "./record.js";
+import { redactSecrets } from "./env.js";
 
 const DEFAULT_BUDGET = 8000; // bytes; full-mode inline ceiling
 const DEFAULT_PREVIEW = 200; // chars; per-field preview width
@@ -54,8 +55,14 @@ export function fieldText(v: unknown): string {
   }
 }
 
+/** The exact redacted text exposed by `case memory get --field`. Redact before
+ * slicing so a secret split across page boundaries cannot leak in fragments. */
+export function pageText(v: unknown): string {
+  return redactSecrets(fieldText(v));
+}
+
 function oneLine(s: string, max: number): string {
-  const t = s.replace(/\s+/g, " ").trim();
+  const t = redactSecrets(s).replace(/\s+/g, " ").trim();
   return t.length <= max ? t : t.slice(0, max) + "…";
 }
 
@@ -127,9 +134,9 @@ function fieldType(v: unknown): FieldType {
 
 function oneField(name: string, v: unknown, previewChars: number): FieldInfo {
   const type = fieldType(v);
-  // size/length come from the SAME text the pager slices (fieldText), so the
+  // size/length come from the SAME text the pager slices (pageText), so the
   // manifest never disagrees with paging metadata.
-  const text = fieldText(v);
+  const text = pageText(v);
   const bytes = Buffer.byteLength(text, "utf8");
   const chars = text.length;
   const base = { name, type, size: humanSize(bytes), bytes, chars };
@@ -156,15 +163,18 @@ export function payloadFields(payload: RecordPayload, previewChars = 160): Field
 
 /** Render a full (within-budget) object payload, printing string fields in full. */
 function renderFullPayload(payload: RecordPayload): string {
-  if (typeof payload === "string") return payload;
+  if (typeof payload === "string") return redactSecrets(payload);
   const out: string[] = [];
   for (const [k, v] of Object.entries(payload)) {
     if (v == null) out.push(`${k}: null`);
-    else if (typeof v === "string") out.push(v.includes("\n") || v.length > 80 ? `${k}:\n${v}` : `${k}: ${v}`);
+    else if (typeof v === "string") {
+      const safe = redactSecrets(v);
+      out.push(safe.includes("\n") || safe.length > 80 ? `${k}:\n${safe}` : `${k}: ${safe}`);
+    }
     else if (typeof v === "number" || typeof v === "boolean") out.push(`${k}: ${v}`);
     // object/array: render via fieldText (pretty JSON) so the inline full view
     // matches EXACTLY what `case memory get --field <k>` pages back.
-    else out.push(`${k}:\n${fieldText(v)}`);
+    else out.push(`${k}:\n${redactSecrets(fieldText(v))}`);
   }
   return out.join("\n");
 }
@@ -204,7 +214,7 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
   const budget = opts.budget ?? DEFAULT_BUDGET;
   const previewChars = opts.previewChars ?? DEFAULT_PREVIEW;
   const h = head(rec);
-  if (rec.error) return `${h} error=${rec.error}`;
+  if (rec.error) return `${h} error=${redactSecrets(rec.error)}`;
 
   // full mode: inline only when the RENDERED output fits the budget (the pretty
   // form can be larger than the compact payload — gate on what's actually emitted).
@@ -231,7 +241,11 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
   const lossy = fields.some(
     (f) => !(f.type === "string" ? f.chars <= previewChars : f.type === "number" || f.type === "boolean" || f.type === "null"),
   );
-  const hint = lossy ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read it with: ${pageCommand(rec, { withCase: true })}` : "";
+  const hint = lossy
+    ? rec.meta?.transient === true
+      ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; transient result not saved, rerun with --json for full output`
+      : `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read it with: ${pageCommand(rec, { withCase: true })}`
+    : "";
   return `${h} payload:\n${lines.join("\n")}${hint}`;
 }
 
@@ -248,14 +262,14 @@ const TEXT_PAYLOAD_FIELDS = ["content", "text", "report", "chunk"];
  *   JSON) · default → the magnitude preview.
  */
 export function renderForFormat(rec: OvercastRecord, format?: string): string {
-  if (format === "json") return JSON.stringify(rec, null, 2);
+  if (format === "json") return redactSecrets(JSON.stringify(rec, null, 2));
   if (format === "md" || format === "txt") {
-    if (typeof rec.payload === "string") return rec.payload;
+    if (typeof rec.payload === "string") return redactSecrets(rec.payload);
     const p = rec.payload as JsonMap;
     for (const k of TEXT_PAYLOAD_FIELDS) {
-      if (typeof p[k] === "string" && p[k]) return p[k] as string;
+      if (typeof p[k] === "string" && p[k]) return redactSecrets(p[k] as string);
     }
-    return JSON.stringify(rec.payload, null, 2);
+    return redactSecrets(JSON.stringify(rec.payload, null, 2));
   }
-  return renderRecord(rec, { mode: "preview" });
+  return redactSecrets(renderRecord(rec, { mode: "preview" }));
 }

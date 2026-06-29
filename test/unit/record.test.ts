@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   makeRecord,
+  memoryRecords,
   validateRecord,
   isReady,
   newRecordId,
@@ -47,6 +48,12 @@ test("isReady treats missing/unknown state as ready", () => {
   assert.equal(isReady({ state: "ready" }), true);
   assert.equal(isReady({ state: "pending" }), false);
   assert.equal(isReady({ state: "weird" }), false);
+});
+
+test("scan pull-progress records are excluded from memory evidence", () => {
+  const progress = makeRecord({ verb: "scan", payload: { op: "pull_progress", stage: "complete", processed: 2 } });
+  const hit = makeRecord({ verb: "scan", payload: { title: "real hit", snippet: "Zurich", url: "https://example.test" } });
+  assert.deepEqual(memoryRecords([progress, hit]).map((r) => r.id), [hit.id]);
 });
 
 test("JSONL round-trips through the real fs store", () => {

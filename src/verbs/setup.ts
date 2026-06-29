@@ -17,7 +17,10 @@ import { execCapture } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
+import { findProviderChoice, providerChoices, PROVIDER_PRESETS, type ProviderChoice } from "../providers/catalog.js";
 import { PI_VERSION } from "../version.js";
+import { envPresent } from "../env.js";
+import { listSources } from "../state/source.js";
 import { existsSync, readdirSync } from "node:fs";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -87,6 +90,99 @@ function execDescriptor(run: string): ProviderDescriptor {
   };
 }
 
+function providerSetupRequests(ctx: VerbContext): { items: Array<{ verb: string; choice: string; choiceName: string }>; error?: string } {
+  const preset = ctx.opts.preset ? String(ctx.opts.preset).trim() : "";
+  const verb = ctx.opts.verb ? String(ctx.opts.verb).trim() : "";
+  const choice = ctx.opts.choice ? String(ctx.opts.choice).trim() : "";
+  if (preset) {
+    const items = PROVIDER_PRESETS[preset];
+    if (!items) return { items: [], error: `unknown provider preset '${preset}' (expected ${Object.keys(PROVIDER_PRESETS).join(" | ")})` };
+    return { items: items.map((i) => ({ ...i, choiceName: i.choice })) };
+  }
+  if (!verb || !choice) {
+    return { items: [], error: "provider setup needs --verb <verb> and --choice <choice>, or --preset <preset>" };
+  }
+  return { items: [{ verb, choice, choiceName: choice }] };
+}
+
+interface ProviderSetupChange {
+  verb: string;
+  choice: string;
+  label: string;
+  summary: string;
+  descriptor?: ProviderDescriptor;
+  clears_binding: boolean;
+  env: string[];
+  missing_env: string[];
+  indexable_default: boolean;
+}
+
+function providerSetupChange(verb: string, choice: ProviderChoice): ProviderSetupChange {
+  return {
+    verb,
+    choice: choice.id,
+    label: choice.label,
+    summary: choice.summary,
+    descriptor: choice.descriptor,
+    clears_binding: choice.clearsBinding === true,
+    env: choice.env ?? [],
+    missing_env: (choice.env ?? []).filter((name) => !process.env[name]),
+    indexable_default: choice.indexableDefault === true,
+  };
+}
+
+function builtinProviderDefaults(): Record<string, Record<string, unknown>> {
+  return {
+    watch: {
+      source: "builtin",
+      choice: "tinycloud",
+      label: "Cloudglue / tinycloud",
+      summary: "Default video understanding through tinycloud watch.",
+      descriptor: { type: "exec", run: "tinycloud watch {{input}} --json", init: { skill: "tinycloud-init", ensure: true }, describe: "tinycloud commands --json" },
+    },
+    listen: {
+      source: "builtin",
+      choice: "tinycloud",
+      label: "Cloudglue / tinycloud speech",
+      summary: "Default speech transcription through tinycloud.",
+      descriptor: { type: "exec", run: "tinycloud watch {{input}} --speech-only --json", init: { skill: "tinycloud-init", ensure: true }, describe: "tinycloud commands --json" },
+    },
+    face: {
+      source: "builtin",
+      choice: "tinycloud",
+      label: "Cloudglue / tinycloud face",
+      summary: "Default face detect/match/search through tinycloud.",
+      descriptor: { type: "exec", run: "tinycloud face detect {{input}} --json", init: { skill: "tinycloud-init", ensure: true }, describe: "tinycloud commands --json" },
+    },
+    see: {
+      source: "builtin",
+      choice: "hf-if-configured",
+      label: "Hugging Face captioner or setup-needed placeholder",
+      summary: "Uses the default HF image captioner when HF_TOKEN is set; otherwise reports needs_credentials until a VLM provider is bound.",
+    },
+    enhance: {
+      source: "builtin",
+      choice: "ffmpeg",
+      label: "Local ffmpeg",
+      summary: "Built-in deterministic ffmpeg enhancer.",
+    },
+  };
+}
+
+function effectiveProviders(profile: Profile): Record<string, Record<string, unknown>> {
+  const out = builtinProviderDefaults();
+  for (const [verb, descriptor] of Object.entries(profile.providers ?? {})) {
+    out[verb] = {
+      source: "profile",
+      choice: "configured",
+      label: "Profile binding",
+      summary: "Explicit provider binding from the active profile.",
+      descriptor,
+    };
+  }
+  return out;
+}
+
 // ---- setup -----------------------------------------------------------------
 
 export const setupVerb: VerbSpec = {
@@ -98,7 +194,7 @@ export const setupVerb: VerbSpec = {
     "verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets " +
     "the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.",
   args: [
-    { name: "action", summary: "provider | llm | memory | show", required: true },
+    { name: "action", summary: "provider | llm | memory | show (default: show)" },
     { name: "a", summary: "verb (provider), provider id (llm), or backend (memory)" },
     { name: "b", summary: "spec (provider), model (llm), or command (memory)" },
   ],
@@ -110,7 +206,7 @@ export const setupVerb: VerbSpec = {
   outputKind: "setup",
   providerKey: "setup",
   run: async (ctx) => {
-    const action = ctx.input;
+    const action = ctx.input ?? "show";
     const name = ctx.opts.profile ? String(ctx.opts.profile) : ctx.profileName ?? "default";
     const ho = { home: ctx.home, profile: name };
     const profile: Profile = loadProfile(ho);
@@ -160,7 +256,7 @@ export const setupVerb: VerbSpec = {
       return [err("setup", `unknown setup action '${action}' (expected provider | llm | memory | show)`)];
     }
     // show
-    return [makeRecord({ verb: "setup", format: "json", payload: { profile: profile }, state: "ready" })];
+    return [makeRecord({ verb: "setup", format: "json", payload: { profile: profile }, meta: { transient: true }, state: "ready" })];
   },
 };
 
@@ -169,28 +265,70 @@ export const setupVerb: VerbSpec = {
 export const providerVerb: VerbSpec = {
   name: "provider",
   group: "config",
-  summary: "Run a provider's init hook, or list/describe bound providers (provider init|list|describe).",
+  summary: "Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).",
   description:
+    "`provider setup plan|apply|show` configures catalog-backed provider choices for a profile. " +
     "`provider init <verb>` runs the bound provider's init step — a command, or guidance for a " +
     "skill-based init (not wired yet). `provider list` shows the active bindings.",
   args: [
-    { name: "action", summary: "init | list | describe", required: true },
-    { name: "verb", summary: "verb whose provider to init/describe" },
+    { name: "action", summary: "setup | init | list | describe (default: list)" },
+    { name: "verb", summary: "setup subcommand, or verb whose provider to init/describe" },
   ],
   flags: [
+    { name: "profile", summary: "Profile name to write/read (default: active/default)", type: "string" },
+    { name: "verb", summary: "provider setup: verb to configure", type: "string" },
+    { name: "choice", summary: "provider setup: catalog choice id", type: "string" },
+    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|local-detect)", type: "string" },
+    { name: "yes", summary: "provider setup apply: confirm profile changes", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
   outputKind: "provider",
   providerKey: "provider",
   run: async (ctx) => {
-    const action = ctx.input;
-    const providers = ctx.profile.providers ?? {};
+    const action = ctx.input ?? "list";
+    const profileName = ctx.opts.profile ? String(ctx.opts.profile) : ctx.profileName ?? ctx.profile.name ?? "default";
+    const profile = loadProfile({ home: ctx.home, profile: profileName });
+    profile.name = profileName;
+    const providers = profile.providers ?? {};
+    if (action === "setup") {
+      const sub = ctx.rest[0] ?? "show";
+      if (sub === "show") {
+        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices: providerChoices(), presets: PROVIDER_PRESETS, providers }, meta: { transient: true }, state: "ready" })];
+      }
+      if (sub !== "plan" && sub !== "apply") {
+        return [err("provider", "usage: provider setup [show|plan|apply] [--verb <verb> --choice <choice> | --preset <preset>] [--profile <name>] [--yes]")];
+      }
+      const requested = providerSetupRequests(ctx);
+      if (requested.error) return [err("provider", requested.error)];
+      const selected = requested.items.map((i) => ({ ...i, choice: findProviderChoice(i.verb, i.choice) }));
+      const missing = selected.find((i) => !i.choice);
+      if (missing) return [err("provider", `unknown provider choice '${missing.choiceName}' for verb '${missing.verb}'`)];
+      const changes = selected.map((i) => providerSetupChange(i.verb, i.choice!));
+      const payload = {
+        op: "provider_setup",
+        profile: profileName,
+        saved: sub === "apply" && ctx.opts.yes === true,
+        changes,
+        confirmation_required: sub === "apply" && ctx.opts.yes !== true,
+        confirm_with: sub === "apply" && ctx.opts.yes !== true ? "overcast provider setup apply ... --yes" : undefined,
+      };
+      if (sub === "plan" || ctx.opts.yes !== true) {
+        return [makeRecord({ verb: "provider", format: "json", payload, meta: { transient: true }, state: "pending" })];
+      }
+      profile.providers = { ...(profile.providers ?? {}) };
+      for (const change of changes) {
+        if (change.clears_binding) delete profile.providers[change.verb];
+        else if (change.descriptor) profile.providers[change.verb] = change.descriptor as ProviderDescriptor;
+      }
+      const path = saveProfile(profile, { home: ctx.home, profile: profileName });
+      return [makeRecord({ verb: "provider", format: "json", payload: { ...payload, path, providers: profile.providers }, state: "ready" })];
+    }
     if (action === "list") {
-      return [makeRecord({ verb: "provider", format: "json", payload: { providers }, state: "ready" })];
+      return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, providers, effective: effectiveProviders(profile) }, meta: { transient: true }, state: "ready" })];
     }
     if (action !== "describe" && action !== "init") {
-      return [err("provider", `unknown provider action '${action}' (expected init | list | describe)`)];
+      return [err("provider", `unknown provider action '${action}' (expected setup | init | list | describe)`)];
     }
     const verb = ctx.rest[0];
     if (!verb) return [err("provider", `usage: provider ${action} <verb>`)];
@@ -238,6 +376,7 @@ export const doctorVerb: VerbSpec = {
   summary: "Preflight: check pi version, ffmpeg/ffprobe, Cloudglue creds, tinycloud, provider bindings.",
   args: [],
   flags: [
+    { name: "sources", summary: "Also check configured source-provider credentials", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
@@ -295,6 +434,27 @@ export const doctorVerb: VerbSpec = {
         detail: qmd.code === 0
           ? `optional semantic memory CLI available (${DEFAULT_QMD_MODEL})`
           : "optional semantic memory CLI missing — install with `npm install -g @tobilu/qmd`",
+      });
+    }
+
+    const configuredSources = listSources(ctx.case);
+    const sourceTypes = new Set(configuredSources.map((s) => s.type));
+    if (ctx.opts.sources === true || sourceTypes.has("tiktok")) {
+      checks.push({
+        name: "source:tiktok",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present"
+          : "APIFY_TOKEN missing; put it in .env before launching overcast or export it in the shell",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("web")) {
+      checks.push({
+        name: "source:web",
+        ok: envPresent("TAVILY_API_KEY") || envPresent("BRAVE_API_KEY"),
+        detail: envPresent("TAVILY_API_KEY") || envPresent("BRAVE_API_KEY")
+          ? "web source key present"
+          : "TAVILY_API_KEY or BRAVE_API_KEY missing for web source scans",
       });
     }
 

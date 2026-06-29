@@ -22,6 +22,7 @@ import { OvercastHeader, OvercastFooter, workingIndicator, opLabel, idleLabel } 
 import { registerSlashCommands } from "./slash.js";
 import { OvercastEditor } from "./editor.js";
 import { OVERCAST_VERSION } from "../version.js";
+import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
 
 const PROMPTS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "prompts");
 
@@ -137,7 +138,13 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   // the idle-phrase rotation twice at loop start and skip an entry (Bugbot, #12).
   pi.on("turn_start", (_e, ctx) => ctx.ui?.setWorkingMessage?.(idleLabel()));
   pi.on("tool_execution_start", (e, ctx) => ctx.ui?.setWorkingMessage?.(opLabel(e.toolName)));
-  pi.on("tool_execution_end", (_e, ctx) => ctx.ui?.setWorkingMessage?.(idleLabel()));
+  pi.on("tool_execution_end", (e, ctx) => {
+    ctx.ui?.setWorkingMessage?.(idleLabel());
+    if (e.toolName === "case") {
+      const records = (e.result as { details?: { records?: unknown } } | undefined)?.details?.records;
+      maybeScheduleCaseClearReset(records);
+    }
+  });
   pi.on("agent_end", (_e, ctx) => ctx.ui?.setWorkingMessage?.(undefined));
 
   pi.on("session_start", async (_event, ctx) => {

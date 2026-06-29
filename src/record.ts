@@ -76,7 +76,32 @@ export function isMetaRecord(rec: Pick<OvercastRecord, "verb">): boolean {
 /** Whether a record should be eligible for case memory/search evidence. */
 export function isMemoryRecord(rec: Pick<OvercastRecord, "verb"> & Partial<Pick<OvercastRecord, "payload" | "state">>): boolean {
   if (META_VERBS.has(rec.verb) || OPERATIONAL_VERBS.has(rec.verb)) return false;
+  if (rec.verb === "scan" && rec.payload && typeof rec.payload === "object") {
+    if ((rec.payload as Record<string, unknown>).op === "pull_progress") return false;
+  }
+  if (rec.verb === "finding" && rec.payload && typeof rec.payload === "object") {
+    const payload = rec.payload as Record<string, unknown>;
+    if (typeof payload.finding_id === "string") return false;
+    if (typeof payload.source_record !== "string") return false;
+    const status = payload.status;
+    if (status === "dismissed") return false;
+  }
   return isReady(rec);
+}
+
+export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
+  const findingStatus = new Map<string, string>();
+  for (const rec of records) {
+    if (rec.verb !== "finding" || !rec.payload || typeof rec.payload !== "object") continue;
+    const payload = rec.payload as Record<string, unknown>;
+    const id = typeof payload.finding_id === "string" ? payload.finding_id : rec.id;
+    if (typeof payload.status === "string") findingStatus.set(id, payload.status);
+  }
+  return records.filter((rec) => {
+    if (!isMemoryRecord(rec)) return false;
+    if (rec.verb !== "finding") return true;
+    return findingStatus.get(rec.id) !== "dismissed";
+  });
 }
 
 const ID_PREFIX = "rec_";

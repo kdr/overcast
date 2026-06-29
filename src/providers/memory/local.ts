@@ -3,7 +3,7 @@
 // record's payload text. No external deps; per-case.
 
 import type { Case } from "../../case.js";
-import { isMemoryRecord, type OvercastRecord } from "../../record.js";
+import { memoryRecords, type OvercastRecord } from "../../record.js";
 import type { MemoryProvider, Passage, QueryOpts, Answer } from "./types.js";
 import { indexableDocument } from "./fields.js";
 
@@ -65,7 +65,7 @@ export class LocalMemoryProvider implements MemoryProvider {
 
   query(q: string, opts: QueryOpts = {}): Passage[] {
     const qTokens = tokenize(q);
-    let records = this.case_.records().filter(isMemoryRecord);
+    let records = memoryRecords(this.case_.records());
     const hasVerbFilter = !!opts.verbs?.length || !!this.verbs;
     const verbs = opts.verbs?.length
       ? this.verbs
@@ -137,7 +137,7 @@ export class LocalMemoryProvider implements MemoryProvider {
   }
 
   status() {
-    const records = this.case_.records().filter(isMemoryRecord);
+    const records = memoryRecords(this.case_.records());
     const docs = records.map(indexableDocument).filter(Boolean).length;
     return {
       provider: this.id,

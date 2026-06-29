@@ -27,12 +27,14 @@ writeFileSync(c.targetFile, JSON.stringify({ targets: [{ id: 'target_1', name: '
 writeFileSync(join(c.mediaDir, 'clip.txt'), 'media');
 mkdirSync(c.indexDir, { recursive: true });
 writeFileSync(join(c.indexDir, 'idx.txt'), 'index');
+writeFileSync(join(c.dir, 'brief.html'), '<html></html>');
 " 2>"$SMOKE_DIR/phase4_caseclear_seed.err"
 
 preview="$($OVERCAST case clear --json --case "$casedir" 2>/dev/null)"
 save_json "phase4_caseclear_preview" "$preview" >/dev/null
 assert_eq "clear.preview_state" "pending" "$(jq -r '.state' <<<"$preview")" "dry run requires confirmation"
 assert_eq "clear.preview_records" "1" "$(jq -r '.payload.will_lose.records' <<<"$preview")" "dry run reports one record"
+assert_eq "clear.preview_artifacts" "brief.html" "$(jq -r '.payload.will_lose.artifacts[0]' <<<"$preview")" "dry run reports root artifact"
 assert_eq "clear.preview_confirm" "true" "$(jq -r '.payload.confirmation_required' <<<"$preview")" "dry run reports confirmation requirement"
 
 assert_eq "clear.preview_preserves_records" "1" "$(record_lines)" "dry run leaves records intact"
@@ -41,11 +43,17 @@ if [ -f "$casedir/.overcast/sources.json" ]; then
 else
   fail "clear.preview_preserves_state" "sources.json was removed"
 fi
+if [ -f "$casedir/brief.html" ]; then
+  ok "clear.preview_preserves_artifact" "dry run leaves brief artifact intact"
+else
+  fail "clear.preview_preserves_artifact" "brief.html was removed during preview"
+fi
 
 confirmed="$($OVERCAST case clear --yes --json --case "$casedir" 2>/dev/null)"
 save_json "phase4_caseclear_confirmed" "$confirmed" >/dev/null
 assert_eq "clear.confirmed" "true" "$(jq -r '.payload.cleared' <<<"$confirmed")" "--yes clears the case"
 assert_eq "clear.confirmed_lost_records" "1" "$(jq -r '.payload.lost.records' <<<"$confirmed")" "--yes reports lost record count"
+assert_eq "clear.confirmed_lost_artifacts" "brief.html" "$(jq -r '.payload.lost.artifacts[0]' <<<"$confirmed")" "--yes reports lost root artifact"
 
 assert_eq "clear.records_empty" "0" "$(record_lines)" "records are empty after clear"
 assert_eq "clear.case_preserved" "true" "$([ -f "$casedir/.overcast/case.json" ] && echo true || echo false)" "case remains initialized"
@@ -64,4 +72,9 @@ if [ ! -d "$casedir/.overcast/index" ]; then
   ok "clear.index_removed" "index directory removed"
 else
   fail "clear.index_removed" "index directory still exists"
+fi
+if [ ! -f "$casedir/brief.html" ]; then
+  ok "clear.artifact_removed" "brief artifact removed"
+else
+  fail "clear.artifact_removed" "brief artifact still exists"
 fi

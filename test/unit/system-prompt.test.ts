@@ -17,6 +17,9 @@ test("agent system prompt teaches the index/search lifecycle", () => {
   assert.match(prompt, /index add <video> --to <id>/);
   assert.match(prompt, /create missing `watch` evidence/);
   assert.match(prompt, /Do not run face detection just\s+to populate local-grep or qmd case search/);
+  assert.match(prompt, /run `overcast finding create <text> --ref <record-id> --at <span> --target <target>` right away/);
+  assert.match(prompt, /Do not substitute `note` for confirmed evidence/);
+  assert.match(prompt, /If direct TikTok sensing fails/);
 });
 
 test("agent system prompt hides setup hint after completed setup", () => {

@@ -6,6 +6,9 @@ import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
 import { loadProfile, defaultProfile } from "../../src/profile.ts";
 import { parseProviderSpec, setupVerb, providerVerb, doctorVerb } from "../../src/verbs/setup.ts";
+import { addSource } from "../../src/state/source.ts";
+import { renderForFormat } from "../../src/render.ts";
+import { makeRecord } from "../../src/record.ts";
 import { runExecProvider, isTinycloudDefault } from "../../src/providers/run.ts";
 import { renderCommand } from "../../src/providers/exec.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
@@ -57,8 +60,99 @@ test("setup provider persists a binding to the profile; doctor + provider list s
 
     // provider list reflects it
     const [lst] = await providerVerb.run(ctx(dir, home, "list"));
-    const providers = (lst.payload as Record<string, unknown>).providers as Record<string, unknown>;
+    const payload = lst.payload as Record<string, unknown>;
+    const providers = payload.providers as Record<string, unknown>;
+    const effective = payload.effective as Record<string, Record<string, unknown>>;
     assert.ok("see" in providers);
+    assert.equal(effective.see.source, "profile");
+    assert.equal(effective.watch.source, "profile");
+    assert.equal(effective.face.choice, "tinycloud");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("bare setup and provider default to useful show/list output", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-setup-defaults-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-home-defaults-"));
+  try {
+    const [setup] = await setupVerb.run(ctx(dir, home, undefined));
+    assert.equal(setup.state, "ready");
+    assert.equal(setup.meta?.transient, true);
+    assert.ok((setup.payload as Record<string, unknown>).profile);
+
+    const [provider] = await providerVerb.run(ctx(dir, home, undefined));
+    const payload = provider.payload as Record<string, unknown>;
+    assert.equal(provider.state, "ready");
+    assert.equal(provider.meta?.transient, true);
+    assert.equal(payload.profile, "default");
+    assert.ok(payload.effective);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor --sources reports missing tiktok credentials", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-src-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-src-"));
+  const prev = process.env.APIFY_TOKEN;
+  try {
+    delete process.env.APIFY_TOKEN;
+    addSource(openCase(dir), "tiktok:@willsmith");
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined, [], { sources: true }));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    const tiktok = checks.find((c) => c.name === "source:tiktok");
+    assert.equal(tiktok?.ok, false);
+    assert.match(tiktok?.detail ?? "", /APIFY_TOKEN missing/);
+  } finally {
+    if (prev === undefined) delete process.env.APIFY_TOKEN;
+    else process.env.APIFY_TOKEN = prev;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("rendering redacts secret-looking values", () => {
+  const rec = makeRecord({ verb: "doctor", payload: { APIFY_TOKEN: "apify_api_abcdefghijklmnopqrstuvwxyz123456", text: "token=sk-abcdefghijklmnopqrstuvwxyz" } });
+  const rendered = renderForFormat(rec, "json");
+  assert.doesNotMatch(rendered, /apify_api_/);
+  assert.doesNotMatch(rendered, /sk-abcdefghijklmnopqrstuvwxyz/);
+  assert.match(rendered, /\[REDACTED\]/);
+});
+
+test("provider setup plan is non-mutating and apply writes catalog choices to a profile", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-provider-setup-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-provider-home-"));
+  try {
+    const [plan] = await providerVerb.run(ctx(dir, home, "setup", ["plan"], { verb: "listen", choice: "elevenlabs", profile: "recon" }));
+    assert.equal(plan.state, "pending");
+    assert.equal((plan.payload as Record<string, unknown>).saved, false);
+    assert.equal(loadProfile({ home, profile: "recon" }).providers?.listen, undefined);
+
+    const [apply] = await providerVerb.run(ctx(dir, home, "setup", ["apply"], { verb: "listen", choice: "elevenlabs", profile: "recon", yes: true }));
+    assert.equal(apply.state, "ready");
+    const p = loadProfile({ home, profile: "recon" });
+    assert.equal(p.providers?.listen.type, "exec");
+    assert.match(p.providers?.listen.run ?? "", /elevenlabs\/listen\.sh/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("provider setup preset can clear built-in bindings such as ffmpeg enhance", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-provider-preset-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-provider-preset-home-"));
+  try {
+    const [apply] = await providerVerb.run(ctx(dir, home, "setup", ["apply"], { preset: "cloudglue", profile: "cloud", yes: true }));
+    assert.equal(apply.state, "ready");
+    const p = loadProfile({ home, profile: "cloud" });
+    assert.equal(p.providers?.watch.type, "exec");
+    assert.equal(p.providers?.listen.type, "exec");
+    assert.equal(p.providers?.face.type, "exec");
+    assert.equal(p.providers?.enhance, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });

@@ -191,14 +191,14 @@ Emits `media.crop` records.
 
 ### `overcast scan`
 
-Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
+Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each hit uses the same media.ref/payload.url, capture, sense, and failure semantics as monitor. If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
 
 ```
 overcast scan  [options]
 
   Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 
-  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each AV hit is immediately captured and routed to a sense (one-shot recon). If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
+  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each hit uses the same media.ref/payload.url, capture, sense, and failure semantics as monitor. If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
 
 Options:
   --query <string>       Ad-hoc keyword search across sources
@@ -207,7 +207,7 @@ Options:
   --limit <number>       Max hits per source
   --local                Scan local case media/indexes instead of external sources
   --pull                 Auto-capture + sense each hit
-  --pipe <string>        Sense to run on pulled hits (watch|listen)
+  --pipe <string>        Sense to run on pulled hits (watch|listen|face)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
@@ -240,21 +240,21 @@ Emits `capture` records.
 
 ### `overcast monitor`
 
-Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
+Enumerates sources, diffs against .overcast/seen.json, and for each NEW item uses the shared scan --pull processor: resolve media.ref/payload.url, capture when needed, then run explicit --pipe or setup automation/default watch. Hard processing failures are surfaced and marked seen; pending/credential gaps remain retryable. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
 
 ```
 overcast monitor  [options]
 
   scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
 
-  Enumerates sources, diffs against .overcast/seen.json, and for each NEW item runs capture → --pipe sense. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
+  Enumerates sources, diffs against .overcast/seen.json, and for each NEW item uses the shared scan --pull processor: resolve media.ref/payload.url, capture when needed, then run explicit --pipe or setup automation/default watch. Hard processing failures are surfaced and marked seen; pending/credential gaps remain retryable. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
 
 Options:
   --source <string>      Restrict to source ids/types
   --query <string>       Ad-hoc keyword search across sources
   --since <string>       Only items newer than e.g. 24h, 2026-06-01
   --limit <number>       Max hits per source
-  --pipe <string>        Sense to run on new items (watch|listen)
+  --pipe <string>        Sense to run on new items (watch|listen|face)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --once                 Single diff pass then exit
   --every <string>       Continuous loop cadence (e.g. 15m, 6h)
@@ -422,6 +422,33 @@ Options:
 
 Emits `note` records.
 
+### `overcast finding`
+
+Creates manual findings and lists/reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+
+```
+overcast finding [action] [id] [options]
+
+  Create and review findings (create|list|accept|dismiss).
+
+  Creates manual findings and lists/reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+
+Arguments:
+  action           create | list | accept | dismiss (default: list)
+  id               finding id for accept/dismiss, or text for create
+
+Options:
+  --state <string>       list: open | accepted | dismissed | all
+  --target <string>      create: target/scope this finding supports
+  --ref <string>         create: source record id, capture id, media path, or URL
+  --at <string>          create: evidence timestamp seconds, hh:mm:ss, or start-end
+  --confidence <string>  create: confidence marker or score
+  --json                 Shorthand for --format json
+  --format <string>      json | md | txt
+```
+
+Emits `finding` records.
+
 ### `overcast case`
 
 A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
@@ -441,13 +468,21 @@ Arguments:
 Options:
   --name <string>        Case name (init/setup/edit)
   --target <string>      setup/edit: comma-separated target values to add
+  --image-target <string> setup/edit: comma-separated reference image targets to add
+  --face-ref <string>    setup/edit: alias for --image-target for face matching references
   --remove-target <string> setup/edit: comma-separated target ids/values to remove
-  --note <string>        setup/edit: comma-separated notes to add as local evidence
+  --note <string>        setup/edit: note text to add as local evidence; pass JSON array or newline-separated text for multiple notes
   --source <string>      setup/edit: comma-separated source specs (<type>:<ref>) to add
   --remove-source <string> setup/edit: comma-separated source ids/specs to remove
   --index <string>       setup/edit: comma-separated indexes (name:type or id:type:name)
   --remove-index <string> setup/edit: comma-separated index ids/names to remove
   --signals <string>     setup/edit: comma-separated signals for new indexes/videos
+  --provider <string>    setup/edit: comma-separated provider choices (<verb>:<choice>) for this case
+  --provider-indexable <string> setup/edit: comma-separated provider output verbs eligible for memory/indexing
+  --auto-sense <string>  setup/edit: comma-separated senses to run on newly captured media
+  --auto-index-new       setup/edit: automatically add newly analyzed media to configured indexes
+  --no-auto-index-new    setup/edit: disable automatic indexing for newly analyzed media
+  --findings <string>    setup/edit: automated finding workflow (off | review)
   --video <string>       setup/edit: comma-separated local videos/URLs to route
   --folder <string>      setup/edit: comma-separated local media folders to remember
   --no-index             setup/edit: save setup routes without starting remote collection ingestion
@@ -495,14 +530,14 @@ Emits `prebrief` records.
 Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.
 
 ```
-overcast setup <action> [a] [b] [options]
+overcast setup [action] [a] [b] [options]
 
   Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|show).
 
   Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.
 
 Arguments:
-  action           provider | llm | memory | show
+  action           provider | llm | memory | show (default: show)
   a                verb (provider), provider id (llm), or backend (memory)
   b                spec (provider), model (llm), or command (memory)
 
@@ -516,20 +551,25 @@ Emits `setup` records.
 
 ### `overcast provider`
 
-`provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
+`provider setup plan|apply|show` configures catalog-backed provider choices for a profile. `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
 
 ```
-overcast provider <action> [verb] [options]
+overcast provider [action] [verb] [options]
 
-  Run a provider's init hook, or list/describe bound providers (provider init|list|describe).
+  Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).
 
-  `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
+  `provider setup plan|apply|show` configures catalog-backed provider choices for a profile. `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
 
 Arguments:
-  action           init | list | describe
-  verb             verb whose provider to init/describe
+  action           setup | init | list | describe (default: list)
+  verb             setup subcommand, or verb whose provider to init/describe
 
 Options:
+  --profile <string>     Profile name to write/read (default: active/default)
+  --verb <string>        provider setup: verb to configure
+  --choice <string>      provider setup: catalog choice id
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|local-detect)
+  --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt
 ```
@@ -546,6 +586,7 @@ overcast doctor  [options]
   Preflight: check pi version, ffmpeg/ffprobe, Cloudglue creds, tinycloud, provider bindings.
 
 Options:
+  --sources              Also check configured source-provider credentials
   --json                 JSON output
   --format <string>      json | md | txt
 ```

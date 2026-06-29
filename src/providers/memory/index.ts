@@ -10,8 +10,13 @@ import { loadSetup } from "../../state/setup.js";
 
 /** Resolve the bound memory providers for a case. local-grep is always present. */
 export function resolveMemory(case_: Case, profile?: Profile): MemoryProvider[] {
-  const setupMemory = loadSetup(case_)?.memory;
-  const verbs = setupMemory?.signals?.length ? setupMemory.signals : undefined;
+  const setup = loadSetup(case_);
+  const setupMemory = setup?.memory;
+  const signalSet = new Set(setupMemory?.signals ?? []);
+  for (const [verb, policy] of Object.entries(setup?.providers ?? {})) {
+    if (policy.indexable === true) signalSet.add(verb);
+  }
+  const verbs = signalSet.size ? [...signalSet] : undefined;
   const providers: MemoryProvider[] = [new LocalMemoryProvider(case_, { verbs })];
   let hasQmd = false;
   if (!setupMemory || setupMemory.backend === "qmd") {

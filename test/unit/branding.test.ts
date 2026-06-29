@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { OvercastHeader, workingIndicator, OvercastFooter, opLabel, idleLabel } from "../../src/extension/branding.ts";
+import { includesConfirmedCaseClear } from "../../src/extension/case-clear-reset.ts";
 import { renderTopHelp, runCli, type CliIO } from "../../src/cli.ts";
 import { VERBS } from "../../src/registry/verbs.ts";
 
@@ -67,6 +68,31 @@ test("OvercastHeader: setup cue change requests a render after reveal", () => {
   (h as unknown as { pollSetup: () => void }).pollSetup();
   h.dispose();
   assert.equal(renders, 1);
+});
+
+test("OvercastHeader: replay restarts reveal without stopping setup polling", () => {
+  let renders = 0;
+  let cleared = 0;
+  const terminal = {
+    clearScreen: () => { cleared++; },
+    write: (_s: string) => {},
+  };
+  const tui = { requestRender: () => { renders++; }, terminal };
+  const h = new OvercastHeader(tui as never, { ...headerOpts, setup: () => "case not set up" });
+  setStart(h, 4000);
+  h.clearScreen();
+  h.replay();
+  const out = h.render(160).join("\n");
+  h.dispose();
+  assert.equal(cleared, 1);
+  assert.ok(renders >= 1);
+  assert.doesNotMatch(out, /case not set up/, "status hides during replay reveal");
+});
+
+test("case clear reset detector only matches confirmed clears", () => {
+  assert.equal(includesConfirmedCaseClear([{ verb: "case", state: "ready", payload: { cleared: true } }]), true);
+  assert.equal(includesConfirmedCaseClear([{ verb: "case", state: "pending", payload: { confirmation_required: true } }]), false);
+  assert.equal(includesConfirmedCaseClear([{ verb: "brief", state: "ready", payload: { cleared: true } }]), false);
 });
 
 test("opLabel: each verb cycles its OWN variations (independent per-verb cursors)", () => {

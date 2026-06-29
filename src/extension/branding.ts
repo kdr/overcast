@@ -5,8 +5,8 @@
 // gradient wordmark, a magenta/cyan recording-deck HUD beside the play box, a
 // centered tagline, and a bracket-tagged status row.
 //
-// The header animates ONCE: the wordmark does a "decrypt" reveal on launch, then
-// the timer STOPS for good and the header is static. A steady-state ticker would
+// The header animates once at launch, and can be explicitly replayed after rare
+// destructive resets (case clear). The reveal timer STOPS after each replay. A steady-state ticker would
 // call tui.requestRender() forever, repainting the header and snapping the
 // terminal's scrollback back to the bottom — so you could never scroll up. pi is
 // not forked — we attach as a normal Component via ctx.ui.setHeader and drive the
@@ -154,6 +154,7 @@ export interface HeaderOptions {
 // Only one header is live at a time; keep a handle so a re-created header (resize,
 // theme change) clears the previous timer instead of leaking intervals.
 let activeHeader: OvercastHeader | null = null;
+let activeReplayTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** The animated overcast header: synthwave gradient wordmark + a recording-deck
  *  HUD (blinking REC dot + bouncing level meter) + centered tagline + bracket
@@ -173,7 +174,7 @@ export class OvercastHeader implements Component {
   private readonly version: string;
   private readonly maxW: number;
   private readonly ok: boolean;
-  private readonly start = Date.now();
+  private start = Date.now();
   private timer: ReturnType<typeof setInterval> | null = null;
   private setupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -206,13 +207,41 @@ export class OvercastHeader implements Component {
     if (activeHeader) activeHeader.dispose();
     activeHeader = this;
     if (this.ok) {
-      this.timer = setInterval(() => this.tick(), REVEAL_TICK_MS);
-      this.timer.unref?.();
-      if (typeof opts.setup === "function") {
-        this.setupTimer = setInterval(() => this.pollSetup(), 1000);
-        this.setupTimer.unref?.();
-      }
+      this.startReveal();
+      this.startSetupPolling();
     }
+  }
+
+  private startReveal(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = setInterval(() => this.tick(), REVEAL_TICK_MS);
+    this.timer.unref?.();
+  }
+
+  private startSetupPolling(): void {
+    if (typeof this.setup !== "function" || this.setupTimer) return;
+    this.setupTimer = setInterval(() => this.pollSetup(), 1000);
+    this.setupTimer.unref?.();
+  }
+
+  replay(): void {
+    if (!this.ok) return;
+    this.start = Date.now();
+    this.lastSetup = this.setupLabel();
+    this.startReveal();
+    this.startSetupPolling();
+    this.tui?.requestRender(true);
+  }
+
+  clearScreen(): void {
+    const terminal = this.tui?.terminal;
+    if (!terminal) {
+      if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+      return;
+    }
+    terminal.clearScreen();
+    // clear scrollback as well when the terminal supports it, then home cursor
+    terminal.write("\x1b[3J\x1b[H");
   }
 
   /** Drive repaints DURING the one-time decrypt reveal only. Once it finishes the
@@ -220,18 +249,23 @@ export class OvercastHeader implements Component {
    *  while idle and never fights the terminal's scrollback. */
   private tick(): void {
     if (Date.now() - this.start >= REVEAL_MS + 120) {
-      this.dispose(); // reveal done → stop animating; the header is now static
+      this.stopReveal(); // reveal done → stop animating; the header is now static
       this.tui?.requestRender(); // settle the final frame once
       return;
     }
     this.tui?.requestRender();
   }
 
-  dispose(): void {
+  private stopReveal(): void {
     if (this.timer) clearInterval(this.timer);
-    if (this.setupTimer) clearInterval(this.setupTimer);
     this.timer = null;
+  }
+
+  dispose(): void {
+    this.stopReveal();
+    if (this.setupTimer) clearInterval(this.setupTimer);
     this.setupTimer = null;
+    if (activeHeader === this) activeHeader = null;
   }
 
   invalidate(): void {}
@@ -294,6 +328,22 @@ export class OvercastHeader implements Component {
 
     return lines.map((l) => fitWidth(l, width));
   }
+}
+
+export function scheduleHeaderClearAndReplay(delayMs = 10_000): void {
+  if (activeReplayTimer) clearTimeout(activeReplayTimer);
+  activeReplayTimer = setTimeout(() => {
+    activeReplayTimer = null;
+    const h = activeHeader;
+    if (!h) return;
+    try {
+      h.clearScreen();
+    } catch {
+      /* best-effort; replay still works */
+    }
+    h.replay();
+  }, delayMs);
+  activeReplayTimer.unref?.();
 }
 
 /** Themed "busy" spinner: an animated ASCII table-flip — windup (cyan) → rage

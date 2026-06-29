@@ -85,6 +85,7 @@ Run any verb from bash and parse the JSON record:
 \`\`\`bash
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
+overcast finding list --json              # review automated target matches
 overcast note "rear plate is missing" --ref <record-id> --at 12-18 --json
 overcast face ./clip.mp4 --thumbnails --json  # detect faces (boxes + provider frame thumbnails)
 overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video (JPEG/PNG query image)
@@ -206,6 +207,35 @@ overcast case memory get <record-id> --field content --offset 0 --limit 16000 --
 \`overcast doctor\` checks readiness (pi, system ffmpeg, Cloudglue creds, the
 tinycloud CLI). \`overcast setup provider <verb> <spec>\` rebinds a verb to your
 own provider with no code changes.
+
+For reusable provider setup, prefer the catalog-backed profile workflow:
+
+\`\`\`bash
+overcast provider setup show --profile default --json
+overcast provider setup plan --preset cloudglue --profile default --json
+overcast provider setup apply --preset cloudglue --profile default --yes --json
+overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+overcast provider init listen --profile recon --json
+overcast doctor --profile recon --json
+\`\`\`
+
+Provider setup is profile/global state and can span many cases. Case setup is
+per-investigation state: target, sources/media, memory/indexes, and automation
+policy.
+
+\`\`\`bash
+overcast case setup edit \\
+  --provider "listen:elevenlabs,see:local-detect" \\
+  --provider-indexable "listen,see" \\
+  --auto-sense "watch,listen" \\
+  --auto-index-new \\
+  --findings review \\
+  --yes --json
+\`\`\`
+
+Use \`overcast case setup edit --no-auto-index-new --yes --json\` to disable
+automatic indexing later without removing the selected providers or auto-sense
+chain.
 `;
 }
 
@@ -215,8 +245,8 @@ export function generateInitSkill(): string {
 name: overcast-init
 description: >-
   Install and configure overcast for this harness: install the CLI, verify the
-  system ffmpeg, and configure the Cloudglue key for the default perception
-  backend. Use once before driving the \`overcast\` skill.
+  system ffmpeg, and configure reusable provider profiles. Use once per
+  machine/profile before driving the \`overcast\` skill.
 ---
 
 # overcast-init
@@ -235,6 +265,23 @@ One-time setup for overcast.
 4. **Cloudglue key** — the default \`watch\`/\`listen\`/\`face\`/\`index\` providers
    reach Cloudglue via the tinycloud CLI; configure it (\`tinycloud setup cloudglue\`)
    or export \`CLOUDGLUE_API_KEY\`.
+5. **Provider profile setup** — choose reusable providers once per profile, not
+   once per case. Always preview before applying:
+   \`\`\`bash
+   overcast provider setup show --profile default --json
+   overcast provider setup plan --preset cloudglue --profile default --json
+   overcast provider setup apply --preset cloudglue --profile default --yes --json
+   overcast doctor --profile default --json
+   \`\`\`
+   Optional presets/choices:
+   - \`cloudglue\` for tinycloud watch/listen/face plus built-in ffmpeg enhance.
+   - \`fal\` for \`see\`/\`enhance\` with \`FAL_KEY\`.
+   - \`hf\` for \`see\`/\`enhance\` with \`HF_TOKEN\`.
+   - \`elevenlabs\` for \`listen\`/\`enhance\` with \`ELEVENLABS_API_KEY\`.
+   - \`local-detect\` for local open-vocabulary object detection.
+6. **Case setup later** — use the main \`overcast\` skill per investigation to run
+   \`case setup\`, select targets/sources/indexes, and optionally set case-level
+   automation such as \`--auto-sense\`, \`--auto-index-new\`, and \`--findings review\`.
 
 Then use the \`overcast\` skill to drive the verbs.
 `;

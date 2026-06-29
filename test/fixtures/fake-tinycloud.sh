@@ -28,6 +28,10 @@ if [ "$mode" = "pending_error" ]; then
   echo '{"tinycloud":"1","status":"pending","error":{"code":"ingest","message":"ingest failed"}}'
   exit 0
 fi
+if [ "$mode" = "low_match" ] && [ "${1:-}" = "face" ] && [ "${2:-}" = "match" ]; then
+  echo '{"tinycloud":"1","kind":"face","status":"ready","summary":"1 weak match","data":{"matches":[{"timestamp":5.0,"similarity":4.1,"bounding_box":{"top":0.1,"left":0.1,"width":0.2,"height":0.2}}],"count":1}}'
+  exit 0
+fi
 
 top="${1:-}"; sub="${2:-}"; sub2="${3:-}"
 

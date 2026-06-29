@@ -42,6 +42,7 @@ export interface CaseClearSummary {
   counts: Record<string, number>;
   media: CaseStoreEntrySummary;
   index: CaseStoreEntrySummary;
+  artifacts: string[];
   stateFiles: string[];
 }
 
@@ -141,7 +142,10 @@ export class Case {
 
   /** All records across the store (input to ask/brief/recall). */
   records(): OvercastRecord[] {
-    return readAllRecords(this.recordsDir);
+    return readAllRecords(this.recordsDir).filter((rec) => {
+      const owner = rec.meta?.case;
+      return typeof owner !== "string" || resolve(owner) === this.dir;
+    });
   }
 
   recordById(id: string): OvercastRecord | undefined {
@@ -161,6 +165,7 @@ export class Case {
       counts,
       media: summarizeTree(this.mediaDir),
       index: summarizeTree(this.indexDir),
+      artifacts: caseArtifacts(this.dir),
       stateFiles: [
         this.targetFile,
         this.sourcesFile,
@@ -184,10 +189,15 @@ export class Case {
     rmSync(this.setupFile, { force: true });
     rmSync(this.legacyCollectionsFile, { force: true });
     rmSync(this.seenFile, { force: true });
+    for (const artifact of summary.artifacts) rmSync(join(this.dir, artifact), { force: true });
     mkdirSync(this.recordsDir, { recursive: true });
     mkdirSync(this.mediaDir, { recursive: true });
     return summary;
   }
+}
+
+function caseArtifacts(dir: string): string[] {
+  return ["brief.html", "brief.md"].filter((name) => existsSync(join(dir, name)));
 }
 
 /** Open the case rooted at `dir` (default cwd). Does not create the store. */

@@ -103,6 +103,11 @@ such as qmd before clearing local state.
 ## Quickstart
 
 ```bash
+# 0) optional: prepare a reusable provider profile once per machine/profile
+overcast provider setup plan --preset cloudglue --profile default --json
+overcast provider setup apply --preset cloudglue --profile default --yes --json
+overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+
 # 1) analyze a video → a reusable, time-anchored record
 overcast watch ./clip.mp4 --json
 
@@ -202,6 +207,7 @@ immediately; use `--no-index` to save the setup without starting remote ingest.
 ```bash
 overcast case setup plan --target "@pier9" --memory local-grep --source "web:pier 9" --index "media:media" --json
 overcast case setup --name "dock-incident" --target "@pier9" --memory local-grep --source "web:pier 9" --yes --json
+overcast case setup edit --provider "listen:elevenlabs,see:local-detect" --auto-sense "watch,listen" --auto-index-new --findings review --yes --json
 overcast case setup show --json
 overcast case setup edit --target "new subject" --source "youtube:@channel" --yes --json
 ```
@@ -230,6 +236,57 @@ overcast ask "where did we see the white van?" --deep --json
 
 Shipped, runnable samples live in [`examples/providers/`](examples/providers);
 authoring guide in [`docs/providers.md`](docs/providers.md).
+
+Provider setup has two levels:
+
+- **Profile/global setup**: run once per machine/profile to choose reusable
+  backends. Use `provider setup plan` first, then `provider setup apply --yes`.
+- **Case setup**: per investigation, choose which configured provider outputs
+  are eligible for local memory/indexing and which senses should run
+  automatically on newly captured media.
+  Runtime execution follows the active profile binding; case setup records
+  provider policy/choice metadata and can clear built-ins such as
+  `enhance:ffmpeg`, but it does not pin an old exec command after the profile is
+  rebound.
+
+```bash
+# reusable profile setup
+overcast provider setup show --profile recon --json
+overcast provider setup plan --preset fal --profile recon --json
+overcast provider setup apply --preset fal --profile recon --yes --json
+overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+overcast provider init listen --profile recon --json
+overcast doctor --profile recon --json
+
+# per-case policy that uses the active profile
+overcast case setup edit \
+  --provider "listen:elevenlabs,see:local-detect" \
+  --provider-indexable "listen,see" \
+  --auto-sense "watch,listen" \
+  --auto-index-new \
+  --findings review \
+  --yes --json
+
+overcast monitor --once --json          # new media follows the setup automation policy
+overcast finding list --json            # review automated target matches
+overcast finding dismiss <finding-id> --json
+```
+
+Use `overcast case setup edit --no-auto-index-new --yes --json` to turn off
+automatic indexing later without clearing the rest of the case automation
+policy.
+
+`scan --pull` and `monitor` share per-hit processing semantics: resolve
+`media.ref` or `payload.url`, capture when needed, run the explicit `--pipe` or
+setup automation/default watch, then classify the item as completed, pending,
+credential-blocked, or failed. Hits with no fetchable ref/url emit explicit
+errors in both commands. `monitor` marks hard failures seen after surfacing the
+error, while pending/credential gaps remain retryable.
+
+Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, and `local-detect`.
+Single choices use `--verb <watch|listen|see|face|enhance> --choice <id>`, such
+as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:local-detect`, or
+`enhance:ffmpeg`.
 
 | class | verbs | shipped providers |
 |---|---|---|

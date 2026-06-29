@@ -42,6 +42,7 @@ test("case clear previews what will be lost and requires --yes", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
     writeFileSync(c.sourcesFile, JSON.stringify({ sources: [] }));
+    writeFileSync(join(dir, "brief.html"), "<html></html>");
 
     const [rec] = await caseVerb.run(ctx(dir, "clear"));
     assert.equal(rec.state, "pending");
@@ -50,8 +51,10 @@ test("case clear previews what will be lost and requires --yes", async () => {
     assert.equal(p.confirmation_required, true);
     assert.match(String(p.confirm_with), /case clear --yes/);
     assert.equal(((p.will_lose as Record<string, unknown>).records), 2);
+    assert.deepEqual(((p.will_lose as Record<string, unknown>).artifacts), ["brief.html"]);
     assert.equal(c.records().length, 2, "preview leaves records intact");
     assert.equal(existsSync(c.sourcesFile), true, "preview leaves state intact");
+    assert.equal(existsSync(join(dir, "brief.html")), true, "preview leaves artifacts intact");
   });
 });
 
@@ -59,6 +62,7 @@ test("case clear --yes clears records and state without persisting itself", asyn
   await withCase(async (dir) => {
     const c = openCase(dir);
     writeFileSync(c.sourcesFile, JSON.stringify({ sources: [] }));
+    writeFileSync(join(dir, "brief.html"), "<html></html>");
 
     const [rec] = await caseVerb.run(ctx(dir, "clear", [], { yes: true }));
     assert.equal(rec.state, "ready");
@@ -66,8 +70,10 @@ test("case clear --yes clears records and state without persisting itself", asyn
     const p = rec.payload as Record<string, unknown>;
     assert.equal(p.cleared, true);
     assert.equal(((p.lost as Record<string, unknown>).records), 2);
+    assert.deepEqual(((p.lost as Record<string, unknown>).artifacts), ["brief.html"]);
     assert.equal(c.records().length, 0);
     assert.equal(existsSync(c.sourcesFile), false);
+    assert.equal(existsSync(join(dir, "brief.html")), false);
   });
 });
 
@@ -212,6 +218,135 @@ test("case setup plan reports unresolved remote indexes as incomplete", async ()
   });
 });
 
+test("case setup stores provider policy, automation, and findings settings", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const records = await caseVerb.run(ctx(dir, "setup", [], {
+      provider: "listen:elevenlabs,see:local-detect",
+      "provider-indexable": "listen,see",
+      "auto-sense": "watch,listen",
+      "auto-index-new": true,
+      findings: "review",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const providers = saved.providers as Record<string, Record<string, unknown>>;
+    assert.equal(providers.listen.choice, "elevenlabs");
+    assert.equal(providers.listen.indexable, true);
+    assert.equal(providers.see.choice, "local-detect");
+    assert.deepEqual(saved.automation, { auto_sense: ["watch", "listen"], auto_index_new: true });
+    assert.deepEqual(saved.findings, { mode: "review" });
+  });
+});
+
+test("case setup only marks providers indexable when provider-indexable selects them", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const records = await caseVerb.run(ctx(dir, "setup", [], {
+      provider: "listen:elevenlabs,see:local-detect",
+      "provider-indexable": "listen",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const providers = saved.providers as Record<string, Record<string, unknown>>;
+    assert.equal(providers.listen.indexable, true);
+    assert.equal(providers.see.indexable, false);
+  });
+});
+
+test("case setup provider edit preserves indexable when provider-indexable is omitted", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], {
+      provider: "listen:elevenlabs",
+      "provider-indexable": "listen",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], {
+      provider: "listen:tinycloud",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const providers = saved.providers as Record<string, Record<string, unknown>>;
+    assert.equal(providers.listen.choice, "tinycloud");
+    assert.equal(providers.listen.indexable, true);
+  });
+});
+
+test("case setup provider-indexable can clear existing indexable flags", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], {
+      provider: "listen:elevenlabs,see:local-detect",
+      "provider-indexable": "listen,see",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], {
+      "provider-indexable": "",
+      yes: true,
+      ...noIndex,
+    }));
+    c.writeRecord(records.at(-1)!);
+    const saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    const providers = saved.providers as Record<string, Record<string, unknown>>;
+    assert.equal(providers.listen.indexable, false);
+    assert.equal(providers.see.indexable, false);
+  });
+});
+
+test("case setup edit can disable auto-index-new", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { "auto-index-new": true, yes: true, ...noIndex }));
+    c.writeRecord(records.at(-1)!);
+    let saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(saved.automation, { auto_sense: [], auto_index_new: true });
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { "no-auto-index-new": true, yes: true, ...noIndex }));
+    c.writeRecord(records.at(-1)!);
+    saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(saved.automation, { auto_sense: [], auto_index_new: false });
+  });
+});
+
+test("case setup edit can clear auto-sense with an empty value", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    let records = await caseVerb.run(ctx(dir, "setup", [], { "auto-sense": "watch,listen", yes: true, ...noIndex }));
+    c.writeRecord(records.at(-1)!);
+    let saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual((saved.automation as Record<string, unknown>).auto_sense, ["watch", "listen"]);
+
+    records = await caseVerb.run(ctx(dir, "setup", ["edit"], { "auto-sense": "", yes: true, ...noIndex }));
+    c.writeRecord(records.at(-1)!);
+    saved = JSON.parse(readFileSync(c.setupFile, "utf8")) as Record<string, unknown>;
+    assert.deepEqual((saved.automation as Record<string, unknown>).auto_sense, []);
+  });
+});
+
+test("case setup rejects unknown provider choices and finding modes", async () => {
+  await withCase(async (dir) => {
+    const [badProvider] = await caseVerb.run(ctx(dir, "setup", ["plan"], { provider: "listen:nope" }));
+    assert.equal(badProvider.state, "error");
+    assert.match(badProvider.error ?? "", /unknown provider choice/);
+    const [badFinding] = await caseVerb.run(ctx(dir, "setup", ["plan"], { findings: "auto-delete" }));
+    assert.equal(badFinding.state, "error");
+    assert.match(badFinding.error ?? "", /unknown --findings mode/);
+  });
+});
+
 test("case setup plan does not initialize an unopened case store", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-setup-plan-"));
   try {
@@ -242,6 +377,28 @@ test("case setup registers image path targets as image targets", async () => {
     const [target] = listTargets(c);
     assert.equal(target.value, img);
     assert.equal(target.kind, "image");
+  });
+});
+
+test("case setup supports explicit face-ref image targets", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const img = join(dir, "reference.jpg");
+    writeFileSync(img, "fake image");
+    await caseVerb.run(ctx(dir, "setup", [], { "face-ref": img, yes: true }));
+
+    const [target] = listTargets(c);
+    assert.equal(target.value, img);
+    assert.equal(target.kind, "image");
+  });
+});
+
+test("case setup note preserves commas as one note", async () => {
+  await withCase(async (dir) => {
+    const records = await caseVerb.run(ctx(dir, "setup", [], { note: "spotted around August 4, 2024", yes: true }));
+    const notes = records.filter((r) => r.verb === "note");
+    assert.equal(notes.length, 1);
+    assert.equal((notes[0].payload as Record<string, unknown>).text, "spotted around August 4, 2024");
   });
 });
 
@@ -595,6 +752,37 @@ test("case memory get --field pages deterministically with has_more/next_offset"
     assert.equal(b.offset, 100);
     assert.equal(b.chunk, content.slice(100, 200));
   });
+});
+
+test("case memory get redacts secrets in manifests and paged chunks", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-getsecret-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    const secret = "sk-abcdefghijklmnopqrstuvwxyz123456";
+    const content = `prefix CLOUDGLUE_API_KEY=${secret} suffix`;
+    const rec = makeRecord({ verb: "note", payload: { content } });
+    c.writeRecord(rec);
+
+    const [manifest] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id]));
+    const fields = ((manifest.payload as Record<string, unknown>).fields as Array<Record<string, unknown>>);
+    assert.doesNotMatch(String(fields[0].preview), /sk-abcdefghijklmnopqrstuvwxyz/);
+    assert.match(String(fields[0].preview), /REDACTED/);
+
+    const [page] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id], { field: "content", offset: 0, limit: content.length }));
+    const payload = page.payload as Record<string, unknown>;
+    assert.equal(payload.returned, String(payload.chunk).length);
+    assert.doesNotMatch(String(payload.chunk), /sk-abcdefghijklmnopqrstuvwxyz/);
+    assert.match(String(payload.chunk), /CLOUDGLUE_API_KEY=\[REDACTED\]/);
+    assert.equal(payload.total, "prefix CLOUDGLUE_API_KEY=[REDACTED] suffix".length);
+
+    const redacted = "prefix CLOUDGLUE_API_KEY=[REDACTED] suffix";
+    const [splitPage] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id], { field: "content", offset: redacted.indexOf("[REDACTED]"), limit: 6 }));
+    const splitPayload = splitPage.payload as Record<string, unknown>;
+    assert.equal(splitPayload.chunk, "[REDAC");
+    assert.doesNotMatch(String(splitPayload.chunk), /sk-|abcdefgh/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("case memory get --field reaches the end (has_more false, next_offset null)", async () => {

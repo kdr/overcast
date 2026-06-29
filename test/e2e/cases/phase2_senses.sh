@@ -63,6 +63,6 @@ if [ -f "$crop_path" ]; then ok "crop.output_exists" "crop image written"; else 
 
 # see: with NO provider configured (HF token unset), it's the placeholder.
 # (When HF_TOKEN/a binding is present, see routes to that provider instead.)
-sout="$(env -u HF_TOKEN -u HUGGING_FACE_HUB_TOKEN $OVERCAST see "./missing.jpg" --json --case "$casedir" 2>/dev/null)"
+sout="$(env -u HF_TOKEN -u HUGGING_FACE_HUB_TOKEN OVERCAST_NO_DOTENV=1 $OVERCAST see "./missing.jpg" --json --case "$casedir" 2>/dev/null)"
 save_json "phase2_see" "$sout" >/dev/null
 assert_eq "see.state" "needs_credentials" "$(jq -r '.state' <<<"$sout")" "see placeholder state (no provider)"

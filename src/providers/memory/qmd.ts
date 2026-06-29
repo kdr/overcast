@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { Case } from "../../case.js";
-import { isMemoryRecord, type OvercastRecord } from "../../record.js";
+import { memoryRecords, type OvercastRecord } from "../../record.js";
 import { execCapture } from "../exec.js";
 import { tokenizeCommand } from "../sources/index.js";
 import { indexableDocument, type IndexableDocument } from "./fields.js";
@@ -360,7 +360,7 @@ export class QmdMemoryProvider implements MemoryProvider {
   }
 
   private memoryRecords(): OvercastRecord[] {
-    const records = this.case_.records().filter(isMemoryRecord);
+    const records = memoryRecords(this.case_.records());
     if (!this.verbs) return records;
     return records.filter((r) => this.verbs!.has(r.verb));
   }

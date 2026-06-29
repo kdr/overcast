@@ -49,6 +49,7 @@ const FIELD_POLICY: Record<string, string[]> = {
   scan: ["title", "snippet", "url", "source", "published"],
   capture: ["title", "snippet", "text", "path", "source", "kind"],
   enhance: ["summary", "path", "ops", "output"],
+  finding: ["text", "target", "source_record", "source_verb", "trigger", "confidence", "status"],
 };
 
 function stringify(v: unknown): string | undefined {

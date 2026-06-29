@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { makeRecord, isReady, type OvercastRecord } from "../record.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
+import { providerBinding } from "../providers/bindings.js";
 import {
   tcCollectionCreate,
   tcCollectionAdd,
@@ -116,8 +117,14 @@ function hasWatchRecord(c: Case, ref: string): boolean {
 }
 
 async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Promise<OvercastRecord | undefined> {
-  if (/^https?:\/\//i.test(ref) || !LOCAL_VIDEO_RE.test(ref) || !existsSync(ref) || hasWatchRecord(ctx.case, ref)) return undefined;
-  const binding = ctx.profile.providers?.watch;
+  if (
+    ctx.opts["__skip-local-watch"] === true ||
+    /^https?:\/\//i.test(ref) ||
+    !LOCAL_VIDEO_RE.test(ref) ||
+    !existsSync(ref) ||
+    hasWatchRecord(ctx.case, ref)
+  ) return undefined;
+  const binding = providerBinding(ctx, "watch");
   const rec = isCustomBinding(binding)
     ? await runBoundProvider("watch", binding!, ref, {
         env: providerEnv(ctx.case.mediaDir),

@@ -10,6 +10,7 @@ import { openCase } from "./case.js";
 import { loadProfile, type HomeOptions } from "./profile.js";
 import { makeRecord, type OvercastRecord } from "./record.js";
 import { renderForFormat } from "./render.js";
+import { loadDotEnv } from "./env.js";
 
 export interface CliIO {
   out: (s: string) => void;
@@ -127,6 +128,7 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["OVERCAST_CASE", "case directory for the session (set by the launcher from --case)"],
       ["OVERCAST_PROFILE", "active profile for the session (set by the launcher from --profile)"],
       ["OVERCAST_MEDIA_DIR", "(set by overcast) the media output dir passed to exec providers"],
+      ["OVERCAST_NO_DOTENV", "Set 1 to disable automatic .env loading for isolated tests/runs"],
       ["OVERCAST_PI_ONLINE", "Set 1 to re-enable pi's startup update-check"],
       ["OVERCAST_MONITOR_MAX_PASSES", "cap on monitor --every passes (testing/scheduling)"],
       ["OVERCAST_E2E_LIVE", "Set 1 to run the gated live-Cloudglue e2e cases"],
@@ -211,6 +213,19 @@ export function renderTopHelp(): string {
   return lines.join("\n");
 }
 
+/** Map a verb's result records to a process exit code. `state` is the authoritative
+ *  hint: a hard error → 1, a setup gap (needs_credentials) → 3 (distinct, so
+ *  automation can tell "broke" from "needs setup"); pending/ready → 0. Records tagged
+ *  `meta.non_fatal` are subsumed by an authoritative summary record in the same result
+ *  set (e.g. `scan --pull`'s terminal `pull_progress`, which folds partial success →
+ *  ready) and must not independently fail the run; the summary itself stays untagged
+ *  and drives the code. */
+export function exitCodeForRecords(records: OvercastRecord[]): number {
+  if (records.some((r) => r.state === "error" && r.meta?.non_fatal !== true)) return 1;
+  if (records.some((r) => r.state === "needs_credentials" && r.meta?.non_fatal !== true)) return 3;
+  return 0;
+}
+
 /** Run the CLI. Returns a process exit code. */
 export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<number> {
   // Global flags may appear anywhere — including before the verb
@@ -218,6 +233,11 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // first remaining token as the command.
   const { rest: tokens, caseDir, home, profile, errors: globalErrors } =
     extractGlobals(argv);
+  // Base load: launcher cwd secrets (mirrors bin/overcast.ts run()), so runCli is
+  // self-contained for harnesses that call it without the bin preamble. The case
+  // dir then overlays case-specific values on top.
+  loadDotEnv(process.cwd());
+  loadDotEnv(caseDir ?? process.cwd(), { override: true });
   // A leading output flag before the verb (`overcast --json watch v.mp4`,
   // `overcast --format md commands`) is moved to AFTER the command, so tokens[0]
   // is the command and every handler (top-level commands/version + verb dispatch)
@@ -336,7 +356,7 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
     // different case (e.g. `case init <other-dir>` already wrote it there).
     // Transient records are user-facing control results, not case history.
     for (const rec of records) {
-      if (rec.meta?.transient === true) continue;
+      if (rec.meta?.transient === true || rec.meta?.persisted === true) continue;
       if (rec.meta?.case && rec.meta.case !== c.dir) continue;
       c.writeRecord(rec);
     }
@@ -345,12 +365,7 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
     const format = wantJson ? "json" : (parsed.opts.format as string) ?? "human";
     for (const rec of records) io.out(renderForFormat(rec, format) + "\n");
 
-    // state is the authoritative hint for the exit code: a hard error → 1, a
-    // setup gap (needs_credentials) → 3 (distinct, so automation can tell "broke"
-    // from "needs setup"); pending/ready → 0.
-    if (records.some((r) => r.state === "error")) return 1;
-    if (records.some((r) => r.state === "needs_credentials")) return 3;
-    return 0;
+    return exitCodeForRecords(records);
   }
 
   // unknown command
