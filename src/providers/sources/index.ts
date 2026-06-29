@@ -201,13 +201,22 @@ function ensureMediaExtension(path: string): string {
     }
     const ext = sniffExt(head);
     if (!ext) return path;
-    const next = `${path}${ext}`;
-    if (existsSync(next)) return path;
+    const next = uniqueExtensionPath(path, ext);
     renameSync(path, next);
     return next;
   } catch {
     return path;
   }
+}
+
+function uniqueExtensionPath(path: string, ext: string): string {
+  const first = `${path}${ext}`;
+  if (!existsSync(first)) return first;
+  for (let i = 1; i < 10_000; i++) {
+    const candidate = `${path}_${i}${ext}`;
+    if (!existsSync(candidate)) return candidate;
+  }
+  return `${path}_${Date.now()}${ext}`;
 }
 
 /** Fetch a source item into the case → a capture record. */

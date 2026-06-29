@@ -3,7 +3,8 @@ import { join } from "node:path";
 
 const SECRET_NAME_RE = /(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|PASS|CREDENTIAL|AUTH)(?:_|$)/i;
 const SECRET_VALUE_RE = /\b(?:apify_api_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{16,}|gh[opsu]_[A-Za-z0-9_]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,})\b/g;
-const DOTENV_VALUES = new Map<string, string>();
+const BASE_DOTENV_VALUES = new Map<string, string>();
+const OVERRIDE_DOTENV_VALUES = new Map<string, string>();
 
 function unquoteEnvValue(value: string): string {
   const trimmed = value.trim();
@@ -17,7 +18,7 @@ export function loadDotEnv(dir = process.cwd(), opts: { override?: boolean } = {
   if (process.env.OVERCAST_NO_DOTENV === "1") return undefined;
   const file = join(dir, ".env");
   if (!existsSync(file)) {
-    if (opts.override) clearLoadedDotEnv();
+    if (opts.override) clearOverrideDotEnv();
     return undefined;
   }
   const text = readFileSync(file, "utf8");
@@ -29,22 +30,32 @@ export function loadDotEnv(dir = process.cwd(), opts: { override?: boolean } = {
     if (!m) continue;
     parsed.set(m[1], unquoteEnvValue(m[2]));
   }
-  if (opts.override) clearLoadedDotEnv(new Set(parsed.keys()));
+  if (opts.override) clearOverrideDotEnv(new Set(parsed.keys()));
   for (const [key, value] of parsed) {
-    const previous = DOTENV_VALUES.get(key);
-    const canOverrideDotEnvValue = opts.override && previous !== undefined && process.env[key] === previous;
+    const previousOverride = OVERRIDE_DOTENV_VALUES.get(key);
+    const previousBase = BASE_DOTENV_VALUES.get(key);
+    const canOverrideDotEnvValue = opts.override && (
+      (previousOverride !== undefined && process.env[key] === previousOverride) ||
+      (previousBase !== undefined && process.env[key] === previousBase) ||
+      process.env[key] === undefined
+    );
     if (process.env[key] !== undefined && !canOverrideDotEnvValue) continue;
     process.env[key] = value;
-    DOTENV_VALUES.set(key, value);
+    if (opts.override) OVERRIDE_DOTENV_VALUES.set(key, value);
+    else BASE_DOTENV_VALUES.set(key, value);
   }
   return file;
 }
 
-function clearLoadedDotEnv(keep = new Set<string>()): void {
-  for (const [key, value] of DOTENV_VALUES) {
+function clearOverrideDotEnv(keep = new Set<string>()): void {
+  for (const [key, value] of OVERRIDE_DOTENV_VALUES) {
     if (keep.has(key)) continue;
-    if (process.env[key] === value) delete process.env[key];
-    DOTENV_VALUES.delete(key);
+    if (process.env[key] === value) {
+      const base = BASE_DOTENV_VALUES.get(key);
+      if (base !== undefined) process.env[key] = base;
+      else delete process.env[key];
+    }
+    OVERRIDE_DOTENV_VALUES.delete(key);
   }
 }
 

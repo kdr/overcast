@@ -943,7 +943,7 @@ export const caseVerb: VerbSpec = {
               offset,
               limit,
               total,
-              returned: chunk.length,
+              returned: redactedChunk.length,
               has_more: hasMore,
               next_offset: hasMore ? nextOffset : null,
               chunk: redactedChunk,

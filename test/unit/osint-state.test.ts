@@ -147,3 +147,28 @@ console.log(JSON.stringify({ path: out, kind: "video" }));
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("fetchSource picks a unique media extension path when sniffed target exists", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-fetch-ext-collision-"));
+  try {
+    const script = join(dir, "fetcher.mjs");
+    writeFileSync(script, `
+import { writeFileSync } from "node:fs";
+const out = process.argv[process.argv.indexOf("--out") + 1];
+writeFileSync(out, Buffer.from([0,0,0,24,102,116,121,112,105,115,111,109,0,0,0,0,105,115,111,109]));
+console.log(JSON.stringify({ path: out, kind: "video" }));
+`);
+    const out = join(dir, "download_without_ext");
+    writeFileSync(`${out}.mp4`, "existing different file");
+    const rec = await fetchSource({ type: "tiktok", base: ["node", script] }, { url: "https://www.tiktok.com/@x/video/1", out });
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal(rec.state, "ready");
+    assert.equal(payload.path, `${out}_1.mp4`);
+    assert.equal(rec.media?.ref, `${out}_1.mp4`);
+    assert.equal(existsSync(out), false);
+    assert.equal(existsSync(`${out}.mp4`), true);
+    assert.equal(existsSync(`${out}_1.mp4`), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

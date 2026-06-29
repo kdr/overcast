@@ -770,7 +770,7 @@ test("case memory get redacts secrets in manifests and paged chunks", async () =
 
     const [page] = await caseVerb.run(ctx(dir, "memory", ["get", rec.id], { field: "content", offset: 0, limit: content.length }));
     const payload = page.payload as Record<string, unknown>;
-    assert.equal(payload.returned, content.length);
+    assert.equal(payload.returned, String(payload.chunk).length);
     assert.doesNotMatch(String(payload.chunk), /sk-abcdefghijklmnopqrstuvwxyz/);
     assert.match(String(payload.chunk), /CLOUDGLUE_API_KEY=\[REDACTED\]/);
   } finally {

@@ -73,6 +73,31 @@ test("case dotenv override without a file clears earlier dotenv values", () => {
   }
 });
 
+test("case dotenv override without a file preserves root dotenv values", () => {
+  const root = mkdtempSync(join(tmpdir(), "oc-env-root-"));
+  const caseA = mkdtempSync(join(tmpdir(), "oc-env-case-a-"));
+  const caseB = mkdtempSync(join(tmpdir(), "oc-env-case-b-"));
+  const key = `OC_TEST_DOTENV_${Date.now()}_ROOT`;
+  try {
+    writeFileSync(join(root, ".env"), `${key}=root\n`);
+    writeFileSync(join(caseA, ".env"), `${key}=case-a\n`);
+
+    loadDotEnv(root);
+    assert.equal(process.env[key], "root");
+
+    loadDotEnv(caseA, { override: true });
+    assert.equal(process.env[key], "case-a");
+
+    loadDotEnv(caseB, { override: true });
+    assert.equal(process.env[key], "root");
+  } finally {
+    delete process.env[key];
+    rmSync(root, { recursive: true, force: true });
+    rmSync(caseA, { recursive: true, force: true });
+    rmSync(caseB, { recursive: true, force: true });
+  }
+});
+
 test("redactSecrets preserves innocent dotted evidence text", () => {
   const text = [
     "route aaaaaaaaaaaaaaaaaaaaaaaa.bbbbbb.cccccc was printed in the transcript",
