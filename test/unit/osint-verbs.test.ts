@@ -9,6 +9,7 @@ import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { scanVerb, captureVerb, monitorVerb } from "../../src/verbs/osint.ts";
 import { addSource } from "../../src/state/source.ts";
+import { saveSeen } from "../../src/state/seen.ts";
 import { addTarget } from "../../src/state/target.ts";
 import { addIndex, addMember } from "../../src/state/index.ts";
 import { emptySetup, saveSetup } from "../../src/state/setup.ts";
@@ -779,6 +780,58 @@ test("monitor marks successful senses seen when auto-index needs credentials", a
     assert.equal(pass2.some((r) => r.verb === "watch"), false);
     assert.equal(pass2.filter((r) => r.verb === "index" && r.state === "needs_credentials").length, 2);
   } finally {
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    if (prevMode === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;
+    else process.env.OVERCAST_FAKE_TC_MODE = prevMode;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("monitor retries URL-sense index gaps against the captured local media", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monitor-url-index-retry-"));
+  const sourceScript = join(d, "tiktok-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_TTRETRY_CMD;
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  const prevMode = process.env.OVERCAST_FAKE_TC_MODE;
+  const url = "https://www.tiktok.com/@retry/video/7614529664446483725";
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo '[{"title":"retry url","url":"${url}","source":"ttretry","media":{"ref":"${url}"}}]'
+else
+  echo '{}'
+fi
+`);
+    process.env.OVERCAST_SOURCE_TTRETRY_CMD = `bash ${sourceScript}`;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    process.env.OVERCAST_FAKE_TC_MODE = "cred";
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "ttretry:any");
+    const local = clip;
+    const setup = emptySetup("monitor-url-index-retry");
+    setup.completed = true;
+    setup.automation = { auto_sense: [], auto_index_new: true };
+    setup.indexes = [{ id: "col_fake123", name: "fixture", type: "media-descriptions", default_signals: ["index add"] }];
+    saveSetup(c, setup);
+    saveSeen(c, new Set([`url:${url}`]));
+    c.writeRecord(makeRecord({ verb: "capture", payload: { path: local, source_ref: url }, media: { ref: local }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "watch", payload: { title: "direct url watch" }, media: { ref: url }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "index", payload: { op: "add" }, media: { ref: local }, state: "needs_credentials" }));
+
+    const recs = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true }, case: c, profile: defaultProfile() });
+    const summary = recs.find((r) => r.verb === "monitor")!;
+    assert.equal(summary.state, "needs_credentials");
+    assert.equal((summary.payload as Record<string, unknown>).new_items, 0);
+    assert.equal((summary.payload as Record<string, unknown>).process_cred_gaps, 1);
+    assert.equal(recs.some((r) => r.verb === "watch"), false);
+    assert.equal(recs.some((r) => r.verb === "capture"), false);
+    assert.equal(recs.some((r) => r.verb === "index" && r.media?.ref === local && r.state === "needs_credentials"), true);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_TTRETRY_CMD;
+    else process.env.OVERCAST_SOURCE_TTRETRY_CMD = prevSource;
     if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
     if (prevMode === undefined) delete process.env.OVERCAST_FAKE_TC_MODE;

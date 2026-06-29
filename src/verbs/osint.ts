@@ -625,14 +625,15 @@ async function autoIndexNewMedia(ctx: VerbContext, ref: string, opts: { skipLoca
 
 async function retryAuxiliaryForSeenHit(ctx: VerbContext, hit: OvercastRecord): Promise<OvercastRecord[]> {
   if (loadSetup(ctx.case)?.automation?.auto_index_new !== true) return [];
-  const ref = priorSuccessfulSenseRef(ctx, hit);
-  if (!ref || !hasRetryableIndexGap(ctx, ref)) return [];
+  const refs = priorSuccessfulSenseRefs(ctx, hit);
+  const ref = refs.find((candidate) => hasRetryableIndexGap(ctx, candidate));
+  if (!ref) return [];
   return autoIndexNewMedia(ctx, ref, { skipLocalWatch: true });
 }
 
-function priorSuccessfulSenseRef(ctx: VerbContext, hit: OvercastRecord): string | undefined {
+function priorSuccessfulSenseRefs(ctx: VerbContext, hit: OvercastRecord): string[] {
   const ref = hitFetchRef(hit);
-  if (!ref) return undefined;
+  if (!ref) return [];
   const records = ctx.case.records().slice().reverse();
   const cap = records.find((r) =>
     r.verb === "capture" &&
@@ -649,9 +650,10 @@ function priorSuccessfulSenseRef(ctx: VerbContext, hit: OvercastRecord): string 
     r.state !== "error" &&
     r.state !== "needs_credentials" &&
     r.state !== "pending" &&
-    r.media?.ref === mediaRef
+    (r.media?.ref === mediaRef || r.media?.ref === ref)
   );
-  return sensed?.media?.ref;
+  if (!sensed?.media?.ref) return [];
+  return Array.from(new Set([mediaRef, sensed.media.ref]));
 }
 
 function hasRetryableIndexGap(ctx: VerbContext, ref: string): boolean {
