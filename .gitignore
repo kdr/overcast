@@ -10,3 +10,4 @@ dist/
 *.swp
 *.swo
 planning/
+overcast-session-*.html

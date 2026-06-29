@@ -2,7 +2,7 @@
   "name": "@kdrrr/overcast",
   "version": "0.0.4",
   "description": "overcast — senses (video/audio/image) + OSINT reach for any agent, built on pi",
-  "license": "SEE LICENSE AT https://github.com/kdr/overcast",
+  "license": "Apache-2.0",
   "author": "kdr",
   "homepage": "https://github.com/kdr/overcast#readme",
   "repository": {
