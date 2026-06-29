@@ -191,7 +191,12 @@ function scanProgress(ctx: VerbContext, payload: Record<string, unknown>, state:
 }
 
 function isTikTokUrl(ref: string): boolean {
-  return /^https?:\/\/(?:www\.)?tiktok\.com\//i.test(ref);
+  try {
+    const host = new URL(ref).hostname.toLowerCase();
+    return host === "tiktok.com" || host.endsWith(".tiktok.com");
+  } catch {
+    return false;
+  }
 }
 
 function canSenseRemoteDirect(ctx: VerbContext, verb: string, ref: string): boolean {
@@ -200,14 +205,28 @@ function canSenseRemoteDirect(ctx: VerbContext, verb: string, ref: string): bool
   return !isCustomBinding(providerBinding(ctx, verb));
 }
 
-function directSenseVerb(ctx: VerbContext, ref: string): string | undefined {
+type DirectSensePlan = {
+  verb: string;
+  explicitPipe: boolean;
+  remainingAutoSense: string[];
+};
+
+function directSensePlan(ctx: VerbContext, ref: string): DirectSensePlan | undefined {
   const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
+  if (explicitPipe) {
+    return canSenseRemoteDirect(ctx, explicitPipe, ref)
+      ? { verb: explicitPipe, explicitPipe: true, remainingAutoSense: [] }
+      : undefined;
+  }
   const autoChain = loadSetup(ctx.case)?.automation?.auto_sense ?? [];
-  const verb = explicitPipe || (autoChain.length === 1 ? autoChain[0] : undefined);
-  return verb && canSenseRemoteDirect(ctx, verb, ref) ? verb : undefined;
+  const first = autoChain[0];
+  return first && canSenseRemoteDirect(ctx, first, ref)
+    ? { verb: first, explicitPipe: false, remainingAutoSense: autoChain.slice(1) }
+    : undefined;
 }
 
 function pullOutcome(records: OvercastRecord[]): "completed" | "pending" | "failed" {
+  if (records.length === 0) return "failed";
   if (records.some((r) => r.state === "pending")) return "pending";
   if (records.some((r) => r.state === "error" || r.state === "needs_credentials")) return "failed";
   return "completed";
@@ -271,18 +290,41 @@ export const scanVerb: VerbSpec = {
       if (!ref) continue;
       try {
         const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-        const directVerb = directSenseVerb(ctx, ref);
+        const directPlan = directSensePlan(ctx, ref);
         const itemRecords: OvercastRecord[] = [];
-        if (directVerb) {
+        if (directPlan) {
           submitted_remote++;
-          out.push(scanProgress(ctx, { stage: "submitted", ref, via: "direct-url", sense: directVerb, submitted_remote, completed, pending, failed }));
-          const sensedRecords = explicitPipe
-            ? [await pipeSense(ctx, "scan", explicitPipe, ref)].filter((r): r is OvercastRecord => !!r)
-            : await runSetupAutomation(ctx, "scan", ref);
+          out.push(scanProgress(ctx, { stage: "submitted", ref, via: "direct-url", sense: directPlan.verb, submitted_remote, completed, pending, failed }));
+          const hasRemainingAutoSense = directPlan.remainingAutoSense.length > 0;
+          const sensedRecords = directPlan.explicitPipe
+            ? [await pipeSense(ctx, "scan", directPlan.verb, ref)].filter((r): r is OvercastRecord => !!r)
+            : await runAutomationChain(ctx, "scan", ref, [directPlan.verb], { autoIndex: !hasRemainingAutoSense });
           if (sensedRecords.length) {
             const saved = sensedRecords.map((r) => checkpoint(ctx, r));
             out.push(...saved);
             itemRecords.push(...saved);
+          } else {
+            const saved = checkpoint(ctx, err("scan", `direct ${directPlan.verb} produced no records for ${ref}`));
+            out.push(saved);
+            itemRecords.push(saved);
+          }
+          if (hasRemainingAutoSense) {
+            const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+            const savedCap = checkpoint(ctx, cap);
+            out.push(savedCap);
+            itemRecords.push(savedCap);
+            if (cap.state !== "error" && cap.media?.ref) {
+              const automated = await runAutomationChain(ctx, "scan", cap.media.ref, directPlan.remainingAutoSense);
+              if (automated.length) {
+                const saved = automated.map((r) => checkpoint(ctx, r));
+                out.push(...saved);
+                itemRecords.push(...saved);
+              } else {
+                const saved = checkpoint(ctx, err("scan", `automation produced no records for ${cap.media.ref}`));
+                out.push(saved);
+                itemRecords.push(saved);
+              }
+            }
           }
         } else {
           const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
@@ -325,7 +367,10 @@ export const scanVerb: VerbSpec = {
         // a provider timeout / spawn failure rejects — record it and keep pulling
         // the remaining hits instead of aborting the whole scan.
         failed++;
-        out.push(checkpoint(ctx, err("scan", `pull of ${ref} failed: ${(e as Error).message}`)));
+        processed++;
+        const saved = checkpoint(ctx, err("scan", `pull of ${ref} failed: ${(e as Error).message}`));
+        out.push(saved);
+        out.push(scanProgress(ctx, { stage: "processed", ref, processed, submitted_remote, completed, pending, failed }, "error"));
       }
     }
     out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed }, failed ? "error" : pending ? "pending" : "ready"));
@@ -537,9 +582,13 @@ async function autoIndexNewMedia(ctx: VerbContext, ref: string, opts: { skipLoca
   return out;
 }
 
-async function runSetupAutomation(ctx: VerbContext, caller: string, ref: string): Promise<OvercastRecord[]> {
-  const setup = loadSetup(ctx.case);
-  const chain = setup?.automation?.auto_sense ?? [];
+async function runAutomationChain(
+  ctx: VerbContext,
+  caller: string,
+  ref: string,
+  chain: string[],
+  opts: { autoIndex?: boolean } = {},
+): Promise<OvercastRecord[]> {
   if (!chain.length) return [];
   const out: OvercastRecord[] = [];
   let currentRef = ref;
@@ -549,8 +598,15 @@ async function runSetupAutomation(ctx: VerbContext, caller: string, ref: string)
     out.push(rec, ...automatedFindings(ctx, rec, `${caller}:${verb}`, out));
     if (rec.state !== "error" && rec.state !== "needs_credentials" && rec.media?.ref) currentRef = rec.media.ref;
   }
-  out.push(...await autoIndexNewMedia(ctx, currentRef, { skipLocalWatch: hasUsableWatch(out, currentRef) }));
+  if (opts.autoIndex !== false) {
+    out.push(...await autoIndexNewMedia(ctx, currentRef, { skipLocalWatch: hasUsableWatch(out, currentRef) }));
+  }
   return out;
+}
+
+async function runSetupAutomation(ctx: VerbContext, caller: string, ref: string): Promise<OvercastRecord[]> {
+  const setup = loadSetup(ctx.case);
+  return runAutomationChain(ctx, caller, ref, setup?.automation?.auto_sense ?? []);
 }
 
 function hasUsableWatch(records: OvercastRecord[], ref: string): boolean {
@@ -728,17 +784,44 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     let procError = false;
     try {
       const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-      const directVerb = directSenseVerb(ctx, ref);
-      if (directVerb) {
-        const sensedRecords = explicitPipe
-          ? [await pipeSense(ctx, "monitor", explicitPipe, ref)].filter((r): r is OvercastRecord => !!r)
-          : await runSetupAutomation(ctx, "monitor", ref);
+      const directPlan = directSensePlan(ctx, ref);
+      if (directPlan) {
+        const hasRemainingAutoSense = directPlan.remainingAutoSense.length > 0;
+        const sensedRecords = directPlan.explicitPipe
+          ? [await pipeSense(ctx, "monitor", directPlan.verb, ref)].filter((r): r is OvercastRecord => !!r)
+          : await runAutomationChain(ctx, "monitor", ref, [directPlan.verb], { autoIndex: !hasRemainingAutoSense });
         if (sensedRecords.length) out.push(...sensedRecords);
+        else {
+          procError = true;
+          out.push(err("monitor", `direct ${directPlan.verb} produced no records for ${ref}`));
+        }
         for (const sensed of sensedRecords) {
           const st = sensed.state;
           if (st === "needs_credentials") { transient = true; procCredGaps++; }
           else if (st === "pending") { transient = true; }
           else if (st === "error") { procError = true; }
+        }
+        if (hasRemainingAutoSense) {
+          const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+          out.push(cap);
+          if (cap.state === "needs_credentials") {
+            transient = true; procCredGaps++;
+          } else if (cap.state === "error" || !cap.media?.ref) {
+            procError = true;
+          } else {
+            const remainingRecords = await runAutomationChain(ctx, "monitor", cap.media.ref, directPlan.remainingAutoSense);
+            if (remainingRecords.length) out.push(...remainingRecords);
+            else {
+              procError = true;
+              out.push(err("monitor", `automation produced no records for ${cap.media.ref}`));
+            }
+            for (const sensed of remainingRecords) {
+              const st = sensed.state;
+              if (st === "needs_credentials") { transient = true; procCredGaps++; }
+              else if (st === "pending") { transient = true; }
+              else if (st === "error") { procError = true; }
+            }
+          }
         }
       } else {
         const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });

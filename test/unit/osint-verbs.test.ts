@@ -141,11 +141,12 @@ test("scan --pull --pipe watch sends TikTok URLs directly to tinycloud and check
   const sourceScript = join(d, "tiktok-source.sh");
   const prevSource = process.env.OVERCAST_SOURCE_TTFIXTURE_CMD;
   const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  const url = "https://vm.tiktok.com/ZM123abc/";
   try {
     writeFileSync(sourceScript, `#!/usr/bin/env bash
 set -euo pipefail
 if [ "\${1:-}" = "enumerate" ]; then
-  echo '[{"title":"tt","url":"https://www.tiktok.com/@willsmith/video/123","source":"ttfixture","media":{"ref":"https://www.tiktok.com/@willsmith/video/123"}}]'
+  echo '[{"title":"tt","url":"${url}","source":"ttfixture","media":{"ref":"${url}"}}]'
 else
   echo '{}'
 fi
@@ -160,11 +161,85 @@ fi
     const progress = recs.filter((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).op === "pull_progress");
     assert.equal(progress.some((r) => (r.payload as Record<string, unknown>).via === "direct-url"), true);
     const watch = recs.find((r) => r.verb === "watch");
-    assert.equal(watch?.media?.ref, "https://www.tiktok.com/@willsmith/video/123");
+    assert.equal(watch?.media?.ref, url);
     assert.equal(c.records().some((r) => r.verb === "watch" && r.media?.ref === watch?.media?.ref), true);
   } finally {
     if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_TTFIXTURE_CMD;
     else process.env.OVERCAST_SOURCE_TTFIXTURE_CMD = prevSource;
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan --pull runs first direct auto-sense for TikTok then captures for remaining senses", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-tiktok-auto-chain-"));
+  const sourceScript = join(d, "tiktok-source.sh");
+  const seeScript = join(d, "see-local.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_TIKTOK_CMD;
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  const url = "https://vm.tiktok.com/ZMchain123/";
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+op="\${1:-enumerate}"; shift || true
+case "$op" in
+  enumerate)
+    echo '[{"title":"tt","url":"${url}","source":"tiktok","media":{"ref":"${url}"}}]'
+    ;;
+  fetch)
+    out=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --out) out="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    cp ${JSON.stringify(clip)} "$out"
+    echo "{\"kind\":\"video\",\"path\":\"$out\",\"source\":\"tiktok\"}"
+    ;;
+  *) echo '{}' ;;
+esac
+`);
+    writeFileSync(seeScript, [
+      "#!/usr/bin/env bash",
+      "input=\"$1\"",
+      "case \"$input\" in",
+      "  http*) echo \"see should receive captured media, got $input\" >&2; exit 9 ;;",
+      "esac",
+      "printf '{\"verb\":\"see\",\"state\":\"ready\",\"media\":{\"ref\":%s},\"payload\":{\"caption\":\"captured tiktok video\"}}\\n' \"$(printf '%s' \"$input\" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')\"",
+      "",
+    ].join("\n"));
+    execFileSync("chmod", ["755", sourceScript]);
+    execFileSync("chmod", ["755", seeScript]);
+    process.env.OVERCAST_SOURCE_TIKTOK_CMD = `bash ${sourceScript}`;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "tiktok:#zurich");
+    const setup = emptySetup("direct-chain");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["watch", "see"], auto_index_new: false };
+    setup.providers = {
+      see: {
+        verb: "see",
+        choice: "custom",
+        descriptor: { type: "exec", run: `bash ${seeScript} {{input}}` },
+      },
+    };
+    saveSetup(c, setup);
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, limit: 1 }, case: c, profile: defaultProfile() });
+    const progress = recs.filter((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).op === "pull_progress");
+    assert.equal(progress.some((r) => (r.payload as Record<string, unknown>).via === "direct-url"), true);
+    assert.equal(recs.some((r) => r.verb === "watch" && r.media?.ref === url), true);
+    const cap = recs.find((r) => r.verb === "capture")!;
+    assert.ok(cap.media?.ref);
+    assert.match(cap.media.ref, /\.overcast\/media\//);
+    assert.equal(recs.some((r) => r.verb === "see" && r.media?.ref === cap.media?.ref), true);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_TIKTOK_CMD;
+    else process.env.OVERCAST_SOURCE_TIKTOK_CMD = prevSource;
     if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
     rmSync(d, { recursive: true, force: true });
@@ -372,11 +447,12 @@ test("monitor --pipe watch sends TikTok URLs directly to tinycloud", async () =>
   const sourceScript = join(d, "tiktok-source.sh");
   const prevSource = process.env.OVERCAST_SOURCE_TTFIXTURE_CMD;
   const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  const url = "https://vm.tiktok.com/ZMmonitor123/";
   try {
     writeFileSync(sourceScript, `#!/usr/bin/env bash
 set -euo pipefail
 if [ "\${1:-}" = "enumerate" ]; then
-  echo '[{"title":"tt","url":"https://www.tiktok.com/@willsmith/video/123","source":"ttfixture","media":{"ref":"https://www.tiktok.com/@willsmith/video/123"}}]'
+  echo '[{"title":"tt","url":"${url}","source":"ttfixture","media":{"ref":"${url}"}}]'
 else
   echo '{}'
 fi
@@ -392,7 +468,7 @@ fi
     assert.equal((summary.payload as Record<string, unknown>).new_items, 1);
     assert.equal(recs.some((r) => r.verb === "capture"), false);
     const watch = recs.find((r) => r.verb === "watch");
-    assert.equal(watch?.media?.ref, "https://www.tiktok.com/@willsmith/video/123");
+    assert.equal(watch?.media?.ref, url);
   } finally {
     if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_TTFIXTURE_CMD;
     else process.env.OVERCAST_SOURCE_TTFIXTURE_CMD = prevSource;
