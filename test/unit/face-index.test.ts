@@ -329,6 +329,22 @@ printf '{"verb":"face","format":"json","payload":{"op":"%s","count":1,"sampling"
   }
 });
 
+test("face with a deepface-local index does not turn list into fresh detect", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-list-"));
+  const video = join(cdir, "v.mp4");
+  writeFileSync(video, "x");
+  try {
+    const c = openCase(cdir);
+    c.ensure();
+    addIndex(c, { id: "local_faces", name: "faces", type: "deepface-local", backend: "local" });
+    const [rec] = await faceVerb.run({ input: video, rest: [], opts: { index: "local_faces" }, case: c, profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /store reference images, not per-video detections/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 // ---- index verb (lifecycle via the fake tinycloud) --------------------
 
 test("index verb: create → add → list → show → delete, mirroring locally", async () => {

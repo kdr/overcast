@@ -283,6 +283,9 @@ export const faceVerb: VerbSpec = {
         return [err("can't mix local face indexes with tinycloud/raw face indexes in one face command")];
       }
       if (localEntries.length > 1) return [err("local face search/list accepts exactly one --index")];
+      if (op === "list") {
+        return [err("deepface-local indexes store reference images, not per-video detections; use `face <video> --match <image> --index <deepface-local-index>` to match video frames, or `index show <id>` to list DB members")];
+      }
       if (useDeepface && op !== "detect" && op !== "match" && localEntries.length !== 1) {
         return [err("deepface-local face search/list requires exactly one deepface-local --index")];
       }

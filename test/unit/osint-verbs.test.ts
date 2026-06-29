@@ -105,6 +105,73 @@ test("scan falls back to local case media and face index when no sources exist",
   }
 });
 
+test("scan --local runs local visual DB searches against case media", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-localscan-visual-db-"));
+  const savedPy = process.env.OC_VISUAL_DB_PY;
+  try {
+    const c = openCase(d);
+    c.ensure();
+    const target = join(d, "target.jpg");
+    const video = join(d, "clip.mp4");
+    const logoRef = join(d, "logo-ref.jpg");
+    const personRef = join(d, "person-ref.jpg");
+    const fakePy = join(d, "fake-visual-db.sh");
+    writeFileSync(target, "target image");
+    writeFileSync(video, "fake video");
+    writeFileSync(logoRef, "logo ref");
+    writeFileSync(personRef, "person ref");
+    writeFileSync(fakePy, `#!/usr/bin/env bash
+set -euo pipefail
+script="$(basename "$1")"
+input="\${@: -1}"
+op=""
+match=""
+for ((i=1; i<=$#; i++)); do
+  arg="\${!i}"
+  if [ "$arg" = "--op" ]; then j=$((i+1)); op="\${!j}"; fi
+  if [ "$arg" = "--match" ]; then j=$((i+1)); match="\${!j}"; fi
+done
+if [ "$input" = "${target}" ]; then
+  echo "target image should not be scanned as candidate media" >&2
+  exit 9
+fi
+if [ "$script" = "image_match.py" ]; then
+  printf '{"verb":"image","state":"ready","media":{"ref":"%s"},"payload":{"op":"%s","count":1}}\\n' "$input" "$op"
+else
+  printf '{"verb":"face","state":"ready","media":{"ref":"%s"},"payload":{"op":"%s","reference":"%s","count":1}}\\n' "$input" "$op" "$match"
+fi
+`);
+    execFileSync("chmod", ["755", fakePy]);
+    process.env.OC_VISUAL_DB_PY = fakePy;
+
+    addTarget(c, target, { image: true });
+    addIndex(c, { id: "logos", name: "logos", type: "image-ransac", backend: "local" });
+    addIndex(c, { id: "faces", name: "faces", type: "deepface-local", backend: "local" });
+    addMember(c, "logos", { ref: logoRef });
+    addMember(c, "faces", { ref: personRef });
+    const setup = emptySetup("visual-db-local-scan");
+    setup.completed = true;
+    setup.media.videos = [video];
+    saveSetup(c, setup);
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { local: true }, case: c, profile: defaultProfile() });
+    const summary = recs.find((r) => r.verb === "scan")!;
+    assert.equal(summary.state, "ready");
+    assert.match(JSON.stringify((summary.payload as Record<string, unknown>).suggested_commands), /image match .*clip\.mp4 --index logos/);
+    assert.match(JSON.stringify((summary.payload as Record<string, unknown>).suggested_commands), /face .*clip\.mp4 --match .*target\.jpg --index faces/);
+    const image = recs.find((r) => r.verb === "image")!;
+    const face = recs.find((r) => r.verb === "face")!;
+    assert.equal(image.media?.ref, video);
+    assert.equal(face.media?.ref, video);
+    assert.equal((face.payload as Record<string, unknown>).op, "match");
+    assert.equal((face.payload as Record<string, unknown>).reference, target);
+  } finally {
+    if (savedPy === undefined) delete process.env.OC_VISUAL_DB_PY;
+    else process.env.OC_VISUAL_DB_PY = savedPy;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("capture copies a local media ref into the case store", async () => {
   const [rec] = await captureVerb.run(ctx({}, clip));
   assert.equal(rec.verb, "capture");

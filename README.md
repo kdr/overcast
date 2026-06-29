@@ -240,8 +240,9 @@ overcast case setup edit --target "new subject" --source "youtube:@channel" --ye
 When a case is local-media-only, `overcast scan` does not dead-end on missing
 sources: it scans local setup/media/index state, and if an image target plus a
 face-analysis or local image/face index exist it suggests or runs the relevant
-match. Use `overcast scan --local` to force this local scan even after adding
-external sources.
+match. Local visual DB scans search candidate case media against stored reference
+images, not the target image by itself. Use `overcast scan --local` to force this
+local scan even after adding external sources.
 
 ---
 

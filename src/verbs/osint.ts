@@ -66,6 +66,14 @@ function localMediaRefs(ctx: VerbContext): string[] {
   return [...new Set(refs)].filter((ref) => !/^https?:\/\//i.test(ref) ? existsSync(ref) : true).sort();
 }
 
+function localVisualCandidates(refs: string[], imageTargets: Array<{ value: string }>, localIndexes: ReturnType<typeof listIndexes>): string[] {
+  const excluded = new Set([
+    ...imageTargets.map((t) => t.value),
+    ...localIndexes.flatMap((i) => i.members.map((m) => m.ref)),
+  ]);
+  return refs.filter((ref) => !excluded.has(ref));
+}
+
 async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const targets = listTargets(ctx.case);
   const imageTargets = targets.filter((t) => t.kind === "image");
@@ -76,15 +84,17 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const localImageIndexes = indexes.filter((i) => i.type === "image-ransac" || i.backend === "local" && i.type === "image-ransac");
   const mediaIndexes = indexes.filter((i) => i.type === "media-descriptions");
   const refs = localMediaRefs(ctx);
+  const localCandidates = localVisualCandidates(refs, imageTargets, [...localFaceIndexes, ...localImageIndexes]);
+  const localFaceCandidates = localCandidates.filter((ref) => isAv(ref));
   const suggested: string[] = [];
   if (imageTargets.length && faceIndexes.length) {
     suggested.push(`overcast face --match ${imageTargets.at(-1)!.value} --index ${faceIndexes.map((i) => i.id).join(",")}`);
   }
-  if (imageTargets.length && localFaceIndexes.length) {
-    suggested.push(`overcast face --match ${imageTargets.at(-1)!.value} --index ${localFaceIndexes[0].id}`);
+  if (imageTargets.length && localFaceIndexes.length && localFaceCandidates.length) {
+    suggested.push(`overcast face ${localFaceCandidates[0]} --match ${imageTargets.at(-1)!.value} --index ${localFaceIndexes[0].id}`);
   }
-  if (imageTargets.length && localImageIndexes.length) {
-    suggested.push(`overcast image match ${imageTargets.at(-1)!.value} --index ${localImageIndexes[0].id}`);
+  if (imageTargets.length && localImageIndexes.length && localCandidates.length) {
+    suggested.push(`overcast image match ${localCandidates[0]} --index ${localImageIndexes[0].id}`);
   }
   if (nameTargets.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1)} and what is happening?`)}`);
   if (mediaIndexes.length) suggested.push(`overcast ask ${JSON.stringify(`where is ${nameTargets.at(-1) ?? "the target"} and what is happening?`)} --index ${mediaIndexes[0].id} --probe`);
@@ -105,19 +115,29 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
     state: "ready",
   });
 
+  const out: OvercastRecord[] = [summary];
   if (imageTargets.length && faceIndexes.length) {
     const match = imageTargets.at(-1)!.value;
     const index = faceIndexes.map((i) => i.id).join(",");
     const faceRecords = await faceVerb.run({ ...ctx, input: undefined, rest: [], opts: { match, index } });
-    return [summary, ...faceRecords];
+    out.push(...faceRecords);
   }
-  if (imageTargets.length && localImageIndexes.length) {
+  if (imageTargets.length && localFaceIndexes.length && localFaceCandidates.length) {
     const match = imageTargets.at(-1)!.value;
-    const index = localImageIndexes[0].id;
-    const imageRecords = await imageVerb.run({ ...ctx, input: "match", rest: [match], opts: { index } });
-    return [summary, ...imageRecords];
+    const index = localFaceIndexes[0].id;
+    for (const ref of localFaceCandidates) {
+      const faceRecords = await faceVerb.run({ ...ctx, input: ref, rest: [], opts: { match, index } });
+      out.push(...faceRecords);
+    }
   }
-  return [summary];
+  if (imageTargets.length && localImageIndexes.length && localCandidates.length) {
+    const index = localImageIndexes[0].id;
+    for (const ref of localCandidates) {
+      const imageRecords = await imageVerb.run({ ...ctx, input: "match", rest: [ref], opts: { index } });
+      out.push(...imageRecords);
+    }
+  }
+  return out;
 }
 
 // ---- scan ------------------------------------------------------------------

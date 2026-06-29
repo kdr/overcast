@@ -157,10 +157,10 @@ def main():
         fail("face matcher deps missing: %s (pip install deepface opencv-python numpy)" % e, inp, args.op)
 
     refs = [Path(r) for r in index_members(args.index_dir, args.index) if Path(r).exists()]
-    if args.op in ("match", "search") and not refs:
+    if args.op == "search" and not refs:
         fail("local face index has no readable reference images", inp, args.op)
     db = db_faces(DeepFace, refs) if refs else []
-    if args.op in ("match", "search") and not db:
+    if args.op == "search" and not db:
         fail("no faces found in local reference images", inp, args.op)
 
     threshold = args.min_similarity
@@ -192,8 +192,12 @@ def main():
         else:
             if not args.match:
                 fail("local face match needs --match <reference-image>", inp, args.op)
+            if not Path(args.match).exists():
+                fail("reference image not found: %s" % args.match, inp, args.op)
             query_faces = detections
             ref_faces = face_items(DeepFace, args.match)
+            if not ref_faces:
+                fail("no faces found in local reference image", inp, args.op)
             db = [{"name": Path(args.match).stem, "image_path": args.match, "embedding": f["embedding"], "box": f["box"]} for f in ref_faces]
         for q in query_faces:
             for ref in db:
