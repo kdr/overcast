@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseVerbArgs } from "../../src/registry/to-cli.ts";
@@ -49,6 +49,32 @@ test("runCli: commands --json lists watch (offline, no cloud)", async () => {
   assert.equal(code, 0);
   const parsed = JSON.parse(c.out());
   assert.ok(parsed.verbs.some((v: { name: string }) => v.name === "watch"));
+});
+
+test("runCli: loads launcher cwd dotenv as a base before the case overlay", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "oc-cli-env-cwd-"));
+  const caseDir = mkdtempSync(join(tmpdir(), "oc-cli-env-case-"));
+  const baseKey = `OC_TEST_CLI_BASE_${Date.now()}`;
+  const sharedKey = `OC_TEST_CLI_SHARED_${Date.now()}`;
+  const origCwd = process.cwd();
+  try {
+    writeFileSync(join(cwd, ".env"), `${baseKey}=from-cwd\n${sharedKey}=from-cwd\n`);
+    writeFileSync(join(caseDir, ".env"), `${sharedKey}=from-case\n`);
+    process.chdir(cwd);
+    const cap = capture();
+    const code = await runCli(["commands", "--json", "--case", caseDir], cap.io);
+    assert.equal(code, 0);
+    // cwd-only secret survives the case overlay (base load ran inside runCli)
+    assert.equal(process.env[baseKey], "from-cwd");
+    // case .env overlays the shared key on top of the cwd base
+    assert.equal(process.env[sharedKey], "from-case");
+  } finally {
+    process.chdir(origCwd);
+    delete process.env[baseKey];
+    delete process.env[sharedKey];
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(caseDir, { recursive: true, force: true });
+  }
 });
 
 test("runCli: case clear --yes does not leave a new case record behind", async () => {

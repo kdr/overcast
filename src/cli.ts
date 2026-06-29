@@ -220,6 +220,10 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // first remaining token as the command.
   const { rest: tokens, caseDir, home, profile, errors: globalErrors } =
     extractGlobals(argv);
+  // Base load: launcher cwd secrets (mirrors bin/overcast.ts run()), so runCli is
+  // self-contained for harnesses that call it without the bin preamble. The case
+  // dir then overlays case-specific values on top.
+  loadDotEnv(process.cwd());
   loadDotEnv(caseDir ?? process.cwd(), { override: true });
   // A leading output flag before the verb (`overcast --json watch v.mp4`,
   // `overcast --format md commands`) is moved to AFTER the command, so tokens[0]
