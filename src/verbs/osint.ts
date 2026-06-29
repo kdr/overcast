@@ -34,6 +34,7 @@ import { faceVerb } from "./face.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
 import { indexVerb } from "./index.js";
 import { latestFindingStatus, makeFinding } from "./finding.js";
+import { redactSecrets } from "../env.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(verb: string, message: string): OvercastRecord {
@@ -952,21 +953,26 @@ export const monitorVerb: VerbSpec = {
         ? "json"
         : (ctx.opts.format as string) || "json";
     const streamRender = (r: OvercastRecord): string => {
+      let rendered: string;
       if (streamFmt === "md" || streamFmt === "txt") {
-        if (typeof r.payload === "string") return r.payload;
+        if (typeof r.payload === "string") return redactSecrets(r.payload);
         const p = r.payload as Record<string, unknown>;
         for (const k of ["content", "text", "report"]) {
-          if (typeof p[k] === "string" && p[k]) return p[k] as string;
+          if (typeof p[k] === "string" && p[k]) {
+            rendered = p[k] as string;
+            return redactSecrets(rendered);
+          }
         }
       }
-      return JSON.stringify(r);
+      rendered = JSON.stringify(r);
+      return redactSecrets(rendered);
     };
     const writeAlert = (recs: OvercastRecord[]) => {
       // FILE sinks only. Records already reach stdout via the normal monitor
       // output (the per-pass stream in --every; runCli printing the returned
       // records in --once), so mirroring them to stdout would double every line.
       if (!alertSink || alertSink === "stdout" || recs.length === 0) return;
-      const lines = recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
+      const lines = recs.map((r) => redactSecrets(JSON.stringify(r))).join("\n") + "\n";
       mkdirSync(dirname(alertSink), { recursive: true });
       appendFileSync(alertSink, lines);
     };

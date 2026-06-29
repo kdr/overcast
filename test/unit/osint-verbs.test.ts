@@ -713,3 +713,40 @@ test("monitor --every loops with seen-set diff across passes (capped)", async ()
     rmSync(d, { recursive: true, force: true });
   }
 });
+
+test("monitor --every redacts secrets in streamed stdout and alert files", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monredact-"));
+  process.env.OVERCAST_MONITOR_MAX_PASSES = "1";
+  const secretWatch = join(d, "secret-watch.sh");
+  const alertFile = join(d, "alerts.jsonl");
+  const originalWrite = process.stdout.write;
+  const chunks: string[] = [];
+  try {
+    const c = openCase(d); c.ensure();
+    addSource(c, "fixture:x");
+    writeFileSync(secretWatch, [
+      "#!/usr/bin/env bash",
+      "printf '%s\\n' '{\"verb\":\"watch\",\"state\":\"ready\",\"payload\":{\"content\":\"CLOUDGLUE_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456\"}}'",
+      "",
+    ].join("\n"));
+    execFileSync("chmod", ["755", secretWatch]);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${secretWatch} {{input}}` } };
+    process.stdout.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+
+    await monitorVerb.run({ input: undefined, rest: [], opts: { every: "1s", pipe: "watch", alert: alertFile }, case: openCase(d), profile });
+    const stdout = chunks.join("");
+    const alerts = readFileSync(alertFile, "utf8");
+    assert.doesNotMatch(stdout, /sk-abcdefghijklmnopqrstuvwxyz/);
+    assert.doesNotMatch(alerts, /sk-abcdefghijklmnopqrstuvwxyz/);
+    assert.match(stdout, /CLOUDGLUE_API_KEY=\[REDACTED\]/);
+    assert.match(alerts, /CLOUDGLUE_API_KEY=\[REDACTED\]/);
+  } finally {
+    process.stdout.write = originalWrite;
+    delete process.env.OVERCAST_MONITOR_MAX_PASSES;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
