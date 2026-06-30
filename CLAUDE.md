@@ -105,8 +105,11 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Read** — `ask` (cited retrieval over case memory; `--deep`/`--memory qmd` for
   semantic local search; `--index <id>` answers over a media-descriptions index,
   `--probe` for moment search), `brief` (timeline/findings report, `--export`
-  md/html).
-- **Case** — `case init | setup | info | records | memory | clear`. `case setup`
+  md/html, `--theme plain|csi`).
+- **Case** — `case init | setup | status | info | records | memory | clear`.
+  `case status`/`records`/`brief` HTML `--export` takes `--theme plain|csi`
+  (direct CLI defaults to `plain`; agent/TUI `.html` exports default to `csi`).
+  `case setup`
   is the first-run wizard + saved-setup manager (`status|show|edit|plan`, persisted
   to `.overcast/setup.json`). `case memory get <id> --field <name>
   --offset/--limit` pages a large record field in full — the non-truncating way to

@@ -217,6 +217,7 @@ surface + env vars.)
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
 | `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac` and `deepface-local` DBs |
 | `target` / `source` / `note` | manage the standing scope, where to look, and human-authored observations |
+| `finding` | create and review findings (`create` / `list` / `accept` / `dismiss`) — manual + setup-automated |
 | `prebrief` | stand up a case (name + target + source) in one shot |
 
 **Read** — synthesize the case
@@ -459,9 +460,11 @@ Three surfaces from one source of truth (`src/registry/verbs.ts`):
 ```bash
 npm run build       # tsup (dev/library build)
 npm run typecheck   # tsc --noEmit
-npm test            # unit + offline e2e (fixture provider)
-npm run test:e2e    # full e2e (real clips + Cloudglue); OVERCAST_E2E_LIVE=1 for live cases
+npm test            # unit tests (offline; fixtures)
+npm run test:e2e    # offline e2e (fixture providers, no creds)
+npm run test:e2e:live  # live real-data e2e (builds the bun binary, sources .env)
 E2E_VERBOSE=1 npm run test:e2e  # include exact commands + output snippets in report.md
+npm run build:bun   # bun build --compile → dist/bin/overcast
 overcast commands --json   # the authoritative verb registry
 overcast doctor            # preflight
 ```
