@@ -105,8 +105,8 @@ test("case records --export html --theme csi writes timeline", async () => {
 test("case report exports honor file extension and records limit", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
-    c.writeRecord(makeRecord({ verb: "note", payload: { text: "first limited note" } }));
-    c.writeRecord(makeRecord({ verb: "note", payload: { text: "second limited note" } }));
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "first limited note" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "second limited note" }, meta: { time: "2026-01-01T00:00:00Z" } }));
 
     const statusMd = join(dir, "status.md");
     await caseVerb.run(ctx(dir, "status", [], { export: statusMd, theme: "csi" }));
@@ -120,9 +120,13 @@ test("case report exports honor file extension and records limit", async () => {
     const payload = rec.payload as Record<string, unknown>;
     const view = payload.records as unknown[];
     const html = readFileSync(recordsHtml, "utf8");
-    assert.equal(payload.count, 1);
+    assert.equal(payload.count, 2);
+    assert.equal(payload.shown, 1);
+    assert.equal(payload.limit, 1);
+    assert.equal(payload.truncated, true);
     assert.equal(view.length, 1);
     assert.match(html, /data-csi-timeline="true"/);
+    assert.match(html, /<strong>2<\/strong>/);
     assert.match(html, /first limited note/);
     assert.doesNotMatch(html, /second limited note/);
 
@@ -130,8 +134,34 @@ test("case report exports honor file extension and records limit", async () => {
     await caseVerb.run(ctx(dir, "records", [], { verb: "note", export: recordsMd, theme: "csi", limit: 1 }));
     const md = readFileSync(recordsMd, "utf8");
     assert.match(md, /^# Case records/m);
+    assert.match(md, /\*\*Records:\*\* 1 of 2/);
     assert.doesNotMatch(md, /<html/i);
     assert.doesNotMatch(md, /second limited note/);
+  });
+});
+
+test("case records reports sort dated entries chronologically before limiting", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "DATED-2026" }, meta: { time: "2026-01-01T00:00:00Z" } }));
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "UNDATED-A" } }));
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "DATED-2020" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "UNDATED-B" } }));
+
+    const recordsHtml = join(dir, "records.html");
+    const [rec] = await caseVerb.run(ctx(dir, "records", [], { verb: "note", export: recordsHtml, theme: "csi", limit: 4 }));
+    const payload = rec.payload as Record<string, unknown>;
+    const records = payload.records as Array<Record<string, unknown>>;
+    const html = readFileSync(recordsHtml, "utf8");
+    assert.equal(payload.count, 4);
+    assert.equal(payload.shown, 4);
+    assert.equal(payload.truncated, false);
+    assert.deepEqual(records.map((r) => r.verb), ["note", "note", "note", "note"]);
+    const order = ["DATED-2020", "DATED-2026", "UNDATED-A", "UNDATED-B"].map((s) => html.indexOf(s));
+    assert.ok(order.every((i) => i >= 0));
+    assert.ok(order[0] < order[1], "2020 before 2026");
+    assert.ok(order[1] < order[2], "dated before undated");
+    assert.ok(order[2] < order[3], "undated kept in insertion order");
   });
 });
 

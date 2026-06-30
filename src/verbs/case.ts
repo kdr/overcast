@@ -298,8 +298,19 @@ function truncateLine(text: string): string {
   return oneLine.length > 220 ? `${oneLine.slice(0, 220)}...` : oneLine;
 }
 
-function caseRecordsMarkdown(title: string, records: OvercastRecord[], counts: Record<string, number>): string {
-  const lines = [`# ${title}`, "", `**Records:** ${records.length}`, "", "## Counts", ""];
+function sortRecordsChronologically(records: OvercastRecord[]): OvercastRecord[] {
+  return records
+    .map((r, i) => {
+      const parsed = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+      return { r, i, t: Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed };
+    })
+    .sort((a, b) => a.t - b.t || a.i - b.i)
+    .map((x) => x.r);
+}
+
+function caseRecordsMarkdown(title: string, records: OvercastRecord[], counts: Record<string, number>, total = records.length): string {
+  const label = total === records.length ? String(records.length) : `${records.length} of ${total}`;
+  const lines = [`# ${title}`, "", `**Records:** ${label}`, "", "## Counts", ""];
   for (const [verb, n] of Object.entries(counts).sort()) lines.push(`- \`${verb}\`: ${n}`);
   lines.push("", "## Timeline", "");
   for (const r of records) {
@@ -1050,7 +1061,8 @@ export const caseVerb: VerbSpec = {
         }
         limit = n;
       }
-      const limited = recs.slice(0, limit);
+      const total = recs.length;
+      const limited = sortRecordsChronologically(recs).slice(0, limit);
       const view = limited.map((r) => ({
         id: r.id, verb: r.verb, state: r.state ?? "ready", media: r.media?.ref ?? null, at: r.media?.at ?? null,
       }));
@@ -1062,7 +1074,7 @@ export const caseVerb: VerbSpec = {
         const counts: Record<string, number> = {};
         for (const r of limited) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
         const title = `Case records — ${ctx.case.exists() ? ctx.case.info().name : "case"}`;
-        const md = caseRecordsMarkdown(title, limited, counts);
+        const md = caseRecordsMarkdown(title, limited, counts, total);
         const html = theme === "csi"
           ? renderCsiTimelineReport({
               title,
@@ -1070,13 +1082,13 @@ export const caseVerb: VerbSpec = {
               kind: "case log",
               records: limited.map(recordToTimelineRecord),
               counts,
-              total: limited.length,
+              total,
             })
           : mdToPlainHtml(md, title);
         writeFileSync(path, isHtmlExportPath(path) ? html : md, "utf8");
         exported = path;
       }
-      return [makeRecord({ verb: "case", format: "json", payload: { count: limited.length, records: view, export: exported ?? null }, state: "ready" })];
+      return [makeRecord({ verb: "case", format: "json", payload: { count: total, shown: limited.length, limit, truncated: total > limited.length, records: view, export: exported ?? null }, state: "ready" })];
     }
 
     if (action === "memory") {
