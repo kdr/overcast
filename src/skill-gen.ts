@@ -92,7 +92,9 @@ overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in th
 overcast crop <face-or-see-record-id> --all --class face --json  # materialize detection crops as evidence
 overcast ask "every white van, with timestamps" --json
 overcast case memory index status --json  # inspect default local-grep case search
-overcast brief --export ./brief.html
+overcast brief --export ./brief.html      # evidence-only narrative report
+overcast case status --export ./status.html --theme csi   # current case dashboard
+overcast case records --export ./records.html --theme csi # full audit log
 \`\`\`
 
 Built-in source refs for \`source add <type>:<ref>\`:
@@ -107,6 +109,25 @@ Built-in source refs for \`source add <type>:<ref>\`:
 \`overcast commands --json\` dumps the authoritative verb registry. Full man
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
 read it when you need a verb's exact flags).
+
+### Brief vs status vs records
+
+Use \`brief\` for the evidence narrative: it reports over the same evidence-only
+boundary as case memory, so setup/read/meta records are excluded.
+
+Use \`case status\` for the current dashboard: setup health, targets, sources,
+indexes, memory/index state, record/store counts, artifacts, and match
+visualizations when available. Treat it as situational context, not evidence for
+later memory or briefs.
+
+Use \`case records\` for the audit trail: it includes the append-only operational
+history, including setup, target/source changes, index work, asks, briefs, and
+status checks.
+
+Direct CLI HTML exports default to \`plain\` for compatibility. In the
+interactive/headless agent tool surface, \`.html\` exports default to the
+\`csi\` visualization theme when the verb supports themes, unless the tool call
+explicitly passes \`theme: "plain"\`.
 
 ### Case search (default ask)
 

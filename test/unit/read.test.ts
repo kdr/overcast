@@ -788,7 +788,26 @@ test("brief verb builds a report and --export writes md + html", async () => {
     const html = readFileSync(htmlPath, "utf8");
     assert.match(html, /<h1>/);
     assert.match(html, /white van/);
+    assert.doesNotMatch(html, /data-overcast-theme="csi"/);
   });
+});
+
+test("brief --export html --theme csi writes escaped CSI report", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefcsi-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "seen <script>alert(1)</script> near docks" }, media: { ref: "v.mp4" } }));
+    const htmlPath = join(dir, "csi.html");
+    const [rec] = await briefVerb.run(ctx(c, undefined, { export: htmlPath, theme: "csi" }));
+    const html = readFileSync(htmlPath, "utf8");
+    assert.equal((rec.payload as Record<string, unknown>).export, htmlPath);
+    assert.match(html, /data-overcast-theme="csi"/);
+    assert.match(html, /data-csi-timeline="true"/);
+    assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("brief on an empty evidence set is transient and does not export", async () => {
@@ -877,6 +896,22 @@ test("brief html export does not reparse embedded content as markup", async () =
     assert.match(html, /### Scene 5 heading/); // present as escaped literal text
     assert.match(html, /<pre>/); // embedded content is fenced
     assert.match(html, /<h3>/); // the structural per-record heading still renders
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief treats only .html as an HTML export", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefhtm-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "brief htm marker" } }));
+    const htmPath = join(dir, "brief.htm");
+    await briefVerb.run(ctx(c, undefined, { export: htmPath, theme: "csi" }));
+    const out = readFileSync(htmPath, "utf8");
+    assert.match(out, /^# Brief/m);
+    assert.doesNotMatch(out, /<html/i);
+    assert.doesNotMatch(out, /data-overcast-theme="csi"/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
