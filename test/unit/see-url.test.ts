@@ -51,6 +51,10 @@ before(async () => {
       // expired signed URL: .jpg path, but the body is an HTML error page
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end("<html>URL signature expired</html>");
+    } else if (path === "/liar.jpg") {
+      // lying Content-Type: claims image/jpeg, body is an HTML login page
+      res.writeHead(200, { "content-type": "image/jpeg" });
+      res.end("<!DOCTYPE html><html>please log in</html>");
     } else {
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("nope");
@@ -151,12 +155,43 @@ test("see with an unreachable URL: clean fetch error record", async () => {
 });
 
 test("a .jpg URL whose body is HTML is NOT masked by the URL extension (Bugbot: expired signed URL)", async () => {
-  // response truth (content-type text/html) must beat the path's .jpg claim
+  // response truth (content-type text/html + HTML body) must beat the path's .jpg claim
   const got = await fetchMediaToCase(`${base}/expired.jpg?Expires=0&Signature=stale`, join(dir, "media"));
-  assert.equal(got.ext, ".bin");
+  assert.equal(got.ext, ".html");
   assert.equal(kindForExt(got.ext), "other");
   const [rec] = await seeVerb.run(ctx(`${base}/expired.jpg?Expires=0&Signature=stale`));
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /did not return an image/);
   assert.match(rec.error ?? "", /text\/html/);
+});
+
+test("a LYING image/jpeg Content-Type on an HTML body is vetoed by the byte sniff (Bugbot)", async () => {
+  const got = await fetchMediaToCase(`${base}/liar.jpg`, join(dir, "media"));
+  assert.equal(got.ext, ".html"); // body truth beats both the CT claim and the URL ext
+  const [rec] = await seeVerb.run(ctx(`${base}/liar.jpg`));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /did not return an image/);
+  assert.match(rec.error ?? "", /body is HTML/);
+});
+
+test("sniffExt: ISO-BMFF image brands (avif/heic) don't classify as mp4; text bodies detect", () => {
+  const bmff = (brand: string) =>
+    Buffer.concat([Buffer.alloc(4), Buffer.from(`ftyp${brand}`, "latin1"), Buffer.alloc(32)]);
+  assert.equal(sniffExt(bmff("avif")), ".avif");
+  assert.equal(sniffExt(bmff("heic")), ".heic");
+  assert.equal(sniffExt(bmff("isom")), ".mp4");
+  assert.equal(sniffExt(Buffer.from("  <!DOCTYPE html><html></html>")), ".html");
+  assert.equal(sniffExt(Buffer.from('{"error":"expired"}')), ".txt");
+});
+
+test("URL failure records still carry meta.source_url + meta.case (Bugbot)", async () => {
+  const videoUrl = `${base}/clip`;
+  const [avRec] = await seeVerb.run(ctx(videoUrl));
+  assert.equal(avRec.state, "error");
+  assert.equal(avRec.meta?.source_url, videoUrl);
+  assert.ok(avRec.meta?.case, "error record carries the case");
+  const deadUrl = "http://127.0.0.1:9/img.png";
+  const [fetchRec] = await seeVerb.run(ctx(deadUrl));
+  assert.equal(fetchRec.state, "error");
+  assert.equal(fetchRec.meta?.source_url, deadUrl);
 });

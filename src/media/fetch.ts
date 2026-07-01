@@ -40,10 +40,18 @@ const URL_EXT_RE =
   /\.(jpe?g|png|webp|gif|bmp|tiff?|avif|heic|mp4|m4v|mov|webm|mkv|avi|mpe?g|mp3|m4a|wav|flac|ogg|opus|aac)$/i;
 
 /** Best-effort media extension from leading magic bytes (so downloaded/piped
- *  bytes land with a sensible extension the senses/ffmpeg can classify). */
+ *  bytes land with a sensible extension the senses/ffmpeg can classify).
+ *  Also detects definitely-TEXT bodies (".html"/".txt") — an HTML login wall or
+ *  error page behind a lying/missing Content-Type must never classify as media
+ *  (every real media format below carries binary magic). */
 export function sniffExt(b: Buffer): string {
   const at = (off: number, s: string) => b.length >= off + s.length && b.slice(off, off + s.length).toString("latin1") === s;
-  if (at(4, "ftyp")) return ".mp4"; // ISO-BMFF: mp4/mov/m4a
+  if (at(4, "ftyp")) {
+    // ISO-BMFF brand: avif/heic are IMAGES riding the mp4 container magic.
+    if (at(8, "avif") || at(8, "avis")) return ".avif";
+    if (at(8, "heic") || at(8, "heix") || at(8, "mif1") || at(8, "msf1")) return ".heic";
+    return ".mp4"; // mp4/mov/m4a
+  }
   if (at(0, "RIFF") && at(8, "WEBP")) return ".webp";
   if (at(0, "RIFF") && at(8, "WAVE")) return ".wav";
   if (at(0, "RIFF") && at(8, "AVI ")) return ".avi";
@@ -54,6 +62,13 @@ export function sniffExt(b: Buffer): string {
   if (at(0, "fLaC")) return ".flac";
   if (at(0, "ID3") || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return ".mp3";
   if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return ".webm";
+  // text detection: strip a UTF-8 BOM + leading whitespace, then look for markup;
+  // else call an all-printable-ASCII head plain text (JSON/plain error bodies).
+  const start = b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf ? 3 : 0;
+  const head = b.subarray(start, start + 256).toString("latin1").trimStart();
+  if (/^<(!doctype|html|head|body|\?xml|svg)/i.test(head)) return ".html";
+  const probe = b.subarray(start, start + Math.min(64, b.length - start));
+  if (probe.length > 0 && probe.every((c) => c === 9 || c === 10 || c === 13 || (c >= 32 && c <= 126))) return ".txt";
   return ".bin";
 }
 
@@ -136,13 +151,19 @@ export async function fetchMediaToCase(
   const contentType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase() || undefined;
   // Response truth wins over the URL's claimed extension: an expired signed URL
   // or login wall answers 200 text/html — that must NOT ride a ".jpg" path into
-  // the image pipeline. Content-Type map → magic bytes → the URL ext only when
-  // the response is uninformative (no/generic content-type, unsniffable bytes).
+  // the image pipeline. A definitely-text BODY (per sniff) vetoes everything,
+  // including a lying `image/jpeg` Content-Type — no real media is printable
+  // text. Otherwise: Content-Type map (it disambiguates ISO-BMFF images) →
+  // magic bytes → the URL ext only when the response is uninformative
+  // (no/generic content-type, unsniffable bytes).
   const ctExt = contentType ? CT_EXT[contentType] : undefined;
   const sniffed = sniffExt(buf);
+  const textish = sniffed === ".html" || sniffed === ".txt";
   const uninformative =
     !contentType || contentType === "application/octet-stream" || contentType === "binary/octet-stream";
-  const ext = ctExt ?? (sniffed !== ".bin" ? sniffed : uninformative ? urlExt ?? ".bin" : ".bin");
+  const ext = textish
+    ? sniffed
+    : ctExt ?? (sniffed !== ".bin" ? sniffed : uninformative ? urlExt ?? ".bin" : ".bin");
   const out = join(mediaDir, `url-${hash}${ext}`);
   writeFileSync(out, buf);
   return { path: out, contentType, ext, bytes: buf.byteLength };

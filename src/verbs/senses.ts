@@ -117,6 +117,15 @@ export const seeVerb: VerbSpec = {
   run: async (ctx) => {
     if (!ctx.input) return [errorRecord("see", "see requires an image input")];
 
+    // Stamp the case (+ URL provenance, once known) on EVERY outgoing see
+    // record — successes and failures alike, so an error on a URL input still
+    // carries meta.source_url.
+    let sourceUrl: string | undefined;
+    const stamp = (rec: OvercastRecord): OvercastRecord[] => {
+      rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}) };
+      return [rec];
+    };
+
     // resolve a frame:// reference to an extracted frame (still needs a VLM to analyze)
     let resolvedRef = ctx.input;
     const fr = parseFrameRef(ctx.input);
@@ -126,12 +135,12 @@ export const seeVerb: VerbSpec = {
       // "image not found: frame://…").
       const src = ctx.case.recordById(fr.recordId)?.media?.ref;
       if (!src || !existsSync(src)) {
-        return [errorRecord("see", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`)];
+        return stamp(errorRecord("see", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`));
       }
       try {
         resolvedRef = await extractFrame(src, fr.second, ctx.case.mediaDir);
       } catch (e) {
-        return [errorRecord("see", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`)];
+        return stamp(errorRecord("see", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`));
       }
     }
 
@@ -139,41 +148,36 @@ export const seeVerb: VerbSpec = {
     // capture) so every backend — the brain LLM, the HF captioner, exec
     // detectors — reads a local file instead of choking on the URL. The record
     // keeps the origin in meta.source_url; media.ref is the local artifact.
-    let sourceUrl: string | undefined;
     if (isHttpUrl(resolvedRef)) {
       sourceUrl = resolvedRef;
       let dl;
       try {
         dl = await fetchMediaToCase(resolvedRef, ctx.case.mediaDir, { signal: ctx.signal });
       } catch (e) {
-        return [errorRecord("see", `could not fetch ${resolvedRef}: ${(e as Error).message}`)];
+        return stamp(errorRecord("see", `could not fetch ${resolvedRef}: ${(e as Error).message}`));
       }
       const kind = kindForExt(dl.ext);
       if (kind === "av") {
-        return [
+        return stamp(
           errorRecord(
             "see",
             `${resolvedRef} resolved to ${dl.ext.slice(1)} media (saved to ${dl.path}) — see analyzes still ` +
               "images; run `watch`/`listen` on it, or `see frame://<record>@<sec>` for a single frame",
           ),
-        ];
+        );
       }
       if (kind === "other") {
-        return [
+        const bodyNote = dl.ext === ".html" ? ", body is HTML" : dl.ext === ".txt" ? ", body is text" : "";
+        return stamp(
           errorRecord(
             "see",
-            `${resolvedRef} did not return an image (content-type ${dl.contentType ?? "unknown"}) — ` +
+            `${resolvedRef} did not return an image (content-type ${dl.contentType ?? "unknown"}${bodyNote}) — ` +
               "check the link (login walls and expired signed URLs commonly return HTML)",
           ),
-        ];
+        );
       }
       resolvedRef = dl.path;
     }
-    /** Stamp the case (+ URL provenance) on an outgoing see record. */
-    const stamp = (rec: OvercastRecord): OvercastRecord[] => {
-      rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}) };
-      return [rec];
-    };
 
     // Provider resolution for see:
     //  0. a built-in backend selector — `setup provider see builtin:brain|builtin:hf`
@@ -186,7 +190,7 @@ export const seeVerb: VerbSpec = {
     const binding = providerBinding(ctx, "see");
     const builtin = binding?.module?.startsWith("builtin:") ? binding.module.slice("builtin:".length) : undefined;
     if (builtin && builtin !== "brain" && builtin !== "hf") {
-      return [errorRecord("see", `unknown built-in see backend 'builtin:${builtin}' (expected builtin:brain or builtin:hf)`)];
+      return stamp(errorRecord("see", `unknown built-in see backend 'builtin:${builtin}' (expected builtin:brain or builtin:hf)`));
     }
     const forceBrain = builtin === "brain";
     const forceHf = builtin === "hf";
@@ -212,7 +216,7 @@ export const seeVerb: VerbSpec = {
           const payload = d && Array.isArray(d.payload) ? (d.payload as unknown[]) : [];
           const task = d && typeof d.task === "string" ? d.task : "";
           if (!payload.includes("detections") && !/detect/i.test(task)) {
-            return [
+            return stamp(
               makeRecord({
                 verb: "see",
                 format: "json",
@@ -221,9 +225,8 @@ export const seeVerb: VerbSpec = {
                   "the bound see provider doesn't support --detect (its describe declares no detections); " +
                   "bind a detector, e.g. `overcast setup provider see \"exec:python3 examples/providers/detect/detect.py\"`.",
                 state: "error",
-                meta: { case: ctx.case.dir },
               }),
-            ];
+            );
           }
         }
       }
@@ -238,7 +241,7 @@ export const seeVerb: VerbSpec = {
     // below can't detect, so fail clearly instead of passing the label list to a
     // captioner (which would mistake it for the image path).
     if (ctx.opts.detect) {
-      return [
+      return stamp(
         makeRecord({
           verb: "see",
           format: "json",
@@ -247,9 +250,8 @@ export const seeVerb: VerbSpec = {
             "see --detect needs a detection provider; bind one, e.g. " +
             "`overcast setup provider see \"exec:python3 examples/providers/detect/detect.py\"` (OWLv2).",
           state: "error",
-          meta: { case: ctx.case.dir },
         }),
-      ];
+      );
     }
     // New default: describe with the BRAIN LLM when it supports images (BYO).
     // Forced on with `builtin:brain`; skipped for `builtin:hf` or when disabled
@@ -265,13 +267,13 @@ export const seeVerb: VerbSpec = {
       });
       if (res.kind === "record") return stamp(res.record);
       if (forceBrain) {
-        return [
+        return stamp(
           errorRecord(
             "see",
             `see (brain) can't run: ${res.reason}. Configure an image-capable brain (\`setup llm\`), ` +
               "or switch backends with `overcast setup provider see builtin:hf` / `setup provider see <spec>`.",
           ),
-        ];
+        );
       }
       // else: no image-capable brain — fall through to the HF captioner / placeholder.
     }
@@ -292,7 +294,7 @@ export const seeVerb: VerbSpec = {
         return stamp(rec);
       }
       if (forceHf) {
-        return [errorRecord("see", "the Hugging Face see provider script isn't available in this build")];
+        return stamp(errorRecord("see", "the Hugging Face see provider script isn't available in this build"));
       }
     }
 
