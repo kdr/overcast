@@ -213,6 +213,27 @@ test("cluster view renders a self-contained HTML gallery record", async () => {
   }
 });
 
+test("cluster view re-attributes a failing internal list to op=view (#PR33 R8)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-viewfail-"));
+  const openC = clusterCase(cdir);
+  const stub = join(cdir, "fail-cluster");
+  writeFileSync(stub, `#!/usr/bin/env bash
+printf '{"verb":"cluster","format":"json","payload":{"op":"list","clusters":[]},"state":"error","error":"store unreadable"}\\n'
+`);
+  chmodSync(stub, 0o755);
+  try {
+    await withStub(stub, async () => {
+      const [rec] = await clusterVerb.run({ input: "view", rest: [], opts: { "no-open": true }, case: openC(), profile: defaultProfile() });
+      assert.equal(rec.state, "error");
+      assert.match(rec.error ?? "", /store unreadable/);
+      // the user ran VIEW — traces keying off payload.op must not blame list
+      assert.equal((rec.payload as Record<string, unknown>).op, "view");
+    });
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("cluster errors: unknown action, missing index, label without a name", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-fc-err-"));
   const stub = fakeClusterPy(cdir);
@@ -566,6 +587,15 @@ test("face_cluster.py guards the detector and reconciles ghost clusters (#PR33 R
       assert.equal(rec.state, "error", `${op} must refuse an unstamped store`);
       assert.match(String(rec.error), /no recorded model/);
     }
+
+    // faces stored but ZERO surviving people (stamps intact, clusters all ghost
+    // or gone) → identify must point at `cluster recluster` (more ingests never
+    // rebuild groups from stored rows), not `cluster add` (#R8).
+    writeFileSync(storePath, JSON.stringify({ model: "ModelA", detector: "detA", next_face: 10, next_cluster: 10, clusters: [] }));
+    const orphaned = JSON.parse(run(base, "identify", join(cdir, "a.jpg")).stdout.trim());
+    assert.equal(orphaned.state, "error");
+    assert.match(String(orphaned.error), /cluster recluster/);
+    assert.doesNotMatch(String(orphaned.error), /cluster add/);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }

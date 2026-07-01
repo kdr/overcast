@@ -216,7 +216,14 @@ export const clusterVerb: VerbSpec = {
 
     // view: render the people into a self-contained HTML contact sheet + open it.
     const listRec = await runLocalCluster(c, "-", { indexId, op: "list", limit: 10000, signal: ctx.signal });
-    if (listRec.state === "error") return finish(listRec, "list");
+    if (listRec.state === "error") {
+      // the user invoked VIEW — re-attribute the failing internal list record
+      // so traces/agents keying off payload.op don't blame the wrong op.
+      if (listRec.payload && typeof listRec.payload === "object") {
+        (listRec.payload as Record<string, unknown>).op = "view";
+      }
+      return finish(listRec, "view");
+    }
     const payload = (listRec.payload ?? {}) as Record<string, unknown>;
     const clusters = (Array.isArray(payload.clusters) ? payload.clusters : []) as ClusterGalleryPerson[];
     // the whole-store totals come from the list payload — `clusters` is a page

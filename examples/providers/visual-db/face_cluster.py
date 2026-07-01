@@ -554,6 +554,11 @@ def op_identify(args):
     reconcile(store, face_rows)
     clusters = store["clusters"]
     if not clusters:
+        # distinguish "nothing ingested yet" from "faces exist but no people
+        # survived reconcile" (partial write / hand-edit) — the remedies differ:
+        # more ingests never rebuild groups from stored rows, recluster does.
+        if face_rows:
+            fail("this face-cluster index has %d stored face%s but no people; run `cluster recluster` to rebuild the groups" % (len(face_rows), "" if len(face_rows) == 1 else "s"), inp, "identify")
         fail("this face-cluster index is empty; ingest media first with `cluster add`", inp, "identify")
 
     dets, _is_video, _sampled = sampled_detections(deepface, inp, args, "identify")
