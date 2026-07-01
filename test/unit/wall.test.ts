@@ -92,6 +92,30 @@ test("record fallback prefers the NEWEST anchored sense; undated never shadows d
   });
   const f = buildWallModel([newWatch, undatedFinding, datedFinding], opts()).tiles[0];
   assert.equal(f.anchor.at, 44);
+
+  // a pending/failed sense never sets the loop, even when it's the newest
+  const pendingNewer = makeRecord({ verb: "listen", payload: {}, media: { ref: A, at: 3 }, state: "pending", meta: { time: T(1) } });
+  const readyWins = buildWallModel([newWatch, pendingNewer], opts()).tiles[0];
+  assert.equal(readyWins.anchor.at, 7);
+  const onlyPending = makeRecord({ verb: "watch", payload: {}, media: { ref: A, at: 3 }, state: "pending", meta: { time: T(1) } });
+  const noReadyAnchor = buildWallModel([onlyPending], opts()).tiles[0];
+  assert.equal(noReadyAnchor.anchor.source, "start");
+});
+
+test("duration comes from any ready sense, not just watch; player re-clamps at loadedmetadata", () => {
+  // capture-only feed with a known duration still clamps the window
+  const capture = makeRecord({
+    verb: "capture",
+    payload: { capture_id: "cap_a" },
+    media: { ref: A, at: 30 },
+    meta: { time: T(10), duration_seconds: 8 },
+  });
+  const tile = buildWallModel([capture], opts()).tiles[0];
+  assert.equal(tile.duration, 8);
+  assert.deepEqual({ start: tile.anchor.start, end: tile.anchor.end }, { start: 0, end: 8 });
+  // and the inline player clamps against the browser-known real duration
+  const html = renderWallHtml(buildWallModel([capture], opts()), "csi");
+  assert.match(html, /Math\.min\(end, v\.duration\)/);
 });
 
 test("span anchors: short spans loop verbatim, long spans window, clamp falls back to the head", () => {
@@ -201,6 +225,13 @@ test("scan page URLs never tile; missing files and remote media classify correct
   const remote = byRef.get("https://cdn.example.com/d.mp4?sig=1");
   assert.equal(remote?.mode, "video"); // extension test ignores the query string
   assert.equal(remote?.fileUrl, "https://cdn.example.com/d.mp4?sig=1");
+});
+
+test("remote browser-hostile media is STILL (exists, unplayable), not DOWN", () => {
+  const records = [watchRec("https://cdn.example.com/feed.mkv", { time: T(5) })];
+  const tile = buildWallModel(records, opts()).tiles[0];
+  assert.equal(tile.mode, "still");
+  assert.equal(tile.fileUrl, "https://cdn.example.com/feed.mkv");
 });
 
 // ---- rendering ----------------------------------------------------------------
@@ -337,15 +368,18 @@ test("browser-hostile container gets a poster still; garbage media degrades to s
     const vc = ctx(mkvDir, { "no-open": true });
     vc.case.writeRecord(watchRec(mkv));
     vc.case.writeRecord(watchRec(garbage, { time: T(10) }));
+    vc.case.writeRecord(watchRec("https://cdn.example.com/remote.mkv", { time: T(20) }));
     const [rec] = await wallVerb.run(vc);
     const p = rec.payload as Record<string, unknown>;
-    assert.equal(p.stills, 2); // both exist on disk but aren't browser-safe
+    assert.equal(p.stills, 3); // local mkv + garbage avi + remote mkv — none browser-safe
     const html = readFileSync(p.viewer as string, "utf8");
     assert.match(html, /class="tile still"/);
     assert.match(html, /STILL/);
-    // the real mkv produced an extracted poster frame; the garbage one didn't
+    // the real mkv produced an extracted poster frame; the garbage one didn't,
+    // and the remote one is never handed to ffmpeg (no network from the poster pass)
     assert.match(html, /img class="poster"[^>]*feed_t0\.jpg/);
     assert.ok(!html.match(/broken_t\d+\.jpg/), "garbage media must not claim a poster");
+    assert.ok(!html.match(/remote_t\d+\.jpg/), "remote media must not claim a poster");
   } finally {
     rmSync(mkvDir, { recursive: true, force: true });
   }

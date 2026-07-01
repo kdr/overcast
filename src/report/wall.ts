@@ -175,11 +175,17 @@ function buildTile(ref: string, group: OvercastRecord[], join: TileJoin): WallTi
 
   const metaTitle = watch?.meta?.title;
   const title = typeof metaTitle === "string" && metaTitle.trim() ? metaTitle : displayName(ref);
-  const rawDuration = watch?.meta?.duration_seconds;
-  const duration =
-    typeof rawDuration === "number" && Number.isFinite(rawDuration) && rawDuration > 0
-      ? rawDuration
-      : null;
+  // any ready sense may know the duration (watch sets it today; don't depend on
+  // that) — and the player re-clamps at loadedmetadata where the browser knows
+  // the real length, so a null here only affects the model/intel display.
+  let duration: number | null = null;
+  for (const r of newestFirst(ready)) {
+    const d = r.meta?.duration_seconds;
+    if (typeof d === "number" && Number.isFinite(d) && d > 0) {
+      duration = d;
+      break;
+    }
+  }
 
   let faceCount = 0;
   for (const r of faceRecs) {
@@ -200,7 +206,9 @@ function buildTile(ref: string, group: OvercastRecord[], join: TileJoin): WallTi
     mode,
     title,
     duration,
-    anchor: pickAnchor(group, tileFindings, faceRecs, duration),
+    // anchor candidates are READY records only, like coverage — a pending or
+    // failed sense must not set the loop window
+    anchor: pickAnchor(ready, tileFindings, faceRecs, duration),
     coverage: {
       watch: !!watch,
       listen: ready.some((r) => r.verb === "listen"),
@@ -229,7 +237,10 @@ function classifyTile(
     } catch {
       /* keep the full ref for the extension test */
     }
-    return { mode: BROWSER_SAFE_RE.test(path) ? "video" : "down", fileUrl: ref };
+    // a browser-hostile remote container is STILL (exists, unplayable) like its
+    // local twin — "down" means missing/unreachable; a 404 at play time still
+    // flips video tiles to NO SIGNAL via the runtime error handler
+    return { mode: BROWSER_SAFE_RE.test(path) ? "video" : "still", fileUrl: ref };
   }
   if (!fileExists(ref)) return { mode: "down", fileUrl: null };
   const fileUrl = pathToFileURL(ref).href;
@@ -240,7 +251,7 @@ function classifyTile(
  *  media.at > start of clip. A true [start,end] span ≤20s is looped verbatim;
  *  a point anchor loops [at−2, at+6], clamped to the known duration. */
 function pickAnchor(
-  group: OvercastRecord[],
+  ready: OvercastRecord[],
   findings: OvercastRecord[],
   faceRecs: OvercastRecord[],
   duration: number | null,
@@ -262,9 +273,10 @@ function pickAnchor(
     }
   }
   if (best) return anchorWindow(best.at, "face", duration);
-  // newest anchored sense wins, matching the findings rule and tile ranking —
-  // an old listen anchor must not shadow a fresher watch anchor on the same ref
-  for (const r of newestFirst(group)) {
+  // newest READY anchored sense wins, matching the findings rule and tile
+  // ranking — an old listen anchor must not shadow a fresher watch anchor,
+  // and a pending/failed row must not set the loop at all
+  for (const r of newestFirst(ready)) {
     if (isRegisterableMediaRecord(r) && r.media?.at != null) {
       return anchorWindow(r.media.at, "record", duration);
     }
@@ -622,7 +634,15 @@ tiles.forEach(function(tile, i){
   vids.push(v);
   var start = parseFloat(v.getAttribute("data-start")) || 0;
   var end = parseFloat(v.getAttribute("data-end")) || 0;
-  v.addEventListener("loadedmetadata", function(){ try { v.currentTime = start; } catch (e) {} });
+  v.addEventListener("loadedmetadata", function(){
+    // clamp the window to the REAL duration (the model's duration is advisory
+    // and may be unknown for capture/enhance-only feeds)
+    if (isFinite(v.duration) && v.duration > 0) {
+      end = Math.min(end, v.duration);
+      if (end <= start) { start = 0; end = Math.min(8, v.duration); }
+    }
+    try { v.currentTime = start; } catch (e) {}
+  });
   if (end > start) {
     // moment loop: hold the evidence window, not the whole file
     v.addEventListener("timeupdate", function(){

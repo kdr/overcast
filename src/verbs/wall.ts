@@ -106,9 +106,10 @@ export const wallVerb: VerbSpec = {
     }
 
     // best-effort poster stills for present-but-unplayable containers (mkv/avi/…);
-    // a failed extraction just leaves the animated static tile (spectrogram precedent)
+    // a failed extraction just leaves the animated static tile (spectrogram
+    // precedent). Local only — never point ffmpeg at a remote URL for a poster.
     for (const tile of model.tiles) {
-      if (tile.mode !== "still") continue;
+      if (tile.mode !== "still" || /^https?:\/\//i.test(tile.ref)) continue;
       try {
         tile.poster = pathToFileURL(await extractFrame(tile.ref, tile.anchor.at, ctx.case.mediaDir)).href;
       } catch {
