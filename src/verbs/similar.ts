@@ -72,21 +72,28 @@ function segmentStarts(rec: OvercastRecord | undefined): number[] {
 }
 
 /** Shot markers for a video: reuse an existing `watch` record's segments; else
- *  invoke the bound watch provider once. Returns [] when none are available (the
- *  caller falls back to uniform sampling). */
-async function shotMarkers(ctx: VerbContext, ref: string): Promise<number[]> {
-  const existing = ctx.case
-    .records()
-    .find((r) => r.verb === "watch" && r.media?.ref === ref && isReady(r));
-  const reused = segmentStarts(existing);
-  if (reused.length) return reused;
+ *  invoke the bound watch provider once and hand the fresh record back so the
+ *  caller RETURNS it (records are persisted by the verb runner — same contract as
+ *  index add's ensureLocalWatchRecord). Any non-error watch evidence (ready OR
+ *  pending) suppresses a new invocation: a pending watch is already paid for, and
+ *  re-running it here would double-bill. Empty markers = uniform fallback. */
+async function shotMarkers(ctx: VerbContext, ref: string): Promise<{ markers: number[]; watched?: OvercastRecord }> {
+  const evidence = ctx.case.records().filter((r) => {
+    if (r.verb !== "watch" || r.media?.ref !== ref) return false;
+    const state = String(r.state ?? "ready");
+    return state !== "error" && state !== "needs_credentials";
+  });
+  if (evidence.length) {
+    return { markers: segmentStarts(evidence.find(isReady)) };
+  }
   // No watch evidence yet — call the bound watch provider (as watchVerb does) to
   // obtain shot boundaries. Reuse-first avoids re-paying for an already-watched clip.
   const binding = providerBinding(ctx, "watch");
   const rec = isCustomBinding(binding)
     ? await runBoundProvider("watch", binding!, ref, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal })
     : await runWatch(ref, { run: binding?.run, signal: ctx.signal });
-  return isReady(rec) ? segmentStarts(rec) : [];
+  rec.meta = { ...rec.meta, case: ctx.case.dir, triggered_by: "similar" };
+  return { markers: isReady(rec) ? segmentStarts(rec) : [], watched: rec };
 }
 
 export const similarVerb: VerbSpec = {
@@ -141,20 +148,31 @@ export const similarVerb: VerbSpec = {
     const indexDir = localIndexDir(ctx.case, idx.id!);
     const cfg = effectiveConfig(indexDir, ctx.opts);
 
+    // ONE shared opts block for all three actions. Every op must carry the FULL
+    // effective sampling config: the Python side keys its embedding cache on it
+    // (config_hash), so an op that omitted sampling/window/fps would miss the
+    // cache and silently re-embed members with defaults.
+    const baseOpts = {
+      indexId: idx.id!,
+      pooling: cfg.pooling,
+      granularity: cfg.granularity,
+      sampling: cfg.sampling,
+      window: cfg.window,
+      maxFrames: cfg.maxFrames ?? undefined,
+      fps: cfg.fps ?? undefined,
+      signal: ctx.signal,
+    };
+    const queryOpts = {
+      minSimilarity: ctx.opts["min-similarity"] != null ? Number(ctx.opts["min-similarity"]) : undefined,
+      limit: ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined,
+      offset: ctx.opts.offset != null ? Number(ctx.opts.offset) : undefined,
+    };
+
     // ---- search (text → image) ----
     if (action === "search") {
       const text = ctx.rest.join(" ").trim();
       if (!text) return [err("similar search requires a text query")];
-      const rec = await runLocalClip(ctx.case, text, {
-        indexId: idx.id!,
-        op: "search",
-        minSimilarity: ctx.opts["min-similarity"] != null ? Number(ctx.opts["min-similarity"]) : undefined,
-        limit: ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined,
-        offset: ctx.opts.offset != null ? Number(ctx.opts.offset) : undefined,
-        pooling: cfg.pooling,
-        granularity: cfg.granularity,
-        signal: ctx.signal,
-      });
+      const rec = await runLocalClip(ctx.case, text, { ...baseOpts, ...queryOpts, op: "search" });
       return [rec];
     }
 
@@ -166,48 +184,33 @@ export const similarVerb: VerbSpec = {
     if (!/^https?:\/\//i.test(q.ref!) && !existsSync(q.ref!)) return [err(`similar ${action}: input not found: ${q.ref}`)];
 
     // shot markers only apply to video sampling; resolve them in TS so the local
-    // clip provider stays pure-CLIP (no tinycloud coupling).
+    // clip provider stays pure-CLIP (no tinycloud coupling). A freshly-run watch
+    // record is returned alongside the similar record so it persists as case
+    // evidence (otherwise every later shots-sampled run would re-pay the watch).
     let framesAt: number[] | undefined;
+    let watched: OvercastRecord | undefined;
     if (q.kind === "video" && cfg.sampling === "shots") {
-      const markers = await shotMarkers(ctx, q.ref!);
-      if (markers.length) framesAt = markers;
+      const shots = await shotMarkers(ctx, q.ref!);
+      if (shots.markers.length) framesAt = shots.markers;
+      watched = shots.watched;
     }
 
     if (action === "add") {
-      const entry = findIndex(ctx.case, idx.id!);
-      const already = entry?.members.some((m) => m.ref === q.ref);
       mkdirSync(indexDir, { recursive: true });
-      if (!already) addMember(ctx.case, idx.id!, { ref: q.ref!, recordId: q.recordId });
-      const rec = await runLocalClip(ctx.case, q.ref!, {
-        indexId: idx.id!,
-        op: "add",
-        pooling: cfg.pooling,
-        granularity: cfg.granularity,
-        sampling: cfg.sampling,
-        window: cfg.window,
-        maxFrames: cfg.maxFrames ?? undefined,
-        fps: cfg.fps ?? undefined,
-        framesAt,
-        signal: ctx.signal,
-      });
-      return [rec];
+      const rec = await runLocalClip(ctx.case, q.ref!, { ...baseOpts, op: "add", framesAt });
+      // register the member only after the embed SUCCEEDED (mirrors index add's
+      // accepted() gate) — a failed embed must not leave a vectorless member that
+      // match/search would silently skip.
+      if (isReady(rec)) {
+        const entry = findIndex(ctx.case, idx.id!);
+        if (!entry?.members.some((m) => m.ref === q.ref)) {
+          addMember(ctx.case, idx.id!, { ref: q.ref!, recordId: q.recordId });
+        }
+      }
+      return watched ? [rec, watched] : [rec];
     }
 
-    const rec = await runLocalClip(ctx.case, q.ref!, {
-      indexId: idx.id!,
-      op: "match",
-      minSimilarity: ctx.opts["min-similarity"] != null ? Number(ctx.opts["min-similarity"]) : undefined,
-      limit: ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined,
-      offset: ctx.opts.offset != null ? Number(ctx.opts.offset) : undefined,
-      pooling: cfg.pooling,
-      granularity: cfg.granularity,
-      sampling: cfg.sampling,
-      window: cfg.window,
-      maxFrames: cfg.maxFrames ?? undefined,
-      fps: cfg.fps ?? undefined,
-      framesAt,
-      signal: ctx.signal,
-    });
-    return [rec];
+    const rec = await runLocalClip(ctx.case, q.ref!, { ...baseOpts, ...queryOpts, op: "match", framesAt });
+    return watched ? [rec, watched] : [rec];
   },
 };

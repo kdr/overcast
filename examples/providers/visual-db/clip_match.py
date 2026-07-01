@@ -233,6 +233,14 @@ def build_member(ref, args, index_dir, frames_at=None):
             if meta.get("config_hash") == chash and abs(float(meta.get("mtime", -1)) - mtime) < 1e-6:
                 vecs = np.load(str(npy))
                 return vecs, meta.get("ats", [None] * len(vecs)), meta.get("granularity", args.granularity)
+            # stale rebuild (query-time cache miss): reuse the shot markers the
+            # member was ORIGINALLY embedded with, so a shots-sampled member is
+            # not silently re-embedded on a uniform grid. An explicit frames_at
+            # (a fresh `add`) always wins.
+            if frames_at is None:
+                prior = meta.get("frames_at")
+                if isinstance(prior, list) and prior:
+                    frames_at = [float(x) for x in prior]
         except Exception:
             pass
     vecs, ats = embed_media(ref, args, frames_at=frames_at)
@@ -242,7 +250,8 @@ def build_member(ref, args, index_dir, frames_at=None):
     np.save(str(npy), vecs)
     sidecar.write_text(json.dumps({
         "ref": ref, "kind": "video" if is_video(path) else "image",
-        "granularity": args.granularity, "ats": ats, "config_hash": chash, "mtime": mtime,
+        "granularity": args.granularity, "ats": ats, "frames_at": frames_at,
+        "config_hash": chash, "mtime": mtime,
         "model": load_model()["name"],
     }))
     return vecs, ats, args.granularity
