@@ -174,19 +174,20 @@ overcast crop <see-record-id> --all --class person --json        # materialize d
 - Env: `DETECT_MODEL`, `DETECT_THRESHOLD` (default 0.1), `DETECT_MAX_FRAMES` (default 8). overcast passes `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` (the system ffmpeg/ffprobe) so video frame extraction works.
 - *Note:* `nvidia/LocateAnything-3B` is a higher-quality open-vocab grounding model but it's a 3B VLM (~7.7 GB, GPU-class); swap it in via a local-transformers provider if you have the hardware.
 
-## Visual DBs (`image-ransac` and `deepface-local`)
+## Visual DBs (`image-ransac`, `deepface-local`, and `basic-clip`)
 
 Visual DBs are selected by **index type**. The DeepFace face detector can
 also be selected as a profile provider with `face:deepface-local`, but the searchable
-local face DB is still the `deepface-local` index type. The case setup wizard's
-`--index` path is for remote/default index creation today, so use `index create
---local` per case for `image-ransac` and `deepface-local`. They use shipped Python
-providers under `examples/providers/visual-db/` and a uv-managed Python
-environment:
+local face DB is still the `deepface-local` index type. Create them per case with
+`index create --local`, or add them in the setup wizard via `case setup --index
+"<name>:<type>"` (for `basic-clip`, an optional `@k=v;k=v` config suffix — pairs
+separated by `;` — pins sampling/pooling; see below). They use shipped Python providers under
+`examples/providers/visual-db/` and a uv-managed Python environment:
 
 ```bash
 scripts/visual-db-uv.sh          # image matching: opencv-python + numpy
 scripts/visual-db-uv.sh --face   # face matching too: deepface + tf-keras
+scripts/visual-db-uv.sh --clip   # CLIP semantic search: open_clip + torch + pillow
 overcast doctor --json              # reports uv + visual-db readiness
 
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
@@ -215,7 +216,30 @@ overcast face ./clip.mp4 --match ./person.jpg --index localfaces --fps 0.5 --max
 overcast face --match ./person.jpg --index localfaces --json
 ```
 
-Both emit ordinary Overcast records (`image.match` or `face.analysis`) and write
+`basic-clip` is a local OpenAI CLIP (open_clip) DB for **cross-modal semantic
+similarity** — find images/video moments that resemble a photo (image→image) or a
+phrase (text→image). Members are embedded and cached on `add` (`.npy` under the
+index dir); queries only embed the query and do a cosine top-K (scores are
+cosine×100, 0–100). Videos are frame-sampled and pooled (`max` default, or `mean`),
+or stored per-frame (`--granularity frame`) so queries return moments with `at`.
+Sampling is `uniform` windows or, with `--sampling shots`, tinycloud `watch` shot
+boundaries. Query with the `similar` verb (`add` / `match` / `search`):
+
+```bash
+overcast index create scenes --type basic-clip --local --granularity frame --sampling shots --json
+overcast similar add ./clip.mp4 --index scenes --json          # embed + cache (video → frames)
+overcast similar add ./photo.jpg --index scenes --json
+overcast similar search "a red car at night" --index scenes --limit 10 --json   # text → image
+overcast similar match ./query.jpg --index scenes --json                        # image → image
+```
+
+The record (`similar.match`) emits ranked `payload.matches[]` (`ref`, `similarity`,
+`granularity`, and `at` for frame-level). CLIP model/weights are overridable via
+`OC_CLIP_MODEL` (default `ViT-B-32`) and `OC_CLIP_PRETRAINED` (default `openai`);
+`OC_CLIP_DEVICE` defaults to `cpu`.
+
+These emit ordinary Overcast records (`image.match`, `face.analysis`, or
+`similar.match`) and write
 local artifacts under the case `.overcast/` store. Local-grep/qmd memory indexes
 should index the records and summaries only; do not ingest raw media, embeddings,
 sampled frames, face boxes, or match visualization images as text. Add `note`,
@@ -233,7 +257,7 @@ sample 8 frames.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
 - [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN image enhance, and DeepFilterNet3 audio enhance.
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
-- [`examples/providers/visual-db/{image_match,face_match}.py`](../examples/providers/visual-db/) — local image RANSAC and DeepFace matching for visual DB indexes.
+- [`examples/providers/visual-db/{image_match,face_match,clip_match}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, and CLIP (basic-clip) matching for visual DB indexes.
 - [`examples/providers/sources/{youtube,tiktok,web}.sh`](../examples/providers/sources/) — yt-dlp + Apify + web-search (Tavily/Brave) source providers.
 
 ## Source providers (built-in types)

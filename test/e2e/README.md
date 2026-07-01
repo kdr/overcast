@@ -49,12 +49,14 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 - **Local detector (`see --detect`)** — `DETECT_PY` = a python with
   `torch`/`transformers`/`scipy`/`pillow` (OWLv2). If unset, the case probes
   `python3`/`python` and skips when the deps are missing.
-- **Visual DBs / DeepFace** — `OC_VISUAL_DB_PY` points at the
-  uv-managed Python from `scripts/visual-db-uv.sh --face`. Optional real-data
-  fixtures: `OC_LOCAL_IMAGE_REF`, `OC_LOCAL_IMAGE_VIDEO_A`,
+- **Visual DBs / DeepFace / CLIP** — `OC_VISUAL_DB_PY` points at the
+  uv-managed Python from `scripts/visual-db-uv.sh --all` (image + face + CLIP).
+  Optional real-data fixtures: `OC_LOCAL_IMAGE_REF`, `OC_LOCAL_IMAGE_VIDEO_A`,
   `OC_LOCAL_IMAGE_VIDEO_B`, `OC_LOCAL_FACE_IMAGE`, `OC_LOCAL_FACE_VIDEO`,
   plus sampling knobs `OC_LOCAL_IMAGE_FPS`, `OC_LOCAL_FACE_FPS`,
-  `OC_LOCAL_IMAGE_MAX_FRAMES`, and `OC_LOCAL_FACE_MAX_FRAMES`.
+  `OC_LOCAL_IMAGE_MAX_FRAMES`, and `OC_LOCAL_FACE_MAX_FRAMES`. For the CLIP
+  (`basic-clip`) DB: `OC_CLIP_IMAGE_REF`, `OC_CLIP_VIDEO`, `OC_CLIP_TEXT`, plus
+  model overrides `OC_CLIP_MODEL`/`OC_CLIP_PRETRAINED`/`OC_CLIP_DEVICE`.
 - **bun** — to compile the binary (`npm run build:bun`). Set `OVERCAST_USE_NODE=1`
   to run `node dist/bin/overcast.js` instead.
 
@@ -65,7 +67,8 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 `13_enhance_view` · `20_sources` (Tavily/Apify/yt-dlp) · `21_pipeline`
 (source→capture→sense) · `22_monitor` (`--once` diff + bounded `--every`) ·
 `23_index` · `24_case_search` · `16_visual_db` (local image-ransac,
-`face:deepface-local`, and deepface-local with real media) · `30_read`
+`face:deepface-local`, and deepface-local with real media) · `17_clip_db`
+(local basic-clip CLIP DB: `similar add`/`search`/`match` with real media) · `30_read`
 (ask/brief over real records) · `31_visualization` (CSI status/brief/records
 exports with real visual targets and matches) · `32_headless_visualization`
 (headless agent `--mode json` export trace, default CSI HTML theme) ·

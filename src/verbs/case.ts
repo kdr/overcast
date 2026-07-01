@@ -17,8 +17,10 @@ import { redactSecrets } from "../env.js";
 import { addSource, listSources, parseSourceSpec, removeSource } from "../state/source.js";
 import { addTarget, listTargets, removeTarget } from "../state/target.js";
 import { addIndex, listIndexes, normalizeIndexType, removeIndex } from "../state/index.js";
-import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex } from "../state/setup.js";
+import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex, type SetupIndexConfig } from "../state/setup.js";
 import { indexVerb } from "./index.js";
+import { similarVerb } from "./similar.js";
+import { readClipConfig } from "../providers/local/vision.js";
 import { isAv } from "./media-ref.js";
 import { findProviderChoice } from "../providers/catalog.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -73,10 +75,36 @@ function summarizeSavedSetup(setup: CaseSetup | undefined): Record<string, unkno
   return setupSummary(setup);
 }
 
+/** Parse an optional trailing `@k=v;k=v` config suffix (basic-clip). Pairs are
+ *  `;`-separated (NOT comma — `--index` is itself a comma-separated list). Split
+ *  off BEFORE the `:` split so it doesn't collide with the `id:type:name` attach
+ *  form. Keys: pooling, granularity, sampling, window, max-frames|maxFrames, fps. */
+function parseIndexConfigSuffix(spec: string): { base: string; config?: SetupIndexConfig } {
+  const at = spec.indexOf("@");
+  if (at < 0) return { base: spec };
+  const base = spec.slice(0, at);
+  const config: SetupIndexConfig = {};
+  for (const pair of spec.slice(at + 1).split(";")) {
+    const eq = pair.indexOf("=");
+    if (eq < 0) continue;
+    const key = pair.slice(0, eq).trim().toLowerCase();
+    const value = pair.slice(eq + 1).trim();
+    if (!value) continue;
+    if (key === "pooling") config.pooling = value;
+    else if (key === "granularity") config.granularity = value;
+    else if (key === "sampling") config.sampling = value;
+    else if (key === "window") config.window = Number(value);
+    else if (key === "max-frames" || key === "maxframes") config.maxFrames = Number(value);
+    else if (key === "fps") config.fps = Number(value);
+  }
+  return { base, config: Object.keys(config).length ? config : undefined };
+}
+
 function parseIndexSpec(spec: string, signals: string[]): SetupIndex {
-  const parts = spec.split(":").map((p) => p.trim()).filter(Boolean);
+  const { base, config } = parseIndexConfigSuffix(spec);
+  const parts = base.split(":").map((p) => p.trim()).filter(Boolean);
   let id: string | undefined;
-  let name = parts[0] ?? spec;
+  let name = parts[0] ?? base;
   let rawType = parts[1] ?? "media-descriptions";
   if (parts.length >= 3) {
     id = parts[0];
@@ -90,6 +118,7 @@ function parseIndexSpec(spec: string, signals: string[]): SetupIndex {
     type,
     mode: id ? "attach" : "create",
     default_signals: signals.length ? signals : (DEFAULT_SIGNAL_BY_INDEX_TYPE[type] ?? []),
+    ...(config ? { config } : {}),
   };
 }
 
@@ -361,13 +390,20 @@ function setupFromExistingRegistries(ctx: VerbContext, caseName: string): CaseSe
     const type = normalizeIndexType(i.type) ?? i.type;
     const defaultSignals = DEFAULT_SIGNAL_BY_INDEX_TYPE[type] ?? [];
     setup.default_signals[i.id] = defaultSignals;
-    return {
+    const index: SetupIndex = {
       id: i.id,
       name: i.name,
       type,
       mode: "attach",
       default_signals: defaultSignals,
     };
+    // reflect a local basic-clip index's real config so `case setup show/plan`
+    // report how it samples/pools (config lives in the index dir, not indexes.json).
+    if (type === "basic-clip" && i.backend === "local") {
+      const c = readClipConfig(join(ctx.case.indexDir, i.id));
+      index.config = { pooling: c.pooling, granularity: c.granularity, sampling: c.sampling, window: c.window, maxFrames: c.maxFrames ?? undefined, fps: c.fps ?? undefined };
+    }
+    return index;
   });
   const videoRefs = [...new Set(listIndexes(ctx.case).flatMap((i) => i.members.map((m) => m.ref)))];
   setup.media.videos = videoRefs;
@@ -455,7 +491,7 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
       ...ctx,
       input: "create",
       rest: [index.name],
-      opts: { type: index.type },
+      opts: { type: index.type, ...indexConfigToFlags(index.config) },
     });
     records.push(...recs);
     const created = recs.find(accepted);
@@ -485,6 +521,15 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
       const id = index.id;
       if (!id || !route.indexes.includes(id)) continue;
       const signals = new Set([...route.signals, ...(setup.default_signals[id] ?? index.default_signals)]);
+      // basic-clip embeds members via the `similar` verb (opt-in `similar add`
+      // signal); every other index type registers via `index add`.
+      if (index.type === "basic-clip") {
+        if (!signals.has("similar add") && !signals.has("similar")) continue;
+        const recs = await similarVerb.run({ ...ctx, input: "add", rest: [route.ref], opts: { index: id } });
+        records.push(...recs);
+        operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
+        continue;
+      }
       if (!signals.has("index add")) continue;
       const recs = await indexVerb.run({
         ...ctx,
@@ -498,6 +543,19 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
   }
 
   return records;
+}
+
+/** Map a saved SetupIndexConfig into `index create` flags (basic-clip). */
+function indexConfigToFlags(config: SetupIndexConfig | undefined): Record<string, string | number> {
+  if (!config) return {};
+  const flags: Record<string, string | number> = {};
+  if (config.pooling) flags.pooling = config.pooling;
+  if (config.granularity) flags.granularity = config.granularity;
+  if (config.sampling) flags.sampling = config.sampling;
+  if (config.window != null) flags.window = config.window;
+  if (config.maxFrames != null) flags["max-frames"] = config.maxFrames;
+  if (config.fps != null) flags.fps = config.fps;
+  return flags;
 }
 
 function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup" | "startup_setup_update", apply: boolean): SetupChange {
