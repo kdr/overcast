@@ -1,4 +1,52 @@
+import { useEffect, useState } from 'react'
+
+const TAGLINE = 'video · recon · osint'
+const GLYPHS = '█▓▒░/\\<>|_'
+// keep in step with the 6s cycle + 88–95% burst window in index.css
+const CYCLE_MS = 6000
+const BURST_AT_MS = 5280
+
+function scramble(text: string) {
+  return text
+    .split('')
+    .map((c) =>
+      /[a-z]/.test(c) && Math.random() < 0.25
+        ? GLYPHS[Math.floor(Math.random() * GLYPHS.length)]
+        : c,
+    )
+    .join('')
+}
+
+function useGlitchedTagline() {
+  const [text, setText] = useState(TAGLINE)
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    let timeouts: number[] = []
+    const burst = () => {
+      timeouts.forEach(clearTimeout)
+      setText(scramble(TAGLINE))
+      timeouts = [80, 160].map((ms) =>
+        window.setTimeout(() => setText(scramble(TAGLINE)), ms),
+      )
+      timeouts.push(window.setTimeout(() => setText(TAGLINE), 260))
+    }
+    let interval: number | undefined
+    const lead = window.setTimeout(() => {
+      burst()
+      interval = window.setInterval(burst, CYCLE_MS)
+    }, BURST_AT_MS)
+    return () => {
+      clearTimeout(lead)
+      clearInterval(interval)
+      timeouts.forEach(clearTimeout)
+    }
+  }, [])
+  return text
+}
+
 export default function App() {
+  const tagline = useGlitchedTagline()
+
   return (
     <main className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-cream px-6 py-16 text-center font-mono text-ink">
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -7,6 +55,8 @@ export default function App() {
         <div className="blob blob-butter blob-drift-c bottom-[-30%] left-[-10%] h-[70vmax] w-[70vmax]" />
         <div className="blob blob-blush blob-drift-d right-[-15%] bottom-[-20%] h-[55vmax] w-[55vmax]" />
         <div className="halftone absolute inset-0" />
+        <div className="scanlines absolute inset-0" />
+        <div className="refresh-bar" />
       </div>
 
       <div className="relative flex w-full flex-col items-center gap-6 sm:gap-8">
@@ -15,15 +65,23 @@ export default function App() {
           alt="overcast — a suited figure with a CRT-TV head showing a watching eye, and a mounted CCTV camera"
           width={1254}
           height={1254}
-          className="w-[clamp(240px,38vw,420px)] drop-shadow-[0_18px_40px_rgba(20,24,26,0.18)]"
+          className="glitch-logo w-[clamp(240px,38vw,420px)]"
         />
 
-        <h1 className="wordmark text-[clamp(3rem,11vw,6.5rem)] leading-none font-bold tracking-tight lowercase">
-          overcast
+        <h1
+          aria-label="overcast"
+          className="text-[clamp(3rem,11vw,6.5rem)] leading-none font-bold tracking-tight lowercase"
+        >
+          <span aria-hidden className="wordmark" data-text="overcast">
+            overcast
+          </span>
         </h1>
 
-        <p className="text-[clamp(0.75rem,2.4vw,1.15rem)] tracking-[0.28em] text-ink/75 sm:tracking-[0.45em]">
-          video · recon · osint
+        <p
+          aria-label={TAGLINE}
+          className="text-[clamp(0.75rem,2.4vw,1.15rem)] tracking-[0.28em] text-ink/75 sm:tracking-[0.45em]"
+        >
+          <span aria-hidden>{tagline}</span>
         </p>
 
         <p className="max-w-md text-sm text-ink/60 sm:text-base">
