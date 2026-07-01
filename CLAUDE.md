@@ -41,6 +41,12 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    a pi **package/extension**; net-new code is the verbs + providers + record store.
 2. **BYO LLM.** Never hardcode the brain provider. Keep the *brain provider*
    (pi-ai) and the *sense providers* (tinycloud / VLM / STT) separate everywhere.
+   *One deliberate, opt-out bridge:* `see` defaults to the **brain LLM** for image
+   description when it's image-capable (`src/providers/brain/vision.ts`) — it
+   resolves whatever brain the profile/env already points at (BYO, never a
+   hardcoded one) and is one switch away from the classic sense provider
+   (`setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Don't extend this
+   pattern to other verbs without the same "resolved-not-hardcoded + opt-out" bar.
 3. **The record is loose.** Output contract = `{ id, verb, format (json|md|txt),
    payload, media?{ref,at}, meta?, error?, state? }` and nothing more. Map provider
    output to the record at the exec boundary; never reintroduce a rigid envelope.
@@ -55,8 +61,10 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    (`watch/listen/see/face/similar/enhance`), **source** (`scan/capture/monitor`; youtube,
    tiktok, web), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    transports are `exec` (default), `http`, `in-proc`. Default sense binding =
-   tinycloud (exec); `face:deepface-local` is the local DeepFace profile provider for
-   face detection/matching, and `basic-clip` is the local OpenAI CLIP DB for
+   tinycloud (exec) — except `see`, whose default is the in-proc brain-vision
+   backend (invariant #2), falling back to the HF exec captioner;
+   `face:deepface-local` is the local DeepFace profile provider for face
+   detection/matching, and `basic-clip` is the local OpenAI CLIP DB for
    `similar` (cross-modal semantic search).
 7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `crop`, `view`,
    and frame extraction shell out to the **system** `ffmpeg`/`ffprobe` (PATH or
@@ -81,8 +89,11 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Senses** — `watch` (shot-detect + all-modality describe → `content` /
   `transcript` / `detailed`), `listen` (speech transcript; `--describe` for the
   full audio-scene, `--diarize`, `--lang`), `see` (caption / OCR / open-vocab
-  `--detect` — turnkey Hugging Face, bindable fal, local OWLv2 via
-  `examples/providers/detect`), `face` (tinycloud ≥ 0.3.4 by default, or
+  `--detect` — **default: the brain LLM** when image-capable, i.e. a direct
+  "describe this image" call; falls back to the Hugging Face captioner,
+  `builtin:hf`/`builtin:brain` + `OVERCAST_SEE_BRAIN=off` to switch; bindable fal
+  / local OWLv2 via `examples/providers/detect` for detection), `face`
+  (tinycloud ≥ 0.3.4 by default, or
   `face:deepface-local` locally: detect faces, `--match <jpeg|png>` to find/rank a
   person in a clip, or `--index` to search a face-analysis / deepface-local index),
   `image` (local OpenCV RANSAC image/video-frame matching against

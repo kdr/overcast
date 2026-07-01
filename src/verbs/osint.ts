@@ -6,6 +6,7 @@ import { join, basename, dirname } from "node:path";
 import { copyFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { makeRecord, type OvercastRecord } from "../record.js";
+import { sniffExt } from "../media/fetch.js";
 import {
   builtinDescriptor,
   enumerateSource,
@@ -810,23 +811,8 @@ async function runDefaultWatchWithPolicy(ctx: VerbContext, caller: string, ref: 
   return out;
 }
 
-/** Best-effort media extension from leading magic bytes (so a piped clip lands
- *  with a sensible extension the senses/ffmpeg can classify). */
-function sniffExt(b: Buffer): string {
-  const at = (off: number, s: string) => b.length >= off + s.length && b.slice(off, off + s.length).toString("latin1") === s;
-  if (at(4, "ftyp")) return ".mp4"; // ISO-BMFF: mp4/mov/m4a
-  if (at(0, "RIFF") && at(8, "WEBP")) return ".webp";
-  if (at(0, "RIFF") && at(8, "WAVE")) return ".wav";
-  if (at(0, "RIFF") && at(8, "AVI ")) return ".avi";
-  if (b[0] === 0x89 && at(1, "PNG")) return ".png";
-  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return ".jpg";
-  if (at(0, "GIF8")) return ".gif";
-  if (at(0, "OggS")) return ".ogg";
-  if (at(0, "fLaC")) return ".flac";
-  if (at(0, "ID3") || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return ".mp3";
-  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return ".webm";
-  return ".bin";
-}
+// sniffExt (magic-byte extension) lives in media/fetch.ts — shared with the
+// see URL-download path so piped and downloaded bytes classify identically.
 
 /** `capture -` — ingest bytes piped on stdin into the case as a capture record. */
 async function captureStdin(ctx: VerbContext, out?: string): Promise<OvercastRecord> {

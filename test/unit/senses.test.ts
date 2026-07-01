@@ -52,10 +52,13 @@ test("runListen maps a speech envelope to audio.analysis (via fixture provider)"
   assert.deepEqual(segs[0].at, [0, 3]);
 });
 
-test("see is a placeholder (needs_credentials) when no HF token + no binding", async () => {
-  const saved = { a: process.env.HF_TOKEN, b: process.env.HUGGING_FACE_HUB_TOKEN };
+test("see is a placeholder (needs_credentials) when no brain + no HF token + no binding", async () => {
+  const saved = { a: process.env.HF_TOKEN, b: process.env.HUGGING_FACE_HUB_TOKEN, c: process.env.OVERCAST_SEE_BRAIN };
   delete process.env.HF_TOKEN;
   delete process.env.HUGGING_FACE_HUB_TOKEN;
+  // Disable the brain default so this is deterministic even on a machine with an
+  // ambient Cloudglue key (env or ~/.tinycloud/config.json).
+  process.env.OVERCAST_SEE_BRAIN = "off";
   try {
     const [rec] = await seeVerb.run(ctx("./suspect.jpg"));
     assert.equal(rec.verb, "see");
@@ -64,6 +67,8 @@ test("see is a placeholder (needs_credentials) when no HF token + no binding", a
   } finally {
     if (saved.a) process.env.HF_TOKEN = saved.a;
     if (saved.b) process.env.HUGGING_FACE_HUB_TOKEN = saved.b;
+    if (saved.c === undefined) delete process.env.OVERCAST_SEE_BRAIN;
+    else process.env.OVERCAST_SEE_BRAIN = saved.c;
   }
 });
 
