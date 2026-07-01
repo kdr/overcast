@@ -97,11 +97,12 @@ case "$op" in
     # thumbnail as a base64 data URI — materialize it into the case media dir
     # (when the harness passes one) and point media.ref at the file, so the
     # record stays light and the matched image is real evidence on disk.
-    # (the actor pads a matchless type with one all-empty item — a hit without
-    # a page link isn't actionable evidence, so drop those)
+    # (the actor pads a matchless type with one all-empty item, and a hit
+    # without an absolute http(s) page link isn't actionable/fetchable
+    # evidence — drop those, matching the visual-match filter)
     exact="$(printf '%s' "$run" | jq -c --argjson n "$limit" \
       '[.[]["exact-match"] | select(. != null) | .results[]
-        | select((.link // "") != "")] | .[0:$n]')"
+        | select((.link // "") | startswith("http"))] | .[0:$n]')"
     exact_hits="[]"
     n="$(printf '%s' "$exact" | jq 'length')"
     i=0

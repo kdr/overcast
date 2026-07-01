@@ -129,8 +129,18 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
   process.env.OVERCAST_SOURCE_YOUTUBE_CMD = 'bash "/x y/z.sh"';
   try {
     assert.deepEqual(builtinDescriptor("youtube")!.base, ["bash", "/x y/z.sh"]);
+    assert.equal(builtinDescriptor("youtube")!.timeoutMs, undefined);
   } finally {
     delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD;
+  }
+  // an override rebinds the command but keeps the type's exec budget (the live
+  // e2e binds the shipped lens/tiktok scripts this way — they still talk to
+  // the slow Apify run-sync backend)
+  process.env.OVERCAST_SOURCE_LENS_CMD = "bash /elsewhere/lens.sh";
+  try {
+    assert.equal(builtinDescriptor("lens")!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
+  } finally {
+    delete process.env.OVERCAST_SOURCE_LENS_CMD;
   }
 });
 

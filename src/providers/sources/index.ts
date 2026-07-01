@@ -55,8 +55,15 @@ export function tokenizeCommand(s: string): string[] {
 export function builtinDescriptor(type: string): SourceDescriptor | undefined {
   const envOverride = process.env[`OVERCAST_SOURCE_${type.toUpperCase()}_CMD`];
   if (envOverride) {
-    return { type, base: tokenizeCommand(envOverride.trim()) };
+    // an override rebinds the COMMAND, not the type's semantics — keep the
+    // built-in exec budget so a rebound lens/tiktok (e.g. the live e2e binding
+    // the shipped script by absolute path) isn't killed at the generic default.
+    return { type, base: tokenizeCommand(envOverride.trim()), timeoutMs: shippedDescriptor(type)?.timeoutMs };
   }
+  return shippedDescriptor(type);
+}
+
+function shippedDescriptor(type: string): SourceDescriptor | undefined {
   switch (type) {
     case "youtube": {
       // yt-dlp drives both enumerate (flat) and fetch (download). No API key.
