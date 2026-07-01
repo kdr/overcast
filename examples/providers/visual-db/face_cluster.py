@@ -744,7 +744,10 @@ def op_list(args):
             "index": args.index,
             "summary": "%d %s in this face DB (%d named)" % (len(store["clusters"]), "person" if len(store["clusters"]) == 1 else "people", labeled),
             "clusters": views,
+            # count = the whole store; clusters is the --limit page and
+            # `returned` says how big the page is (same convention as show).
             "count": len(store["clusters"]),
+            "returned": len(views),
             "named": labeled,
         },
         "media": None,

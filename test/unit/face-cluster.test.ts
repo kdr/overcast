@@ -442,9 +442,12 @@ test("face_cluster.py list counts named people over the WHOLE store, not the --l
     run("ingest", join(cdir, "a.jpg"));
     run("ingest", join(cdir, "b.jpg"));   // distinct person → p_2
     run("label", "--cluster", "p_2", "--label", "Bee");
-    // page of 1 shows only unlabeled p_1, but the summary still counts Bee.
+    // page of 1 shows only unlabeled p_1, but the summary still counts Bee —
+    // and `returned` flags the partial page (count=whole, same as show).
     const list = JSON.parse(run("list", "--limit", "1").stdout.trim());
     assert.equal(list.payload.clusters.length, 1);
+    assert.equal(list.payload.returned, 1);
+    assert.equal(list.payload.count, 2);
     assert.match(list.payload.summary, /2 people .*\(1 named\)/);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
