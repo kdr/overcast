@@ -453,6 +453,25 @@ test("case setup 'index add' signal also embeds into basic-clip routes (#B5-3)",
   });
 });
 
+test("case status counts similar records as evidence (#B6-1)", async () => {
+  await withStub(async (dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({
+      verb: "similar",
+      format: "json",
+      payload: { op: "search", summary: "2 semantic matches", query: "a red car", matches: [], count: 2 },
+      media: { ref: "a red car" },
+      state: "ready",
+    }));
+    const [status] = await caseVerb.run(mk(dir, "status"));
+    const tldr = (status.payload as Record<string, unknown>).tldr as Record<string, unknown>;
+    const findings = (tldr.findings as string[]).join("\n");
+    assert.match(findings, /Evidence present:.*similar 1/, "similar counted in the evidence summary");
+    assert.match(findings, /similar: 2 semantic matches/, "similar record surfaces in recent evidence");
+  });
+});
+
 test("clip_match.py does not anchor the query record on a matched member's timestamp (#B3-2)", () => {
   const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
   // a member's `at` lives in payload.matches[]; media anchors the QUERY only.

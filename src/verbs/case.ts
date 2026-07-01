@@ -275,7 +275,7 @@ function caseStatusTldr(ctx: VerbContext, records: OvercastRecord[], counts: Rec
   const targets = listTargets(ctx.case);
   const targetText = targets.map((t) => t.value).slice(0, 4);
   const readyRecords = records.filter((r) => (r.state ?? "ready") === "ready");
-  const evidenceKinds = ["watch", "listen", "see", "face", "image", "crop", "scan", "capture", "note", "finding"]
+  const evidenceKinds = ["watch", "listen", "see", "face", "image", "similar", "crop", "scan", "capture", "note", "finding"]
     .filter((verb) => (counts[verb] ?? 0) > 0);
   const headline = [
     ctx.case.exists() ? `Case '${ctx.case.info().name}' is initialized` : "Case is not initialized",
@@ -289,7 +289,7 @@ function caseStatusTldr(ctx: VerbContext, records: OvercastRecord[], counts: Rec
   if (!findings.length) findings.push("No evidence records have been added yet.");
   const next: string[] = [];
   if (!targetText.length) next.push("Add a target with `case setup --target ... --yes`.");
-  if (!evidenceKinds.length) next.push("Add evidence with watch/listen/see/face/image/note records.");
+  if (!evidenceKinds.length) next.push("Add evidence with watch/listen/see/face/image/similar/note records.");
   if ((counts.brief ?? 0) === 0 && evidenceKinds.length) next.push("Run `brief --export report.html --theme csi` for an evidence timeline.");
   if (!next.length) next.push("Review the latest evidence cards and expand details for citations.");
   return { headline, findings, next };
@@ -298,7 +298,7 @@ function caseStatusTldr(ctx: VerbContext, records: OvercastRecord[], counts: Rec
 function recentEvidenceSummaries(records: OvercastRecord[]): string[] {
   const out: string[] = [];
   for (const rec of records.slice().reverse()) {
-    if (!["note", "finding", "face", "image", "watch", "see", "listen"].includes(rec.verb)) continue;
+    if (!["note", "finding", "face", "image", "similar", "watch", "see", "listen"].includes(rec.verb)) continue;
     const summary = recordSummary(rec);
     if (summary) out.push(`${rec.verb}: ${summary}`);
   }
@@ -314,7 +314,7 @@ function recordSummary(rec: OvercastRecord): string | undefined {
     const value = p[key];
     if (typeof value === "string" && value.trim()) return truncateLine(value);
   }
-  if (rec.verb === "face" || rec.verb === "image") {
+  if (rec.verb === "face" || rec.verb === "image" || rec.verb === "similar") {
     const op = typeof p.op === "string" ? p.op : rec.verb;
     const count = typeof p.count === "number" ? p.count : undefined;
     return `${op}${count != null ? ` found ${count}` : ""}${rec.media?.ref ? ` in ${rec.media.ref}` : ""}`;
