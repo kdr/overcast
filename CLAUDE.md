@@ -84,7 +84,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `face:deepface-local` locally: detect faces, `--match <jpeg|png>` to find/rank a
   person in a clip, or `--index` to search a face-analysis / deepface-local index),
   `image` (local OpenCV RANSAC image/video-frame matching against
-  `image-ransac` indexes), `enhance` (system ffmpeg ops or a bound model).
+  `image-ransac` indexes), `cluster` (persistent LOCAL face DB: ingest faces out
+  of media → assign-or-create people, `identify`, `recluster`, `list/show/label`,
+  and an HTML gallery `view`; deepface-only, over a `face-cluster` local index),
+  `enhance` (system ffmpeg ops or a bound model).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
@@ -95,7 +98,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
   typed remote tinycloud indexes: media-descriptions → `ask --index`, entities →
   `index entities`, face-analysis → `face --index`; local DBs:
-  `image-ransac` for `image match`, `deepface-local` for local face search).
+  `image-ransac` for `image match`, `deepface-local` for local face search,
+  `face-cluster` for the `cluster` face DB).
   Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `web:<q>`.
 - **State** — `target` / `source` manage standing scope; `note` records human

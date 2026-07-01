@@ -31,6 +31,9 @@ const DEFAULT_SIGNAL_BY_INDEX_TYPE: Record<string, string[]> = {
   "media-descriptions": ["watch", "index add"],
   "face-analysis": ["face", "index add"],
   entities: ["watch", "index add"],
+  // local face DB: `cluster add` feeds it (NOT `index add`, which would error) —
+  // setup stands the DB up alongside other indexes; clustering stays explicit.
+  "face-cluster": ["cluster add"],
 };
 const DEFAULT_LOCAL_MEMORY_SIGNALS = ["note", "watch", "listen", "see", "scan"];
 

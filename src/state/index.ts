@@ -20,7 +20,8 @@ export type IndexType =
   | "face-analysis"
   | "rich-transcripts"
   | "deepface-local"
-  | "image-ransac";
+  | "image-ransac"
+  | "face-cluster";
 
 export interface IndexMember {
   /** the video ref registered (path / URL) */
@@ -75,6 +76,11 @@ export function normalizeIndexType(input: string): IndexType | undefined {
     case "local-face":
     case "local-faces":
       return "deepface-local";
+    case "face-cluster":
+    case "face-clusters":
+    case "cluster":
+    case "clusters":
+      return "face-cluster";
     case "image-ransac":
     case "image":
     case "images":

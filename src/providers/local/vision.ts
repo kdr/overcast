@@ -7,6 +7,7 @@ import { shippedPath } from "../../pkg.js";
 import type { Case } from "../../case.js";
 
 export type LocalFaceOp = "detect" | "match" | "search";
+export type LocalClusterOp = "ingest" | "identify" | "recluster" | "list" | "show" | "label";
 
 function script(name: string): string | undefined {
   return shippedPath("examples", "providers", "visual-db", name);
@@ -120,6 +121,56 @@ export async function runLocalFace(
   if (opts.start) args.push("--start", opts.start);
   if (opts.end) args.push("--end", opts.end);
   const rec = await runExecProvider("face", localVisionPython(), input, {
+    env: { ...providerEnv(c.mediaDir), OVERCAST_INDEX_DIR: localIndexDir(c, opts.indexId) },
+    extraArgs: [path, ...args],
+    timeoutMs: 15 * 60_000,
+    signal: opts.signal,
+  });
+  rec.meta = { ...rec.meta, case: c.dir };
+  return rec;
+}
+
+/** Run the local face-CLUSTER provider (examples/providers/visual-db/face_cluster.py).
+ *  A face-cluster index is a persistent local face DB (embeddings + provenance +
+ *  cluster assignments) under `.overcast/index/<id>/`. ingest/identify embed new
+ *  media (deepface); recluster/list/show/label only read the store, so they run
+ *  without deepface installed. Non-media ops pass a placeholder `input` the
+ *  script ignores. */
+export async function runLocalCluster(
+  c: Case,
+  input: string,
+  opts: {
+    indexId: string;
+    op: LocalClusterOp;
+    cluster?: string;
+    label?: string;
+    sourceRecord?: string;
+    minSimilarity?: number;
+    limit?: number;
+    maxFrames?: number;
+    fps?: number;
+    start?: string;
+    end?: string;
+    signal?: AbortSignal;
+  },
+): Promise<OvercastRecord> {
+  const path = script("face_cluster.py");
+  if (!path) return missingScript("cluster", input, "face_cluster.py");
+  const args = [
+    "--op", opts.op,
+    "--index", opts.indexId,
+    "--index-dir", localIndexDir(c, opts.indexId),
+  ];
+  if (opts.cluster) args.push("--cluster", opts.cluster);
+  if (opts.label != null) args.push("--label", opts.label);
+  if (opts.sourceRecord) args.push("--source-record", opts.sourceRecord);
+  if (opts.minSimilarity != null) args.push("--min-similarity", String(opts.minSimilarity));
+  if (opts.limit != null) args.push("--limit", String(opts.limit));
+  if (opts.maxFrames != null) args.push("--max-frames", String(opts.maxFrames));
+  if (opts.fps != null) args.push("--fps", String(opts.fps));
+  if (opts.start) args.push("--start", opts.start);
+  if (opts.end) args.push("--end", opts.end);
+  const rec = await runExecProvider("cluster", localVisionPython(), input, {
     env: { ...providerEnv(c.mediaDir), OVERCAST_INDEX_DIR: localIndexDir(c, opts.indexId) },
     extraArgs: [path, ...args],
     timeoutMs: 15 * 60_000,

@@ -46,7 +46,7 @@ import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 const VALID_ACTIONS = ["create", "attach", "add", "list", "show", "delete", "remove", "entities"];
-const LOCAL_INDEX_TYPES = new Set(["deepface-local", "image-ransac"]);
+const LOCAL_INDEX_TYPES = new Set(["deepface-local", "image-ransac", "face-cluster"]);
 const LOCAL_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf)$/i;
 const LOCAL_IMAGE_MEDIA_VERBS = new Set(["capture", "image", "face"]);
 
@@ -181,7 +181,7 @@ function resolveTarget(c: Case, explicit?: string, type?: string): { id?: string
   // once a target resolves, so a sole unknown stub must still match `--type face`.
   if (type) cols = cols.filter((x) => x.type === type || x.type === "unknown");
   if (cols.length === 1) return { id: cols[0].id };
-  if (cols.length === 0) return { error: "no indexes in this case — create one with `overcast index create <name> --type <media|entities|face|deepface-local|image-ransac>`" };
+  if (cols.length === 0) return { error: "no indexes in this case — create one with `overcast index create <name> --type <media|entities|face|deepface-local|image-ransac|face-cluster>`" };
   return { error: `multiple indexes; specify one (ids: ${cols.map((x) => x.id).join(", ")})` };
 }
 
@@ -278,7 +278,7 @@ export const indexVerb: VerbSpec = {
     { name: "arg2", summary: "entities: the video/record-id (index entities <id> <video>)", required: false },
   ],
   flags: [
-    { name: "type", summary: "create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac", type: "string" },
+    { name: "type", summary: "create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster", type: "string" },
     { name: "local", summary: "create a local index instead of a tinycloud-backed index", type: "boolean" },
     { name: "description", summary: "create: human description", type: "string" },
     { name: "prompt", summary: "create entities: free-text extraction prompt", type: "string" },
@@ -319,7 +319,7 @@ export const indexVerb: VerbSpec = {
       const rawType = ctx.opts.type != null ? String(ctx.opts.type) : "media-descriptions";
       const type = normalizeIndexType(rawType);
       if (!type) {
-        return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac)`)];
+        return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster)`)];
       }
       const local = ctx.opts.local === true || LOCAL_INDEX_TYPES.has(type);
       if (ctx.opts.local === true && !LOCAL_INDEX_TYPES.has(type)) {
@@ -375,7 +375,7 @@ export const indexVerb: VerbSpec = {
       if (!requested) return [err("usage: index attach <remote-index-id-or-name> [--type <media|entities|face>]")];
       const typeHint = ctx.opts.type != null ? normalizeIndexType(String(ctx.opts.type)) : undefined;
       if (ctx.opts.type != null && !typeHint) {
-        return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac)`)];
+        return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster)`)];
       }
       if (typeHint && LOCAL_INDEX_TYPES.has(typeHint)) {
         return [err(`index attach: ${typeHint} is local-only; create it with \`index create <name> --type ${typeHint} --local\``)];
@@ -488,6 +488,9 @@ export const indexVerb: VerbSpec = {
       }
       const targetEntry = findIndex(c, id);
       if (targetEntry && isLocalIndex(targetEntry)) {
+        if (targetEntry.type === "face-cluster") {
+          return [err(`index add doesn't apply to a face-cluster index — it ingests media, not reference images. Use \`cluster add <video|image> --index ${id}\` (see \`overcast cluster --help\`).`)];
+        }
         if (ctx.opts["no-upload"] === true || ctx.opts["no-download"] === true) {
           return [err("index add: --no-upload/--no-download only apply to tinycloud indexes")];
         }
