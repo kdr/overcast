@@ -406,14 +406,24 @@ test("face_cluster.py ingest does assign-or-create and persists the store", () =
   try {
     const a = run("ingest", join(cdir, "aliceA.jpg"));
     assert.equal(a.status, 0, a.stderr);
-    assert.equal((JSON.parse(a.stdout.trim()).payload).new_clusters, 1);
+    const aFace = JSON.parse(a.stdout.trim()).payload;
+    assert.equal(aFace.new_clusters, 1);
+    // a NEW person has nothing it matched — similarity must be null, not a
+    // fake 100 that reads as a perfect match (#PR33 R15)
+    assert.equal(aFace.faces[0].similarity, null);
+    assert.equal(aFace.faces[0].is_new_cluster, true);
 
     const b = JSON.parse(run("ingest", join(cdir, "aliceB.jpg")).stdout.trim());
     assert.equal(b.payload.new_clusters, 0); // aliceB matches alice's person
     assert.equal(b.payload.faces[0].is_new_cluster, false);
+    assert.ok(b.payload.faces[0].similarity > 90, "matched face keeps its real score");
 
     const c = JSON.parse(run("ingest", join(cdir, "bob.jpg")).stdout.trim());
     assert.equal(c.payload.new_clusters, 1); // bob is a new person
+    assert.equal(c.payload.faces[0].similarity, null);
+    // and the nearest_* fields explain what he did NOT match, and how close
+    assert.ok(c.payload.faces[0].nearest_similarity < 55, "nearest existing person scored below threshold");
+    assert.match(String(c.payload.faces[0].nearest_cluster_id), /^p_/);
 
     const list = JSON.parse(run("list").stdout.trim());
     assert.equal(list.payload.count, 2); // two people total

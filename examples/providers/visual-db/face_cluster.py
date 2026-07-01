@@ -492,10 +492,8 @@ def op_ingest(args):
                     store["next_cluster"] += 1
                     cl = {"cluster_id": cid, "label": None, "medoid_face_id": fid, "size": 0, "centroid": [], "members": []}
                     clusters.append(cl)
-                    sim = 100.0
                 else:
                     cl = best
-                    sim = best_sim
                 crop = crop_face(frame_path, det["box"], crops_dir(args.index_dir) / (fid + ".jpg"))
                 row = {
                     "face_id": fid,
@@ -511,16 +509,24 @@ def op_ingest(args):
                 new_rows.append(row)
                 cl["members"].append(fid)
                 recompute(cl, by_id)
-                assigned.append({
+                # a matched face reports its score against the matched person; a
+                # NEW person has no match to score, so similarity is null and the
+                # nearest_* fields explain what it did NOT match (and how close),
+                # rather than a fake 100 that reads as a perfect match.
+                item = {
                     "face_id": fid,
                     "cluster_id": cl["cluster_id"],
                     "label": cl.get("label"),
-                    "similarity": round(sim, 2),
+                    "similarity": None if is_new else round(best_sim, 2),
                     "is_new_cluster": is_new,
                     "at": at,
                     "box": det["box"],
                     "crop": crop,
-                })
+                }
+                if is_new and best is not None:
+                    item["nearest_cluster_id"] = best["cluster_id"]
+                    item["nearest_similarity"] = round(best_sim, 2)
+                assigned.append(item)
 
     commit_store(args.index_dir, store, existing + new_rows)
 
