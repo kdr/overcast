@@ -521,10 +521,11 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
       const id = index.id;
       if (!id || !route.indexes.includes(id)) continue;
       const signals = new Set([...route.signals, ...(setup.default_signals[id] ?? index.default_signals)]);
-      // basic-clip embeds members via the `similar` verb (opt-in `similar add`
-      // signal); every other index type registers via `index add`.
+      // basic-clip embeds members via the `similar` verb. The generic `index add`
+      // signal opts in too — the standard "watch,index add" route must not leave
+      // a CLIP index silently empty just because it embeds through a different verb.
       if (index.type === "basic-clip") {
-        if (!signals.has("similar add") && !signals.has("similar")) continue;
+        if (!signals.has("similar add") && !signals.has("similar") && !signals.has("index add")) continue;
         const recs = await similarVerb.run({ ...ctx, input: "add", rest: [route.ref], opts: { index: id } });
         records.push(...recs);
         // label from the similar (embed) record only — shots sampling can return

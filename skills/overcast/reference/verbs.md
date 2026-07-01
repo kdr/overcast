@@ -161,9 +161,9 @@ Options:
   --min-similarity <number> match/search: similarity floor (0–100)
   --limit <number>       match/search: max results
   --offset <number>      match/search: result offset
-  --pooling <string>     video: pool frame embeddings by max | mean (default index config)
-  --granularity <string> video: video (one vector/video) | frame (one vector/frame → moments)
-  --sampling <string>    video: uniform windows | shots (tinycloud watch boundaries)
+  --pooling <string>     match: pool the query video's frames by max | mean (members follow the index config)
+  --granularity <string> video (one vector/video) | frame (moments) — set at `index create`; members always follow the index config
+  --sampling <string>    match query video: uniform windows | shots (tinycloud watch boundaries); members follow the index config
   --window <number>      video: seconds per uniform sampling window
   --fps <number>         video: frame sampling rate; --max-frames can cap it
   --max-frames <number>  video: frame sample count/cap

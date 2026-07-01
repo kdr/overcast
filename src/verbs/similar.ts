@@ -124,9 +124,9 @@ export const similarVerb: VerbSpec = {
     { name: "min-similarity", summary: "match/search: similarity floor (0–100)", type: "number" },
     { name: "limit", summary: "match/search: max results", type: "number" },
     { name: "offset", summary: "match/search: result offset", type: "number" },
-    { name: "pooling", summary: "video: pool frame embeddings by max | mean (default index config)", type: "string", choices: ["max", "mean"] },
-    { name: "granularity", summary: "video: video (one vector/video) | frame (one vector/frame → moments)", type: "string", choices: ["video", "frame"] },
-    { name: "sampling", summary: "video: uniform windows | shots (tinycloud watch boundaries)", type: "string", choices: ["uniform", "shots"] },
+    { name: "pooling", summary: "match: pool the query video's frames by max | mean (members follow the index config)", type: "string", choices: ["max", "mean"] },
+    { name: "granularity", summary: "video (one vector/video) | frame (moments) — set at `index create`; members always follow the index config", type: "string", choices: ["video", "frame"] },
+    { name: "sampling", summary: "match query video: uniform windows | shots (tinycloud watch boundaries); members follow the index config", type: "string", choices: ["uniform", "shots"] },
     { name: "window", summary: "video: seconds per uniform sampling window", type: "number" },
     { name: "fps", summary: "video: frame sampling rate; --max-frames can cap it", type: "number" },
     { name: "max-frames", summary: "video: frame sample count/cap", type: "number" },
@@ -154,14 +154,21 @@ export const similarVerb: VerbSpec = {
     if (numErr) return [err(`similar ${action}: ${numErr}`)];
 
     const indexDir = localIndexDir(ctx.case, idx.id!);
-    const cfg = effectiveConfig(indexDir, ctx.opts);
+    // member embeddings follow the PERSISTED index config — a per-add override
+    // would persist a config_hash queries (keyed on config.json) never reuse, so
+    // reject the flags outright rather than silently ignoring them.
+    if (action === "add") {
+      const flag = ["pooling", "granularity", "sampling", "window", "fps", "max-frames"].find((f) => ctx.opts[f] != null);
+      if (flag) return [err(`similar add: --${flag} doesn't apply per-add — member embedding follows the index config; set it at \`index create --type basic-clip\``)];
+    }
+    const cfg = action === "add" ? readClipConfig(indexDir) : effectiveConfig(indexDir, ctx.opts);
 
-    // ONE shared opts block for all three actions, carrying the FULL effective
-    // sampling config. `add` keys the member cache on it (config_hash); for
-    // match/search it shapes only the QUERY embedding — the Python side pins
-    // member-cache reads to the persisted index config (config.json) and never
-    // writes the cache at query time, so a one-off override can't re-key or
-    // mutate stored member vectors.
+    // ONE shared opts block for all three actions, carrying the FULL sampling
+    // config (the index config for `add`, effective config for queries). `add`
+    // keys the member cache on it (config_hash); for match/search it shapes only
+    // the QUERY embedding — the Python side pins member-cache reads to the
+    // persisted index config (config.json) and never writes the cache at query
+    // time, so a one-off override can't re-key or mutate stored member vectors.
     const baseOpts = {
       indexId: idx.id!,
       pooling: cfg.pooling,

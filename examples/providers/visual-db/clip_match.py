@@ -266,9 +266,10 @@ def build_member(ref, args, index_dir, frames_at=None, persist=True):
                 return vecs, meta.get("ats", [None] * len(vecs)), meta.get("granularity", args.granularity)
             # stale rebuild (query-time cache miss): reuse the shot markers the
             # member was ORIGINALLY embedded with, so a shots-sampled member is
-            # not silently re-embedded on a uniform grid. An explicit frames_at
-            # (a fresh `add`) always wins.
-            if frames_at is None:
+            # not silently re-embedded on a uniform grid. Only while the config
+            # still says shots — after a switch to uniform the grid must win —
+            # and an explicit frames_at (a fresh `add`) always wins.
+            if frames_at is None and args.sampling == "shots":
                 prior = meta.get("frames_at")
                 if isinstance(prior, list) and prior:
                     frames_at = [float(x) for x in prior]
@@ -301,7 +302,10 @@ def op_add(args):
             frames_at = [float(x) for x in args.frames_at.split(",") if x.strip() != ""]
         except ValueError:
             frames_at = None
-    built = build_member(ref, args, args.index_dir, frames_at=frames_at)
+    # member embeddings are ALWAYS keyed on the persisted index config — add and
+    # query must agree, or add would persist a config_hash queries never reuse.
+    member_args = index_config_args(args)
+    built = build_member(ref, member_args, args.index_dir, frames_at=frames_at)
     if not built:
         fail("could not embed media (no readable frames): %s" % ref, ref, "add")
     vecs, ats, granularity = built
@@ -311,7 +315,7 @@ def op_add(args):
         "payload": {
             "op": "add", "index": args.index, "file": ref,
             "granularity": granularity, "vectors": int(vecs.shape[0]),
-            "sampling": {"mode": args.sampling, "window": args.window, "max_frames": args.max_frames, "fps": args.fps, "frames_at": frames_at},
+            "sampling": {"mode": member_args.sampling, "window": member_args.window, "max_frames": member_args.max_frames, "fps": member_args.fps, "frames_at": frames_at},
             "summary": "embedded %s into %s (%d vector%s)" % (Path(ref).name, args.index, vecs.shape[0], "" if vecs.shape[0] == 1 else "s"),
         },
         "media": {"ref": ref},

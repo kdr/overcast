@@ -400,6 +400,59 @@ test("clip_match.py queries never re-key or persist member embeddings (#B4-1)", 
   assert.match(src, /if persist:\n\s+npy\.parent\.mkdir/);
 });
 
+test("similar add rejects per-add config overrides (#B5-1)", async () => {
+  await withStub(async (dir) => {
+    const img = join(dir, "photo.jpg");
+    writeFileSync(img, "x");
+    const [created] = await indexVerb.run(mk(dir, "create", ["scenes"], { type: "basic-clip", local: true }));
+    const id = String((created.payload as Record<string, unknown>).index);
+    const [rec] = await similarVerb.run(mk(dir, "add", [img], { index: id, granularity: "frame" }));
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /doesn't apply per-add.*index create/);
+    assert.equal(findIndex(openCase(dir), id)?.members.length, 0);
+  });
+});
+
+test("clip_match.py add embeds with the persisted index config, like queries (#B5-1)", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  // add and query must key the member cache identically, or add persists a
+  // config_hash searches never reuse.
+  assert.match(src, /build_member\(ref, member_args, args\.index_dir, frames_at=frames_at\)/);
+});
+
+test("clip_match.py stops reusing shot markers once the config says uniform (#B5-2)", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  assert.match(src, /frames_at is None and args\.sampling == "shots"/);
+});
+
+test("case setup 'index add' signal also embeds into basic-clip routes (#B5-3)", async () => {
+  await withStub(async (dir) => {
+    const video = join(dir, "clip.mp4");
+    writeFileSync(video, "x");
+    const c = openCase(dir);
+    c.ensure();
+    // a watch record pre-exists so no watch provider is needed for the route
+    const recs = await caseVerb.run({
+      input: "setup",
+      rest: [],
+      opts: { yes: true, index: "scenes:basic-clip", video, signals: "index add" },
+      case: c,
+      profile: defaultProfile(),
+      home: dir,
+      profileName: "default",
+    });
+    const setupRec = recs.find((r) => {
+      const p = r.payload as Record<string, unknown> | undefined;
+      return p && typeof p === "object" && Array.isArray(p.applied_operations);
+    });
+    assert.ok(setupRec, "setup record with applied_operations");
+    const ops = (setupRec!.payload as Record<string, unknown>).applied_operations as string[];
+    assert.ok(ops.some((o) => o.startsWith("indexing started") && o.includes(video)), `expected an embed op in ${JSON.stringify(ops)}`);
+    const clipIndex = listIndexes(openCase(dir)).find((i) => i.type === "basic-clip");
+    assert.equal(clipIndex?.members.length, 1, "the routed video was embedded and registered");
+  });
+});
+
 test("clip_match.py does not anchor the query record on a matched member's timestamp (#B3-2)", () => {
   const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
   // a member's `at` lives in payload.matches[]; media anchors the QUERY only.
