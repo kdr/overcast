@@ -231,6 +231,7 @@ export const clusterVerb: VerbSpec = {
     // off-page named people from the stats.
     const people = typeof payload.count === "number" ? payload.count : clusters.length;
     const named = typeof payload.named === "number" ? payload.named : undefined;
+    const storedFaces = typeof payload.stored_faces === "number" ? payload.stored_faces : undefined;
     const model = (listRec.meta as Record<string, unknown> | undefined)?.model;
     const html = renderClusterGallery({
       title: `overcast — face clusters`,
@@ -238,6 +239,7 @@ export const clusterVerb: VerbSpec = {
       clusters,
       total: people,
       named,
+      storedFaces,
       model: typeof model === "string" ? model : null,
     });
     const outPath = ctx.opts.out ? String(ctx.opts.out) : join(c.mediaDir, `cluster-${indexId}.html`);

@@ -20,6 +20,7 @@ import { indexVerb } from "../../src/verbs/index.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
 import { isMemoryRecord, makeRecord } from "../../src/record.ts";
 import { indexableFields } from "../../src/providers/memory/fields.ts";
+import { renderClusterGallery } from "../../src/report/html.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -334,6 +335,14 @@ test("cluster rejects an --index that isn't a local face-cluster index", async (
   }
 });
 
+test("gallery empty state points at recluster when stored faces exist (#PR33 R14)", () => {
+  const orphan = renderClusterGallery({ title: "t", clusters: [], total: 0, storedFaces: 3 });
+  assert.match(orphan, /cluster recluster/);
+  assert.doesNotMatch(orphan, /cluster add/);
+  const fresh = renderClusterGallery({ title: "t", clusters: [], total: 0, storedFaces: 0 });
+  assert.match(fresh, /cluster add/);
+});
+
 // ---- case-memory policy (#PR33 R1) ------------------------------------------
 
 test("cluster memory policy: ingest/identify are evidence; DB reads/maintenance are not", () => {
@@ -628,6 +637,11 @@ test("face_cluster.py guards the detector and reconciles ghost clusters (#PR33 R
     assert.equal(orphaned.state, "error");
     assert.match(String(orphaned.error), /cluster recluster/);
     assert.doesNotMatch(String(orphaned.error), /cluster add/);
+    // list surfaces the same actionable state (not a generic empty-DB line) and
+    // reports the stored rows so `view` can hint recluster too (#R14)
+    const orphanList = JSON.parse(run(base, "list").stdout.trim());
+    assert.match(String(orphanList.payload.summary), /cluster recluster/);
+    assert.ok(orphanList.payload.stored_faces >= 1, "stored_faces reported");
 
     // an intact-membership cluster with a blanked centroid must be recomputed
     // by reconcile, not scored at 0% forever (#R9). Rebuild a clean store first.

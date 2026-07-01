@@ -748,19 +748,27 @@ def op_list(args):
     # count named people over the WHOLE store, not the --limit page, so the
     # summary's "(N named)" agrees with its total-people count.
     labeled = sum(1 for cl in store["clusters"] if cl.get("label"))
+    # the orphan state (face rows but zero surviving people — partial commit or
+    # stale clusters) is actionable: recluster rebuilds the groups; say so here
+    # like identify does, instead of a generic empty-DB line.
+    if not store["clusters"] and face_rows:
+        summary = "%d stored face%s but no people; run `cluster recluster` to rebuild the groups" % (len(face_rows), "" if len(face_rows) == 1 else "s")
+    else:
+        summary = "%d %s in this face DB (%d named)" % (len(store["clusters"]), "person" if len(store["clusters"]) == 1 else "people", labeled)
     emit({
         "verb": "cluster",
         "format": "json",
         "payload": {
             "op": "list",
             "index": args.index,
-            "summary": "%d %s in this face DB (%d named)" % (len(store["clusters"]), "person" if len(store["clusters"]) == 1 else "people", labeled),
+            "summary": summary,
             "clusters": views,
             # count = the whole store; clusters is the --limit page and
             # `returned` says how big the page is (same convention as show).
             "count": len(store["clusters"]),
             "returned": len(views),
             "named": labeled,
+            "stored_faces": len(face_rows),
         },
         "media": None,
         "meta": {"provider": "local:face-cluster", "model": store.get("model")},

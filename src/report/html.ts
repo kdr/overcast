@@ -135,6 +135,9 @@ export interface ClusterGalleryReport {
    *  the stats so the gallery never understates an off-page person. */
   total?: number;
   named?: number;
+  /** face rows in the store — with zero people this flips the empty-state hint
+   *  to `cluster recluster` (the op that rebuilds groups from stored rows). */
+  storedFaces?: number;
   model?: string | null;
 }
 
@@ -155,7 +158,9 @@ export function renderClusterGallery(report: ClusterGalleryReport): string {
       <div><span class="label">MODEL</span><strong>${escapeHtml(report.model ?? "—")}</strong></div>
     </section>
     <section class="context" data-cluster-gallery="true">
-      ${cards || `<article class="context-card"><span class="label">EMPTY</span><p>No people yet — ingest media with <code>cluster add</code>.</p></article>`}${truncated}
+      ${cards || ((report.storedFaces ?? 0) > 0
+        ? `<article class="context-card"><span class="label">EMPTY</span><p>${report.storedFaces} stored face${report.storedFaces === 1 ? "" : "s"} but no people — run <code>cluster recluster</code> to rebuild the groups.</p></article>`
+        : `<article class="context-card"><span class="label">EMPTY</span><p>No people yet — ingest media with <code>cluster add</code>.</p></article>`)}${truncated}
     </section>
   `);
 }
