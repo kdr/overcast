@@ -20,6 +20,9 @@ export interface WallAnchor {
   start: number;
   end: number;
   source: "finding" | "face" | "record" | "start";
+  /** true only when start/end IS the evidence's own [start,end] span — synthetic
+   *  windows around a point anchor must never be presented as a span */
+  span?: boolean;
 }
 
 export interface WallTile {
@@ -164,9 +167,9 @@ function buildTile(ref: string, group: OvercastRecord[], join: TileJoin): WallTi
   const ready = group.filter(isReady);
   const watch = ready.find((r) => r.verb === "watch");
   const faceRecs = ready.filter((r) => r.verb === "face" && payloadOf(r).op !== "search");
-  const stem = frameStem(ref);
+  const frameRe = frameFileRe(ref);
   const sees = join.seeRecords.filter(
-    (r) => r.media!.ref === ref || basename(r.media!.ref).startsWith(stem),
+    (r) => r.media!.ref === ref || frameRe.test(basename(r.media!.ref)),
   );
   const tileFindings = join.openRootFindings.filter((r) => r.media?.ref === ref);
 
@@ -242,7 +245,7 @@ function pickAnchor(
   faceRecs: OvercastRecord[],
   duration: number | null,
 ): WallAnchor {
-  for (const f of sortByTime(findings).reverse()) {
+  for (const f of newestFirst(findings)) {
     if (f.media?.at != null) return anchorWindow(f.media.at, "finding", duration);
   }
   let best: { at: number | [number, number]; sim: number } | undefined;
@@ -259,7 +262,9 @@ function pickAnchor(
     }
   }
   if (best) return anchorWindow(best.at, "face", duration);
-  for (const r of sortByTime(group)) {
+  // newest anchored sense wins, matching the findings rule and tile ranking —
+  // an old listen anchor must not shadow a fresher watch anchor on the same ref
+  for (const r of newestFirst(group)) {
     if (isRegisterableMediaRecord(r) && r.media?.at != null) {
       return anchorWindow(r.media.at, "record", duration);
     }
@@ -274,7 +279,9 @@ function anchorWindow(
 ): WallAnchor {
   if (isSpan(raw)) {
     const [s, e] = raw;
-    if (e > s && e - s <= 20) return clampWindow({ at: s, start: s, end: e, source }, duration);
+    if (e > s && e - s <= 20) {
+      return clampWindow({ at: s, start: s, end: e, source, span: true }, duration);
+    }
     return clampWindow({ at: s, start: Math.max(0, s - 2), end: s + 6, source }, duration);
   }
   const at = Math.max(0, raw);
@@ -285,10 +292,12 @@ function clampWindow(a: WallAnchor, duration: number | null): WallAnchor {
   if (duration != null && duration > 0) {
     a.end = Math.min(a.end, duration);
     if (a.end <= a.start) {
-      // anchor beyond the clip — fall back to looping the head
+      // anchor beyond the clip — fall back to looping the head (no longer the
+      // evidence's own span, so drop the span marker)
       a.start = 0;
       a.end = Math.min(8, duration);
       a.at = Math.min(a.at, duration);
+      delete a.span;
     }
   }
   return a;
@@ -415,10 +424,31 @@ function sortByTime(records: OvercastRecord[]): OvercastRecord[] {
     .map((x) => x.r);
 }
 
-function frameStem(ref: string): string {
+/** Dated records newest-first; undated go LAST (recency can't be proven), so an
+ *  undated record never shadows the newest dated one. NOT sortByTime().reverse()
+ *  — reversing would surface the undated (Infinity-keyed) records first. */
+function newestFirst(records: OvercastRecord[]): OvercastRecord[] {
+  return records
+    .map((r, i) => {
+      const parsed = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+      return { r, i, t: Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed };
+    })
+    .sort((a, b) => b.t - a.t || a.i - b.i)
+    .map((x) => x.r);
+}
+
+/** Matches exactly the stills extractFrame derives from this video —
+ *  `<stem>_t<seconds>.jpg` — not a loose prefix (a_tool_t12.jpg must never
+ *  light a.mp4's S badge just because "a_tool_t" starts with "a_t"). */
+function frameFileRe(ref: string): RegExp {
   const b = basename(ref.replace(/[?#].*$/, ""));
   const dot = b.lastIndexOf(".");
-  return `${dot > 0 ? b.slice(0, dot) : b}_t`;
+  const stem = dot > 0 ? b.slice(0, dot) : b;
+  return new RegExp(`^${escapeRegExp(stem)}_t\\d+\\.jpg$`, "i");
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function displayName(ref: string): string {
@@ -506,7 +536,7 @@ function renderTile(tile: WallTile, index: number): string {
     <div class="kv">anchor ${tile.anchor.source} @ ${fmtTime(tile.anchor.at)} · loop ${fmtTime(tile.anchor.start)}–${fmtTime(tile.anchor.end)}${tile.duration ? ` · dur ${fmtTime(tile.duration)}` : ""}</div>
     ${tile.sourceType ? `<div class="kv">source ${escapeHtml(tile.sourceType)}</div>` : ""}
     <div class="kv">records ${recIds}${tile.recordIds.length > 8 ? " …" : ""}</div>
-    <code>overcast view ${escapeHtml(shellQuote(tile.ref))} --at ${Math.round(tile.anchor.at)}</code>
+    <code>overcast view ${escapeHtml(shellQuote(tile.ref))} --at ${tile.anchor.span ? `${tile.anchor.start}-${tile.anchor.end}` : Math.round(tile.anchor.at)}</code>
   </div>
 </figure>`;
 }

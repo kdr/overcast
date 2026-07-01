@@ -70,9 +70,33 @@ test("anchor precedence: finding > best face moment > record anchor > start", ()
   assert.deepEqual(bare.anchor, { at: 0, start: 0, end: 6, source: "start" });
 });
 
+test("record fallback prefers the NEWEST anchored sense; undated never shadows dated", () => {
+  // an older listen anchor must not shadow the fresher watch anchor (Bugbot #37)
+  const oldListen = makeRecord({ verb: "listen", payload: {}, media: { ref: A, at: 2 }, meta: { time: T(90) } });
+  const newWatch = watchRec(A, { at: 7, time: T(20) });
+  const newest = buildWallModel([oldListen, newWatch], opts()).tiles[0];
+  assert.equal(newest.anchor.at, 7);
+
+  // undated records sort LAST — the newest dated anchor still wins
+  const undated = makeRecord({ verb: "capture", payload: { capture_id: "cap_u" }, media: { ref: A, at: 1 }, meta: { time: undefined } });
+  const datedWins = buildWallModel([undated, newWatch], opts()).tiles[0];
+  assert.equal(datedWins.anchor.at, 7);
+
+  // same rule for findings: an undated finding never beats the newest dated one
+  const datedFinding = findingRec(A, 44, T(10));
+  const undatedFinding = makeRecord({
+    verb: "finding",
+    payload: { text: "undated", target: "", source_record: "manual", source_verb: "manual", trigger: "human", status: "open" },
+    media: { ref: A, at: 20 },
+    meta: { time: undefined },
+  });
+  const f = buildWallModel([newWatch, undatedFinding, datedFinding], opts()).tiles[0];
+  assert.equal(f.anchor.at, 44);
+});
+
 test("span anchors: short spans loop verbatim, long spans window, clamp falls back to the head", () => {
   const short = buildWallModel([watchRec(A, { at: [5, 9] })], opts()).tiles[0];
-  assert.deepEqual(short.anchor, { at: 5, start: 5, end: 9, source: "record" });
+  assert.deepEqual(short.anchor, { at: 5, start: 5, end: 9, source: "record", span: true });
 
   const long = buildWallModel([watchRec(A, { at: [5, 60] })], opts()).tiles[0];
   assert.deepEqual(long.anchor, { at: 5, start: 3, end: 11, source: "record" });
@@ -325,6 +349,26 @@ test("browser-hostile container gets a poster still; garbage media degrades to s
   } finally {
     rmSync(mkvDir, { recursive: true, force: true });
   }
+});
+
+test("see coverage joins only exact extractFrame stills, not prefix cousins", () => {
+  const seeFor = (frame: string) =>
+    makeRecord({ verb: "see", payload: { caption: "x" }, media: { ref: `/case/.overcast/media/${frame}` }, meta: { time: T(5) } });
+  // a_tool_t12.jpg must never light a.mp4's S badge ("a_tool_t" starts with "a_t")
+  const cousin = buildWallModel([watchRec(A), seeFor("a_tool_t12.jpg")], opts()).tiles[0];
+  assert.equal(cousin.coverage.see, false);
+  const exact = buildWallModel([watchRec(A), seeFor("a_t12.jpg")], opts()).tiles[0];
+  assert.equal(exact.coverage.see, true);
+  // and only the real .jpg frame shape counts
+  const noise = buildWallModel([watchRec(A), seeFor("a_t12_extra.png")], opts()).tiles[0];
+  assert.equal(noise.coverage.see, false);
+});
+
+test("intel card command reopens verbatim spans (--at 4-9), points stay points", () => {
+  const spanHtml = renderWallHtml(buildWallModel([watchRec(A), findingRec(A, [4, 9])], opts()), "csi");
+  assert.match(spanHtml, /--at 4-9</);
+  const pointHtml = renderWallHtml(buildWallModel([watchRec(A), findingRec(A, 44)], opts()), "csi");
+  assert.match(pointHtml, /--at 44</);
 });
 
 test("wall records are operational — excluded from case memory and briefs", () => {
