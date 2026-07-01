@@ -144,18 +144,32 @@ def commit_store(index_dir, store, faces):
     save_faces(index_dir, faces)
 
 
-def store_lock(index_dir):
-    # Cross-process advisory lock serializing mutations (ingest/recluster/label):
-    # without it, two concurrent ingests both read next_face=N and mint duplicate
-    # ids. flock is POSIX; where unavailable the lock degrades to a no-op.
+def store_lock(index_dir, exclusive=True):
+    # Cross-process advisory lock. Mutators (ingest/recluster/label) hold it
+    # EXCLUSIVE for their whole read-modify-write — without that, two concurrent
+    # ingests both read next_face=N and mint duplicate ids. Readers take it
+    # SHARED just long enough to snapshot both files (see load_store). flock is
+    # POSIX; where unavailable the lock degrades to a no-op.
     Path(index_dir).mkdir(parents=True, exist_ok=True)
     fh = open(Path(index_dir) / ".lock", "w")
     try:
         import fcntl
-        fcntl.flock(fh, fcntl.LOCK_EX)
+        fcntl.flock(fh, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
     except ImportError:
         pass
     return fh
+
+
+def load_store(index_dir):
+    # Snapshot BOTH store files under a shared lock, so a reader can't pair
+    # clusters.json from after a commit with faces.jsonl from before it
+    # (commit_store replaces them one after the other under the exclusive
+    # lock). Released immediately — readers never block writers for long.
+    fh = store_lock(index_dir, exclusive=False)
+    try:
+        return load_clusters(index_dir), load_faces(index_dir)
+    finally:
+        fh.close()
 
 
 def guard_model(store, faces, inp, op):
@@ -545,8 +559,7 @@ def op_identify(args):
     inp = resolve_media(args.input, "identify")
     threshold = args.min_similarity
     deepface = load_deepface(inp, "identify")
-    store = load_clusters(args.index_dir)
-    face_rows = load_faces(args.index_dir)
+    store, face_rows = load_store(args.index_dir)
     faces = {f["face_id"]: f for f in face_rows}
     # the probe is embedded with FACE_MODEL/FACE_DETECTOR — comparing it against
     # a store built with a different config would be silently meaningless.
@@ -727,8 +740,7 @@ def cluster_view(cl, faces_by_id, sample=6):
 
 
 def op_list(args):
-    store = load_clusters(args.index_dir)
-    face_rows = load_faces(args.index_dir)
+    store, face_rows = load_store(args.index_dir)
     faces_by_id = {f["face_id"]: f for f in face_rows}
     reconcile(store, face_rows)
     clusters = sorted(store["clusters"], key=lambda c: c.get("size", 0), reverse=True)[: max(1, args.limit)]
@@ -759,8 +771,7 @@ def op_list(args):
 def op_show(args):
     if not args.cluster:
         fail("cluster show needs --cluster <person-id>", "", "show")
-    store = load_clusters(args.index_dir)
-    face_rows = load_faces(args.index_dir)
+    store, face_rows = load_store(args.index_dir)
     faces_by_id = {f["face_id"]: f for f in face_rows}
     reconcile(store, face_rows)
     cl = next((c for c in store["clusters"] if c["cluster_id"] == args.cluster), None)
