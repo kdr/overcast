@@ -489,10 +489,13 @@ export const indexVerb: VerbSpec = {
         addIndex(c, { id, type: typeHint, name: existing.name, description: existing.description, backend: hintedLocal ? "local" : existing.backend });
       }
       const targetEntry = findIndex(c, id);
+      // face-cluster is guarded by TYPE, above the backend dispatch — a mirror
+      // entry missing its "local" stamp must still hit this error, not fall
+      // through to the tinycloud add path (the type is local-only regardless).
+      if (targetEntry?.type === "face-cluster") {
+        return [err(`index add doesn't apply to a face-cluster index — it ingests media, not reference images. Use \`cluster add <video|image> --index ${id}\` (see \`overcast cluster --help\`).`)];
+      }
       if (targetEntry && isLocalIndex(targetEntry)) {
-        if (targetEntry.type === "face-cluster") {
-          return [err(`index add doesn't apply to a face-cluster index — it ingests media, not reference images. Use \`cluster add <video|image> --index ${id}\` (see \`overcast cluster --help\`).`)];
-        }
         if (ctx.opts["no-upload"] === true || ctx.opts["no-download"] === true) {
           return [err("index add: --no-upload/--no-download only apply to tinycloud indexes")];
         }

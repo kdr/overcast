@@ -99,6 +99,12 @@ test("index add to a face-cluster index errors, pointing at `cluster add`", asyn
     const [rec] = await indexVerb.run({ input: "add", rest: [img], opts: { to: "local_face_cluster_x" }, case: openCase(cdir), profile: defaultProfile() });
     assert.equal(rec.state, "error");
     assert.match(rec.error ?? "", /cluster add/);
+    // the guard is by TYPE: an entry missing its "local" backend stamp must
+    // still be rejected, not fall through to the tinycloud add path (#PR33).
+    addIndex(c, { id: "fc_unstamped", name: "unstamped", type: "face-cluster" });
+    const [rec2] = await indexVerb.run({ input: "add", rest: [img], opts: { to: "fc_unstamped" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec2.state, "error");
+    assert.match(rec2.error ?? "", /cluster add/);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
@@ -123,6 +129,10 @@ test("case setup provisions a local face-cluster index alongside another index",
     const idxs = (setup.indexes ?? []) as Array<Record<string, unknown>>;
     const faceIdx = idxs.find((i) => i.type === "face-cluster");
     assert.deepEqual(faceIdx?.default_signals, ["cluster add"]);
+    // standing up a face DB must make its evidence SEARCHABLE: memory signals
+    // (which narrow local-grep/qmd) gain "cluster" automatically (#PR33).
+    const memSignals = ((setup.memory ?? {}) as Record<string, unknown>).signals as string[];
+    assert.ok(memSignals.includes("cluster"), `memory signals must include cluster (got ${memSignals})`);
 
     // an EXPLICIT-ID spec (id:type:name) must stamp backend local for local-only
     // types too — a backend-less face-cluster mirror entry would be rejected by

@@ -613,6 +613,13 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     const signalKey = setupIndexRef(current);
     if (previousSignalKey && previousSignalKey !== signalKey) delete setup.default_signals[previousSignalKey];
     setup.default_signals[signalKey] = current.default_signals;
+    // standing up a face-cluster DB makes its ingest/identify records the case's
+    // face evidence — make sure the memory signal list (which narrows what
+    // local-grep/qmd search) doesn't silently exclude them.
+    if (String(current.type) === "face-cluster" && setup.memory && !setup.memory.signals.includes("cluster")) {
+      setup.memory.signals = [...setup.memory.signals, "cluster"];
+      operations.push("memory signals: +cluster (face-cluster evidence searchable)");
+    }
     indexRoutesChanged = true;
     operations.push(`${current.mode === "attach" ? "index attach" : "index create planned"}: ${signalKey}`);
     // local-only types MUST carry backend "local" in the mirror — without it the
