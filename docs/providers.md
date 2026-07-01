@@ -252,11 +252,16 @@ overcast face --match ./person.jpg --index localfaces --json
 `basic-clip` is a local OpenAI CLIP (open_clip) DB for **cross-modal semantic
 similarity** — find images/video moments that resemble a photo (image→image) or a
 phrase (text→image). Members are embedded and cached on `add` (`.npy` under the
-index dir); queries only embed the query and do a cosine top-K (scores are
-cosine×100, 0–100). Videos are frame-sampled and pooled (`max` default, or `mean`),
-or stored per-frame (`--granularity frame`) so queries return moments with `at`.
-Sampling is `uniform` windows or, with `--sampling shots`, tinycloud `watch` shot
-boundaries. Query with the `similar` verb (`add` / `match` / `search`):
+index dir); queries only embed the query, do a cosine top-K (scores are
+cosine×100, 0–100), and **never write the cache**. Videos are frame-sampled and
+pooled (`max` default, or `mean`), or stored per-frame (`--granularity frame`) so
+queries return moments with `at`. Sampling is `uniform` windows or, with
+`--sampling shots`, tinycloud `watch` shot boundaries (reused from existing watch
+evidence when present). The pooling/granularity/sampling config is a property of
+the **index**, set at `index create` and persisted to its `config.json` — member
+embedding always follows it (`similar add` rejects per-add overrides), while
+sampling flags on `similar match` shape only the query video's embedding. Query
+with the `similar` verb (`add` / `match` / `search`):
 
 ```bash
 overcast index create scenes --type basic-clip --local --granularity frame --sampling shots --json

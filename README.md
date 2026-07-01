@@ -162,7 +162,14 @@ overcast index create localfaces --type deepface-local --local --json
 overcast index add ./suspect.jpg --to localfaces --json
 overcast face ./clip.mp4 --match ./suspect.jpg --index localfaces --fps 0.5 --max-frames 32 --json
 
-# 9) launch the interactive agent (pi TUI) in the current case
+# 9) semantic (CLIP) search: find images/video moments by text or by example image
+scripts/visual-db-uv.sh --clip
+overcast index create scenes --type basic-clip --local --granularity frame --json
+overcast similar add ./clip.mp4 --index scenes --json          # embed + cache (videos frame-sampled)
+overcast similar search "a red car at night" --index scenes --json   # text → image/video moments
+overcast similar match ./reference.jpg --index scenes --json         # image → image/video moments
+
+# 10) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
 
@@ -205,6 +212,7 @@ surface + env vars.)
 | `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
+| `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) index — `search` by text, `match` by image, video moments included |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
 | `crop` | materialize face/object detections as cropped image records with provenance |
@@ -215,7 +223,7 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac` and `deepface-local` DBs |
+| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, and `basic-clip` DBs |
 | `target` / `source` / `note` | manage the standing scope, where to look, and human-authored observations |
 | `finding` | create and review findings (`create` / `list` / `accept` / `dismiss`) — manual + setup-automated |
 | `prebrief` | stand up a case (name + target + source) in one shot |
@@ -330,11 +338,11 @@ credential-blocked, or failed. Hits with no fetchable ref/url emit explicit
 errors in both commands. `monitor` marks hard failures seen after surfacing the
 error, while pending/credential gaps remain retryable.
 
-Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`, and
-`deepface-local`.
-Single choices use `--verb <watch|listen|see|face|enhance> --choice <id>`, such
-as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
-`face:deepface-local`, or `enhance:ffmpeg`.
+Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`,
+`deepface-local`, and `basic-clip`.
+Single choices use `--verb <watch|listen|see|face|similar|enhance> --choice <id>`,
+such as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
+`face:deepface-local`, `similar:basic-clip`, or `enhance:ffmpeg`.
 
 The local image DB is selected by local index type. Local face detection/matching
 can be selected as a profile provider with `face:deepface-local`, while the searchable
@@ -366,7 +374,7 @@ for cadence, and add `--max-frames` when you want a hard cap.
 
 | class | verbs | shipped providers |
 |---|---|---|
-| **sense** | watch / listen / see / face / enhance | Cloudglue (default), the brain LLM (default `see`), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
+| **sense** | watch / listen / see / face / similar / enhance | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
 | **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
