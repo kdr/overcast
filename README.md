@@ -202,7 +202,7 @@ surface + env vars.)
 |---|---|
 | `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue) |
 | `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
-| `see` | caption / OCR / detect on an image or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM) |
+| `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |

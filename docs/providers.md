@@ -144,6 +144,12 @@ OVERCAST_SEE_BRAIN=off overcast see shot.jpg # one-off: skip the brain default (
 `--detect` still needs a detection provider (the brain path produces a description,
 not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 examples/providers/detect/detect.py"`.
 
+`see` also takes an **http(s) image URL** directly: the image is downloaded into
+the case media dir first (evidence, like `capture` — the record's `media.ref` is
+the local artifact, `meta.source_url` the origin), so every backend reads a local
+file. A URL that resolves to video/audio is redirected to `watch`/`listen`, and a
+non-image response (login wall, expired signed URL returning HTML) errors clearly.
+
 ## Hugging Face providers (`see` fallback + model-based `enhance`)
 
 overcast ships Hugging Face Inference API providers so the `see` captioner and
