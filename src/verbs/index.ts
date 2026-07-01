@@ -323,7 +323,9 @@ export const indexVerb: VerbSpec = {
       }
       const local = ctx.opts.local === true || LOCAL_INDEX_TYPES.has(type);
       if (ctx.opts.local === true && !LOCAL_INDEX_TYPES.has(type)) {
-        return [err(`--local only supports deepface-local or image-ransac indexes (got ${type})`)];
+        // derived from LOCAL_INDEX_TYPES so the message can't drift when a new
+        // local type lands (it already did once: face-cluster).
+        return [err(`--local only supports ${[...LOCAL_INDEX_TYPES].join(" | ")} indexes (got ${type})`)];
       }
       // reject a provided-but-blank text/path flag (a typo) — sweep all of create's
       // value flags together, so a blank `--schema=`/`--prompt=`/`--description=`

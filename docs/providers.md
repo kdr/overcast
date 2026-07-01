@@ -241,9 +241,11 @@ overcast cluster view --index people --json                                     
 
 Similarity is on the tinycloud 0–100 percent scale. With Facenet512, same-person
 crops score ~65–90 and different people ~≤35, so the default `--min-similarity 55`
-separates cleanly; noisy/low-res inputs may want a higher floor. `cluster` records
-stay operational (out of `ask`/`brief` evidence); the embeddings, crops, and
-assignments live in the typed local index, not case memory.
+separates cleanly; noisy/low-res inputs may want a higher floor. In case memory,
+`cluster add`/`identify` records are evidence — indexed as compact summaries only
+("ingested 11 faces → 5 new people", "closest person: …") — while DB reads and
+maintenance (`list`/`show`/`view`/`label`/`recluster`) stay operational; the
+embeddings, crops, and assignments live in the typed local index, not case memory.
 
 Both emit ordinary Overcast records (`image.match` or `face.analysis`) and write
 local artifacts under the case `.overcast/` store. Local-grep/qmd memory indexes

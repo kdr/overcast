@@ -494,7 +494,9 @@ def op_identify(args):
     else:
         confident = [m for m in matches if m["confident"]]
         if confident:
-            c0 = confident[0]["candidates"][0]
+            # headline the STRONGEST confident match across all probe faces, not
+            # whichever face happened to be detected first.
+            c0 = max((m["candidates"][0] for m in confident), key=lambda c: c["similarity"])
             who = c0["label"] or c0["cluster_id"]
             summary = "closest person: %s (%.1f%% similar)" % (who, c0["similarity"])
         else:
@@ -632,7 +634,9 @@ def op_list(args):
     faces_by_id = {f["face_id"]: f for f in load_faces(args.index_dir)}
     clusters = sorted(store["clusters"], key=lambda c: c.get("size", 0), reverse=True)[: max(1, args.limit)]
     views = [cluster_view(cl, faces_by_id) for cl in clusters]
-    labeled = sum(1 for v in views if v["label"])
+    # count named people over the WHOLE store, not the --limit page, so the
+    # summary's "(N named)" agrees with its total-people count.
+    labeled = sum(1 for cl in store["clusters"] if cl.get("label"))
     emit({
         "verb": "cluster",
         "format": "json",

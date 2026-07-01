@@ -18,6 +18,8 @@ import { addIndex, findIndex, normalizeIndexType } from "../../src/state/index.t
 import { clusterVerb } from "../../src/verbs/cluster.ts";
 import { indexVerb } from "../../src/verbs/index.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
+import { isMemoryRecord, makeRecord } from "../../src/record.ts";
+import { indexableFields } from "../../src/providers/memory/fields.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -28,7 +30,7 @@ const CLUSTER_PY = join(HERE, "..", "..", "examples", "providers", "visual-db", 
 function fakeClusterPy(dir: string): string {
   const path = join(dir, "fake-cluster");
   writeFileSync(path, `#!/usr/bin/env bash
-op=""; index=""; indexdir=""; cluster=""; label=""; minsim=""; input=""
+op=""; index=""; indexdir=""; cluster=""; label=""; minsim=""; srcrec=""; input=""
 for ((i=1; i<=$#; i++)); do
   arg="\${!i}"
   case "$arg" in
@@ -38,11 +40,12 @@ for ((i=1; i<=$#; i++)); do
     --cluster) j=$((i+1)); cluster="\${!j}";;
     --label) j=$((i+1)); label="\${!j}";;
     --min-similarity) j=$((i+1)); minsim="\${!j}";;
+    --source-record) j=$((i+1)); srcrec="\${!j}";;
   esac
 done
 input="\${!#}"
-printf '{"verb":"cluster","format":"json","payload":{"op":"%s","index":"%s","index_dir_seen":%s,"cluster":"%s","label":"%s","min_similarity":"%s","input":"%s","clusters":[{"cluster_id":"p_1","label":null,"size":1,"sample_crops":[],"at_span":null,"sources":[]}]},"state":"ready","meta":{"provider":"fake-cluster","model":"FakeNet"}}\\n' \\
-  "$op" "$index" "$([ -n "$indexdir" ] && echo true || echo false)" "$cluster" "$label" "\${minsim:-}" "$input"
+printf '{"verb":"cluster","format":"json","payload":{"op":"%s","index":"%s","index_dir_seen":%s,"cluster":"%s","label":"%s","min_similarity":"%s","source_record":"%s","input":"%s","clusters":[{"cluster_id":"p_1","label":null,"size":1,"sample_crops":[],"at_span":null,"sources":[]}]},"state":"ready","meta":{"provider":"fake-cluster","model":"FakeNet"}}\\n' \\
+  "$op" "$index" "$([ -n "$indexdir" ] && echo true || echo false)" "$cluster" "$label" "\${minsim:-}" "\${srcrec:-}" "$input"
 `);
   chmodSync(path, 0o755);
   return path;
@@ -101,14 +104,16 @@ test("index add to a face-cluster index errors, pointing at `cluster add`", asyn
   }
 });
 
-test("case setup provisions a local face-cluster index alongside a media index", async () => {
+test("case setup provisions a local face-cluster index alongside another index", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-fc-wizard-"));
   const mk = (opts: VerbContext["opts"]): VerbContext => {
     const c = openCase(cdir); c.ensure();
     return { input: "setup", rest: [], opts, case: c, profile: defaultProfile() };
   };
   try {
-    const [rec] = await caseVerb.run(mk({ index: "faces:face-cluster,calls:media-descriptions", yes: true }));
+    // both types are LOCAL so apply never spawns tinycloud (a media-descriptions
+    // sibling would ENOENT in CI, where no tinycloud binary exists).
+    const [rec] = await caseVerb.run(mk({ index: "faces:face-cluster,logos:image-ransac", yes: true }));
     assert.equal(rec.state, "ready");
     const fc = findIndex(openCase(cdir), "faces");
     assert.equal(fc?.type, "face-cluster");
@@ -227,6 +232,49 @@ test("cluster errors: unknown action, missing index, label without a name", asyn
   }
 });
 
+test("cluster add forwards an explicit --source-record; identify accepts a video probe (#PR33 R1)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-srcvid-"));
+  const openC = clusterCase(cdir);
+  const img = join(cdir, "probe.jpg"); writeFileSync(img, "x");
+  const vid = join(cdir, "probe.mp4"); writeFileSync(vid, "x");
+  const stub = fakeClusterPy(cdir);
+  try {
+    await withStub(stub, async () => {
+      // an explicit --source-record on a bare path reaches the provider
+      const [add] = await clusterVerb.run({ input: "add", rest: [img], opts: { "source-record": "rec_origin" }, case: openC(), profile: defaultProfile() });
+      assert.equal((add.payload as Record<string, unknown>).source_record, "rec_origin");
+      // a provided-but-blank value is a user error, not an omitted flag
+      const [blank] = await clusterVerb.run({ input: "add", rest: [img], opts: { "source-record": " " }, case: openC(), profile: defaultProfile() });
+      assert.equal(blank.state, "error");
+      assert.match(blank.error ?? "", /--source-record/);
+      // identify takes a VIDEO probe (sampled frames), not just a still image
+      const [vidProbe] = await clusterVerb.run({ input: "identify", rest: [vid], opts: { fps: 0.5 }, case: openC(), profile: defaultProfile() });
+      assert.equal(vidProbe.state, "ready");
+      assert.equal((vidProbe.payload as Record<string, unknown>).op, "identify");
+    });
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("cluster rejects a flag on the wrong action instead of silently dropping it (#PR33 R1)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-flagops-"));
+  const openC = clusterCase(cdir);
+  const stub = fakeClusterPy(cdir);
+  try {
+    await withStub(stub, async () => {
+      const [fpsOnList] = await clusterVerb.run({ input: "list", rest: [], opts: { fps: 0.5 }, case: openC(), profile: defaultProfile() });
+      assert.equal(fpsOnList.state, "error");
+      assert.match(fpsOnList.error ?? "", /--fps doesn't apply to cluster list/);
+      const [limitOnAdd] = await clusterVerb.run({ input: "recluster", rest: [], opts: { limit: 5 }, case: openC(), profile: defaultProfile() });
+      assert.equal(limitOnAdd.state, "error");
+      assert.match(limitOnAdd.error ?? "", /--limit doesn't apply/);
+    });
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("cluster rejects an --index that isn't a local face-cluster index", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-fc-wrongtype-"));
   try {
@@ -238,6 +286,42 @@ test("cluster rejects an --index that isn't a local face-cluster index", async (
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
+});
+
+// ---- case-memory policy (#PR33 R1) ------------------------------------------
+
+test("cluster memory policy: ingest/identify are evidence; DB reads/maintenance are not", () => {
+  const mk = (op: string) => makeRecord({ verb: "cluster", format: "json", payload: { op }, state: "ready" });
+  assert.equal(isMemoryRecord(mk("ingest")), true);
+  assert.equal(isMemoryRecord(mk("identify")), true);
+  for (const op of ["list", "show", "view", "label", "recluster"]) {
+    assert.equal(isMemoryRecord(mk(op)), false, `cluster ${op} must stay out of case memory`);
+  }
+});
+
+test("cluster/image index compact summaries only — no faces[], boxes, or homographies", () => {
+  const clusterRec = makeRecord({
+    verb: "cluster", format: "json", state: "ready",
+    payload: {
+      op: "ingest", index: "idx", summary: "ingested 2 faces → 1 new person", count: 2,
+      new_clusters: 1, clusters_total: 3,
+      faces: [{ face_id: "f_000001", box: { x: 1, y: 2, w: 3, h: 4 }, crop: "/secret/crop.jpg" }],
+    },
+  });
+  const cFields = indexableFields(clusterRec);
+  assert.ok(cFields.some((f) => f.path === "summary"));
+  assert.ok(!cFields.some((f) => f.path.startsWith("faces") || f.text.includes("f_000001")), "raw faces[] must not be indexed");
+
+  const imageRec = makeRecord({
+    verb: "image", format: "json", state: "ready",
+    payload: {
+      op: "match", index: "logos", summary: "1 image match", count: 1,
+      matches: [{ label: "starbucks", db_img_path: "/refs/sb.jpg", num_inliers: 42, inlier_ratio: 0.8, homography: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] }],
+    },
+  });
+  const iFields = indexableFields(imageRec);
+  assert.ok(iFields.some((f) => f.path === "matches[].label" && f.text === "starbucks"));
+  assert.ok(!iFields.some((f) => f.path.includes("homography") || f.text.includes("[[1,0,0]")), "homography must not be indexed");
 });
 
 // ---- REAL face_cluster.py: assign-or-create + store I/O (fake deepface) ----
@@ -286,6 +370,72 @@ test("face_cluster.py ingest does assign-or-create and persists the store", () =
     assert.ok(existsSync(join(idxDir, "clusters.json")));
     const faces = readFileSync(join(idxDir, "faces.jsonl"), "utf8").trim().split("\n");
     assert.equal(faces.length, 3);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("face_cluster.py list counts named people over the WHOLE store, not the --limit page (#PR33 R1)", () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-named-"));
+  const idxDir = join(cdir, "idx");
+  const mods = join(cdir, "mods");
+  mkdirSync(mods, { recursive: true });
+  writeFileSync(join(cdir, "a.jpg"), "x");
+  writeFileSync(join(cdir, "b.jpg"), "x");
+  writeFileSync(join(mods, "deepface.py"), `class DeepFace:
+    @staticmethod
+    def represent(img_path=None, **kwargs):
+        p = str(img_path).lower()
+        emb = [1.0,0.0,0.0,0.0] if "a.jpg" in p else [0.0,1.0,0.0,0.0]
+        return [{"embedding":emb,"facial_area":{"x":1,"y":1,"w":9,"h":9}}]
+`, { flag: "w" });
+  const run = (op: string, ...extra: string[]) =>
+    spawnSync("python3", [CLUSTER_PY, "--op", op, "--index", "idx", "--index-dir", idxDir, ...extra], {
+      cwd: cdir, env: { ...process.env, PYTHONPATH: mods }, encoding: "utf8",
+    });
+  try {
+    run("ingest", join(cdir, "a.jpg"));
+    run("ingest", join(cdir, "b.jpg"));   // distinct person → p_2
+    run("label", "--cluster", "p_2", "--label", "Bee");
+    // page of 1 shows only unlabeled p_1, but the summary still counts Bee.
+    const list = JSON.parse(run("list", "--limit", "1").stdout.trim());
+    assert.equal(list.payload.clusters.length, 1);
+    assert.match(list.payload.summary, /2 people .*\(1 named\)/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("face_cluster.py identify headlines the STRONGEST confident match, not the first face (#PR33 R1)", () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-strongest-"));
+  const idxDir = join(cdir, "idx");
+  const mods = join(cdir, "mods");
+  mkdirSync(mods, { recursive: true });
+  for (const f of ["a.jpg", "b.jpg", "multi.jpg"]) writeFileSync(join(cdir, f), "x");
+  // multi.jpg has TWO faces: face 1 weakly matches person A (~76), face 2
+  // perfectly matches person B (100) — the summary must name B.
+  writeFileSync(join(mods, "deepface.py"), `class DeepFace:
+    @staticmethod
+    def represent(img_path=None, **kwargs):
+        p = str(img_path).lower()
+        area = {"x":1,"y":1,"w":9,"h":9}
+        if "multi.jpg" in p:
+            return [{"embedding":[0.7,0.6,0.0,0.0],"facial_area":area},{"embedding":[0.0,1.0,0.0,0.0],"facial_area":area}]
+        emb = [1.0,0.0,0.0,0.0] if "a.jpg" in p else [0.0,1.0,0.0,0.0]
+        return [{"embedding":emb,"facial_area":area}]
+`, { flag: "w" });
+  const run = (op: string, ...extra: string[]) =>
+    spawnSync("python3", [CLUSTER_PY, "--op", op, "--index", "idx", "--index-dir", idxDir, ...extra], {
+      cwd: cdir, env: { ...process.env, PYTHONPATH: mods }, encoding: "utf8",
+    });
+  try {
+    run("ingest", join(cdir, "a.jpg"));
+    run("ingest", join(cdir, "b.jpg"));
+    run("label", "--cluster", "p_1", "--label", "Aye");
+    run("label", "--cluster", "p_2", "--label", "Bee");
+    const idout = JSON.parse(run("identify", join(cdir, "multi.jpg")).stdout.trim());
+    assert.equal(idout.payload.count, 2); // both probe faces reported
+    assert.match(idout.payload.summary, /closest person: Bee \(100/);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }

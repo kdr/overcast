@@ -8,7 +8,7 @@
 // (examples/providers/visual-db/face_cluster.py).
 //
 //   cluster add <video|image> --index <id>   ingest: detect → embed → assign-or-create
-//   cluster identify <image>  --index <id>   most-similar person for a probe (no writes)
+//   cluster identify <image|video> --index <id>  most-similar person for a probe (no writes)
 //   cluster list              --index <id>   the people in the DB
 //   cluster show <person-id>  --index <id>   one person's member faces
 //   cluster label <person-id> <name>         name a person (stable across recluster)
@@ -24,7 +24,7 @@ import { join, dirname } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { runLocalCluster } from "../providers/local/vision.js";
 import { indexesByType, resolveIndexRef } from "../state/index.js";
-import { resolveImageArg, resolveVisualArg } from "./media-ref.js";
+import { resolveVisualArg } from "./media-ref.js";
 import { renderClusterGallery, type ClusterGalleryPerson } from "../report/html.js";
 import { openHtmlPlayer } from "../media/view.js";
 import { badNumber } from "./validate.js";
@@ -74,7 +74,7 @@ export const clusterVerb: VerbSpec = {
     "A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, " +
     "which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and " +
     "ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); " +
-    "`cluster identify <image>` surfaces the most similar person for a probe (or flags it as a likely new " +
+    "`cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new " +
     "person) without writing; `cluster recluster` re-groups every stored face and carries human labels " +
     "forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact " +
     "sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the " +
@@ -115,6 +115,29 @@ export const clusterVerb: VerbSpec = {
       badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number");
     if (numErr) return [err(numErr)];
 
+    // action-specific flags: each op forwards only the flags it uses, so a flag
+    // set for the WRONG action would be silently dropped (the user thinks they
+    // filtered/sampled but didn't). Reject the mismatch, like `face` does.
+    const FLAG_OPS: Record<string, string[]> = {
+      "min-similarity": ["add", "ingest", "identify", "recluster"],
+      fps: ["add", "ingest", "identify"],
+      "max-frames": ["add", "ingest", "identify"],
+      start: ["add", "ingest", "identify"],
+      end: ["add", "ingest", "identify"],
+      limit: ["identify", "list", "show"],
+      "source-record": ["add", "ingest"],
+      cluster: ["show", "label"],
+      label: ["label"],
+      out: ["view"],
+      "no-open": ["view"],
+    };
+    for (const [flag, ops] of Object.entries(FLAG_OPS)) {
+      const provided = flag === "no-open" ? ctx.opts[flag] === true : ctx.opts[flag] != null;
+      if (provided && !ops.includes(action)) {
+        return [err(`--${flag} doesn't apply to cluster ${action} (only: ${ops.join(", ")})`)];
+      }
+    }
+
     const indexFlag = ctx.opts.index != null ? String(ctx.opts.index) : undefined;
     if (indexFlag !== undefined && !indexFlag.trim()) return [err("--index requires a face-cluster index id or name")];
     const idx = resolveClusterIndex(c, indexFlag);
@@ -141,14 +164,25 @@ export const clusterVerb: VerbSpec = {
       if (!arg) return [err("usage: cluster add <video|image> --index <id>")];
       const media = resolveVisualArg(c, arg, "cluster add", { requireReady: false });
       if (media.error) return [err(media.error)];
-      const rec = await runLocalCluster(c, media.ref!, { indexId, op: "ingest", sourceRecord: media.recordId, ...sampling });
+      // an explicit --source-record wins over the resolver's inferred record id
+      // (the flag exists precisely for bare paths the resolver can't attribute);
+      // a provided-but-blank value is a user error, not an omitted flag.
+      let sourceRecord = media.recordId;
+      if (ctx.opts["source-record"] != null) {
+        const raw = String(ctx.opts["source-record"]).trim();
+        if (!raw) return [err("--source-record requires a case record id")];
+        sourceRecord = raw;
+      }
+      const rec = await runLocalCluster(c, media.ref!, { indexId, op: "ingest", sourceRecord, ...sampling });
       return [rec];
     }
 
     if (action === "identify") {
       const arg = ctx.rest[0];
-      if (!arg) return [err("usage: cluster identify <image> --index <id>")];
-      const media = resolveImageArg(c, arg, "cluster identify", { requireReady: false });
+      if (!arg) return [err("usage: cluster identify <image|video> --index <id>")];
+      // a probe may be a still image OR a clip (the provider samples video frames
+      // with the same --fps/--max-frames/--start/--end machinery as ingest).
+      const media = resolveVisualArg(c, arg, "cluster identify", { requireReady: false });
       if (media.error) return [err(media.error)];
       const rec = await runLocalCluster(c, media.ref!, { indexId, op: "identify", minSimilarity: sampling.minSimilarity, limit: sampling.limit, fps: sampling.fps, maxFrames: sampling.maxFrames, start: sampling.start, end: sampling.end, signal: ctx.signal });
       return [rec];
