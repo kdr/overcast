@@ -8,15 +8,15 @@
 #   ingest    detect faces in media, embed, ASSIGN-OR-CREATE each into a person
 #             (nearest cluster centroid >= threshold → that person, else a new one)
 #   identify  probe an image → the most similar person(s), no writes
-#   recluster batch re-group every stored face (single-linkage at the threshold),
-#             carrying human labels forward by plurality so identities are stable
+#   recluster batch re-group every stored face (average-linkage agglomerative
+#             at the threshold), carrying human labels forward by plurality
 #   list      the people in the DB (size, time span, sources, medoid crop)
 #   show      one person's member faces
 #   label     name a person (the only stable identity across a recluster)
 #
 # The on-disk store lives under the index dir (`.overcast/index/<id>/`):
 #   faces.jsonl    one row per detected face: id, cluster, source, at, box, crop, embedding
-#   clusters.json  {model, next_face, next_cluster, clusters:[{cluster_id,label,
+#   clusters.json  {model, detector, next_face, next_cluster, clusters:[{cluster_id,label,
 #                   medoid_face_id, size, centroid, members:[face_id...]}]}
 #   crops/         <face_id>.jpg thumbnails (best-effort, via ffmpeg)
 #
