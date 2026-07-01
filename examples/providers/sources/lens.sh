@@ -42,8 +42,9 @@ case "$op" in
     # a non-URL query must resolve to a real image file: try it as given (cwd),
     # then against the case media dir and the case root (crop outputs etc. when
     # scan runs with --case from another cwd). Anything unresolved is an error —
-    # never ship a bogus path to the actor as a "URL".
-    case "$query" in
+    # never ship a bogus path to the actor as a "URL". URL schemes are
+    # case-insensitive (RFC 3986), so match on a lowercased copy.
+    case "$(printf '%s' "$query" | tr '[:upper:]' '[:lower:]')" in
       http://*|https://*) : ;;
       *)
         if [ ! -f "$query" ]; then
@@ -166,8 +167,11 @@ case "$op" in
       image/*)
         jq -nc --arg p "$out" --arg u "$url" '{kind:"image",path:$p,source:"lens",url:$u}' ;;
       text/html*)
-        mv "$out" "${out}.html"
-        jq -nc --arg p "${out}.html" --arg u "$url" '{kind:"page",path:$p,source:"lens",url:$u}' ;;
+        # don't double the suffix when --out already ends in .html/.htm
+        # (uniqueName preserves the URL's extension for *.html page URLs)
+        page="$out"
+        case "$out" in *.html|*.htm) : ;; *) mv "$out" "${out}.html"; page="${out}.html" ;; esac
+        jq -nc --arg p "$page" --arg u "$url" '{kind:"page",path:$p,source:"lens",url:$u}' ;;
       *)
         jq -nc --arg p "$out" --arg u "$url" '{kind:"file",path:$p,source:"lens",url:$u}' ;;
     esac

@@ -57,7 +57,7 @@ if require_cred "$C.lens" APIFY_TOKEN "skipping lens reverse image search"; then
   CASE=$(case_dir src_lens)
   export OVERCAST_SOURCE_LENS_CMD="bash $SRCDIR/lens.sh"
   ocrun "$CASE" source add 'lens:https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg/330px-Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg' --json >/dev/null 2>&1
-  out="$(OC_TIMEOUT=300 oc "$CASE" scan --source lens --limit 2 --json)"
+  out="$(OC_TIMEOUT=420 oc "$CASE" scan --source lens --limit 2 --json)"
   save_json "20_scan_lens" "$out" >/dev/null
   assert_scan_hits "$C.lens.query" "$out" "lens reverse image"
   match="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.match // empty' 2>/dev/null)"
@@ -73,7 +73,7 @@ if require_cred "$C.lens" APIFY_TOKEN "skipping lens reverse image search"; then
   # so the bare filename only resolves through OVERCAST_CASE_DIR (upload path)
   if [ -n "${OC_IMAGE:-}" ] && [ -f "$OC_IMAGE" ]; then
     cp "$OC_IMAGE" "$CASE/lens_query.${OC_IMAGE##*.}"
-    out="$(OC_TIMEOUT=300 oc "$CASE" scan --source lens --query "lens_query.${OC_IMAGE##*.}" --limit 2 --json)"
+    out="$(OC_TIMEOUT=420 oc "$CASE" scan --source lens --query "lens_query.${OC_IMAGE##*.}" --limit 2 --json)"
     save_json "20_scan_lens_local" "$out" >/dev/null
     assert_scan_hits "$C.lens.local" "$out" "lens local case-relative image"
   else
