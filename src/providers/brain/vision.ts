@@ -243,6 +243,11 @@ export function mimeForImage(path: string): string {
       return "image/gif";
     case ".bmp":
       return "image/bmp";
+    case ".avif":
+      return "image/avif";
+    case ".tif":
+    case ".tiff":
+      return "image/tiff";
     case ".heic":
     case ".heif":
       return "image/heic";

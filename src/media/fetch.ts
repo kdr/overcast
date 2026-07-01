@@ -106,7 +106,11 @@ export async function fetchMediaToCase(
   } catch {
     throw new Error(`invalid URL: ${url}`);
   }
-  const urlExt = pathname.match(URL_EXT_RE)?.[0]?.toLowerCase();
+  // Normalized so the cache name matches what a Content-Type/sniff resolution
+  // of the same media would produce. NOTE: this pre-fetch cache hit is safe
+  // because artifacts are always NAMED by the resolved (response-truth) ext —
+  // an HTML body never lands as url-<hash>.jpg, so a .jpg hit is a real image.
+  const urlExt = pathname.match(URL_EXT_RE)?.[0]?.toLowerCase().replace(/^\.jpeg$/, ".jpg").replace(/^\.tif$/, ".tiff");
   if (urlExt) {
     const out = join(mediaDir, `url-${hash}${urlExt}`);
     if (existsSync(out)) return { path: out, ext: urlExt, bytes: 0 };
@@ -130,7 +134,15 @@ export async function fetchMediaToCase(
   if (buf.byteLength > maxBytes) throw new Error(`remote media is ${buf.byteLength} bytes (cap ${maxBytes}): ${url}`);
 
   const contentType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase() || undefined;
-  const ext = urlExt ?? (contentType && CT_EXT[contentType]) ?? sniffExt(buf);
+  // Response truth wins over the URL's claimed extension: an expired signed URL
+  // or login wall answers 200 text/html — that must NOT ride a ".jpg" path into
+  // the image pipeline. Content-Type map → magic bytes → the URL ext only when
+  // the response is uninformative (no/generic content-type, unsniffable bytes).
+  const ctExt = contentType ? CT_EXT[contentType] : undefined;
+  const sniffed = sniffExt(buf);
+  const uninformative =
+    !contentType || contentType === "application/octet-stream" || contentType === "binary/octet-stream";
+  const ext = ctExt ?? (sniffed !== ".bin" ? sniffed : uninformative ? urlExt ?? ".bin" : ".bin");
   const out = join(mediaDir, `url-${hash}${ext}`);
   writeFileSync(out, buf);
   return { path: out, contentType, ext, bytes: buf.byteLength };

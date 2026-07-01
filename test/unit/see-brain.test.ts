@@ -76,6 +76,10 @@ test("mimeForImage maps extensions (default jpeg)", () => {
   assert.equal(mimeForImage("/x/a.png"), "image/png");
   assert.equal(mimeForImage("/x/a.JPG"), "image/jpeg");
   assert.equal(mimeForImage("/x/a.webp"), "image/webp");
+  // every image ext kindForExt admits must map to its real MIME (Bugbot: avif/tiff went out as image/jpeg)
+  assert.equal(mimeForImage("/x/a.avif"), "image/avif");
+  assert.equal(mimeForImage("/x/a.tif"), "image/tiff");
+  assert.equal(mimeForImage("/x/a.tiff"), "image/tiff");
   assert.equal(mimeForImage("/x/a.unknown"), "image/jpeg");
 });
 

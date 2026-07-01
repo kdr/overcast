@@ -47,6 +47,10 @@ before(async () => {
     } else if (path === "/page") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end("<html>login required</html>");
+    } else if (path === "/expired.jpg") {
+      // expired signed URL: .jpg path, but the body is an HTML error page
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<html>URL signature expired</html>");
     } else {
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("nope");
@@ -144,4 +148,15 @@ test("see with an unreachable URL: clean fetch error record", async () => {
   const [rec] = await seeVerb.run(ctx("http://127.0.0.1:9/img.png")); // port 9: discard, nothing listens
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /could not fetch/);
+});
+
+test("a .jpg URL whose body is HTML is NOT masked by the URL extension (Bugbot: expired signed URL)", async () => {
+  // response truth (content-type text/html) must beat the path's .jpg claim
+  const got = await fetchMediaToCase(`${base}/expired.jpg?Expires=0&Signature=stale`, join(dir, "media"));
+  assert.equal(got.ext, ".bin");
+  assert.equal(kindForExt(got.ext), "other");
+  const [rec] = await seeVerb.run(ctx(`${base}/expired.jpg?Expires=0&Signature=stale`));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /did not return an image/);
+  assert.match(rec.error ?? "", /text\/html/);
 });
