@@ -69,6 +69,16 @@ if require_cred "$C.lens" APIFY_TOKEN "skipping lens reverse image search"; then
   else
     fail "$C.lens.thumb" "no materialized thumbnail for an exact lens match"
   fi
+  # local image query, case-relative: the CLI runs with --case from another cwd,
+  # so the bare filename only resolves through OVERCAST_CASE_DIR (upload path)
+  if [ -n "${OC_IMAGE:-}" ] && [ -f "$OC_IMAGE" ]; then
+    cp "$OC_IMAGE" "$CASE/lens_query.${OC_IMAGE##*.}"
+    out="$(OC_TIMEOUT=300 oc "$CASE" scan --source lens --query "lens_query.${OC_IMAGE##*.}" --limit 2 --json)"
+    save_json "20_scan_lens_local" "$out" >/dev/null
+    assert_scan_hits "$C.lens.local" "$out" "lens local case-relative image"
+  else
+    skip "$C.lens.local" "no OC_IMAGE — skipping lens local-file query"
+  fi
   unset OVERCAST_SOURCE_LENS_CMD
 fi
 

@@ -26,7 +26,16 @@ export interface SourceDescriptor {
   base: string[];
   /** human note about credentials/deps */
   needs?: string;
+  /** per-op exec budget for slow backends (e.g. Apify run-sync holds the
+   *  request up to 300s); overrides the enumerate/fetch defaults */
+  timeoutMs?: number;
 }
+
+/** Exec budget for sources backed by Apify's run-sync endpoint (tiktok, lens):
+ *  the request itself can hold up to 300s, so the harness must not kill the
+ *  provider at the generic 2-min enumerate default. Scripts cap their curls
+ *  below this so a slow backend fails client-side with a clear message. */
+export const APIFY_RUN_SYNC_TIMEOUT_MS = 6 * 60_000;
 
 /** Built-in source descriptors. yt-dlp / Apify / web search are gated by deps/creds. */
 /**
@@ -56,7 +65,7 @@ export function builtinDescriptor(type: string): SourceDescriptor | undefined {
     }
     case "tiktok": {
       const script = shippedSource("tiktok.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN" } : undefined;
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
     }
     case "web": {
       const script = shippedSource("web.sh");
@@ -66,7 +75,7 @@ export function builtinDescriptor(type: string): SourceDescriptor | undefined {
       // Google Lens reverse image search (Apify actor); ref/query = image URL
       // or local image path.
       const script = shippedSource("lens.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN" } : undefined;
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
     }
     default:
       return undefined;
@@ -142,7 +151,7 @@ export async function enumerateSource(
   const res = await execCapture(cmd, args, {
     env: opts.env,
     signal: opts.signal,
-    timeoutMs: opts.timeoutMs ?? 2 * 60_000,
+    timeoutMs: opts.timeoutMs ?? desc.timeoutMs ?? 2 * 60_000,
   });
   if (res.code !== 0) {
     // exit 13 = missing deps/credentials (exec contract), a setup gap not a hard fail
@@ -240,7 +249,7 @@ export async function fetchSource(
   const res = await execCapture(cmd, args, {
     env: opts.env,
     signal: opts.signal,
-    timeoutMs: opts.timeoutMs ?? 5 * 60_000,
+    timeoutMs: opts.timeoutMs ?? desc.timeoutMs ?? 5 * 60_000,
   });
   if (res.code !== 0) {
     // exit 13 = missing deps/credentials (exec contract), a setup gap not a hard fail

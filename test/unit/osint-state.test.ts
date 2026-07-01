@@ -15,7 +15,7 @@ import {
   resolveSources,
 } from "../../src/state/source.ts";
 import { loadSeen, saveSeen, hitKey } from "../../src/state/seen.ts";
-import { enumerateSource, fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
+import { APIFY_RUN_SYNC_TIMEOUT_MS, enumerateSource, fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
 import { makeRecord } from "../../src/record.ts";
 
 function withCase(fn: (c: ReturnType<typeof openCase>) => void) {
@@ -119,6 +119,11 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
   assert.match(web!.base.join(" "), /web\.sh$/);
   assert.match(lens!.base.join(" "), /lens\.sh$/);
   assert.equal(lens!.needs, "APIFY_TOKEN");
+  // Apify run-sync sources hold the request up to 300s — their exec budget
+  // must beat the generic 2-min enumerate default or the harness kills them.
+  assert.equal(lens!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
+  assert.equal(tt!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
+  assert.ok(APIFY_RUN_SYNC_TIMEOUT_MS > 5 * 60_000);
   assert.equal(builtinDescriptor("nope"), undefined);
   // env override takes precedence and is quote-aware
   process.env.OVERCAST_SOURCE_YOUTUBE_CMD = 'bash "/x y/z.sh"';
@@ -127,6 +132,18 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
   } finally {
     delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD;
   }
+});
+
+test("enumerateSource honors the descriptor's exec budget (timeoutMs)", async () => {
+  // a provider that outlives a tiny descriptor budget is killed and surfaces
+  // as a timeout — proving desc.timeoutMs actually reaches execCapture
+  await assert.rejects(
+    enumerateSource(
+      { type: "slow", base: ["node", "-e", "setTimeout(() => {}, 10_000)"], timeoutMs: 300 },
+      { query: "q" },
+    ),
+    /timed out after 300ms/,
+  );
 });
 
 test("enumerateSource passes provider-specific hit fields through to the payload", async () => {

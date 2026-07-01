@@ -3,8 +3,10 @@
 # Bind with:  overcast source add lens:https://example.com/photo.jpg
 #             overcast scan --source lens --query ./crops/face_01.jpg
 # Key: APIFY_TOKEN (same account as the tiktok source). The query/ref is an
-# image URL or a local image path — local files are uploaded to an Apify
-# key-value store (`overcast-lens`) so the Lens actor can fetch them.
+# image URL or a local image path — relative paths resolve against the cwd,
+# then $OVERCAST_MEDIA_DIR, then $OVERCAST_CASE_DIR — and local files are
+# uploaded to an Apify key-value store (`overcast-lens`) so the actor can
+# fetch them.
 # Emits one hit per matched page: exact matches (match:"exact", with the match
 # thumbnail materialized into $OVERCAST_MEDIA_DIR when set) and visually
 # similar pages (match:"visual"). --limit applies per match type (default 8).
@@ -37,6 +39,23 @@ case "$op" in
       echo "lens enumerate needs an image: bind lens:<image-url> or pass --query <url|local path>" >&2
       exit 1
     fi
+    # a non-URL query must resolve to a real image file: try it as given (cwd),
+    # then against the case media dir and the case root (crop outputs etc. when
+    # scan runs with --case from another cwd). Anything unresolved is an error —
+    # never ship a bogus path to the actor as a "URL".
+    case "$query" in
+      http://*|https://*) : ;;
+      *)
+        if [ ! -f "$query" ]; then
+          for base in "${OVERCAST_MEDIA_DIR:-}" "${OVERCAST_CASE_DIR:-}"; do
+            if [ -n "$base" ] && [ -f "$base/$query" ]; then query="$base/$query"; break; fi
+          done
+        fi
+        if [ ! -f "$query" ]; then
+          echo "lens: query is neither an existing image file nor an http(s) url: $query" >&2
+          exit 1
+        fi ;;
+    esac
     uploaded=0
     if [ -f "$query" ]; then
       # local image → upload to the account's `overcast-lens` key-value store
