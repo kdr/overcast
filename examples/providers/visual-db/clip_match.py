@@ -15,7 +15,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-VIDEO_EXTS = (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".mpeg", ".mpg", ".ts", ".mts", ".m2ts", ".wmv", ".flv", ".ogv")
+# Video extensions must cover everything the TS intake gate (media-ref.ts AV_RE)
+# accepts as video, or a valid clip is misrouted to the image path and fails.
+VIDEO_EXTS = (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".mpeg", ".mpg", ".ts", ".mts", ".m2ts", ".wmv", ".flv", ".3gp", ".3g2", ".ogv", ".mxf")
 
 
 def emit(rec):
@@ -352,9 +354,10 @@ def op_query(args):
         summary = "no semantic matches for that text" if not results else "%d semantic match%s" % (len(results), "" if len(results) == 1 else "es")
     else:
         summary = "no visually-similar media" if not results else "%d visual match%s" % (len(results), "" if len(results) == 1 else "es")
+    # media anchors the QUERY (text, or the query file) — a matched member's `at`
+    # belongs to that member's clip and lives in payload.matches[], so copying it
+    # here would point record.media.at at the wrong media/moment.
     media = {"ref": args.input}
-    if results and "at" in results[0]:
-        media["at"] = results[0]["at"]
     payload = {
         "op": op, "index": args.index, "summary": summary,
         "matches": results, "count": len(results),

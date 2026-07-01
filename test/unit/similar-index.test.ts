@@ -376,6 +376,71 @@ test("clip_match.py invalidates a cached member when explicit frames_at changed 
   assert.match(src, /frames_at is not None and meta\.get\("frames_at"\) != frames_at/);
 });
 
+test("visual-db scripts recognize every video extension the TS intake gate accepts (#B3-1)", () => {
+  // media-ref.ts AV_RE's video subset — a clip the verb accepts as video must not
+  // be misrouted to a script's image path because its VIDEO_EXTS tuple is narrower.
+  const avVideoExts = ["mp4", "m4v", "mov", "webm", "mkv", "avi", "mpeg", "mpg", "m2ts", "mts", "ts", "wmv", "flv", "3gp", "3g2", "ogv", "mxf"];
+  for (const script of ["clip_match.py", "image_match.py", "face_match.py"]) {
+    const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", script), "utf8");
+    const tuple = src.match(/VIDEO_EXTS = \(([^)]*)\)/)?.[1] ?? "";
+    for (const ext of avVideoExts) {
+      assert.ok(tuple.includes(`".${ext}"`), `${script} VIDEO_EXTS is missing .${ext}`);
+    }
+  }
+});
+
+test("clip_match.py does not anchor the query record on a matched member's timestamp (#B3-2)", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  // a member's `at` lives in payload.matches[]; media anchors the QUERY only.
+  assert.doesNotMatch(src, /media\["at"\]\s*=\s*results/);
+});
+
+test("case setup labels a failed basic-clip embed 'attempted' even when shots watch succeeds (#B3-3)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-clip-setuplabel-"));
+  const bad = join(dir, "fail-clip.sh");
+  writeFileSync(bad, `#!/usr/bin/env bash
+printf '{"verb":"similar","format":"json","payload":{"op":"add","matches":[],"count":0},"error":"basic-clip deps missing","state":"error"}\\n'
+`);
+  chmodSync(bad, 0o755);
+  const fakeWatch = join(dir, "fake-watch.sh");
+  writeFileSync(fakeWatch, `#!/usr/bin/env bash
+printf '{"verb":"watch","format":"json","payload":{"content":"x","detailed":{"segments":[{"start_seconds":0}]}},"state":"ready"}\\n'
+`);
+  chmodSync(fakeWatch, 0o755);
+  const saved = process.env.OC_VISUAL_DB_PY;
+  process.env.OC_VISUAL_DB_PY = bad;
+  try {
+    const video = join(dir, "clip.mp4");
+    writeFileSync(video, "x");
+    const c = openCase(dir);
+    c.ensure();
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${fakeWatch} {{input}}` } };
+    const recs = await caseVerb.run({
+      input: "setup",
+      rest: [],
+      opts: { yes: true, index: "scenes:basic-clip@sampling=shots", video, signals: "similar add" },
+      case: c,
+      profile,
+      home: dir,
+      profileName: "default",
+    });
+    const setupRec = recs.find((r) => {
+      const p = r.payload as Record<string, unknown> | undefined;
+      return p && typeof p === "object" && Array.isArray(p.applied_operations);
+    });
+    assert.ok(setupRec, "setup record with applied_operations");
+    const ops = (setupRec!.payload as Record<string, unknown>).applied_operations as string[];
+    const indexing = ops.filter((o) => o.includes(video));
+    assert.ok(indexing.some((o) => o.startsWith("indexing attempted")), `expected 'indexing attempted' in ${JSON.stringify(indexing)}`);
+    assert.ok(!indexing.some((o) => o.startsWith("indexing started")), "a ready auxiliary watch record must not mask the failed embed");
+  } finally {
+    if (saved === undefined) delete process.env.OC_VISUAL_DB_PY;
+    else process.env.OC_VISUAL_DB_PY = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("clip_match.py persists + reuses shot markers across cache rebuilds (#B1-2)", () => {
   const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
   // the sidecar must record the markers a member was embedded with…

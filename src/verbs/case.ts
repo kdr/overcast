@@ -527,7 +527,11 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
         if (!signals.has("similar add") && !signals.has("similar")) continue;
         const recs = await similarVerb.run({ ...ctx, input: "add", rest: [route.ref], opts: { index: id } });
         records.push(...recs);
-        operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
+        // label from the similar (embed) record only — shots sampling can return
+        // a READY auxiliary watch record next to a FAILED embed, which would
+        // otherwise read as "indexing started" with no member registered.
+        const embed = recs.filter((r) => r.verb === "similar");
+        operations.push(`${indexingOperationLabel(embed.length ? embed : recs)}: ${route.ref} -> ${id}`);
         continue;
       }
       if (!signals.has("index add")) continue;
