@@ -148,6 +148,39 @@ test("case setup provisions a local face-cluster index alongside another index",
   }
 });
 
+test("cluster memory signal lands regardless of DB/setup creation order (#PR33 R16)", async () => {
+  // direction 1: DB created via `index create` FIRST, then setup runs plain
+  const cdir1 = mkdtempSync(join(tmpdir(), "oc-fc-order1-"));
+  try {
+    const mk1 = (input: string, rest: string[], opts: VerbContext["opts"]): VerbContext => {
+      const c = openCase(cdir1); c.ensure();
+      return { input, rest, opts, case: c, profile: defaultProfile() };
+    };
+    await indexVerb.run(mk1("create", ["people"], { type: "face-cluster", local: true }));
+    await caseVerb.run(mk1("setup", [], { yes: true }));
+    const setup1 = JSON.parse(readFileSync(join(cdir1, ".overcast", "setup.json"), "utf8"));
+    assert.ok(setup1.memory.signals.includes("cluster"), "setup after index create must add the signal");
+  } finally {
+    rmSync(cdir1, { recursive: true, force: true });
+  }
+  // direction 2: setup runs FIRST (narrowing memory), DB created afterwards
+  const cdir2 = mkdtempSync(join(tmpdir(), "oc-fc-order2-"));
+  try {
+    const mk2 = (input: string, rest: string[], opts: VerbContext["opts"]): VerbContext => {
+      const c = openCase(cdir2); c.ensure();
+      return { input, rest, opts, case: c, profile: defaultProfile() };
+    };
+    await caseVerb.run(mk2("setup", [], { yes: true }));
+    const before = JSON.parse(readFileSync(join(cdir2, ".overcast", "setup.json"), "utf8"));
+    assert.ok(!before.memory.signals.includes("cluster"), "no signal before any face-cluster DB exists");
+    await indexVerb.run(mk2("create", ["people"], { type: "face-cluster", local: true }));
+    const after = JSON.parse(readFileSync(join(cdir2, ".overcast", "setup.json"), "utf8"));
+    assert.ok(after.memory.signals.includes("cluster"), "index create after setup must back-fill the signal");
+  } finally {
+    rmSync(cdir2, { recursive: true, force: true });
+  }
+});
+
 // ---- cluster verb op-resolution (bash stub) -------------------------------
 
 function clusterCase(cdir: string) {

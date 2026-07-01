@@ -613,18 +613,22 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     const signalKey = setupIndexRef(current);
     if (previousSignalKey && previousSignalKey !== signalKey) delete setup.default_signals[previousSignalKey];
     setup.default_signals[signalKey] = current.default_signals;
-    // standing up a face-cluster DB makes its ingest/identify records the case's
-    // face evidence — make sure the memory signal list (which narrows what
-    // local-grep/qmd search) doesn't silently exclude them.
-    if (String(current.type) === "face-cluster" && setup.memory && !setup.memory.signals.includes("cluster")) {
-      setup.memory.signals = [...setup.memory.signals, "cluster"];
-      operations.push("memory signals: +cluster (face-cluster evidence searchable)");
-    }
     indexRoutesChanged = true;
     operations.push(`${current.mode === "attach" ? "index attach" : "index create planned"}: ${signalKey}`);
     // local-only types MUST carry backend "local" in the mirror — without it the
     // typed verbs (image/face/cluster) reject the entry as remote.
     if (apply && current.id) addIndex(ctx.case, { id: current.id, name: current.name, type: current.type, backend: LOCAL_INDEX_TYPES.has(String(current.type)) ? "local" : undefined });
+  }
+  // A face-cluster DB's ingest/identify records are the case's face evidence —
+  // the memory signal list (which narrows what local-grep/qmd search) must not
+  // silently exclude them. Checked against the CASE MIRROR, not just the indexes
+  // this run touched, so a DB stood up earlier via `index create` counts too.
+  const hasFaceClusterDb =
+    setup.indexes.some((i) => String(i.type) === "face-cluster") ||
+    listIndexes(ctx.case).some((i) => i.type === "face-cluster");
+  if (hasFaceClusterDb && setup.memory && !setup.memory.signals.includes("cluster")) {
+    setup.memory.signals = [...setup.memory.signals, "cluster"];
+    operations.push("memory signals: +cluster (face-cluster evidence searchable)");
   }
   if (removeIndexes.length) {
     const removedIndexes = setup.indexes.filter((i) => removeIndexes.includes(i.id ?? "") || removeIndexes.includes(i.name));

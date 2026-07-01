@@ -39,6 +39,7 @@ import {
   LOCAL_INDEX_TYPES,
 } from "../state/index.js";
 import { providerEnv } from "../providers/provider-env.js";
+import { loadSetup, saveSetup } from "../state/setup.js";
 import { localIndexDir } from "../providers/local/vision.js";
 import { resolveVideoArg, resolveImageArg, isRegisterableMediaRecord, isImage } from "./media-ref.js";
 import { badNumber, numFlag } from "./validate.js";
@@ -347,6 +348,17 @@ export const indexVerb: VerbSpec = {
         const id = `local_${type.replace(/-/g, "_")}_${randomBytes(4).toString("hex")}`;
         mkdirSync(localIndexDir(c, id), { recursive: true });
         const entry = addIndex(c, { id, type, name, description, backend: "local" });
+        // a face-cluster DB's ingest/identify records are case evidence; if a
+        // saved setup already narrows memory search, back-fill the `cluster`
+        // signal so the new DB isn't silently unsearchable (case setup does the
+        // same when the DB pre-dates the setup).
+        if (type === "face-cluster") {
+          const setup = loadSetup(c);
+          if (setup?.memory && !setup.memory.signals.includes("cluster")) {
+            setup.memory.signals = [...setup.memory.signals, "cluster"];
+            saveSetup(c, setup);
+          }
+        }
         return [makeRecord({
           verb: "index",
           format: "json",
