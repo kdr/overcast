@@ -216,9 +216,31 @@ def embed_media(ref, args, frames_at=None):
     return pool(vecs, args.pooling), [None]
 
 
-def build_member(ref, args, index_dir, frames_at=None):
+def index_config_args(args):
+    """Member-side embedding config = the PERSISTED index config (config.json),
+    not the per-query CLI flags. Query flags shape only the query embedding —
+    keying member caches on them would let a one-off query re-embed and mutate
+    the stored corpus. Falls back to the shipped defaults when absent/corrupt."""
+    cfg = {}
+    try:
+        cfg = json.loads((Path(args.index_dir) / "config.json").read_text())
+    except Exception:
+        pass
+    return argparse.Namespace(**{
+        **vars(args),
+        "pooling": cfg.get("pooling") or "max",
+        "granularity": cfg.get("granularity") or "video",
+        "sampling": cfg.get("sampling") or "uniform",
+        "window": float(cfg.get("window") or 10.0),
+        "max_frames": cfg.get("maxFrames"),
+        "fps": cfg.get("fps"),
+    })
+
+
+def build_member(ref, args, index_dir, frames_at=None, persist=True):
     """Load a member's cached vectors (fresh) or embed + cache them. Returns
-    (vectors, ats, granularity) or None when the ref is unreadable."""
+    (vectors, ats, granularity) or None when the ref is unreadable. persist=False
+    (query-time) keeps a rebuilt embedding in memory only — reads never write."""
     import numpy as np
     path = Path(ref)
     if not path.exists():
@@ -255,14 +277,15 @@ def build_member(ref, args, index_dir, frames_at=None):
     vecs, ats = embed_media(ref, args, frames_at=frames_at)
     if vecs.shape[0] == 0:
         return None
-    npy.parent.mkdir(parents=True, exist_ok=True)
-    np.save(str(npy), vecs)
-    sidecar.write_text(json.dumps({
-        "ref": ref, "kind": "video" if is_video(path) else "image",
-        "granularity": args.granularity, "ats": ats, "frames_at": frames_at,
-        "config_hash": chash, "mtime": mtime,
-        "model": load_model()["name"],
-    }))
+    if persist:
+        npy.parent.mkdir(parents=True, exist_ok=True)
+        np.save(str(npy), vecs)
+        sidecar.write_text(json.dumps({
+            "ref": ref, "kind": "video" if is_video(path) else "image",
+            "granularity": args.granularity, "ats": ats, "frames_at": frames_at,
+            "config_hash": chash, "mtime": mtime,
+            "model": load_model()["name"],
+        }))
     return vecs, ats, args.granularity
 
 
@@ -332,8 +355,9 @@ def op_query(args):
     if args.offset < 0:
         fail("--offset must be non-negative", args.input, op)
     results = []
+    member_args = index_config_args(args)
     for mem in members:
-        built = build_member(mem["ref"], args, args.index_dir)
+        built = build_member(mem["ref"], member_args, args.index_dir, persist=False)
         if not built:
             continue
         vecs, ats, granularity = built

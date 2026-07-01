@@ -389,6 +389,17 @@ test("visual-db scripts recognize every video extension the TS intake gate accep
   }
 });
 
+test("clip_match.py queries never re-key or persist member embeddings (#B4-1)", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  // member-side rebuilds during a query must use the PERSISTED index config
+  // (config.json), not the per-query CLI flags…
+  assert.match(src, /member_args = index_config_args\(args\)/);
+  assert.match(src, /build_member\(mem\["ref"\], member_args, args\.index_dir, persist=False\)/);
+  // …and a query-time rebuild must stay in memory — reads never write the cache.
+  assert.match(src, /def build_member\(ref, args, index_dir, frames_at=None, persist=True\)/);
+  assert.match(src, /if persist:\n\s+npy\.parent\.mkdir/);
+});
+
 test("clip_match.py does not anchor the query record on a matched member's timestamp (#B3-2)", () => {
   const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
   // a member's `at` lives in payload.matches[]; media anchors the QUERY only.

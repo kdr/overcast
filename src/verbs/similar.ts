@@ -156,10 +156,12 @@ export const similarVerb: VerbSpec = {
     const indexDir = localIndexDir(ctx.case, idx.id!);
     const cfg = effectiveConfig(indexDir, ctx.opts);
 
-    // ONE shared opts block for all three actions. Every op must carry the FULL
-    // effective sampling config: the Python side keys its embedding cache on it
-    // (config_hash), so an op that omitted sampling/window/fps would miss the
-    // cache and silently re-embed members with defaults.
+    // ONE shared opts block for all three actions, carrying the FULL effective
+    // sampling config. `add` keys the member cache on it (config_hash); for
+    // match/search it shapes only the QUERY embedding — the Python side pins
+    // member-cache reads to the persisted index config (config.json) and never
+    // writes the cache at query time, so a one-off override can't re-key or
+    // mutate stored member vectors.
     const baseOpts = {
       indexId: idx.id!,
       pooling: cfg.pooling,
