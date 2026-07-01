@@ -14,6 +14,23 @@ elif have_media "$VIDEO_VISUAL"; then
 fi
 [ -n "${FRAME:-}" ] && [ -f "$FRAME" ] || { skip "$C" "no image (set OC_IMAGE or OC_VIDEO_OBJECTS/VISUAL)"; exit 0; }
 
+# --- brain LLM (the DEFAULT see backend): no binding, image-capable brain
+#     describes the frame directly. Turnkey with the Cloudglue brain. ---
+if require_cred "$C.brain" CLOUDGLUE_API_KEY "skipping"; then
+  CASE=$(case_dir see_brain)   # fresh case → default profile (no see binding) → brain default
+  cond "see (default brain LLM) describes a real frame → ready record with a caption"
+  out="$(OC_TIMEOUT=180 oc "$CASE" see "$FRAME" --json)"
+  save_json "12_see_brain" "$out" >/dev/null
+  st="$(echo "$out" | jq -r '.state')"
+  prov="$(echo "$out" | jq -r '.meta.provider // empty')"
+  if [ "$st" = "ready" ]; then
+    assert_nonempty "$C.brain.caption" "$(echo "$out"|jq -r '.payload.caption')" "brain caption non-empty"
+    case "$prov" in brain:*) ok "$C.brain.provider" "routed to $prov" ;; *) fail "$C.brain.provider" "expected brain:* provider, got '$prov'" ;; esac
+  else
+    fail "$C.brain.state" "state=$st err=$(echo "$out"|jq -r '.error // empty' | head -c 80)"
+  fi
+fi
+
 # --- HF captioner (bound explicitly with an absolute path: the bun binary can't
 #     auto-resolve the shipped examples/ from its virtual FS) ---
 if require_cred "$C.hf" HF_TOKEN "skipping"; then

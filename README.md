@@ -202,7 +202,7 @@ surface + env vars.)
 |---|---|
 | `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue) |
 | `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
-| `see` | caption / OCR / detect on an image or video frame (turnkey HF, or bind a VLM) |
+| `see` | caption / OCR / detect on an image or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
@@ -366,7 +366,7 @@ for cadence, and add `--max-frames` when you want a hard cap.
 
 | class | verbs | shipped providers |
 |---|---|---|
-| **sense** | watch / listen / see / face / enhance | Cloudglue (default), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
+| **sense** | watch / listen / see / face / enhance | Cloudglue (default), the brain LLM (default `see`), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
 | **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
@@ -420,7 +420,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; install with `npm install -g @tobilu/qmd`, then rebuild before querying qmd)
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
-- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — turnkey `see` + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`
+- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead.
 - `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`
 - `ELEVENLABS_API_KEY` (or `XI_API_KEY`) — `listen` (Scribe STT) + `enhance` audio (voice isolation); `ELEVENLABS_STT_MODEL` (default `scribe_v1`)
 

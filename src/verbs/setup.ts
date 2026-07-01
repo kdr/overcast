@@ -84,10 +84,16 @@ function semverLt(a: [number, number, number], b: [number, number, number]): boo
   return false;
 }
 
-/** Parse a provider spec into a descriptor. Forms: exec:<cmd> | http(s)://… | inproc:<module>. */
+/** Parse a provider spec into a descriptor. Forms: builtin:<name> | exec:<cmd> |
+ *  http(s)://… | inproc:<module>. `builtin:<name>` selects a shipped in-process
+ *  backend (currently `see`: builtin:brain | builtin:hf); the module keeps its
+ *  `builtin:` prefix so the verb recognizes it. */
 export function parseProviderSpec(spec: string): ProviderDescriptor {
   if (spec.startsWith("http://") || spec.startsWith("https://")) {
     return { type: "http", endpoint: spec };
+  }
+  if (spec.startsWith("builtin:")) {
+    return { type: "inproc", module: spec };
   }
   if (spec.startsWith("inproc:")) {
     return { type: "inproc", module: spec.slice("inproc:".length) };

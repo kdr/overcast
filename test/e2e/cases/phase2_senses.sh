@@ -61,8 +61,10 @@ assert_eq "crop.state" "ready" "$(jq -r '.state' <<<"$cout")" "crop ready"
 crop_path="$(jq -r '.media.ref' <<<"$cout")"
 if [ -f "$crop_path" ]; then ok "crop.output_exists" "crop image written"; else fail "crop.output_exists" "no crop at $crop_path"; fi
 
-# see: with NO provider configured (HF token unset), it's the placeholder.
-# (When HF_TOKEN/a binding is present, see routes to that provider instead.)
-sout="$(env -u HF_TOKEN -u HUGGING_FACE_HUB_TOKEN OVERCAST_NO_DOTENV=1 $OVERCAST see "./missing.jpg" --json --case "$casedir" 2>/dev/null)"
+# see: with NO brain, NO HF token, and no binding, it's the placeholder.
+# (A brain / HF_TOKEN / a binding routes see to that backend instead.) Both the
+# brain default (OVERCAST_SEE_BRAIN=off) and .env auto-load (OVERCAST_NO_DOTENV=1)
+# are disabled so this stays deterministic even with an ambient Cloudglue key.
+sout="$(env -u HF_TOKEN -u HUGGING_FACE_HUB_TOKEN OVERCAST_NO_DOTENV=1 OVERCAST_SEE_BRAIN=off $OVERCAST see "./missing.jpg" --json --case "$casedir" 2>/dev/null)"
 save_json "phase2_see" "$sout" >/dev/null
 assert_eq "see.state" "needs_credentials" "$(jq -r '.state' <<<"$sout")" "see placeholder state (no provider)"

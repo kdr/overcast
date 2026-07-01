@@ -42,7 +42,7 @@ OVERCAST_SOURCE_TIKTOK_CMD="bash examples/providers/sources/tiktok.sh" \
 
 Bindings live in the active profile (`~/.overcast/profiles/<name>.json`), so they
 travel with `--profile`. **Rebinding a verb requires no overcast code changes** —
-the default tinycloud `watch`/`listen` and the `see` placeholder are just the
+the default tinycloud `watch`/`listen` and the default `see` backend are just the
 out-of-the-box descriptors.
 
 ## Provider setup wizard and non-interactive profiles
@@ -117,12 +117,39 @@ credential-blocked, or failed. Refless hits are explicit processing errors in
 both commands. Monitor records hard failures once and marks them seen; pending
 or credential-blocked items are left retryable for the next pass.
 
-## Hugging Face providers (turnkey when `HF_TOKEN` is set)
+## `see` — the brain LLM by default
 
-overcast ships Hugging Face Inference API providers so `see` and model-based
-`enhance` work out of the box once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
+`see` defaults to the **brain LLM** whenever it accepts image input: overcast
+sends the image plus a "describe this image in detail" instruction directly to
+whatever brain the profile/env already resolves (BYO — the turnkey Cloudglue brain
+out of the box, or any image-capable `setup llm <provider> <model>`), and maps the
+reply to the `see` record (`payload.caption`; `--ocr` also fills `payload.ocr`).
+No extra key is needed beyond the brain you already use.
 
-- **`see`** — auto-defaults to a HF vision-LLM captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)) when `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is present (else the placeholder). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--detect` / `--prompt`.
+Precedence when you run `see`:
+
+1. an explicit provider binding (`setup provider see <exec|http|inproc spec>`) — e.g. the OWLv2 detector;
+2. the **brain LLM** when it's image-capable (the default);
+3. the Hugging Face captioner when `HF_TOKEN` is set;
+4. a `needs_credentials` placeholder with guidance.
+
+Switch the built-in backend without editing the profile by hand:
+
+```bash
+overcast setup provider see builtin:hf      # force the classic Hugging Face captioner
+overcast setup provider see builtin:brain   # force the brain LLM (errors if it has no vision)
+OVERCAST_SEE_BRAIN=off overcast see shot.jpg # one-off: skip the brain default (→ HF / placeholder)
+```
+
+`--detect` still needs a detection provider (the brain path produces a description,
+not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 examples/providers/detect/detect.py"`.
+
+## Hugging Face providers (`see` fallback + model-based `enhance`)
+
+overcast ships Hugging Face Inference API providers so the `see` captioner and
+model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
+
+- **`see`** — the fallback captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--detect` / `--prompt`.
 - **`enhance` (image)** — opt-in HF model ops ([`examples/providers/hf/enhance.py`](../examples/providers/hf/enhance.py), needs `huggingface_hub` + `pillow`). Image **upscale/unblur/restore works** via the **fal-ai** provider, routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; uses the free monthly credit then pay-as-you-go). The **default stays the internal ffmpeg toolkit**; bind to opt in:
   ```bash
   overcast setup provider enhance "exec:python3 examples/providers/hf/enhance.py {{input}}"
