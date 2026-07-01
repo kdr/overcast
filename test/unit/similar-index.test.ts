@@ -23,7 +23,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // A fake OC_VISUAL_DB_PY that echoes back the resolved op + config flags so the
 // test can assert what the verb forwarded (index config ⊕ CLI flags).
 const STUB = `#!/usr/bin/env bash
-op=""; gran=""; pool=""; samp=""; win=""; framesat="no"; input=""
+op=""; gran=""; pool=""; samp=""; win=""; framesat=""; input=""
 for ((i=1; i<=$#; i++)); do
   arg="\${!i}"
   case "$arg" in
@@ -32,7 +32,7 @@ for ((i=1; i<=$#; i++)); do
     --pooling) j=$((i+1)); pool="\${!j}";;
     --sampling) j=$((i+1)); samp="\${!j}";;
     --window) j=$((i+1)); win="\${!j}";;
-    --frames-at) framesat="yes";;
+    --frames-at) j=$((i+1)); framesat="\${!j}";;
   esac
   input="$arg"
 done
@@ -266,7 +266,7 @@ printf '{"verb":"watch","format":"json","payload":{"content":"x","transcript":""
     const recs = await similarVerb.run(mk(dir, "add", [video], { index: id }, profile));
     assert.equal(recs.length, 2, "similar record + the fresh watch record");
     assert.equal(recs[0].verb, "similar");
-    assert.equal((recs[0].payload as Record<string, unknown>).frames_at, "yes", "shot markers forwarded to the embedder");
+    assert.equal((recs[0].payload as Record<string, unknown>).frames_at, "0,12.5", "shot markers forwarded to the embedder");
     assert.equal(recs[1].verb, "watch");
     assert.equal(recs[1].media?.ref, video);
     assert.equal(recs[1].meta?.triggered_by, "similar");
@@ -289,11 +289,11 @@ test("similar add with sampling=shots reuses ready watch evidence (no re-watch) 
     const [created] = await indexVerb.run(mk(dir, "create", ["scenes"], { type: "basic-clip", local: true, sampling: "shots" }));
     const id = String((created.payload as Record<string, unknown>).index);
     // no watch provider bound: a re-invocation would fail loudly, so a ready
-    // result with frames_at=yes proves the existing record was reused.
+    // result carrying the record's markers proves the existing record was reused.
     const recs = await similarVerb.run(mk(dir, "add", [video], { index: id }));
     assert.equal(recs.length, 1, "no duplicate watch record");
     assert.equal(recs[0].state, "ready");
-    assert.equal((recs[0].payload as Record<string, unknown>).frames_at, "yes");
+    assert.equal((recs[0].payload as Record<string, unknown>).frames_at, "3,9");
   });
 });
 
@@ -315,8 +315,65 @@ test("similar add with sampling=shots does not re-watch while evidence is pendin
     const recs = await similarVerb.run(mk(dir, "add", [video], { index: id }));
     assert.equal(recs.length, 1, "pending watch evidence must suppress a new (double-billed) watch");
     assert.equal(recs[0].state, "ready");
-    assert.equal((recs[0].payload as Record<string, unknown>).frames_at, "no", "uniform fallback while shots are pending");
+    assert.equal((recs[0].payload as Record<string, unknown>).frames_at, "", "uniform fallback while shots are pending");
   });
+});
+
+test("shots reuse prefers the NEWEST ready watch with segments (#B2-2)", async () => {
+  await withStub(async (dir) => {
+    const video = join(dir, "clip.mp4");
+    writeFileSync(video, "x");
+    const c = openCase(dir);
+    c.ensure();
+    // older watch has stale segments; a later re-watch produced better ones.
+    c.writeRecord(makeRecord({
+      verb: "watch", format: "json",
+      payload: { content: "x", detailed: { segments: [{ start_seconds: 3 }, { start_seconds: 9 }] } },
+      media: { ref: video }, state: "ready",
+    }));
+    c.writeRecord(makeRecord({
+      verb: "watch", format: "json",
+      payload: { content: "x", detailed: { segments: [{ start_seconds: 5 }, { start_seconds: 20 }] } },
+      media: { ref: video }, state: "ready",
+    }));
+    const [created] = await indexVerb.run(mk(dir, "create", ["scenes"], { type: "basic-clip", local: true, sampling: "shots" }));
+    const id = String((created.payload as Record<string, unknown>).index);
+    const recs = await similarVerb.run(mk(dir, "add", [video], { index: id }));
+    assert.equal(recs.length, 1);
+    assert.equal((recs[0].payload as Record<string, unknown>).frames_at, "5,20", "the newest ready watch's segments win");
+  });
+});
+
+test("shots reuse skips a segmentless ready watch in favor of one with segments (#B2-2)", async () => {
+  await withStub(async (dir) => {
+    const video = join(dir, "clip.mp4");
+    writeFileSync(video, "x");
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({
+      verb: "watch", format: "json",
+      payload: { content: "x", detailed: { segments: [{ start_seconds: 3 }, { start_seconds: 9 }] } },
+      media: { ref: video }, state: "ready",
+    }));
+    // a later speech-only watch with no segments must not mask the earlier one
+    c.writeRecord(makeRecord({
+      verb: "watch", format: "json",
+      payload: { content: "x", transcript: "hi", detailed: {} },
+      media: { ref: video }, state: "ready",
+    }));
+    const [created] = await indexVerb.run(mk(dir, "create", ["scenes"], { type: "basic-clip", local: true, sampling: "shots" }));
+    const id = String((created.payload as Record<string, unknown>).index);
+    const recs = await similarVerb.run(mk(dir, "add", [video], { index: id }));
+    assert.equal(recs.length, 1);
+    assert.equal((recs[0].payload as Record<string, unknown>).frames_at, "3,9");
+  });
+});
+
+test("clip_match.py invalidates a cached member when explicit frames_at changed (#B2-1)", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  // frames_at is not part of config_hash, so the freshness check must compare
+  // an explicit marker list against the sidecar's recorded markers.
+  assert.match(src, /frames_at is not None and meta\.get\("frames_at"\) != frames_at/);
 });
 
 test("clip_match.py persists + reuses shot markers across cache rebuilds (#B1-2)", () => {

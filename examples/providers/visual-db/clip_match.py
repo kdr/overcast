@@ -230,7 +230,14 @@ def build_member(ref, args, index_dir, frames_at=None):
     if npy.exists() and sidecar.exists():
         try:
             meta = json.loads(sidecar.read_text())
-            if meta.get("config_hash") == chash and abs(float(meta.get("mtime", -1)) - mtime) < 1e-6:
+            fresh = meta.get("config_hash") == chash and abs(float(meta.get("mtime", -1)) - mtime) < 1e-6
+            # frames_at is NOT part of config_hash, so an explicit marker list (a
+            # fresh `add` with new shot boundaries) must also match what was
+            # cached — otherwise re-adding with different markers would appear
+            # successful while silently keeping the old vectors.
+            if fresh and frames_at is not None and meta.get("frames_at") != frames_at:
+                fresh = False
+            if fresh:
                 vecs = np.load(str(npy))
                 return vecs, meta.get("ats", [None] * len(vecs)), meta.get("granularity", args.granularity)
             # stale rebuild (query-time cache miss): reuse the shot markers the

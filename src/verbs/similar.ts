@@ -84,7 +84,15 @@ async function shotMarkers(ctx: VerbContext, ref: string): Promise<{ markers: nu
     return state !== "error" && state !== "needs_credentials";
   });
   if (evidence.length) {
-    return { markers: segmentStarts(evidence.find(isReady)) };
+    // prefer the NEWEST ready record that actually carries segments — a video
+    // may have been re-watched with better segmentation, and an early
+    // segmentless (e.g. speech-only) record must not mask a later one that has
+    // shot boundaries. Records are append-ordered, so scan in reverse.
+    for (const r of evidence.filter(isReady).reverse()) {
+      const markers = segmentStarts(r);
+      if (markers.length) return { markers };
+    }
+    return { markers: [] };
   }
   // No watch evidence yet — call the bound watch provider (as watchVerb does) to
   // obtain shot boundaries. Reuse-first avoids re-paying for an already-watched clip.
