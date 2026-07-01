@@ -160,18 +160,21 @@ def store_lock(index_dir):
 
 def guard_model(store, faces, inp, op):
     # Embeddings only compare within one embedding CONFIG — the model (vector
-    # space) AND the detector (crop/alignment feeding it). Refuse a mismatch on
-    # either instead of silently degrading. Guard whenever ANY embedding-derived
-    # state exists (face rows OR cluster centroids — clusters.json can outrun
-    # faces.jsonl across the documented crash window). Stores predating the
-    # `detector` field guard on model alone; the next ingest stamps both.
+    # space) AND the detector (crop/alignment feeding it). Guard whenever ANY
+    # embedding-derived state exists (face rows OR cluster centroids —
+    # clusters.json can outrun faces.jsonl across the documented crash window).
+    # A MISSING stamp is refused like a mismatch: every ingest writes both, so
+    # absence means unknown provenance (hand-edited / foreign store) whose
+    # embeddings can't be verified against the current config.
     if not (faces or store.get("clusters")):
         return
     problems = []
-    if store.get("model") and store["model"] != FACE_MODEL:
-        problems.append("OVERCAST_FACE_MODEL is %s but the index was built with %s" % (FACE_MODEL, store["model"]))
-    if store.get("detector") and store["detector"] != FACE_DETECTOR:
-        problems.append("OVERCAST_FACE_DETECTOR is %s but the index was built with %s" % (FACE_DETECTOR, store["detector"]))
+    for field, env, current in (("model", "OVERCAST_FACE_MODEL", FACE_MODEL), ("detector", "OVERCAST_FACE_DETECTOR", FACE_DETECTOR)):
+        stored = store.get(field)
+        if not stored:
+            problems.append("the index has embeddings but no recorded %s" % field)
+        elif stored != current:
+            problems.append("%s is %s but the index was built with %s" % (env, current, stored))
     if problems:
         fail(
             "embedding config mismatch: %s — embeddings won't compare; restore the stored config or rebuild the index" % "; ".join(problems),
