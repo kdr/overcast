@@ -131,6 +131,10 @@ export interface ClusterGalleryReport {
   title: string;
   subtitle?: string;
   clusters: ClusterGalleryPerson[];
+  /** whole-store totals — `clusters` may be a page; when provided these drive
+   *  the stats so the gallery never understates an off-page person. */
+  total?: number;
+  named?: number;
   model?: string | null;
 }
 
@@ -138,16 +142,20 @@ export interface ClusterGalleryReport {
  *  card per person, each with a few base64-embedded face crops, size, time span,
  *  and sources. Reuses the CSI shell + imageSrc so it matches brief/status HTML. */
 export function renderClusterGallery(report: ClusterGalleryReport): string {
-  const named = report.clusters.filter((c) => c.label).length;
+  const total = report.total ?? report.clusters.length;
+  const named = report.named ?? report.clusters.filter((c) => c.label).length;
   const cards = report.clusters.map(renderPersonCard).join("");
+  const truncated = total > report.clusters.length
+    ? `<article class="context-card"><span class="label">MORE</span><p>showing ${report.clusters.length} of ${total} people — see <code>cluster list</code></p></article>`
+    : "";
   return csiShell(report.title, report.subtitle, `
     <section class="stats" aria-label="face cluster stats">
-      <div><span class="label">PEOPLE</span><strong>${report.clusters.length}</strong></div>
+      <div><span class="label">PEOPLE</span><strong>${total}</strong></div>
       <div><span class="label">NAMED</span><strong>${named}</strong></div>
       <div><span class="label">MODEL</span><strong>${escapeHtml(report.model ?? "—")}</strong></div>
     </section>
     <section class="context" data-cluster-gallery="true">
-      ${cards || `<article class="context-card"><span class="label">EMPTY</span><p>No people yet — ingest media with <code>cluster add</code>.</p></article>`}
+      ${cards || `<article class="context-card"><span class="label">EMPTY</span><p>No people yet — ingest media with <code>cluster add</code>.</p></article>`}${truncated}
     </section>
   `);
 }

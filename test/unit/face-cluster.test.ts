@@ -44,7 +44,7 @@ for ((i=1; i<=$#; i++)); do
   esac
 done
 input="\${!#}"
-printf '{"verb":"cluster","format":"json","payload":{"op":"%s","index":"%s","index_dir_seen":%s,"cluster":"%s","label":"%s","min_similarity":"%s","source_record":"%s","input":"%s","clusters":[{"cluster_id":"p_1","label":null,"size":1,"sample_crops":[],"at_span":null,"sources":[]}]},"state":"ready","meta":{"provider":"fake-cluster","model":"FakeNet"}}\\n' \\
+printf '{"verb":"cluster","format":"json","payload":{"op":"%s","index":"%s","index_dir_seen":%s,"cluster":"%s","label":"%s","min_similarity":"%s","source_record":"%s","input":"%s","count":5,"named":3,"clusters":[{"cluster_id":"p_1","label":null,"size":1,"sample_crops":[],"at_span":null,"sources":[]}]},"state":"ready","meta":{"provider":"fake-cluster","model":"FakeNet"}}\\n' \\
   "$op" "$index" "$([ -n "$indexdir" ] && echo true || echo false)" "$cluster" "$label" "\${minsim:-}" "\${srcrec:-}" "$input"
 `);
   chmodSync(path, 0o755);
@@ -196,11 +196,17 @@ test("cluster view renders a self-contained HTML gallery record", async () => {
       assert.equal(rec.state, "ready");
       const p = rec.payload as Record<string, unknown>;
       assert.equal(p.op, "view");
+      // whole-store totals from the list payload (count=5, named=3), NOT the
+      // 1-entry page — the gallery must not understate a big DB (#PR33 R3).
+      assert.equal(p.people, 5);
+      assert.match(String(p.summary), /5 people/);
       const viewer = String(p.viewer);
       assert.ok(existsSync(viewer), "gallery html written");
       const html = readFileSync(viewer, "utf8");
       assert.match(html, /data-cluster-gallery="true"/);
-      assert.match(html, /PEOPLE/);
+      assert.match(html, /PEOPLE<\/span><strong>5</);
+      assert.match(html, /NAMED<\/span><strong>3</);
+      assert.match(html, /showing 1 of 5 people/);
     });
   } finally {
     rmSync(cdir, { recursive: true, force: true });
@@ -472,6 +478,12 @@ test("face_cluster.py refuses to mix embedding models in one index (#PR33 R2)", 
     const leftovers = readdirSync(idxDir).filter((f) => f.endsWith(".tmp"));
     assert.deepEqual(leftovers, [], "atomic writes must not leave .tmp files");
     assert.ok(existsSync(join(idxDir, ".lock")), "mutating ops take the store lock");
+    // the guard must also trip on centroids alone (the documented crash window:
+    // clusters.json replaced, faces.jsonl write lost) — not just on face rows.
+    rmSync(join(idxDir, "faces.jsonl"));
+    const centroidOnly = JSON.parse(run("ModelB", "ingest", join(cdir, "a.jpg")).stdout.trim());
+    assert.equal(centroidOnly.state, "error", "model guard must cover a faces-empty, clusters-populated store");
+    assert.match(String(centroidOnly.error), /ModelA/);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }

@@ -160,9 +160,12 @@ def store_lock(index_dir):
 
 def guard_model(store, faces, inp, op):
     # Embeddings from different models live in incompatible vector spaces —
-    # mixing them makes every similarity silently wrong. Refuse instead.
+    # mixing them makes every similarity silently wrong. Refuse instead. Guard
+    # whenever ANY embedding-derived state exists (face rows OR cluster
+    # centroids — clusters.json can outrun faces.jsonl across the documented
+    # crash window), not just when the face log is non-empty.
     stored = store.get("model")
-    if faces and stored and stored != FACE_MODEL:
+    if stored and stored != FACE_MODEL and (faces or store.get("clusters")):
         fail(
             "this face-cluster index was built with %s but OVERCAST_FACE_MODEL is %s — embeddings from different models don't compare; set OVERCAST_FACE_MODEL=%s or rebuild the index" % (stored, FACE_MODEL, stored),
             inp,
@@ -685,6 +688,7 @@ def op_list(args):
             "summary": "%d %s in this face DB (%d named)" % (len(store["clusters"]), "person" if len(store["clusters"]) == 1 else "people", labeled),
             "clusters": views,
             "count": len(store["clusters"]),
+            "named": labeled,
         },
         "media": None,
         "meta": {"provider": "local:face-cluster", "model": store.get("model")},

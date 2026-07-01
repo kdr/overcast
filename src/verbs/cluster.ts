@@ -219,11 +219,18 @@ export const clusterVerb: VerbSpec = {
     if (listRec.state === "error") return finish(listRec, "list");
     const payload = (listRec.payload ?? {}) as Record<string, unknown>;
     const clusters = (Array.isArray(payload.clusters) ? payload.clusters : []) as ClusterGalleryPerson[];
+    // the whole-store totals come from the list payload — `clusters` is a page
+    // (limit-capped), so counting it would understate a big DB and drop
+    // off-page named people from the stats.
+    const people = typeof payload.count === "number" ? payload.count : clusters.length;
+    const named = typeof payload.named === "number" ? payload.named : undefined;
     const model = (listRec.meta as Record<string, unknown> | undefined)?.model;
     const html = renderClusterGallery({
       title: `overcast — face clusters`,
-      subtitle: `${indexId} · ${clusters.length} ${clusters.length === 1 ? "person" : "people"}`,
+      subtitle: `${indexId} · ${people} ${people === 1 ? "person" : "people"}`,
       clusters,
+      total: people,
+      named,
       model: typeof model === "string" ? model : null,
     });
     const outPath = ctx.opts.out ? String(ctx.opts.out) : join(c.mediaDir, `cluster-${indexId}.html`);
@@ -238,9 +245,9 @@ export const clusterVerb: VerbSpec = {
         op: "view",
         index: indexId,
         viewer: outPath,
-        people: clusters.length,
+        people,
         opened: !noOpen,
-        summary: `face-cluster gallery for ${indexId} (${clusters.length} ${clusters.length === 1 ? "person" : "people"})`,
+        summary: `face-cluster gallery for ${indexId} (${people} ${people === 1 ? "person" : "people"})`,
       },
       meta: { provider: "local:face-cluster", case: c.dir },
       state: "ready",
