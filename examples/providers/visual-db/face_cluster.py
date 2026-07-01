@@ -604,6 +604,11 @@ def op_recluster(args):
     prev = load_clusters(args.index_dir)
     if not faces:
         fail("this face-cluster index has no faces to recluster", "", "recluster")
+    # recluster computes with the stored embedding VALUES (pairwise
+    # similarities), so it enforces the config stamps like ingest/identify — an
+    # unstamped/foreign store may hold mixed vector spaces, and regrouping those
+    # yields garbage. (list/show/label only shuffle metadata; they don't guard.)
+    guard_model(prev, faces, "", "recluster")
     prev_label = {}     # face_id -> previous human label (to carry forward)
     prev_by_face = {}   # face_id -> previous cluster_id
     for cl in prev["clusters"]:

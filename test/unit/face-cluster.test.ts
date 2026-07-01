@@ -596,11 +596,12 @@ test("face_cluster.py guards the detector and reconciles ghost clusters (#PR33 R
     assert.doesNotMatch(String(shown.payload.summary), /99/, "show summary must not repeat the drifted size");
 
     // a store with embeddings but NO recorded model/detector is unknown
-    // provenance — the guard must refuse, not silently skip (#R7).
+    // provenance — every op that computes with embedding values must refuse,
+    // recluster included (#R7, #R10).
     delete store.model;
     store.clusters[0].size = 1;
     writeFileSync(storePath, JSON.stringify(store, null, 2));
-    for (const op of ["ingest", "identify"]) {
+    for (const op of ["ingest", "identify", "recluster"]) {
       const rec = JSON.parse(run(base, op, join(cdir, "a.jpg")).stdout.trim());
       assert.equal(rec.state, "error", `${op} must refuse an unstamped store`);
       assert.match(String(rec.error), /no recorded model/);
