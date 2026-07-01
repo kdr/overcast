@@ -296,7 +296,7 @@ sample 8 frames.
 - [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN image enhance, and DeepFilterNet3 audio enhance.
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
 - [`examples/providers/visual-db/{image_match,face_match,clip_match}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, and CLIP (basic-clip) matching for visual DB indexes.
-- [`examples/providers/sources/{youtube,tiktok,web}.sh`](../examples/providers/sources/) — yt-dlp + Apify + web-search (Tavily/Brave) source providers.
+- [`examples/providers/sources/{youtube,tiktok,web,lens}.sh`](../examples/providers/sources/) — yt-dlp + Apify + web-search (Tavily/Brave) + Google Lens reverse-image (Apify) source providers.
 
 ## Source providers (built-in types)
 
@@ -304,6 +304,7 @@ sample 8 frames.
 - **`youtube`** — yt-dlp (no key). Supported refs: `youtube:@handle` for a channel's videos; `youtube:search:<query>` or `youtube:<keyword>` for keyword search; `youtube:playlist:<id>` or `youtube:<full YouTube URL>` for playlists/video URLs.
 - **`tiktok`** — Apify (`APIFY_TOKEN`). Supported refs: `tiktok:@user` for profile videos and `tiktok:#tag` for hashtag videos. TikTok keyword search is not a built-in mode.
 - **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). Supported ref: `web:<query>` for web search hits.
+- **`lens`** — Google Lens reverse image search via Apify (`APIFY_TOKEN`; actor override `OVERCAST_LENS_ACTOR`, default `borderline~google-lens`). Supported ref: `lens:<image url>` or `lens:<local image path>` (local files are uploaded to the account's `overcast-lens` key-value store so the actor can fetch them). Hits carry the matched page (`payload.url`), `match: "exact" | "visual"`, the matching site, and for exact matches the match thumbnail materialized into the case media dir (`media.ref`); `--limit` applies per match type; `--since` is ignored (Lens has no recency filter).
 - Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
 For local-media-only cases, `scan` falls back to local case media/indexes instead

@@ -105,6 +105,7 @@ Built-in source refs for \`source add <type>:<ref>\`:
 - \`tiktok:@user\` — enumerate a TikTok profile.
 - \`tiktok:#tag\` — enumerate a TikTok hashtag.
 - \`web:<query>\` — web search through Tavily, falling back to Brave when Tavily is unset.
+- \`lens:<image url or local path>\` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
 
 \`overcast commands --json\` dumps the authoritative verb registry. Full man
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —

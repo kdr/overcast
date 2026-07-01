@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Real OSINT sources: web search (Tavily), tiktok (Apify), youtube (yt-dlp).
+# Real OSINT sources: web search (Tavily), tiktok (Apify), lens reverse image
+# search (Apify), youtube (yt-dlp).
 # Bound via OVERCAST_SOURCE_<TYPE>_CMD with absolute paths (the bun binary can't
 # auto-resolve the shipped examples/).
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
@@ -49,6 +50,26 @@ if require_cred "$C.tiktok" APIFY_TOKEN "skipping tiktok"; then
   assert_scan_hits "$C.tiktok.tag" "$out" "tiktok hashtag"
 
   unset OVERCAST_SOURCE_TIKTOK_CMD
+fi
+
+# --- lens (Apify Google Lens reverse image) — stable public image, small limit ---
+if require_cred "$C.lens" APIFY_TOKEN "skipping lens reverse image search"; then
+  CASE=$(case_dir src_lens)
+  export OVERCAST_SOURCE_LENS_CMD="bash $SRCDIR/lens.sh"
+  ocrun "$CASE" source add 'lens:https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg/330px-Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=300 oc "$CASE" scan --source lens --limit 2 --json)"
+  save_json "20_scan_lens" "$out" >/dev/null
+  assert_scan_hits "$C.lens.query" "$out" "lens reverse image"
+  match="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.match // empty' 2>/dev/null)"
+  assert_nonempty "$C.lens.match" "$match" "lens hit carries a match kind (exact|visual)"
+  # exact-match thumbnails are materialized into the case media dir as evidence
+  thumb="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and .payload.match=="exact")][0].payload.thumbnail_path // empty' 2>/dev/null)"
+  if [ -n "$thumb" ] && [ -s "$thumb" ]; then
+    ok "$C.lens.thumb" "exact match thumbnail materialized: $(basename "$thumb")"
+  else
+    fail "$C.lens.thumb" "no materialized thumbnail for an exact lens match"
+  fi
+  unset OVERCAST_SOURCE_LENS_CMD
 fi
 
 # --- youtube (yt-dlp) — channel + playlist URL + keyword search ---

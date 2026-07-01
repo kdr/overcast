@@ -62,6 +62,12 @@ export function builtinDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("web.sh");
       return script ? { type, base: ["bash", script], needs: "TAVILY_API_KEY|BRAVE_API_KEY" } : undefined;
     }
+    case "lens": {
+      // Google Lens reverse image search (Apify actor); ref/query = image URL
+      // or local image path.
+      const script = shippedSource("lens.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN" } : undefined;
+    }
     default:
       return undefined;
   }
@@ -84,20 +90,25 @@ function hitsToRecords(parsed: unknown, sourceType: string): OvercastRecord[] {
   const arr: unknown[] = Array.isArray(parsed) ? parsed : [];
   return arr.map((h) => {
     const hit = (h ?? {}) as ScanHit;
-    const media = hit.media?.ref
-      ? { ref: hit.media.ref }
-      : hit.url
-        ? { ref: hit.url }
+    // any fields beyond the canonical five ride along into the payload (loose
+    // record) — provider-specific surrounding data (e.g. lens match kind /
+    // matched-image size) must not be dropped at this boundary.
+    const { media: hitMedia, title, url, source, published, snippet, ...extra } = hit;
+    const media = hitMedia?.ref
+      ? { ref: hitMedia.ref }
+      : url
+        ? { ref: url }
         : undefined;
     return makeRecord({
       verb: "scan",
       format: "json",
       payload: {
-        title: hit.title ?? "",
-        url: hit.url ?? "",
-        source: hit.source ?? sourceType,
-        published: hit.published ?? null,
-        snippet: hit.snippet ?? "",
+        title: title ?? "",
+        url: url ?? "",
+        source: source ?? sourceType,
+        published: published ?? null,
+        snippet: snippet ?? "",
+        ...extra,
       },
       media,
       meta: { provider: `source:${sourceType}` },

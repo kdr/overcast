@@ -15,7 +15,7 @@ import {
   resolveSources,
 } from "../../src/state/source.ts";
 import { loadSeen, saveSeen, hitKey } from "../../src/state/seen.ts";
-import { fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
+import { enumerateSource, fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
 import { makeRecord } from "../../src/record.ts";
 
 function withCase(fn: (c: ReturnType<typeof openCase>) => void) {
@@ -109,12 +109,16 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
   const yt = builtinDescriptor("youtube");
   const tt = builtinDescriptor("tiktok");
   const web = builtinDescriptor("web");
+  const lens = builtinDescriptor("lens");
   assert.ok(yt, "youtube descriptor present in dev");
   assert.ok(tt, "tiktok descriptor present in dev");
   assert.ok(web, "web descriptor present in dev");
+  assert.ok(lens, "lens descriptor present in dev");
   assert.match(yt!.base.join(" "), /youtube\.sh$/);
   assert.match(tt!.base.join(" "), /tiktok\.sh$/);
   assert.match(web!.base.join(" "), /web\.sh$/);
+  assert.match(lens!.base.join(" "), /lens\.sh$/);
+  assert.equal(lens!.needs, "APIFY_TOKEN");
   assert.equal(builtinDescriptor("nope"), undefined);
   // env override takes precedence and is quote-aware
   process.env.OVERCAST_SOURCE_YOUTUBE_CMD = 'bash "/x y/z.sh"';
@@ -122,6 +126,42 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
     assert.deepEqual(builtinDescriptor("youtube")!.base, ["bash", "/x y/z.sh"]);
   } finally {
     delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD;
+  }
+});
+
+test("enumerateSource passes provider-specific hit fields through to the payload", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-enum-extra-"));
+  try {
+    const script = join(dir, "enumerator.mjs");
+    writeFileSync(script, `
+const hits = [{
+  title: "Mona Lisa - Wikipedia",
+  url: "https://en.wikipedia.org/wiki/Mona_Lisa",
+  snippet: "exact image match on Wikipedia",
+  match: "exact",
+  site: "Wikipedia",
+  position: 1,
+  image_size: { width: 330, height: 492 },
+  media: { ref: "/tmp/lens_abc123.jpg" },
+}];
+console.log(JSON.stringify(hits));
+`);
+    const recs = await enumerateSource({ type: "lens", base: ["node", script] }, { query: "https://x/img.jpg" });
+    assert.equal(recs.length, 1);
+    const payload = recs[0].payload as Record<string, unknown>;
+    // canonical fields still normalized
+    assert.equal(payload.title, "Mona Lisa - Wikipedia");
+    assert.equal(payload.source, "lens");
+    assert.equal(payload.published, null);
+    // extra fields ride along (loose record), media maps to media.ref not payload
+    assert.equal(payload.match, "exact");
+    assert.equal(payload.site, "Wikipedia");
+    assert.equal(payload.position, 1);
+    assert.deepEqual(payload.image_size, { width: 330, height: 492 });
+    assert.equal(payload.media, undefined);
+    assert.equal(recs[0].media?.ref, "/tmp/lens_abc123.jpg");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

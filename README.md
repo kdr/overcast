@@ -375,7 +375,7 @@ for cadence, and add `--max-frames` when you want a hard cap.
 | class | verbs | shipped providers |
 |---|---|---|
 | **sense** | watch / listen / see / face / similar / enhance | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
-| **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave) |
+| **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave), lens (Apify Google Lens reverse image) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
@@ -386,6 +386,7 @@ Built-in source refs:
 - `tiktok:@user` — enumerate a TikTok profile.
 - `tiktok:#tag` — enumerate a TikTok hashtag.
 - `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
+- `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
 
 ### Profiles
 

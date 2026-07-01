@@ -188,6 +188,9 @@ async function enumerateAll(ctx: VerbContext, verb = "scan"): Promise<OvercastRe
         ref: s.ref,
         limit,
         since,
+        // same env sense/enhance providers get: lets a source materialize hit
+        // artifacts (e.g. lens match thumbnails) into the case media dir.
+        env: providerEnv(ctx.case.mediaDir),
         signal: ctx.signal,
       });
       for (const h of hits) {

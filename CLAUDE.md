@@ -105,7 +105,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
   `--square`).
-- **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / web;
+- **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / web /
+  lens reverse-image;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
   (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
@@ -114,7 +115,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `image-ransac` for `image match`, `deepface-local` for local face search,
   `basic-clip` for `similar` CLIP semantic search).
   Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
-  `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `web:<q>`.
+  `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `web:<q>`;
+  `lens:<image url|path>` (Google Lens reverse image search via Apify).
 - **State** — `target` / `source` manage standing scope; `note` records human
   observations (anchored via `--ref`/`--at`/`--tag`/`--confidence`); `finding`
   (create/list/accept/dismiss) holds manual + setup-automated findings;

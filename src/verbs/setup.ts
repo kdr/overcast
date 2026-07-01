@@ -536,6 +536,15 @@ export const doctorVerb: VerbSpec = {
           : "TAVILY_API_KEY or BRAVE_API_KEY missing for web source scans",
       });
     }
+    if (ctx.opts.sources === true || sourceTypes.has("lens")) {
+      checks.push({
+        name: "source:lens",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present"
+          : "APIFY_TOKEN missing for lens (Google Lens reverse image) scans",
+      });
+    }
 
     // home / profiles
     const home = resolveHome({ home: ctx.home });
