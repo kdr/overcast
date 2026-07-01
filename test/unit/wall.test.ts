@@ -10,7 +10,7 @@ import { wallVerb } from "../../src/verbs/wall.ts";
 import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
-import { makeRecord, type OvercastRecord } from "../../src/record.ts";
+import { makeRecord, memoryRecords, type OvercastRecord } from "../../src/record.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 // ---- pure model assembly (no fs; injectable clock + fileExists) --------------
@@ -325,6 +325,13 @@ test("browser-hostile container gets a poster still; garbage media degrades to s
   } finally {
     rmSync(mkvDir, { recursive: true, force: true });
   }
+});
+
+test("wall records are operational — excluded from case memory and briefs", () => {
+  const wall = makeRecord({ verb: "wall", payload: { mode: "wall", viewer: "/x/wall.html", tiles: 3 } });
+  const watch = watchRec(A);
+  const kept = memoryRecords([watch, wall]);
+  assert.deepEqual(kept.map((r) => r.verb), ["watch"]);
 });
 
 test("invalid flags are user errors, not silent defaults", async () => {

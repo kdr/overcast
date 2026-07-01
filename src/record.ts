@@ -66,6 +66,7 @@ export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set([
   "skills",
   "source",
   "target",
+  "wall",
 ]);
 
 /** Whether a record is a read/meta output (not primary evidence). */

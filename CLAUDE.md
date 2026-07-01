@@ -141,8 +141,8 @@ Case memory is **evidence-only**. `ask` / `brief` read primary evidence
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
-prebrief`, finding review-rows, dismissed findings) are excluded even when they
-match the query. `face`/`see` detections index only compact summaries / counts /
+prebrief wall`, finding review-rows, dismissed findings) are excluded even when
+they match the query. `face`/`see` detections index only compact summaries / counts /
 moments — raw boxes and thumbnails stay in the record for exact reads and `crop`.
 Local visual DB artifacts stay in typed local indexes: local-grep/qmd ingest the
 records and summaries, not binary media, embeddings, sampled frames, match

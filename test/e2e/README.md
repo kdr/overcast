@@ -68,14 +68,17 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 `face:deepface-local`, and deepface-local with real media) · `30_read`
 (ask/brief over real records) · `31_visualization` (CSI status/brief/records
 exports with real visual targets and matches) · `32_headless_visualization`
-(headless agent `--mode json` export trace, default CSI HTML theme) ·
-`40_profiles` · `50_piping` (jq / chaining) · `60_dist` (binary as artifact) ·
-`70_headless` (agent `--mode json` event stream + `-p` tool use +
-watch/persist).
+(headless agent `--mode json` export trace, default CSI HTML theme) · `33_wall`
+(control-room wall over real watch/face evidence: finding-anchored loop window,
+FND chip, CSI markers) · `40_profiles` · `50_piping` (jq / chaining) · `60_dist`
+(binary as artifact) · `70_headless` (agent `--mode json` event stream + `-p`
+tool use + watch/persist).
 
 The offline suite also covers setup management (`phase4_setup`): `case setup
 plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
-and exclusion of setup history records from memory.
+and exclusion of setup history records from memory — plus the control-room wall
+(`phase6_wall`): empty-case pending guidance, then a themed wall over seeded
+case media.
 
 ### Output
 
