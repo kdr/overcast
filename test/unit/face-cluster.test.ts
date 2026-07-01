@@ -517,6 +517,14 @@ test("face_cluster.py guards the detector and reconciles ghost clusters (#PR33 R
     assert.match(String(det.error), /detA/);
     assert.match(String(det.error), /detB/);
 
+    // the guard must SURVIVE a recluster — its store rebuild once dropped the
+    // detector field, silently reopening the mixing hole (#R6).
+    assert.equal(JSON.parse(run(base, "recluster").stdout.trim()).state, "ready");
+    const store0 = JSON.parse(readFileSync(join(idxDir, "clusters.json"), "utf8"));
+    assert.equal(store0.detector, "detA", "recluster must carry the detector field forward");
+    const detAfter = JSON.parse(run({ ...base, OVERCAST_FACE_DETECTOR: "detB" }, "ingest", join(cdir, "a.jpg")).stdout.trim());
+    assert.equal(detAfter.state, "error", "detector guard must still trip after a recluster");
+
     // simulate the partial-commit window: drop person p_2's face row while
     // clusters.json still holds the ghost cluster + its centroid.
     const rows = readFileSync(join(idxDir, "faces.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));

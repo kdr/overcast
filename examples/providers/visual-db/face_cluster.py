@@ -661,8 +661,12 @@ def op_recluster(args):
         new_clusters.append(cl)
 
     moved = sum(1 for f in faces if prev_by_face.get(f["face_id"]) != f["cluster_id"])
-    store = {"model": prev.get("model"), "next_face": prev.get("next_face", n + 1),
-             "next_cluster": next_cluster, "clusters": new_clusters}
+    # carry the WHOLE previous store forward and replace only what recluster
+    # owns — enumerating fields here once dropped `detector`, silently reopening
+    # the embedding-config guard after any recluster.
+    store = dict(prev)
+    store["next_cluster"] = next_cluster
+    store["clusters"] = new_clusters
     commit_store(args.index_dir, store, faces)
     emit({
         "verb": "cluster",
