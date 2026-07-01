@@ -94,6 +94,14 @@ def crops_dir(index_dir):
     return Path(index_dir) / "crops"
 
 
+def atomic_write(path, text):
+    # tmp + os.replace so a reader (or a crash) never sees a half-written file.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 def load_faces(index_dir):
     fp = faces_path(index_dir)
     if not fp.exists():
@@ -107,17 +115,7 @@ def load_faces(index_dir):
 
 
 def save_faces(index_dir, faces):
-    fp = faces_path(index_dir)
-    fp.parent.mkdir(parents=True, exist_ok=True)
-    fp.write_text("".join(json.dumps(f) + "\n" for f in faces))
-
-
-def append_faces(index_dir, new_faces):
-    fp = faces_path(index_dir)
-    fp.parent.mkdir(parents=True, exist_ok=True)
-    with fp.open("a") as fh:
-        for f in new_faces:
-            fh.write(json.dumps(f) + "\n")
+    atomic_write(faces_path(index_dir), "".join(json.dumps(f) + "\n" for f in faces))
 
 
 def load_clusters(index_dir):
@@ -132,9 +130,44 @@ def load_clusters(index_dir):
 
 
 def save_clusters(index_dir, data):
-    cp = clusters_path(index_dir)
-    cp.parent.mkdir(parents=True, exist_ok=True)
-    cp.write_text(json.dumps(data, indent=2) + "\n")
+    atomic_write(clusters_path(index_dir), json.dumps(data, indent=2) + "\n")
+
+
+def commit_store(index_dir, store, faces):
+    # One commit path for every mutation. clusters.json (which carries the
+    # next_face/next_cluster COUNTERS) is replaced FIRST: if we crash between
+    # the two renames, the counters have already advanced, so a retry can never
+    # mint a duplicate face_id — the worst case is member ids in clusters.json
+    # that faces.jsonl doesn't have yet, and every reader already filters
+    # membership through faces_by_id.
+    save_clusters(index_dir, store)
+    save_faces(index_dir, faces)
+
+
+def store_lock(index_dir):
+    # Cross-process advisory lock serializing mutations (ingest/recluster/label):
+    # without it, two concurrent ingests both read next_face=N and mint duplicate
+    # ids. flock is POSIX; where unavailable the lock degrades to a no-op.
+    Path(index_dir).mkdir(parents=True, exist_ok=True)
+    fh = open(Path(index_dir) / ".lock", "w")
+    try:
+        import fcntl
+        fcntl.flock(fh, fcntl.LOCK_EX)
+    except ImportError:
+        pass
+    return fh
+
+
+def guard_model(store, faces, inp, op):
+    # Embeddings from different models live in incompatible vector spaces —
+    # mixing them makes every similarity silently wrong. Refuse instead.
+    stored = store.get("model")
+    if faces and stored and stored != FACE_MODEL:
+        fail(
+            "this face-cluster index was built with %s but OVERCAST_FACE_MODEL is %s — embeddings from different models don't compare; set OVERCAST_FACE_MODEL=%s or rebuild the index" % (stored, FACE_MODEL, stored),
+            inp,
+            op,
+        )
 
 
 # ---- vector math (pure python) ---------------------------------------------
@@ -364,11 +397,14 @@ def op_ingest(args):
     threshold = args.min_similarity
     deepface = load_deepface(inp, "ingest")
 
+    # serialize the whole read-modify-write against concurrent ingests/reclusters
+    lock = store_lock(args.index_dir)  # noqa: F841 — held until process exit
     # re-extract inside a temp dir so frames survive long enough to crop.
     is_video = inp.lower().endswith(VIDEO_EXTS)
     store = load_clusters(args.index_dir)
-    store["model"] = FACE_MODEL
     existing = load_faces(args.index_dir)
+    guard_model(store, existing, inp, "ingest")
+    store["model"] = FACE_MODEL
     by_id = {f["face_id"]: f for f in existing}
     clusters = store["clusters"]
 
@@ -431,8 +467,7 @@ def op_ingest(args):
                     "crop": crop,
                 })
 
-    append_faces(args.index_dir, new_rows)
-    save_clusters(args.index_dir, store)
+    commit_store(args.index_dir, store, existing + new_rows)
 
     new_people = sum(1 for a in assigned if a["is_new_cluster"])
     if not assigned:
@@ -471,9 +506,13 @@ def op_identify(args):
     deepface = load_deepface(inp, "identify")
     store = load_clusters(args.index_dir)
     clusters = store["clusters"]
-    faces = {f["face_id"]: f for f in load_faces(args.index_dir)}
+    face_rows = load_faces(args.index_dir)
+    faces = {f["face_id"]: f for f in face_rows}
     if not clusters:
         fail("this face-cluster index is empty; ingest media first with `cluster add`", inp, "identify")
+    # the probe is embedded with FACE_MODEL — comparing it against a store built
+    # with a different model would be silently meaningless.
+    guard_model(store, face_rows, inp, "identify")
 
     dets, _is_video, _sampled = sampled_detections(deepface, inp, args, "identify")
     matches = []
@@ -513,6 +552,7 @@ def op_identify(args):
 
 def op_recluster(args):
     threshold = args.min_similarity
+    lock = store_lock(args.index_dir)  # noqa: F841 — held until process exit
     faces = load_faces(args.index_dir)
     prev = load_clusters(args.index_dir)
     if not faces:
@@ -584,8 +624,7 @@ def op_recluster(args):
     moved = sum(1 for f in faces if prev_by_face.get(f["face_id"]) != f["cluster_id"])
     store = {"model": prev.get("model"), "next_face": prev.get("next_face", n + 1),
              "next_cluster": next_cluster, "clusters": new_clusters}
-    save_faces(args.index_dir, faces)
-    save_clusters(args.index_dir, store)
+    commit_store(args.index_dir, store, faces)
     emit({
         "verb": "cluster",
         "format": "json",
@@ -690,6 +729,7 @@ def op_label(args):
     name = (args.label or "").strip()
     if not name:
         fail("cluster label needs a --label <name>", "", "label")
+    lock = store_lock(args.index_dir)  # noqa: F841 — held until process exit
     store = load_clusters(args.index_dir)
     cl = next((c for c in store["clusters"] if c["cluster_id"] == args.cluster), None)
     if cl is None:

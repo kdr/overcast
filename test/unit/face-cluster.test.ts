@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -436,6 +436,42 @@ test("face_cluster.py identify headlines the STRONGEST confident match, not the 
     const idout = JSON.parse(run("identify", join(cdir, "multi.jpg")).stdout.trim());
     assert.equal(idout.payload.count, 2); // both probe faces reported
     assert.match(idout.payload.summary, /closest person: Bee \(100/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("face_cluster.py refuses to mix embedding models in one index (#PR33 R2)", () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-model-"));
+  const idxDir = join(cdir, "idx");
+  const mods = join(cdir, "mods");
+  mkdirSync(mods, { recursive: true });
+  writeFileSync(join(cdir, "a.jpg"), "x");
+  writeFileSync(join(mods, "deepface.py"), `class DeepFace:
+    @staticmethod
+    def represent(img_path=None, **kwargs):
+        return [{"embedding":[1.0,0.0,0.0,0.0],"facial_area":{"x":1,"y":1,"w":9,"h":9}}]
+`, { flag: "w" });
+  const run = (model: string, op: string, ...extra: string[]) =>
+    spawnSync("python3", [CLUSTER_PY, "--op", op, "--index", "idx", "--index-dir", idxDir, ...extra], {
+      cwd: cdir, env: { ...process.env, PYTHONPATH: mods, OVERCAST_FACE_MODEL: model }, encoding: "utf8",
+    });
+  try {
+    const first = JSON.parse(run("ModelA", "ingest", join(cdir, "a.jpg")).stdout.trim());
+    assert.equal(first.state, "ready");
+    // a different model against a populated store must refuse, for ingest AND identify
+    for (const op of ["ingest", "identify"]) {
+      const rec = JSON.parse(run("ModelB", op, join(cdir, "a.jpg")).stdout.trim());
+      assert.equal(rec.state, "error", `${op} with a mismatched model must error`);
+      assert.match(String(rec.error), /ModelA/);
+      assert.match(String(rec.error), /ModelB/);
+    }
+    // same model still works, and the commit path leaves no temp files behind
+    const again = JSON.parse(run("ModelA", "ingest", join(cdir, "a.jpg")).stdout.trim());
+    assert.equal(again.state, "ready");
+    const leftovers = readdirSync(idxDir).filter((f) => f.endsWith(".tmp"));
+    assert.deepEqual(leftovers, [], "atomic writes must not leave .tmp files");
+    assert.ok(existsSync(join(idxDir, ".lock")), "mutating ops take the store lock");
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
