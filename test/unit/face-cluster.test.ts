@@ -123,6 +123,15 @@ test("case setup provisions a local face-cluster index alongside another index",
     const idxs = (setup.indexes ?? []) as Array<Record<string, unknown>>;
     const faceIdx = idxs.find((i) => i.type === "face-cluster");
     assert.deepEqual(faceIdx?.default_signals, ["cluster add"]);
+
+    // an EXPLICIT-ID spec (id:type:name) must stamp backend local for local-only
+    // types too — a backend-less face-cluster mirror entry would be rejected by
+    // every cluster op as "remote" (#PR33 R9).
+    const [rec2] = await caseVerb.run(mk({ index: "local_face_cluster_pre:face-cluster:premade", yes: true }));
+    assert.equal(rec2.state, "ready");
+    const pre = findIndex(openCase(cdir), "local_face_cluster_pre");
+    assert.equal(pre?.type, "face-cluster");
+    assert.equal(pre?.backend, "local", "explicit-id setup spec must stamp backend local");
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
@@ -392,6 +401,15 @@ test("face_cluster.py ingest does assign-or-create and persists the store", () =
     const sizes = list.payload.clusters.map((x: Record<string, unknown>) => x.size).sort();
     assert.deepEqual(sizes, [1, 2]);
 
+    // show's count is the person's FULL face count even when --limit truncates
+    // the returned page — it must never contradict the summary (#PR33 R9)
+    const big = list.payload.clusters.find((x: Record<string, unknown>) => x.size === 2);
+    const shown = JSON.parse(run("show", "--cluster", big.cluster_id, "--limit", "1").stdout.trim());
+    assert.equal(shown.payload.count, 2, "count = whole person");
+    assert.equal(shown.payload.returned, 1, "returned = the page");
+    assert.equal(shown.payload.faces.length, 1);
+    assert.match(shown.payload.summary, /2 faces/);
+
     // store on disk
     assert.ok(existsSync(join(idxDir, "faces.jsonl")));
     assert.ok(existsSync(join(idxDir, "clusters.json")));
@@ -596,6 +614,17 @@ test("face_cluster.py guards the detector and reconciles ghost clusters (#PR33 R
     assert.equal(orphaned.state, "error");
     assert.match(String(orphaned.error), /cluster recluster/);
     assert.doesNotMatch(String(orphaned.error), /cluster add/);
+
+    // an intact-membership cluster with a blanked centroid must be recomputed
+    // by reconcile, not scored at 0% forever (#R9). Rebuild a clean store first.
+    run(base, "recluster");
+    const store3 = JSON.parse(readFileSync(storePath, "utf8"));
+    for (const cl of store3.clusters) cl.centroid = [];
+    writeFileSync(storePath, JSON.stringify(store3, null, 2));
+    const probe = JSON.parse(run(base, "identify", join(cdir, "a.jpg")).stdout.trim());
+    assert.equal(probe.state, "ready");
+    const top = probe.payload.matches[0].candidates[0];
+    assert.ok(top.similarity > 90, `blanked centroid must be recomputed (got ${top.similarity}%)`);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }

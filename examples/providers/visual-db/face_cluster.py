@@ -197,7 +197,7 @@ def reconcile(store, faces):
         members = [fid for fid in cl.get("members", []) if fid in by_id]
         if not members:
             continue
-        if len(members) != len(cl.get("members", [])):
+        if len(members) != len(cl.get("members", [])) or not cl.get("centroid"):
             cl["members"] = members
             recompute(cl, by_id)
         # size is ALWAYS re-derived from surviving members (not just when
@@ -772,7 +772,11 @@ def op_show(args):
             "index": args.index,
             "cluster": cluster_view(cl, faces_by_id),
             "faces": members,
-            "count": len(members),
+            # count = the person's FULL face count (list's convention: count is
+            # the whole, faces is the --limit page) so it can't contradict the
+            # summary/cluster.size when the person has more faces than the page.
+            "count": cl.get("size", len(members)),
+            "returned": len(members),
             "summary": "%s: %d face%s" % (cl.get("label") or cl["cluster_id"], cl.get("size", 0), "" if cl.get("size") == 1 else "s"),
         },
         "media": None,

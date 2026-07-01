@@ -23,6 +23,11 @@ export type IndexType =
   | "image-ransac"
   | "face-cluster";
 
+/** Index types that only exist locally (never tinycloud-backed). The canonical
+ *  set — every writer that mirrors one of these MUST stamp backend "local", or
+ *  the typed verbs (image/face/cluster) will reject the entry as remote. */
+export const LOCAL_INDEX_TYPES: ReadonlySet<string> = new Set(["deepface-local", "image-ransac", "face-cluster"]);
+
 export interface IndexMember {
   /** the video ref registered (path / URL) */
   ref: string;

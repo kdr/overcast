@@ -36,6 +36,7 @@ import {
   removeMember,
   normalizeIndexType,
   setMembers,
+  LOCAL_INDEX_TYPES,
 } from "../state/index.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { localIndexDir } from "../providers/local/vision.js";
@@ -46,7 +47,6 @@ import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 const VALID_ACTIONS = ["create", "attach", "add", "list", "show", "delete", "remove", "entities"];
-const LOCAL_INDEX_TYPES = new Set(["deepface-local", "image-ransac", "face-cluster"]);
 const LOCAL_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf)$/i;
 const LOCAL_IMAGE_MEDIA_VERBS = new Set(["capture", "image", "face"]);
 

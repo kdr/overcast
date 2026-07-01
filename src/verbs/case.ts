@@ -16,7 +16,7 @@ import { payloadFields, pageText, fieldNames, getField } from "../render.js";
 import { redactSecrets } from "../env.js";
 import { addSource, listSources, parseSourceSpec, removeSource } from "../state/source.js";
 import { addTarget, listTargets, removeTarget } from "../state/target.js";
-import { addIndex, listIndexes, normalizeIndexType, removeIndex } from "../state/index.js";
+import { addIndex, listIndexes, normalizeIndexType, removeIndex, LOCAL_INDEX_TYPES } from "../state/index.js";
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex } from "../state/setup.js";
 import { indexVerb } from "./index.js";
 import { isAv } from "./media-ref.js";
@@ -615,7 +615,9 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     setup.default_signals[signalKey] = current.default_signals;
     indexRoutesChanged = true;
     operations.push(`${current.mode === "attach" ? "index attach" : "index create planned"}: ${signalKey}`);
-    if (apply && current.id) addIndex(ctx.case, { id: current.id, name: current.name, type: current.type });
+    // local-only types MUST carry backend "local" in the mirror — without it the
+    // typed verbs (image/face/cluster) reject the entry as remote.
+    if (apply && current.id) addIndex(ctx.case, { id: current.id, name: current.name, type: current.type, backend: LOCAL_INDEX_TYPES.has(String(current.type)) ? "local" : undefined });
   }
   if (removeIndexes.length) {
     const removedIndexes = setup.indexes.filter((i) => removeIndexes.includes(i.id ?? "") || removeIndexes.includes(i.name));
