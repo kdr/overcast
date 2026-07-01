@@ -197,6 +197,11 @@ def reconcile(store, faces):
         if len(members) != len(cl.get("members", [])):
             cl["members"] = members
             recompute(cl, by_id)
+        # size is ALWAYS re-derived from surviving members (not just when
+        # membership changed) so every downstream reader — list's sort, show's
+        # summary, cluster_view — sees one consistent count even if the stored
+        # field drifted.
+        cl["size"] = len(members)
         kept.append(cl)
     store["clusters"] = kept
 

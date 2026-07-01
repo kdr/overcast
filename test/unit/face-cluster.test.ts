@@ -536,6 +536,17 @@ test("face_cluster.py guards the detector and reconciles ghost clusters (#PR33 R
     const after = JSON.parse(run(base, "list").stdout.trim());
     assert.equal(after.payload.count, 2);
     for (const cl of after.payload.clusters) assert.ok(cl.size >= 1);
+
+    // a drifted persisted `size` self-heals too: list's SORT and show's summary
+    // must use the reconciled member count, not the stored field (#R5).
+    const storePath = join(idxDir, "clusters.json");
+    const store = JSON.parse(readFileSync(storePath, "utf8"));
+    store.clusters[0].size = 99;
+    writeFileSync(storePath, JSON.stringify(store, null, 2));
+    const healed = JSON.parse(run(base, "list").stdout.trim());
+    for (const cl of healed.payload.clusters) assert.ok(cl.size <= 2, `size ${cl.size} must be re-derived, not the drifted 99`);
+    const shown = JSON.parse(run(base, "show", "--cluster", store.clusters[0].cluster_id).stdout.trim());
+    assert.doesNotMatch(String(shown.payload.summary), /99/, "show summary must not repeat the drifted size");
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
