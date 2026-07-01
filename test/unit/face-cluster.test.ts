@@ -489,6 +489,58 @@ test("face_cluster.py refuses to mix embedding models in one index (#PR33 R2)", 
   }
 });
 
+test("face_cluster.py guards the detector and reconciles ghost clusters (#PR33 R4)", () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-reconcile-"));
+  const idxDir = join(cdir, "idx");
+  const mods = join(cdir, "mods");
+  mkdirSync(mods, { recursive: true });
+  writeFileSync(join(cdir, "a.jpg"), "x");
+  writeFileSync(join(cdir, "b.jpg"), "x");
+  writeFileSync(join(mods, "deepface.py"), `class DeepFace:
+    @staticmethod
+    def represent(img_path=None, **kwargs):
+        p = str(img_path).lower()
+        emb = [1.0,0.0,0.0,0.0] if "a.jpg" in p else [0.0,1.0,0.0,0.0]
+        return [{"embedding":emb,"facial_area":{"x":1,"y":1,"w":9,"h":9}}]
+`, { flag: "w" });
+  const run = (env: Record<string, string>, op: string, ...extra: string[]) =>
+    spawnSync("python3", [CLUSTER_PY, "--op", op, "--index", "idx", "--index-dir", idxDir, ...extra], {
+      cwd: cdir, env: { ...process.env, PYTHONPATH: mods, ...env }, encoding: "utf8",
+    });
+  const base = { OVERCAST_FACE_MODEL: "ModelA", OVERCAST_FACE_DETECTOR: "detA" };
+  try {
+    run(base, "ingest", join(cdir, "a.jpg"));
+    run(base, "ingest", join(cdir, "b.jpg"));
+    // same model, different DETECTOR → incompatible crops/alignment → refuse
+    const det = JSON.parse(run({ ...base, OVERCAST_FACE_DETECTOR: "detB" }, "ingest", join(cdir, "a.jpg")).stdout.trim());
+    assert.equal(det.state, "error");
+    assert.match(String(det.error), /detA/);
+    assert.match(String(det.error), /detB/);
+
+    // simulate the partial-commit window: drop person p_2's face row while
+    // clusters.json still holds the ghost cluster + its centroid.
+    const rows = readFileSync(join(idxDir, "faces.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const kept = rows.filter((r) => r.cluster_id !== "p_2");
+    writeFileSync(join(idxDir, "faces.jsonl"), kept.map((r) => JSON.stringify(r)).join("\n") + "\n");
+
+    // list self-heals: the ghost person is gone, not counted
+    const list = JSON.parse(run(base, "list").stdout.trim());
+    assert.equal(list.payload.count, 1);
+    assert.match(list.payload.summary, /1 person/);
+
+    // ingest must NOT assign the new face to the ghost's stale centroid —
+    // person B comes back as a NEW person with a real face row.
+    const re = JSON.parse(run(base, "ingest", join(cdir, "b.jpg")).stdout.trim());
+    assert.equal(re.state, "ready");
+    assert.equal(re.payload.faces[0].is_new_cluster, true, "ghost centroid must not capture the new face");
+    const after = JSON.parse(run(base, "list").stdout.trim());
+    assert.equal(after.payload.count, 2);
+    for (const cl of after.payload.clusters) assert.ok(cl.size >= 1);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("face_cluster.py recluster carries a human label forward by plurality", () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-fc-relabel-"));
   const idxDir = join(cdir, "idx");

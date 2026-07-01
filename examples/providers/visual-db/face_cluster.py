@@ -138,8 +138,8 @@ def commit_store(index_dir, store, faces):
     # next_face/next_cluster COUNTERS) is replaced FIRST: if we crash between
     # the two renames, the counters have already advanced, so a retry can never
     # mint a duplicate face_id — the worst case is member ids in clusters.json
-    # that faces.jsonl doesn't have yet, and every reader already filters
-    # membership through faces_by_id.
+    # that faces.jsonl doesn't have yet, which reconcile() self-heals on the
+    # next load.
     save_clusters(index_dir, store)
     save_faces(index_dir, faces)
 
@@ -159,18 +159,46 @@ def store_lock(index_dir):
 
 
 def guard_model(store, faces, inp, op):
-    # Embeddings from different models live in incompatible vector spaces —
-    # mixing them makes every similarity silently wrong. Refuse instead. Guard
-    # whenever ANY embedding-derived state exists (face rows OR cluster
-    # centroids — clusters.json can outrun faces.jsonl across the documented
-    # crash window), not just when the face log is non-empty.
-    stored = store.get("model")
-    if stored and stored != FACE_MODEL and (faces or store.get("clusters")):
+    # Embeddings only compare within one embedding CONFIG — the model (vector
+    # space) AND the detector (crop/alignment feeding it). Refuse a mismatch on
+    # either instead of silently degrading. Guard whenever ANY embedding-derived
+    # state exists (face rows OR cluster centroids — clusters.json can outrun
+    # faces.jsonl across the documented crash window). Stores predating the
+    # `detector` field guard on model alone; the next ingest stamps both.
+    if not (faces or store.get("clusters")):
+        return
+    problems = []
+    if store.get("model") and store["model"] != FACE_MODEL:
+        problems.append("OVERCAST_FACE_MODEL is %s but the index was built with %s" % (FACE_MODEL, store["model"]))
+    if store.get("detector") and store["detector"] != FACE_DETECTOR:
+        problems.append("OVERCAST_FACE_DETECTOR is %s but the index was built with %s" % (FACE_DETECTOR, store["detector"]))
+    if problems:
         fail(
-            "this face-cluster index was built with %s but OVERCAST_FACE_MODEL is %s — embeddings from different models don't compare; set OVERCAST_FACE_MODEL=%s or rebuild the index" % (stored, FACE_MODEL, stored),
+            "embedding config mismatch: %s — embeddings won't compare; restore the stored config or rebuild the index" % "; ".join(problems),
             inp,
             op,
         )
+
+
+def reconcile(store, faces):
+    # Self-heal the documented partial-commit window (clusters.json replaced,
+    # faces.jsonl write lost) in ONE place instead of trusting every reader to
+    # filter: drop member ids with no face row, recompute size/medoid/centroid
+    # for touched clusters, and drop clusters left with no real members — so
+    # ingest can't assign new faces to ghost people and list/view stats can't
+    # count faces that don't exist. In-memory only; mutating ops persist the
+    # healed state on their normal commit.
+    by_id = {f["face_id"]: f for f in faces}
+    kept = []
+    for cl in store["clusters"]:
+        members = [fid for fid in cl.get("members", []) if fid in by_id]
+        if not members:
+            continue
+        if len(members) != len(cl.get("members", [])):
+            cl["members"] = members
+            recompute(cl, by_id)
+        kept.append(cl)
+    store["clusters"] = kept
 
 
 # ---- vector math (pure python) ---------------------------------------------
@@ -407,7 +435,9 @@ def op_ingest(args):
     store = load_clusters(args.index_dir)
     existing = load_faces(args.index_dir)
     guard_model(store, existing, inp, "ingest")
+    reconcile(store, existing)
     store["model"] = FACE_MODEL
+    store["detector"] = FACE_DETECTOR
     by_id = {f["face_id"]: f for f in existing}
     clusters = store["clusters"]
 
@@ -508,14 +538,15 @@ def op_identify(args):
     threshold = args.min_similarity
     deepface = load_deepface(inp, "identify")
     store = load_clusters(args.index_dir)
-    clusters = store["clusters"]
     face_rows = load_faces(args.index_dir)
     faces = {f["face_id"]: f for f in face_rows}
+    # the probe is embedded with FACE_MODEL/FACE_DETECTOR — comparing it against
+    # a store built with a different config would be silently meaningless.
+    guard_model(store, face_rows, inp, "identify")
+    reconcile(store, face_rows)
+    clusters = store["clusters"]
     if not clusters:
         fail("this face-cluster index is empty; ingest media first with `cluster add`", inp, "identify")
-    # the probe is embedded with FACE_MODEL — comparing it against a store built
-    # with a different model would be silently meaningless.
-    guard_model(store, face_rows, inp, "identify")
 
     dets, _is_video, _sampled = sampled_detections(deepface, inp, args, "identify")
     matches = []
@@ -662,7 +693,9 @@ def cluster_view(cl, faces_by_id, sample=6):
     return {
         "cluster_id": cl["cluster_id"],
         "label": cl.get("label"),
-        "size": cl.get("size", len(members)),
+        # size from the surviving member rows, never the stored field — a
+        # non-reconciled/stale size would count faces that don't exist.
+        "size": len(members),
         "medoid_face_id": cl.get("medoid_face_id"),
         "medoid_crop": (medoid or {}).get("crop"),
         "sample_crops": uniq[:sample],
@@ -673,7 +706,9 @@ def cluster_view(cl, faces_by_id, sample=6):
 
 def op_list(args):
     store = load_clusters(args.index_dir)
-    faces_by_id = {f["face_id"]: f for f in load_faces(args.index_dir)}
+    face_rows = load_faces(args.index_dir)
+    faces_by_id = {f["face_id"]: f for f in face_rows}
+    reconcile(store, face_rows)
     clusters = sorted(store["clusters"], key=lambda c: c.get("size", 0), reverse=True)[: max(1, args.limit)]
     views = [cluster_view(cl, faces_by_id) for cl in clusters]
     # count named people over the WHOLE store, not the --limit page, so the
@@ -700,7 +735,9 @@ def op_show(args):
     if not args.cluster:
         fail("cluster show needs --cluster <person-id>", "", "show")
     store = load_clusters(args.index_dir)
-    faces_by_id = {f["face_id"]: f for f in load_faces(args.index_dir)}
+    face_rows = load_faces(args.index_dir)
+    faces_by_id = {f["face_id"]: f for f in face_rows}
+    reconcile(store, face_rows)
     cl = next((c for c in store["clusters"] if c["cluster_id"] == args.cluster), None)
     if cl is None:
         fail("no such person '%s' in this index (see `cluster list`)" % args.cluster, "", "show")
@@ -735,6 +772,7 @@ def op_label(args):
         fail("cluster label needs a --label <name>", "", "label")
     lock = store_lock(args.index_dir)  # noqa: F841 — held until process exit
     store = load_clusters(args.index_dir)
+    reconcile(store, load_faces(args.index_dir))
     cl = next((c for c in store["clusters"] if c["cluster_id"] == args.cluster), None)
     if cl is None:
         fail("no such person '%s' in this index (see `cluster list`)" % args.cluster, "", "label")
