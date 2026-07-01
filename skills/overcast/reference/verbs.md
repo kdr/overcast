@@ -218,6 +218,31 @@ Options:
 
 Emits `media.crop` records.
 
+### `overcast wall`
+
+Generates a self-contained HTML wall of muted, looping video tiles — each anchored to its best evidence moment (open finding > face hit > record anchor) — overlaid with case state: sense-coverage badges, findings, per-source scan / monitor / brief freshness. Local media is referenced by file:// URL (not embedded); missing or browser-hostile media renders a NO SIGNAL / STILL tile (with an ffmpeg poster frame when extractable). Click a tile to open the media at its anchor; hover for the intel card. --no-open writes the wall and emits a record with its path instead of launching.
+
+```
+overcast wall  [options]
+
+  Open a control-room monitor wall: case videos looping at their evidence moments.
+
+  Generates a self-contained HTML wall of muted, looping video tiles — each anchored to its best evidence moment (open finding > face hit > record anchor) — overlaid with case state: sense-coverage badges, findings, per-source scan / monitor / brief freshness. Local media is referenced by file:// URL (not embedded); missing or browser-hostile media renders a NO SIGNAL / STILL tile (with an ffmpeg poster frame when extractable). Click a tile to open the media at its anchor; hover for the intel card. --no-open writes the wall and emits a record with its path instead of launching.
+
+Options:
+  --limit <number>       Max tiles, most evidentiary/recent first (~25 is a practical decode ceiling) (default: 12)
+  --source <string>      Only media from this source type (youtube | tiktok | web | local)
+  --since <string>       Only media with records since (e.g. 24h, 7d, 2026-06-01)
+  --export <string>      Wall HTML path (default: .overcast/media/wall.html)
+  --refresh <number>     Auto-reload the wall every N seconds (restarts the feeds)
+  --no-open              Write the wall but don't launch it
+  --theme <string>       HTML theme: plain | csi (default: plain)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `wall` records.
+
 ## OSINT
 
 ### `overcast scan`

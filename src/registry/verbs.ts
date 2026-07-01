@@ -11,6 +11,7 @@ import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
 import { faceVerb } from "../verbs/face.js";
 import { imageVerb } from "../verbs/image.js";
 import { cropVerb } from "../verbs/crop.js";
+import { wallVerb } from "../verbs/wall.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
 import {
   scanVerb,
@@ -92,6 +93,7 @@ export const VERBS: VerbSpec[] = [
   enhanceVerb,
   viewVerb,
   cropVerb,
+  wallVerb,
   scanVerb,
   captureVerb,
   monitorVerb,

@@ -88,7 +88,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
-  `--square`).
+  `--square`), `wall` (control-room monitor wall: case videos muted + looping at
+  their evidence moments — open finding > face hit > record anchor — with
+  coverage badges and scan/monitor/brief freshness overlaid; `--limit`,
+  `--source`/`--since`, `--refresh`, `--theme plain|csi`, `--no-open`).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / web;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
@@ -122,7 +125,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   creds), `skills` (generate/install).
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
-Slash commands (TUI): `/target /source /index /case /prebrief /view /setup
+Slash commands (TUI): `/target /source /index /case /prebrief /view /wall /setup
 /provider /finding` (extension commands) and `/ask /brief` (prompt templates in
 `prompts/`), plus pi built-ins (`/model /tree /session /resume`).
 
