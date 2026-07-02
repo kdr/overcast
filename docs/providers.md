@@ -42,7 +42,7 @@ OVERCAST_SOURCE_TIKTOK_CMD="bash examples/providers/sources/tiktok.sh" \
 
 Bindings live in the active profile (`~/.overcast/profiles/<name>.json`), so they
 travel with `--profile`. **Rebinding a verb requires no overcast code changes** —
-the default tinycloud `watch`/`listen` and the `see` placeholder are just the
+the default tinycloud `watch`/`listen` and the default `see` backend are just the
 out-of-the-box descriptors.
 
 ## Provider setup wizard and non-interactive profiles
@@ -117,12 +117,45 @@ credential-blocked, or failed. Refless hits are explicit processing errors in
 both commands. Monitor records hard failures once and marks them seen; pending
 or credential-blocked items are left retryable for the next pass.
 
-## Hugging Face providers (turnkey when `HF_TOKEN` is set)
+## `see` — the brain LLM by default
 
-overcast ships Hugging Face Inference API providers so `see` and model-based
-`enhance` work out of the box once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
+`see` defaults to the **brain LLM** whenever it accepts image input: overcast
+sends the image plus a "describe this image in detail" instruction directly to
+whatever brain the profile/env already resolves (BYO — the turnkey Cloudglue brain
+out of the box, or any image-capable `setup llm <provider> <model>`), and maps the
+reply to the `see` record (`payload.caption`; `--ocr` also fills `payload.ocr`).
+No extra key is needed beyond the brain you already use.
 
-- **`see`** — auto-defaults to a HF vision-LLM captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)) when `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is present (else the placeholder). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--detect` / `--prompt`.
+Precedence when you run `see`:
+
+1. an explicit provider binding (`setup provider see <exec|http|inproc spec>`) — e.g. the OWLv2 detector;
+2. the **brain LLM** when it's image-capable (the default);
+3. the Hugging Face captioner when `HF_TOKEN` is set;
+4. a `needs_credentials` placeholder with guidance.
+
+Switch the built-in backend without editing the profile by hand:
+
+```bash
+overcast setup provider see builtin:hf      # force the classic Hugging Face captioner
+overcast setup provider see builtin:brain   # force the brain LLM (errors if it has no vision)
+OVERCAST_SEE_BRAIN=off overcast see shot.jpg # one-off: skip the brain default (→ HF / placeholder)
+```
+
+`--detect` still needs a detection provider (the brain path produces a description,
+not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 examples/providers/detect/detect.py"`.
+
+`see` also takes an **http(s) image URL** directly: the image is downloaded into
+the case media dir first (evidence, like `capture` — the record's `media.ref` is
+the local artifact, `meta.source_url` the origin), so every backend reads a local
+file. A URL that resolves to video/audio is redirected to `watch`/`listen`, and a
+non-image response (login wall, expired signed URL returning HTML) errors clearly.
+
+## Hugging Face providers (`see` fallback + model-based `enhance`)
+
+overcast ships Hugging Face Inference API providers so the `see` captioner and
+model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
+
+- **`see`** — the fallback captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--detect` / `--prompt`.
 - **`enhance` (image)** — opt-in HF model ops ([`examples/providers/hf/enhance.py`](../examples/providers/hf/enhance.py), needs `huggingface_hub` + `pillow`). Image **upscale/unblur/restore works** via the **fal-ai** provider, routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; uses the free monthly credit then pay-as-you-go). The **default stays the internal ffmpeg toolkit**; bind to opt in:
   ```bash
   overcast setup provider enhance "exec:python3 examples/providers/hf/enhance.py {{input}}"
@@ -174,21 +207,23 @@ overcast crop <see-record-id> --all --class person --json        # materialize d
 - Env: `DETECT_MODEL`, `DETECT_THRESHOLD` (default 0.1), `DETECT_MAX_FRAMES` (default 8). overcast passes `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` (the system ffmpeg/ffprobe) so video frame extraction works.
 - *Note:* `nvidia/LocateAnything-3B` is a higher-quality open-vocab grounding model but it's a 3B VLM (~7.7 GB, GPU-class); swap it in via a local-transformers provider if you have the hardware.
 
-## Visual DBs (`image-ransac`, `deepface-local`, `face-cluster`)
+## Visual DBs (`image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`)
 
 Visual DBs are selected by **index type**. The DeepFace face detector can
-also be selected as a profile provider with `face:deepface-local`, but the searchable
-local face DBs are the index types: `deepface-local` (1:1 match against reference
-images) and `face-cluster` (group unknown faces into people; see below). Local
-index types can be stood up per case with `index create --local`, and the `case
-setup` wizard's `--index` path materializes them too (e.g.
-`case setup --index people:face-cluster`). They use shipped Python
-providers under `examples/providers/visual-db/` and a uv-managed Python
-environment:
+also be selected as a profile provider with `face:deepface-local`, but the
+searchable local face DBs are the index types: `deepface-local` (1:1 match
+against reference images) and `face-cluster` (group unknown faces into people;
+see below). Create them per case with `index create --local`, or add them in the
+setup wizard via `case setup --index "<name>:<type>"` (e.g.
+`case setup --index people:face-cluster`; for `basic-clip`, an optional
+`@k=v;k=v` config suffix — pairs separated by `;` — pins sampling/pooling; see
+below). They use shipped Python providers under
+`examples/providers/visual-db/` and a uv-managed Python environment:
 
 ```bash
 scripts/visual-db-uv.sh          # image matching: opencv-python + numpy
 scripts/visual-db-uv.sh --face   # face matching too: deepface + tf-keras
+scripts/visual-db-uv.sh --clip   # CLIP semantic search: open_clip + torch + pillow
 overcast doctor --json              # reports uv + visual-db readiness
 
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
@@ -251,7 +286,35 @@ configs don't compare; switch the env back or rebuild the index. In case memory,
 maintenance (`list`/`show`/`view`/`label`/`recluster`) stay operational; the
 embeddings, crops, and assignments live in the typed local index, not case memory.
 
-Both emit ordinary Overcast records (`image.match` or `face.analysis`) and write
+`basic-clip` is a local OpenAI CLIP (open_clip) DB for **cross-modal semantic
+similarity** — find images/video moments that resemble a photo (image→image) or a
+phrase (text→image). Members are embedded and cached on `add` (`.npy` under the
+index dir); queries only embed the query, do a cosine top-K (scores are
+cosine×100, 0–100), and **never write the cache**. Videos are frame-sampled and
+pooled (`max` default, or `mean`), or stored per-frame (`--granularity frame`) so
+queries return moments with `at`. Sampling is `uniform` windows or, with
+`--sampling shots`, tinycloud `watch` shot boundaries (reused from existing watch
+evidence when present). The pooling/granularity/sampling config is a property of
+the **index**, set at `index create` and persisted to its `config.json` — member
+embedding always follows it (`similar add` rejects per-add overrides), while
+sampling flags on `similar match` shape only the query video's embedding. Query
+with the `similar` verb (`add` / `match` / `search`):
+
+```bash
+overcast index create scenes --type basic-clip --local --granularity frame --sampling shots --json
+overcast similar add ./clip.mp4 --index scenes --json          # embed + cache (video → frames)
+overcast similar add ./photo.jpg --index scenes --json
+overcast similar search "a red car at night" --index scenes --limit 10 --json   # text → image
+overcast similar match ./query.jpg --index scenes --json                        # image → image
+```
+
+The record (`similar.match`) emits ranked `payload.matches[]` (`ref`, `similarity`,
+`granularity`, and `at` for frame-level). CLIP model/weights are overridable via
+`OC_CLIP_MODEL` (default `ViT-B-32`) and `OC_CLIP_PRETRAINED` (default `openai`);
+`OC_CLIP_DEVICE` defaults to `cpu`.
+
+These emit ordinary Overcast records (`image.match`, `face.analysis`, or
+`similar.match`) and write
 local artifacts under the case `.overcast/` store. Local-grep/qmd memory indexes
 should index the records and summaries only; do not ingest raw media, embeddings,
 sampled frames, face boxes, or match visualization images as text. Add `note`,
@@ -269,7 +332,7 @@ sample 8 frames.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
 - [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN image enhance, and DeepFilterNet3 audio enhance.
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
-- [`examples/providers/visual-db/{image_match,face_match}.py`](../examples/providers/visual-db/) — local image RANSAC and DeepFace matching for visual DB indexes.
+- [`examples/providers/visual-db/{image_match,face_match,clip_match}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, and CLIP (basic-clip) matching for visual DB indexes.
 - [`examples/providers/sources/{youtube,tiktok,web}.sh`](../examples/providers/sources/) — yt-dlp + Apify + web-search (Tavily/Brave) source providers.
 
 ## Source providers (built-in types)

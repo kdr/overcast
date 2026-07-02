@@ -8,7 +8,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-VIDEO_EXTS = (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".mpeg", ".mpg", ".ts", ".mts", ".m2ts", ".wmv", ".flv", ".ogv")
+# Video extensions must cover everything the TS intake gate (media-ref.ts AV_RE)
+# accepts as video, or a valid clip is misrouted to the image path and fails.
+VIDEO_EXTS = (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".mpeg", ".mpg", ".ts", ".mts", ".m2ts", ".wmv", ".flv", ".3gp", ".3g2", ".ogv", ".mxf")
 
 
 def emit(rec):

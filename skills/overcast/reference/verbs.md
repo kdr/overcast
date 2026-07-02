@@ -54,17 +54,17 @@ Emits `audio.analysis` records.
 
 ### `overcast see`
 
-Defaults to a Hugging Face image captioner when HF_TOKEN is set (override with HF_SEE_MODEL); otherwise a placeholder (needs_credentials) until a VLM is bound via `setup provider see`. Accepts frame://rec@sec, resolved to a frame via the internal ffmpeg toolkit.
+Defaults to the BRAIN LLM when it supports images: a direct 'describe this image in detail' call (turnkey with the Cloudglue brain, or any image-capable `setup llm`). Falls back to a Hugging Face captioner when HF_TOKEN is set (override with HF_SEE_MODEL), else a placeholder until a VLM is bound. Switch backends via `setup provider see builtin:hf` (classic HF) or `builtin:brain`; disable the brain default with OVERCAST_SEE_BRAIN=off. Forwards --ocr/--prompt; --detect needs a detection provider. Accepts frame://rec@sec (resolved via the internal ffmpeg toolkit) and http(s) image URLs, fetched into the case media dir first (meta.source_url keeps the origin).
 
 ```
 overcast see <input> [options]
 
   Understand an image or a single video frame (caption, OCR, detections).
 
-  Defaults to a Hugging Face image captioner when HF_TOKEN is set (override with HF_SEE_MODEL); otherwise a placeholder (needs_credentials) until a VLM is bound via `setup provider see`. Accepts frame://rec@sec, resolved to a frame via the internal ffmpeg toolkit.
+  Defaults to the BRAIN LLM when it supports images: a direct 'describe this image in detail' call (turnkey with the Cloudglue brain, or any image-capable `setup llm`). Falls back to a Hugging Face captioner when HF_TOKEN is set (override with HF_SEE_MODEL), else a placeholder until a VLM is bound. Switch backends via `setup provider see builtin:hf` (classic HF) or `builtin:brain`; disable the brain default with OVERCAST_SEE_BRAIN=off. Forwards --ocr/--prompt; --detect needs a detection provider. Accepts frame://rec@sec (resolved via the internal ffmpeg toolkit) and http(s) image URLs, fetched into the case media dir first (meta.source_url keeps the origin).
 
 Arguments:
-  input            Image path, video frame, or frame://rec@sec
+  input            Image path, http(s) image URL, video frame, or frame://rec@sec
 
 Options:
   --format <string>      Output surface: json | md | txt
@@ -174,6 +174,39 @@ Options:
 ```
 
 Emits `cluster` records.
+
+### `overcast similar`
+
+`similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+
+```
+overcast similar <action> [input]... [options]
+
+  Find images/video moments by visual or text similarity in a local CLIP (basic-clip) index.
+
+  `similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+
+Arguments:
+  action           add | match | search
+  input            image/video path, URL, record id (add/match) — or a text query (search)
+
+Options:
+  --index <string>       local basic-clip index id/name
+  --to <string>          alias for --index when adding
+  --min-similarity <number> match/search: similarity floor (0–100)
+  --limit <number>       match/search: max results
+  --offset <number>      match/search: result offset
+  --pooling <string>     match: pool the query video's frames by max | mean (members follow the index config)
+  --granularity <string> video (one vector/video) | frame (moments) — set at `index create`; members always follow the index config
+  --sampling <string>    match query video: uniform windows | shots (tinycloud watch boundaries); members follow the index config
+  --window <number>      video: seconds per uniform sampling window
+  --fps <number>         video: frame sampling rate; --max-frames can cap it
+  --max-frames <number>  video: frame sample count/cap
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `similar.match` records.
 
 ### `overcast enhance`
 
@@ -349,7 +382,7 @@ Arguments:
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip
   --local                create a local index instead of a tinycloud-backed index
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
@@ -362,6 +395,10 @@ Options:
   --no-download          add: don't materialize the source locally
   --limit <number>       entities: max entities
   --offset <number>      entities: entity offset
+  --pooling <string>     create basic-clip: pool video frames by max | mean
+  --granularity <string> create basic-clip: video | frame (moment-level)
+  --sampling <string>    create basic-clip: uniform | shots (watch boundaries)
+  --window <number>      create basic-clip: seconds per uniform sampling window
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```

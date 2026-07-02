@@ -45,10 +45,11 @@ const FIELD_POLICY: Record<string, string[]> = {
   see: ["caption", "ocr", "text", "summary", "counts", "categories", "objects", "labels"],
   face: ["summary", "op", "moments", "reference", "index"],
   // visual-DB verbs index compact summaries only — raw match internals
-  // (homographies, boxes, embeddings, artifact paths) stay in the record /
-  // typed local index, never in searchable case memory.
+  // (homographies, boxes, embeddings, vectors, artifact paths) stay in the
+  // record / typed local index, never in searchable case memory.
   image: ["summary", "op", "index", "count", "matches[].label", "matches[].db_img_path", "matches[].num_inliers", "matches[].inlier_ratio", "matches[].at"],
   cluster: ["summary", "op", "index", "count", "new_clusters", "clusters_total"],
+  similar: ["summary", "query", "matches[].ref"],
   crop: ["summary", "kind", "class", "detection_id", "source_record", "source_verb", "source_media", "at", "confidence", "crop"],
   note: ["title", "text", "tags", "confidence", "ref"],
   scan: ["title", "snippet", "url", "source", "published"],

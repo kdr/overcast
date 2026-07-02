@@ -23,9 +23,9 @@ bind() { # <profile> <verb> <script-relpath> [interpreter=bash]
 
 echo "Building profiles in ${2:-~/.overcast}:"
 
-# 1. cloudglue — the baseline (tinycloud watch/listen, ffmpeg enhance, see placeholder).
+# 1. cloudglue — the baseline (tinycloud watch/listen, ffmpeg enhance, see=brain LLM).
 $OC setup llm cloudglue tinycloud:advanced --profile cloudglue "${HOME_ARG[@]}" >/dev/null
-echo "  cloudglue: defaults (watch/listen=tinycloud, enhance=ffmpeg, see=placeholder)"
+echo "  cloudglue: defaults (watch/listen=tinycloud, enhance=ffmpeg, see=brain LLM)"
 
 # 2. fal — fal.ai everything pluggable.
 bind fal see     fal/see.sh
