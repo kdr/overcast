@@ -420,6 +420,8 @@ export const scanVerb: VerbSpec = {
     let submitted_remote = 0;
     let completed = 0;
     let pending = 0;
+    let skipped_duplicates = 0;
+    const pullSeen = new Set<string>();
     const enumerate_errors = hits.filter((h) => h.state === "error").length;
     const enumerate_cred_gaps = hits.filter((h) => h.state === "needs_credentials").length;
     let failed = enumerate_errors;
@@ -428,6 +430,12 @@ export const scanVerb: VerbSpec = {
       // skip enumerate FAILURES (error + needs_credentials) — they're not items to
       // capture/sense, matching monitorPass.
       if (hit.state === "error" || hit.state === "needs_credentials") continue;
+      const key = hitKey(hit);
+      if (pullSeen.has(key)) {
+        skipped_duplicates++;
+        continue;
+      }
+      pullSeen.add(key);
       try {
         const item = await processPulledHit(ctx, "scan", hit);
         submitted_remote += item.submittedRemote;
@@ -470,7 +478,7 @@ export const scanVerb: VerbSpec = {
         rec.meta = { ...rec.meta, non_fatal: true };
       }
     }
-    out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, failed && completed === 0 ? "error" : process_cred_gaps && completed === 0 ? "needs_credentials" : pending && completed === 0 ? "pending" : "ready"));
+    out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps, skipped_duplicates }, failed && completed === 0 ? "error" : process_cred_gaps && completed === 0 ? "needs_credentials" : pending && completed === 0 ? "pending" : "ready"));
     return out;
   },
 };

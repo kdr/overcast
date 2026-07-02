@@ -351,6 +351,44 @@ fi
   }
 });
 
+test("scan --pull processes duplicate hit keys once per run", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-pull-dedupe-"));
+  const sourceScript = join(d, "dupe-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_DUPEFIX_CMD;
+  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
+  const url = "https://vm.tiktok.com/ZMdupe123/";
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo '[{"title":"exact","url":"${url}","source":"dupefix","media":{"ref":"${url}"}},{"title":"visual","url":"${url}","source":"dupefix","media":{"ref":"${url}"}}]'
+else
+  echo '{}'
+fi
+`);
+    process.env.OVERCAST_SOURCE_DUPEFIX_CMD = `bash ${sourceScript}`;
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "dupefix:any");
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, pipe: "watch" }, case: c, profile: defaultProfile() });
+    const final = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "complete")!;
+    const enumerated = recs.filter((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).source === "dupefix");
+    const watched = recs.filter((r) => r.verb === "watch");
+    assert.equal(enumerated.length, 2);
+    assert.equal(watched.length, 1);
+    assert.equal((final.payload as Record<string, unknown>).processed, 1);
+    assert.equal((final.payload as Record<string, unknown>).skipped_duplicates, 1);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_DUPEFIX_CMD;
+    else process.env.OVERCAST_SOURCE_DUPEFIX_CMD = prevSource;
+    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("monitor explicit --pipe emits review findings", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-monitor-pipe-finding-"));
   try {
