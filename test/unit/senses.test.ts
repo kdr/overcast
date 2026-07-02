@@ -410,6 +410,52 @@ test("see (tinycloud wrapper) maps see/extract envelopes; --detect passes the de
   }
 });
 
+test("see (tinycloud wrapper) maps credential exits and tinycloud status aliases like the shared mapper", async () => {
+  const wrapper = join(HERE, "..", "..", "examples", "providers", "tinycloud", "see.sh");
+  const fake = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
+  const frame = join(dir, "tc-status-frame.jpg");
+  execFileSync(FFMPEG_PATH, ["-y", "-i", clip, "-frames:v", "1", frame], { stdio: "ignore" });
+  const saved = {
+    tc: process.env.OVERCAST_TINYCLOUD_CMD,
+    key: process.env.CLOUDGLUE_API_KEY,
+    mode: process.env.OVERCAST_FAKE_TC_MODE,
+  };
+  process.env.OVERCAST_TINYCLOUD_CMD = `bash ${fake}`;
+  process.env.CLOUDGLUE_API_KEY = "fixture";
+  try {
+    const c = openCase(dir); c.ensure();
+    const p = defaultProfile();
+    p.providers = {
+      ...p.providers,
+      see: { type: "exec", run: `bash ${wrapper} --input {{input}}`, describe: `bash ${wrapper} describe` },
+    };
+
+    process.env.OVERCAST_FAKE_TC_MODE = "cred_no_json";
+    const [cred] = await seeVerb.run({ input: frame, rest: [], opts: {}, case: c, profile: p });
+    assert.equal(cred.state, "needs_credentials");
+    assert.match(cred.error ?? "", /credentials/i);
+
+    process.env.OVERCAST_FAKE_TC_MODE = "no_status";
+    const [emptyStatus] = await seeVerb.run({ input: frame, rest: [], opts: { ocr: true }, case: c, profile: p });
+    assert.equal(emptyStatus.state, "ready");
+    assert.match((emptyStatus.payload as Record<string, unknown>).caption as string, /Fixture Image/);
+
+    process.env.OVERCAST_FAKE_TC_MODE = "completed";
+    const [completed] = await seeVerb.run({ input: frame, rest: [], opts: { prompt: "what is visible?" }, case: c, profile: p });
+    assert.equal(completed.state, "ready");
+    assert.equal(completed.meta?.provider, "tinycloud:extract");
+
+    process.env.OVERCAST_FAKE_TC_MODE = "processing";
+    const [processing] = await seeVerb.run({ input: frame, rest: [], opts: {}, case: c, profile: p });
+    assert.equal(processing.state, "pending");
+    assert.equal(processing.meta?.provider, "tinycloud:see");
+  } finally {
+    if (saved.tc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD; else process.env.OVERCAST_TINYCLOUD_CMD = saved.tc;
+    if (saved.key === undefined) delete process.env.CLOUDGLUE_API_KEY; else process.env.CLOUDGLUE_API_KEY = saved.key;
+    if (saved.mode === undefined) delete process.env.OVERCAST_FAKE_TC_MODE; else process.env.OVERCAST_FAKE_TC_MODE = saved.mode;
+  }
+});
+
 test("see forwards --ocr/--prompt to the bound provider (extraArgs)", async () => {
   const { writeFileSync, chmodSync } = await import("node:fs");
   const prov = join(dir, "see-args.sh");

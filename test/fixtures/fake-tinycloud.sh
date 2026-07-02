@@ -13,6 +13,10 @@ if [ "$mode" = "cred" ]; then
   echo '{"tinycloud":"1","status":"needs_credentials","error":{"code":"no_key","message":"set CLOUDGLUE_API_KEY"}}'
   exit 2
 fi
+if [ "$mode" = "cred_no_json" ]; then
+  echo 'set CLOUDGLUE_API_KEY' >&2
+  exit 2
+fi
 if [ "$mode" = "error" ]; then
   echo '{"tinycloud":"1","status":"error","error":{"code":"boom","message":"something broke"}}'
   exit 1
@@ -51,14 +55,24 @@ esac
 if [ "$top" = "see" ]; then
   # image `see` (0.3.7+): field-for-field the real shape — title/summary/
   # description/scene_text under data.
-  echo '{"tinycloud":"1","kind":"see","status":"ready","summary":"A fixture image of a test pattern.","data":{"title":"Fixture Image","summary":"A fixture image of a test pattern.","description":"A fixture image showing a colorful SMPTE-style test pattern.","scene_text":"HELLO FIXTURE"}}'
+  case "$mode" in
+    no_status) echo '{"tinycloud":"1","kind":"see","summary":"A fixture image of a test pattern.","data":{"title":"Fixture Image","summary":"A fixture image of a test pattern.","description":"A fixture image showing a colorful SMPTE-style test pattern.","scene_text":"HELLO FIXTURE"}}' ;;
+    completed) echo '{"tinycloud":"1","kind":"see","status":"completed","summary":"A fixture image of a test pattern.","data":{"title":"Fixture Image","summary":"A fixture image of a test pattern.","description":"A fixture image showing a colorful SMPTE-style test pattern.","scene_text":"HELLO FIXTURE"}}' ;;
+    processing) echo '{"tinycloud":"1","kind":"see","status":"processing","data":{"title":"Fixture Image"}}' ;;
+    *) echo '{"tinycloud":"1","kind":"see","status":"ready","summary":"A fixture image of a test pattern.","data":{"title":"Fixture Image","summary":"A fixture image of a test pattern.","description":"A fixture image showing a colorful SMPTE-style test pattern.","scene_text":"HELLO FIXTURE"}}' ;;
+  esac
   exit 0
 fi
 
 if [ "$top" = "extract" ]; then
   # image/video `extract` (prompt mode): data.result.entities keyed by
   # snake_cased label, as the real CLI returns for a checklist prompt.
-  echo '{"tinycloud":"1","kind":"extract","status":"ready","summary":"Extracted result for: fixture query","data":{"mode":"prompt","result":{"entities":{"cat":{"present":true,"approximate_count":2,"one_line_evidence":"Two cats sit on the fixture pattern."},"dog":{"present":false,"approximate_count":0,"one_line_evidence":"No dog is visible."}},"segment_entities":[]}}}'
+  case "$mode" in
+    no_status) echo '{"tinycloud":"1","kind":"extract","summary":"Extracted result for: fixture query","data":{"mode":"prompt","result":{"entities":{"cat":{"present":true,"approximate_count":2,"one_line_evidence":"Two cats sit on the fixture pattern."},"dog":{"present":false,"approximate_count":0,"one_line_evidence":"No dog is visible."}},"segment_entities":[]}}}' ;;
+    completed) echo '{"tinycloud":"1","kind":"extract","status":"success","summary":"Extracted result for: fixture query","data":{"mode":"prompt","result":{"entities":{"cat":{"present":true,"approximate_count":2,"one_line_evidence":"Two cats sit on the fixture pattern."},"dog":{"present":false,"approximate_count":0,"one_line_evidence":"No dog is visible."}},"segment_entities":[]}}}' ;;
+    processing) echo '{"tinycloud":"1","kind":"extract","status":"processing","data":{"mode":"prompt"}}' ;;
+    *) echo '{"tinycloud":"1","kind":"extract","status":"ready","summary":"Extracted result for: fixture query","data":{"mode":"prompt","result":{"entities":{"cat":{"present":true,"approximate_count":2,"one_line_evidence":"Two cats sit on the fixture pattern."},"dog":{"present":false,"approximate_count":0,"one_line_evidence":"No dog is visible."}},"segment_entities":[]}}}' ;;
+  esac
   exit 0
 fi
 
