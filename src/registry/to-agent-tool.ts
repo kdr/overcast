@@ -127,7 +127,9 @@ function renderRecords(records: OvercastRecord[]): string {
 function applyAgentHtmlDefaults(spec: VerbSpec, opts: VerbContext["opts"]): void {
   const hasThemeFlag = spec.flags.some((f) => f.name === "theme");
   if (!hasThemeFlag || opts.theme != null) return;
-  const exportPath = opts.export;
+  // The agent path never applies FlagSpec defaults (only the CLI parser does),
+  // so also honor a declared .html export default — e.g. `wall {}` renders csi.
+  const exportPath = opts.export ?? spec.flags.find((f) => f.name === "export")?.default;
   if (typeof exportPath === "string" && isHtmlExportPath(exportPath.trim())) {
     opts.theme = "csi";
   }

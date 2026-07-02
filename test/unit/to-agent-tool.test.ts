@@ -188,6 +188,43 @@ test("agent tool defaults HTML exports to CSI when the verb supports themes", as
   }
 });
 
+test("agent tool defaults to CSI via a declared .html export default (no export passed)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-agent-theme-default-"));
+  try {
+    const seen: Array<Record<string, unknown>> = [];
+    // wall-shaped spec: the export flag itself defaults to an .html path, and
+    // the agent path never applies FlagSpec defaults — the theme default must
+    // fall back to the declared export default.
+    const spec: VerbSpec = {
+      name: "wall",
+      group: "inspect",
+      summary: "wall",
+      args: [],
+      flags: [
+        { name: "export", summary: "export", type: "string", default: ".overcast/media/wall.html" },
+        { name: "theme", summary: "theme", type: "string", choices: ["plain", "csi"], default: "plain" },
+      ],
+      outputKind: "wall",
+      run: async (ctx) => {
+        seen.push({ ...ctx.opts });
+        return [makeRecord({ verb: "wall", payload: { theme: ctx.opts.theme } })];
+      },
+    };
+    const c = openCase(dir); c.ensure();
+    const tool = toAgentTool(spec, { getCase: () => c, getProfile: () => defaultProfile() });
+
+    await tool.execute("call_1", {}, undefined as never); // default export is .html → csi
+    await tool.execute("call_2", { export: join(dir, "wall.md") }, undefined as never); // explicit non-html wins
+    await tool.execute("call_3", { theme: "plain" }, undefined as never); // explicit theme wins
+
+    assert.equal(seen[0].theme, "csi");
+    assert.equal(seen[1].theme, undefined);
+    assert.equal(seen[2].theme, "plain");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("case memory get tool schema forwards subcommand and record id", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-agent-case-"));
   try {
