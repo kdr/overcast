@@ -248,7 +248,7 @@ function countByVerb(records: TimelineRecord[]): Record<string, number> {
   return counts;
 }
 
-function summarizePayload(payload: unknown): string {
+export function summarizePayload(payload: unknown): string {
   if (payload == null) return "(empty)";
   if (typeof payload === "string") return payload.length > 480 ? `${payload.slice(0, 480)}...` : payload;
   if (typeof payload !== "object") return String(payload);

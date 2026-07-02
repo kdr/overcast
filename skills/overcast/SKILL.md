@@ -27,6 +27,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.
+- `wall` — Open a control-room monitor wall: case videos looping at their evidence moments.
 - `scan` — Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.

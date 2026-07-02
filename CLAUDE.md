@@ -104,7 +104,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
-  `--square`).
+  `--square`), `wall` (control-room monitor wall: case videos muted + looping at
+  their evidence moments — open finding > face hit > record anchor — with
+  coverage badges and scan/monitor/brief freshness overlaid; `--limit`,
+  `--source`/`--since`, `--refresh`, `--theme plain|csi`, `--no-open`).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / web;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
@@ -139,7 +142,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   creds), `skills` (generate/install).
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
-Slash commands (TUI): `/target /source /index /case /prebrief /view /setup
+Slash commands (TUI): `/target /source /index /case /prebrief /view /wall /setup
 /provider /finding` (extension commands) and `/ask /brief` (prompt templates in
 `prompts/`), plus pi built-ins (`/model /tree /session /resume`).
 
@@ -155,12 +158,12 @@ Case memory is **evidence-only**. `ask` / `brief` read primary evidence
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
-prebrief`, finding review-rows, dismissed findings) are excluded even when they
-match the query. `face`/`see`/`similar` detections index only compact summaries /
-counts / moments / matched refs — raw boxes, thumbnails, and vectors stay in the
-record. Local visual DB artifacts stay in typed local indexes: local-grep/qmd
-ingest the records and summaries, not binary media, embeddings, sampled frames,
-match visualizations, or raw face boxes.
+prebrief wall`, finding review-rows, dismissed findings) are excluded even when
+they match the query. `face`/`see`/`similar` detections index only compact
+summaries / counts / moments / matched refs — raw boxes, thumbnails, and vectors
+stay in the record. Local visual DB artifacts stay in typed local indexes:
+local-grep/qmd ingest the records and summaries, not binary media, embeddings,
+sampled frames, match visualizations, or raw face boxes.
 The saved setup's memory signal list + per-provider `indexable` flags narrow what
 each case searches. Provider execution always follows the **active profile
 binding**; case setup records expected choices/policy and can clear built-ins like

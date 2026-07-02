@@ -514,6 +514,24 @@ Use `note` for observations; use `finding create` to pin confirmed evidence
 (`finding accept`/`dismiss` append review rows; dismissed findings stay auditable
 but drop out of memory/briefs).
 
+### 17. Control-room wall
+
+Ambient monitoring: every case video on one silent wall, muted and looping its
+best evidence moment (open finding > face hit > record anchor), with sense
+coverage badges and scan/monitor/brief freshness overlaid. Click a tile to open
+the media at its anchor; hover for the intel card.
+
+```bash
+overcast wall                                # wall the case (opens the browser)
+overcast wall --theme csi --limit 16         # bigger neon wall
+overcast wall --source youtube --since 24h   # only fresh youtube pulls
+overcast wall --refresh 60 --no-open         # re-snapshot while monitor runs
+```
+
+The wall references local media by `file://` URL (nothing is embedded), so it
+plays whatever is still on disk; missing or browser-hostile containers render
+NO SIGNAL / STILL tiles (with an ffmpeg poster frame when extractable).
+
 ## Command matrix
 
 | Command | Group | Main output | Default backing | Override | Role |
@@ -525,6 +543,7 @@ but drop out of memory/briefs).
 | `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve media |
 | `view` | inspect | `view` | local HTML viewer / OS open | none | Inspect media/anchors |
 | `crop` | inspect | `media.crop` | local ffmpeg | none | Materialize detection crops |
+| `wall` | inspect | `wall` | local HTML wall (file:// refs) | none | Control-room monitor wall |
 | `scan` | osint | `scan.hit` / local summary | source providers; local fallback | `OVERCAST_SOURCE_*_CMD` | Discovery / local scan |
 | `capture` | osint | `capture` | local copy/stdin or source fetch | source provider | Acquire media/content |
 | `monitor` | osint | `scan.hit` + capture/sense | scan/capture/sense chain | source + sense overrides | Repeated discovery w/ dedupe |

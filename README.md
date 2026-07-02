@@ -193,7 +193,7 @@ Direct CLI HTML exports default to the compatible `plain` theme unless
 these report surfaces, while preserving an explicit `--theme plain`.
 
 For end-to-end recipes — first-run setup, person search, OSINT pulls, continuous
-monitoring, qmd memory, detection crops, and more — see
+monitoring, qmd memory, detection crops, the control-room wall, and more — see
 **[`docs/flows.md`](docs/flows.md)** (common flows & usage patterns).
 
 ---
@@ -216,6 +216,7 @@ surface + env vars.)
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
 | `crop` | materialize face/object detections as cropped image records with provenance |
+| `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
 
 **OSINT** — search / capture / monitor
 | verb | does |
