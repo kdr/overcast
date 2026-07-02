@@ -15,6 +15,7 @@ import {
   generateMediaBugTriageSkill,
   generateReconBriefSkill,
   generateVisualTargetSearchSkill,
+  generateCopycatSweepSkill,
 } from "../skill-gen.js";
 import type { VerbSpec } from "../registry/types.js";
 
@@ -73,6 +74,7 @@ const SHIPPED_SKILLS = [
   "overcast-media-bug-triage",
   "overcast-recon-brief",
   "overcast-visual-target-search",
+  "overcast-copycat-sweep",
 ] as const;
 
 /** Harnesses `skills install` knows how to target. */
@@ -112,6 +114,7 @@ function generateSkills(skillsDir: string): string[] {
     ["overcast-media-bug-triage", generateMediaBugTriageSkill],
     ["overcast-recon-brief", generateReconBriefSkill],
     ["overcast-visual-target-search", generateVisualTargetSearchSkill],
+    ["overcast-copycat-sweep", generateCopycatSweepSkill],
   ];
   for (const [name, generate] of focusedSkills) {
     const dir = join(skillsDir, name);

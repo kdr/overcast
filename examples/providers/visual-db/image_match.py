@@ -39,6 +39,10 @@ def parse():
     p.add_argument("--fps", type=float)
     p.add_argument("--max-frames", type=int)
     p.add_argument("--draw", action="store_true")
+    p.add_argument("--draw-max-width", type=int, default=1600,
+                   help="cap the match-overlay width in px (keeps inlined report overlays small)")
+    p.add_argument("--allow-degenerate", action="store_true",
+                   help="skip the planar-projection geometry gate (accept degenerate homographies)")
     p.add_argument("input")
     return p.parse_args()
 
@@ -76,6 +80,41 @@ def image_features(cv2, det, path):
     return img, k, d
 
 
+def is_valid_projection(cv2, np, h, ref_shape):
+    """A real planar match warps the reference rectangle to a convex, sensibly
+    sized quad. Degenerate homographies — RANSAC's high-inlier-count false
+    positives, where all correspondences collapse to a point/line — fold or
+    shrink that quad to near nothing. Reject those so inlier count alone can't
+    'confirm' an unrelated frame. Scale-invariant: bounds are relative to the
+    reference area, so it holds across resolutions."""
+    hgt, wid = ref_shape[:2]
+    corners = np.float32([[0, 0], [wid, 0], [wid, hgt], [0, hgt]]).reshape(-1, 1, 2)
+    try:
+        warped = cv2.perspectiveTransform(corners, h)
+    except Exception:
+        return False
+    if warped is None:
+        return False
+    warped = warped.reshape(-1, 2)
+    if not np.all(np.isfinite(warped)):
+        return False
+    x, y = warped[:, 0], warped[:, 1]
+    area = 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+    ref_area = float(wid * hgt)
+    # collapsed (< 1% of ref) or exploded (> 100x) → not a plausible projection
+    if ref_area <= 0 or area < 0.01 * ref_area or area > 100.0 * ref_area:
+        return False
+    # a projected rectangle stays convex; a folded/self-intersecting quad (the
+    # converge-to-a-point failure) flips cross-product sign around the loop
+    signs = []
+    for i in range(4):
+        ax, ay = warped[(i + 1) % 4] - warped[i]
+        bx, by = warped[(i + 2) % 4] - warped[(i + 1) % 4]
+        signs.append(np.sign(ax * by - ay * bx))
+    signs = [s for s in signs if s != 0]
+    return bool(signs) and all(s == signs[0] for s in signs)
+
+
 def compare(cv2, np, det, use_flann, ref_path, ref_label, query_path, args, out_dir):
     ref_img, ref_k, ref_d = image_features(cv2, det, ref_path)
     q_img, q_k, q_d = image_features(cv2, det, query_path)
@@ -94,12 +133,22 @@ def compare(cv2, np, det, use_flann, ref_path, ref_label, query_path, args, out_
     ratio = inliers / len(good)
     if inliers < args.min_inliers or ratio < args.min_ratio:
         return None
+    # geometry gate: high inlier counts on a degenerate homography are the main
+    # copycat false-positive. Require the match to be a plausible planar warp.
+    if not args.allow_degenerate and not is_valid_projection(cv2, np, h, ref_img.shape):
+        return None
     vis_path = None
     if args.draw:
         out_dir.mkdir(parents=True, exist_ok=True)
         vis = cv2.drawMatches(ref_img, ref_k, q_img, q_k, good, None, matchesMask=mask.ravel().tolist(), flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        # cap width + JPEG quality: reports inline overlays as base64 data URIs, so
+        # a full-res side-by-side bloats the HTML ~10x. 1600px keeps the match
+        # lines legible as proof while keeping the artifact small.
+        if vis.shape[1] > args.draw_max_width:
+            scale = args.draw_max_width / float(vis.shape[1])
+            vis = cv2.resize(vis, (args.draw_max_width, max(1, int(round(vis.shape[0] * scale)))), interpolation=cv2.INTER_AREA)
         vis_path = out_dir / ("%s.jpg" % uuid.uuid4().hex)
-        cv2.imwrite(str(vis_path), vis)
+        cv2.imwrite(str(vis_path), vis, [cv2.IMWRITE_JPEG_QUALITY, 82])
     return {
         "label": ref_label,
         "db_img_path": str(Path(ref_path).resolve()),

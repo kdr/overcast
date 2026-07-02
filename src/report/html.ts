@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { OvercastRecord } from "../record.js";
 
 export type HtmlTheme = "plain" | "csi";
@@ -14,6 +15,46 @@ export interface TimelineRecord {
   error?: string;
 }
 
+/** Record-derived brief header (see BriefSynthesis in verbs/read.ts): narrative
+ *  TL;DR + coverage verdict + sources-checked + matches, rendered above the
+ *  timeline so the export reads as a report, not a record dump. */
+export interface TimelineSynthesis {
+  tldr?: string;
+  verdict: string;
+  sources: Array<{ source: string; hits: number }>;
+  findings: Array<{ id: string; status: string; text: string; confidence?: unknown; overlays?: string[] }>;
+}
+
+const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
+// deliberately NOT a bare `path`/`img` — the image-match payload carries
+// `db_img_path` (the reference frame) and `query_path` (a temp frame that's
+// deleted after the run); only the rendered `match_draw_path` overlay and real
+// crop/thumbnail evidence should surface.
+const VISUAL_KEY_RE = /(?:draw|overlay|visual|thumbnail|thumb|crop|image)/i;
+
+/** Collect visualization image refs from a record payload — match-draw overlays,
+ *  crops, thumbnails: data URIs, or image-extension paths under a visual-ish key
+ *  (`match_draw_path`, `crop`, `thumbnail`, …). Shared by briefs and `case
+ *  status` so overlays surface identically in both. */
+export function collectVisualRefs(value: unknown): string[] {
+  const refs = new Set<string>();
+  const visit = (v: unknown, key = ""): void => {
+    if (typeof v === "string") {
+      if (/^data:image\//i.test(v) || (VISUAL_EXT_RE.test(v) && VISUAL_KEY_RE.test(key))) refs.add(v);
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const item of v) visit(item, key);
+      return;
+    }
+    if (v && typeof v === "object") {
+      for (const [k, child] of Object.entries(v as Record<string, unknown>)) visit(child, k);
+    }
+  };
+  visit(value);
+  return [...refs];
+}
+
 export interface TimelineReport {
   title: string;
   subtitle?: string;
@@ -21,6 +62,7 @@ export interface TimelineReport {
   counts?: Record<string, number>;
   total?: number;
   kind?: string;
+  synthesis?: TimelineSynthesis;
 }
 
 export interface StatusReport {
@@ -88,6 +130,7 @@ export function renderCsiTimelineReport(report: TimelineReport): string {
   const cards = report.records.map((record, index) => renderTimelineCard(record, index)).join("\n");
   const countChips = Object.entries(counts).sort().map(([verb, count]) => `<span class="chip cyan">${escapeHtml(verb)} ${count}</span>`).join("");
   return csiShell(report.title, report.subtitle, `
+    ${renderSynthesis(report.synthesis)}
     <section class="stats" aria-label="case report stats">
       <div><span class="label">MODE</span><strong>${escapeHtml(report.kind ?? "timeline")}</strong></div>
       <div><span class="label">RECORDS</span><strong>${total}</strong></div>
@@ -97,6 +140,31 @@ export function renderCsiTimelineReport(report: TimelineReport): string {
       ${cards || `<article class="card empty"><span class="label">EMPTY</span><p>No records matched this report.</p></article>`}
     </main>
   `);
+}
+
+/** The brief's narrative header: TL;DR banner (analyst note + coverage verdict)
+ *  and sources-checked / matches panels. An explicit "none recorded" is rendered
+ *  rather than omitting the panel — "we checked and found nothing" is a result. */
+function renderSynthesis(syn: TimelineSynthesis | undefined): string {
+  if (!syn) return "";
+  const tldr = renderTldr({
+    headline: syn.tldr ?? syn.verdict,
+    findings: syn.tldr ? [syn.verdict] : [],
+  });
+  const sources = syn.sources.length
+    ? `<ul>${syn.sources.map((s) => `<li><strong>${escapeHtml(s.source)}</strong> — ${s.hits} hit${s.hits === 1 ? "" : "s"}</li>`).join("")}</ul>`
+    : `<p class="meta">none — no scan hits in scope</p>`;
+  const findings = syn.findings.length
+    ? `<ul class="findings">${syn.findings.map((f) => {
+        const overlays = (f.overlays ?? []).map((ref) => imageTag(ref)).filter(Boolean).slice(0, 3).join("");
+        return `<li><span class="id">${escapeHtml(f.id)}</span> <span class="state">[${escapeHtml(f.status)}]</span>${f.confidence != null ? ` <span class="meta">(confidence: ${escapeHtml(String(f.confidence))})</span>` : ""} ${escapeHtml(f.text)}${overlays ? `<div class="overlays" data-csi-overlays="true">${overlays}</div>` : ""}</li>`;
+      }).join("")}</ul>`
+    : `<p class="meta">none recorded</p>`;
+  return `${tldr}
+    <section class="grid" data-csi-synthesis="true" style="margin:0 0 18px">
+      <section class="panel"><h2>Sources checked</h2>${sources}</section>
+      <section class="panel"><h2>Matches &amp; findings</h2>${findings}</section>
+    </section>`;
 }
 
 export function renderCsiStatusReport(report: StatusReport): string {
@@ -136,6 +204,9 @@ h1{margin:0;color:var(--green);font-size:28px;letter-spacing:0;text-transform:up
 .context{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin:0 0 18px}.context-card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:6px;padding:10px 12px}.context-card img{width:100%;max-height:180px;object-fit:contain;background:#020504;border:1px solid var(--line);border-radius:4px;margin:8px 0}.context-card p{margin:6px 0;color:#dfffe9;word-break:break-word}.context-card .meta{color:var(--muted);font-size:12px}
 h2{margin:0 0 8px;color:var(--cyan);font-size:15px;text-transform:uppercase;letter-spacing:0}.kv{display:grid;grid-template-columns:minmax(90px,150px) 1fr;gap:4px 10px}.k{color:var(--muted)}.v{word-break:break-word}
 details{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}summary{cursor:pointer;color:var(--amber)}pre{white-space:pre-wrap;word-break:break-word;margin:8px 0 0;color:#c7ffd8;background:#06100b;padding:8px;border-radius:4px}
+video.embed,img.embed,.embed-wrap img{display:block;width:100%;max-width:560px;max-height:340px;object-fit:contain;background:#020504;border:1px solid var(--line);border-radius:4px;margin:10px 0 2px}
+.overlay{margin:8px 0 2px}.overlay img{display:block;width:100%;max-width:640px;object-fit:contain;background:#020504;border:1px solid var(--magenta);border-radius:4px}.overlay figcaption{color:var(--magenta);font-size:11px;text-transform:uppercase;margin-top:3px}
+.findings li{margin:6px 0}.findings .overlays{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}.findings .overlays img{width:100%;max-width:320px;object-fit:contain;background:#020504;border:1px solid var(--magenta);border-radius:4px}
 </style></head><body><div class="wrap" data-overcast-theme="csi"><header class="top"><h1>${escapeHtml(title)}</h1>${subtitle ? `<div class="subtitle">${escapeHtml(subtitle)}</div>` : ""}</header>${body}</div></body></html>`;
 }
 
@@ -220,8 +291,53 @@ function renderTimelineCard(record: TimelineRecord, index: number): string {
       <span class="label">#${index + 1}</span><span class="verb">${escapeHtml(record.verb)}</span><span class="id">${escapeHtml(record.id)}</span><span class="state">${escapeHtml(state)}</span>${media ? `<span class="media">${escapeHtml(media)}</span>` : ""}
     </div>
     <div class="summary">${escapeHtml(summary)}</div>
+    ${mediaEmbed(record)}
     <details><summary>record details</summary><pre>${escapeHtml(details)}</pre></details>
   </article>`;
+}
+
+const VIDEO_EXT_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|ogv|3gp)$/i;
+
+/** Whether a media ref points at playable video — a direct video URL (X's CDN
+ *  serves extensionless variants under video.twimg.com) or a local video file. */
+function isVideoMediaRef(ref: string): boolean {
+  if (/^https?:\/\//i.test(ref)) {
+    const path = ref.replace(/[?#].*$/, "");
+    return VIDEO_EXT_RE.test(path) || /^https?:\/\/video\.twimg\.com\//i.test(ref);
+  }
+  return VIDEO_EXT_RE.test(ref);
+}
+
+/** Inline player/preview for a record's media: remote video URLs embed as-is,
+ *  local video files via file:// (the `view` verb convention — the export is
+ *  opened locally), local images as data URIs, remote images by URL. A scan
+ *  hit's `thumb` doubles as the video poster so cards preview without loading. */
+function mediaEmbed(record: TimelineRecord): string {
+  const parts: string[] = [];
+  const payload = typeof record.payload === "object" && record.payload != null ? (record.payload as Record<string, unknown>) : {};
+  const ref = record.media?.ref;
+  if (typeof ref === "string" && ref.trim()) {
+    const poster = typeof payload.thumb === "string" && /^https?:\/\//i.test(payload.thumb) ? payload.thumb : undefined;
+    if (isVideoMediaRef(ref)) {
+      const src = /^https?:\/\//i.test(ref) ? ref : existsSync(ref) ? pathToFileURL(ref).href : undefined;
+      if (src) parts.push(`<video class="embed" controls preload="none"${poster ? ` poster="${escapeHtml(poster)}"` : ""} src="${escapeHtml(src)}"></video>`);
+    } else if (/^https?:\/\//i.test(ref) && VISUAL_EXT_RE.test(ref)) {
+      parts.push(`<img class="embed" alt="${escapeHtml(ref)}" src="${escapeHtml(ref)}">`);
+    } else {
+      const t = imageTag(ref);
+      if (t) parts.push(`<div class="embed-wrap">${t}</div>`);
+    }
+  }
+  // match-draw overlays live in the payload (image/face match records), not
+  // media.ref — surface them so a match card shows the geometric proof, not just
+  // the source video.
+  if (record.verb === "image" || record.verb === "face") {
+    for (const overlay of collectVisualRefs(payload).slice(0, 3)) {
+      const t = imageTag(overlay);
+      if (t) parts.push(`<figure class="overlay">${t}<figcaption>match overlay</figcaption></figure>`);
+    }
+  }
+  return parts.join("");
 }
 
 function renderStatusPanel(key: string, value: unknown): string {

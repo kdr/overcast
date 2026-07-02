@@ -738,6 +738,77 @@ test("brief --scope since:<when> actually filters stale records (review fix)", a
   }
 });
 
+test("brief synthesis: TL;DR note, sources-checked rollup, and findings surface in md + csi html", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-brief-syn-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "scan", payload: { title: "rip A", url: "https://x.com/a/1", source: "x", author: "codez", thumb: "https://pbs.twimg.com/t.jpg" }, media: { ref: "https://video.twimg.com/hi.mp4" }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "scan", payload: { title: "rip B", url: "https://x.com/b/2", source: "x" }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "scan", payload: { title: "yt hit", url: "https://youtu.be/z", source: "youtube" }, state: "ready" }));
+    // progress/no-url scan records must not count as checked hits
+    c.writeRecord(makeRecord({ verb: "scan", payload: { op: "pull_progress", stage: "complete" }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "old narrative", tags: ["tldr"] }, meta: { time: "2020-01-01T00:00:00Z" }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "SWEEP_NARRATIVE: checked x + youtube, one reskin confirmed", tags: ["TLDR"] }, meta: { time: "2026-01-02T00:00:00Z" }, state: "ready" }));
+    // an image match record carrying a RANSAC overlay path; the finding cites it
+    const overlayPath = join(dir, "match_draw_orig65.png");
+    writeFileSync(overlayPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])); // PNG signature
+    const imageRec = makeRecord({ verb: "image", payload: { op: "match", matches: [{ label: "orig_65pct", num_inliers: 94, match_draw_path: overlayPath }] }, media: { ref: "https://video.twimg.com/rip.mp4" }, state: "ready" });
+    c.writeRecord(imageRec);
+    c.writeRecord(makeRecord({ verb: "finding", payload: { text: "copycat: reskin by @codez — image 94 inliers", status: "open", confidence: "high", source_record: imageRec.id, source_verb: "image", trigger: "human" }, state: "ready" }));
+    const html = join(dir, "brief.html");
+    const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: { export: html, theme: "csi" }, case: c, profile: defaultProfile() });
+    const payload = rec.payload as Record<string, unknown>;
+    const report = payload.report as string;
+    // markdown: newest tldr note wins, verdict line, rollup, and finding row
+    assert.match(report, /## TL;DR/);
+    assert.match(report, /SWEEP_NARRATIVE: checked x \+ youtube/);
+    assert.ok(!/old narrative/.test(report.split("## Sources checked")[0]), "older tldr note must not head the brief");
+    assert.match(report, /2 sources checked \(3 hits\), 1 media check — 1 finding recorded/);
+    assert.match(report, /- \*\*x\*\* — 2 hits/);
+    assert.match(report, /- \*\*youtube\*\* — 1 hit/);
+    assert.match(report, /## Matches & findings/);
+    assert.match(report, /\[open\] \(confidence: high\) copycat: reskin by @codez/);
+    // the finding's overlay (from its cited image-match record) is embedded in md
+    assert.match(report, /!\[match overlay\]\(.*match_draw_orig65\.png\)/);
+    // structured synthesis rides the record payload
+    const syn = payload.synthesis as Record<string, unknown>;
+    const synFindings = syn.findings as Array<Record<string, unknown>>;
+    assert.equal(synFindings.length, 1);
+    assert.deepEqual(synFindings[0].overlays, [overlayPath]);
+    assert.equal((syn.sources as unknown[]).length, 2);
+    // csi html export opens with the narrative banner + panels
+    const out = readFileSync(html, "utf8");
+    assert.match(out, /data-csi-tldr/);
+    assert.match(out, /SWEEP_NARRATIVE/);
+    assert.match(out, /data-csi-synthesis/);
+    assert.match(out, /Sources checked/);
+    assert.match(out, /Matches &amp; findings/);
+    // a video media.ref embeds a player, with the scan thumb as its poster
+    assert.match(out, /<video class="embed"[^>]*poster="https:\/\/pbs\.twimg\.com\/t\.jpg"[^>]*src="https:\/\/video\.twimg\.com\/hi\.mp4"/);
+    // the finding card embeds the RANSAC overlay (local png → inlined data URI)
+    assert.match(out, /data-csi-overlays="true"/);
+    assert.match(out, /<img[^>]*src="data:image\/png;base64,/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief synthesis: a clean sweep says so explicitly (checked, found none)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-brief-clean-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "scan", payload: { title: "hit", url: "https://x.com/a/1", source: "x" }, state: "ready" }));
+    const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.match(report, /1 source checked \(1 hit\) — no findings recorded/);
+    assert.match(report, /## Matches & findings\n\n- none recorded/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief timeline: dated records sort chronologically, undated go last in order", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-tl-"));
   try {

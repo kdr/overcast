@@ -106,6 +106,9 @@ test("doctor --sources reports missing tiktok credentials", async () => {
     const tiktok = checks.find((c) => c.name === "source:tiktok");
     assert.equal(tiktok?.ok, false);
     assert.match(tiktok?.detail ?? "", /APIFY_TOKEN missing/);
+    const x = checks.find((c) => c.name === "source:x");
+    assert.equal(x?.ok, false);
+    assert.match(x?.detail ?? "", /APIFY_TOKEN missing/);
   } finally {
     if (prev === undefined) delete process.env.APIFY_TOKEN;
     else process.env.APIFY_TOKEN = prev;

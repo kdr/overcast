@@ -7,6 +7,7 @@ import { makeRecord, type OvercastRecord } from "../record.js";
 import { addMember, findIndex, resolveIndexRef } from "../state/index.js";
 import { localIndexDir, runLocalImage } from "../providers/local/vision.js";
 import { resolveImageArg, resolveVisualArg } from "./media-ref.js";
+import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { badNumber } from "./validate.js";
 import { mkdirSync } from "node:fs";
 import type { Case } from "../case.js";
@@ -102,6 +103,8 @@ export const imageVerb: VerbSpec = {
       draw: ctx.opts.draw === true,
       signal: ctx.signal,
     });
+    // if the matched video was captured from a post, trace the match back to it
+    stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
     return [rec];
   },
 };

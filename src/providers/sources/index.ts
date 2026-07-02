@@ -3,7 +3,8 @@
 // `fetch(item) -> capture media`. Same exec wire contract as sense providers;
 // output is mapped to the loose record at THIS boundary.
 //
-// Built-in descriptors: youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave).
+// Built-in descriptors: youtube (yt-dlp), tiktok (Apify), x/twitter (Apify),
+// web (Tavily/Brave).
 // Any type can be overridden/added via env `OVERCAST_SOURCE_<TYPE>_CMD=<base command>` — the
 // base command is invoked as `<base> enumerate ...` / `<base> fetch ...`. This
 // is how the e2e binds a committed fixture source provider offline.
@@ -58,6 +59,12 @@ export function builtinDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("tiktok.sh");
       return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN" } : undefined;
     }
+    case "x":
+    case "twitter": {
+      // one script serves both spellings; hits normalize to source "x"
+      const script = shippedSource("x.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN" } : undefined;
+    }
     case "web": {
       const script = shippedSource("web.sh");
       return script ? { type, base: ["bash", script], needs: "TAVILY_API_KEY|BRAVE_API_KEY" } : undefined;
@@ -73,9 +80,19 @@ export interface ScanHit {
   source?: string;
   published?: string;
   snippet?: string;
+  /** optional triage metadata a provider may emit (kept in the loose payload) */
+  author?: string;
+  views?: number;
+  thumb?: string;
+  duration?: number;
   media?: { ref: string };
   [k: string]: unknown;
 }
+
+/** Optional provider hit fields forwarded into the scan payload when present —
+ *  the cheap-triage metadata (who posted it, reach, artwork, runtime) that lets
+ *  an agent rank hits before paying for a full capture. */
+const HIT_PASSTHROUGH = ["author", "views", "thumb", "duration"] as const;
 
 /** Map an enumerate result (array or JSONL) into scan.hit records. */
 function hitsToRecords(parsed: unknown, sourceType: string): OvercastRecord[] {
@@ -98,6 +115,7 @@ function hitsToRecords(parsed: unknown, sourceType: string): OvercastRecord[] {
         source: hit.source ?? sourceType,
         published: hit.published ?? null,
         snippet: hit.snippet ?? "",
+        ...Object.fromEntries(HIT_PASSTHROUGH.filter((k) => hit[k] != null).map((k) => [k, hit[k]])),
       },
       media,
       meta: { provider: `source:${sourceType}` },

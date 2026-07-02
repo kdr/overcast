@@ -52,7 +52,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
    (`watch/listen/see/face/enhance`), **source** (`scan/capture/monitor`; youtube,
-   tiktok, web), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
+   tiktok, x, web), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    transports are `exec` (default), `http`, `in-proc`. Default sense binding =
    tinycloud (exec); `face:deepface-local` is the local DeepFace profile provider for
    face detection/matching.
@@ -89,7 +89,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
   `--square`).
-- **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / web;
+- **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
   (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
@@ -97,7 +97,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `index entities`, face-analysis → `face --index`; local DBs:
   `image-ransac` for `image match`, `deepface-local` for local face search).
   Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
-  `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `web:<q>`.
+  `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `x:@handle`,
+  `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`.
 - **State** — `target` / `source` manage standing scope; `note` records human
   observations (anchored via `--ref`/`--at`/`--tag`/`--confidence`); `finding`
   (create/list/accept/dismiss) holds manual + setup-automated findings;

@@ -1351,3 +1351,18 @@ test("monitor --every redacts secrets in streamed stdout and alert files", async
     rmSync(d, { recursive: true, force: true });
   }
 });
+
+import { hostSourceType } from "../../src/verbs/osint.ts";
+
+test("hostSourceType routes apex and subdomain hosts (x.com regression)", () => {
+  assert.equal(hostSourceType("https://x.com/user/status/123"), "x");
+  assert.equal(hostSourceType("https://twitter.com/user/status/123"), "x");
+  assert.equal(hostSourceType("https://video.twimg.com/vid/hi.mp4"), "x");
+  assert.equal(hostSourceType("https://pbs.twimg.com/media/p.jpg"), "x");
+  assert.equal(hostSourceType("https://www.youtube.com/watch?v=abc"), "youtube");
+  assert.equal(hostSourceType("https://youtu.be/abc"), "youtube");
+  assert.equal(hostSourceType("https://www.tiktok.com/@u/video/1"), "tiktok");
+  assert.equal(hostSourceType("https://example.com/xx.com/page"), "web");
+  assert.equal(hostSourceType("https://notx.com/a"), "web");
+  assert.equal(hostSourceType("not a url"), "web");
+});

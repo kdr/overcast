@@ -521,6 +521,15 @@ export const doctorVerb: VerbSpec = {
           : "APIFY_TOKEN missing; put it in .env before launching overcast or export it in the shell",
       });
     }
+    if (ctx.opts.sources === true || sourceTypes.has("x") || sourceTypes.has("twitter")) {
+      checks.push({
+        name: "source:x",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present"
+          : "APIFY_TOKEN missing; put it in .env before launching overcast or export it in the shell",
+      });
+    }
     if (ctx.opts.sources === true || sourceTypes.has("web")) {
       checks.push({
         name: "source:web",

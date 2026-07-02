@@ -15,7 +15,7 @@ import {
   resolveSources,
 } from "../../src/state/source.ts";
 import { loadSeen, saveSeen, hitKey } from "../../src/state/seen.ts";
-import { fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
+import { enumerateSource, fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
 import { makeRecord } from "../../src/record.ts";
 
 function withCase(fn: (c: ReturnType<typeof openCase>) => void) {
@@ -109,12 +109,18 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
   const yt = builtinDescriptor("youtube");
   const tt = builtinDescriptor("tiktok");
   const web = builtinDescriptor("web");
+  const x = builtinDescriptor("x");
+  const twitter = builtinDescriptor("twitter");
   assert.ok(yt, "youtube descriptor present in dev");
   assert.ok(tt, "tiktok descriptor present in dev");
   assert.ok(web, "web descriptor present in dev");
+  assert.ok(x, "x descriptor present in dev");
+  assert.ok(twitter, "twitter alias descriptor present in dev");
   assert.match(yt!.base.join(" "), /youtube\.sh$/);
   assert.match(tt!.base.join(" "), /tiktok\.sh$/);
   assert.match(web!.base.join(" "), /web\.sh$/);
+  assert.match(x!.base.join(" "), /x\.sh$/);
+  assert.match(twitter!.base.join(" "), /x\.sh$/);
   assert.equal(builtinDescriptor("nope"), undefined);
   // env override takes precedence and is quote-aware
   process.env.OVERCAST_SOURCE_YOUTUBE_CMD = 'bash "/x y/z.sh"';
@@ -122,6 +128,37 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
     assert.deepEqual(builtinDescriptor("youtube")!.base, ["bash", "/x y/z.sh"]);
   } finally {
     delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD;
+  }
+});
+
+test("enumerateSource forwards triage metadata (author/views/thumb/duration) and drops nulls/unknowns", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-enum-passthrough-"));
+  try {
+    const script = join(dir, "enumerator.mjs");
+    writeFileSync(script, `
+console.log(JSON.stringify([
+  { title: "rip", url: "https://x.com/a/status/1", author: "codez", views: 400000,
+    thumb: "https://pbs.twimg.com/t.jpg", duration: 1140, likes: 99,
+    media: { ref: "https://video.twimg.com/hi.mp4" } },
+  { title: "bare", url: "https://x.com/b/status/2", author: null },
+]));
+`);
+    const [rich, bare] = await enumerateSource({ type: "x", base: ["node", script] }, { query: "loop engineering" });
+    const richPayload = rich.payload as Record<string, unknown>;
+    const barePayload = bare.payload as Record<string, unknown>;
+    assert.equal(rich.state, "ready");
+    assert.equal(richPayload.author, "codez");
+    assert.equal(richPayload.views, 400000);
+    assert.equal(richPayload.thumb, "https://pbs.twimg.com/t.jpg");
+    assert.equal(richPayload.duration, 1140);
+    assert.equal(rich.media?.ref, "https://video.twimg.com/hi.mp4");
+    // not in the passthrough allowlist → stays out of the record
+    assert.equal("likes" in richPayload, false);
+    // null / absent optionals are dropped, not forwarded as nulls
+    assert.equal("author" in barePayload, false);
+    assert.equal("views" in barePayload, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

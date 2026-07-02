@@ -18,7 +18,7 @@ export function buildSystemPrompt(): string {
         "Wizard order: (1) case name, (2) investigation target, (3) sources or local media,",
         "(4) indexes/search destinations, (5) notes, then (6) preview/apply. For choice-like",
         "questions, offer numbered options plus a free-text path. For example: source type options",
-        "`web:<query>`, `youtube:@handle`, `tiktok:@handle`, `local folder/file`, or `skip`;",
+        "`web:<query>`, `youtube:@handle`, `tiktok:@handle`, `x:@handle`, `local folder/file`, or `skip`;",
         "For Step 4, phrase this as search destinations with two groups. First choose exactly one",
         "local case-search backend. This is not optional: use `local-grep` by default for local",
         "keyword/citation search, or `qmd` when the user wants configured local semantic memory.",

@@ -43,7 +43,8 @@ another backend or your own script with no code changes.
 - **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
   `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
   `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.
-- **yt-dlp** on `PATH` — only for the `youtube` / `tiktok` capture sources.
+- **yt-dlp** on `PATH` — only for the `youtube` / `tiktok` / `x` capture sources
+  (x post-page URLs; direct twimg.com media downloads with curl).
 
 `overcast doctor` verifies core prerequisites and reports qmd when installed or
 configured.
@@ -367,7 +368,7 @@ for cadence, and add `--max-frames` when you want a hard cap.
 | class | verbs | shipped providers |
 |---|---|---|
 | **sense** | watch / listen / see / face / enhance | Cloudglue (default), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
-| **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave) |
+| **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), x (Apify), web (Tavily/Brave) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
@@ -377,6 +378,9 @@ Built-in source refs:
 - `youtube:playlist:<id>` or `youtube:<full YouTube URL>` — enumerate a playlist/video URL.
 - `tiktok:@user` — enumerate a TikTok profile.
 - `tiktok:#tag` — enumerate a TikTok hashtag.
+- `x:@handle` — enumerate an X (Twitter) profile's posts.
+- `x:<query>` or `x:#tag` — X advanced search (`from:`, `filter:native_video`, `min_faves:`, …).
+- `x:video:<query>` / `x:image:<query>` — only X posts with native video / images (media targeting).
 - `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
 
 ### Profiles
@@ -426,7 +430,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 
 **OSINT sources**
 - `TAVILY_API_KEY` (preferred) / `BRAVE_API_KEY` — the `web` search source
-- `APIFY_TOKEN` — the `tiktok` source (enumerate; fetch uses yt-dlp)
+- `APIFY_TOKEN` — the `tiktok` and `x` sources (enumerate; fetch uses yt-dlp / direct CDN)
 - youtube needs `yt-dlp` on `PATH` (no key)
 - `OVERCAST_SOURCE_<TYPE>_CMD` — override/add a source provider command
 

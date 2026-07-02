@@ -35,6 +35,7 @@ import { imageVerb } from "./image.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
 import { indexVerb } from "./index.js";
 import { latestFindingStatus, makeFinding } from "./finding.js";
+import { scanHitProvenance, stampProvenance } from "./provenance.js";
 import { redactSecrets } from "../env.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -341,6 +342,7 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
 
     if (hasRemainingAutoSense) {
       const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+      stampProvenance(cap, scanHitProvenance(hit));
       records.push(cap);
       if (cap.state !== "error" && cap.state !== "needs_credentials" && cap.media?.ref) {
         const remainingRecords = await runAutomationChain(ctx, caller, cap.media.ref, directPlan.remainingAutoSense);
@@ -351,6 +353,7 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
   }
 
   const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
+  stampProvenance(cap, scanHitProvenance(hit));
   records.push(cap);
   if (cap.state !== "error" && cap.state !== "needs_credentials" && cap.media?.ref) {
     if (explicitPipe || isSenseableMedia(cap.media.ref)) {
@@ -484,9 +487,19 @@ function uniqueName(url: string): string {
 
 /** Best-effort source provider for an ad-hoc URL by host. Video hosts map to
  *  their downloaders; anything else to the generic `web` page fetcher. */
-function hostSourceType(url: string): string {
-  if (/(^|\.)tiktok\.com/i.test(url)) return "tiktok";
-  if (/(^|\.)(youtube\.com|youtu\.be)/i.test(url)) return "youtube";
+export function hostSourceType(url: string): string {
+  // match on the parsed hostname — a substring regex over the whole URL misses
+  // bare apex domains (x.com has no subdomain, so `(^|\.)x\.com` never fired)
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return "web";
+  }
+  if (/(^|\.)tiktok\.com$/.test(host)) return "tiktok";
+  if (/(^|\.)(youtube\.com|youtu\.be)$/.test(host)) return "youtube";
+  // twimg.com = X's media CDN — the x provider downloads those directly
+  if (/(^|\.)(x\.com|twitter\.com|twimg\.com)$/.test(host)) return "x";
   return "web";
 }
 
@@ -890,6 +903,9 @@ export const captureVerb: VerbSpec = {
       sourceType: hitSourceType(rec),
       out: ctx.opts.out ? String(ctx.opts.out) : undefined,
     });
+    // stamp where it came from (tweet/video URL, author, text, date) so a later
+    // match/finding on this file traces back to the originating post
+    stampProvenance(cap, scanHitProvenance(rec));
     // --index: flag the artifact for memory recall. The case store IS the local
     // memory index (records are written there), so this records the intent.
     if (ctx.opts.index === true && typeof cap.payload === "object") {

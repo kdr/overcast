@@ -20,6 +20,7 @@ import { findIndex } from "../state/index.js";
 import { runLocalFace, type LocalFaceOp } from "../providers/local/vision.js";
 import { isImage, resolveVideoArg } from "./media-ref.js";
 import { badNumber } from "./validate.js";
+import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import type { Case } from "../case.js";
 import type { ProviderDescriptor } from "../profile.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -307,6 +308,7 @@ export const faceVerb: VerbSpec = {
         thumbnails: false,
         signal: ctx.signal,
       });
+      stampProvenance(rec, provenanceFromCapture(c, video));
       return [rec];
     }
     if (ctx.opts["max-frames"] != null) {
@@ -333,6 +335,7 @@ export const faceVerb: VerbSpec = {
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: c.dir };
+      stampProvenance(rec, provenanceFromCapture(c, video));
       return [rec];
     }
 
@@ -368,6 +371,7 @@ export const faceVerb: VerbSpec = {
       signal: ctx.signal,
     });
     rec.meta = { ...rec.meta, case: c.dir };
+    stampProvenance(rec, provenanceFromCapture(c, video));
     return [rec];
   },
 };

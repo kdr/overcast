@@ -25,6 +25,7 @@ import {
 } from "../media/ffmpeg.js";
 import { openHtmlPlayer, osOpen } from "../media/view.js";
 import { providerEnv } from "../providers/provider-env.js";
+import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -82,6 +83,8 @@ export const listenVerb: VerbSpec = {
           lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
         });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
+    // trace a transcript of a captured clip back to the post it came from
+    stampProvenance(rec, provenanceFromCapture(ctx.case, input));
     return [rec];
   },
 };

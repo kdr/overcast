@@ -8,6 +8,7 @@ import {
   generateMediaBugTriageSkill,
   generateReconBriefSkill,
   generateVisualTargetSearchSkill,
+  generateCopycatSweepSkill,
 } from "../../src/skill-gen.ts";
 import { VERBS } from "../../src/registry/verbs.ts";
 
@@ -60,6 +61,11 @@ const generatedSkills = [
     name: "overcast-visual-target-search",
     body: generateVisualTargetSearchSkill,
     verbs: ["doctor", "case init", "face", "crop", "see", "index", "image", "ask", "brief"],
+  },
+  {
+    name: "overcast-copycat-sweep",
+    body: generateCopycatSweepSkill,
+    verbs: ["doctor", "case init", "case setup", "watch", "index", "image", "scan", "capture", "face", "listen", "finding", "note", "ask", "brief", "monitor"],
   },
 ];
 

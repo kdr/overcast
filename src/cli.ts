@@ -116,7 +116,7 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
     vars: [
       ["TAVILY_API_KEY", "Tavily key for the `web` search source (preferred)"],
       ["BRAVE_API_KEY", "Brave Search key for the `web` source (fallback)"],
-      ["APIFY_TOKEN", "Apify token for the `tiktok` source (enumerate); fetch uses yt-dlp"],
+      ["APIFY_TOKEN", "Apify token for the `tiktok` and `x` sources (enumerate); fetch uses yt-dlp / direct CDN"],
       ["OVERCAST_SOURCE_<TYPE>_CMD", "Override/add a source provider command (e.g. OVERCAST_SOURCE_YOUTUBE_CMD)"],
       ["(youtube source)", "needs yt-dlp on PATH — no API key"],
     ],
