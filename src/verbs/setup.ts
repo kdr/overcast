@@ -68,7 +68,7 @@ function nodeProbeExecutable(): string {
  *  0.3.4). Older installs run watch/listen fine but lack face/index support. */
 export const MIN_TINYCLOUD = "0.3.4";
 /** Latest tinycloud version this overcast build documents and recommends. */
-export const RECOMMENDED_TINYCLOUD = "0.3.6";
+export const RECOMMENDED_TINYCLOUD = "0.3.7";
 
 function parseSemver(s: string): [number, number, number] | undefined {
   const m = s.match(/(\d+)\.(\d+)\.(\d+)/);
@@ -84,10 +84,16 @@ function semverLt(a: [number, number, number], b: [number, number, number]): boo
   return false;
 }
 
-/** Parse a provider spec into a descriptor. Forms: exec:<cmd> | http(s)://… | inproc:<module>. */
+/** Parse a provider spec into a descriptor. Forms: builtin:<name> | exec:<cmd> |
+ *  http(s)://… | inproc:<module>. `builtin:<name>` selects a shipped in-process
+ *  backend (currently `see`: builtin:brain | builtin:hf); the module keeps its
+ *  `builtin:` prefix so the verb recognizes it. */
 export function parseProviderSpec(spec: string): ProviderDescriptor {
   if (spec.startsWith("http://") || spec.startsWith("https://")) {
     return { type: "http", endpoint: spec };
+  }
+  if (spec.startsWith("builtin:")) {
+    return { type: "inproc", module: spec };
   }
   if (spec.startsWith("inproc:")) {
     return { type: "inproc", module: spec.slice("inproc:".length) };
@@ -537,6 +543,15 @@ export const doctorVerb: VerbSpec = {
         detail: envPresent("TAVILY_API_KEY") || envPresent("BRAVE_API_KEY")
           ? "web source key present"
           : "TAVILY_API_KEY or BRAVE_API_KEY missing for web source scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("lens")) {
+      checks.push({
+        name: "source:lens",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present"
+          : "APIFY_TOKEN missing for lens (Google Lens reverse image) scans",
       });
     }
 

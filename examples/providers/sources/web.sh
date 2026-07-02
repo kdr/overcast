@@ -76,12 +76,15 @@ case "$op" in
     url=""; out=""
     while [ "$#" -gt 0 ]; do case "$1" in --url) url="${2:-}"; shift 2 2>/dev/null || shift ;; --out) out="${2:-}"; shift 2 2>/dev/null || shift ;; *) shift ;; esac; done
     # -f fails on HTTP errors; report a real failure instead of a ready-looking
-    # capture pointing at a missing/empty file.
-    if curl -fsSL -m 60 -o "${out}.html" "$url"; then
-      jq -nc --arg p "${out}.html" --arg u "$url" '{kind:"page",path:$p,source:"web",url:$u}'
+    # capture pointing at a missing/empty file. Don't double the suffix when
+    # --out already ends in .html/.htm (uniqueName preserves URL extensions).
+    page="${out}.html"
+    case "$out" in *.html|*.htm) page="$out" ;; esac
+    if curl -fsSL -m 60 -o "$page" "$url"; then
+      jq -nc --arg p "$page" --arg u "$url" '{kind:"page",path:$p,source:"web",url:$u}'
     else
       echo "web fetch failed for $url" >&2
-      rm -f "${out}.html"
+      rm -f "$page"
       exit 1
     fi
     ;;

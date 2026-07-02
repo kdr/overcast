@@ -9,6 +9,8 @@ import { makeRecord, type OvercastRecord } from "../record.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
+import { seeWithBrain, brainSeeDisabled } from "../providers/brain/vision.js";
+import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
 import { execCapture, parseFirstJson } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { resolveVideoArg } from "./media-ref.js";
@@ -96,10 +98,16 @@ export const seeVerb: VerbSpec = {
   group: "sense",
   summary: "Understand an image or a single video frame (caption, OCR, detections).",
   description:
-    "Defaults to a Hugging Face image captioner when HF_TOKEN is set (override with " +
-    "HF_SEE_MODEL); otherwise a placeholder (needs_credentials) until a VLM is bound via " +
-    "`setup provider see`. Accepts frame://rec@sec, resolved to a frame via the internal ffmpeg toolkit.",
-  args: [{ name: "input", summary: "Image path, video frame, or frame://rec@sec", required: true }],
+    "Defaults to the BRAIN LLM when it supports images: a direct 'describe this image in detail' " +
+    "call (turnkey with the Cloudglue brain, or any image-capable `setup llm`). Falls back to a " +
+    "Hugging Face captioner when HF_TOKEN is set (override with HF_SEE_MODEL), else a placeholder " +
+    "until a VLM is bound. Switch backends via `setup provider see builtin:hf` (classic HF) or " +
+    "`builtin:brain`; disable the brain default with OVERCAST_SEE_BRAIN=off. Forwards --ocr/--prompt; " +
+    "--detect needs a detection provider (OWLv2 for boxes, or the opt-in Cloudglue tinycloud see/extract " +
+    "provider for boxless facts, tinycloud >= 0.3.7). Accepts frame://rec@sec (resolved via the internal ffmpeg " +
+    "toolkit) and http(s) image URLs, fetched into the case media dir first (meta.source_url keeps " +
+    "the origin).",
+  args: [{ name: "input", summary: "Image path, http(s) image URL, video frame, or frame://rec@sec", required: true }],
   flags: [
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
@@ -113,6 +121,15 @@ export const seeVerb: VerbSpec = {
   run: async (ctx) => {
     if (!ctx.input) return [errorRecord("see", "see requires an image input")];
 
+    // Stamp the case (+ URL provenance, once known) on EVERY outgoing see
+    // record — successes and failures alike, so an error on a URL input still
+    // carries meta.source_url.
+    let sourceUrl: string | undefined;
+    const stamp = (rec: OvercastRecord): OvercastRecord[] => {
+      rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}) };
+      return [rec];
+    };
+
     // resolve a frame:// reference to an extracted frame (still needs a VLM to analyze)
     let resolvedRef = ctx.input;
     const fr = parseFrameRef(ctx.input);
@@ -122,28 +139,74 @@ export const seeVerb: VerbSpec = {
       // "image not found: frame://…").
       const src = ctx.case.recordById(fr.recordId)?.media?.ref;
       if (!src || !existsSync(src)) {
-        return [errorRecord("see", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`)];
+        return stamp(errorRecord("see", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`));
       }
       try {
         resolvedRef = await extractFrame(src, fr.second, ctx.case.mediaDir);
       } catch (e) {
-        return [errorRecord("see", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`)];
+        return stamp(errorRecord("see", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`));
       }
     }
 
+    // An http(s) URL is fetched into the case media dir first (evidence, like
+    // capture) so every backend — the brain LLM, the HF captioner, exec
+    // detectors — reads a local file instead of choking on the URL. The record
+    // keeps the origin in meta.source_url; media.ref is the local artifact.
+    if (isHttpUrl(resolvedRef)) {
+      sourceUrl = resolvedRef;
+      let dl;
+      try {
+        dl = await fetchMediaToCase(resolvedRef, ctx.case.mediaDir, { signal: ctx.signal });
+      } catch (e) {
+        return stamp(errorRecord("see", `could not fetch ${resolvedRef}: ${(e as Error).message}`));
+      }
+      const kind = kindForExt(dl.ext);
+      if (kind === "av") {
+        return stamp(
+          errorRecord(
+            "see",
+            `${resolvedRef} resolved to ${dl.ext.slice(1)} media (saved to ${dl.path}) — see analyzes still ` +
+              "images; run `watch`/`listen` on it, or `see frame://<record>@<sec>` for a single frame",
+          ),
+        );
+      }
+      if (kind === "other") {
+        const bodyNote = dl.ext === ".html" ? ", body is HTML" : dl.ext === ".txt" ? ", body is text" : "";
+        return stamp(
+          errorRecord(
+            "see",
+            `${resolvedRef} did not return an image (content-type ${dl.contentType ?? "unknown"}${bodyNote}) — ` +
+              "check the link (login walls and expired signed URLs commonly return HTML)",
+          ),
+        );
+      }
+      resolvedRef = dl.path;
+    }
+
     // Provider resolution for see:
+    //  0. a built-in backend selector — `setup provider see builtin:brain|builtin:hf`
+    //     forces one path (see below), else
     //  1. an explicit profile binding (exec runs it; http/inproc → explicit
     //     error rather than being silently ignored), else
-    //  2. the shipped Hugging Face captioner when HF_TOKEN is set (turnkey), else
-    //  3. the placeholder (needs_credentials + guidance).
+    //  2. the BRAIN LLM when it supports images (the new turnkey default), else
+    //  3. the shipped Hugging Face captioner when HF_TOKEN is set, else
+    //  4. the placeholder (needs_credentials + guidance).
     const binding = providerBinding(ctx, "see");
+    const builtin = binding?.module?.startsWith("builtin:") ? binding.module.slice("builtin:".length) : undefined;
+    if (builtin && builtin !== "brain" && builtin !== "hf") {
+      return stamp(errorRecord("see", `unknown built-in see backend 'builtin:${builtin}' (expected builtin:brain or builtin:hf)`));
+    }
+    const forceBrain = builtin === "brain";
+    const forceHf = builtin === "hf";
     const seeEnv = providerEnv(ctx.case.mediaDir);
     // forward the declared see flags to whichever provider runs (custom or HF).
     const extraArgs: string[] = [];
     if (ctx.opts.ocr === true) extraArgs.push("--ocr");
     if (ctx.opts.detect) extraArgs.push("--detect", String(ctx.opts.detect));
     if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
-    if (isCustomBinding(binding)) {
+    // A real custom binding (exec/http/inproc) wins — but NOT a `builtin:` selector,
+    // which is handled by the brain/HF branches below.
+    if (isCustomBinding(binding) && !builtin) {
       // --detect needs a detection-capable provider. If the bound provider's
       // `describe` clearly declares no detection (no "detections" payload / detect
       // task), fail fast instead of handing --detect to a captioner that ignores
@@ -157,7 +220,7 @@ export const seeVerb: VerbSpec = {
           const payload = d && Array.isArray(d.payload) ? (d.payload as unknown[]) : [];
           const task = d && typeof d.task === "string" ? d.task : "";
           if (!payload.includes("detections") && !/detect/i.test(task)) {
-            return [
+            return stamp(
               makeRecord({
                 verb: "see",
                 format: "json",
@@ -166,9 +229,8 @@ export const seeVerb: VerbSpec = {
                   "the bound see provider doesn't support --detect (its describe declares no detections); " +
                   "bind a detector, e.g. `overcast setup provider see \"exec:python3 examples/providers/detect/detect.py\"`.",
                 state: "error",
-                meta: { case: ctx.case.dir },
               }),
-            ];
+            );
           }
         }
       }
@@ -177,14 +239,13 @@ export const seeVerb: VerbSpec = {
         extraArgs,
         signal: ctx.signal,
       });
-      rec.meta = { ...rec.meta, case: ctx.case.dir };
-      return [rec];
+      return stamp(rec);
     }
     // --detect needs a detection provider. The turnkey HF captioner / placeholder
     // below can't detect, so fail clearly instead of passing the label list to a
     // captioner (which would mistake it for the image path).
     if (ctx.opts.detect) {
-      return [
+      return stamp(
         makeRecord({
           verb: "see",
           format: "json",
@@ -193,11 +254,38 @@ export const seeVerb: VerbSpec = {
             "see --detect needs a detection provider; bind one, e.g. " +
             "`overcast setup provider see \"exec:python3 examples/providers/detect/detect.py\"` (OWLv2).",
           state: "error",
-          meta: { case: ctx.case.dir },
         }),
-      ];
+      );
     }
-    if (hfToken()) {
+    // New default: describe with the BRAIN LLM when it supports images (BYO).
+    // Forced on with `builtin:brain`; skipped for `builtin:hf` or when disabled
+    // via OVERCAST_SEE_BRAIN=off. On "unavailable" (no image-capable brain) we
+    // fall through to HF/placeholder — unless the brain was explicitly forced.
+    if (!forceHf && (forceBrain || !brainSeeDisabled())) {
+      const res = await seeWithBrain(resolvedRef, {
+        profile: ctx.profile,
+        caseDir: ctx.case.dir,
+        prompt: ctx.opts.prompt ? String(ctx.opts.prompt) : undefined,
+        ocr: ctx.opts.ocr === true,
+        signal: ctx.signal,
+      });
+      if (res.kind === "record") return stamp(res.record);
+      if (forceBrain) {
+        return stamp(
+          errorRecord(
+            "see",
+            `see (brain) can't run: ${res.reason}. Configure an image-capable brain (\`setup llm\`), ` +
+              "or switch backends with `overcast setup provider see builtin:hf` / `setup provider see <spec>`.",
+          ),
+        );
+      }
+      // else: no image-capable brain — fall through to the HF captioner / placeholder.
+    }
+
+    // Classic Hugging Face captioner: the fallback default, and the switchable
+    // "old implementation" (`builtin:hf` runs it even when a brain is available;
+    // with no HF_TOKEN it self-reports needs_credentials).
+    if (hfToken() || forceHf) {
       const hf = shippedPath("examples", "providers", "hf", "see.sh");
       if (hf) {
         // pass --input explicitly (like execDescriptor) so the media path is never
@@ -207,12 +295,14 @@ export const seeVerb: VerbSpec = {
           extraArgs,
           signal: ctx.signal,
         });
-        rec.meta = { ...rec.meta, case: ctx.case.dir };
-        return [rec];
+        return stamp(rec);
+      }
+      if (forceHf) {
+        return stamp(errorRecord("see", "the Hugging Face see provider script isn't available in this build"));
       }
     }
 
-    return [
+    return stamp(
       makeRecord({
         verb: "see",
         format: "json",
@@ -221,13 +311,15 @@ export const seeVerb: VerbSpec = {
           ocr: "",
           detections: [],
           guidance:
-            "see has no default provider yet. Bind a VLM: `overcast setup provider see <http|module>`.",
+            "see has no image-capable brain and no VLM bound. Configure a brain (`setup llm`, or a " +
+            "Cloudglue key for the turnkey brain), set HF_TOKEN for the Hugging Face captioner, or bind " +
+            "a VLM with `setup provider see <spec>`.",
         },
         media: { ref: resolvedRef },
-        meta: { provider: "placeholder", case: ctx.case.dir },
+        meta: { provider: "placeholder" },
         state: "needs_credentials",
       }),
-    ];
+    );
   },
 };
 

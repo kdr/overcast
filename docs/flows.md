@@ -179,6 +179,14 @@ Raw detection payloads are intentionally not searchable. Use exact record reads
 - **Local visual search:** `image match ./clip.mp4 --index <image-ransac-index>`
   for logos/landmarks, or `face ./clip.mp4 --match ./person.jpg --index
   <deepface-local-index>` for local face matching.
+- **Local face clustering (who recurs across media):** stand up a DB with `index
+  create people --type face-cluster --local`, then `cluster add ./clip.mp4
+  --index <id>` to ingest faces (each is assign-or-created into a person). Browse
+  with `cluster list` / `cluster view` (HTML contact sheet), name a person with
+  `cluster label <person-id> "Name"`, probe a photo with `cluster identify
+  ./who.jpg`, and re-tidy groups as the DB grows with `cluster recluster` (human
+  labels carry forward). Local + deepface-only — the tinycloud face path exposes
+  no embeddings, so clustering rides on `face:deepface-local`.
 - **Entity index reads:** `index entities <entity-index> <video>`.
 - **Detection crops:** `crop <face-or-see-record-id> --all [--class person]`
   writes crop images and searchable crop records.
@@ -290,12 +298,12 @@ overcast view <watch-record-id>
 overcast brief --export report.md
 ```
 
-### 4. Local visual DB: logos, signs, landmarks, and faces
+### 4. Local visual DB: logos, faces, and semantic (CLIP) search
 
 When you need a local, inspectable visual match DB instead of a remote index.
 
 ```bash
-scripts/visual-db-uv.sh --face
+scripts/visual-db-uv.sh --face   # or --clip for CLIP, --all for both
 overcast doctor --json
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
 
@@ -307,6 +315,12 @@ overcast index create localfaces --type deepface-local --local --json
 overcast index add ./person.jpg --to localfaces --json
 overcast face ./candidate.mp4 --match ./person.jpg --index localfaces \
   --fps 0.5 --max-frames 32 --min-similarity 20 --json
+
+# CLIP semantic DB — query by text or image (image->image / text->image)
+overcast index create scenes --type basic-clip --local --granularity frame --json
+overcast similar add ./candidate.mp4 --index scenes --json
+overcast similar search "a red car at night" --index scenes --json
+overcast similar match ./reference.jpg --index scenes --json
 ```
 
 Use `--draw` on `image match` to write RANSAC visualizations into the case media
@@ -314,7 +328,13 @@ store. Local face results include frame timestamps, similarity, and boxes. Use
 `--fps` for video sampling cadence; add `--max-frames` when you need to cap
 runtime. With `--profile local`, plain `face ./candidate.mp4` runs local
 DeepFace detection through the `face:deepface-local` provider; `deepface-local` indexes are
-only needed when you want a reusable/searchable local face DB.
+only needed when you want a reusable/searchable local face DB. `basic-clip` is the
+semantic option: `similar add` embeds + caches members (videos are frame-sampled and
+pooled, or stored per-frame with `--granularity frame` so matches carry `at`), then
+`similar match`/`similar search` rank by cosine similarity (0–100). Stand up a
+frame-level and a video-level index side by side in the wizard (one comma-separated
+`--index`; per-index config pairs use `;`):
+`case setup --index "moments:basic-clip@granularity=frame,clips:basic-clip@granularity=video" --yes`.
 
 ### 5. Local-media-only person search
 
@@ -502,17 +522,36 @@ Use `note` for observations; use `finding create` to pin confirmed evidence
 (`finding accept`/`dismiss` append review rows; dismissed findings stay auditable
 but drop out of memory/briefs).
 
+### 17. Control-room wall
+
+Ambient monitoring: every case video on one silent wall, muted and looping its
+best evidence moment (open finding > face hit > record anchor), with sense
+coverage badges and scan/monitor/brief freshness overlaid. Click a tile to open
+the media at its anchor; hover for the intel card.
+
+```bash
+overcast wall                                # wall the case (opens the browser)
+overcast wall --theme csi --limit 16         # bigger neon wall
+overcast wall --source youtube --since 24h   # only fresh youtube pulls
+overcast wall --refresh 60 --no-open         # re-snapshot while monitor runs
+```
+
+The wall references local media by `file://` URL (nothing is embedded), so it
+plays whatever is still on disk; missing or browser-hostile containers render
+NO SIGNAL / STILL tiles (with an ffmpeg poster frame when extractable).
+
 ## Command matrix
 
 | Command | Group | Main output | Default backing | Override | Role |
 |---|---|---|---|---|---|
 | `watch` | sense | `video.analysis` | tinycloud | `setup provider watch "exec:…"` | Video understanding |
 | `listen` | sense | `audio.analysis` | tinycloud | `setup provider listen "exec:…"` | Speech/audio analysis |
-| `see` | sense | `image.analysis` | HF captioner if token, else placeholder | `setup provider see "exec:…"` | Image/frame understanding |
+| `see` | sense | `image.analysis` | brain LLM (image-capable) → HF captioner if token → placeholder | `setup provider see "exec:…"` / `builtin:hf` | Image/frame understanding |
 | `face` | sense | `face.analysis` | tinycloud | custom exec / pinned tinycloud | Face detect/match/index search |
 | `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve media |
 | `view` | inspect | `view` | local HTML viewer / OS open | none | Inspect media/anchors |
 | `crop` | inspect | `media.crop` | local ffmpeg | none | Materialize detection crops |
+| `wall` | inspect | `wall` | local HTML wall (file:// refs) | none | Control-room monitor wall |
 | `scan` | osint | `scan.hit` / local summary | source providers; local fallback | `OVERCAST_SOURCE_*_CMD` | Discovery / local scan |
 | `capture` | osint | `capture` | local copy/stdin or source fetch | source provider | Acquire media/content |
 | `monitor` | osint | `scan.hit` + capture/sense | scan/capture/sense chain | source + sense overrides | Repeated discovery w/ dedupe |

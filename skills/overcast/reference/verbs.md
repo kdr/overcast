@@ -54,17 +54,17 @@ Emits `audio.analysis` records.
 
 ### `overcast see`
 
-Defaults to a Hugging Face image captioner when HF_TOKEN is set (override with HF_SEE_MODEL); otherwise a placeholder (needs_credentials) until a VLM is bound via `setup provider see`. Accepts frame://rec@sec, resolved to a frame via the internal ffmpeg toolkit.
+Defaults to the BRAIN LLM when it supports images: a direct 'describe this image in detail' call (turnkey with the Cloudglue brain, or any image-capable `setup llm`). Falls back to a Hugging Face captioner when HF_TOKEN is set (override with HF_SEE_MODEL), else a placeholder until a VLM is bound. Switch backends via `setup provider see builtin:hf` (classic HF) or `builtin:brain`; disable the brain default with OVERCAST_SEE_BRAIN=off. Forwards --ocr/--prompt; --detect needs a detection provider (OWLv2 for boxes, or the opt-in Cloudglue tinycloud see/extract provider for boxless facts, tinycloud >= 0.3.7). Accepts frame://rec@sec (resolved via the internal ffmpeg toolkit) and http(s) image URLs, fetched into the case media dir first (meta.source_url keeps the origin).
 
 ```
 overcast see <input> [options]
 
   Understand an image or a single video frame (caption, OCR, detections).
 
-  Defaults to a Hugging Face image captioner when HF_TOKEN is set (override with HF_SEE_MODEL); otherwise a placeholder (needs_credentials) until a VLM is bound via `setup provider see`. Accepts frame://rec@sec, resolved to a frame via the internal ffmpeg toolkit.
+  Defaults to the BRAIN LLM when it supports images: a direct 'describe this image in detail' call (turnkey with the Cloudglue brain, or any image-capable `setup llm`). Falls back to a Hugging Face captioner when HF_TOKEN is set (override with HF_SEE_MODEL), else a placeholder until a VLM is bound. Switch backends via `setup provider see builtin:hf` (classic HF) or `builtin:brain`; disable the brain default with OVERCAST_SEE_BRAIN=off. Forwards --ocr/--prompt; --detect needs a detection provider (OWLv2 for boxes, or the opt-in Cloudglue tinycloud see/extract provider for boxless facts, tinycloud >= 0.3.7). Accepts frame://rec@sec (resolved via the internal ffmpeg toolkit) and http(s) image URLs, fetched into the case media dir first (meta.source_url keeps the origin).
 
 Arguments:
-  input            Image path, video frame, or frame://rec@sec
+  input            Image path, http(s) image URL, video frame, or frame://rec@sec
 
 Options:
   --format <string>      Output surface: json | md | txt
@@ -139,6 +139,74 @@ Options:
 ```
 
 Emits `image.match` records.
+
+### `overcast cluster`
+
+A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); `cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new person) without writing; `cluster recluster` re-groups every stored face and carries human labels forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the case's sole one when --index is omitted. Emits a `cluster` record.
+
+```
+overcast cluster <action> [arg] [arg2] [options]
+
+  Build and browse a local face-cluster DB: group faces into people, identify, label, and view.
+
+  A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); `cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new person) without writing; `cluster recluster` re-groups every stored face and carries human labels forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the case's sole one when --index is omitted. Emits a `cluster` record.
+
+Arguments:
+  action           add | ingest | identify | list | show | label | recluster | view
+  arg              add/identify: media (path/URL/record-id) · show/label: person id
+  arg2             label: the name to assign (cluster label <person-id> <name>)
+
+Options:
+  --index <string>       face-cluster index id/name (default: the case's sole face-cluster index)
+  --min-similarity <number> add/identify: assign-or-create threshold; recluster: linkage threshold (0–100)
+  --cluster <string>     show/label: the person id (alternative to the positional)
+  --label <string>       label: the name to assign (alternative to the positional)
+  --fps <number>         add/identify: sampling frames per second (video)
+  --max-frames <number>  add/identify: video frame sample count/cap
+  --start <string>       add/identify: window start (SS or timecode)
+  --end <string>         add/identify: window end (SS or timecode)
+  --limit <number>       list/show/identify: max results
+  --source-record <string> add: the case record id the media came from
+  --out <string>         view: HTML output path (default: .overcast/media/cluster-<id>.html)
+  --no-open              view: write the gallery but don't launch it
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `cluster` records.
+
+### `overcast similar`
+
+`similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+
+```
+overcast similar <action> [input]... [options]
+
+  Find images/video moments by visual or text similarity in a local CLIP (basic-clip) index.
+
+  `similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+
+Arguments:
+  action           add | match | search
+  input            image/video path, URL, record id (add/match) — or a text query (search)
+
+Options:
+  --index <string>       local basic-clip index id/name
+  --to <string>          alias for --index when adding
+  --min-similarity <number> match/search: similarity floor (0–100)
+  --limit <number>       match/search: max results
+  --offset <number>      match/search: result offset
+  --pooling <string>     match: pool the query video's frames by max | mean (members follow the index config)
+  --granularity <string> video (one vector/video) | frame (moments) — set at `index create`; members always follow the index config
+  --sampling <string>    match query video: uniform windows | shots (tinycloud watch boundaries); members follow the index config
+  --window <number>      video: seconds per uniform sampling window
+  --fps <number>         video: frame sampling rate; --max-frames can cap it
+  --max-frames <number>  video: frame sample count/cap
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `similar.match` records.
 
 ### `overcast enhance`
 
@@ -217,6 +285,31 @@ Options:
 ```
 
 Emits `media.crop` records.
+
+### `overcast wall`
+
+Generates a self-contained HTML wall of muted, looping video tiles — each anchored to its best evidence moment (open finding > face hit > record anchor) — overlaid with case state: sense-coverage badges, findings, per-source scan / monitor / brief freshness. Local media is referenced by file:// URL (not embedded); missing or browser-hostile media renders a NO SIGNAL / STILL tile (with an ffmpeg poster frame when extractable). Click a tile to open the media at its anchor; hover for the intel card. --no-open writes the wall and emits a record with its path instead of launching.
+
+```
+overcast wall  [options]
+
+  Open a control-room monitor wall: case videos looping at their evidence moments.
+
+  Generates a self-contained HTML wall of muted, looping video tiles — each anchored to its best evidence moment (open finding > face hit > record anchor) — overlaid with case state: sense-coverage badges, findings, per-source scan / monitor / brief freshness. Local media is referenced by file:// URL (not embedded); missing or browser-hostile media renders a NO SIGNAL / STILL tile (with an ffmpeg poster frame when extractable). Click a tile to open the media at its anchor; hover for the intel card. --no-open writes the wall and emits a record with its path instead of launching.
+
+Options:
+  --limit <number>       Max tiles, most evidentiary/recent first (~25 is a practical decode ceiling) (default: 12)
+  --source <string>      Only media from this source type (youtube | tiktok | web | local)
+  --since <string>       Only media with records since (e.g. 24h, 7d, 2026-06-01)
+  --export <string>      Wall HTML path (default: .overcast/media/wall.html)
+  --refresh <number>     Auto-reload the wall every N seconds (restarts the feeds)
+  --no-open              Write the wall but don't launch it
+  --theme <string>       HTML theme: plain | csi (default: plain)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `wall` records.
 
 ## OSINT
 
@@ -314,7 +407,7 @@ Arguments:
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip
   --local                create a local index instead of a tinycloud-backed index
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
@@ -327,6 +420,10 @@ Options:
   --no-download          add: don't materialize the source locally
   --limit <number>       entities: max entities
   --offset <number>      entities: entity offset
+  --pooling <string>     create basic-clip: pool video frames by max | mean
+  --granularity <string> create basic-clip: video | frame (moment-level)
+  --sampling <string>    create basic-clip: uniform | shots (watch boundaries)
+  --window <number>      create basic-clip: seconds per uniform sampling window
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```

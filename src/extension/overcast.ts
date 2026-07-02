@@ -17,6 +17,7 @@ import { toAgentTool } from "../registry/to-agent-tool.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveCloudglue, resolveHome } from "../profile.js";
 import { loadSetup } from "../state/setup.js";
+import { CLOUDGLUE_MODEL_ID } from "../providers/brain/vision.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { OvercastHeader, OvercastFooter, workingIndicator, opLabel, idleLabel } from "./branding.js";
 import { registerSlashCommands } from "./slash.js";
@@ -39,7 +40,7 @@ function setupHintLabel(cwd: string): string | undefined {
   return setup?.completed ? undefined : "case not set up";
 }
 
-const CLOUDGLUE_MODEL_ID = "tinycloud:advanced";
+// CLOUDGLUE_MODEL_ID is imported from providers/brain/vision.js (single source of truth).
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // Built file lives at dist/extension/overcast.js → package root is two up,

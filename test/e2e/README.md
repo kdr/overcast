@@ -49,19 +49,25 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 - **Local detector (`see --detect`)** — `DETECT_PY` = a python with
   `torch`/`transformers`/`scipy`/`pillow` (OWLv2). If unset, the case probes
   `python3`/`python` and skips when the deps are missing.
-- **Visual DBs / DeepFace** — `OC_VISUAL_DB_PY` points at the
-  uv-managed Python from `scripts/visual-db-uv.sh --face`. Optional real-data
-  fixtures: `OC_LOCAL_IMAGE_REF`, `OC_LOCAL_IMAGE_VIDEO_A`,
+- **Visual DBs / DeepFace / CLIP** — `OC_VISUAL_DB_PY` points at the
+  uv-managed Python from `scripts/visual-db-uv.sh --all` (image + face + CLIP).
+  Optional real-data fixtures: `OC_LOCAL_IMAGE_REF`, `OC_LOCAL_IMAGE_VIDEO_A`,
   `OC_LOCAL_IMAGE_VIDEO_B`, `OC_LOCAL_FACE_IMAGE`, `OC_LOCAL_FACE_VIDEO`,
   plus sampling knobs `OC_LOCAL_IMAGE_FPS`, `OC_LOCAL_FACE_FPS`,
-  `OC_LOCAL_IMAGE_MAX_FRAMES`, and `OC_LOCAL_FACE_MAX_FRAMES`.
+  `OC_LOCAL_IMAGE_MAX_FRAMES`, and `OC_LOCAL_FACE_MAX_FRAMES`. The CLIP
+  (`basic-clip`) case is self-sufficient: it derives its fixtures from
+  `OC_VIDEO_OBJECTS`/`OC_VIDEO_SMALL` (ffmpeg clips + frames) and captions a
+  frame with `see` for the text queries; `OC_CLIP_VIDEO`/`OC_CLIP_IMAGE_REF`/
+  `OC_CLIP_TEXT` override, and `OC_CLIP_MODEL`/`OC_CLIP_PRETRAINED`/
+  `OC_CLIP_DEVICE` pick the model.
 - **bun** — to compile the binary (`npm run build:bun`). Set `OVERCAST_USE_NODE=1`
   to run `node dist/bin/overcast.js` instead.
 
 ### Cases (`test/e2e/live/cases/*.sh`, run in order)
 
 `00_cli` (version/commands/help + all env-var docs + doctor) · `10_watch` ·
-`11_listen` (Cloudglue + ElevenLabs) · `12_see` (HF + fal + local OWLv2) ·
+`11_listen` (Cloudglue + ElevenLabs) · `12_see` (HF + fal + Cloudglue tinycloud
+see/extract ≥ 0.3.7 + local OWLv2) ·
 `13_enhance_view` · `20_sources` (Tavily/Apify/yt-dlp) · `21_pipeline`
 (source→capture→sense) · `26_x_copycat` (x keyword text search + user-scoped
 video capture from the CDN + headless agent x sweep + headless
@@ -71,17 +77,24 @@ original, CONFIRM a synthesized reskin through the geometry gate, REJECT an
 unrelated clip, showcase a brief with the embedded match overlay) ·
 `22_monitor` (`--once` diff + bounded `--every`) ·
 `23_index` · `24_case_search` · `16_visual_db` (local image-ransac,
-`face:deepface-local`, and deepface-local with real media) · `30_read`
+`face:deepface-local`, and deepface-local with real media) · `17_clip_db`
+(local basic-clip CLIP DB with real media: fixtures derived from real videos,
+caption-driven queries, all four cross-modal modes — text×video, image×video,
+image×image, text×image — a headless-agent `similar search` leg, and a
+self-contained HTML evidence page `clip_db_evidence.html`) · `30_read`
 (ask/brief over real records) · `31_visualization` (CSI status/brief/records
 exports with real visual targets and matches) · `32_headless_visualization`
-(headless agent `--mode json` export trace, default CSI HTML theme) ·
-`40_profiles` · `50_piping` (jq / chaining) · `60_dist` (binary as artifact) ·
-`70_headless` (agent `--mode json` event stream + `-p` tool use +
-watch/persist).
+(headless agent `--mode json` export trace, default CSI HTML theme) · `33_wall`
+(control-room wall over real watch/face evidence: finding-anchored loop window,
+FND chip, CSI markers) · `40_profiles` · `50_piping` (jq / chaining) · `60_dist`
+(binary as artifact) · `70_headless` (agent `--mode json` event stream + `-p`
+tool use + watch/persist).
 
 The offline suite also covers setup management (`phase4_setup`): `case setup
 plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
-and exclusion of setup history records from memory.
+and exclusion of setup history records from memory — plus the control-room wall
+(`phase6_wall`): empty-case pending guidance, then a themed wall over seeded
+case media.
 
 ### Output
 

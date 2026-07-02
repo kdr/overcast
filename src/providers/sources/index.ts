@@ -27,7 +27,16 @@ export interface SourceDescriptor {
   base: string[];
   /** human note about credentials/deps */
   needs?: string;
+  /** per-op exec budget for slow backends (e.g. Apify run-sync holds the
+   *  request up to 300s); overrides the enumerate/fetch defaults */
+  timeoutMs?: number;
 }
+
+/** Exec budget for sources backed by Apify's run-sync endpoint (tiktok, lens):
+ *  the request itself can hold up to 300s, so the harness must not kill the
+ *  provider at the generic 2-min enumerate default. Scripts cap their curls
+ *  below this so a slow backend fails client-side with a clear message. */
+export const APIFY_RUN_SYNC_TIMEOUT_MS = 6 * 60_000;
 
 /** Built-in source descriptors. yt-dlp / Apify / web search are gated by deps/creds. */
 /**
@@ -47,8 +56,15 @@ export function tokenizeCommand(s: string): string[] {
 export function builtinDescriptor(type: string): SourceDescriptor | undefined {
   const envOverride = process.env[`OVERCAST_SOURCE_${type.toUpperCase()}_CMD`];
   if (envOverride) {
-    return { type, base: tokenizeCommand(envOverride.trim()) };
+    // an override rebinds the COMMAND, not the type's semantics — keep the
+    // built-in exec budget so a rebound lens/tiktok (e.g. the live e2e binding
+    // the shipped script by absolute path) isn't killed at the generic default.
+    return { type, base: tokenizeCommand(envOverride.trim()), timeoutMs: shippedDescriptor(type)?.timeoutMs };
   }
+  return shippedDescriptor(type);
+}
+
+function shippedDescriptor(type: string): SourceDescriptor | undefined {
   switch (type) {
     case "youtube": {
       // yt-dlp drives both enumerate (flat) and fetch (download). No API key.
@@ -57,17 +73,24 @@ export function builtinDescriptor(type: string): SourceDescriptor | undefined {
     }
     case "tiktok": {
       const script = shippedSource("tiktok.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN" } : undefined;
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
     }
     case "x":
     case "twitter": {
-      // one script serves both spellings; hits normalize to source "x"
+      // one script serves both spellings; hits normalize to source "x".
+      // Apify run-sync (like tiktok/lens) → needs the longer exec budget.
       const script = shippedSource("x.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN" } : undefined;
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
     }
     case "web": {
       const script = shippedSource("web.sh");
       return script ? { type, base: ["bash", script], needs: "TAVILY_API_KEY|BRAVE_API_KEY" } : undefined;
+    }
+    case "lens": {
+      // Google Lens reverse image search (Apify actor); ref/query = image URL
+      // or local image path.
+      const script = shippedSource("lens.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
     }
     default:
       return undefined;
@@ -86,13 +109,10 @@ export interface ScanHit {
   thumb?: string;
   duration?: number;
   media?: { ref: string };
+  // triage metadata (author/views/thumb/duration) and any other provider fields
+  // ride into the payload via the `...extra` spread in hitsToRecords.
   [k: string]: unknown;
 }
-
-/** Optional provider hit fields forwarded into the scan payload when present —
- *  the cheap-triage metadata (who posted it, reach, artwork, runtime) that lets
- *  an agent rank hits before paying for a full capture. */
-const HIT_PASSTHROUGH = ["author", "views", "thumb", "duration"] as const;
 
 /** Map an enumerate result (array or JSONL) into scan.hit records. */
 function hitsToRecords(parsed: unknown, sourceType: string): OvercastRecord[] {
@@ -101,21 +121,25 @@ function hitsToRecords(parsed: unknown, sourceType: string): OvercastRecord[] {
   const arr: unknown[] = Array.isArray(parsed) ? parsed : [];
   return arr.map((h) => {
     const hit = (h ?? {}) as ScanHit;
-    const media = hit.media?.ref
-      ? { ref: hit.media.ref }
-      : hit.url
-        ? { ref: hit.url }
+    // any fields beyond the canonical five ride along into the payload (loose
+    // record) — provider-specific surrounding data (e.g. lens match kind /
+    // matched-image size) must not be dropped at this boundary.
+    const { media: hitMedia, title, url, source, published, snippet, ...extra } = hit;
+    const media = hitMedia?.ref
+      ? { ref: hitMedia.ref }
+      : url
+        ? { ref: url }
         : undefined;
     return makeRecord({
       verb: "scan",
       format: "json",
       payload: {
-        title: hit.title ?? "",
-        url: hit.url ?? "",
-        source: hit.source ?? sourceType,
-        published: hit.published ?? null,
-        snippet: hit.snippet ?? "",
-        ...Object.fromEntries(HIT_PASSTHROUGH.filter((k) => hit[k] != null).map((k) => [k, hit[k]])),
+        title: title ?? "",
+        url: url ?? "",
+        source: source ?? sourceType,
+        published: published ?? null,
+        snippet: snippet ?? "",
+        ...extra,
       },
       media,
       meta: { provider: `source:${sourceType}` },
@@ -149,7 +173,7 @@ export async function enumerateSource(
   const res = await execCapture(cmd, args, {
     env: opts.env,
     signal: opts.signal,
-    timeoutMs: opts.timeoutMs ?? 2 * 60_000,
+    timeoutMs: opts.timeoutMs ?? desc.timeoutMs ?? 2 * 60_000,
   });
   if (res.code !== 0) {
     // exit 13 = missing deps/credentials (exec contract), a setup gap not a hard fail
@@ -247,7 +271,7 @@ export async function fetchSource(
   const res = await execCapture(cmd, args, {
     env: opts.env,
     signal: opts.signal,
-    timeoutMs: opts.timeoutMs ?? 5 * 60_000,
+    timeoutMs: opts.timeoutMs ?? desc.timeoutMs ?? 5 * 60_000,
   });
   if (res.code !== 0) {
     // exit 13 = missing deps/credentials (exec contract), a setup gap not a hard fail

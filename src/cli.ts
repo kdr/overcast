@@ -89,13 +89,13 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["CLOUDGLUE_API_KEY", "Cloudglue key for the default watch/listen/face/index backend + turnkey brain (else ~/.tinycloud/config.json)"],
       ["CLOUDGLUE_BASE_URL", "Cloudglue endpoint (default https://api.cloudglue.dev)"],
       ["OVERCAST_TINYCLOUD_CMD", "Override the tinycloud invocation for face/index/ask-index (a path or wrapper, e.g. a pinned binary)"],
-      ["TINYCLOUD_HTTP_RETRIES / TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS / TINYCLOUD_JOB_WAIT_TIMEOUT_MS", "tinycloud 0.3.6 Cloudglue reliability knobs inherited by default providers"],
+      ["TINYCLOUD_HTTP_RETRIES / TINYCLOUD_MODEL_RETRIES / TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS / TINYCLOUD_JOB_WAIT_TIMEOUT_MS", "tinycloud 0.3.7 Cloudglue reliability knobs (HTTP + model retries default 5) inherited by default providers"],
     ],
   },
   {
     title: "overcast — opt-in sense providers (bind via `setup provider <verb> <spec>`)",
     vars: [
-      ["HF_TOKEN / HUGGING_FACE_HUB_TOKEN", "Hugging Face token — turnkey `see` (vision-LLM caption/OCR) + `enhance` (image upscale)"],
+      ["HF_TOKEN / HUGGING_FACE_HUB_TOKEN", "Hugging Face token — fallback `see` captioner (when the brain has no vision) + `enhance` (image upscale)"],
       ["HF_SEE_MODEL", "HF see model (default google/gemma-3-27b-it)"],
       ["HF_ENHANCE_IMAGE_MODEL / HF_ENHANCE_AUDIO_MODEL / HF_ENHANCE_ENDPOINT", "HF enhance model + router endpoint overrides"],
       ["FAL_KEY / FAL_API_KEY", "fal.ai key — see (florence-2), enhance image (esrgan) + audio (deepfilternet3)"],
@@ -129,6 +129,7 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["OVERCAST_PROFILE", "active profile for the session (set by the launcher from --profile)"],
       ["OVERCAST_MEDIA_DIR", "(set by overcast) the media output dir passed to exec providers"],
       ["OVERCAST_NO_DOTENV", "Set 1 to disable automatic .env loading for isolated tests/runs"],
+      ["OVERCAST_SEE_BRAIN", "Set off/0 to disable the default brain-LLM `see` backend (fall back to Hugging Face / placeholder)"],
       ["OVERCAST_PI_ONLINE", "Set 1 to re-enable pi's startup update-check"],
       ["OVERCAST_MONITOR_MAX_PASSES", "cap on monitor --every passes (testing/scheduling)"],
       ["OVERCAST_E2E_LIVE", "Set 1 to run the gated live-Cloudglue e2e cases"],

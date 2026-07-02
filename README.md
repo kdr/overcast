@@ -38,8 +38,9 @@ another backend or your own script with no code changes.
 - **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
   default `watch` / `listen` / `face` / `index` backend (Cloudglue); set
   `CLOUDGLUE_API_KEY`. The `face` + `index` verbs need **tinycloud ≥ 0.3.4**
-  and overcast currently recommends **0.3.6** (`npm i -g @cloudglue/tinycloud@0.3.6`
-  or `tinycloud update`); override the invocation with `OVERCAST_TINYCLOUD_CMD`.
+  and overcast currently recommends **0.3.7** (`npm i -g @cloudglue/tinycloud@0.3.7`
+  or `tinycloud update`), which adds the image `see`/`extract` verbs behind the
+  opt-in `see` provider; override the invocation with `OVERCAST_TINYCLOUD_CMD`.
 - **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
   `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
   `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.
@@ -163,7 +164,23 @@ overcast index create localfaces --type deepface-local --local --json
 overcast index add ./suspect.jpg --to localfaces --json
 overcast face ./clip.mp4 --match ./suspect.jpg --index localfaces --fps 0.5 --max-frames 32 --json
 
-# 9) launch the interactive agent (pi TUI) in the current case
+# 8b) face-cluster DB: group everyone across clips into people, then browse
+overcast index create people --type face-cluster --local --json  # or: case setup --index people:face-cluster
+overcast cluster add ./clipA.mp4 --index people --fps 0.5 --max-frames 20 --json  # ingest → assign-or-create
+overcast cluster add ./clipB.mp4 --index people --json
+overcast cluster identify ./who.jpg --index people --json         # most-similar person (or "new person")
+overcast cluster recluster --index people --json                  # re-tidy groups as the DB grows
+overcast cluster label p_1 "Jane Doe" --index people --json       # names survive recluster
+overcast cluster view --index people --json                       # self-contained HTML contact sheet
+
+# 9) semantic (CLIP) search: find images/video moments by text or by example image
+scripts/visual-db-uv.sh --clip
+overcast index create scenes --type basic-clip --local --granularity frame --json
+overcast similar add ./clip.mp4 --index scenes --json          # embed + cache (videos frame-sampled)
+overcast similar search "a red car at night" --index scenes --json   # text → image/video moments
+overcast similar match ./reference.jpg --index scenes --json         # image → image/video moments
+
+# 10) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
 
@@ -187,7 +204,7 @@ Direct CLI HTML exports default to the compatible `plain` theme unless
 these report surfaces, while preserving an explicit `--theme plain`.
 
 For end-to-end recipes — first-run setup, person search, OSINT pulls, continuous
-monitoring, qmd memory, detection crops, and more — see
+monitoring, qmd memory, detection crops, the control-room wall, and more — see
 **[`docs/flows.md`](docs/flows.md)** (common flows & usage patterns).
 
 ---
@@ -203,12 +220,15 @@ surface + env vars.)
 |---|---|
 | `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue) |
 | `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
-| `see` | caption / OCR / detect on an image or video frame (turnkey HF, or bind a VLM) |
+| `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM / the opt-in tinycloud `see`+`extract` provider, ≥ 0.3.7) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
+| `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
+| `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) index — `search` by text, `match` by image, video moments included |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
 | `crop` | materialize face/object detections as cropped image records with provenance |
+| `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
 
 **OSINT** — search / capture / monitor
 | verb | does |
@@ -216,7 +236,7 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac` and `deepface-local` DBs |
+| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, and `basic-clip` DBs |
 | `target` / `source` / `note` | manage the standing scope, where to look, and human-authored observations |
 | `finding` | create and review findings (`create` / `list` / `accept` / `dismiss`) — manual + setup-automated |
 | `prebrief` | stand up a case (name + target + source) in one shot |
@@ -331,11 +351,11 @@ credential-blocked, or failed. Hits with no fetchable ref/url emit explicit
 errors in both commands. `monitor` marks hard failures seen after surfacing the
 error, while pending/credential gaps remain retryable.
 
-Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`, and
-`deepface-local`.
-Single choices use `--verb <watch|listen|see|face|enhance> --choice <id>`, such
-as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
-`face:deepface-local`, or `enhance:ffmpeg`.
+Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`,
+`deepface-local`, and `basic-clip`.
+Single choices use `--verb <watch|listen|see|face|similar|enhance> --choice <id>`,
+such as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
+`face:deepface-local`, `similar:basic-clip`, or `enhance:ffmpeg`.
 
 The local image DB is selected by local index type. Local face detection/matching
 can be selected as a profile provider with `face:deepface-local`, while the searchable
@@ -367,8 +387,8 @@ for cadence, and add `--max-frames` when you want a hard cap.
 
 | class | verbs | shipped providers |
 |---|---|---|
-| **sense** | watch / listen / see / face / enhance | Cloudglue (default), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
-| **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), x (Apify), web (Tavily/Brave) |
+| **sense** | watch / listen / see / face / similar / enhance | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
+| **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), x (Apify), web (Tavily/Brave), lens (Apify Google Lens reverse image) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
@@ -382,6 +402,7 @@ Built-in source refs:
 - `x:<query>` or `x:#tag` — X advanced search (`from:`, `filter:native_video`, `min_faves:`, …).
 - `x:video:<query>` / `x:image:<query>` — only X posts with native video / images (media targeting).
 - `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
+- `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
 
 ### Profiles
 
@@ -420,11 +441,11 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 **Default perception (tinycloud / Cloudglue)**
 - `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)
 - `CLOUDGLUE_BASE_URL` — endpoint (default `https://api.cloudglue.dev`)
-- `TINYCLOUD_HTTP_RETRIES`, `TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS`, `TINYCLOUD_JOB_WAIT_TIMEOUT_MS` — tinycloud 0.3.6 Cloudglue retry/upload/job-wait knobs inherited by overcast's default providers
+- `TINYCLOUD_HTTP_RETRIES`, `TINYCLOUD_MODEL_RETRIES`, `TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS`, `TINYCLOUD_JOB_WAIT_TIMEOUT_MS` — tinycloud 0.3.7 Cloudglue retry/upload/job-wait knobs (HTTP + model retries default 5) inherited by overcast's default providers
 - `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; install with `npm install -g @tobilu/qmd`, then rebuild before querying qmd)
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
-- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — turnkey `see` + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`
+- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead.
 - `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`
 - `ELEVENLABS_API_KEY` (or `XI_API_KEY`) — `listen` (Scribe STT) + `enhance` audio (voice isolation); `ELEVENLABS_STT_MODEL` (default `scribe_v1`)
 

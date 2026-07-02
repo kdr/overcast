@@ -42,7 +42,7 @@ OVERCAST_SOURCE_TIKTOK_CMD="bash examples/providers/sources/tiktok.sh" \
 
 Bindings live in the active profile (`~/.overcast/profiles/<name>.json`), so they
 travel with `--profile`. **Rebinding a verb requires no overcast code changes** —
-the default tinycloud `watch`/`listen` and the `see` placeholder are just the
+the default tinycloud `watch`/`listen` and the default `see` backend are just the
 out-of-the-box descriptors.
 
 ## Provider setup wizard and non-interactive profiles
@@ -117,12 +117,78 @@ credential-blocked, or failed. Refless hits are explicit processing errors in
 both commands. Monitor records hard failures once and marks them seen; pending
 or credential-blocked items are left retryable for the next pass.
 
-## Hugging Face providers (turnkey when `HF_TOKEN` is set)
+## `see` — the brain LLM by default
 
-overcast ships Hugging Face Inference API providers so `see` and model-based
-`enhance` work out of the box once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
+`see` defaults to the **brain LLM** whenever it accepts image input: overcast
+sends the image plus a "describe this image in detail" instruction directly to
+whatever brain the profile/env already resolves (BYO — the turnkey Cloudglue brain
+out of the box, or any image-capable `setup llm <provider> <model>`), and maps the
+reply to the `see` record (`payload.caption`; `--ocr` also fills `payload.ocr`).
+No extra key is needed beyond the brain you already use.
 
-- **`see`** — auto-defaults to a HF vision-LLM captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)) when `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is present (else the placeholder). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--detect` / `--prompt`.
+Precedence when you run `see`:
+
+1. an explicit provider binding (`setup provider see <exec|http|inproc spec>`) — e.g. the OWLv2 detector;
+2. the **brain LLM** when it's image-capable (the default);
+3. the Hugging Face captioner when `HF_TOKEN` is set;
+4. a `needs_credentials` placeholder with guidance.
+
+Switch the built-in backend without editing the profile by hand:
+
+```bash
+overcast setup provider see builtin:hf      # force the classic Hugging Face captioner
+overcast setup provider see builtin:brain   # force the brain LLM (errors if it has no vision)
+OVERCAST_SEE_BRAIN=off overcast see shot.jpg # one-off: skip the brain default (→ HF / placeholder)
+```
+
+`--detect` still needs a detection provider (the brain path produces a description,
+not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 examples/providers/detect/detect.py"`
+(boxes), or the opt-in Cloudglue tinycloud provider below (boxless presence facts).
+
+`see` also takes an **http(s) image URL** directly: the image is downloaded into
+the case media dir first (evidence, like `capture` — the record's `media.ref` is
+the local artifact, `meta.source_url` the origin), so every backend reads a local
+file. A URL that resolves to video/audio is redirected to `watch`/`listen`, and a
+non-image response (login wall, expired signed URL returning HTML) errors clearly.
+
+## Cloudglue tinycloud `see` provider (opt-in, tinycloud ≥ 0.3.7)
+
+tinycloud 0.3.7 adds an image `see` verb (the file-level counterpart of `watch`:
+title + description + on-screen text) and **image sources for `extract`**
+(feature flags `see.v1` / `extract.images.v1`). The shipped wrapper
+([`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh))
+maps them onto overcast's `see` — bind to opt in; the defaults above are unchanged:
+
+```bash
+overcast provider setup apply --verb see --choice tinycloud --profile default --yes
+# or bind directly — keep the `bash …` wrapper: a run template that starts with
+# `tinycloud` is treated as the built-in default binding and skipped for `see`.
+overcast setup provider see "exec:bash examples/providers/tinycloud/see.sh --input {{input}}"
+
+overcast see ./scene.jpg --ocr --json                          # tinycloud see → caption + on-screen text
+overcast see ./scene.jpg --prompt "what safety gear?" --json   # tinycloud extract → payload.extract facts
+overcast see ./scene.jpg --detect "person, hard hat" --json    # extract checklist → boxless detections
+```
+
+- **Default / `--ocr`** → `tinycloud see` (**JPEG/PNG/WebP only**; results cache by
+  source, so re-runs are free). `payload.caption` = title + description; `--ocr`
+  fills `payload.ocr` from the image's on-screen text.
+- **`--prompt`** → `tinycloud extract "<prompt>" <image>`: structured facts land
+  under `payload.extract`.
+- **`--detect "a,b"`** → an extract checklist per label → `payload.detections =
+  [{label, present, count, evidence}]` plus `payload.counts` — **no bounding
+  boxes**, so `crop` does not apply; bind the local OWLv2 detector (below) when
+  you need boxes.
+- `init` checks Cloudglue creds (`CLOUDGLUE_API_KEY` or `~/.tinycloud/config.json`)
+  and requires the `see.v1` feature — run `tinycloud update` on older installs.
+  Override the CLI invocation with `OVERCAST_TINYCLOUD_CMD`.
+
+## Hugging Face providers (`see` fallback + model-based `enhance`)
+
+overcast ships Hugging Face Inference API providers so the `see` captioner and
+model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
+
+- **`see`** — the fallback captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--detect` / `--prompt`.
 - **`enhance` (image)** — opt-in HF model ops ([`examples/providers/hf/enhance.py`](../examples/providers/hf/enhance.py), needs `huggingface_hub` + `pillow`). Image **upscale/unblur/restore works** via the **fal-ai** provider, routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; uses the free monthly credit then pay-as-you-go). The **default stays the internal ffmpeg toolkit**; bind to opt in:
   ```bash
   overcast setup provider enhance "exec:python3 examples/providers/hf/enhance.py {{input}}"
@@ -174,19 +240,23 @@ overcast crop <see-record-id> --all --class person --json        # materialize d
 - Env: `DETECT_MODEL`, `DETECT_THRESHOLD` (default 0.1), `DETECT_MAX_FRAMES` (default 8). overcast passes `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` (the system ffmpeg/ffprobe) so video frame extraction works.
 - *Note:* `nvidia/LocateAnything-3B` is a higher-quality open-vocab grounding model but it's a 3B VLM (~7.7 GB, GPU-class); swap it in via a local-transformers provider if you have the hardware.
 
-## Visual DBs (`image-ransac` and `deepface-local`)
+## Visual DBs (`image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`)
 
 Visual DBs are selected by **index type**. The DeepFace face detector can
-also be selected as a profile provider with `face:deepface-local`, but the searchable
-local face DB is still the `deepface-local` index type. The case setup wizard's
-`--index` path is for remote/default index creation today, so use `index create
---local` per case for `image-ransac` and `deepface-local`. They use shipped Python
-providers under `examples/providers/visual-db/` and a uv-managed Python
-environment:
+also be selected as a profile provider with `face:deepface-local`, but the
+searchable local face DBs are the index types: `deepface-local` (1:1 match
+against reference images) and `face-cluster` (group unknown faces into people;
+see below). Create them per case with `index create --local`, or add them in the
+setup wizard via `case setup --index "<name>:<type>"` (e.g.
+`case setup --index people:face-cluster`; for `basic-clip`, an optional
+`@k=v;k=v` config suffix — pairs separated by `;` — pins sampling/pooling; see
+below). They use shipped Python providers under
+`examples/providers/visual-db/` and a uv-managed Python environment:
 
 ```bash
 scripts/visual-db-uv.sh          # image matching: opencv-python + numpy
 scripts/visual-db-uv.sh --face   # face matching too: deepface + tf-keras
+scripts/visual-db-uv.sh --clip   # CLIP semantic search: open_clip + torch + pillow
 overcast doctor --json              # reports uv + visual-db readiness
 
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
@@ -215,7 +285,69 @@ overcast face ./clip.mp4 --match ./person.jpg --index localfaces --fps 0.5 --max
 overcast face --match ./person.jpg --index localfaces --json
 ```
 
-Both emit ordinary Overcast records (`image.match` or `face.analysis`) and write
+Face **clustering** (`face-cluster` index type + the `cluster` verb) is a
+persistent local face DB that groups *unknown* faces into people, instead of
+matching against known references. It ingests faces out of clips/images, stores
+their embeddings + provenance, and maintains cluster assignments under
+`.overcast/index/<id>/` (`faces.jsonl`, `clusters.json`, `crops/`). Clustering
+needs face **embeddings**, which the tinycloud face path does not expose, so this
+rides exclusively on the local DeepFace provider — and it defaults to the
+clustering-grade **Facenet512** model + **retinaface** detector (both hard
+`deepface` deps, so `scripts/visual-db-uv.sh --face` provides them; override with
+`OVERCAST_FACE_MODEL` / `OVERCAST_FACE_DETECTOR`):
+
+```bash
+overcast index create people --type face-cluster --local --json
+overcast cluster add ./clipA.mp4 --index people --fps 0.5 --max-frames 20 --json  # detect → embed → assign-or-create
+overcast cluster add ./clipB.mp4 --index people --json                            # a face joins its person, or starts a new one
+overcast cluster list --index people --json                                       # the people in the DB (size, timespan, sources)
+overcast cluster identify ./who.jpg --index people --json                         # most-similar person, or "reads as a NEW person"
+overcast cluster recluster --index people --min-similarity 55 --json              # batch re-group (average-linkage); labels carry forward
+overcast cluster label p_1 "Jane Doe" --index people --json                       # the stable identity across recluster
+overcast cluster view --index people --json                                       # self-contained HTML contact sheet (base64 crops)
+```
+
+Similarity is on the tinycloud 0–100 percent scale. With Facenet512, same-person
+crops score ~65–90 and different people ~≤35, so the default `--min-similarity 55`
+separates cleanly; noisy/low-res inputs may want a higher floor. Each index
+records the model + detector it was built with and every op that computes with
+embeddings (`add`/`identify`/`recluster`) refuses a mismatched
+`OVERCAST_FACE_MODEL`/`OVERCAST_FACE_DETECTOR` — embeddings from different
+configs don't compare; switch the env back or rebuild the index. In case memory,
+`cluster add`/`identify` records are evidence — indexed as compact summaries only
+("ingested 11 faces → 5 new people", "closest person: …") — while DB reads and
+maintenance (`list`/`show`/`view`/`label`/`recluster`) stay operational; the
+embeddings, crops, and assignments live in the typed local index, not case memory.
+
+`basic-clip` is a local OpenAI CLIP (open_clip) DB for **cross-modal semantic
+similarity** — find images/video moments that resemble a photo (image→image) or a
+phrase (text→image). Members are embedded and cached on `add` (`.npy` under the
+index dir); queries only embed the query, do a cosine top-K (scores are
+cosine×100, 0–100), and **never write the cache**. Videos are frame-sampled and
+pooled (`max` default, or `mean`), or stored per-frame (`--granularity frame`) so
+queries return moments with `at`. Sampling is `uniform` windows or, with
+`--sampling shots`, tinycloud `watch` shot boundaries (reused from existing watch
+evidence when present). The pooling/granularity/sampling config is a property of
+the **index**, set at `index create` and persisted to its `config.json` — member
+embedding always follows it (`similar add` rejects per-add overrides), while
+sampling flags on `similar match` shape only the query video's embedding. Query
+with the `similar` verb (`add` / `match` / `search`):
+
+```bash
+overcast index create scenes --type basic-clip --local --granularity frame --sampling shots --json
+overcast similar add ./clip.mp4 --index scenes --json          # embed + cache (video → frames)
+overcast similar add ./photo.jpg --index scenes --json
+overcast similar search "a red car at night" --index scenes --limit 10 --json   # text → image
+overcast similar match ./query.jpg --index scenes --json                        # image → image
+```
+
+The record (`similar.match`) emits ranked `payload.matches[]` (`ref`, `similarity`,
+`granularity`, and `at` for frame-level). CLIP model/weights are overridable via
+`OC_CLIP_MODEL` (default `ViT-B-32`) and `OC_CLIP_PRETRAINED` (default `openai`);
+`OC_CLIP_DEVICE` defaults to `cpu`.
+
+These emit ordinary Overcast records (`image.match`, `face.analysis`, or
+`similar.match`) and write
 local artifacts under the case `.overcast/` store. Local-grep/qmd memory indexes
 should index the records and summaries only; do not ingest raw media, embeddings,
 sampled frames, face boxes, or match visualization images as text. Add `note`,
@@ -233,8 +365,9 @@ sample 8 frames.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
 - [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN image enhance, and DeepFilterNet3 audio enhance.
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
-- [`examples/providers/visual-db/{image_match,face_match}.py`](../examples/providers/visual-db/) — local image RANSAC and DeepFace matching for visual DB indexes.
-- [`examples/providers/sources/{youtube,tiktok,x,web}.sh`](../examples/providers/sources/) — yt-dlp + Apify + web-search (Tavily/Brave) source providers.
+- [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
+- [`examples/providers/visual-db/{image_match,face_match,clip_match}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, and CLIP (basic-clip) matching for visual DB indexes.
+- [`examples/providers/sources/{youtube,tiktok,x,web,lens}.sh`](../examples/providers/sources/) — yt-dlp + Apify (tiktok/x/lens) + web-search (Tavily/Brave) + Google Lens reverse-image source providers.
 
 ## Source providers (built-in types)
 
@@ -243,6 +376,7 @@ sample 8 frames.
 - **`tiktok`** — Apify (`APIFY_TOKEN`). Supported refs: `tiktok:@user` for profile videos and `tiktok:#tag` for hashtag videos. TikTok keyword search is not a built-in mode.
 - **`x`** (alias `twitter`) — Apify (`APIFY_TOKEN`). Default actor: kaitoeasyapi's pay-per-result tweet scraper, which works on any Apify plan against platform credit; override with `OVERCAST_X_ACTOR` (e.g. `apidojo~tweet-scraper` — same schema and faster, but **rental**: an unrented/free account gets only placeholder items, which map to zero hits). Supported refs: `x:@handle` for a profile's posts (translated to a `from:` search); `x:<query>` / `x:#tag` for X advanced search (`from:`, `filter:native_video`, `min_faves:`, `-filter:retweets`, …); `x:video:<query>` / `x:image:<query>` to return only posts carrying native video / images (applied as `filter:` operators so they hold across actors); `x:<full X URL>` for a post/profile/search/list URL. Hits point `media.ref` at the direct CDN asset (highest-bitrate mp4, else first photo) so `capture` downloads without X auth, and carry `author`/`views`/`thumb` triage metadata. Actors bill per result with a small per-query minimum — prefer fewer, broader queries.
 - **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). Supported ref: `web:<query>` for web search hits.
+- **`lens`** — Google Lens reverse image search via Apify (`APIFY_TOKEN`; actor override `OVERCAST_LENS_ACTOR`, default `borderline~google-lens`). Supported ref: `lens:<image url>` or `lens:<local image path>` (relative paths resolve against the cwd, then the case media dir, then the case root; local files are uploaded to the account's `overcast-lens` key-value store so the actor can fetch them). Hits carry the matched page (`payload.url`), `match: "exact" | "visual"`, the matching site, and for exact matches the match thumbnail materialized into the case media dir (`media.ref`); `--limit` applies per match type; `--since` is ignored (Lens has no recency filter).
 - Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
 For local-media-only cases, `scan` falls back to local case media/indexes instead
@@ -354,7 +488,7 @@ record by the shared `runTinycloud` boundary in
 [`src/providers/tinycloud/envelope.ts`](../src/providers/tinycloud/envelope.ts)).
 Point `OVERCAST_TINYCLOUD_CMD` at a specific binary/wrapper if `tinycloud` isn't
 on `PATH`; `overcast doctor` reports the installed version, warns below 0.3.4,
-and recommends the latest tested tinycloud, currently 0.3.6.
+and recommends the latest tested tinycloud, currently 0.3.7.
 
 ### `face` — detect / match / search
 
@@ -371,8 +505,8 @@ overcast crop <face-record-id> --all --class face --json  # crop detections into
 Emits a `face.analysis` record: `faces[]` is normalized (`at`, `box`,
 `similarity`, `thumbnail?`) and the full provider data survives in `detailed`.
 The video/reference may be a path, URL, or a case record id. The `--match`
-query image must be JPEG/PNG; tinycloud 0.3.6 rejects webp/heic/gif/bmp/tiff/avif
-at preflight. Bind your own
+query image must be JPEG/PNG; the tinycloud face preflight rejects
+webp/heic/gif/bmp/tiff/avif (0.3.7's webp support is see/extract-only). Bind your own
 detector with `setup provider face <spec>` like any sense (it receives the media
 plus `--match`/`--index`/… as flags).
 
@@ -426,6 +560,7 @@ accept a path, URL, or a case record id (a `capture`/`watch` record → its medi
 ## Readiness
 
 `overcast doctor` checks pi, the system ffmpeg/ffprobe, Cloudglue creds, the
-tinycloud CLI **and its version** (`face`/`index` need ≥ 0.3.4), the
-home/profiles, and the active provider bindings. Version 0.3.6 is the current
+tinycloud CLI **and its version** (`face`/`index` need ≥ 0.3.4; the opt-in
+`see:tinycloud` provider needs ≥ 0.3.7), the
+home/profiles, and the active provider bindings. Version 0.3.7 is the current
 recommended tinycloud build.

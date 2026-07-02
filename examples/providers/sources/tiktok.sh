@@ -46,8 +46,10 @@ case "$op" in
       \#*) input="$(jq -nc --arg t "${query#\#}" --argjson n "$limit" '{hashtags:[$t],resultsPerPage:$n}')" ;;
       *)   input="$(jq -nc --arg p "${query#@}" --argjson n "$limit" '{profiles:[$p],resultsPerPage:$n}')" ;;
     esac
-    # -f fails the request on HTTP errors so Apify error JSON isn't parsed as hits
-    if ! run=$(curl -fsS -X POST \
+    # -f fails the request on HTTP errors so Apify error JSON isn't parsed as
+    # hits; -m stays under the harness's Apify run-sync budget (the endpoint
+    # holds up to 300s) so a slow run fails here with a clear message.
+    if ! run=$(curl -fsS -m 280 -X POST \
       "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items?token=$APIFY_TOKEN" \
       -H 'content-type: application/json' -d "$input"); then
       echo "tiktok enumerate request failed for '$query'" >&2; exit 1

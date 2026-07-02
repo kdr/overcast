@@ -6,6 +6,7 @@ import { join, basename, dirname } from "node:path";
 import { copyFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { makeRecord, type OvercastRecord } from "../record.js";
+import { sniffExt } from "../media/fetch.js";
 import {
   builtinDescriptor,
   enumerateSource,
@@ -188,6 +189,10 @@ async function enumerateAll(ctx: VerbContext, verb = "scan"): Promise<OvercastRe
         ref: s.ref,
         limit,
         since,
+        // same env sense/enhance providers get, plus the case root: lets a
+        // source materialize hit artifacts (e.g. lens match thumbnails) into
+        // the case media dir and resolve case-relative query paths.
+        env: providerEnv(ctx.case.mediaDir, ctx.case.dir),
         signal: ctx.signal,
       });
       for (const h of hits) {
@@ -293,6 +298,10 @@ interface ProcessHitResult {
 function hitFetchRef(hit: OvercastRecord): string | undefined {
   const hitUrl = (hit.payload as Record<string, unknown>)?.url;
   return hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
+}
+
+function hitProcessKey(hit: OvercastRecord): string {
+  return `${hitKey(hit)}\u001f${hitFetchRef(hit) ?? ""}`;
 }
 
 function classifyHitRecords(records: OvercastRecord[]): HitProcessOutcome {
@@ -418,6 +427,8 @@ export const scanVerb: VerbSpec = {
     let submitted_remote = 0;
     let completed = 0;
     let pending = 0;
+    let skipped_duplicates = 0;
+    const pullSeen = new Set<string>();
     const enumerate_errors = hits.filter((h) => h.state === "error").length;
     const enumerate_cred_gaps = hits.filter((h) => h.state === "needs_credentials").length;
     let failed = enumerate_errors;
@@ -426,6 +437,12 @@ export const scanVerb: VerbSpec = {
       // skip enumerate FAILURES (error + needs_credentials) — they're not items to
       // capture/sense, matching monitorPass.
       if (hit.state === "error" || hit.state === "needs_credentials") continue;
+      const key = hitProcessKey(hit);
+      if (pullSeen.has(key)) {
+        skipped_duplicates++;
+        continue;
+      }
+      pullSeen.add(key);
       try {
         const item = await processPulledHit(ctx, "scan", hit);
         submitted_remote += item.submittedRemote;
@@ -468,7 +485,7 @@ export const scanVerb: VerbSpec = {
         rec.meta = { ...rec.meta, non_fatal: true };
       }
     }
-    out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps }, failed && completed === 0 ? "error" : process_cred_gaps && completed === 0 ? "needs_credentials" : pending && completed === 0 ? "pending" : "ready"));
+    out.push(scanProgress(ctx, { stage: "complete", processed, submitted_remote, completed, pending, failed, process_cred_gaps, enumerate_errors, enumerate_cred_gaps, skipped_duplicates }, failed && completed === 0 ? "error" : process_cred_gaps && completed === 0 ? "needs_credentials" : pending && completed === 0 ? "pending" : "ready"));
     return out;
   },
 };
@@ -823,23 +840,8 @@ async function runDefaultWatchWithPolicy(ctx: VerbContext, caller: string, ref: 
   return out;
 }
 
-/** Best-effort media extension from leading magic bytes (so a piped clip lands
- *  with a sensible extension the senses/ffmpeg can classify). */
-function sniffExt(b: Buffer): string {
-  const at = (off: number, s: string) => b.length >= off + s.length && b.slice(off, off + s.length).toString("latin1") === s;
-  if (at(4, "ftyp")) return ".mp4"; // ISO-BMFF: mp4/mov/m4a
-  if (at(0, "RIFF") && at(8, "WEBP")) return ".webp";
-  if (at(0, "RIFF") && at(8, "WAVE")) return ".wav";
-  if (at(0, "RIFF") && at(8, "AVI ")) return ".avi";
-  if (b[0] === 0x89 && at(1, "PNG")) return ".png";
-  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return ".jpg";
-  if (at(0, "GIF8")) return ".gif";
-  if (at(0, "OggS")) return ".ogg";
-  if (at(0, "fLaC")) return ".flac";
-  if (at(0, "ID3") || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return ".mp3";
-  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return ".webm";
-  return ".bin";
-}
+// sniffExt (magic-byte extension) lives in media/fetch.ts — shared with the
+// see URL-download path so piped and downloaded bytes classify identically.
 
 /** `capture -` — ingest bytes piped on stdin into the case as a capture record. */
 async function captureStdin(ctx: VerbContext, out?: string): Promise<OvercastRecord> {
@@ -945,8 +947,15 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
   let newCount = 0;
   let procErrors = 0; // hard capture/sense failures this pass
   let procCredGaps = 0; // capture/sense failures that need setup (retry-able)
+  const passSeen = new Set<string>();
   for (const hit of realHits) {
+    // Two dedup keys by design: the cross-pass `seen` store uses hitKey (the
+    // hit's stable logical identity — its url) so novelty detection can't be
+    // shifted by run-varying fetch artifacts (e.g. a lens thumbnail that
+    // decodes on one pass and not the next). hitProcessKey (identity + fetch
+    // ref) only gates WITHIN-pass fan-out, where finer granularity is safe.
     const key = hitKey(hit);
+    const processKey = hitProcessKey(hit);
     if (seen.has(key)) {
       const retry = await retryAuxiliaryForSeenHit(ctx, hit);
       out.push(...retry);
@@ -954,6 +963,8 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
       if (retry.some((r) => r.state === "needs_credentials")) procCredGaps++;
       continue;
     }
+    if (passSeen.has(processKey)) continue;
+    passSeen.add(processKey);
     out.push(hit);
     // Classify the outcome:
     //  - transient (needs_credentials / pending): a recoverable gap → leave the

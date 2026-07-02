@@ -69,7 +69,7 @@ function parseAt(s: string): number | [number, number] | undefined {
   return parseStamp(s);
 }
 
-function isRootFindingRecord(rec: OvercastRecord): boolean {
+export function isRootFindingRecord(rec: OvercastRecord): boolean {
   if (rec.verb !== "finding" || rec.state === "error" || typeof rec.payload !== "object" || rec.payload == null) return false;
   const p = rec.payload as Record<string, unknown>;
   if (typeof p.finding_id === "string") return false;

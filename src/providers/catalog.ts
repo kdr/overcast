@@ -27,6 +27,7 @@ export function providerChoices(): ProviderChoice[] {
   const hfSee = sidecar("examples", "providers", "hf", "see.sh");
   const hfEnhance = sidecar("examples", "providers", "hf", "enhance.sh");
   const falSee = sidecar("examples", "providers", "fal", "see.sh");
+  const tcSee = sidecar("examples", "providers", "tinycloud", "see.sh");
   const falEnhance = sidecar("examples", "providers", "fal", "enhance.sh");
   const elListen = sidecar("examples", "providers", "elevenlabs", "listen.sh");
   const elEnhance = sidecar("examples", "providers", "elevenlabs", "enhance.sh");
@@ -80,6 +81,20 @@ export function providerChoices(): ProviderChoice[] {
       indexableDefault: true,
     },
     {
+      id: "basic-clip",
+      verb: "similar",
+      label: "Local CLIP (basic-clip)",
+      summary: "Local OpenAI CLIP semantic DB; basic-clip indexes are the local vector store for `similar` (text/image search).",
+      descriptor: {
+        type: "inproc",
+        backend: "basic-clip",
+        id: "basic-clip",
+        init: { command: `bash ${localVisionSetup} --clip` },
+      },
+      env: ["OC_VISUAL_DB_PY"],
+      indexableDefault: true,
+    },
+    {
       id: "ffmpeg",
       verb: "enhance",
       label: "Local ffmpeg",
@@ -112,6 +127,17 @@ export function providerChoices(): ProviderChoice[] {
       summary: "fal.ai caption/OCR provider.",
       descriptor: exec(`bash ${falSee} --input {{input}}`, `bash ${falSee} init`, `bash ${falSee} describe`),
       env: ["FAL_KEY"],
+      indexableDefault: true,
+    },
+    {
+      id: "tinycloud",
+      verb: "see",
+      label: "Cloudglue / tinycloud see",
+      summary: "File-level image analysis (describe + on-screen text; --prompt/--detect via extract, no boxes) through tinycloud see (>= 0.3.7).",
+      // must stay a `bash …` wrapper: a run template starting with `tinycloud`
+      // is treated as the built-in default binding and skipped for see.
+      descriptor: exec(`bash ${tcSee} --input {{input}}`, `bash ${tcSee} init`, `bash ${tcSee} describe`),
+      env: ["CLOUDGLUE_API_KEY"],
       indexableDefault: true,
     },
     {
@@ -177,6 +203,9 @@ export const PROVIDER_PRESETS: Record<string, Array<{ verb: string; choice: stri
   ],
   "deepface-local": [
     { verb: "face", choice: "deepface-local" },
+  ],
+  "basic-clip": [
+    { verb: "similar", choice: "basic-clip" },
   ],
 };
 

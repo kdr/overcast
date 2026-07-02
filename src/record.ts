@@ -66,6 +66,7 @@ export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set([
   "skills",
   "source",
   "target",
+  "wall",
 ]);
 
 /** Whether a record is a read/meta output (not primary evidence). */
@@ -79,6 +80,13 @@ export function isMemoryRecord(rec: Pick<OvercastRecord, "verb"> & Partial<Pick<
   if (rec.verb === "scan" && rec.payload && typeof rec.payload === "object") {
     if ((rec.payload as Record<string, unknown>).op === "pull_progress") return false;
   }
+  // cluster: only the ops that PRODUCE investigative signal (ingesting faces out
+  // of media, identifying a probe) are evidence; DB reads and maintenance
+  // (list/show/view/label/recluster) are operational, like scan's pull_progress.
+  if (rec.verb === "cluster") {
+    const op = rec.payload && typeof rec.payload === "object" ? (rec.payload as Record<string, unknown>).op : undefined;
+    if (op !== "ingest" && op !== "identify") return false;
+  }
   if (rec.verb === "finding" && rec.payload && typeof rec.payload === "object") {
     const payload = rec.payload as Record<string, unknown>;
     if (typeof payload.finding_id === "string") return false;
@@ -89,7 +97,10 @@ export function isMemoryRecord(rec: Pick<OvercastRecord, "verb"> & Partial<Pick<
   return isReady(rec);
 }
 
-export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
+/** Latest review status per root finding id (root records seed their own
+ *  "open"; review records override by finding_id). Shared by memory filtering
+ *  and any consumer that needs open/accepted/dismissed without O(n²) rescans. */
+export function findingStatusMap(records: OvercastRecord[]): Map<string, string> {
   const findingStatus = new Map<string, string>();
   for (const rec of records) {
     if (rec.verb !== "finding" || !rec.payload || typeof rec.payload !== "object") continue;
@@ -97,6 +108,11 @@ export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
     const id = typeof payload.finding_id === "string" ? payload.finding_id : rec.id;
     if (typeof payload.status === "string") findingStatus.set(id, payload.status);
   }
+  return findingStatus;
+}
+
+export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
+  const findingStatus = findingStatusMap(records);
   return records.filter((rec) => {
     if (!isMemoryRecord(rec)) return false;
     if (rec.verb !== "finding") return true;

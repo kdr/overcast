@@ -7,7 +7,8 @@ C=monitor
 # media.ref points at a small real clip so capture (local copy) succeeds; we DON'T
 # pipe a sense here (no --pipe / non-AV gate keeps it fast) — diff is the focus.
 # two DISTINCT clips so the two hits are genuinely two items (monitor dedups by
-# media.ref — identical refs would correctly collapse to one).
+# hit identity — url, falling back to media.ref — so identical refs would
+# correctly collapse to one).
 CLIP="$SMOKE_DIR/mon_clip.mp4"; CLIP2="$SMOKE_DIR/mon_clip2.mp4"
 SRC="$VIDEO_SMALL"; have_media "$SRC" || SRC="$VIDEO_VISUAL"
 have_media "$SRC" && { clip_av 4 "$SRC" "$CLIP"; clip_av 3 "$SRC" "$CLIP2"; }
