@@ -33,7 +33,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-VIDEO_EXTS = (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".mpeg", ".mpg", ".ts", ".mts", ".m2ts", ".wmv", ".flv", ".ogv")
+VIDEO_EXTS = (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".mpeg", ".mpg", ".ts", ".mts", ".m2ts", ".wmv", ".flv", ".3gp", ".3g2", ".ogv", ".mxf")
 
 # Clustering-grade defaults (override via env). Facenet512 embeddings separate
 # identities far better than the deepface library default (VGG-Face), and the

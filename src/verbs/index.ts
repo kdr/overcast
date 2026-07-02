@@ -743,6 +743,9 @@ export const indexVerb: VerbSpec = {
       const from = resolveTarget(c, ctx.opts.from != null ? String(ctx.opts.from) : undefined);
       if (from.error) return [err(`index remove: ${from.error}`)];
       const local = findIndex(c, from.id!);
+      if (local?.type === "face-cluster") {
+        return [err(`index remove doesn't apply to a face-cluster index — it stores face assignments in faces.jsonl/clusters.json. Create a new face-cluster index or rebuild with \`cluster recluster --index ${from.id}\`.`)];
+      }
       if (local && isLocalIndex(local)) {
         // basic-clip members can be videos (image-ransac/deepface store stills), so
         // accept either; also drop the removed member's cached embedding.

@@ -111,6 +111,20 @@ test("index add to a face-cluster index errors, pointing at `cluster add`", asyn
   }
 });
 
+test("index remove from a face-cluster index is rejected, not mirror-only", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-remove-"));
+  const img = join(cdir, "q.jpg"); writeFileSync(img, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "local_face_cluster_x", name: "people", type: "face-cluster", backend: "local" });
+    const [rec] = await indexVerb.run({ input: "remove", rest: [img], opts: { from: "local_face_cluster_x" }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /index remove doesn't apply to a face-cluster index/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("case setup provisions a local face-cluster index alongside another index", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-fc-wizard-"));
   const mk = (opts: VerbContext["opts"]): VerbContext => {
@@ -143,6 +157,34 @@ test("case setup provisions a local face-cluster index alongside another index",
     const pre = findIndex(openCase(cdir), "local_face_cluster_pre");
     assert.equal(pre?.type, "face-cluster");
     assert.equal(pre?.backend, "local", "explicit-id setup spec must stamp backend local");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("case setup routes generic index add signals to cluster add for face-cluster", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-setup-route-"));
+  const video = join(cdir, "clip.mp4"); writeFileSync(video, "x");
+  const stub = fakeClusterPy(cdir);
+  try {
+    await withStub(stub, async () => {
+      const c = openCase(cdir); c.ensure();
+      const recs = await caseVerb.run({
+        input: "setup",
+        rest: [],
+        opts: { yes: true, index: "faces:face-cluster", video, signals: "index add" },
+        case: c,
+        profile: defaultProfile(),
+      });
+      const errors = recs.filter((r) => r.state === "error");
+      assert.deepEqual(errors.map((r) => r.error), []);
+      const ingest = recs.find((r) => r.verb === "cluster" && (r.payload as Record<string, unknown>).op === "ingest");
+      assert.ok(ingest, "setup must call cluster add, not generic index add");
+      assert.equal((ingest!.payload as Record<string, unknown>).input, video);
+      const setupRec = recs.find((r) => Array.isArray((r.payload as Record<string, unknown>).applied_operations));
+      const ops = (setupRec!.payload as Record<string, unknown>).applied_operations as string[];
+      assert.ok(ops.some((o) => o.includes(video) && o.includes("local_face_cluster_")), `expected route operation in ${JSON.stringify(ops)}`);
+    });
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }

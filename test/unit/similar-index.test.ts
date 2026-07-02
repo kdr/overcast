@@ -380,7 +380,7 @@ test("visual-db scripts recognize every video extension the TS intake gate accep
   // media-ref.ts AV_RE's video subset — a clip the verb accepts as video must not
   // be misrouted to a script's image path because its VIDEO_EXTS tuple is narrower.
   const avVideoExts = ["mp4", "m4v", "mov", "webm", "mkv", "avi", "mpeg", "mpg", "m2ts", "mts", "ts", "wmv", "flv", "3gp", "3g2", "ogv", "mxf"];
-  for (const script of ["clip_match.py", "image_match.py", "face_match.py"]) {
+  for (const script of ["clip_match.py", "image_match.py", "face_match.py", "face_cluster.py"]) {
     const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", script), "utf8");
     const tuple = src.match(/VIDEO_EXTS = \(([^)]*)\)/)?.[1] ?? "";
     for (const ext of avVideoExts) {

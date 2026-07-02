@@ -20,6 +20,7 @@ import { addIndex, listIndexes, normalizeIndexType, removeIndex, LOCAL_INDEX_TYP
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex, type SetupIndexConfig } from "../state/setup.js";
 import { indexVerb } from "./index.js";
 import { similarVerb } from "./similar.js";
+import { clusterVerb } from "./cluster.js";
 import { readClipConfig } from "../providers/local/vision.js";
 import { isAv } from "./media-ref.js";
 import { findProviderChoice } from "../providers/catalog.js";
@@ -536,6 +537,13 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
         // otherwise read as "indexing started" with no member registered.
         const embed = recs.filter((r) => r.verb === "similar");
         operations.push(`${indexingOperationLabel(embed.length ? embed : recs)}: ${route.ref} -> ${id}`);
+        continue;
+      }
+      if (index.type === "face-cluster") {
+        if (!signals.has("cluster add") && !signals.has("cluster") && !signals.has("index add")) continue;
+        const recs = await clusterVerb.run({ ...ctx, input: "add", rest: [route.ref], opts: { index: id } });
+        records.push(...recs);
+        operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
         continue;
       }
       if (!signals.has("index add")) continue;
