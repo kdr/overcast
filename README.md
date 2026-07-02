@@ -38,8 +38,9 @@ another backend or your own script with no code changes.
 - **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
   default `watch` / `listen` / `face` / `index` backend (Cloudglue); set
   `CLOUDGLUE_API_KEY`. The `face` + `index` verbs need **tinycloud ≥ 0.3.4**
-  and overcast currently recommends **0.3.6** (`npm i -g @cloudglue/tinycloud@0.3.6`
-  or `tinycloud update`); override the invocation with `OVERCAST_TINYCLOUD_CMD`.
+  and overcast currently recommends **0.3.7** (`npm i -g @cloudglue/tinycloud@0.3.7`
+  or `tinycloud update`), which adds the image `see`/`extract` verbs behind the
+  opt-in `see` provider; override the invocation with `OVERCAST_TINYCLOUD_CMD`.
 - **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
   `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
   `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.
@@ -209,7 +210,7 @@ surface + env vars.)
 |---|---|
 | `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue) |
 | `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
-| `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM) |
+| `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM / the opt-in tinycloud `see`+`extract` provider, ≥ 0.3.7) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) index — `search` by text, `match` by image, video moments included |
@@ -425,7 +426,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 **Default perception (tinycloud / Cloudglue)**
 - `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)
 - `CLOUDGLUE_BASE_URL` — endpoint (default `https://api.cloudglue.dev`)
-- `TINYCLOUD_HTTP_RETRIES`, `TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS`, `TINYCLOUD_JOB_WAIT_TIMEOUT_MS` — tinycloud 0.3.6 Cloudglue retry/upload/job-wait knobs inherited by overcast's default providers
+- `TINYCLOUD_HTTP_RETRIES`, `TINYCLOUD_MODEL_RETRIES`, `TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS`, `TINYCLOUD_JOB_WAIT_TIMEOUT_MS` — tinycloud 0.3.7 Cloudglue retry/upload/job-wait knobs (HTTP + model retries default 5) inherited by overcast's default providers
 - `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; install with `npm install -g @tobilu/qmd`, then rebuild before querying qmd)
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)

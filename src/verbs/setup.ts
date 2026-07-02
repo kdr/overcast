@@ -68,7 +68,7 @@ function nodeProbeExecutable(): string {
  *  0.3.4). Older installs run watch/listen fine but lack face/index support. */
 export const MIN_TINYCLOUD = "0.3.4";
 /** Latest tinycloud version this overcast build documents and recommends. */
-export const RECOMMENDED_TINYCLOUD = "0.3.6";
+export const RECOMMENDED_TINYCLOUD = "0.3.7";
 
 function parseSemver(s: string): [number, number, number] | undefined {
   const m = s.match(/(\d+)\.(\d+)\.(\d+)/);

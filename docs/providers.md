@@ -142,13 +142,46 @@ OVERCAST_SEE_BRAIN=off overcast see shot.jpg # one-off: skip the brain default (
 ```
 
 `--detect` still needs a detection provider (the brain path produces a description,
-not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 examples/providers/detect/detect.py"`.
+not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 examples/providers/detect/detect.py"`
+(boxes), or the opt-in Cloudglue tinycloud provider below (boxless presence facts).
 
 `see` also takes an **http(s) image URL** directly: the image is downloaded into
 the case media dir first (evidence, like `capture` — the record's `media.ref` is
 the local artifact, `meta.source_url` the origin), so every backend reads a local
 file. A URL that resolves to video/audio is redirected to `watch`/`listen`, and a
 non-image response (login wall, expired signed URL returning HTML) errors clearly.
+
+## Cloudglue tinycloud `see` provider (opt-in, tinycloud ≥ 0.3.7)
+
+tinycloud 0.3.7 adds an image `see` verb (the file-level counterpart of `watch`:
+title + description + on-screen text) and **image sources for `extract`**
+(feature flags `see.v1` / `extract.images.v1`). The shipped wrapper
+([`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh))
+maps them onto overcast's `see` — bind to opt in; the defaults above are unchanged:
+
+```bash
+overcast provider setup apply --verb see --choice tinycloud --profile default --yes
+# or bind directly — keep the `bash …` wrapper: a run template that starts with
+# `tinycloud` is treated as the built-in default binding and skipped for `see`.
+overcast setup provider see "exec:bash examples/providers/tinycloud/see.sh --input {{input}}"
+
+overcast see ./scene.jpg --ocr --json                          # tinycloud see → caption + on-screen text
+overcast see ./scene.jpg --prompt "what safety gear?" --json   # tinycloud extract → payload.extract facts
+overcast see ./scene.jpg --detect "person, hard hat" --json    # extract checklist → boxless detections
+```
+
+- **Default / `--ocr`** → `tinycloud see` (**JPEG/PNG/WebP only**; results cache by
+  source, so re-runs are free). `payload.caption` = title + description; `--ocr`
+  fills `payload.ocr` from the image's on-screen text.
+- **`--prompt`** → `tinycloud extract "<prompt>" <image>`: structured facts land
+  under `payload.extract`.
+- **`--detect "a,b"`** → an extract checklist per label → `payload.detections =
+  [{label, present, count, evidence}]` plus `payload.counts` — **no bounding
+  boxes**, so `crop` does not apply; bind the local OWLv2 detector (below) when
+  you need boxes.
+- `init` checks Cloudglue creds (`CLOUDGLUE_API_KEY` or `~/.tinycloud/config.json`)
+  and requires the `see.v1` feature — run `tinycloud update` on older installs.
+  Override the CLI invocation with `OVERCAST_TINYCLOUD_CMD`.
 
 ## Hugging Face providers (`see` fallback + model-based `enhance`)
 
@@ -295,6 +328,7 @@ sample 8 frames.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
 - [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN image enhance, and DeepFilterNet3 audio enhance.
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
+- [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
 - [`examples/providers/visual-db/{image_match,face_match,clip_match}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, and CLIP (basic-clip) matching for visual DB indexes.
 - [`examples/providers/sources/{youtube,tiktok,web}.sh`](../examples/providers/sources/) — yt-dlp + Apify + web-search (Tavily/Brave) source providers.
 
@@ -415,7 +449,7 @@ record by the shared `runTinycloud` boundary in
 [`src/providers/tinycloud/envelope.ts`](../src/providers/tinycloud/envelope.ts)).
 Point `OVERCAST_TINYCLOUD_CMD` at a specific binary/wrapper if `tinycloud` isn't
 on `PATH`; `overcast doctor` reports the installed version, warns below 0.3.4,
-and recommends the latest tested tinycloud, currently 0.3.6.
+and recommends the latest tested tinycloud, currently 0.3.7.
 
 ### `face` — detect / match / search
 
@@ -432,8 +466,8 @@ overcast crop <face-record-id> --all --class face --json  # crop detections into
 Emits a `face.analysis` record: `faces[]` is normalized (`at`, `box`,
 `similarity`, `thumbnail?`) and the full provider data survives in `detailed`.
 The video/reference may be a path, URL, or a case record id. The `--match`
-query image must be JPEG/PNG; tinycloud 0.3.6 rejects webp/heic/gif/bmp/tiff/avif
-at preflight. Bind your own
+query image must be JPEG/PNG; the tinycloud face preflight rejects
+webp/heic/gif/bmp/tiff/avif (0.3.7's webp support is see/extract-only). Bind your own
 detector with `setup provider face <spec>` like any sense (it receives the media
 plus `--match`/`--index`/… as flags).
 
@@ -487,6 +521,7 @@ accept a path, URL, or a case record id (a `capture`/`watch` record → its medi
 ## Readiness
 
 `overcast doctor` checks pi, the system ffmpeg/ffprobe, Cloudglue creds, the
-tinycloud CLI **and its version** (`face`/`index` need ≥ 0.3.4), the
-home/profiles, and the active provider bindings. Version 0.3.6 is the current
+tinycloud CLI **and its version** (`face`/`index` need ≥ 0.3.4; the opt-in
+`see:tinycloud` provider needs ≥ 0.3.7), the
+home/profiles, and the active provider bindings. Version 0.3.7 is the current
 recommended tinycloud build.

@@ -538,7 +538,7 @@ NO SIGNAL / STILL tiles (with an ffmpeg poster frame when extractable).
 |---|---|---|---|---|---|
 | `watch` | sense | `video.analysis` | tinycloud | `setup provider watch "exec:…"` | Video understanding |
 | `listen` | sense | `audio.analysis` | tinycloud | `setup provider listen "exec:…"` | Speech/audio analysis |
-| `see` | sense | `image.analysis` | HF captioner if token, else placeholder | `setup provider see "exec:…"` | Image/frame understanding |
+| `see` | sense | `image.analysis` | brain LLM (image-capable) → HF captioner if token → placeholder | `setup provider see "exec:…"` / `builtin:hf` | Image/frame understanding |
 | `face` | sense | `face.analysis` | tinycloud | custom exec / pinned tinycloud | Face detect/match/index search |
 | `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve media |
 | `view` | inspect | `view` | local HTML viewer / OS open | none | Inspect media/anchors |
