@@ -37,6 +37,7 @@ const PROVIDERS: Prov[] = [
   ts("ts/see.ts"),
   sh("sources/youtube.sh", "source"),
   sh("sources/tiktok.sh", "source"),
+  sh("sources/x.sh", "source"),
   sh("sources/web.sh", "source"),
 ];
 

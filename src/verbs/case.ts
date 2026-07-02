@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { openCase, recordFiles } from "../case.js";
 import { humanSize } from "../render.js";
-import { isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
+import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
 import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
@@ -227,6 +227,8 @@ function sourceDescription(type: string, ref: string, enabled: boolean): string 
   switch (type) {
     case "youtube": return `${state} YouTube source: ${ref}`;
     case "tiktok": return `${state} TikTok source: ${ref}`;
+    case "x":
+    case "twitter": return `${state} X source: ${ref}`;
     case "web": return `${state} web search source: ${ref}`;
     case "folder": return `${state} local folder source: ${ref}`;
     default: return `${state} ${type} source: ${ref || "(no ref)"}`;
@@ -252,28 +254,6 @@ function statusMatchVisualizations(records: OvercastRecord[]): Record<string, un
   return out.slice(0, 12);
 }
 
-function collectVisualRefs(value: unknown): string[] {
-  const refs = new Set<string>();
-  const visit = (v: unknown, key = "") => {
-    if (typeof v === "string") {
-      if (/^data:image\//i.test(v) || (looksLikeImagePath(v) && /(?:draw|visual|thumb|thumbnail|crop|path|image)/i.test(key))) refs.add(v);
-      return;
-    }
-    if (Array.isArray(v)) {
-      for (const item of v) visit(item, key);
-      return;
-    }
-    if (v && typeof v === "object") {
-      for (const [k, child] of Object.entries(v as Record<string, unknown>)) visit(child, k);
-    }
-  };
-  visit(value);
-  return [...refs];
-}
-
-function looksLikeImagePath(value: string): boolean {
-  return /\.(avif|bmp|gif|jpe?g|png|webp)(?:[?#].*)?$/i.test(value);
-}
 
 function caseStatusTldr(ctx: VerbContext, records: OvercastRecord[], counts: Record<string, number>): Record<string, unknown> {
   const targets = listTargets(ctx.case);

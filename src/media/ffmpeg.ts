@@ -157,6 +157,27 @@ export async function extractFrame(
   return out;
 }
 
+/** Extract a small poster frame (≤640px wide) for a local video, so a report can
+ *  show a preview WITHOUT the browser opening the video — the fast way to avoid
+ *  `preload="metadata"` stalling a page full of large clips. Input-seek (`-ss`
+ *  before `-i`) is instant even on a 500MB file; cached by deterministic name;
+ *  returns undefined on any failure (caller falls back to no poster). */
+export async function posterFrame(input: string, outDir: string, second = 0.5): Promise<string | undefined> {
+  try {
+    ensureDir(outDir);
+    const out = join(outDir, `${basename(input, extname(input))}_poster.jpg`);
+    if (existsSync(out)) return out;
+    await execFileP(
+      FFMPEG_PATH,
+      ["-y", "-ss", String(second), "-i", input, "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-q:v", "6", out],
+      { maxBuffer: 16 * 1024 * 1024 },
+    );
+    return existsSync(out) ? out : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface CropBox {
   x: number;
   y: number;

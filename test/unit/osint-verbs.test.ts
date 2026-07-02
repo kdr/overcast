@@ -339,6 +339,10 @@ fi
     assert.equal(progress.some((r) => (r.payload as Record<string, unknown>).via === "direct-url"), true);
     const watch = recs.find((r) => r.verb === "watch");
     assert.equal(watch?.media?.ref, url);
+    // a piped/pulled sense record inherits the originating post's provenance,
+    // same as a standalone verb would (traceability through automated pulls)
+    assert.equal((watch?.payload as Record<string, unknown>)?.source_url, url, "piped watch carries source_url");
+    assert.ok((watch?.payload as Record<string, unknown>)?.source_record, "piped watch carries source_record");
     assert.equal(recs.some((r) => r.verb === "finding"), true);
     assert.equal(c.records().some((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).title === "tt"), true);
     assert.equal(c.records().some((r) => r.verb === "watch" && r.media?.ref === watch?.media?.ref), true);
@@ -1427,4 +1431,19 @@ test("monitor --every redacts secrets in streamed stdout and alert files", async
     delete process.env.OVERCAST_MONITOR_MAX_PASSES;
     rmSync(d, { recursive: true, force: true });
   }
+});
+
+import { hostSourceType } from "../../src/verbs/osint.ts";
+
+test("hostSourceType routes apex and subdomain hosts (x.com regression)", () => {
+  assert.equal(hostSourceType("https://x.com/user/status/123"), "x");
+  assert.equal(hostSourceType("https://twitter.com/user/status/123"), "x");
+  assert.equal(hostSourceType("https://video.twimg.com/vid/hi.mp4"), "x");
+  assert.equal(hostSourceType("https://pbs.twimg.com/media/p.jpg"), "x");
+  assert.equal(hostSourceType("https://www.youtube.com/watch?v=abc"), "youtube");
+  assert.equal(hostSourceType("https://youtu.be/abc"), "youtube");
+  assert.equal(hostSourceType("https://www.tiktok.com/@u/video/1"), "tiktok");
+  assert.equal(hostSourceType("https://example.com/xx.com/page"), "web");
+  assert.equal(hostSourceType("https://notx.com/a"), "web");
+  assert.equal(hostSourceType("not a url"), "web");
 });

@@ -36,6 +36,7 @@ import { imageVerb } from "./image.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
 import { indexVerb } from "./index.js";
 import { latestFindingStatus, makeFinding } from "./finding.js";
+import { scanHitProvenance, stampProvenance } from "./provenance.js";
 import { redactSecrets } from "../env.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -340,6 +341,19 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
   const records: OvercastRecord[] = [];
   let submittedRemote = 0;
 
+  // Every evidence record derived from this hit (capture + sensed transcripts /
+  // detections) inherits the originating post's provenance — a direct-pipe or
+  // auto-sense transcript must trace back to the tweet just like a standalone
+  // `listen` does. Stamped once at the return boundary so no producer path
+  // (pipeSense's direct runWatch/runListen, automation chains) can miss it.
+  const prov = scanHitProvenance(hit);
+  const finish = (): ProcessHitResult => {
+    for (const r of records) {
+      if (["capture", "watch", "listen", "see", "face", "image", "enhance"].includes(r.verb)) stampProvenance(r, prov);
+    }
+    return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
+  };
+
   if (directPlan) {
     submittedRemote++;
     const hasRemainingAutoSense = directPlan.remainingAutoSense.length > 0;
@@ -356,7 +370,7 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
         records.push(...(remainingRecords.length ? remainingRecords : [err(caller, `automation produced no records for ${cap.media.ref}`)]));
       }
     }
-    return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
+    return finish();
   }
 
   const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
@@ -373,7 +387,7 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
       }
     }
   }
-  return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
+  return finish();
 }
 
 export const scanVerb: VerbSpec = {
@@ -501,9 +515,19 @@ function uniqueName(url: string): string {
 
 /** Best-effort source provider for an ad-hoc URL by host. Video hosts map to
  *  their downloaders; anything else to the generic `web` page fetcher. */
-function hostSourceType(url: string): string {
-  if (/(^|\.)tiktok\.com/i.test(url)) return "tiktok";
-  if (/(^|\.)(youtube\.com|youtu\.be)/i.test(url)) return "youtube";
+export function hostSourceType(url: string): string {
+  // match on the parsed hostname — a substring regex over the whole URL misses
+  // bare apex domains (x.com has no subdomain, so `(^|\.)x\.com` never fired)
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return "web";
+  }
+  if (/(^|\.)tiktok\.com$/.test(host)) return "tiktok";
+  if (/(^|\.)(youtube\.com|youtu\.be)$/.test(host)) return "youtube";
+  // twimg.com = X's media CDN — the x provider downloads those directly
+  if (/(^|\.)(x\.com|twitter\.com|twimg\.com)$/.test(host)) return "x";
   return "web";
 }
 
@@ -892,6 +916,9 @@ export const captureVerb: VerbSpec = {
       sourceType: hitSourceType(rec),
       out: ctx.opts.out ? String(ctx.opts.out) : undefined,
     });
+    // stamp where it came from (tweet/video URL, author, text, date) so a later
+    // match/finding on this file traces back to the originating post
+    stampProvenance(cap, scanHitProvenance(rec));
     // --index: flag the artifact for memory recall. The case store IS the local
     // memory index (records are written there), so this records the intent.
     if (ctx.opts.index === true && typeof cap.payload === "object") {

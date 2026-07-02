@@ -26,6 +26,7 @@ describe_ok "describe.el_enhance"  bash "$P/elevenlabs/enhance.sh"
 describe_ok "describe.web"        bash "$P/sources/web.sh"
 describe_ok "describe.youtube"     bash "$P/sources/youtube.sh"
 describe_ok "describe.tiktok"      bash "$P/sources/tiktok.sh"
+describe_ok "describe.x"           bash "$P/sources/x.sh"
 
 # profiles build offline (setup just writes bindings) and resolve as expected
 home="$SMOKE_DIR/prof-home"; mkdir -p "$home"

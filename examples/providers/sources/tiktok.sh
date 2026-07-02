@@ -63,6 +63,10 @@ case "$op" in
         | select($cut == 0 or (.createTime // 0) >= $cut)
         | {title:.text, url:.webVideoUrl, source:"tiktok",
            published:.createTimeISO, snippet:.text,
+           author:(.authorMeta.name? // null),
+           views:(.playCount // null),
+           duration:(.videoMeta.duration? // null),
+           thumb:(.videoMeta.coverUrl? // .covers.default? // null),
            media:{ref:.webVideoUrl}}]' <<<"$run" ;;
   fetch)
     # enumerate uses Apify, but fetch downloads with yt-dlp — verify it's present

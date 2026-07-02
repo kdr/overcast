@@ -70,7 +70,7 @@ Provider classes:
 - **visual DBs** — uv-managed OpenCV RANSAC image matching and DeepFace
   face matching, selected by `image-ransac` / `deepface-local` index types.
 - **source providers** — external discovery and URL fetching (youtube / tiktok /
-  web).
+  x / web).
 - **case memory** over primary evidence for `ask` / `brief` / `case memory` —
   `local-grep` by default, or qmd for lifecycle-managed semantic local search.
 

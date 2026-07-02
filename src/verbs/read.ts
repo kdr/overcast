@@ -2,10 +2,11 @@
 // (synthesize the case into a report, --export to md/html). Both read through
 // the bound memory providers (fan-out); currently the local provider.
 
-import { writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { makeRecord, memoryRecords, type OvercastRecord } from "../record.js";
-import { isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport } from "../report/html.js";
+import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord } from "../report/html.js";
+import { posterFrame } from "../media/ffmpeg.js";
 import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
@@ -177,15 +178,133 @@ export const askVerb: VerbSpec = {
 
 // ---- brief -----------------------------------------------------------------
 
+const REPORT_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|ogv|3gp)$/i;
+
+/** Extract a small local poster frame for each local video timeline record that
+ *  lacks one, so the HTML player can preview without preload="metadata" opening
+ *  the (possibly huge) file. Remote videos are skipped (they carry a `thumb`
+ *  poster from the source, or would need a download); failures degrade to no
+ *  poster. Best-effort and cached — never throws. */
+async function attachVideoPosters(records: TimelineRecord[], mediaDir: string): Promise<void> {
+  const posterDir = join(mediaDir, "posters");
+  for (const r of records) {
+    const ref = r.media?.ref;
+    if (r.poster || typeof ref !== "string" || !ref) continue;
+    if (/^https?:\/\//i.test(ref)) continue; // remote: source thumb or skip
+    const payload = typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {};
+    if (typeof payload.thumb === "string" && payload.thumb.trim()) continue; // already has a poster source
+    if (!REPORT_VIDEO_RE.test(ref) || !existsSync(ref)) continue;
+    const poster = await posterFrame(ref, posterDir);
+    if (poster) r.poster = poster;
+  }
+}
+
 interface BriefData {
   md: string;
   counts: Record<string, number>;
   total: number;
   records: OvercastRecord[];
+  synthesis: BriefSynthesis;
+}
+
+/** Deterministic, record-derived report header: what was checked, what matched,
+ *  and the narrative verdict — so an exported brief reads as an investigation
+ *  report ("checked these sources, found these matches / found none"), not a
+ *  bare record dump. The narrative TL;DR comes from the newest `tldr`-tagged
+ *  note; everything else is aggregated from evidence records. No LLM involved. */
+export interface BriefSynthesis {
+  /** newest note tagged `tldr` (the analyst/agent narrative), if any */
+  tldr?: string;
+  /** auto-derived one-line coverage + outcome (always present) */
+  verdict: string;
+  /** scan coverage rollup: hits per source actually swept */
+  sources: Array<{ source: string; hits: number }>;
+  captures: number;
+  /** face / image / see checks run against captured media */
+  media_checks: number;
+  /** root findings (open/accepted) — the recorded matches/verdicts */
+  findings: Array<{ id: string; status: string; text: string; confidence?: unknown; overlays?: string[] }>;
+}
+
+/** Effective (reviewed) status per root finding, computed from the FULL record
+ *  set: the root's own status, overridden by the latest accept/dismiss review
+ *  record (finding_id → status). Built before memoryRecords strips the review
+ *  rows, so a brief shows `[accepted]`, not the stale `[open]`. Append order =
+ *  chronological, so last write wins (mirrors latestFindingStatus). */
+function findingStatusMap(records: OvercastRecord[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const r of records) {
+    if (r.verb !== "finding" || typeof r.payload !== "object" || r.payload == null) continue;
+    const pay = r.payload as Record<string, unknown>;
+    if (typeof pay.status !== "string") continue;
+    const rootId = typeof pay.finding_id === "string" ? pay.finding_id : r.id;
+    map.set(rootId, pay.status);
+  }
+  return map;
+}
+
+function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, string>): BriefSynthesis {
+  const p = (r: OvercastRecord): Record<string, unknown> =>
+    typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {};
+  const scanHits = records.filter(
+    (r) => r.verb === "scan" && r.state !== "error" && typeof p(r).url === "string" && (p(r).url as string) !== "",
+  );
+  const bySource = new Map<string, number>();
+  for (const r of scanHits) {
+    const src = String(p(r).source ?? "unknown");
+    bySource.set(src, (bySource.get(src) ?? 0) + 1);
+  }
+  const captures = records.filter((r) => r.verb === "capture" && r.state !== "error").length;
+  // media checks = actual suspect analysis (image match / face / see), NOT the
+  // `image add` fingerprint steps that build the reference index — counting those
+  // would inflate the escalation count before any suspect is checked.
+  const mediaChecks = records.filter((r) =>
+    ["face", "image", "see"].includes(r.verb) && r.state !== "error" && !(r.verb === "image" && p(r).op === "add"),
+  ).length;
+  const byId = new Map(records.map((r) => [r.id, r]));
+  const findings = records
+    .filter((r) => {
+      if (r.verb !== "finding" || r.state === "error") return false;
+      const pay = p(r);
+      return typeof pay.finding_id !== "string" && typeof pay.status === "string" && typeof pay.text === "string";
+    })
+    .map((r) => {
+      const pay = p(r);
+      // reviewed status (accepted/open), not the root record's initial "open"
+      const row: BriefSynthesis["findings"][number] = { id: r.id, status: statusByFinding.get(r.id) ?? String(pay.status), text: String(pay.text) };
+      if (pay.confidence != null) row.confidence = pay.confidence;
+      // attach match-draw overlays: from the finding's own payload, and from the
+      // image/face match record it cites via source_record (the geometric proof).
+      const overlays = new Set(collectVisualRefs(pay));
+      const src = typeof pay.source_record === "string" ? byId.get(pay.source_record) : undefined;
+      if (src && (src.verb === "image" || src.verb === "face")) {
+        for (const ref of collectVisualRefs(src.payload)) overlays.add(ref);
+      }
+      if (overlays.size) row.overlays = [...overlays].slice(0, 3);
+      return row;
+    });
+  // newest tldr-tagged note wins (records arrive chronologically sorted)
+  let tldr: string | undefined;
+  for (const r of records) {
+    if (r.verb !== "note" || r.state === "error") continue;
+    const pay = p(r);
+    const tags = Array.isArray(pay.tags) ? pay.tags.map((t) => String(t).toLowerCase()) : [];
+    if (tags.includes("tldr") && typeof pay.text === "string" && pay.text.trim()) tldr = pay.text.trim();
+  }
+  const s = (n: number) => (n === 1 ? "" : "s");
+  const parts = [`${bySource.size} source${s(bySource.size)} checked (${scanHits.length} hit${s(scanHits.length)})`];
+  if (captures) parts.push(`${captures} capture${s(captures)}`);
+  if (mediaChecks) parts.push(`${mediaChecks} media check${s(mediaChecks)}`);
+  const verdict = findings.length
+    ? `${parts.join(", ")} — ${findings.length} finding${s(findings.length)} recorded`
+    : `${parts.join(", ")} — no findings recorded`;
+  return { tldr, verdict, sources: [...bySource].map(([source, hits]) => ({ source, hits })), captures, media_checks: mediaChecks, findings };
 }
 
 /** Build a markdown brief from the case records (timeline + by-kind sections). */
 function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
+  // capture reviewed finding statuses BEFORE memoryRecords drops the review rows
+  const statusByFinding = findingStatusMap(records);
   // Exclude read/meta and operational outputs (ask/brief/case/setup/doctor/etc.)
   // so briefs and memory search stay evidence-focused instead of citing setup
   // probes, doctor checks, or prior read envelopes as findings.
@@ -203,10 +322,30 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
     .sort((a, b) => a.t - b.t || a.i - b.i)
     .map((x) => x.r);
 
+  const synthesis = briefSynthesis(sorted, statusByFinding);
   const lines: string[] = [];
   lines.push(`# Brief — ${caseName}`, "");
   lines.push(`**Records:** ${records.length}`, "");
-  lines.push("## Summary by kind", "");
+  lines.push("## TL;DR", "");
+  if (synthesis.tldr) lines.push(synthesis.tldr, "");
+  lines.push(`_${synthesis.verdict}_`, "");
+  lines.push("## Sources checked", "");
+  if (synthesis.sources.length) {
+    for (const src of synthesis.sources) lines.push(`- **${src.source}** — ${src.hits} hit${src.hits === 1 ? "" : "s"}`);
+  } else {
+    lines.push("- none — no scan hits in scope");
+  }
+  lines.push("", "## Matches & findings", "");
+  if (synthesis.findings.length) {
+    for (const f of synthesis.findings) {
+      const conf = f.confidence != null ? ` (confidence: ${f.confidence})` : "";
+      lines.push(`- \`${f.id}\` [${f.status}]${conf} ${f.text}`);
+      for (const ref of f.overlays ?? []) lines.push(`  ![match overlay](${ref})`);
+    }
+  } else {
+    lines.push("- none recorded");
+  }
+  lines.push("", "## Summary by kind", "");
   for (const [verb, n] of Object.entries(counts).sort()) lines.push(`- \`${verb}\`: ${n}`);
   lines.push("", "## Timeline / findings", "");
   for (const r of sorted) {
@@ -225,7 +364,7 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
     const fence = fenceFor(body);
     lines.push(fence, body, fence, "");
   }
-  return { md: lines.join("\n"), counts, total: records.length, records: sorted };
+  return { md: lines.join("\n"), counts, total: records.length, records: sorted, synthesis };
 }
 
 // Brief is an export artifact: embed each record's primary field IN FULL (not a
@@ -329,16 +468,25 @@ export const briefVerb: VerbSpec = {
     if (ctx.opts.export) {
       const path = resolve(String(ctx.opts.export));
       const isHtml = isHtmlExportPath(path);
-      const html = theme === "csi"
-        ? renderCsiTimelineReport({
-            title: `Brief — ${info.name}`,
-            subtitle: ctx.case.dir,
-            kind: "brief",
-            records: brief.records.map(recordToTimelineRecord),
-            counts: brief.counts,
-            total: brief.total,
-          })
-        : mdToPlainHtml(brief.md, `Brief — ${info.name}`);
+      let html: string;
+      if (theme === "csi") {
+        const timeline = brief.records.map(recordToTimelineRecord);
+        // extract tiny poster frames for local video previews so the player can
+        // stay preload="none" — a report full of large clips must not stall the
+        // page loading video metadata (see attachVideoPosters).
+        if (isHtml) await attachVideoPosters(timeline, ctx.case.mediaDir);
+        html = renderCsiTimelineReport({
+          title: `Brief — ${info.name}`,
+          subtitle: ctx.case.dir,
+          kind: "brief",
+          records: timeline,
+          counts: brief.counts,
+          total: brief.total,
+          synthesis: brief.synthesis,
+        });
+      } else {
+        html = mdToPlainHtml(brief.md, `Brief — ${info.name}`);
+      }
       writeFileSync(path, isHtml ? html : brief.md, "utf8");
       exported = path;
     }
@@ -347,7 +495,7 @@ export const briefVerb: VerbSpec = {
       makeRecord({
         verb: "brief",
         format: "md",
-        payload: { report: brief.md, counts: brief.counts, total: brief.total, export: exported ?? null },
+        payload: { report: brief.md, counts: brief.counts, total: brief.total, synthesis: brief.synthesis, export: exported ?? null },
         meta: { case: ctx.case.dir },
         state: "ready",
       }),

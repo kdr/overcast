@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Real OSINT sources: web search (Tavily), tiktok (Apify), lens reverse image
-# search (Apify), youtube (yt-dlp).
+# Real OSINT sources: web search (Tavily), tiktok (Apify), x (Apify), lens
+# reverse image search (Apify), youtube (yt-dlp).
 # Bound via OVERCAST_SOURCE_<TYPE>_CMD with absolute paths (the bun binary can't
 # auto-resolve the shipped examples/).
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
@@ -63,6 +63,25 @@ if require_cred "$C.tiktok" APIFY_TOKEN "skipping tiktok"; then
   assert_scan_hits "$C.tiktok.tag" "$out" "tiktok hashtag"
 
   unset OVERCAST_SOURCE_TIKTOK_CMD
+fi
+
+# --- x (Apify) — profile + video-targeted search; small limits to keep cost low ---
+if require_cred "$C.x" APIFY_TOKEN "skipping x"; then
+  export OVERCAST_SOURCE_X_CMD="bash $SRCDIR/x.sh"
+
+  CASE=$(case_dir src_x_handle)
+  ocrun "$CASE" source add 'x:@NASA' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=180 oc "$CASE" scan --source x --limit 5 --json)"
+  save_json "20_scan_x_handle" "$out" >/dev/null
+  assert_scan_hits "$C.x.handle" "$out" "x profile"
+
+  CASE=$(case_dir src_x_video)
+  ocrun "$CASE" source add 'x:video:space launch' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=180 oc "$CASE" scan --source x --limit 5 --json)"
+  save_json "20_scan_x_video" "$out" >/dev/null
+  assert_scan_hits "$C.x.video" "$out" "x video-targeted search"
+
+  unset OVERCAST_SOURCE_X_CMD
 fi
 
 # --- lens (Apify Google Lens reverse image) — stable public image, small limit ---

@@ -3,7 +3,8 @@
 // `fetch(item) -> capture media`. Same exec wire contract as sense providers;
 // output is mapped to the loose record at THIS boundary.
 //
-// Built-in descriptors: youtube (yt-dlp), tiktok (Apify), web (Tavily/Brave).
+// Built-in descriptors: youtube (yt-dlp), tiktok (Apify), x/twitter (Apify),
+// web (Tavily/Brave).
 // Any type can be overridden/added via env `OVERCAST_SOURCE_<TYPE>_CMD=<base command>` — the
 // base command is invoked as `<base> enumerate ...` / `<base> fetch ...`. This
 // is how the e2e binds a committed fixture source provider offline.
@@ -74,6 +75,13 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("tiktok.sh");
       return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
     }
+    case "x":
+    case "twitter": {
+      // one script serves both spellings; hits normalize to source "x".
+      // Apify run-sync (like tiktok/lens) → needs the longer exec budget.
+      const script = shippedSource("x.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
     case "web": {
       const script = shippedSource("web.sh");
       return script ? { type, base: ["bash", script], needs: "TAVILY_API_KEY|BRAVE_API_KEY" } : undefined;
@@ -95,7 +103,14 @@ export interface ScanHit {
   source?: string;
   published?: string;
   snippet?: string;
+  /** optional triage metadata a provider may emit (kept in the loose payload) */
+  author?: string;
+  views?: number;
+  thumb?: string;
+  duration?: number;
   media?: { ref: string };
+  // triage metadata (author/views/thumb/duration) and any other provider fields
+  // ride into the payload via the `...extra` spread in hitsToRecords.
   [k: string]: unknown;
 }
 

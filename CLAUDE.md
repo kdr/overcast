@@ -60,7 +60,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
    (`watch/listen/see/face/similar/enhance`), **source** (`scan/capture/monitor`; youtube,
-   tiktok, web), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
+   tiktok, x, web, lens), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    transports are `exec` (default), `http`, `in-proc`. Default sense binding =
    tinycloud (exec) — except `see`, whose default is the in-proc brain-vision
    backend (invariant #2), falling back to the HF exec captioner;
@@ -114,7 +114,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   their evidence moments — open finding > face hit > record anchor — with
   coverage badges and scan/monitor/brief freshness overlaid; `--limit`,
   `--source`/`--since`, `--refresh`, `--theme plain|csi`, `--no-open`).
-- **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / web /
+- **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens reverse-image;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
@@ -125,7 +125,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `face-cluster` for the `cluster` face DB, `basic-clip` for `similar` CLIP
   semantic search).
   Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
-  `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `web:<q>`;
+  `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `x:@handle`,
+  `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`;
   `lens:<image url|path>` (Google Lens reverse image search via Apify).
 - **State** — `target` / `source` manage standing scope; `note` records human
   observations (anchored via `--ref`/`--at`/`--tag`/`--confidence`); `finding`

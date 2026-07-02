@@ -111,20 +111,27 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
   const yt = builtinDescriptor("youtube");
   const tt = builtinDescriptor("tiktok");
   const web = builtinDescriptor("web");
+  const x = builtinDescriptor("x");
+  const twitter = builtinDescriptor("twitter");
   const lens = builtinDescriptor("lens");
   assert.ok(yt, "youtube descriptor present in dev");
   assert.ok(tt, "tiktok descriptor present in dev");
   assert.ok(web, "web descriptor present in dev");
+  assert.ok(x, "x descriptor present in dev");
+  assert.ok(twitter, "twitter alias descriptor present in dev");
   assert.ok(lens, "lens descriptor present in dev");
   assert.match(yt!.base.join(" "), /youtube\.sh$/);
   assert.match(tt!.base.join(" "), /tiktok\.sh$/);
   assert.match(web!.base.join(" "), /web\.sh$/);
+  assert.match(x!.base.join(" "), /x\.sh$/);
+  assert.match(twitter!.base.join(" "), /x\.sh$/);
   assert.match(lens!.base.join(" "), /lens\.sh$/);
   assert.equal(lens!.needs, "APIFY_TOKEN");
   // Apify run-sync sources hold the request up to 300s — their exec budget
   // must beat the generic 2-min enumerate default or the harness kills them.
   assert.equal(lens!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
   assert.equal(tt!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
+  assert.equal(x!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
   assert.ok(APIFY_RUN_SYNC_TIMEOUT_MS > 5 * 60_000);
   assert.equal(builtinDescriptor("nope"), undefined);
   // env override takes precedence and is quote-aware
@@ -189,6 +196,36 @@ console.log(JSON.stringify(hits));
     assert.deepEqual(payload.image_size, { width: 330, height: 492 });
     assert.equal(payload.media, undefined);
     assert.equal(recs[0].media?.ref, "/tmp/lens_abc123.jpg");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("enumerateSource forwards triage metadata (author/views/thumb/duration) into the loose payload", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-enum-passthrough-"));
+  try {
+    const script = join(dir, "enumerator.mjs");
+    writeFileSync(script, `
+console.log(JSON.stringify([
+  { title: "rip", url: "https://x.com/a/status/1", author: "codez", views: 400000,
+    thumb: "https://pbs.twimg.com/t.jpg", duration: 1140, likes: 99,
+    media: { ref: "https://video.twimg.com/hi.mp4" } },
+]));
+`);
+    const [rich] = await enumerateSource({ type: "x", base: ["node", script] }, { query: "loop engineering" });
+    const richPayload = rich.payload as Record<string, unknown>;
+    assert.equal(rich.state, "ready");
+    // canonical fields
+    assert.equal(richPayload.title, "rip");
+    assert.equal(richPayload.url, "https://x.com/a/status/1");
+    assert.equal(rich.media?.ref, "https://video.twimg.com/hi.mp4");
+    // triage metadata rides into the payload via the generic ...extra spread
+    assert.equal(richPayload.author, "codez");
+    assert.equal(richPayload.views, 400000);
+    assert.equal(richPayload.thumb, "https://pbs.twimg.com/t.jpg");
+    assert.equal(richPayload.duration, 1140);
+    // any other provider-specific field rides along too (not an allowlist)
+    assert.equal(richPayload.likes, 99);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

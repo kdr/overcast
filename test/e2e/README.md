@@ -69,7 +69,13 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 `11_listen` (Cloudglue + ElevenLabs) · `12_see` (HF + fal + Cloudglue tinycloud
 see/extract ≥ 0.3.7 + local OWLv2) ·
 `13_enhance_view` · `20_sources` (Tavily/Apify/yt-dlp) · `21_pipeline`
-(source→capture→sense) · `22_monitor` (`--once` diff + bounded `--every`) ·
+(source→capture→sense) · `26_x_copycat` (x keyword text search + user-scoped
+video capture from the CDN + headless agent x sweep + headless
+overcast-copycat-sweep skill invocation with brief HTML export) ·
+`27_copycat_local` (copycat detection CORE, no source/API: fingerprint a local
+original, CONFIRM a synthesized reskin through the geometry gate, REJECT an
+unrelated clip, showcase a brief with the embedded match overlay) ·
+`22_monitor` (`--once` diff + bounded `--every`) ·
 `23_index` · `24_case_search` · `16_visual_db` (local image-ransac,
 `face:deepface-local`, and deepface-local with real media) · `17_clip_db`
 (local basic-clip CLIP DB with real media: fixtures derived from real videos,

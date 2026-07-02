@@ -72,6 +72,9 @@ Built-in source refs for `source add <type>:<ref>`:
 - `youtube:playlist:<id>` or `youtube:<full YouTube URL>` — enumerate a playlist/video URL.
 - `tiktok:@user` — enumerate a TikTok profile.
 - `tiktok:#tag` — enumerate a TikTok hashtag.
+- `x:@handle` — enumerate an X (Twitter) profile's posts.
+- `x:<query>` or `x:#tag` — X advanced search (`from:`, `filter:native_video`, `min_faves:`, …).
+- `x:video:<query>` / `x:image:<query>` — only X posts with native video / images (media targeting).
 - `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
 - `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
 
