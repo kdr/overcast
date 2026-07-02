@@ -64,6 +64,12 @@ cred_record() { # $1=error message
   exit 0
 }
 
+pending_record() {
+  jq -nc --arg ref "$input" --arg m "$PROVIDER" \
+    '{verb:"see",format:"json",payload:{caption:"",ocr:"",detections:[]},media:{ref:$ref},meta:{provider:$m},state:"pending"}'
+  exit 0
+}
+
 PROVIDER="tinycloud:see"
 [ -f "$input" ] || fail_record "image not found: $input"
 case "$(echo "${input##*.}" | tr '[:upper:]' '[:lower:]')" in
@@ -92,28 +98,26 @@ if ! jq -e . >/dev/null 2>&1 <<<"$env_line"; then
   if [ "$code" = "2" ] || [ "$code" = "13" ]; then
     cred_record "tinycloud needs credentials (set CLOUDGLUE_API_KEY)"
   fi
+  [ "$code" = "3" ] && pending_record
   fail_record "tinycloud returned invalid JSON (exit $code)"
 fi
 
 # --- envelope → loose record: status + exit code decide state (never trust
 #     ready + non-zero exit); tinycloud errors may be {code,message} objects.
-status="$(jq -r '.status // empty' <<<"$env_line")"
-err="$(jq -r '(.error // empty) | if type == "object" then (.message // .code // tostring) else . end' <<<"$env_line")"
-if [ "$status" = "needs_credentials" ] || [ "$code" = "2" ] || [ "$code" = "13" ]; then
+status="$(jq -r '.status // .state // .data.status // .data.state // empty' <<<"$env_line")"
+err="$(jq -r '(.error // .data.error // empty) | if type == "object" then (.message // .code // tostring) else . end' <<<"$env_line")"
+if [ "$status" = "needs_credentials" ] || [ "$status" = "needs_auth" ] || [ "$code" = "2" ] || [ "$code" = "13" ]; then
   cred_record "${err:-tinycloud needs credentials (set CLOUDGLUE_API_KEY)}"
 fi
+[ "$code" = "3" ] && pending_record
 [ -n "$err" ] && fail_record "$err"
 case "$status" in
   error|failed) fail_record "tinycloud reported an error" ;;
   pending|in_progress|processing|running|queued|paused|needs_upload|needs_download) # defensive: --background is never passed here
-    jq -nc --arg ref "$input" --arg m "$PROVIDER" \
-      '{verb:"see",format:"json",payload:{caption:"",ocr:"",detections:[]},media:{ref:$ref},meta:{provider:$m},state:"pending"}'
-    exit 0 ;;
+    pending_record ;;
   ready|completed|success|ok|"") [ "$code" != "0" ] && fail_record "tinycloud exited $code despite a ready envelope" ;;
   *) [ "$code" = "0" ] && {
-       jq -nc --arg ref "$input" --arg m "$PROVIDER" \
-         '{verb:"see",format:"json",payload:{caption:"",ocr:"",detections:[]},media:{ref:$ref},meta:{provider:$m},state:"pending"}'
-       exit 0
+       pending_record
      }
      fail_record "unexpected tinycloud status '${status:-none}' (exit $code)" ;;
 esac

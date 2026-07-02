@@ -449,6 +449,20 @@ test("see (tinycloud wrapper) maps credential exits and tinycloud status aliases
     const [processing] = await seeVerb.run({ input: frame, rest: [], opts: {}, case: c, profile: p });
     assert.equal(processing.state, "pending");
     assert.equal(processing.meta?.provider, "tinycloud:see");
+
+    process.env.OVERCAST_FAKE_TC_MODE = "needs_auth";
+    const [needsAuth] = await seeVerb.run({ input: frame, rest: [], opts: {}, case: c, profile: p });
+    assert.equal(needsAuth.state, "needs_credentials");
+    assert.match(needsAuth.error ?? "", /auth/);
+
+    process.env.OVERCAST_FAKE_TC_MODE = "ready_exit3";
+    const [exit3] = await seeVerb.run({ input: frame, rest: [], opts: {}, case: c, profile: p });
+    assert.equal(exit3.state, "pending");
+
+    process.env.OVERCAST_FAKE_TC_MODE = "nested_error";
+    const [nested] = await seeVerb.run({ input: frame, rest: [], opts: {}, case: c, profile: p });
+    assert.equal(nested.state, "error");
+    assert.match(nested.error ?? "", /nested tinycloud failure/);
   } finally {
     if (saved.tc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD; else process.env.OVERCAST_TINYCLOUD_CMD = saved.tc;
     if (saved.key === undefined) delete process.env.CLOUDGLUE_API_KEY; else process.env.CLOUDGLUE_API_KEY = saved.key;

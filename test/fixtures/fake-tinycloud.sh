@@ -59,6 +59,9 @@ if [ "$top" = "see" ]; then
     no_status) echo '{"tinycloud":"1","kind":"see","summary":"A fixture image of a test pattern.","data":{"title":"Fixture Image","summary":"A fixture image of a test pattern.","description":"A fixture image showing a colorful SMPTE-style test pattern.","scene_text":"HELLO FIXTURE"}}' ;;
     completed) echo '{"tinycloud":"1","kind":"see","status":"completed","summary":"A fixture image of a test pattern.","data":{"title":"Fixture Image","summary":"A fixture image of a test pattern.","description":"A fixture image showing a colorful SMPTE-style test pattern.","scene_text":"HELLO FIXTURE"}}' ;;
     processing) echo '{"tinycloud":"1","kind":"see","status":"processing","data":{"title":"Fixture Image"}}' ;;
+    needs_auth) echo '{"tinycloud":"1","kind":"see","status":"needs_auth","error":{"message":"refresh tinycloud auth"}}' ;;
+    ready_exit3) echo '{"tinycloud":"1","kind":"see","status":"ready","data":{"title":"Fixture Image"}}'; exit 3 ;;
+    nested_error) echo '{"tinycloud":"1","kind":"see","data":{"status":"error","error":{"message":"nested tinycloud failure"}}}' ;;
     *) echo '{"tinycloud":"1","kind":"see","status":"ready","summary":"A fixture image of a test pattern.","data":{"title":"Fixture Image","summary":"A fixture image of a test pattern.","description":"A fixture image showing a colorful SMPTE-style test pattern.","scene_text":"HELLO FIXTURE"}}' ;;
   esac
   exit 0
@@ -71,6 +74,9 @@ if [ "$top" = "extract" ]; then
     no_status) echo '{"tinycloud":"1","kind":"extract","summary":"Extracted result for: fixture query","data":{"mode":"prompt","result":{"entities":{"cat":{"present":true,"approximate_count":2,"one_line_evidence":"Two cats sit on the fixture pattern."},"dog":{"present":false,"approximate_count":0,"one_line_evidence":"No dog is visible."}},"segment_entities":[]}}}' ;;
     completed) echo '{"tinycloud":"1","kind":"extract","status":"success","summary":"Extracted result for: fixture query","data":{"mode":"prompt","result":{"entities":{"cat":{"present":true,"approximate_count":2,"one_line_evidence":"Two cats sit on the fixture pattern."},"dog":{"present":false,"approximate_count":0,"one_line_evidence":"No dog is visible."}},"segment_entities":[]}}}' ;;
     processing) echo '{"tinycloud":"1","kind":"extract","status":"processing","data":{"mode":"prompt"}}' ;;
+    needs_auth) echo '{"tinycloud":"1","kind":"extract","status":"needs_auth","error":{"message":"refresh tinycloud auth"}}' ;;
+    ready_exit3) echo '{"tinycloud":"1","kind":"extract","status":"ready","data":{"mode":"prompt"}}'; exit 3 ;;
+    nested_error) echo '{"tinycloud":"1","kind":"extract","data":{"status":"error","error":{"message":"nested tinycloud failure"}}}' ;;
     *) echo '{"tinycloud":"1","kind":"extract","status":"ready","summary":"Extracted result for: fixture query","data":{"mode":"prompt","result":{"entities":{"cat":{"present":true,"approximate_count":2,"one_line_evidence":"Two cats sit on the fixture pattern."},"dog":{"present":false,"approximate_count":0,"one_line_evidence":"No dog is visible."}},"segment_entities":[]}}}' ;;
   esac
   exit 0
