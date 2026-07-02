@@ -165,7 +165,10 @@ interface TileJoin {
 
 function buildTile(ref: string, group: OvercastRecord[], join: TileJoin): WallTile {
   const ready = group.filter(isReady);
-  const watch = ready.find((r) => r.verb === "watch");
+  // every metadata picker walks newest-first, matching the anchor rule — a
+  // re-run sense on the same ref must win the title/summary/source display too
+  const readyNewest = newestFirst(ready);
+  const watch = readyNewest.find((r) => r.verb === "watch");
   const faceRecs = ready.filter((r) => r.verb === "face" && payloadOf(r).op !== "search");
   const frameRe = frameFileRe(ref);
   const sees = join.seeRecords.filter(
@@ -179,7 +182,7 @@ function buildTile(ref: string, group: OvercastRecord[], join: TileJoin): WallTi
   // that) — and the player re-clamps at loadedmetadata where the browser knows
   // the real length, so a null here only affects the model/intel display.
   let duration: number | null = null;
-  for (const r of newestFirst(ready)) {
+  for (const r of readyNewest) {
     const d = r.meta?.duration_seconds;
     if (typeof d === "number" && Number.isFinite(d) && d > 0) {
       duration = d;
@@ -217,9 +220,9 @@ function buildTile(ref: string, group: OvercastRecord[], join: TileJoin): WallTi
     },
     faceCount,
     openFindings: tileFindings.length,
-    summary: pickSummary(ready),
+    summary: pickSummary(readyNewest),
     recordIds: sortByTime(group).map((r) => r.id),
-    sourceType: pickSourceType(group),
+    sourceType: pickSourceType(newestFirst(group)),
     lastRecordTime: lastMs != null ? new Date(lastMs).toISOString() : null,
     ageSeconds: lastMs != null ? Math.max(0, (join.now - lastMs) / 1000) : null,
     poster: null,
@@ -326,6 +329,8 @@ function isSpan(v: unknown): v is [number, number] {
 
 const SUMMARY_VERBS = ["watch", "listen", "see", "note", "face", "capture"];
 
+/** First usable summary by verb priority; callers pass records newest-first so
+ *  a re-run sense wins within its verb. */
 function pickSummary(ready: OvercastRecord[]): string {
   let fallback = "";
   for (const verb of SUMMARY_VERBS) {
@@ -343,6 +348,8 @@ function pickSummary(ready: OvercastRecord[]): string {
   return fallback;
 }
 
+/** Source attribution from captures (then provider tags); callers pass records
+ *  newest-first so the latest acquisition wins. */
 function pickSourceType(group: OvercastRecord[]): string | null {
   for (const r of group) {
     if (r.verb !== "capture") continue;

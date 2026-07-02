@@ -102,6 +102,20 @@ test("record fallback prefers the NEWEST anchored sense; undated never shadows d
   assert.equal(noReadyAnchor.anchor.source, "start");
 });
 
+test("tile title/summary/source come from the NEWEST records, matching the anchor rule", () => {
+  const oldWatch = watchRec(A, { title: "Old title", time: T(90) });
+  (oldWatch.payload as Record<string, unknown>).content = "old analysis";
+  const newWatch = watchRec(A, { title: "New title", time: T(10) });
+  (newWatch.payload as Record<string, unknown>).content = "new analysis";
+  const oldCap = makeRecord({ verb: "capture", payload: { capture_id: "c1", source: "youtube" }, media: { ref: A }, meta: { time: T(80) } });
+  const newCap = makeRecord({ verb: "capture", payload: { capture_id: "c2", source: "tiktok" }, media: { ref: A }, meta: { time: T(5) } });
+
+  const tile = buildWallModel([oldWatch, oldCap, newWatch, newCap], opts()).tiles[0];
+  assert.equal(tile.title, "New title");
+  assert.match(tile.summary, /new analysis/);
+  assert.equal(tile.sourceType, "tiktok");
+});
+
 test("duration comes from any ready sense, not just watch; player re-clamps at loadedmetadata", () => {
   // capture-only feed with a known duration still clamps the window
   const capture = makeRecord({
