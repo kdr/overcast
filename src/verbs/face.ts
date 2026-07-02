@@ -34,7 +34,7 @@ function faceQueryImageError(ref: string): string | undefined {
   const clean = ref.replace(/[?#].*$/, "");
   return FACE_QUERY_IMAGE_RE.test(clean)
     ? undefined
-    : `--match image must be a JPEG or PNG: ${ref} (tinycloud 0.3.6 rejects webp/heic/gif/bmp/tiff/avif at preflight)`;
+    : `--match image must be a JPEG or PNG: ${ref} (tinycloud face preflight rejects webp/heic/gif/bmp/tiff/avif; webp support in 0.3.7 is see/extract-only)`;
 }
 
 /** Resolve a --match face-IMAGE ref. A path/URL is used as-is; a case record id

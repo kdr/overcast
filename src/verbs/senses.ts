@@ -100,7 +100,8 @@ export const seeVerb: VerbSpec = {
     "Hugging Face captioner when HF_TOKEN is set (override with HF_SEE_MODEL), else a placeholder " +
     "until a VLM is bound. Switch backends via `setup provider see builtin:hf` (classic HF) or " +
     "`builtin:brain`; disable the brain default with OVERCAST_SEE_BRAIN=off. Forwards --ocr/--prompt; " +
-    "--detect needs a detection provider. Accepts frame://rec@sec (resolved via the internal ffmpeg " +
+    "--detect needs a detection provider (OWLv2 for boxes, or the opt-in Cloudglue tinycloud see/extract " +
+    "provider for boxless facts, tinycloud >= 0.3.7). Accepts frame://rec@sec (resolved via the internal ffmpeg " +
     "toolkit) and http(s) image URLs, fetched into the case media dir first (meta.source_url keeps " +
     "the origin).",
   args: [{ name: "input", summary: "Image path, http(s) image URL, video frame, or frame://rec@sec", required: true }],

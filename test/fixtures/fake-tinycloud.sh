@@ -36,8 +36,31 @@ fi
 top="${1:-}"; sub="${2:-}"; sub2="${3:-}"
 
 case "$top" in
-  --version|version) echo "tinycloud 0.3.4"; exit 0 ;;
+  --version|version)
+    # default: an old plain-text version (drives the doctor recommended-version
+    # warning). OVERCAST_FAKE_TC_FEATURES (a JSON array, e.g. '["see.v1"]')
+    # switches to the 0.3.7 JSON form for feature-probe tests (see.sh init).
+    if [ -n "${OVERCAST_FAKE_TC_FEATURES:-}" ]; then
+      echo "{\"name\":\"tinycloud\",\"version\":\"0.3.7\",\"features\":${OVERCAST_FAKE_TC_FEATURES}}"
+    else
+      echo "tinycloud 0.3.4"
+    fi
+    exit 0 ;;
 esac
+
+if [ "$top" = "see" ]; then
+  # image `see` (0.3.7+): field-for-field the real shape — title/summary/
+  # description/scene_text under data.
+  echo '{"tinycloud":"1","kind":"see","status":"ready","summary":"A fixture image of a test pattern.","data":{"title":"Fixture Image","summary":"A fixture image of a test pattern.","description":"A fixture image showing a colorful SMPTE-style test pattern.","scene_text":"HELLO FIXTURE"}}'
+  exit 0
+fi
+
+if [ "$top" = "extract" ]; then
+  # image/video `extract` (prompt mode): data.result.entities keyed by
+  # snake_cased label, as the real CLI returns for a checklist prompt.
+  echo '{"tinycloud":"1","kind":"extract","status":"ready","summary":"Extracted result for: fixture query","data":{"mode":"prompt","result":{"entities":{"cat":{"present":true,"approximate_count":2,"one_line_evidence":"Two cats sit on the fixture pattern."},"dog":{"present":false,"approximate_count":0,"one_line_evidence":"No dog is visible."}},"segment_entities":[]}}}'
+  exit 0
+fi
 
 if [ "$top" = "face" ]; then
   case "$sub" in

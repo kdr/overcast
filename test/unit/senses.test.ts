@@ -369,6 +369,47 @@ printf '{"status":"error","data":null,"error":{"code":"upstream","message":"enab
   assert.equal("warning" in (rec.payload as Record<string, unknown>), false);
 });
 
+test("see (tinycloud wrapper) maps see/extract envelopes; --detect passes the describe gate with boxless detections", async () => {
+  const wrapper = join(HERE, "..", "..", "examples", "providers", "tinycloud", "see.sh");
+  const fake = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
+  const frame = join(dir, "tc-frame.jpg");
+  execFileSync(FFMPEG_PATH, ["-y", "-i", clip, "-frames:v", "1", frame], { stdio: "ignore" });
+  const saved = { tc: process.env.OVERCAST_TINYCLOUD_CMD, key: process.env.CLOUDGLUE_API_KEY };
+  process.env.OVERCAST_TINYCLOUD_CMD = `bash ${fake}`;
+  process.env.CLOUDGLUE_API_KEY = "fixture";
+  try {
+    const c = openCase(dir); c.ensure();
+    const p = defaultProfile();
+    p.providers = {
+      ...p.providers,
+      see: { type: "exec", run: `bash ${wrapper} --input {{input}}`, describe: `bash ${wrapper} describe` },
+    };
+    // `tinycloud see` envelope → caption (title — description) + scene_text → ocr
+    const [rec] = await seeVerb.run({ input: frame, rest: [], opts: { ocr: true }, case: c, profile: p });
+    assert.equal(rec.state, "ready");
+    const pay = rec.payload as Record<string, unknown>;
+    assert.match(pay.caption as string, /Fixture Image/);
+    assert.equal(pay.ocr, "HELLO FIXTURE");
+    assert.equal(rec.meta?.provider, "tinycloud:see");
+    // --detect: describe declares detections (gate passes) and the extract
+    // entities map to boxless {label, present, count, evidence} + counts.
+    const [det] = await seeVerb.run({ input: frame, rest: [], opts: { detect: "cat, dog" }, case: c, profile: p });
+    assert.equal(det.state, "ready");
+    assert.equal(det.meta?.provider, "tinycloud:extract");
+    const dp = det.payload as Record<string, unknown>;
+    const detections = dp.detections as Array<Record<string, unknown>>;
+    assert.equal(detections.length, 2);
+    const cat = detections.find((d) => d.label === "cat");
+    assert.equal(cat?.present, true);
+    assert.equal(cat?.count, 2);
+    assert.equal(cat?.box, undefined); // boxless: crop does not apply
+    assert.equal((dp.counts as Record<string, number>).cat, 2);
+  } finally {
+    if (saved.tc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD; else process.env.OVERCAST_TINYCLOUD_CMD = saved.tc;
+    if (saved.key === undefined) delete process.env.CLOUDGLUE_API_KEY; else process.env.CLOUDGLUE_API_KEY = saved.key;
+  }
+});
+
 test("see forwards --ocr/--prompt to the bound provider (extraArgs)", async () => {
   const { writeFileSync, chmodSync } = await import("node:fs");
   const prov = join(dir, "see-args.sh");
