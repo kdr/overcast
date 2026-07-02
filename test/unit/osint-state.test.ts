@@ -15,7 +15,7 @@ import {
   resolveSources,
 } from "../../src/state/source.ts";
 import { loadSeen, saveSeen, hitKey } from "../../src/state/seen.ts";
-import { fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
+import { APIFY_RUN_SYNC_TIMEOUT_MS, enumerateSource, fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
 import { makeRecord } from "../../src/record.ts";
 
 function withCase(fn: (c: ReturnType<typeof openCase>) => void) {
@@ -67,19 +67,21 @@ test("source registry add/list/enable/disable/rm + resolveSources", () => {
   });
 });
 
-test("seen-set round-trips and hitKey prefers media.ref then url", () => {
+test("seen-set round-trips and hitKey prefers url then media.ref", () => {
   withCase((c) => {
     assert.equal(loadSeen(c).size, 0);
     const keys = new Set(["a", "b"]);
     saveSeen(c, keys);
     assert.deepEqual([...loadSeen(c)].sort(), ["a", "b"]);
 
-    // media.ref wins (it's what capture/monitor actually fetch + dedup on)
+    // payload.url wins: it's the item's stable logical identity — media.ref can
+    // be a run-varying materialized artifact (lens thumbnails), which must not
+    // shift the dedup key
     const rec = makeRecord({ verb: "scan", payload: { url: "http://x/1", title: "t" }, media: { ref: "m" } });
-    assert.equal(hitKey(rec), "url:m");
-    // …falling back to payload.url when there's no media.ref
-    const urlOnly = makeRecord({ verb: "scan", payload: { url: "http://x/1", title: "t" } });
-    assert.equal(hitKey(urlOnly), "url:http://x/1");
+    assert.equal(hitKey(rec), "url:http://x/1");
+    // …falling back to media.ref when there's no url (path-ref fixture hits)
+    const refOnly = makeRecord({ verb: "scan", payload: { title: "t" }, media: { ref: "m" } });
+    assert.equal(hitKey(refOnly), "url:m");
 
     // No url → a content composite (prefixed), stable and title-derived.
     const noUrl = makeRecord({ verb: "scan", payload: { title: "only-title" } });
@@ -109,19 +111,86 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
   const yt = builtinDescriptor("youtube");
   const tt = builtinDescriptor("tiktok");
   const web = builtinDescriptor("web");
+  const lens = builtinDescriptor("lens");
   assert.ok(yt, "youtube descriptor present in dev");
   assert.ok(tt, "tiktok descriptor present in dev");
   assert.ok(web, "web descriptor present in dev");
+  assert.ok(lens, "lens descriptor present in dev");
   assert.match(yt!.base.join(" "), /youtube\.sh$/);
   assert.match(tt!.base.join(" "), /tiktok\.sh$/);
   assert.match(web!.base.join(" "), /web\.sh$/);
+  assert.match(lens!.base.join(" "), /lens\.sh$/);
+  assert.equal(lens!.needs, "APIFY_TOKEN");
+  // Apify run-sync sources hold the request up to 300s — their exec budget
+  // must beat the generic 2-min enumerate default or the harness kills them.
+  assert.equal(lens!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
+  assert.equal(tt!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
+  assert.ok(APIFY_RUN_SYNC_TIMEOUT_MS > 5 * 60_000);
   assert.equal(builtinDescriptor("nope"), undefined);
   // env override takes precedence and is quote-aware
   process.env.OVERCAST_SOURCE_YOUTUBE_CMD = 'bash "/x y/z.sh"';
   try {
     assert.deepEqual(builtinDescriptor("youtube")!.base, ["bash", "/x y/z.sh"]);
+    assert.equal(builtinDescriptor("youtube")!.timeoutMs, undefined);
   } finally {
     delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD;
+  }
+  // an override rebinds the command but keeps the type's exec budget (the live
+  // e2e binds the shipped lens/tiktok scripts this way — they still talk to
+  // the slow Apify run-sync backend)
+  process.env.OVERCAST_SOURCE_LENS_CMD = "bash /elsewhere/lens.sh";
+  try {
+    assert.equal(builtinDescriptor("lens")!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
+  } finally {
+    delete process.env.OVERCAST_SOURCE_LENS_CMD;
+  }
+});
+
+test("enumerateSource honors the descriptor's exec budget (timeoutMs)", async () => {
+  // a provider that outlives a tiny descriptor budget is killed and surfaces
+  // as a timeout — proving desc.timeoutMs actually reaches execCapture
+  await assert.rejects(
+    enumerateSource(
+      { type: "slow", base: ["node", "-e", "setTimeout(() => {}, 10_000)"], timeoutMs: 300 },
+      { query: "q" },
+    ),
+    /timed out after 300ms/,
+  );
+});
+
+test("enumerateSource passes provider-specific hit fields through to the payload", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-enum-extra-"));
+  try {
+    const script = join(dir, "enumerator.mjs");
+    writeFileSync(script, `
+const hits = [{
+  title: "Mona Lisa - Wikipedia",
+  url: "https://en.wikipedia.org/wiki/Mona_Lisa",
+  snippet: "exact image match on Wikipedia",
+  match: "exact",
+  site: "Wikipedia",
+  position: 1,
+  image_size: { width: 330, height: 492 },
+  media: { ref: "/tmp/lens_abc123.jpg" },
+}];
+console.log(JSON.stringify(hits));
+`);
+    const recs = await enumerateSource({ type: "lens", base: ["node", script] }, { query: "https://x/img.jpg" });
+    assert.equal(recs.length, 1);
+    const payload = recs[0].payload as Record<string, unknown>;
+    // canonical fields still normalized
+    assert.equal(payload.title, "Mona Lisa - Wikipedia");
+    assert.equal(payload.source, "lens");
+    assert.equal(payload.published, null);
+    // extra fields ride along (loose record), media maps to media.ref not payload
+    assert.equal(payload.match, "exact");
+    assert.equal(payload.site, "Wikipedia");
+    assert.equal(payload.position, 1);
+    assert.deepEqual(payload.image_size, { width: 330, height: 492 });
+    assert.equal(payload.media, undefined);
+    assert.equal(recs[0].media?.ref, "/tmp/lens_abc123.jpg");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
