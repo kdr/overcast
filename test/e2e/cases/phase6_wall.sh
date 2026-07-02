@@ -65,3 +65,13 @@ if grep -q 'data-start=' "$whtml" && grep -q 'data-src="file://' "$whtml"; then
 else
   fail "wall.tile_loop" "no looping video tile in wall html"
 fi
+
+# --infinite: endless wall marker in the record and the page
+iout="$($OVERCAST wall --infinite --no-open --json --case "$casedir" 2>/dev/null)"
+save_json "phase6_wall_infinite" "$iout" >/dev/null
+assert_eq "wall.infinite_payload" "true" "$(jq -r '.payload.infinite' <<<"$iout")" "--infinite recorded in payload"
+if grep -q 'data-infinite="true"' "$(jq -r '.payload.viewer' <<<"$iout")"; then
+  ok "wall.infinite_marker" "wall html carries data-infinite"
+else
+  fail "wall.infinite_marker" "data-infinite missing from --infinite wall html"
+fi

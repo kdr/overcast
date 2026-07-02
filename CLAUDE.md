@@ -113,7 +113,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--square`), `wall` (control-room monitor wall: case videos muted + looping at
   their evidence moments — open finding > face hit > record anchor — with
   coverage badges and scan/monitor/brief freshness overlaid; `--limit`,
-  `--source`/`--since`, `--refresh`, `--theme plain|csi`, `--no-open`).
+  `--source`/`--since`, `--refresh`, `--infinite` endless repeat-to-fill wall,
+  `--theme plain|csi`, `--no-open`).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens reverse-image;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).

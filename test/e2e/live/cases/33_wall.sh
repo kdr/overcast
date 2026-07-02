@@ -71,3 +71,25 @@ if grep -q 'FND 1' "$WHTML"; then
 else
   fail "$C.fnd_chip" "FND chip missing"
 fi
+
+cond "the same case renders as an endless wall (--infinite) without changing the evidence model"
+IHTML="$SMOKE_DIR/33_wall_infinite.html"
+wi="$(oc "$CASE" wall --infinite --export "$IHTML" --theme csi --no-open --json)"
+save_json "33_wall_infinite" "$wi" >/dev/null
+assert_eq "$C.inf.state" "ready" "$(echo "$wi" | jq -r '.state')" "infinite wall ready"
+assert_eq "$C.inf.flag" "true" "$(echo "$wi" | jq -r '.payload.infinite')" "payload carries infinite=true"
+assert_eq "$C.plain_flag" "false" "$(echo "$w" | jq -r '.payload.infinite')" "normal wall records infinite=false"
+# --infinite is presentation-only: same tiles, same finding-anchored top tile
+assert_eq "$C.inf.tiles" "$tiles" "$(echo "$wi" | jq -r '.payload.tiles')" "same tile model as the normal wall"
+assert_eq "$C.inf.anchor" "4" "$(echo "$wi" | jq -r '.payload.tile_refs[0].at')" "finding anchor survives --infinite"
+if [ -f "$IHTML" ] && grep -q 'data-infinite="true"' "$IHTML"; then
+  ok "$C.inf.marker" "endless wall marker present: $IHTML"
+else
+  fail "$C.inf.marker" "data-infinite missing from infinite wall html"
+fi
+# 1-2 real feeds floor at a 3-wide monitor bank (clone rows fill the screen)
+if grep -q -- '--cols:3' "$IHTML"; then
+  ok "$C.inf.cols" "3-wide monitor-bank floor applied"
+else
+  fail "$C.inf.cols" "expected --cols:3 floor on a small infinite wall"
+fi

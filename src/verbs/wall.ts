@@ -34,8 +34,10 @@ export const wallVerb: VerbSpec = {
     "sense-coverage badges, findings, per-source scan / monitor / brief freshness. Local media is " +
     "referenced by file:// URL (not embedded); missing or browser-hostile media renders a NO " +
     "SIGNAL / STILL tile (with an ffmpeg poster frame when extractable). Click a tile to open the " +
-    "media at its anchor; hover for the intel card. --no-open writes the wall and emits a record " +
-    "with its path instead of launching.",
+    "media at its anchor; hover for the intel card. --infinite repeats the real feeds to fill the " +
+    "screen and keeps extending the grid as it scrolls — an endless monitor bank even from a " +
+    "handful of feeds. --no-open writes the wall and emits a record with its path instead of " +
+    "launching.",
   args: [],
   flags: [
     { name: "limit", summary: "Max tiles, most evidentiary/recent first (~25 is a practical decode ceiling)", type: "number", default: 12 },
@@ -43,6 +45,7 @@ export const wallVerb: VerbSpec = {
     { name: "since", summary: "Only media with records since (e.g. 24h, 7d, 2026-06-01)", type: "string" },
     { name: "export", summary: "Wall HTML path", type: "string", default: WALL_DEFAULT_EXPORT },
     { name: "refresh", summary: "Auto-reload the wall every N seconds (restarts the feeds)", type: "number" },
+    { name: "infinite", summary: "Endless wall: repeat feeds to fill the screen and keep extending on scroll", type: "boolean" },
     { name: "no-open", summary: "Write the wall but don't launch it", type: "boolean" },
     { name: "theme", summary: "HTML theme: plain | csi", type: "string", choices: ["plain", "csi"], default: "plain" },
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -71,6 +74,7 @@ export const wallVerb: VerbSpec = {
       if (!Number.isFinite(n) || n <= 0) return [err(`invalid --refresh: ${ctx.opts.refresh} (expected seconds > 0)`)];
       refresh = Math.round(n);
     }
+    const infinite = ctx.opts.infinite === true;
     const source = ctx.opts.source != null ? String(ctx.opts.source).trim() : undefined;
     if (ctx.opts.source != null && !source) {
       return [err("--source requires a value (youtube | tiktok | web | local)")];
@@ -86,6 +90,7 @@ export const wallVerb: VerbSpec = {
       source,
       sinceCutoff,
       refreshSeconds: refresh,
+      infinite,
     });
 
     // nothing to wall → transient pending guidance, no artifact (brief precedent)
@@ -136,6 +141,7 @@ export const wallVerb: VerbSpec = {
           stills: model.tiles.filter((t) => t.mode === "still").length,
           open_findings: model.hud.openFindings,
           refresh: refresh ?? null,
+          infinite,
           tile_refs: model.tiles.map((t) => ({
             ref: t.ref,
             at: t.anchor.at,

@@ -289,6 +289,31 @@ test("csi render: theme markers, tiles with loop windows, NO SIGNAL, refresh met
   assert.ok(!noRefresh.includes("http-equiv"), "refresh meta present without --refresh");
 });
 
+test("--infinite: hud flag, data-infinite marker, and the 3-col floor for tiny walls", () => {
+  const on = buildWallModel([watchRec(A)], opts({ infinite: true }));
+  assert.equal(on.hud.infinite, true);
+  const html = renderWallHtml(on, "csi");
+  assert.match(html, /data-infinite="true"/);
+  // one real feed still lays out as a monitor bank, not a full-width billboard
+  assert.match(html, /--cols:3/);
+  // the page script carries the repeat/extend machinery + manual scroll
+  // compensation (native anchoring is disabled so it can't double-apply)
+  assert.match(html, /appendChunk/);
+  assert.match(html, /overflow-anchor:none/);
+
+  const off = buildWallModel([watchRec(A)], opts());
+  assert.equal(off.hud.infinite, false);
+  const offHtml = renderWallHtml(off, "plain");
+  // the attribute form specifically — the shared player script always mentions
+  // the data-infinite name, but only --infinite sets it on the grid
+  assert.ok(!offHtml.includes('data-infinite="true"'), "default wall must not carry the infinite marker");
+  assert.match(offHtml, /--cols:1/); // sqrt grid unchanged when off
+
+  // the floor never shrinks a wall the sqrt rule already made wider
+  const many = Array.from({ length: 12 }, (_, i) => watchRec(`/media/m${i}.mp4`));
+  assert.match(renderWallHtml(buildWallModel(many, opts({ infinite: true })), "plain"), /--cols:4/);
+});
+
 test("plain render: same grid + player script, no csi marker", () => {
   const model = buildWallModel([watchRec(A)], opts());
   const html = renderWallHtml(model, "plain");
@@ -360,6 +385,18 @@ test("wall escapes a media path with quotes/specials (no HTML/attr breakage)", a
   } finally {
     rmSync(nastyDir, { recursive: true, force: true });
   }
+});
+
+test("wall --infinite threads to the record payload and the page", async () => {
+  const vc = ctx(dir, { "no-open": true, infinite: true });
+  const [rec] = await wallVerb.run(vc);
+  assert.equal(rec.state, "ready");
+  const p = rec.payload as Record<string, unknown>;
+  assert.equal(p.infinite, true);
+  assert.match(readFileSync(p.viewer as string, "utf8"), /data-infinite="true"/);
+
+  const [plain] = await wallVerb.run(ctx(dir, { "no-open": true }));
+  assert.equal((plain.payload as Record<string, unknown>).infinite, false);
 });
 
 test("empty case → transient pending record, no wall.html written", async () => {
