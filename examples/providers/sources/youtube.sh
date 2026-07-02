@@ -98,7 +98,7 @@ case "$op" in
           author: (.uploader // .channel // null),
           views: (.view_count // null),
           duration: (.duration // null),
-          thumb: ((((.thumbnails // []) | last | .url?) // .thumbnail) // null),
+          thumb: (((.thumbnails // []) | last | .url?) // .thumbnail // null),
           media: { ref: (.url // .webpage_url // ("https://youtu.be/"+.id)) }
         } ]'
     ;;

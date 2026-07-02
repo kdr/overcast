@@ -226,7 +226,24 @@ export interface BriefSynthesis {
   findings: Array<{ id: string; status: string; text: string; confidence?: unknown; overlays?: string[] }>;
 }
 
-function briefSynthesis(records: OvercastRecord[]): BriefSynthesis {
+/** Effective (reviewed) status per root finding, computed from the FULL record
+ *  set: the root's own status, overridden by the latest accept/dismiss review
+ *  record (finding_id → status). Built before memoryRecords strips the review
+ *  rows, so a brief shows `[accepted]`, not the stale `[open]`. Append order =
+ *  chronological, so last write wins (mirrors latestFindingStatus). */
+function findingStatusMap(records: OvercastRecord[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const r of records) {
+    if (r.verb !== "finding" || typeof r.payload !== "object" || r.payload == null) continue;
+    const pay = r.payload as Record<string, unknown>;
+    if (typeof pay.status !== "string") continue;
+    const rootId = typeof pay.finding_id === "string" ? pay.finding_id : r.id;
+    map.set(rootId, pay.status);
+  }
+  return map;
+}
+
+function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, string>): BriefSynthesis {
   const p = (r: OvercastRecord): Record<string, unknown> =>
     typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {};
   const scanHits = records.filter(
@@ -248,7 +265,8 @@ function briefSynthesis(records: OvercastRecord[]): BriefSynthesis {
     })
     .map((r) => {
       const pay = p(r);
-      const row: BriefSynthesis["findings"][number] = { id: r.id, status: String(pay.status), text: String(pay.text) };
+      // reviewed status (accepted/open), not the root record's initial "open"
+      const row: BriefSynthesis["findings"][number] = { id: r.id, status: statusByFinding.get(r.id) ?? String(pay.status), text: String(pay.text) };
       if (pay.confidence != null) row.confidence = pay.confidence;
       // attach match-draw overlays: from the finding's own payload, and from the
       // image/face match record it cites via source_record (the geometric proof).
@@ -280,6 +298,8 @@ function briefSynthesis(records: OvercastRecord[]): BriefSynthesis {
 
 /** Build a markdown brief from the case records (timeline + by-kind sections). */
 function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
+  // capture reviewed finding statuses BEFORE memoryRecords drops the review rows
+  const statusByFinding = findingStatusMap(records);
   // Exclude read/meta and operational outputs (ask/brief/case/setup/doctor/etc.)
   // so briefs and memory search stay evidence-focused instead of citing setup
   // probes, doctor checks, or prior read envelopes as findings.
@@ -297,7 +317,7 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
     .sort((a, b) => a.t - b.t || a.i - b.i)
     .map((x) => x.r);
 
-  const synthesis = briefSynthesis(sorted);
+  const synthesis = briefSynthesis(sorted, statusByFinding);
   const lines: string[] = [];
   lines.push(`# Brief — ${caseName}`, "");
   lines.push(`**Records:** ${records.length}`, "");

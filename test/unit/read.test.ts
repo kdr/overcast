@@ -813,6 +813,27 @@ test("brief synthesis: a clean sweep says so explicitly (checked, found none)", 
   }
 });
 
+test("brief synthesis: an accepted finding shows [accepted], not the stale [open]", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-brief-accepted-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    const finding = makeRecord({ verb: "finding", payload: { text: "copycat by @codez", status: "open", source_record: "manual", source_verb: "manual", trigger: "human" }, state: "ready" });
+    c.writeRecord(finding);
+    // an accept review record (as `finding accept` writes it) — excluded by
+    // memoryRecords, so the brief must still reflect its status
+    c.writeRecord(makeRecord({ verb: "finding", payload: { finding_id: finding.id, status: "accepted", reviewed_at: "2026-01-02T00:00:00Z" }, state: "ready" }));
+    const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.match(report, /\[accepted\][^\n]*copycat by @codez/);
+    assert.doesNotMatch(report, /\[open\][^\n]*copycat by @codez/);
+    const syn = (rec.payload as Record<string, unknown>).synthesis as Record<string, unknown>;
+    assert.equal((syn.findings as Array<Record<string, unknown>>)[0].status, "accepted");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief timeline: dated records sort chronologically, undated go last in order", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-tl-"));
   try {
