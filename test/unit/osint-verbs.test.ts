@@ -339,6 +339,10 @@ fi
     assert.equal(progress.some((r) => (r.payload as Record<string, unknown>).via === "direct-url"), true);
     const watch = recs.find((r) => r.verb === "watch");
     assert.equal(watch?.media?.ref, url);
+    // a piped/pulled sense record inherits the originating post's provenance,
+    // same as a standalone verb would (traceability through automated pulls)
+    assert.equal((watch?.payload as Record<string, unknown>)?.source_url, url, "piped watch carries source_url");
+    assert.ok((watch?.payload as Record<string, unknown>)?.source_record, "piped watch carries source_record");
     assert.equal(recs.some((r) => r.verb === "finding"), true);
     assert.equal(c.records().some((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).title === "tt"), true);
     assert.equal(c.records().some((r) => r.verb === "watch" && r.media?.ref === watch?.media?.ref), true);

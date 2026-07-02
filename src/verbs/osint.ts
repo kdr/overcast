@@ -341,6 +341,19 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
   const records: OvercastRecord[] = [];
   let submittedRemote = 0;
 
+  // Every evidence record derived from this hit (capture + sensed transcripts /
+  // detections) inherits the originating post's provenance — a direct-pipe or
+  // auto-sense transcript must trace back to the tweet just like a standalone
+  // `listen` does. Stamped once at the return boundary so no producer path
+  // (pipeSense's direct runWatch/runListen, automation chains) can miss it.
+  const prov = scanHitProvenance(hit);
+  const finish = (): ProcessHitResult => {
+    for (const r of records) {
+      if (["capture", "watch", "listen", "see", "face", "image", "enhance"].includes(r.verb)) stampProvenance(r, prov);
+    }
+    return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
+  };
+
   if (directPlan) {
     submittedRemote++;
     const hasRemainingAutoSense = directPlan.remainingAutoSense.length > 0;
@@ -351,18 +364,16 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
 
     if (hasRemainingAutoSense) {
       const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-      stampProvenance(cap, scanHitProvenance(hit));
       records.push(cap);
       if (cap.state !== "error" && cap.state !== "needs_credentials" && cap.media?.ref) {
         const remainingRecords = await runAutomationChain(ctx, caller, cap.media.ref, directPlan.remainingAutoSense);
         records.push(...(remainingRecords.length ? remainingRecords : [err(caller, `automation produced no records for ${cap.media.ref}`)]));
       }
     }
-    return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
+    return finish();
   }
 
   const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
-  stampProvenance(cap, scanHitProvenance(hit));
   records.push(cap);
   if (cap.state !== "error" && cap.state !== "needs_credentials" && cap.media?.ref) {
     if (explicitPipe || isSenseableMedia(cap.media.ref)) {
@@ -376,7 +387,7 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
       }
     }
   }
-  return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
+  return finish();
 }
 
 export const scanVerb: VerbSpec = {
