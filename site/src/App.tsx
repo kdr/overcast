@@ -74,8 +74,7 @@ export default function App() {
         <div className="blob blob-blush blob-drift-d right-[-15%] bottom-[-20%] h-[55vmax] w-[55vmax]" />
         <div className="halftone absolute inset-0" />
         <div className="scanlines absolute inset-0" />
-        <div className="refresh-bar-x" />
-        <div className="refresh-bar-y" />
+        <div className="raster-band" />
       </div>
 
       <div className="relative flex w-full flex-col items-center gap-6 sm:gap-8">

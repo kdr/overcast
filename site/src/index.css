@@ -203,60 +203,57 @@
   }
 }
 
-/* the refresh band scans in two legs: across (left→right), then down */
-.refresh-bar-x {
+/* the refresh glow rasters like a CRT drawing lines: across a row,
+   instant flyback, down to the next row, across again — 5 rows per 20s */
+.raster-band {
   position: absolute;
   top: 0;
-  bottom: 0;
   left: 0;
-  width: 14vw;
-  background: linear-gradient(
-    to right,
-    transparent,
-    rgba(255, 255, 255, 0.5) 45%,
-    rgba(20, 24, 26, 0.04) 55%,
-    transparent
-  );
-  animation: refresh-roll-x 16s linear infinite;
-  will-change: transform;
-}
-
-.refresh-bar-y {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
+  width: 24vw;
   height: 18vh;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgba(255, 255, 255, 0.5) 45%,
-    rgba(20, 24, 26, 0.04) 55%,
-    transparent
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.15) 45%,
+    transparent 70%
   );
-  animation: refresh-roll-y 16s linear infinite;
+  animation: raster-scan 20s linear infinite;
   will-change: transform;
 }
 
-@keyframes refresh-roll-x {
+@keyframes raster-scan {
   0% {
-    transform: translateX(-14vw);
+    transform: translate(-24vw, 0vh);
   }
-  50% {
-    transform: translateX(114vw);
+  19.99% {
+    transform: translate(100vw, 0vh);
+  }
+  20% {
+    transform: translate(-24vw, 20.5vh);
+  }
+  39.99% {
+    transform: translate(100vw, 20.5vh);
+  }
+  40% {
+    transform: translate(-24vw, 41vh);
+  }
+  59.99% {
+    transform: translate(100vw, 41vh);
+  }
+  60% {
+    transform: translate(-24vw, 61.5vh);
+  }
+  79.99% {
+    transform: translate(100vw, 61.5vh);
+  }
+  80% {
+    transform: translate(-24vw, 82vh);
+  }
+  99.99% {
+    transform: translate(100vw, 82vh);
   }
   100% {
-    transform: translateX(114vw); /* parked off-screen while the y-leg runs */
-  }
-}
-
-@keyframes refresh-roll-y {
-  0%,
-  50% {
-    transform: translateY(-18vh); /* parked above while the x-leg runs */
-  }
-  100% {
-    transform: translateY(118vh);
+    transform: translate(-24vw, 0vh);
   }
 }
 
@@ -350,8 +347,7 @@
   .scanlines {
     animation: none;
   }
-  .refresh-bar-x,
-  .refresh-bar-y {
+  .raster-band {
     display: none;
   }
 }
