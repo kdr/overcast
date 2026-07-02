@@ -1,6 +1,6 @@
 {
   "name": "@kdrrr/overcast",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "overcast — senses (video/audio/image) + OSINT reach for any agent, built on pi",
   "license": "Apache-2.0",
   "author": "kdr",
