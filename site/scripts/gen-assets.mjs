@@ -2,11 +2,14 @@
 // Regenerates the committed icon set + social card from the design sources in og/.
 // Prereqs: Google Chrome + ffmpeg on this machine (see site/README.md).
 //   node scripts/gen-assets.mjs
+// Everything is rendered into a temp dir first and only copied into public/
+// once every step has succeeded, so a failed run never leaves public/ with a
+// mix of new and stale assets.
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const site = dirname(dirname(fileURLToPath(import.meta.url)))
 const chrome =
@@ -22,7 +25,7 @@ function shot(html, out, width, height) {
       '--hide-scrollbars',
       `--screenshot=${out}`,
       `--window-size=${width},${height}`,
-      `file://${html}`,
+      pathToFileURL(html).href,
     ],
     { stdio: 'ignore' },
   )
@@ -58,22 +61,29 @@ function packIco(pngPaths, out) {
   writeFileSync(out, Buffer.concat([header, ...entries, ...blobs.map((b) => b.data)]))
 }
 
+const PUBLISHED = ['icon-512.png', 'icon-192.png', 'apple-touch-icon.png', 'favicon.ico', 'og.png']
+
 const tmp = mkdtempSync(join(tmpdir(), 'overcast-site-assets-'))
 try {
-  shot(join(site, 'og/icon.html'), join(site, 'public/icon-512.png'), 512, 512)
-  scaleTo(join(site, 'public/icon-512.png'), join(site, 'public/icon-192.png'), 192)
-  scaleTo(join(site, 'public/icon-512.png'), join(site, 'public/apple-touch-icon.png'), 180)
+  const staged = (name) => join(tmp, name)
 
-  shot(join(site, 'og/icon-small.html'), join(tmp, 'small-512.png'), 512, 512)
+  shot(join(site, 'og/icon.html'), staged('icon-512.png'), 512, 512)
+  scaleTo(staged('icon-512.png'), staged('icon-192.png'), 192)
+  scaleTo(staged('icon-512.png'), staged('apple-touch-icon.png'), 180)
+
+  shot(join(site, 'og/icon-small.html'), staged('small-512.png'), 512, 512)
   const favs = [16, 32, 48].map((size) => {
-    const path = join(tmp, `fav-${size}.png`)
-    scaleTo(join(tmp, 'small-512.png'), path, size)
+    const path = staged(`fav-${size}.png`)
+    scaleTo(staged('small-512.png'), path, size)
     return { size, path }
   })
-  packIco(favs, join(site, 'public/favicon.ico'))
+  packIco(favs, staged('favicon.ico'))
 
-  shot(join(site, 'og/og.html'), join(site, 'public/og.png'), 1200, 630)
-  console.log('regenerated: icon-512, icon-192, apple-touch-icon, favicon.ico, og.png')
+  shot(join(site, 'og/og.html'), staged('og.png'), 1200, 630)
+
+  // every step succeeded — publish atomically-ish into public/
+  for (const name of PUBLISHED) copyFileSync(staged(name), join(site, 'public', name))
+  console.log(`regenerated: ${PUBLISHED.join(', ')}`)
 } finally {
   rmSync(tmp, { recursive: true, force: true })
 }

@@ -20,8 +20,12 @@ function scramble(text: string) {
 function useGlitchedTagline() {
   const [text, setText] = useState(TAGLINE)
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    // track the media query live so the scramble stops/starts with the same
+    // preference changes the CSS animations react to
+    const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
     let timeouts: number[] = []
+    let interval: number | undefined
+    let lead: number | undefined
     const burst = () => {
       timeouts.forEach(clearTimeout)
       setText(scramble(TAGLINE))
@@ -30,15 +34,29 @@ function useGlitchedTagline() {
       )
       timeouts.push(window.setTimeout(() => setText(TAGLINE), 260))
     }
-    let interval: number | undefined
-    const lead = window.setTimeout(() => {
-      burst()
-      interval = window.setInterval(burst, CYCLE_MS)
-    }, BURST_AT_MS)
-    return () => {
+    const stop = () => {
       clearTimeout(lead)
       clearInterval(interval)
       timeouts.forEach(clearTimeout)
+      lead = interval = undefined
+      timeouts = []
+      setText(TAGLINE)
+    }
+    const start = () => {
+      lead = window.setTimeout(() => {
+        burst()
+        interval = window.setInterval(burst, CYCLE_MS)
+      }, BURST_AT_MS)
+    }
+    const apply = () => {
+      stop()
+      if (!mql.matches) start()
+    }
+    apply()
+    mql.addEventListener('change', apply)
+    return () => {
+      mql.removeEventListener('change', apply)
+      stop()
     }
   }, [])
   return text
