@@ -66,6 +66,10 @@ test("anchor precedence: finding > best face moment > record anchor > start", ()
   const withRecord = buildWallModel([watch], opts()).tiles[0];
   assert.deepEqual(withRecord.anchor, { at: 7, start: 5, end: 13, source: "record" });
 
+  const detectOnly = faceRec(A, [{ at: 30 }]);
+  const unscoredDetectFallsThrough = buildWallModel([watch, detectOnly], opts()).tiles[0];
+  assert.deepEqual(unscoredDetectFallsThrough.anchor, { at: 7, start: 5, end: 13, source: "record" });
+
   const bare = buildWallModel([watchRec(A)], opts()).tiles[0];
   assert.deepEqual(bare.anchor, { at: 0, start: 0, end: 6, source: "start" });
 });

@@ -271,7 +271,8 @@ function pickAnchor(
       const at = (m as Record<string, unknown>).at;
       if (typeof at !== "number" && !isSpan(at)) continue;
       const rawSim = (m as Record<string, unknown>).similarity;
-      const sim = typeof rawSim === "number" ? rawSim : -1;
+      if (typeof rawSim !== "number") continue;
+      const sim = rawSim;
       if (!best || sim > best.sim) best = { at: at as number | [number, number], sim };
     }
   }
