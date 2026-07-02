@@ -118,7 +118,7 @@ case "$op" in
         | media_list as $m
         | ([$m[] | select(.type == "video" or .type == "animated_gif")
             | .video_info.variants[]? | select((.content_type // "") == "video/mp4")]
-           | max_by(.bitrate // 0) | (.url? // null)) as $vid
+           | if length > 0 then (max_by(.bitrate // 0).url // null) else null end) as $vid
         | ([$m[] | select(.type == "photo") | (.media_url_https? // null)]
            | map(select(. != null)) | (.[0] // null)) as $img
         | ([$m[] | (.media_url_https? // null)] | map(select(. != null)) | (.[0] // null)) as $thumb

@@ -755,6 +755,8 @@ test("brief synthesis: TL;DR note, sources-checked rollup, and findings surface 
     writeFileSync(overlayPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])); // PNG signature
     const imageRec = makeRecord({ verb: "image", payload: { op: "match", matches: [{ label: "orig_65pct", num_inliers: 94, match_draw_path: overlayPath }] }, media: { ref: "https://video.twimg.com/rip.mp4" }, state: "ready" });
     c.writeRecord(imageRec);
+    // an `image add` fingerprint step must NOT count as a suspect media check
+    c.writeRecord(makeRecord({ verb: "image", payload: { op: "add", index: "idx", file: "orig.png" }, state: "ready" }));
     c.writeRecord(makeRecord({ verb: "finding", payload: { text: "copycat: reskin by @codez — image 94 inliers", status: "open", confidence: "high", source_record: imageRec.id, source_verb: "image", trigger: "human" }, state: "ready" }));
     const html = join(dir, "brief.html");
     const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: { export: html, theme: "csi" }, case: c, profile: defaultProfile() });

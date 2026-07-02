@@ -255,7 +255,12 @@ function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, 
     bySource.set(src, (bySource.get(src) ?? 0) + 1);
   }
   const captures = records.filter((r) => r.verb === "capture" && r.state !== "error").length;
-  const mediaChecks = records.filter((r) => ["face", "image", "see"].includes(r.verb) && r.state !== "error").length;
+  // media checks = actual suspect analysis (image match / face / see), NOT the
+  // `image add` fingerprint steps that build the reference index — counting those
+  // would inflate the escalation count before any suspect is checked.
+  const mediaChecks = records.filter((r) =>
+    ["face", "image", "see"].includes(r.verb) && r.state !== "error" && !(r.verb === "image" && p(r).op === "add"),
+  ).length;
   const byId = new Map(records.map((r) => [r.id, r]));
   const findings = records
     .filter((r) => {
