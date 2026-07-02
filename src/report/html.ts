@@ -387,7 +387,16 @@ function mediaEmbed(record: TimelineRecord): string {
     const poster = typeof payload.thumb === "string" && /^https?:\/\//i.test(payload.thumb) ? payload.thumb : undefined;
     if (isVideoMediaRef(ref)) {
       const src = /^https?:\/\//i.test(ref) ? ref : existsSync(ref) ? pathToFileURL(ref).href : undefined;
-      if (src) parts.push(`<video class="embed" controls preload="none"${poster ? ` poster="${escapeHtml(poster)}"` : ""} src="${escapeHtml(src)}"></video>`);
+      if (src && poster) {
+        // a poster (scan hit thumb) previews without loading the video
+        parts.push(`<video class="embed" controls preload="none" poster="${escapeHtml(poster)}" src="${escapeHtml(src)}"></video>`);
+      } else if (src) {
+        // no poster (image/face match records, captured clips): seek to an early
+        // frame via a media fragment + preload=metadata so the card shows that
+        // frame instead of a black box until played
+        const preview = src.includes("#") ? src : `${src}#t=0.1`;
+        parts.push(`<video class="embed" controls preload="metadata" src="${escapeHtml(preview)}"></video>`);
+      }
     } else if (/^https?:\/\//i.test(ref) && VISUAL_EXT_RE.test(ref)) {
       parts.push(`<img class="embed" alt="${escapeHtml(ref)}" src="${escapeHtml(ref)}">`);
     } else {
