@@ -257,6 +257,31 @@ test("face-cluster index create back-fills legacy setup with missing memory sign
   }
 });
 
+test("removing the last face-cluster index in a setup edit doesn't add the signal (#PR33 PM2)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-rmsignal-"));
+  try {
+    const mk = (opts: VerbContext["opts"]): VerbContext => {
+      const c = openCase(cdir); c.ensure();
+      return { input: "setup", rest: [], opts, case: c, profile: defaultProfile() };
+    };
+    await caseVerb.run(mk({ index: "faces:face-cluster", yes: true }));
+    const setupPath = join(cdir, ".overcast", "setup.json");
+    // simulate a setup whose signals never got (or lost) the cluster entry
+    const s0 = JSON.parse(readFileSync(setupPath, "utf8"));
+    s0.memory.signals = s0.memory.signals.filter((x: string) => x !== "cluster");
+    writeFileSync(setupPath, JSON.stringify(s0, null, 2));
+    // removing the DB in the SAME edit must not re-add the signal (the check
+    // runs after removal, against setup + mirror post-removal)
+    const [rec] = await caseVerb.run(mk({ "remove-index": "faces", yes: true }));
+    assert.equal(rec.state, "ready");
+    const s1 = JSON.parse(readFileSync(setupPath, "utf8"));
+    assert.ok(!s1.memory.signals.includes("cluster"), "signal must not be added while removing the last DB");
+    assert.equal(s1.indexes.some((i: Record<string, unknown>) => i.type === "face-cluster"), false);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 // ---- cluster verb op-resolution (bash stub) -------------------------------
 
 function clusterCase(cdir: string) {
@@ -756,6 +781,12 @@ test("face_cluster.py guards the detector and reconciles ghost clusters (#PR33 R
     assert.equal(orphaned.state, "error");
     assert.match(String(orphaned.error), /cluster recluster/);
     assert.doesNotMatch(String(orphaned.error), /cluster add/);
+    // ingest must refuse the orphan store too — assign-or-create against zero
+    // people would mint a new person per face while stored embeddings sit
+    // unmatched (#PR33 post-merge round 2)
+    const orphanIngest = JSON.parse(run(base, "ingest", join(cdir, "a.jpg")).stdout.trim());
+    assert.equal(orphanIngest.state, "error");
+    assert.match(String(orphanIngest.error), /cluster recluster/);
     // list surfaces the same actionable state (not a generic empty-DB line) and
     // reports the stored rows so `view` can hint recluster too (#R14)
     const orphanList = JSON.parse(run(base, "list").stdout.trim());

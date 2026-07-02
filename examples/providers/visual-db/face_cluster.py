@@ -148,13 +148,28 @@ def store_lock(index_dir, exclusive=True):
     # Cross-process advisory lock. Mutators (ingest/recluster/label) hold it
     # EXCLUSIVE for their whole read-modify-write — without that, two concurrent
     # ingests both read next_face=N and mint duplicate ids. Readers take it
-    # SHARED just long enough to snapshot both files (see load_store). flock is
-    # POSIX; where unavailable the lock degrades to a no-op.
+    # SHARED just long enough to snapshot both files (see load_store).
+    # POSIX uses flock; Windows falls back to msvcrt.locking on the same file
+    # (no shared mode there, so readers serialize with writers — held briefly,
+    # that's fine). Only if BOTH are unavailable does it degrade to a no-op.
     Path(index_dir).mkdir(parents=True, exist_ok=True)
-    fh = open(Path(index_dir) / ".lock", "w")
+    fh = open(Path(index_dir) / ".lock", "a+")
     try:
         import fcntl
         fcntl.flock(fh, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        return fh
+    except ImportError:
+        pass
+    try:
+        import msvcrt
+        import time
+        while True:
+            try:
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError:
+                time.sleep(0.2)
     except ImportError:
         pass
     return fh
@@ -462,6 +477,12 @@ def op_ingest(args):
     existing = load_faces(args.index_dir)
     guard_model(store, existing, inp, "ingest")
     reconcile(store, existing)
+    # the orphan state (stored face rows but zero surviving people) must be
+    # rebuilt BEFORE ingesting more: assign-or-create against an empty people
+    # list would mint a new person per face while the stored embeddings sit
+    # unmatched — the same guard identify/list surface, applied to the writer.
+    if existing and not store["clusters"]:
+        fail("this face-cluster index has %d stored face%s but no people; run `cluster recluster` to rebuild the groups before ingesting more" % (len(existing), "" if len(existing) == 1 else "s"), inp, "ingest")
     store["model"] = FACE_MODEL
     store["detector"] = FACE_DETECTOR
     by_id = {f["face_id"]: f for f in existing}

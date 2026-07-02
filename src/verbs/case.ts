@@ -690,17 +690,6 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     // typed verbs (image/face/cluster) reject the entry as remote.
     if (apply && current.id) addIndex(ctx.case, { id: current.id, name: current.name, type: current.type, backend: LOCAL_INDEX_TYPES.has(String(current.type)) ? "local" : undefined });
   }
-  // A face-cluster DB's ingest/identify records are the case's face evidence —
-  // the memory signal list (which narrows what local-grep/qmd search) must not
-  // silently exclude them. Checked against the CASE MIRROR, not just the indexes
-  // this run touched, so a DB stood up earlier via `index create` counts too.
-  const hasFaceClusterDb =
-    setup.indexes.some((i) => String(i.type) === "face-cluster") ||
-    listIndexes(ctx.case).some((i) => i.type === "face-cluster");
-  if (hasFaceClusterDb && setup.memory && !setup.memory.signals.includes("cluster")) {
-    setup.memory.signals = [...setup.memory.signals, "cluster"];
-    operations.push("memory signals: +cluster (face-cluster evidence searchable)");
-  }
   if (removeIndexes.length) {
     const removedIndexes = setup.indexes.filter((i) => removeIndexes.includes(i.id ?? "") || removeIndexes.includes(i.name));
     setup.indexes = setup.indexes.filter((i) => !removeIndexes.includes(i.id ?? "") && !removeIndexes.includes(i.name));
@@ -712,6 +701,20 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
         for (const existing of listIndexes(ctx.case).filter((i) => i.id === id || i.name === id)) removeIndex(ctx.case, existing.id);
       }
     }
+  }
+  // A face-cluster DB's ingest/identify records are the case's face evidence —
+  // the memory signal list (which narrows what local-grep/qmd search) must not
+  // silently exclude them. Runs AFTER --remove-index processing (removing the
+  // last DB in the same edit must not add the signal), and checks the CASE
+  // MIRROR too, so a DB stood up earlier via `index create` counts. Never
+  // auto-REMOVED: historical cluster evidence stays searchable after a DB is
+  // deleted.
+  const hasFaceClusterDb =
+    setup.indexes.some((i) => String(i.type) === "face-cluster") ||
+    listIndexes(ctx.case).some((i) => i.type === "face-cluster");
+  if (hasFaceClusterDb && setup.memory && !setup.memory.signals.includes("cluster")) {
+    setup.memory.signals = [...setup.memory.signals, "cluster"];
+    operations.push("memory signals: +cluster (face-cluster evidence searchable)");
   }
   for (const video of videos) {
     addVideoRoute(setup, video, signals);
