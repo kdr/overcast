@@ -203,7 +203,25 @@
   }
 }
 
-.refresh-bar {
+/* the refresh band scans in two legs: across (left→right), then down */
+.refresh-bar-x {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 14vw;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(255, 255, 255, 0.5) 45%,
+    rgba(20, 24, 26, 0.04) 55%,
+    transparent
+  );
+  animation: refresh-roll-x 16s linear infinite;
+  will-change: transform;
+}
+
+.refresh-bar-y {
   position: absolute;
   top: 0;
   right: 0;
@@ -216,16 +234,29 @@
     rgba(20, 24, 26, 0.04) 55%,
     transparent
   );
-  animation: refresh-roll 6s linear infinite;
+  animation: refresh-roll-y 16s linear infinite;
   will-change: transform;
 }
 
-@keyframes refresh-roll {
-  from {
-    transform: translateY(-20vh);
+@keyframes refresh-roll-x {
+  0% {
+    transform: translateX(-14vw);
   }
-  to {
-    transform: translateY(120vh);
+  50% {
+    transform: translateX(114vw);
+  }
+  100% {
+    transform: translateX(114vw); /* parked off-screen while the y-leg runs */
+  }
+}
+
+@keyframes refresh-roll-y {
+  0%,
+  50% {
+    transform: translateY(-18vh); /* parked above while the x-leg runs */
+  }
+  100% {
+    transform: translateY(118vh);
   }
 }
 
@@ -319,7 +350,8 @@
   .scanlines {
     animation: none;
   }
-  .refresh-bar {
+  .refresh-bar-x,
+  .refresh-bar-y {
     display: none;
   }
 }
