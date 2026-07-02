@@ -933,6 +933,11 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
   let procCredGaps = 0; // capture/sense failures that need setup (retry-able)
   const passSeen = new Set<string>();
   for (const hit of realHits) {
+    // Two dedup keys by design: the cross-pass `seen` store uses hitKey (the
+    // hit's stable logical identity — its url) so novelty detection can't be
+    // shifted by run-varying fetch artifacts (e.g. a lens thumbnail that
+    // decodes on one pass and not the next). hitProcessKey (identity + fetch
+    // ref) only gates WITHIN-pass fan-out, where finer granularity is safe.
     const key = hitKey(hit);
     const processKey = hitProcessKey(hit);
     if (seen.has(key)) {
