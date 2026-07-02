@@ -351,40 +351,38 @@ fi
   }
 });
 
-test("scan --pull processes duplicate hit keys once per run", async () => {
+test("scan --pull dedupes duplicate fetch refs but keeps distinct evidence for one hit key", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-pull-dedupe-"));
   const sourceScript = join(d, "dupe-source.sh");
-  const prevSource = process.env.OVERCAST_SOURCE_DUPEFIX_CMD;
-  const prevTc = process.env.OVERCAST_TINYCLOUD_CMD;
-  const url = "https://vm.tiktok.com/ZMdupe123/";
+  const prevSource = process.env.OVERCAST_SOURCE_DUPELOCAL_CMD;
+  const url = "https://example.test/same-page";
   try {
     writeFileSync(sourceScript, `#!/usr/bin/env bash
 set -euo pipefail
 if [ "\${1:-}" = "enumerate" ]; then
-  echo '[{"title":"exact","url":"${url}","source":"dupefix","media":{"ref":"${url}"}},{"title":"visual","url":"${url}","source":"dupefix","media":{"ref":"${url}"}}]'
+  echo '[{"title":"exact","url":"${url}","source":"dupelocal","media":{"ref":"${clip}"}},{"title":"visual duplicate","url":"${url}","source":"dupelocal","media":{"ref":"${clip}"}},{"title":"visual distinct","url":"${url}","source":"dupelocal","media":{"ref":"${clip2}"}}]'
 else
   echo '{}'
 fi
 `);
-    process.env.OVERCAST_SOURCE_DUPEFIX_CMD = `bash ${sourceScript}`;
-    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    process.env.OVERCAST_SOURCE_DUPELOCAL_CMD = `bash ${sourceScript}`;
     const c = openCase(d);
     c.ensure();
-    addSource(c, "dupefix:any");
+    addSource(c, "dupelocal:any");
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
 
-    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, pipe: "watch" }, case: c, profile: defaultProfile() });
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, pipe: "watch" }, case: c, profile });
     const final = recs.find((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).stage === "complete")!;
-    const enumerated = recs.filter((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).source === "dupefix");
+    const enumerated = recs.filter((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).source === "dupelocal");
     const watched = recs.filter((r) => r.verb === "watch");
-    assert.equal(enumerated.length, 2);
-    assert.equal(watched.length, 1);
-    assert.equal((final.payload as Record<string, unknown>).processed, 1);
+    assert.equal(enumerated.length, 3);
+    assert.equal(watched.length, 2);
+    assert.equal((final.payload as Record<string, unknown>).processed, 2);
     assert.equal((final.payload as Record<string, unknown>).skipped_duplicates, 1);
   } finally {
-    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_DUPEFIX_CMD;
-    else process.env.OVERCAST_SOURCE_DUPEFIX_CMD = prevSource;
-    if (prevTc === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
-    else process.env.OVERCAST_TINYCLOUD_CMD = prevTc;
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_DUPELOCAL_CMD;
+    else process.env.OVERCAST_SOURCE_DUPELOCAL_CMD = prevSource;
     rmSync(d, { recursive: true, force: true });
   }
 });
@@ -1293,6 +1291,47 @@ test("monitor --once diffs the seen-set: new items first pass, none second", asy
     assert.equal((summary2.payload as Record<string, unknown>).new_items, 0);
   } finally {
     rmSync(d2, { recursive: true, force: true });
+  }
+});
+
+test("monitor --once dedupes duplicate fetch refs within a retryable pass", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monitor-pass-dedupe-"));
+  const sourceScript = join(d, "dupe-source.sh");
+  const watchScript = join(d, "watch-needs-creds.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_MONDUPE_CMD;
+  const url = "https://example.test/retryable-page";
+  try {
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo '[{"title":"first","url":"${url}","source":"mondupe","media":{"ref":"${clip}"}},{"title":"duplicate","url":"${url}","source":"mondupe","media":{"ref":"${clip}"}}]'
+else
+  echo '{}'
+fi
+`);
+    writeFileSync(watchScript, `#!/usr/bin/env bash
+set -euo pipefail
+printf '{"id":"watch_cred","verb":"watch","format":"json","payload":{},"media":{"ref":"%s"},"state":"needs_credentials","error":"missing key"}\\n' "\${1:-}"
+`);
+    execFileSync("chmod", ["755", sourceScript]);
+    execFileSync("chmod", ["755", watchScript]);
+    process.env.OVERCAST_SOURCE_MONDUPE_CMD = `bash ${sourceScript}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "mondupe:any");
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${watchScript} {{input}}` } };
+
+    const recs = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true, pipe: "watch" }, case: c, profile });
+    const summary = recs.find((r) => r.verb === "monitor")!;
+    assert.equal(summary.state, "needs_credentials");
+    assert.equal((summary.payload as Record<string, unknown>).process_cred_gaps, 1);
+    assert.equal(recs.filter((r) => r.verb === "scan" && (r.payload as Record<string, unknown>).source === "mondupe").length, 1);
+    assert.equal(recs.filter((r) => r.verb === "watch" && r.state === "needs_credentials").length, 1);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_MONDUPE_CMD;
+    else process.env.OVERCAST_SOURCE_MONDUPE_CMD = prevSource;
+    rmSync(d, { recursive: true, force: true });
   }
 });
 

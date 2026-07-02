@@ -299,6 +299,10 @@ function hitFetchRef(hit: OvercastRecord): string | undefined {
   return hit.media?.ref ?? (typeof hitUrl === "string" ? hitUrl : undefined);
 }
 
+function hitProcessKey(hit: OvercastRecord): string {
+  return `${hitKey(hit)}\u001f${hitFetchRef(hit) ?? ""}`;
+}
+
 function classifyHitRecords(records: OvercastRecord[]): HitProcessOutcome {
   if (records.length === 0) return "failed";
   const primary = records.filter((r) => ["capture", "watch", "listen", "see", "face", "enhance"].includes(r.verb));
@@ -430,7 +434,7 @@ export const scanVerb: VerbSpec = {
       // skip enumerate FAILURES (error + needs_credentials) — they're not items to
       // capture/sense, matching monitorPass.
       if (hit.state === "error" || hit.state === "needs_credentials") continue;
-      const key = hitKey(hit);
+      const key = hitProcessKey(hit);
       if (pullSeen.has(key)) {
         skipped_duplicates++;
         continue;
@@ -927,8 +931,10 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
   let newCount = 0;
   let procErrors = 0; // hard capture/sense failures this pass
   let procCredGaps = 0; // capture/sense failures that need setup (retry-able)
+  const passSeen = new Set<string>();
   for (const hit of realHits) {
     const key = hitKey(hit);
+    const processKey = hitProcessKey(hit);
     if (seen.has(key)) {
       const retry = await retryAuxiliaryForSeenHit(ctx, hit);
       out.push(...retry);
@@ -936,6 +942,8 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
       if (retry.some((r) => r.state === "needs_credentials")) procCredGaps++;
       continue;
     }
+    if (passSeen.has(processKey)) continue;
+    passSeen.add(processKey);
     out.push(hit);
     // Classify the outcome:
     //  - transient (needs_credentials / pending): a recoverable gap → leave the
