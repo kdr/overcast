@@ -68,7 +68,9 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 `00_cli` (version/commands/help + all env-var docs + doctor) · `10_watch` ·
 `11_listen` (Cloudglue + ElevenLabs) · `12_see` (HF + fal + Cloudglue tinycloud
 see/extract ≥ 0.3.7 + local OWLv2) ·
-`13_enhance_view` · `20_sources` (Tavily/Apify/yt-dlp) · `21_pipeline`
+`13_enhance_view` · `14_face` (real tinycloud face detect + `--match`) ·
+`15_crop` (materialize real detections as JPEGs) · `20_sources`
+(Tavily/Apify/yt-dlp) · `21_pipeline`
 (source→capture→sense) · `26_x_copycat` (x keyword text search + user-scoped
 video capture from the CDN + headless agent x sweep + headless
 overcast-copycat-sweep skill invocation with brief HTML export) ·
@@ -81,7 +83,11 @@ unrelated clip, showcase a brief with the embedded match overlay) ·
 (local basic-clip CLIP DB with real media: fixtures derived from real videos,
 caption-driven queries, all four cross-modal modes — text×video, image×video,
 image×image, text×image — a headless-agent `similar search` leg, and a
-self-contained HTML evidence page `clip_db_evidence.html`) · `30_read`
+self-contained HTML evidence page `clip_db_evidence.html`) · `17_face_cluster`
+(local face-cluster DB with real media: wizard-provisioned index, `cluster add`
+ingest → assign-or-create, `recluster`, held-out `identify`, gallery `view`) ·
+`25_case_setup` (real-media setup save/edit; setup history stays
+operational-only) · `30_read`
 (ask/brief over real records) · `31_visualization` (CSI status/brief/records
 exports with real visual targets and matches) · `32_headless_visualization`
 (headless agent `--mode json` export trace, default CSI HTML theme) · `33_wall`

@@ -74,6 +74,7 @@ Catalog presets:
 | `elevenlabs` | `listen:elevenlabs`, `enhance:elevenlabs` |
 | `owl-local` | `see:owl-local` |
 | `deepface-local` | `face:deepface-local` |
+| `basic-clip` | `similar:basic-clip` |
 
 Common environment:
 
@@ -366,7 +367,7 @@ sample 8 frames.
 - [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN image enhance, and DeepFilterNet3 audio enhance.
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
-- [`examples/providers/visual-db/{image_match,face_match,clip_match}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, and CLIP (basic-clip) matching for visual DB indexes.
+- [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
 - [`examples/providers/sources/{youtube,tiktok,x,web,lens}.sh`](../examples/providers/sources/) — yt-dlp + Apify (tiktok/x/lens) + web-search (Tavily/Brave) + Google Lens reverse-image source providers.
 
 ## Source providers (built-in types)

@@ -72,7 +72,6 @@ Options:
   --ocr                  Extract on-image text
   --detect <string>      Comma list of target objects to locate (bind the detect provider for bounding boxes)
   --prompt <string>      Focus the description
-  --embed                Persist a visual embedding (query seed)
 ```
 
 Emits `image.analysis` records.
@@ -299,7 +298,7 @@ overcast wall  [options]
 
 Options:
   --limit <number>       Max tiles, most evidentiary/recent first (~25 is a practical decode ceiling) (default: 12)
-  --source <string>      Only media from this source type (youtube | tiktok | web | local)
+  --source <string>      Only media from this source type (youtube | tiktok | x | web | lens | local)
   --since <string>       Only media with records since (e.g. 24h, 7d, 2026-06-01)
   --export <string>      Wall HTML path (default: .overcast/media/wall.html)
   --refresh <number>     Auto-reload the wall every N seconds (restarts the feeds)
@@ -384,7 +383,7 @@ Options:
   --once                 Single diff pass then exit
   --every <string>       Continuous loop cadence (e.g. 15m, 6h)
   --brief                Summarize the new batch into a brief record
-  --alert <string>       Mirror new records to a sink (stdout | <file>)
+  --alert <string>       Mirror new records to a file sink (they already stream to stdout)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -665,7 +664,7 @@ Configure and persist profiles under ~/.overcast/profiles/. `setup provider <ver
 ```
 overcast setup [action] [a] [b] [options]
 
-  Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|show).
+  Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|memory|show).
 
   Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.
 
@@ -701,7 +700,7 @@ Options:
   --profile <string>     Profile name to write/read (default: active/default)
   --verb <string>        provider setup: verb to configure
   --choice <string>      provider setup: catalog choice id
-  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local)
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip)
   --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt

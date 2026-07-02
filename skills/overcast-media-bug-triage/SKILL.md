@@ -19,7 +19,7 @@ overcast case init --json
 overcast case setup --yes --json
 overcast watch ./screen-recording.mp4 --json
 overcast listen ./screen-recording.mp4 --describe --json
-overcast see frame://<record-id>@<timestamp> --ocr --json
+overcast see frame://<record-id>@<seconds> --ocr --json
 overcast note "observed UI state or suspected failure" --ref <record-id> --at <time-range> --json
 overcast ask "summarize the bug with reproduction steps and citations" --json
 overcast brief --export ./bug-brief.md --json

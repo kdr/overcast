@@ -41,7 +41,7 @@ export const wallVerb: VerbSpec = {
   args: [],
   flags: [
     { name: "limit", summary: "Max tiles, most evidentiary/recent first (~25 is a practical decode ceiling)", type: "number", default: 12 },
-    { name: "source", summary: "Only media from this source type (youtube | tiktok | web | local)", type: "string" },
+    { name: "source", summary: "Only media from this source type (youtube | tiktok | x | web | lens | local)", type: "string" },
     { name: "since", summary: "Only media with records since (e.g. 24h, 7d, 2026-06-01)", type: "string" },
     { name: "export", summary: "Wall HTML path", type: "string", default: WALL_DEFAULT_EXPORT },
     { name: "refresh", summary: "Auto-reload the wall every N seconds (restarts the feeds)", type: "number" },
@@ -77,7 +77,7 @@ export const wallVerb: VerbSpec = {
     const infinite = ctx.opts.infinite === true;
     const source = ctx.opts.source != null ? String(ctx.opts.source).trim() : undefined;
     if (ctx.opts.source != null && !source) {
-      return [err("--source requires a value (youtube | tiktok | web | local)")];
+      return [err("--source requires a value (youtube | tiktok | x | web | lens | local)")];
     }
     const rawExport = ctx.opts.export != null ? String(ctx.opts.export) : WALL_DEFAULT_EXPORT;
     const htmlPath = rawExport === WALL_DEFAULT_EXPORT ? join(ctx.case.mediaDir, "wall.html") : resolve(rawExport);
