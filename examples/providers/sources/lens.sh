@@ -100,10 +100,11 @@ case "$op" in
     # record stays light and the matched image is real evidence on disk.
     # (the actor pads a matchless type with one all-empty item, and a hit
     # without an absolute http(s) page link isn't actionable/fetchable
-    # evidence — drop those, matching the visual-match filter)
+    # evidence — drop those, matching the visual-match filter; schemes compare
+    # case-insensitively like the query guard and capture do)
     exact="$(printf '%s' "$run" | jq -c --argjson n "$limit" \
       '[.[]["exact-match"] | select(. != null) | .results[]
-        | select((.link // "") | startswith("http"))] | .[0:$n]')"
+        | select((.link // "") | ascii_downcase | startswith("http"))] | .[0:$n]')"
     exact_hits="[]"
     n="$(printf '%s' "$exact" | jq 'length')"
     i=0
@@ -138,7 +139,7 @@ case "$op" in
     # in-app links; keep only real webpage hrefs.
     visual_hits="$(printf '%s' "$run" | jq -c --argjson n "$limit" \
       '[.[]["visual-match"] | select(. != null) | .results[].search
-        | select((.href // "") | startswith("http"))]
+        | select((.href // "") | ascii_downcase | startswith("http"))]
        | .[0:$n]
        | map({title:(.title // ""), url:.href, source:"lens", published:null,
               snippet:(.description // ""), match:"visual", media:{ref:.href}})')"

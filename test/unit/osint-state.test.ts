@@ -67,19 +67,21 @@ test("source registry add/list/enable/disable/rm + resolveSources", () => {
   });
 });
 
-test("seen-set round-trips and hitKey prefers media.ref then url", () => {
+test("seen-set round-trips and hitKey prefers url then media.ref", () => {
   withCase((c) => {
     assert.equal(loadSeen(c).size, 0);
     const keys = new Set(["a", "b"]);
     saveSeen(c, keys);
     assert.deepEqual([...loadSeen(c)].sort(), ["a", "b"]);
 
-    // media.ref wins (it's what capture/monitor actually fetch + dedup on)
+    // payload.url wins: it's the item's stable logical identity — media.ref can
+    // be a run-varying materialized artifact (lens thumbnails), which must not
+    // shift the dedup key
     const rec = makeRecord({ verb: "scan", payload: { url: "http://x/1", title: "t" }, media: { ref: "m" } });
-    assert.equal(hitKey(rec), "url:m");
-    // …falling back to payload.url when there's no media.ref
-    const urlOnly = makeRecord({ verb: "scan", payload: { url: "http://x/1", title: "t" } });
-    assert.equal(hitKey(urlOnly), "url:http://x/1");
+    assert.equal(hitKey(rec), "url:http://x/1");
+    // …falling back to media.ref when there's no url (path-ref fixture hits)
+    const refOnly = makeRecord({ verb: "scan", payload: { title: "t" }, media: { ref: "m" } });
+    assert.equal(hitKey(refOnly), "url:m");
 
     // No url → a content composite (prefixed), stable and title-derived.
     const noUrl = makeRecord({ verb: "scan", payload: { title: "only-title" } });

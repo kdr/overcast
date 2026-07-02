@@ -43,11 +43,13 @@ const SEP = "\u001f";
  */
 export function hitKey(rec: OvercastRecord): string {
   const p = (typeof rec.payload === "object" ? rec.payload : {}) as Record<string, unknown>;
-  // Prefer media.ref, THEN payload.url — the same precedence captureRef/monitor/
-  // scan use to fetch, so dedup identity matches what actually gets downloaded
-  // (else a hit carrying both with different values dedups on one but fetches the
-  // other, re-downloading the same media or treating dupes as new).
-  const url = (rec.media?.ref as string) || (p.url as string) || "";
+  // Prefer payload.url, THEN media.ref: the url is the item's stable logical
+  // identity, while media.ref can be a run-varying materialized artifact (e.g.
+  // a lens match thumbnail that decodes on one pass and falls back to the page
+  // url on another — keying on it would reprocess the same match). Fetch still
+  // prefers media.ref (hitFetchRef); every other built-in source sets both to
+  // the same value, so their dedup keys are unchanged.
+  const url = (p.url as string) || (rec.media?.ref as string) || "";
   if (url) return `url:${url}`;
 
   const fields = [p.source_id, p.source, p.title, p.author, p.published, p.snippet];
