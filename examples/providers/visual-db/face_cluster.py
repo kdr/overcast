@@ -219,6 +219,10 @@ def reconcile(store, faces):
         # summary, cluster_view — sees one consistent count even if the stored
         # field drifted.
         cl["size"] = len(members)
+        # keep the DENORMALIZED face-row cluster_id true to the authoritative
+        # membership (clusters.json members) — mutators persist the healed rows.
+        for fid in members:
+            by_id[fid]["cluster_id"] = cl["cluster_id"]
         kept.append(cl)
     store["clusters"] = kept
 
@@ -826,13 +830,16 @@ def op_label(args):
         fail("cluster label needs a --label <name>", "", "label")
     lock = store_lock(args.index_dir)  # noqa: F841 — held until process exit
     store = load_clusters(args.index_dir)
-    reconcile(store, load_faces(args.index_dir))
+    faces = load_faces(args.index_dir)
+    reconcile(store, faces)
     cl = next((c for c in store["clusters"] if c["cluster_id"] == args.cluster), None)
     if cl is None:
         fail("no such person '%s' in this index (see `cluster list`)" % args.cluster, "", "label")
     prev = cl.get("label")
     cl["label"] = name
-    save_clusters(args.index_dir, store)
+    # the uniform commit path (like ingest/recluster): both files persist, so a
+    # reconcile that pruned ghosts can't leave faces.jsonl rows pointing at them.
+    commit_store(args.index_dir, store, faces)
     emit({
         "verb": "cluster",
         "format": "json",

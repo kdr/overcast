@@ -696,6 +696,21 @@ test("face_cluster.py guards the detector and reconciles ghost clusters (#PR33 R
     assert.equal(probe.state, "ready");
     const top = probe.payload.matches[0].candidates[0];
     assert.ok(top.similarity > 90, `blanked centroid must be recomputed (got ${top.similarity}%)`);
+
+    // label persists a FULLY consistent store: with a ghost person present,
+    // labeling a survivor must commit both files — afterwards every face row's
+    // cluster_id references an existing person (#PR33 post-merge).
+    const finalList = JSON.parse(run(base, "list").stdout.trim());
+    const rows2 = readFileSync(join(idxDir, "faces.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const victim = finalList.payload.clusters[0].cluster_id;
+    const survivor = finalList.payload.clusters[1].cluster_id;
+    writeFileSync(join(idxDir, "faces.jsonl"), rows2.filter((r) => r.cluster_id !== victim).map((r) => JSON.stringify(r)).join("\n") + "\n");
+    const lab = JSON.parse(run(base, "label", "--cluster", survivor, "--label", "Keeper").stdout.trim());
+    assert.equal(lab.state, "ready");
+    const storeNow = JSON.parse(readFileSync(join(idxDir, "clusters.json"), "utf8"));
+    const liveIds = new Set(storeNow.clusters.map((c: Record<string, unknown>) => c.cluster_id));
+    const rowsNow = readFileSync(join(idxDir, "faces.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    for (const r of rowsNow) assert.ok(liveIds.has(r.cluster_id), `face ${r.face_id} points at dead person ${r.cluster_id}`);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
