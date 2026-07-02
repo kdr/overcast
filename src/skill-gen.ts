@@ -204,8 +204,8 @@ overcast index entities <entity-index-id> ./clip.mp4 --json
 \`\`\`
 
 \`face\` needs tinycloud ≥ 0.3.4 (\`overcast doctor\` flags an older install);
-overcast currently recommends tinycloud 0.3.6 for the latest face validation and
-CLI reliability behavior. Face detection counts are boxes per sampled frame, not
+overcast currently recommends tinycloud 0.3.7 for the latest face validation,
+CLI reliability, and image \`see\`/\`extract\` behavior. Face detection counts are boxes per sampled frame, not
 unique people; use \`--match <photo>\` for a specific person and \`crop\` when
 you need durable cropped image evidence. If a local video lacks descriptive
 content evidence, add it to the index with \`overcast index add ./clip.mp4 --to
@@ -285,9 +285,10 @@ One-time setup for overcast.
 1. **Install the CLI** — \`pi install npm:@kdrrr/overcast\` (inside pi) or
    \`npm i -g @kdrrr/overcast\` for the standalone binary.
 2. **Install/update tinycloud** — the default perception backend. Get the latest
-   (\`npm i -g @cloudglue/tinycloud@0.3.6\` then \`tinycloud install --latest\`, or
+   (\`npm i -g @cloudglue/tinycloud@0.3.7\` then \`tinycloud install --latest\`, or
    \`tinycloud update\`). The \`face\` + \`index\` verbs need **tinycloud ≥ 0.3.4**,
-   and overcast currently recommends **0.3.6**;
+   and overcast currently recommends **0.3.7** (adds the image \`see\`/\`extract\`
+   verbs behind the opt-in \`see:tinycloud\` provider);
    override the invocation with \`OVERCAST_TINYCLOUD_CMD\` if it isn't on \`PATH\`.
 3. **Verify** — \`overcast doctor --json\` (pi pinned, ffmpeg/ffprobe runnable,
    Cloudglue key, tinycloud CLI + version, optional uv/visual-db readiness).
@@ -308,6 +309,9 @@ One-time setup for overcast.
    - \`hf\` for \`see\`/\`enhance\` with \`HF_TOKEN\`.
    - \`elevenlabs\` for \`listen\`/\`enhance\` with \`ELEVENLABS_API_KEY\`.
    - \`owl-local\` for OWLv2 open-vocabulary object detection.
+   - \`see:tinycloud\` (choice, \`--verb see --choice tinycloud\`) for Cloudglue
+     file-level image analysis via \`tinycloud see\`/\`extract\` (needs tinycloud
+     ≥ 0.3.7; \`--detect\` facts are boxless — no \`crop\`).
    - \`deepface-local\` for local face detect/match through DeepFace.
 6. **Optional visual DB setup** — prepare visual DB Python once per
    checkout/machine. DeepFace can be selected as a profile provider for the

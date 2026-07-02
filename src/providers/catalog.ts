@@ -27,6 +27,7 @@ export function providerChoices(): ProviderChoice[] {
   const hfSee = sidecar("examples", "providers", "hf", "see.sh");
   const hfEnhance = sidecar("examples", "providers", "hf", "enhance.sh");
   const falSee = sidecar("examples", "providers", "fal", "see.sh");
+  const tcSee = sidecar("examples", "providers", "tinycloud", "see.sh");
   const falEnhance = sidecar("examples", "providers", "fal", "enhance.sh");
   const elListen = sidecar("examples", "providers", "elevenlabs", "listen.sh");
   const elEnhance = sidecar("examples", "providers", "elevenlabs", "enhance.sh");
@@ -126,6 +127,17 @@ export function providerChoices(): ProviderChoice[] {
       summary: "fal.ai caption/OCR provider.",
       descriptor: exec(`bash ${falSee} --input {{input}}`, `bash ${falSee} init`, `bash ${falSee} describe`),
       env: ["FAL_KEY"],
+      indexableDefault: true,
+    },
+    {
+      id: "tinycloud",
+      verb: "see",
+      label: "Cloudglue / tinycloud see",
+      summary: "File-level image analysis (describe + on-screen text; --prompt/--detect via extract, no boxes) through tinycloud see (>= 0.3.7).",
+      // must stay a `bash …` wrapper: a run template starting with `tinycloud`
+      // is treated as the built-in default binding and skipped for see.
+      descriptor: exec(`bash ${tcSee} --input {{input}}`, `bash ${tcSee} init`, `bash ${tcSee} describe`),
+      env: ["CLOUDGLUE_API_KEY"],
       indexableDefault: true,
     },
     {

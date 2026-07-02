@@ -66,7 +66,8 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 ### Cases (`test/e2e/live/cases/*.sh`, run in order)
 
 `00_cli` (version/commands/help + all env-var docs + doctor) · `10_watch` ·
-`11_listen` (Cloudglue + ElevenLabs) · `12_see` (HF + fal + local OWLv2) ·
+`11_listen` (Cloudglue + ElevenLabs) · `12_see` (HF + fal + Cloudglue tinycloud
+see/extract ≥ 0.3.7 + local OWLv2) ·
 `13_enhance_view` · `20_sources` (Tavily/Apify/yt-dlp) · `21_pipeline`
 (source→capture→sense) · `22_monitor` (`--once` diff + bounded `--every`) ·
 `23_index` · `24_case_search` · `16_visual_db` (local image-ransac,

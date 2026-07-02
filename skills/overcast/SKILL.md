@@ -171,8 +171,8 @@ overcast index entities <entity-index-id> ./clip.mp4 --json
 ```
 
 `face` needs tinycloud ≥ 0.3.4 (`overcast doctor` flags an older install);
-overcast currently recommends tinycloud 0.3.6 for the latest face validation and
-CLI reliability behavior. Face detection counts are boxes per sampled frame, not
+overcast currently recommends tinycloud 0.3.7 for the latest face validation,
+CLI reliability, and image `see`/`extract` behavior. Face detection counts are boxes per sampled frame, not
 unique people; use `--match <photo>` for a specific person and `crop` when
 you need durable cropped image evidence. If a local video lacks descriptive
 content evidence, add it to the index with `overcast index add ./clip.mp4 --to

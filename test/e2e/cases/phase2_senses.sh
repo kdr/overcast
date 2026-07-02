@@ -68,3 +68,28 @@ if [ -f "$crop_path" ]; then ok "crop.output_exists" "crop image written"; else 
 sout="$(env -u HF_TOKEN -u HUGGING_FACE_HUB_TOKEN OVERCAST_NO_DOTENV=1 OVERCAST_SEE_BRAIN=off $OVERCAST see "./missing.jpg" --json --case "$casedir" 2>/dev/null)"
 save_json "phase2_see" "$sout" >/dev/null
 assert_eq "see.state" "needs_credentials" "$(jq -r '.state' <<<"$sout")" "see placeholder state (no provider)"
+
+# see bound to the tinycloud wrapper against the fake tinycloud CLI: the REAL
+# exec provider + envelope→record mapping runs, no network. Isolated --home so
+# the binding never leaks into other phases.
+frame="$SMOKE_DIR/tiny_frame.jpg"
+node --import tsx -e "
+import {FFMPEG_PATH} from '$REPO/src/media/ffmpeg.ts';
+import {execFileSync} from 'node:child_process';
+execFileSync(FFMPEG_PATH,['-y','-i','$clip','-frames:v','1','$frame'],{stdio:'ignore'});
+" 2>/dev/null
+if [ -f "$frame" ]; then
+  tchome="$SMOKE_DIR/senses-tc-home"; mkdir -p "$tchome"
+  $OVERCAST setup provider see "exec:bash $REPO/examples/providers/tinycloud/see.sh --input {{input}}" --home "$tchome" --json >/dev/null 2>&1
+  tsout="$(env OVERCAST_NO_DOTENV=1 CLOUDGLUE_API_KEY=fixture OVERCAST_TINYCLOUD_CMD="bash $REPO/test/fixtures/fake-tinycloud.sh" \
+    $OVERCAST see "$frame" --ocr --json --case "$casedir" --home "$tchome" 2>/dev/null)"
+  save_json "phase2_see_tinycloud" "$tsout" >/dev/null
+  assert_eq "see.tinycloud_state" "ready" "$(jq -r '.state' <<<"$tsout")" "tinycloud-wrapper see ready"
+  echo "$tsout" | jq -r '.payload.caption' | grep -qi "fixture" \
+    && ok "see.tinycloud_caption" "caption from fixture see envelope" \
+    || fail "see.tinycloud_caption" "caption: $(jq -r '.payload.caption' <<<"$tsout")"
+  assert_eq "see.tinycloud_ocr" "HELLO FIXTURE" "$(jq -r '.payload.ocr' <<<"$tsout")" "scene_text mapped to payload.ocr"
+  assert_eq "see.tinycloud_provider" "tinycloud:see" "$(jq -r '.meta.provider' <<<"$tsout")" "provider tag"
+else
+  fail "see.tinycloud_frame" "could not extract a frame for the tinycloud see check"
+fi
