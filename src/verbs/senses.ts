@@ -114,7 +114,6 @@ export const seeVerb: VerbSpec = {
     { name: "ocr", summary: "Extract on-image text", type: "boolean" },
     { name: "detect", summary: "Comma list of target objects to locate (bind the detect provider for bounding boxes)", type: "string" },
     { name: "prompt", summary: "Focus the description", type: "string" },
-    { name: "embed", summary: "Persist a visual embedding (query seed)", type: "boolean" },
   ],
   outputKind: "image.analysis",
   providerKey: "see",

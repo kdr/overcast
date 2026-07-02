@@ -1,6 +1,6 @@
 // target = the standing scope (what scan/monitor look for), persisted to
 // .overcast/target.json. A target is a name, a free-text prompt, or a reference
-// image/clip (image targets route through `see --embed` for a visual seed).
+// image/clip (image targets are matched via `face --match` / local visual indexes).
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -11,8 +11,6 @@ export interface TargetEntry {
   id: string;
   kind: "name" | "prompt" | "image";
   value: string;
-  /** for image targets, the visual-seed record id (from see --embed) */
-  seed?: string;
   created: string;
 }
 

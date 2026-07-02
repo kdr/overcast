@@ -95,8 +95,10 @@ must still say so explicitly ("checked, found none").
 
 Copycats retitle and re-caption, so search topic keywords and confirm with the
 visual/transcript layers: burned-in subtitles and translated dubs defeat text
-matching but not `image` frame matching or `face --match`. Face and image
-similarity scores are 0–100, not 0–1. A repost/quote is a share, not a rip —
+matching but not `image` frame matching or `face --match`. Face similarity is
+0–100 (percent), not 0–1; `image match` reports a RANSAC inlier count (unbounded
+integer) plus an inlier ratio (0–1) — there is no 0–100 image similarity. A
+repost/quote is a share, not a rip —
 confirm the account re-uploaded the media natively (check `x:video:from:<handle>`).
 Apify-backed sources bill per result — prefer few, broad queries over many
 narrow ones.

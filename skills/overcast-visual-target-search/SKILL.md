@@ -24,7 +24,8 @@ overcast ask "where does the reference person appear, with timestamps and confid
 overcast brief --export ./visual-search.md --json
 ```
 
-For an object or open-vocabulary target:
+For an object or open-vocabulary target (`--detect` needs a bound detection
+provider first, e.g. `overcast setup provider see "exec:python3 examples/providers/detect/detect.py"`):
 
 ```bash
 overcast see ./clip.mp4 --detect "red backpack" --json
@@ -37,7 +38,7 @@ For logos, landmarks, or near-duplicate visual references:
 ```bash
 overcast index create refs --type image-ransac --local --json
 overcast index add ./reference-logo.png --to <index-id> --json
-overcast image ./clip.mp4 --index <index-id> --json
+overcast image match ./clip.mp4 --index <index-id> --json
 ```
 
 ## Output

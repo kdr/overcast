@@ -226,7 +226,7 @@ function effectiveProviders(profile: Profile): Record<string, Record<string, unk
 export const setupVerb: VerbSpec = {
   name: "setup",
   group: "config",
-  summary: "Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|show).",
+  summary: "Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|memory|show).",
   description:
     "Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a " +
     "verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets " +
@@ -316,7 +316,7 @@ export const providerVerb: VerbSpec = {
     { name: "profile", summary: "Profile name to write/read (default: active/default)", type: "string" },
     { name: "verb", summary: "provider setup: verb to configure", type: "string" },
     { name: "choice", summary: "provider setup: catalog choice id", type: "string" },
-    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local)", type: "string" },
+    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip)", type: "string" },
     { name: "yes", summary: "provider setup apply: confirm profile changes", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },

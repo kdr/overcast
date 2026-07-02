@@ -1072,7 +1072,7 @@ export const monitorVerb: VerbSpec = {
     { name: "once", summary: "Single diff pass then exit", type: "boolean" },
     { name: "every", summary: "Continuous loop cadence (e.g. 15m, 6h)", type: "string" },
     { name: "brief", summary: "Summarize the new batch into a brief record", type: "boolean" },
-    { name: "alert", summary: "Mirror new records to a sink (stdout | <file>)", type: "string" },
+    { name: "alert", summary: "Mirror new records to a file sink (they already stream to stdout)", type: "string" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],

@@ -83,9 +83,9 @@ the CLI, or pull them straight from this repo with the harness-agnostic
 [`skills`](https://github.com/vercel-labs/skills) installer:
 
 ```bash
-overcast skills install               # menu: pick a harness, writes the SKILL.md files
-overcast skills install --global      # → ~/.claude/skills/overcast
-npx skills add kdr/overcast           # vercel-labs/skills; pulls skills from this repo
+overcast skills install                        # copies the shipped skills into ~/.claude/skills
+overcast skills install --harness claude-code  # explicit harness (claude-code is the only target today)
+npx skills add kdr/overcast                    # vercel-labs/skills; pulls skills from this repo
 ```
 
 **Claude Code plugin** (slash commands + skills as one package):
@@ -226,6 +226,10 @@ surface + env vars.)
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) index — `search` by text, `match` by image, video moments included |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
+
+**Inspect** — look at the evidence
+| verb | does |
+|---|---|
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
 | `crop` | materialize face/object detections as cropped image records with provenance |
 | `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |

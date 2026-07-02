@@ -67,10 +67,11 @@ Provider classes:
   frame extraction, detection-crop extraction, and viewer support.
 - **opt-in model/media providers** for `see` / `listen` / `enhance` — Hugging
   Face, fal.ai, ElevenLabs, and local detector/Whisper examples.
-- **visual DBs** — uv-managed OpenCV RANSAC image matching and DeepFace
-  face matching, selected by `image-ransac` / `deepface-local` index types.
+- **visual DBs** — uv-managed OpenCV RANSAC image matching, DeepFace face
+  matching, the `cluster` face DB, and CLIP semantic search, selected by the
+  `image-ransac` / `deepface-local` / `face-cluster` / `basic-clip` index types.
 - **source providers** — external discovery and URL fetching (youtube / tiktok /
-  x / web).
+  x / web / lens reverse-image).
 - **case memory** over primary evidence for `ask` / `brief` / `case memory` —
   `local-grep` by default, or qmd for lifecycle-managed semantic local search.
 
@@ -544,6 +545,32 @@ NO SIGNAL / STILL tiles (with an ffmpeg poster frame when extractable).
 to cover the viewport and the grid keeps extending as it scrolls (rows that
 scroll far out of view are recycled, so it stays cheap forever).
 
+### 18. Copycat sweep (x + lens reverse-image)
+
+Find re-uploads of an original clip across X and Google Lens, confirm with the
+geometry-gated `image` layer, and keep a standing watch. The packaged version of
+this funnel is the `overcast-copycat-sweep` skill.
+
+```bash
+overcast index create originals --type image-ransac --local --json
+overcast image add ./title-card.png --index <index-id> --json   # fingerprint distinctive frames
+overcast source add "x:video:<topic keywords>" --json
+overcast source add lens:./original-frame.png --json          # reverse image search
+overcast scan --since 7d --limit 10 --json                    # triage first: Apify bills per result
+overcast capture <scan-hit-id> --json
+overcast image match <capture-id> --index <index-id> --draw --json
+overcast finding create "copycat: <because-clause>" --ref <image-match-id> --confidence high --json
+overcast brief --export copycats.html
+overcast monitor --every 1d --json
+```
+
+`x:` refs target X/Twitter: `x:@handle` (author), `x:<advanced query>`, and the
+media-targeted `x:video:<q>` / `x:image:<q>`. `lens:<image url|path>` runs a
+Google Lens reverse image search via Apify. `image match` gates on
+planar-projection (homography) validity — read the inlier count + ratio and
+eyeball the `--draw` overlay before calling a rip; keyword overlap alone is not
+a match.
+
 ## Command matrix
 
 | Command | Group | Main output | Default backing | Override | Role |
@@ -552,6 +579,9 @@ scroll far out of view are recycled, so it stays cheap forever).
 | `listen` | sense | `audio.analysis` | tinycloud | `setup provider listen "exec:…"` | Speech/audio analysis |
 | `see` | sense | `image.analysis` | brain LLM (image-capable) → HF captioner if token → placeholder | `setup provider see "exec:…"` / `builtin:hf` | Image/frame understanding |
 | `face` | sense | `face.analysis` | tinycloud | custom exec / pinned tinycloud | Face detect/match/index search |
+| `image` | sense | `image.match` | local OpenCV RANSAC (`image-ransac` index) | `OC_VISUAL_DB_PY` | Image/frame geometric matching |
+| `cluster` | sense | `cluster` | local DeepFace (`face-cluster` index) | `OC_VISUAL_DB_PY` | Persistent local face DB |
+| `similar` | sense | `similar.match` | local CLIP (`basic-clip` index) | `OC_VISUAL_DB_PY` | Cross-modal semantic search |
 | `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve media |
 | `view` | inspect | `view` | local HTML viewer / OS open | none | Inspect media/anchors |
 | `crop` | inspect | `media.crop` | local ffmpeg | none | Materialize detection crops |
@@ -596,8 +626,8 @@ overcast provider init listen --profile recon --json
 overcast doctor --profile recon --json
 ```
 
-Presets: `cloudglue` · `hf` · `fal` · `elevenlabs` · `owl-local` · `deepface-local`. Single
-choices use `--verb <watch|listen|see|face|enhance> --choice <id>`.
+Presets: `cloudglue` · `hf` · `fal` · `elevenlabs` · `owl-local` · `deepface-local` ·
+`basic-clip`. Single choices use `--verb <watch|listen|see|face|enhance> --choice <id>`.
 
 ### Pin tinycloud
 

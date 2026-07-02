@@ -444,7 +444,7 @@ overcast case init --json
 overcast case setup --yes --json
 overcast watch ./screen-recording.mp4 --json
 overcast listen ./screen-recording.mp4 --describe --json
-overcast see frame://<record-id>@<timestamp> --ocr --json
+overcast see frame://<record-id>@<seconds> --ocr --json
 overcast note "observed UI state or suspected failure" --ref <record-id> --at <time-range> --json
 overcast ask "summarize the bug with reproduction steps and citations" --json
 overcast brief --export ./bug-brief.md --json
@@ -559,7 +559,8 @@ overcast ask "where does the reference person appear, with timestamps and confid
 overcast brief --export ./visual-search.md --json
 \`\`\`
 
-For an object or open-vocabulary target:
+For an object or open-vocabulary target (\`--detect\` needs a bound detection
+provider first, e.g. \`overcast setup provider see "exec:python3 examples/providers/detect/detect.py"\`):
 
 \`\`\`bash
 overcast see ./clip.mp4 --detect "red backpack" --json
@@ -572,7 +573,7 @@ For logos, landmarks, or near-duplicate visual references:
 \`\`\`bash
 overcast index create refs --type image-ransac --local --json
 overcast index add ./reference-logo.png --to <index-id> --json
-overcast image ./clip.mp4 --index <index-id> --json
+overcast image match ./clip.mp4 --index <index-id> --json
 \`\`\`
 
 ## Output
@@ -689,8 +690,10 @@ must still say so explicitly ("checked, found none").
 
 Copycats retitle and re-caption, so search topic keywords and confirm with the
 visual/transcript layers: burned-in subtitles and translated dubs defeat text
-matching but not \`image\` frame matching or \`face --match\`. Face and image
-similarity scores are 0–100, not 0–1. A repost/quote is a share, not a rip —
+matching but not \`image\` frame matching or \`face --match\`. Face similarity is
+0–100 (percent), not 0–1; \`image match\` reports a RANSAC inlier count (unbounded
+integer) plus an inlier ratio (0–1) — there is no 0–100 image similarity. A
+repost/quote is a share, not a rip —
 confirm the account re-uploaded the media natively (check \`x:video:from:<handle>\`).
 Apify-backed sources bill per result — prefer few, broad queries over many
 narrow ones.
