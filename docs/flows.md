@@ -290,12 +290,12 @@ overcast view <watch-record-id>
 overcast brief --export report.md
 ```
 
-### 4. Local visual DB: logos, signs, landmarks, and faces
+### 4. Local visual DB: logos, faces, and semantic (CLIP) search
 
 When you need a local, inspectable visual match DB instead of a remote index.
 
 ```bash
-scripts/visual-db-uv.sh --face
+scripts/visual-db-uv.sh --face   # or --clip for CLIP, --all for both
 overcast doctor --json
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
 
@@ -307,6 +307,12 @@ overcast index create localfaces --type deepface-local --local --json
 overcast index add ./person.jpg --to localfaces --json
 overcast face ./candidate.mp4 --match ./person.jpg --index localfaces \
   --fps 0.5 --max-frames 32 --min-similarity 20 --json
+
+# CLIP semantic DB — query by text or image (image->image / text->image)
+overcast index create scenes --type basic-clip --local --granularity frame --json
+overcast similar add ./candidate.mp4 --index scenes --json
+overcast similar search "a red car at night" --index scenes --json
+overcast similar match ./reference.jpg --index scenes --json
 ```
 
 Use `--draw` on `image match` to write RANSAC visualizations into the case media
@@ -314,7 +320,13 @@ store. Local face results include frame timestamps, similarity, and boxes. Use
 `--fps` for video sampling cadence; add `--max-frames` when you need to cap
 runtime. With `--profile local`, plain `face ./candidate.mp4` runs local
 DeepFace detection through the `face:deepface-local` provider; `deepface-local` indexes are
-only needed when you want a reusable/searchable local face DB.
+only needed when you want a reusable/searchable local face DB. `basic-clip` is the
+semantic option: `similar add` embeds + caches members (videos are frame-sampled and
+pooled, or stored per-frame with `--granularity frame` so matches carry `at`), then
+`similar match`/`similar search` rank by cosine similarity (0–100). Stand up a
+frame-level and a video-level index side by side in the wizard (one comma-separated
+`--index`; per-index config pairs use `;`):
+`case setup --index "moments:basic-clip@granularity=frame,clips:basic-clip@granularity=video" --yes`.
 
 ### 5. Local-media-only person search
 

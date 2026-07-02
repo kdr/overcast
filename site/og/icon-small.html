@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- Source design for the small favicon sizes (16/32/48, rendered at 512×512).
+     Tight crop on the eye — the TV-head crop in icon.html turns to mush below 48px.
+     Regenerate: see site/README.md. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        width: 512px;
+        height: 512px;
+        overflow: hidden;
+        position: relative;
+        background:
+          radial-gradient(circle at 0% 0%, #b8f0cf 0%, transparent 55%),
+          radial-gradient(circle at 100% 0%, #bfefff 0%, transparent 55%),
+          radial-gradient(circle at 20% 100%, #ffeaa9 0%, transparent 55%),
+          radial-gradient(circle at 100% 90%, #ffd3e8 0%, transparent 45%),
+          #faf6ec;
+      }
+      img {
+        position: absolute;
+        /* show svg-units region x:273–653, y:240–620 (the eye on the screen) at 512px */
+        width: 1689px;
+        left: -367.8px;
+        top: -323.4px;
+      }
+    </style>
+  </head>
+  <body>
+    <img src="../public/logo.svg" alt="" />
+  </body>
+</html>

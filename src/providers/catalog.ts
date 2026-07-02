@@ -80,6 +80,20 @@ export function providerChoices(): ProviderChoice[] {
       indexableDefault: true,
     },
     {
+      id: "basic-clip",
+      verb: "similar",
+      label: "Local CLIP (basic-clip)",
+      summary: "Local OpenAI CLIP semantic DB; basic-clip indexes are the local vector store for `similar` (text/image search).",
+      descriptor: {
+        type: "inproc",
+        backend: "basic-clip",
+        id: "basic-clip",
+        init: { command: `bash ${localVisionSetup} --clip` },
+      },
+      env: ["OC_VISUAL_DB_PY"],
+      indexableDefault: true,
+    },
+    {
       id: "ffmpeg",
       verb: "enhance",
       label: "Local ffmpeg",
@@ -177,6 +191,9 @@ export const PROVIDER_PRESETS: Record<string, Array<{ verb: string; choice: stri
   ],
   "deepface-local": [
     { verb: "face", choice: "deepface-local" },
+  ],
+  "basic-clip": [
+    { verb: "similar", choice: "basic-clip" },
   ],
 };
 
