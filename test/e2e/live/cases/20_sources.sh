@@ -22,6 +22,17 @@ assert_scan_hits() {
   fi
 }
 
+# scan evidence must surface in the case's records web export (the audit page)
+assert_export_has() { # <id> <casedir> <needle> <label>
+  local id="$1" cd="$2" needle="$3" label="$4"
+  ocrun "$cd" case records --export "$cd/records.html" --theme csi --json >/dev/null 2>&1
+  if [ -s "$cd/records.html" ] && [ -n "$needle" ] && grep -qF "$needle" "$cd/records.html"; then
+    ok "$id" "$label present in records html export"
+  else
+    fail "$id" "$label missing from records html export (needle: ${needle:-<empty>})"
+  fi
+}
+
 # --- web (Tavily) ---
 if require_cred "$C.web" TAVILY_API_KEY "skipping web search"; then
   CASE=$(case_dir src_web)
@@ -30,6 +41,8 @@ if require_cred "$C.web" TAVILY_API_KEY "skipping web search"; then
   out="$(OC_TIMEOUT=120 oc "$CASE" scan --source web --limit 3 --json)"
   save_json "20_scan_web" "$out" >/dev/null
   assert_scan_hits "$C.web.query" "$out" "web query"
+  weburl="$(echo "$out" | jq -s -r '[.[]|select(.state=="ready" and .verb=="scan")][0].payload.url // empty' 2>/dev/null)"
+  assert_export_has "$C.web.export" "$CASE" "$weburl" "web text hit url"
   unset OVERCAST_SOURCE_WEB_CMD
 fi
 
@@ -69,6 +82,8 @@ if require_cred "$C.lens" APIFY_TOKEN "skipping lens reverse image search"; then
   else
     fail "$C.lens.thumb" "no materialized thumbnail for an exact lens match"
   fi
+  lensurl="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.url // empty' 2>/dev/null)"
+  assert_export_has "$C.lens.export" "$CASE" "$lensurl" "lens image match url"
   # local image query, case-relative: the CLI runs with --case from another cwd,
   # so the bare filename only resolves through OVERCAST_CASE_DIR (upload path)
   if [ -n "${OC_IMAGE:-}" ] && [ -f "$OC_IMAGE" ]; then
