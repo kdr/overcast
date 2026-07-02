@@ -140,6 +140,39 @@ Options:
 
 Emits `image.match` records.
 
+### `overcast similar`
+
+`similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+
+```
+overcast similar <action> [input]... [options]
+
+  Find images/video moments by visual or text similarity in a local CLIP (basic-clip) index.
+
+  `similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+
+Arguments:
+  action           add | match | search
+  input            image/video path, URL, record id (add/match) — or a text query (search)
+
+Options:
+  --index <string>       local basic-clip index id/name
+  --to <string>          alias for --index when adding
+  --min-similarity <number> match/search: similarity floor (0–100)
+  --limit <number>       match/search: max results
+  --offset <number>      match/search: result offset
+  --pooling <string>     match: pool the query video's frames by max | mean (members follow the index config)
+  --granularity <string> video (one vector/video) | frame (moments) — set at `index create`; members always follow the index config
+  --sampling <string>    match query video: uniform windows | shots (tinycloud watch boundaries); members follow the index config
+  --window <number>      video: seconds per uniform sampling window
+  --fps <number>         video: frame sampling rate; --max-frames can cap it
+  --max-frames <number>  video: frame sample count/cap
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `similar.match` records.
+
 ### `overcast enhance`
 
 Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
@@ -314,7 +347,7 @@ Arguments:
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | basic-clip
   --local                create a local index instead of a tinycloud-backed index
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
@@ -327,6 +360,10 @@ Options:
   --no-download          add: don't materialize the source locally
   --limit <number>       entities: max entities
   --offset <number>      entities: entity offset
+  --pooling <string>     create basic-clip: pool video frames by max | mean
+  --granularity <string> create basic-clip: video | frame (moment-level)
+  --sampling <string>    create basic-clip: uniform | shots (watch boundaries)
+  --window <number>      create basic-clip: seconds per uniform sampling window
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```

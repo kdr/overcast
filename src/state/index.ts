@@ -20,7 +20,8 @@ export type IndexType =
   | "face-analysis"
   | "rich-transcripts"
   | "deepface-local"
-  | "image-ransac";
+  | "image-ransac"
+  | "basic-clip";
 
 export interface IndexMember {
   /** the video ref registered (path / URL) */
@@ -80,6 +81,12 @@ export function normalizeIndexType(input: string): IndexType | undefined {
     case "images":
     case "visual":
       return "image-ransac";
+    case "basic-clip":
+    case "basic-clip-db":
+    case "clip":
+    case "clips":
+    case "semantic":
+      return "basic-clip";
     case "rich-transcripts":
     case "rich-transcript":
     case "transcripts":

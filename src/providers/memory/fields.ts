@@ -44,6 +44,9 @@ const FIELD_POLICY: Record<string, string[]> = {
   ],
   see: ["caption", "ocr", "text", "summary", "counts", "categories", "objects", "labels"],
   face: ["summary", "op", "moments", "reference", "index"],
+  // a positive semantic match IS evidence; keep it compact (summary + query text +
+  // matched refs only — never the vectors / per-frame scores in the raw payload).
+  similar: ["summary", "query", "matches[].ref"],
   crop: ["summary", "kind", "class", "detection_id", "source_record", "source_verb", "source_media", "at", "confidence", "crop"],
   note: ["title", "text", "tags", "confidence", "ref"],
   scan: ["title", "snippet", "url", "source", "published"],

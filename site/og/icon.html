@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- Source design for the favicon / app icons (512×512).
+     Regenerate: see site/README.md. Crops the CRT-TV head from the logo. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        width: 512px;
+        height: 512px;
+        overflow: hidden;
+        position: relative;
+        background:
+          radial-gradient(circle at 0% 0%, #b8f0cf 0%, transparent 55%),
+          radial-gradient(circle at 100% 0%, #bfefff 0%, transparent 55%),
+          radial-gradient(circle at 20% 100%, #ffeaa9 0%, transparent 55%),
+          radial-gradient(circle at 100% 90%, #ffd3e8 0%, transparent 45%),
+          #faf6ec;
+      }
+      img {
+        position: absolute;
+        /* show svg-units region x:120–860, y:60–800 (the TV head) at 512px */
+        width: 867.6px;
+        left: -83px;
+        top: -41.5px;
+      }
+    </style>
+  </head>
+  <body>
+    <img src="../public/logo.svg" alt="" />
+  </body>
+</html>

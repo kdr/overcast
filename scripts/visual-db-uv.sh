@@ -4,7 +4,8 @@
 # Usage:
 #   scripts/visual-db-uv.sh          # image matching deps: opencv + numpy
 #   scripts/visual-db-uv.sh --face   # also install DeepFace stack
-#   scripts/visual-db-uv.sh --all    # same as --face
+#   scripts/visual-db-uv.sh --clip   # also install OpenAI CLIP (open_clip + torch)
+#   scripts/visual-db-uv.sh --all    # install both the DeepFace and CLIP stacks
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,13 +29,20 @@ uv pip install --python "$VENV/bin/python" --upgrade pip wheel setuptools
 uv pip install --python "$VENV/bin/python" opencv-python numpy
 
 case "$MODE" in
-  --face|--all|face|all)
+  --face|face)
     uv pip install --python "$VENV/bin/python" deepface tf-keras
+    ;;
+  --clip|clip)
+    uv pip install --python "$VENV/bin/python" open-clip-torch torch pillow
+    ;;
+  --all|all)
+    uv pip install --python "$VENV/bin/python" deepface tf-keras
+    uv pip install --python "$VENV/bin/python" open-clip-torch torch pillow
     ;;
   --image|image|"")
     ;;
   *)
-    echo "unknown mode: $MODE (expected --image | --face | --all)" >&2
+    echo "unknown mode: $MODE (expected --image | --face | --clip | --all)" >&2
     exit 2
     ;;
 esac

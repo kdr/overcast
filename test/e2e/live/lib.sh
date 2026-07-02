@@ -51,6 +51,12 @@ LOCAL_IMAGE_REF="${OC_LOCAL_IMAGE_REF:-}"       # local image DB: reference logo
 LOCAL_IMAGE_VIDEO_A="${OC_LOCAL_IMAGE_VIDEO_A:-}" # local image DB: candidate video A
 # shellcheck disable=SC2034
 LOCAL_IMAGE_VIDEO_B="${OC_LOCAL_IMAGE_VIDEO_B:-}" # local image DB: candidate video B
+# shellcheck disable=SC2034
+CLIP_IMAGE_REF="${OC_CLIP_IMAGE_REF:-}"          # basic-clip DB: image to embed + image-query
+# shellcheck disable=SC2034
+CLIP_VIDEO="${OC_CLIP_VIDEO:-}"                  # basic-clip DB: video to embed (frames)
+# shellcheck disable=SC2034
+CLIP_TEXT="${OC_CLIP_TEXT:-a person}"            # basic-clip DB: text query for `similar search`
 
 have_media() { [ -f "$1" ]; }
 
