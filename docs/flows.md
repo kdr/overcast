@@ -534,11 +534,15 @@ overcast wall                                # wall the case (opens the browser)
 overcast wall --theme csi --limit 16         # bigger neon wall
 overcast wall --source youtube --since 24h   # only fresh youtube pulls
 overcast wall --refresh 60 --no-open         # re-snapshot while monitor runs
+overcast wall --infinite                     # endless wall: feeds repeat to fill the screen
 ```
 
 The wall references local media by `file://` URL (nothing is embedded), so it
 plays whatever is still on disk; missing or browser-hostile containers render
 NO SIGNAL / STILL tiles (with an ffmpeg poster frame when extractable).
+`--infinite` turns a small case into a full monitor bank: the real feeds repeat
+to cover the viewport and the grid keeps extending as it scrolls (rows that
+scroll far out of view are recycled, so it stays cheap forever).
 
 ## Command matrix
 

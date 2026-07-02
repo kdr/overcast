@@ -61,6 +61,8 @@ export interface WallHud {
   monitor: { time: string; ageSeconds: number; newItems: number } | null;
   briefAgeSeconds: number | null;
   refreshSeconds: number | null;
+  /** endless wall: repeat feeds to fill the screen, extend the grid on scroll */
+  infinite: boolean;
 }
 
 export interface WallModel {
@@ -78,6 +80,8 @@ export interface BuildWallOptions {
   /** epoch-ms cutoff (pre-parsed via parseSince); undated tiles are kept */
   sinceCutoff?: number;
   refreshSeconds?: number;
+  /** repeat feeds to fill the screen; the wall keeps extending on scroll */
+  infinite?: boolean;
   /** injectable clock/fs for tests */
   now?: number;
   fileExists?: (path: string) => boolean;
@@ -141,6 +145,7 @@ export function buildWallModel(records: OvercastRecord[], opts: BuildWallOptions
       tilesShown: shown.length,
       openFindings: openRootFindings.length,
       refreshSeconds: opts.refreshSeconds,
+      infinite: opts.infinite,
     }),
     tiles: shown,
   };
@@ -372,6 +377,7 @@ interface HudOptions {
   tilesShown: number;
   openFindings: number;
   refreshSeconds?: number;
+  infinite?: boolean;
 }
 
 function buildHud(records: OvercastRecord[], o: HudOptions): WallHud {
@@ -423,6 +429,7 @@ function buildHud(records: OvercastRecord[], o: HudOptions): WallHud {
       : null,
     briefAgeSeconds: briefLatest ? Math.max(0, (o.now - briefLatest.t) / 1000) : null,
     refreshSeconds: o.refreshSeconds ?? null,
+    infinite: o.infinite ?? false,
   };
 }
 
@@ -501,12 +508,15 @@ export function renderWallHtml(model: WallModel, theme: HtmlTheme): string {
   const tiles = model.tiles.map((t, i) => renderTile(t, i)).join("\n");
   // sqrt grid: a wall of 16/9 tiles on a 16/9 screen self-fills the viewport
   // (5 tiles → 3-wide, 12 → 4-wide) instead of leaving one short row of minis.
-  const cols = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(model.tiles.length || 1))));
+  // An infinite wall floors at 3-wide: with repeats available, one or two real
+  // feeds should read as a bank of monitors, not a pair of billboards.
+  const sqrtCols = Math.ceil(Math.sqrt(model.tiles.length || 1));
+  const cols = Math.max(1, Math.min(6, model.hud.infinite ? Math.max(3, sqrtCols) : sqrtCols));
   return `<!doctype html><html><head><meta charset="utf-8">${refreshTag}<title>${escapeHtml(title)}</title>
 <style>${WALL_BASE_CSS}
 ${csi ? CSI_SKIN : PLAIN_SKIN}</style></head><body${csi ? ' data-overcast-theme="csi"' : ""}>
 ${renderHud(model.hud)}
-<main class="wall" style="--cols:${cols}"${csi ? ' data-csi-wall="true"' : ""}>
+<main class="wall" style="--cols:${cols}"${model.hud.infinite ? ' data-infinite="true"' : ""}${csi ? ' data-csi-wall="true"' : ""}>
 ${tiles || `<div class="empty">NO FEEDS — filters matched no case videos</div>`}
 </main>
 <div class="start" id="start">▶ CLICK TO START FEEDS</div>
@@ -596,8 +606,12 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:ui-monospace,SF
 .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:var(--green);background:var(--bg);white-space:nowrap}
 .chip.bad{color:var(--bad)}.chip.amber{color:var(--amber)}.chip.cyan{color:var(--cyan)}.chip.magenta{color:var(--magenta)}
 .clock{margin-left:auto;color:var(--amber)}
-.wall{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(var(--cols,4),minmax(0,1fr));gap:10px;padding:10px;align-content:start}
-.tile{position:relative;margin:0;aspect-ratio:16/9;background:#000;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.wall{flex:1;overflow-y:auto;overflow-anchor:none;display:grid;grid-template-columns:repeat(var(--cols,4),minmax(0,1fr));gap:10px;padding:10px;align-content:start}
+/* 16/9 via padding-top, NOT aspect-ratio: with a definite-height scroll grid,
+   Chrome collapses implicit rows of aspect-ratio items to a share of the
+   container (tiles overlap once the wall scrolls); %-padding resolves against
+   the track width and sizes the rows correctly. */
+.tile{position:relative;margin:0;padding-top:56.25%;background:#000;border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .tile[data-open]{cursor:pointer}
 .tile video,.tile img.poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
 .tile-top{position:absolute;top:0;left:0;right:0;display:flex;gap:8px;padding:6px 8px;font-size:10px;color:var(--cyan);background:linear-gradient(180deg,rgba(0,0,0,.7),transparent)}
@@ -638,12 +652,25 @@ const PLAIN_SKIN = `:root{color-scheme:dark;--bg:#101214;--panel:#16191c;--panel
 
 // Inline player logic (no template interpolation — keep this plain JS).
 const WALL_JS = `(function(){
-var tiles = Array.prototype.slice.call(document.querySelectorAll(".tile"));
+var wall = document.querySelector(".wall");
+var infinite = !!(wall && wall.hasAttribute("data-infinite"));
 var vids = [];
 function markStalled(){ document.body.classList.add("stalled"); }
-tiles.forEach(function(tile, i){
+var io = null;
+if ("IntersectionObserver" in window) {
+  io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      var v = e.target.querySelector("video");
+      if (!v || !v.src) return;
+      if (e.intersectionRatio >= 0.25) { if (!document.body.classList.contains("stalled")) v.play().catch(function(){}); }
+      else v.pause();
+    });
+  }, { threshold: [0, 0.25] });
+}
+function setupTile(tile, delay){
   var open = tile.getAttribute("data-open");
   if (open) tile.addEventListener("click", function(){ window.open(open); });
+  if (io) io.observe(tile);
   var v = tile.querySelector("video");
   if (!v) return;
   vids.push(v);
@@ -668,23 +695,18 @@ tiles.forEach(function(tile, i){
     try { v.currentTime = start; } catch (e) {}
   });
   v.addEventListener("error", function(){ tile.classList.add("err"); });
-  // staggered attach avoids a simultaneous decode burst across the grid
+  // staggered attach avoids a simultaneous decode burst across the grid.
+  // Only a real autoplay block (NotAllowedError) shows the START button — a
+  // play() aborted because the observer paused an offscreen tile is normal.
   setTimeout(function(){
     v.src = v.getAttribute("data-src");
-    v.play().catch(markStalled);
-  }, i * 150);
-});
-if ("IntersectionObserver" in window) {
-  var io = new IntersectionObserver(function(entries){
-    entries.forEach(function(e){
-      var v = e.target.querySelector("video");
-      if (!v || !v.src) return;
-      if (e.intersectionRatio >= 0.25) { if (!document.body.classList.contains("stalled")) v.play().catch(function(){}); }
-      else v.pause();
-    });
-  }, { threshold: [0, 0.25] });
-  tiles.forEach(function(t){ io.observe(t); });
+    v.play().catch(function(err){ if (err && err.name === "NotAllowedError") markStalled(); });
+  }, delay);
 }
+var tiles = Array.prototype.slice.call(document.querySelectorAll(".tile"));
+// pristine copies taken BEFORE wiring — a clone must never inherit a live src
+var templates = infinite ? tiles.map(function(t){ return t.cloneNode(true); }) : [];
+tiles.forEach(function(tile, i){ setupTile(tile, i * 150); });
 var startBtn = document.getElementById("start");
 if (startBtn) startBtn.addEventListener("click", function(){
   document.body.classList.remove("stalled");
@@ -692,4 +714,60 @@ if (startBtn) startBtn.addEventListener("click", function(){
 });
 var clock = document.getElementById("clock");
 if (clock) { var tick = function(){ clock.textContent = new Date().toLocaleTimeString(); }; tick(); setInterval(tick, 1000); }
+if (!infinite || !templates.length || !wall) return;
+// --- infinite wall: repeat the real feeds to fill the screen, keep appending
+// as the wall scrolls, and recycle rows far above the viewport so the DOM (and
+// the decoder pool) stays bounded no matter how far the operator scrolls.
+var cols = parseInt(getComputedStyle(wall).getPropertyValue("--cols"), 10) || 1;
+var cam = tiles.length, cycle = 0, cloneCount = 0;
+var chunks = []; // whole-row clone batches — removable without reflowing what follows
+var MAX_CLONES = 60;
+function makeClone(){
+  var el = templates[cycle++ % templates.length].cloneNode(true);
+  cam++; // repeats keep counting up — an endless bank of monitors, not a loop
+  var camEl = el.querySelector(".tile-top span");
+  if (camEl) camEl.textContent = "CAM " + (cam < 10 ? "0" + cam : cam);
+  return el;
+}
+function append(count){
+  var els = [];
+  for (var k = 0; k < count; k++) { var el = makeClone(); els.push(el); wall.appendChild(el); }
+  els.forEach(function(el, j){ setupTile(el, j * 150); });
+  cloneCount += count;
+  return els;
+}
+function recycle(){
+  while (chunks.length > 1 && cloneCount > MAX_CLONES) {
+    var oldest = chunks[0];
+    // only drop a chunk already well past the top of the viewport
+    if (oldest[oldest.length - 1].getBoundingClientRect().bottom > -100) break;
+    // whole rows removed → everything below shifts up by exactly this height;
+    // compensate scrollTop by hand (.wall sets overflow-anchor:none so the
+    // browser's scroll anchoring can't compensate a second time)
+    var h = chunks[1][0].offsetTop - oldest[0].offsetTop;
+    oldest.forEach(function(el){
+      var v = el.querySelector("video");
+      if (v) { v.pause(); v.removeAttribute("src"); try { v.load(); } catch (e) {} var vi = vids.indexOf(v); if (vi >= 0) vids.splice(vi, 1); }
+      if (io) io.unobserve(el);
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
+    chunks.shift();
+    cloneCount -= oldest.length;
+    wall.scrollTop -= h;
+  }
+}
+function appendChunk(){ chunks.push(append(cols * 2)); recycle(); }
+// complete the last real row once (never recycled) so every later chunk starts
+// row-aligned — removing one must not reflow the rows that remain
+var pad = (cols - (tiles.length % cols)) % cols;
+if (pad) append(pad);
+function fill(){
+  var guard = 0;
+  while (wall.scrollHeight < wall.clientHeight * 1.5 && guard++ < 24) appendChunk();
+}
+fill();
+window.addEventListener("resize", fill);
+wall.addEventListener("scroll", function(){
+  if (wall.scrollTop + wall.clientHeight * 2 >= wall.scrollHeight) appendChunk();
+});
 })();`;

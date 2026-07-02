@@ -86,7 +86,8 @@ self-contained HTML evidence page `clip_db_evidence.html`) · `30_read`
 exports with real visual targets and matches) · `32_headless_visualization`
 (headless agent `--mode json` export trace, default CSI HTML theme) · `33_wall`
 (control-room wall over real watch/face evidence: finding-anchored loop window,
-FND chip, CSI markers) · `40_profiles` · `50_piping` (jq / chaining) · `60_dist`
+FND chip, CSI markers, plus the `--infinite` endless wall from the same case) ·
+`40_profiles` · `50_piping` (jq / chaining) · `60_dist`
 (binary as artifact) · `70_headless` (agent `--mode json` event stream + `-p`
 tool use + watch/persist).
 
@@ -94,7 +95,7 @@ The offline suite also covers setup management (`phase4_setup`): `case setup
 plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
 and exclusion of setup history records from memory — plus the control-room wall
 (`phase6_wall`): empty-case pending guidance, then a themed wall over seeded
-case media.
+case media and the `--infinite` endless-wall record + page marker.
 
 ### Output
 
