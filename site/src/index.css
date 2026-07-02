@@ -1,0 +1,372 @@
+@import "tailwindcss";
+
+@theme {
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* ink + cream base, pastel tints of the overcast terminal palette
+     (green #00ff7f / cyan #00e5ff / amber #ffc400 / magenta #ff2e97) */
+  --color-ink: #14181a;
+  --color-cream: #faf6ec;
+  --color-mint: #b8f0cf;
+  --color-sky: #bfefff;
+  --color-butter: #ffeaa9;
+  --color-blush: #ffd3e8;
+
+  --animate-blink: blink 1.1s steps(1, end) infinite;
+
+  @keyframes blink {
+    0%,
+    55% {
+      opacity: 1;
+    }
+    56%,
+    100% {
+      opacity: 0;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Glitch system: everything shares one 6s cycle. The page is calm for ~88%
+   of it, then all effects "seize" together in the 88–95% window (the tagline
+   scramble in App.tsx fires on the same clock — keep CYCLE_MS/BURST_AT_MS
+   there in step with these keyframes).
+--------------------------------------------------------------------------- */
+
+/* retro print "misregistration": cyan/magenta plates offset from the ink,
+   violently jumping during the burst window */
+.wordmark {
+  position: relative;
+  display: inline-block;
+  text-shadow:
+    0.04em 0.02em 0 rgba(0, 229, 255, 0.6),
+    -0.04em -0.02em 0 rgba(255, 46, 151, 0.5);
+  animation: rgb-split 6s steps(1, end) infinite;
+}
+
+@keyframes rgb-split {
+  0%,
+  87.9%,
+  95%,
+  100% {
+    text-shadow:
+      0.04em 0.02em 0 rgba(0, 229, 255, 0.6),
+      -0.04em -0.02em 0 rgba(255, 46, 151, 0.5);
+    transform: none;
+  }
+  88% {
+    text-shadow:
+      0.16em 0.01em 0 rgba(0, 229, 255, 0.7),
+      -0.18em -0.03em 0 rgba(255, 46, 151, 0.6);
+    transform: translateX(-0.02em) skewX(-1.5deg);
+  }
+  90% {
+    text-shadow:
+      -0.12em 0 0 rgba(0, 229, 255, 0.65),
+      0.1em 0.04em 0 rgba(255, 46, 151, 0.55);
+    transform: translateX(0.03em);
+  }
+  92.5% {
+    text-shadow:
+      0.07em -0.02em 0 rgba(0, 229, 255, 0.6),
+      -0.06em 0.03em 0 rgba(255, 46, 151, 0.5);
+    transform: skewX(1deg);
+  }
+}
+
+/* slice/tear: two clipped copies of the wordmark jump sideways mid-burst;
+   outside the burst they're clipped to nothing */
+.wordmark::before,
+.wordmark::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  clip-path: inset(50% 0 50% 0);
+}
+
+.wordmark::before {
+  text-shadow: 0.03em 0 0 rgba(0, 229, 255, 0.5);
+  animation: slice-a 6s steps(1, end) infinite;
+}
+
+.wordmark::after {
+  text-shadow: -0.03em 0 0 rgba(255, 46, 151, 0.5);
+  animation: slice-b 6s steps(1, end) infinite;
+}
+
+@keyframes slice-a {
+  0%,
+  87.9%,
+  94.5%,
+  100% {
+    clip-path: inset(50% 0 50% 0);
+    transform: none;
+  }
+  88% {
+    clip-path: inset(8% 0 72% 0);
+    transform: translate(-0.14em, -0.02em);
+  }
+  89.8% {
+    clip-path: inset(58% 0 18% 0);
+    transform: translate(0.12em, 0.01em);
+  }
+  92% {
+    clip-path: inset(28% 0 55% 0);
+    transform: translate(-0.08em, 0);
+  }
+}
+
+@keyframes slice-b {
+  0%,
+  88.3%,
+  95.2%,
+  100% {
+    clip-path: inset(50% 0 50% 0);
+    transform: none;
+  }
+  88.4% {
+    clip-path: inset(64% 0 10% 0);
+    transform: translate(0.16em, 0.02em);
+  }
+  90.6% {
+    clip-path: inset(14% 0 68% 0);
+    transform: translate(-0.1em, -0.01em);
+  }
+  93% {
+    clip-path: inset(44% 0 38% 0);
+    transform: translate(0.07em, 0);
+  }
+}
+
+/* logo channel-split: colored plates behind the ink via offset drop-shadows
+   of the silhouette, plus a small jitter */
+.glitch-logo {
+  filter: drop-shadow(0 18px 40px rgba(20, 24, 26, 0.18));
+  animation: logo-split 6s steps(1, end) infinite;
+}
+
+@keyframes logo-split {
+  0%,
+  87.9%,
+  94%,
+  100% {
+    filter: drop-shadow(0 18px 40px rgba(20, 24, 26, 0.18));
+    transform: none;
+  }
+  88% {
+    filter: drop-shadow(10px 0 0 rgba(0, 229, 255, 0.55))
+      drop-shadow(-12px 0 0 rgba(255, 46, 151, 0.45))
+      drop-shadow(0 18px 40px rgba(20, 24, 26, 0.18));
+    transform: translate(-3px, 1px) skewX(-0.6deg);
+  }
+  90.2% {
+    filter: drop-shadow(-8px 0 0 rgba(0, 229, 255, 0.5))
+      drop-shadow(9px 2px 0 rgba(255, 46, 151, 0.4))
+      drop-shadow(0 18px 40px rgba(20, 24, 26, 0.18));
+    transform: translate(3px, -1px);
+  }
+  92.4% {
+    filter: drop-shadow(5px 0 0 rgba(0, 229, 255, 0.45))
+      drop-shadow(-5px 0 0 rgba(255, 46, 151, 0.4))
+      drop-shadow(0 18px 40px rgba(20, 24, 26, 0.18));
+    transform: translate(-1px, 0) skewX(0.4deg);
+  }
+}
+
+/* CRT scanlines (flickering during the burst) + a rolling refresh band */
+.scanlines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(20, 24, 26, 0.05) 0 1px,
+    transparent 1px 3px
+  );
+  animation: scan-flicker 6s steps(1, end) infinite;
+}
+
+@keyframes scan-flicker {
+  0%,
+  87.9%,
+  94%,
+  100% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 0.45;
+  }
+  90.5% {
+    opacity: 0.75;
+  }
+  92% {
+    opacity: 0.55;
+  }
+}
+
+/* the refresh band rolls steadily top→bottom (one pass per 12s) while a
+   cyan "carriage" glow sweeps across it every 3s — a typewriter typing
+   lines onto scrolling paper */
+.refresh-bar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 18vh;
+  overflow: hidden;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(255, 255, 255, 0.5) 45%,
+    rgba(20, 24, 26, 0.04) 55%,
+    transparent
+  );
+  animation: refresh-roll 12s linear infinite;
+  will-change: transform;
+}
+
+@keyframes refresh-roll {
+  from {
+    transform: translateY(-18vh);
+  }
+  to {
+    transform: translateY(118vh);
+  }
+}
+
+.refresh-carriage {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 24vw;
+  /* visible against the cream page: cyan haze + bright core + dark under-edge */
+  background:
+    radial-gradient(
+      ellipse 60% 50% at center,
+      rgba(0, 229, 255, 0.3) 0%,
+      transparent 70%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 38%,
+      rgba(255, 255, 255, 0.95) 47%,
+      rgba(0, 229, 255, 0.4) 53%,
+      rgba(20, 24, 26, 0.14) 58%,
+      transparent 66%
+    );
+  /* taper the beam ends so the core line doesn't cut off at the element edge */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 18%,
+    #000 82%,
+    transparent
+  );
+  mask-image: linear-gradient(to right, transparent, #000 18%, #000 82%, transparent);
+  animation: carriage-sweep 3s linear infinite;
+  will-change: transform;
+}
+
+@keyframes carriage-sweep {
+  from {
+    transform: translateX(-24vw);
+  }
+  to {
+    transform: translateX(100vw);
+  }
+}
+
+/* slow-drifting gradient blobs behind the hero */
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(64px);
+  will-change: transform;
+}
+
+.blob-mint {
+  background: radial-gradient(circle, var(--color-mint) 0%, transparent 70%);
+}
+.blob-sky {
+  background: radial-gradient(circle, var(--color-sky) 0%, transparent 70%);
+}
+.blob-butter {
+  background: radial-gradient(circle, var(--color-butter) 0%, transparent 70%);
+}
+.blob-blush {
+  background: radial-gradient(circle, var(--color-blush) 0%, transparent 70%);
+}
+
+.blob-drift-a {
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+.blob-drift-b {
+  animation: drift-b 32s ease-in-out infinite alternate;
+}
+.blob-drift-c {
+  animation: drift-c 38s ease-in-out infinite alternate;
+}
+.blob-drift-d {
+  animation: drift-d 22s ease-in-out infinite alternate;
+}
+
+@keyframes drift-a {
+  from {
+    transform: translate(-10%, -6%) scale(1);
+  }
+  to {
+    transform: translate(12%, 10%) scale(1.2);
+  }
+}
+@keyframes drift-b {
+  from {
+    transform: translate(8%, 4%) scale(1.15);
+  }
+  to {
+    transform: translate(-10%, -8%) scale(0.95);
+  }
+}
+@keyframes drift-c {
+  from {
+    transform: translate(-6%, 10%) scale(0.95);
+  }
+  to {
+    transform: translate(8%, -8%) scale(1.2);
+  }
+}
+@keyframes drift-d {
+  from {
+    transform: translate(10%, -8%) scale(1.1);
+  }
+  to {
+    transform: translate(-12%, 6%) scale(0.9);
+  }
+}
+
+/* faint halftone dots for the retro print texture */
+.halftone {
+  background-image: radial-gradient(
+    rgba(20, 24, 26, 0.5) 1px,
+    transparent 1.5px
+  );
+  background-size: 22px 22px;
+  opacity: 0.06;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob-drift-a,
+  .blob-drift-b,
+  .blob-drift-c,
+  .blob-drift-d,
+  .animate-blink,
+  .wordmark,
+  .wordmark::before,
+  .wordmark::after,
+  .glitch-logo,
+  .scanlines {
+    animation: none;
+  }
+  .refresh-bar {
+    display: none;
+  }
+}
