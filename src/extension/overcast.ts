@@ -21,6 +21,7 @@ import { CLOUDGLUE_MODEL_ID } from "../providers/brain/vision.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { OvercastHeader, OvercastFooter, workingIndicator, opLabel, idleLabel } from "./branding.js";
 import { registerSlashCommands } from "./slash.js";
+import { registerYeahEasterEgg } from "./horatio.js";
 import { OvercastEditor } from "./editor.js";
 import { OVERCAST_VERSION } from "../version.js";
 import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
@@ -129,6 +130,9 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
 
   // state verbs as TUI slash commands (/target /source /case /prebrief /view /setup)
   registerSlashCommands(pi);
+
+  // unlisted: the sunglasses moment (src/extension/horatio.ts)
+  registerYeahEasterEgg(pi);
 
   // Themed busy *label* ("verbs"): name the actual op while a verb runs
   // ("scanning sources…", "watching the footage…"), and a themed generic while

@@ -27,7 +27,7 @@ function summarize(rec: OvercastRecord, format?: string): string {
   return `▶ ${renderForFormat(rec, format)}`;
 }
 
-function emitResult(pi: ExtensionAPI, text: string): void {
+export function emitResult(pi: ExtensionAPI, text: string): void {
   pi.sendMessage(
     {
       customType: RESULT_TYPE,

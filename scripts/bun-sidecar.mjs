@@ -66,7 +66,21 @@ try {
   console.error(`[build:bun] WARNING: could not copy example providers (${e.message}); builtin sources won't resolve on the binary`);
 }
 
+// 4) branding audio (the sting) → dist/bin/assets/branding/, so shippedPath()
+// resolves it beside the compiled binary like the provider scripts above.
+let sting = 0;
+try {
+  const src = join(process.cwd(), "assets", "branding", "sting.m4a");
+  if (existsSync(src)) {
+    mkdirSync(join(OUT, "assets", "branding"), { recursive: true });
+    copyFileSync(src, join(OUT, "assets", "branding", "sting.m4a"));
+    sting = 1;
+  }
+} catch {
+  /* cosmetic; the binary just stays quiet without it */
+}
+
 console.error(
   `[build:bun] wrote ${OUT}/package.json + ${copied} builtin theme file(s)` +
-    `${providers ? " + example providers" : ""}`,
+    `${providers ? " + example providers" : ""}${sting ? " + branding audio" : ""}`,
 );
