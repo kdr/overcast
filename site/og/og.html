@@ -1,0 +1,132 @@
+<!doctype html>
+<!-- Source design for the social card (public/og.png, 1200×630).
+     Regenerate: see site/README.md. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        position: relative;
+        font-family:
+          ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+          "Liberation Mono", monospace;
+        color: #14181a;
+        background: #faf6ec;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 72px;
+      }
+      .blob {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(70px);
+      }
+      .mint {
+        background: radial-gradient(circle, #b8f0cf 0%, transparent 70%);
+        width: 900px;
+        height: 900px;
+        left: -280px;
+        top: -400px;
+      }
+      .sky {
+        background: radial-gradient(circle, #bfefff 0%, transparent 70%);
+        width: 800px;
+        height: 800px;
+        right: -250px;
+        top: -300px;
+      }
+      .butter {
+        background: radial-gradient(circle, #ffeaa9 0%, transparent 70%);
+        width: 850px;
+        height: 850px;
+        left: -200px;
+        bottom: -450px;
+      }
+      .blush {
+        background: radial-gradient(circle, #ffd3e8 0%, transparent 70%);
+        width: 700px;
+        height: 700px;
+        right: -180px;
+        bottom: -350px;
+      }
+      .halftone {
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(
+          rgba(20, 24, 26, 0.5) 1px,
+          transparent 1.5px
+        );
+        background-size: 22px 22px;
+        opacity: 0.06;
+      }
+      .logo {
+        position: relative;
+        width: 430px;
+        height: 430px;
+        filter: drop-shadow(0 18px 40px rgba(20, 24, 26, 0.18));
+      }
+      .copy {
+        position: relative;
+        text-align: left;
+      }
+      h1 {
+        font-size: 120px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        line-height: 1;
+        text-shadow:
+          0.04em 0.02em 0 rgba(0, 229, 255, 0.6),
+          -0.04em -0.02em 0 rgba(255, 46, 151, 0.5);
+      }
+      .tagline {
+        margin-top: 28px;
+        font-size: 27px;
+        letter-spacing: 0.42em;
+        color: rgba(20, 24, 26, 0.75);
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 44px;
+        padding: 14px 30px;
+        border: 3px solid #14181a;
+        border-radius: 999px;
+        background: #ffeaa9;
+        box-shadow: 7px 7px 0 0 #14181a;
+        transform: rotate(-2deg);
+        font-size: 26px;
+        font-weight: 600;
+      }
+      .domain {
+        margin-top: 40px;
+        font-size: 24px;
+        color: rgba(20, 24, 26, 0.55);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="blob mint"></div>
+    <div class="blob sky"></div>
+    <div class="blob butter"></div>
+    <div class="blob blush"></div>
+    <div class="halftone"></div>
+
+    <img class="logo" src="../public/logo.svg" alt="" />
+    <div class="copy">
+      <h1>overcast</h1>
+      <div class="tagline">video · recon · osint</div>
+      <div><span class="pill">&gt; coming soon ▮</span></div>
+      <div class="domain">overcast.video</div>
+    </div>
+  </body>
+</html>
