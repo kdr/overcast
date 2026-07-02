@@ -128,6 +128,13 @@ test("span anchors: short spans loop verbatim, long spans window, clamp falls ba
   // anchor beyond the clip: end clamps under start → loop the head instead
   const clamped = buildWallModel([watchRec(A, { at: 30, duration: 8 })], opts()).tiles[0];
   assert.deepEqual(clamped.anchor, { at: 8, start: 0, end: 8, source: "record" });
+
+  // a duration-truncated span is no longer verbatim — the marker drops and the
+  // intel command falls back to the point form
+  const truncated = buildWallModel([watchRec(A, { at: [4, 12], duration: 8 })], opts()).tiles[0];
+  assert.deepEqual(truncated.anchor, { at: 4, start: 4, end: 8, source: "record" });
+  const truncatedHtml = renderWallHtml(buildWallModel([watchRec(A, { at: [4, 12], duration: 8 })], opts()), "csi");
+  assert.match(truncatedHtml, /--at 4</);
 });
 
 test("coverage, face count, see frame-stem join; dismissed findings don't count", () => {
@@ -192,6 +199,10 @@ test("HUD: last scan per source, monitor freshness, brief age, counts", () => {
     makeRecord({ verb: "scan", payload: { title: "old hit", source: "youtube" }, meta: { time: T(90) } }),
     makeRecord({ verb: "scan", payload: { title: "tt hit", source: "tiktok" }, meta: { time: T(180) } }),
     makeRecord({ verb: "scan", payload: { op: "pull_progress", source: "youtube" }, meta: { time: T(1) } }), // ignored
+    // a failed sweep must not make youtube look freshly scanned, and a source
+    // with ONLY failed sweeps must not appear at all
+    makeRecord({ verb: "scan", payload: { title: "boom", source: "youtube" }, state: "error", error: "x", meta: { time: T(2) } }),
+    makeRecord({ verb: "scan", payload: { title: "blocked", source: "web" }, state: "needs_credentials", meta: { time: T(4) } }),
     makeRecord({ verb: "monitor", payload: { new_items: 2, total_hits: 5 }, meta: { time: T(3) } }),
     makeRecord({ verb: "brief", payload: { report: "x" }, meta: { time: T(120) } }),
     findingRec(A, 44),
@@ -206,7 +217,8 @@ test("HUD: last scan per source, monitor freshness, brief age, counts", () => {
   assert.equal(hud.monitor?.ageSeconds, 3 * 60);
   assert.equal(hud.briefAgeSeconds, 120 * 60);
   assert.equal(hud.openFindings, 1);
-  assert.equal(hud.counts.scan, 4);
+  assert.equal(hud.counts.scan, 6);
+  assert.ok(!hud.lastScans.some((s) => s.source === "web"), "failed-only source leaked into the HUD");
 });
 
 test("scan page URLs never tile; missing files and remote media classify correctly", () => {

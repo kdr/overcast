@@ -302,7 +302,12 @@ function anchorWindow(
 
 function clampWindow(a: WallAnchor, duration: number | null): WallAnchor {
   if (duration != null && duration > 0) {
-    a.end = Math.min(a.end, duration);
+    if (a.end > duration) {
+      a.end = duration;
+      // a clipped window is no longer the evidence's own span — don't advertise
+      // the truncated range as a verbatim --at start-end
+      delete a.span;
+    }
     if (a.end <= a.start) {
       // anchor beyond the clip — fall back to looping the head (no longer the
       // evidence's own span, so drop the span marker)
@@ -365,10 +370,12 @@ function buildHud(records: OvercastRecord[], o: HudOptions): WallHud {
   const counts: Record<string, number> = {};
   for (const r of records) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
 
-  // last scan per source — not persisted anywhere; derived from scan records
+  // last scan per source — not persisted anywhere; derived from scan records.
+  // Ready rows only (like monitor/brief freshness): a failed or cred-blocked
+  // sweep must not make a source look freshly scanned.
   const scanTimes = new Map<string, number>();
   for (const r of records) {
-    if (r.verb !== "scan") continue;
+    if (r.verb !== "scan" || !isReady(r)) continue;
     const p = payloadOf(r);
     if (p.op === "pull_progress") continue;
     const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
@@ -641,15 +648,17 @@ tiles.forEach(function(tile, i){
       end = Math.min(end, v.duration);
       if (end <= start) { start = 0; end = Math.min(8, v.duration); }
     }
+    // moment loop: hold the evidence window, not the whole file. Installed only
+    // AFTER the clamp so the handlers can never act on a window that outruns
+    // the real clip (loadedmetadata fires once per src attach).
+    if (end > start) {
+      v.addEventListener("timeupdate", function(){
+        if (v.currentTime >= end || v.currentTime < start - 0.75) v.currentTime = start;
+      });
+      v.addEventListener("ended", function(){ v.currentTime = start; v.play().catch(function(){}); });
+    }
     try { v.currentTime = start; } catch (e) {}
   });
-  if (end > start) {
-    // moment loop: hold the evidence window, not the whole file
-    v.addEventListener("timeupdate", function(){
-      if (v.currentTime >= end || v.currentTime < start - 0.75) v.currentTime = start;
-    });
-    v.addEventListener("ended", function(){ v.currentTime = start; v.play().catch(function(){}); });
-  }
   v.addEventListener("error", function(){ tile.classList.add("err"); });
   // staggered attach avoids a simultaneous decode burst across the grid
   setTimeout(function(){
