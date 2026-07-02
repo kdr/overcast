@@ -240,14 +240,17 @@ overcast crop <see-record-id> --all --class person --json        # materialize d
 - Env: `DETECT_MODEL`, `DETECT_THRESHOLD` (default 0.1), `DETECT_MAX_FRAMES` (default 8). overcast passes `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` (the system ffmpeg/ffprobe) so video frame extraction works.
 - *Note:* `nvidia/LocateAnything-3B` is a higher-quality open-vocab grounding model but it's a 3B VLM (~7.7 GB, GPU-class); swap it in via a local-transformers provider if you have the hardware.
 
-## Visual DBs (`image-ransac`, `deepface-local`, and `basic-clip`)
+## Visual DBs (`image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`)
 
 Visual DBs are selected by **index type**. The DeepFace face detector can
-also be selected as a profile provider with `face:deepface-local`, but the searchable
-local face DB is still the `deepface-local` index type. Create them per case with
-`index create --local`, or add them in the setup wizard via `case setup --index
-"<name>:<type>"` (for `basic-clip`, an optional `@k=v;k=v` config suffix — pairs
-separated by `;` — pins sampling/pooling; see below). They use shipped Python providers under
+also be selected as a profile provider with `face:deepface-local`, but the
+searchable local face DBs are the index types: `deepface-local` (1:1 match
+against reference images) and `face-cluster` (group unknown faces into people;
+see below). Create them per case with `index create --local`, or add them in the
+setup wizard via `case setup --index "<name>:<type>"` (e.g.
+`case setup --index people:face-cluster`; for `basic-clip`, an optional
+`@k=v;k=v` config suffix — pairs separated by `;` — pins sampling/pooling; see
+below). They use shipped Python providers under
 `examples/providers/visual-db/` and a uv-managed Python environment:
 
 ```bash
@@ -281,6 +284,40 @@ overcast index add ./person.jpg --to localfaces --json
 overcast face ./clip.mp4 --match ./person.jpg --index localfaces --fps 0.5 --max-frames 32 --min-similarity 20 --json
 overcast face --match ./person.jpg --index localfaces --json
 ```
+
+Face **clustering** (`face-cluster` index type + the `cluster` verb) is a
+persistent local face DB that groups *unknown* faces into people, instead of
+matching against known references. It ingests faces out of clips/images, stores
+their embeddings + provenance, and maintains cluster assignments under
+`.overcast/index/<id>/` (`faces.jsonl`, `clusters.json`, `crops/`). Clustering
+needs face **embeddings**, which the tinycloud face path does not expose, so this
+rides exclusively on the local DeepFace provider — and it defaults to the
+clustering-grade **Facenet512** model + **retinaface** detector (both hard
+`deepface` deps, so `scripts/visual-db-uv.sh --face` provides them; override with
+`OVERCAST_FACE_MODEL` / `OVERCAST_FACE_DETECTOR`):
+
+```bash
+overcast index create people --type face-cluster --local --json
+overcast cluster add ./clipA.mp4 --index people --fps 0.5 --max-frames 20 --json  # detect → embed → assign-or-create
+overcast cluster add ./clipB.mp4 --index people --json                            # a face joins its person, or starts a new one
+overcast cluster list --index people --json                                       # the people in the DB (size, timespan, sources)
+overcast cluster identify ./who.jpg --index people --json                         # most-similar person, or "reads as a NEW person"
+overcast cluster recluster --index people --min-similarity 55 --json              # batch re-group (average-linkage); labels carry forward
+overcast cluster label p_1 "Jane Doe" --index people --json                       # the stable identity across recluster
+overcast cluster view --index people --json                                       # self-contained HTML contact sheet (base64 crops)
+```
+
+Similarity is on the tinycloud 0–100 percent scale. With Facenet512, same-person
+crops score ~65–90 and different people ~≤35, so the default `--min-similarity 55`
+separates cleanly; noisy/low-res inputs may want a higher floor. Each index
+records the model + detector it was built with and every op that computes with
+embeddings (`add`/`identify`/`recluster`) refuses a mismatched
+`OVERCAST_FACE_MODEL`/`OVERCAST_FACE_DETECTOR` — embeddings from different
+configs don't compare; switch the env back or rebuild the index. In case memory,
+`cluster add`/`identify` records are evidence — indexed as compact summaries only
+("ingested 11 faces → 5 new people", "closest person: …") — while DB reads and
+maintenance (`list`/`show`/`view`/`label`/`recluster`) stay operational; the
+embeddings, crops, and assignments live in the typed local index, not case memory.
 
 `basic-clip` is a local OpenAI CLIP (open_clip) DB for **cross-modal semantic
 similarity** — find images/video moments that resemble a photo (image→image) or a

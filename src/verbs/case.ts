@@ -16,10 +16,11 @@ import { payloadFields, pageText, fieldNames, getField } from "../render.js";
 import { redactSecrets } from "../env.js";
 import { addSource, listSources, parseSourceSpec, removeSource } from "../state/source.js";
 import { addTarget, listTargets, removeTarget } from "../state/target.js";
-import { addIndex, listIndexes, normalizeIndexType, removeIndex } from "../state/index.js";
+import { addIndex, listIndexes, normalizeIndexType, removeIndex, LOCAL_INDEX_TYPES } from "../state/index.js";
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex, type SetupIndexConfig } from "../state/setup.js";
 import { indexVerb } from "./index.js";
 import { similarVerb } from "./similar.js";
+import { clusterVerb } from "./cluster.js";
 import { readClipConfig } from "../providers/local/vision.js";
 import { isAv } from "./media-ref.js";
 import { findProviderChoice } from "../providers/catalog.js";
@@ -33,6 +34,9 @@ const DEFAULT_SIGNAL_BY_INDEX_TYPE: Record<string, string[]> = {
   "media-descriptions": ["watch", "index add"],
   "face-analysis": ["face", "index add"],
   entities: ["watch", "index add"],
+  // local face DB: `cluster add` feeds it (NOT `index add`, which would error) —
+  // setup stands the DB up alongside other indexes; clustering stays explicit.
+  "face-cluster": ["cluster add"],
 };
 const DEFAULT_LOCAL_MEMORY_SIGNALS = ["note", "watch", "listen", "see", "scan"];
 
@@ -535,6 +539,13 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
         operations.push(`${indexingOperationLabel(embed.length ? embed : recs)}: ${route.ref} -> ${id}`);
         continue;
       }
+      if (index.type === "face-cluster") {
+        if (!signals.has("cluster add") && !signals.has("cluster") && !signals.has("index add")) continue;
+        const recs = await clusterVerb.run({ ...ctx, input: "add", rest: [route.ref], opts: { index: id } });
+        records.push(...recs);
+        operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
+        continue;
+      }
       if (!signals.has("index add")) continue;
       const recs = await indexVerb.run({
         ...ctx,
@@ -675,7 +686,9 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     setup.default_signals[signalKey] = current.default_signals;
     indexRoutesChanged = true;
     operations.push(`${current.mode === "attach" ? "index attach" : "index create planned"}: ${signalKey}`);
-    if (apply && current.id) addIndex(ctx.case, { id: current.id, name: current.name, type: current.type });
+    // local-only types MUST carry backend "local" in the mirror — without it the
+    // typed verbs (image/face/cluster) reject the entry as remote.
+    if (apply && current.id) addIndex(ctx.case, { id: current.id, name: current.name, type: current.type, backend: LOCAL_INDEX_TYPES.has(String(current.type)) ? "local" : undefined });
   }
   if (removeIndexes.length) {
     const removedIndexes = setup.indexes.filter((i) => removeIndexes.includes(i.id ?? "") || removeIndexes.includes(i.name));
@@ -688,6 +701,20 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
         for (const existing of listIndexes(ctx.case).filter((i) => i.id === id || i.name === id)) removeIndex(ctx.case, existing.id);
       }
     }
+  }
+  // A face-cluster DB's ingest/identify records are the case's face evidence —
+  // the memory signal list (which narrows what local-grep/qmd search) must not
+  // silently exclude them. Runs AFTER --remove-index processing (removing the
+  // last DB in the same edit must not add the signal), and checks the CASE
+  // MIRROR too, so a DB stood up earlier via `index create` counts. Never
+  // auto-REMOVED: historical cluster evidence stays searchable after a DB is
+  // deleted.
+  const hasFaceClusterDb =
+    setup.indexes.some((i) => String(i.type) === "face-cluster") ||
+    listIndexes(ctx.case).some((i) => i.type === "face-cluster");
+  if (hasFaceClusterDb && setup.memory && !setup.memory.signals.includes("cluster")) {
+    setup.memory.signals = [...setup.memory.signals, "cluster"];
+    operations.push("memory signals: +cluster (face-cluster evidence searchable)");
   }
   for (const video of videos) {
     addVideoRoute(setup, video, signals);

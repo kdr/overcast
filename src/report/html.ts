@@ -118,6 +118,73 @@ export function renderCsiStatusReport(report: StatusReport): string {
   `);
 }
 
+export interface ClusterGalleryPerson {
+  cluster_id: string;
+  label?: string | null;
+  size?: number;
+  sample_crops?: string[];
+  at_span?: [number, number] | null;
+  sources?: string[];
+}
+
+export interface ClusterGalleryReport {
+  title: string;
+  subtitle?: string;
+  clusters: ClusterGalleryPerson[];
+  /** whole-store totals — `clusters` may be a page; when provided these drive
+   *  the stats so the gallery never understates an off-page person. */
+  total?: number;
+  named?: number;
+  /** face rows in the store — with zero people this flips the empty-state hint
+   *  to `cluster recluster` (the op that rebuilds groups from stored rows). */
+  storedFaces?: number;
+  model?: string | null;
+}
+
+/** A self-contained "contact sheet" of the people in a face-cluster index: one
+ *  card per person, each with a few base64-embedded face crops, size, time span,
+ *  and sources. Reuses the CSI shell + imageSrc so it matches brief/status HTML. */
+export function renderClusterGallery(report: ClusterGalleryReport): string {
+  const total = report.total ?? report.clusters.length;
+  const named = report.named ?? report.clusters.filter((c) => c.label).length;
+  const cards = report.clusters.map(renderPersonCard).join("");
+  const truncated = total > report.clusters.length
+    ? `<article class="context-card"><span class="label">MORE</span><p>showing ${report.clusters.length} of ${total} people — see <code>cluster list</code></p></article>`
+    : "";
+  return csiShell(report.title, report.subtitle, `
+    <section class="stats" aria-label="face cluster stats">
+      <div><span class="label">PEOPLE</span><strong>${total}</strong></div>
+      <div><span class="label">NAMED</span><strong>${named}</strong></div>
+      <div><span class="label">MODEL</span><strong>${escapeHtml(report.model ?? "—")}</strong></div>
+    </section>
+    <section class="context" data-cluster-gallery="true">
+      ${cards || ((report.storedFaces ?? 0) > 0
+        ? `<article class="context-card"><span class="label">EMPTY</span><p>${report.storedFaces} stored face${report.storedFaces === 1 ? "" : "s"} but no people — run <code>cluster recluster</code> to rebuild the groups.</p></article>`
+        : `<article class="context-card"><span class="label">EMPTY</span><p>No people yet — ingest media with <code>cluster add</code>.</p></article>`)}${truncated}
+    </section>
+  `);
+}
+
+function renderPersonCard(cl: ClusterGalleryPerson): string {
+  const title = cl.label || cl.cluster_id;
+  const thumbStyle = "height:76px;width:76px;object-fit:cover;border:1px solid var(--line);border-radius:4px;margin:2px;background:#020504";
+  const thumbs = (cl.sample_crops ?? [])
+    .map((c) => {
+      const src = imageSrc(c);
+      return src ? `<img alt="${escapeHtml(cl.cluster_id)}" src="${escapeHtml(src)}" style="${thumbStyle}">` : "";
+    })
+    .join("");
+  const span = Array.isArray(cl.at_span) ? `${cl.at_span[0]}s–${cl.at_span[1]}s` : "";
+  const sources = (cl.sources ?? []).map((s) => s.split("/").pop() ?? s);
+  const meta = [`${cl.size ?? 0} face${cl.size === 1 ? "" : "s"}`, span, ...sources].filter(Boolean).join(" · ");
+  return `<article class="context-card">
+    <span class="label">PERSON</span>
+    <p><strong>${escapeHtml(title)}</strong>${cl.label ? ` <span class="k">${escapeHtml(cl.cluster_id)}</span>` : ""}</p>
+    <div style="display:flex;flex-wrap:wrap;gap:2px;margin:8px 0">${thumbs || `<span class="meta">no crops</span>`}</div>
+    ${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}
+  </article>`;
+}
+
 function csiShell(title: string, subtitle: string | undefined, body: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>

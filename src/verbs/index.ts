@@ -36,8 +36,10 @@ import {
   removeMember,
   normalizeIndexType,
   setMembers,
+  LOCAL_INDEX_TYPES,
 } from "../state/index.js";
 import { providerEnv } from "../providers/provider-env.js";
+import { loadSetup, saveSetup } from "../state/setup.js";
 import {
   localIndexDir,
   writeClipConfig,
@@ -52,7 +54,6 @@ import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 const VALID_ACTIONS = ["create", "attach", "add", "list", "show", "delete", "remove", "entities"];
-const LOCAL_INDEX_TYPES = new Set(["deepface-local", "image-ransac", "basic-clip"]);
 const LOCAL_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf)$/i;
 const LOCAL_IMAGE_MEDIA_VERBS = new Set(["capture", "image", "face"]);
 
@@ -216,7 +217,7 @@ function resolveTarget(c: Case, explicit?: string, type?: string): { id?: string
   // once a target resolves, so a sole unknown stub must still match `--type face`.
   if (type) cols = cols.filter((x) => x.type === type || x.type === "unknown");
   if (cols.length === 1) return { id: cols[0].id };
-  if (cols.length === 0) return { error: "no indexes in this case — create one with `overcast index create <name> --type <media|entities|face|deepface-local|image-ransac|basic-clip>`" };
+  if (cols.length === 0) return { error: "no indexes in this case — create one with `overcast index create <name> --type <media|entities|face|deepface-local|image-ransac|face-cluster|basic-clip>`" };
   return { error: `multiple indexes; specify one (ids: ${cols.map((x) => x.id).join(", ")})` };
 }
 
@@ -313,7 +314,7 @@ export const indexVerb: VerbSpec = {
     { name: "arg2", summary: "entities: the video/record-id (index entities <id> <video>)", required: false },
   ],
   flags: [
-    { name: "type", summary: "create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | basic-clip", type: "string" },
+    { name: "type", summary: "create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip", type: "string" },
     { name: "local", summary: "create a local index instead of a tinycloud-backed index", type: "boolean" },
     { name: "description", summary: "create: human description", type: "string" },
     { name: "prompt", summary: "create entities: free-text extraction prompt", type: "string" },
@@ -358,11 +359,13 @@ export const indexVerb: VerbSpec = {
       const rawType = ctx.opts.type != null ? String(ctx.opts.type) : "media-descriptions";
       const type = normalizeIndexType(rawType);
       if (!type) {
-        return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | basic-clip)`)];
+        return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip)`)];
       }
       const local = ctx.opts.local === true || LOCAL_INDEX_TYPES.has(type);
       if (ctx.opts.local === true && !LOCAL_INDEX_TYPES.has(type)) {
-        return [err(`--local only supports deepface-local, image-ransac, or basic-clip indexes (got ${type})`)];
+        // derived from LOCAL_INDEX_TYPES so the message can't drift when a new
+        // local type lands (it already did twice: face-cluster, basic-clip).
+        return [err(`--local only supports ${[...LOCAL_INDEX_TYPES].join(" | ")} indexes (got ${type})`)];
       }
       // reject a provided-but-blank text/path flag (a typo) — sweep all of create's
       // value flags together, so a blank `--schema=`/`--prompt=`/`--description=`
@@ -393,6 +396,17 @@ export const indexVerb: VerbSpec = {
         mkdirSync(localIndexDir(c, id), { recursive: true });
         if (clipConfig) writeClipConfig(localIndexDir(c, id), clipConfig);
         const entry = addIndex(c, { id, type, name, description, backend: "local" });
+        // a face-cluster DB's ingest/identify records are case evidence; if a
+        // saved setup already narrows memory search, back-fill the `cluster`
+        // signal so the new DB isn't silently unsearchable (case setup does the
+        // same when the DB pre-dates the setup).
+        if (type === "face-cluster") {
+          const setup = loadSetup(c);
+          if (setup?.memory && !setup.memory.signals.includes("cluster")) {
+            setup.memory.signals = [...setup.memory.signals, "cluster"];
+            saveSetup(c, setup);
+          }
+        }
         return [makeRecord({
           verb: "index",
           format: "json",
@@ -424,7 +438,7 @@ export const indexVerb: VerbSpec = {
       if (!requested) return [err("usage: index attach <remote-index-id-or-name> [--type <media|entities|face>]")];
       const typeHint = ctx.opts.type != null ? normalizeIndexType(String(ctx.opts.type)) : undefined;
       if (ctx.opts.type != null && !typeHint) {
-        return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | basic-clip)`)];
+        return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip)`)];
       }
       if (typeHint && LOCAL_INDEX_TYPES.has(typeHint)) {
         return [err(`index attach: ${typeHint} is local-only; create it with \`index create <name> --type ${typeHint} --local\``)];
@@ -536,6 +550,12 @@ export const indexVerb: VerbSpec = {
         addIndex(c, { id, type: typeHint, name: existing.name, description: existing.description, backend: hintedLocal ? "local" : existing.backend });
       }
       const targetEntry = findIndex(c, id);
+      // face-cluster is guarded by TYPE, above the backend dispatch — a mirror
+      // entry missing its "local" stamp must still hit this error, not fall
+      // through to the tinycloud add path (the type is local-only regardless).
+      if (targetEntry?.type === "face-cluster") {
+        return [err(`index add doesn't apply to a face-cluster index — it ingests media, not reference images. Use \`cluster add <video|image> --index ${id}\` (see \`overcast cluster --help\`).`)];
+      }
       if (targetEntry && isLocalIndex(targetEntry)) {
         // basic-clip members must be embedded (CLIP vectors), not just referenced —
         // that path lives on the `similar` verb, which computes + caches them.
@@ -723,6 +743,9 @@ export const indexVerb: VerbSpec = {
       const from = resolveTarget(c, ctx.opts.from != null ? String(ctx.opts.from) : undefined);
       if (from.error) return [err(`index remove: ${from.error}`)];
       const local = findIndex(c, from.id!);
+      if (local?.type === "face-cluster") {
+        return [err(`index remove doesn't apply to a face-cluster index — it stores face assignments in faces.jsonl/clusters.json. Create a new face-cluster index or rebuild with \`cluster recluster --index ${from.id}\`.`)];
+      }
       if (local && isLocalIndex(local)) {
         // basic-clip members can be videos (image-ransac/deepface store stills), so
         // accept either; also drop the removed member's cached embedding.

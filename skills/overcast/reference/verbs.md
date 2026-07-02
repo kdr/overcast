@@ -140,6 +140,41 @@ Options:
 
 Emits `image.match` records.
 
+### `overcast cluster`
+
+A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); `cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new person) without writing; `cluster recluster` re-groups every stored face and carries human labels forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the case's sole one when --index is omitted. Emits a `cluster` record.
+
+```
+overcast cluster <action> [arg] [arg2] [options]
+
+  Build and browse a local face-cluster DB: group faces into people, identify, label, and view.
+
+  A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); `cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new person) without writing; `cluster recluster` re-groups every stored face and carries human labels forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the case's sole one when --index is omitted. Emits a `cluster` record.
+
+Arguments:
+  action           add | ingest | identify | list | show | label | recluster | view
+  arg              add/identify: media (path/URL/record-id) · show/label: person id
+  arg2             label: the name to assign (cluster label <person-id> <name>)
+
+Options:
+  --index <string>       face-cluster index id/name (default: the case's sole face-cluster index)
+  --min-similarity <number> add/identify: assign-or-create threshold; recluster: linkage threshold (0–100)
+  --cluster <string>     show/label: the person id (alternative to the positional)
+  --label <string>       label: the name to assign (alternative to the positional)
+  --fps <number>         add/identify: sampling frames per second (video)
+  --max-frames <number>  add/identify: video frame sample count/cap
+  --start <string>       add/identify: window start (SS or timecode)
+  --end <string>         add/identify: window end (SS or timecode)
+  --limit <number>       list/show/identify: max results
+  --source-record <string> add: the case record id the media came from
+  --out <string>         view: HTML output path (default: .overcast/media/cluster-<id>.html)
+  --no-open              view: write the gallery but don't launch it
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `cluster` records.
+
 ### `overcast similar`
 
 `similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
@@ -372,7 +407,7 @@ Arguments:
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | basic-clip
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip
   --local                create a local index instead of a tinycloud-backed index
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt

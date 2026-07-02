@@ -179,6 +179,14 @@ Raw detection payloads are intentionally not searchable. Use exact record reads
 - **Local visual search:** `image match ./clip.mp4 --index <image-ransac-index>`
   for logos/landmarks, or `face ./clip.mp4 --match ./person.jpg --index
   <deepface-local-index>` for local face matching.
+- **Local face clustering (who recurs across media):** stand up a DB with `index
+  create people --type face-cluster --local`, then `cluster add ./clip.mp4
+  --index <id>` to ingest faces (each is assign-or-created into a person). Browse
+  with `cluster list` / `cluster view` (HTML contact sheet), name a person with
+  `cluster label <person-id> "Name"`, probe a photo with `cluster identify
+  ./who.jpg`, and re-tidy groups as the DB grows with `cluster recluster` (human
+  labels carry forward). Local + deepface-only — the tinycloud face path exposes
+  no embeddings, so clustering rides on `face:deepface-local`.
 - **Entity index reads:** `index entities <entity-index> <video>`.
 - **Detection crops:** `crop <face-or-see-record-id> --all [--class person]`
   writes crop images and searchable crop records.

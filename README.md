@@ -163,6 +163,15 @@ overcast index create localfaces --type deepface-local --local --json
 overcast index add ./suspect.jpg --to localfaces --json
 overcast face ./clip.mp4 --match ./suspect.jpg --index localfaces --fps 0.5 --max-frames 32 --json
 
+# 8b) face-cluster DB: group everyone across clips into people, then browse
+overcast index create people --type face-cluster --local --json  # or: case setup --index people:face-cluster
+overcast cluster add ./clipA.mp4 --index people --fps 0.5 --max-frames 20 --json  # ingest → assign-or-create
+overcast cluster add ./clipB.mp4 --index people --json
+overcast cluster identify ./who.jpg --index people --json         # most-similar person (or "new person")
+overcast cluster recluster --index people --json                  # re-tidy groups as the DB grows
+overcast cluster label p_1 "Jane Doe" --index people --json       # names survive recluster
+overcast cluster view --index people --json                       # self-contained HTML contact sheet
+
 # 9) semantic (CLIP) search: find images/video moments by text or by example image
 scripts/visual-db-uv.sh --clip
 overcast index create scenes --type basic-clip --local --granularity frame --json
@@ -213,6 +222,7 @@ surface + env vars.)
 | `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM / the opt-in tinycloud `see`+`extract` provider, ≥ 0.3.7) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
+| `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) index — `search` by text, `match` by image, video moments included |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |

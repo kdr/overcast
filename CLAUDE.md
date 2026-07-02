@@ -100,7 +100,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `face:deepface-local` locally: detect faces, `--match <jpeg|png>` to find/rank a
   person in a clip, or `--index` to search a face-analysis / deepface-local index),
   `image` (local OpenCV RANSAC image/video-frame matching against
-  `image-ransac` indexes), `similar` (local OpenAI CLIP cross-modal semantic
+  `image-ransac` indexes), `cluster` (persistent LOCAL face DB: ingest faces out
+  of media → assign-or-create people, `identify`, `recluster`, `list/show/label`,
+  and an HTML gallery `view`; deepface-only, over a `face-cluster` local index),
+  `similar` (local OpenAI CLIP cross-modal semantic
   search — `add`/`match` image→image, `search` text→image — against `basic-clip`
   indexes; videos frame-sampled + pooled, or per-frame moments), `enhance` (system
   ffmpeg ops or a bound model).
@@ -118,7 +121,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   typed remote tinycloud indexes: media-descriptions → `ask --index`, entities →
   `index entities`, face-analysis → `face --index`; local DBs:
   `image-ransac` for `image match`, `deepface-local` for local face search,
-  `basic-clip` for `similar` CLIP semantic search).
+  `face-cluster` for the `cluster` face DB, `basic-clip` for `similar` CLIP
+  semantic search).
   Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `web:<q>`.
 - **State** — `target` / `source` manage standing scope; `note` records human
@@ -157,16 +161,19 @@ index mirrors). `case setup` saves a *mutable* setup model to
 (`payload.op = startup_setup` / `startup_setup_update`).
 
 Case memory is **evidence-only**. `ask` / `brief` read primary evidence
-(`watch listen see face similar crop note scan capture enhance` + root `finding`s) through
+(`watch listen see face image similar crop note scan capture enhance` + root
+`finding`s + `cluster` ingest/identify) through
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
-prebrief wall`, finding review-rows, dismissed findings) are excluded even when
-they match the query. `face`/`see`/`similar` detections index only compact
-summaries / counts / moments / matched refs — raw boxes, thumbnails, and vectors
-stay in the record. Local visual DB artifacts stay in typed local indexes:
-local-grep/qmd ingest the records and summaries, not binary media, embeddings,
-sampled frames, match visualizations, or raw face boxes.
+prebrief wall`, finding review-rows, dismissed findings, cluster DB
+reads/maintenance `list/show/view/label/recluster`) are excluded even when they
+match the query. `face`/`see`/`image`/`similar`/`cluster` detections index only
+compact summaries / counts / moments / matched refs — raw boxes, thumbnails,
+homographies, and vectors stay in the record for exact reads and `crop`.
+Local visual DB artifacts stay in typed local indexes: local-grep/qmd ingest the
+records and summaries, not binary media, embeddings, sampled frames, match
+visualizations, or raw face boxes.
 The saved setup's memory signal list + per-provider `indexable` flags narrow what
 each case searches. Provider execution always follows the **active profile
 binding**; case setup records expected choices/policy and can clear built-ins like

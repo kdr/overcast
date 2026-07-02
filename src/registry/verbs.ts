@@ -10,6 +10,7 @@ import { providerEnv } from "../providers/provider-env.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
 import { faceVerb } from "../verbs/face.js";
 import { imageVerb } from "../verbs/image.js";
+import { clusterVerb } from "../verbs/cluster.js";
 import { similarVerb } from "../verbs/similar.js";
 import { cropVerb } from "../verbs/crop.js";
 import { wallVerb } from "../verbs/wall.js";
@@ -91,6 +92,7 @@ export const VERBS: VerbSpec[] = [
   seeVerb,
   faceVerb,
   imageVerb,
+  clusterVerb,
   similarVerb,
   enhanceVerb,
   viewVerb,

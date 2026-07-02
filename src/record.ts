@@ -80,6 +80,13 @@ export function isMemoryRecord(rec: Pick<OvercastRecord, "verb"> & Partial<Pick<
   if (rec.verb === "scan" && rec.payload && typeof rec.payload === "object") {
     if ((rec.payload as Record<string, unknown>).op === "pull_progress") return false;
   }
+  // cluster: only the ops that PRODUCE investigative signal (ingesting faces out
+  // of media, identifying a probe) are evidence; DB reads and maintenance
+  // (list/show/view/label/recluster) are operational, like scan's pull_progress.
+  if (rec.verb === "cluster") {
+    const op = rec.payload && typeof rec.payload === "object" ? (rec.payload as Record<string, unknown>).op : undefined;
+    if (op !== "ingest" && op !== "identify") return false;
+  }
   if (rec.verb === "finding" && rec.payload && typeof rec.payload === "object") {
     const payload = rec.payload as Record<string, unknown>;
     if (typeof payload.finding_id === "string") return false;
