@@ -102,6 +102,7 @@ export function loadSetup(c: Case): CaseSetup | undefined {
     const parsed = JSON.parse(readFileSync(c.setupFile, "utf8")) as CaseSetup;
     if (parsed && parsed.version === 1) {
       parsed.memory ??= { backend: "local-grep", signals: ["note", "watch", "listen", "see", "scan"] };
+      parsed.memory.signals = Array.isArray(parsed.memory.signals) ? parsed.memory.signals : ["note", "watch", "listen", "see", "scan"];
       parsed.automation ??= { auto_sense: [], auto_index_new: false };
       parsed.findings ??= { mode: "off" };
       parsed.providers ??= {};

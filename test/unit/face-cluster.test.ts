@@ -181,6 +181,40 @@ test("cluster memory signal lands regardless of DB/setup creation order (#PR33 R
   }
 });
 
+test("face-cluster index create back-fills legacy setup with missing memory signals", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-fc-missing-signals-"));
+  try {
+    const c = openCase(cdir); c.ensure();
+    writeFileSync(join(cdir, ".overcast", "setup.json"), JSON.stringify({
+      version: 1,
+      completed: true,
+      case_name: "legacy",
+      targets: [],
+      notes: [],
+      sources: [],
+      memory: { backend: "local-grep" },
+      indexes: [],
+      default_signals: {},
+      media: { folders: [], videos: [], routes: [] },
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+    }, null, 2) + "\n");
+
+    const [created] = await indexVerb.run({
+      input: "create",
+      rest: ["people"],
+      opts: { type: "face-cluster", local: true },
+      case: openCase(cdir),
+      profile: defaultProfile(),
+    });
+    assert.equal(created.state, "ready");
+    const setup = JSON.parse(readFileSync(join(cdir, ".overcast", "setup.json"), "utf8"));
+    assert.deepEqual(setup.memory.signals, ["note", "watch", "listen", "see", "scan", "cluster"]);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 // ---- cluster verb op-resolution (bash stub) -------------------------------
 
 function clusterCase(cdir: string) {
