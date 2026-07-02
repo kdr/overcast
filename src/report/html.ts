@@ -13,6 +13,9 @@ export interface TimelineRecord {
   meta?: Record<string, unknown>;
   payload?: unknown;
   error?: string;
+  /** local poster-frame path for a video preview (extracted at export time) so
+   *  the player can stay preload="none" — set by attachVideoPosters. */
+  poster?: string;
 }
 
 /** Record-derived brief header (see BriefSynthesis in verbs/read.ts): narrative
@@ -384,18 +387,16 @@ function mediaEmbed(record: TimelineRecord): string {
   const payload = typeof record.payload === "object" && record.payload != null ? (record.payload as Record<string, unknown>) : {};
   const ref = record.media?.ref;
   if (typeof ref === "string" && ref.trim()) {
-    const poster = typeof payload.thumb === "string" && /^https?:\/\//i.test(payload.thumb) ? payload.thumb : undefined;
+    // poster preference: an extracted local poster frame (record.poster), else a
+    // remote thumb. A poster lets us keep preload="none" — the browser never
+    // opens the (possibly huge) video until the user clicks play, so a page full
+    // of clips loads and plays instantly instead of stalling on metadata.
+    const posterSrc = record.poster ? imageSrc(record.poster) : undefined;
+    const poster = posterSrc ?? (typeof payload.thumb === "string" && /^https?:\/\//i.test(payload.thumb) ? payload.thumb : undefined);
     if (isVideoMediaRef(ref)) {
       const src = /^https?:\/\//i.test(ref) ? ref : existsSync(ref) ? pathToFileURL(ref).href : undefined;
-      if (src && poster) {
-        // a poster (scan hit thumb) previews without loading the video
-        parts.push(`<video class="embed" controls preload="none" poster="${escapeHtml(poster)}" src="${escapeHtml(src)}"></video>`);
-      } else if (src) {
-        // no poster (image/face match records, captured clips): seek to an early
-        // frame via a media fragment + preload=metadata so the card shows that
-        // frame instead of a black box until played
-        const preview = src.includes("#") ? src : `${src}#t=0.1`;
-        parts.push(`<video class="embed" controls preload="metadata" src="${escapeHtml(preview)}"></video>`);
+      if (src) {
+        parts.push(`<video class="embed" controls preload="none"${poster ? ` poster="${escapeHtml(poster)}"` : ""} src="${escapeHtml(src)}"></video>`);
       }
     } else if (/^https?:\/\//i.test(ref) && VISUAL_EXT_RE.test(ref)) {
       parts.push(`<img class="embed" alt="${escapeHtml(ref)}" src="${escapeHtml(ref)}">`);

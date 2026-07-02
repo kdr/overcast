@@ -2,10 +2,11 @@
 // (synthesize the case into a report, --export to md/html). Both read through
 // the bound memory providers (fan-out); currently the local provider.
 
-import { writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { makeRecord, memoryRecords, type OvercastRecord } from "../record.js";
-import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport } from "../report/html.js";
+import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord } from "../report/html.js";
+import { posterFrame } from "../media/ffmpeg.js";
 import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
@@ -176,6 +177,27 @@ export const askVerb: VerbSpec = {
 };
 
 // ---- brief -----------------------------------------------------------------
+
+const REPORT_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|ogv|3gp)$/i;
+
+/** Extract a small local poster frame for each local video timeline record that
+ *  lacks one, so the HTML player can preview without preload="metadata" opening
+ *  the (possibly huge) file. Remote videos are skipped (they carry a `thumb`
+ *  poster from the source, or would need a download); failures degrade to no
+ *  poster. Best-effort and cached — never throws. */
+async function attachVideoPosters(records: TimelineRecord[], mediaDir: string): Promise<void> {
+  const posterDir = join(mediaDir, "posters");
+  for (const r of records) {
+    const ref = r.media?.ref;
+    if (r.poster || typeof ref !== "string" || !ref) continue;
+    if (/^https?:\/\//i.test(ref)) continue; // remote: source thumb or skip
+    const payload = typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {};
+    if (typeof payload.thumb === "string" && payload.thumb.trim()) continue; // already has a poster source
+    if (!REPORT_VIDEO_RE.test(ref) || !existsSync(ref)) continue;
+    const poster = await posterFrame(ref, posterDir);
+    if (poster) r.poster = poster;
+  }
+}
 
 interface BriefData {
   md: string;
@@ -421,17 +443,25 @@ export const briefVerb: VerbSpec = {
     if (ctx.opts.export) {
       const path = resolve(String(ctx.opts.export));
       const isHtml = isHtmlExportPath(path);
-      const html = theme === "csi"
-        ? renderCsiTimelineReport({
-            title: `Brief — ${info.name}`,
-            subtitle: ctx.case.dir,
-            kind: "brief",
-            records: brief.records.map(recordToTimelineRecord),
-            counts: brief.counts,
-            total: brief.total,
-            synthesis: brief.synthesis,
-          })
-        : mdToPlainHtml(brief.md, `Brief — ${info.name}`);
+      let html: string;
+      if (theme === "csi") {
+        const timeline = brief.records.map(recordToTimelineRecord);
+        // extract tiny poster frames for local video previews so the player can
+        // stay preload="none" — a report full of large clips must not stall the
+        // page loading video metadata (see attachVideoPosters).
+        if (isHtml) await attachVideoPosters(timeline, ctx.case.mediaDir);
+        html = renderCsiTimelineReport({
+          title: `Brief — ${info.name}`,
+          subtitle: ctx.case.dir,
+          kind: "brief",
+          records: timeline,
+          counts: brief.counts,
+          total: brief.total,
+          synthesis: brief.synthesis,
+        });
+      } else {
+        html = mdToPlainHtml(brief.md, `Brief — ${info.name}`);
+      }
       writeFileSync(path, isHtml ? html : brief.md, "utf8");
       exported = path;
     }

@@ -784,11 +784,12 @@ test("brief synthesis: TL;DR note, sources-checked rollup, and findings surface 
     assert.match(out, /data-csi-synthesis/);
     assert.match(out, /Sources checked/);
     assert.match(out, /Matches &amp; findings/);
-    // a video media.ref embeds a player, with the scan thumb as its poster
-    assert.match(out, /<video class="embed"[^>]*poster="https:\/\/pbs\.twimg\.com\/t\.jpg"[^>]*src="https:\/\/video\.twimg\.com\/hi\.mp4"/);
-    // a video without a thumb (the image-match record) still previews a frame:
-    // preload=metadata + a #t= media fragment, not a black box
-    assert.match(out, /<video class="embed" controls preload="metadata" src="https:\/\/video\.twimg\.com\/rip\.mp4#t=0\.1"/);
+    // a video media.ref embeds a player, with the scan thumb as its poster;
+    // preload="none" so the browser never opens the video until play
+    assert.match(out, /<video class="embed" controls preload="none" poster="https:\/\/pbs\.twimg\.com\/t\.jpg" src="https:\/\/video\.twimg\.com\/hi\.mp4"/);
+    // a remote video without a thumb (the image-match record) still stays
+    // preload="none" (no metadata stall); local videos get an extracted poster
+    assert.match(out, /<video class="embed" controls preload="none" src="https:\/\/video\.twimg\.com\/rip\.mp4"/);
     // the finding card embeds the RANSAC overlay (local png → inlined data URI)
     assert.match(out, /data-csi-overlays="true"/);
     assert.match(out, /<img[^>]*src="data:image\/png;base64,/);
