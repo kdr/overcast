@@ -11,3 +11,5 @@ dist/
 *.swo
 planning/
 overcast-session-*.html
+__pycache__/
+*.pyc
