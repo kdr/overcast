@@ -203,16 +203,43 @@
   }
 }
 
-/* the refresh glow rasters like a CRT drawing lines: across a row,
-   instant flyback, down to the next row, across again — 5 rows per 20s */
-.raster-band {
+/* the refresh band rolls steadily top→bottom (one pass per 12s) while a
+   cyan "carriage" glow sweeps across it every 3s — a typewriter typing
+   lines onto scrolling paper */
+.refresh-bar {
   position: absolute;
   top: 0;
+  right: 0;
+  left: 0;
+  height: 18vh;
+  overflow: hidden;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(255, 255, 255, 0.5) 45%,
+    rgba(20, 24, 26, 0.04) 55%,
+    transparent
+  );
+  animation: refresh-roll 12s linear infinite;
+  will-change: transform;
+}
+
+@keyframes refresh-roll {
+  from {
+    transform: translateY(-18vh);
+  }
+  to {
+    transform: translateY(118vh);
+  }
+}
+
+.refresh-carriage {
+  position: absolute;
+  top: 0;
+  bottom: 0;
   left: 0;
   width: 24vw;
-  height: 18vh;
-  /* a visible CRT beam: cyan haze + bright core line + faint dark under-edge
-     (plain white has almost no contrast against the cream page) */
+  /* visible against the cream page: cyan haze + bright core + dark under-edge */
   background:
     radial-gradient(
       ellipse 60% 50% at center,
@@ -236,43 +263,16 @@
     transparent
   );
   mask-image: linear-gradient(to right, transparent, #000 18%, #000 82%, transparent);
-  animation: raster-scan 20s linear infinite;
+  animation: carriage-sweep 3s linear infinite;
   will-change: transform;
 }
 
-@keyframes raster-scan {
-  0% {
-    transform: translate(-24vw, 0vh);
+@keyframes carriage-sweep {
+  from {
+    transform: translateX(-24vw);
   }
-  19.99% {
-    transform: translate(100vw, 0vh);
-  }
-  20% {
-    transform: translate(-24vw, 20.5vh);
-  }
-  39.99% {
-    transform: translate(100vw, 20.5vh);
-  }
-  40% {
-    transform: translate(-24vw, 41vh);
-  }
-  59.99% {
-    transform: translate(100vw, 41vh);
-  }
-  60% {
-    transform: translate(-24vw, 61.5vh);
-  }
-  79.99% {
-    transform: translate(100vw, 61.5vh);
-  }
-  80% {
-    transform: translate(-24vw, 82vh);
-  }
-  99.99% {
-    transform: translate(100vw, 82vh);
-  }
-  100% {
-    transform: translate(-24vw, 0vh);
+  to {
+    transform: translateX(100vw);
   }
 }
 
@@ -366,7 +366,7 @@
   .scanlines {
     animation: none;
   }
-  .raster-band {
+  .refresh-bar {
     display: none;
   }
 }
