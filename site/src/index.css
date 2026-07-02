@@ -211,12 +211,31 @@
   left: 0;
   width: 24vw;
   height: 18vh;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(255, 255, 255, 0.55) 0%,
-    rgba(255, 255, 255, 0.15) 45%,
-    transparent 70%
+  /* a visible CRT beam: cyan haze + bright core line + faint dark under-edge
+     (plain white has almost no contrast against the cream page) */
+  background:
+    radial-gradient(
+      ellipse 60% 50% at center,
+      rgba(0, 229, 255, 0.3) 0%,
+      transparent 70%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 38%,
+      rgba(255, 255, 255, 0.95) 47%,
+      rgba(0, 229, 255, 0.4) 53%,
+      rgba(20, 24, 26, 0.14) 58%,
+      transparent 66%
+    );
+  /* taper the beam ends so the core line doesn't cut off at the element edge */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 18%,
+    #000 82%,
+    transparent
   );
+  mask-image: linear-gradient(to right, transparent, #000 18%, #000 82%, transparent);
   animation: raster-scan 20s linear infinite;
   will-change: transform;
 }
