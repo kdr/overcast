@@ -66,6 +66,7 @@ export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set([
   "skills",
   "source",
   "target",
+  "wall",
 ]);
 
 /** Whether a record is a read/meta output (not primary evidence). */
@@ -96,7 +97,10 @@ export function isMemoryRecord(rec: Pick<OvercastRecord, "verb"> & Partial<Pick<
   return isReady(rec);
 }
 
-export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
+/** Latest review status per root finding id (root records seed their own
+ *  "open"; review records override by finding_id). Shared by memory filtering
+ *  and any consumer that needs open/accepted/dismissed without O(n²) rescans. */
+export function findingStatusMap(records: OvercastRecord[]): Map<string, string> {
   const findingStatus = new Map<string, string>();
   for (const rec of records) {
     if (rec.verb !== "finding" || !rec.payload || typeof rec.payload !== "object") continue;
@@ -104,6 +108,11 @@ export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
     const id = typeof payload.finding_id === "string" ? payload.finding_id : rec.id;
     if (typeof payload.status === "string") findingStatus.set(id, payload.status);
   }
+  return findingStatus;
+}
+
+export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
+  const findingStatus = findingStatusMap(records);
   return records.filter((rec) => {
     if (!isMemoryRecord(rec)) return false;
     if (rec.verb !== "finding") return true;

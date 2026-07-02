@@ -13,6 +13,7 @@ import { imageVerb } from "../verbs/image.js";
 import { clusterVerb } from "../verbs/cluster.js";
 import { similarVerb } from "../verbs/similar.js";
 import { cropVerb } from "../verbs/crop.js";
+import { wallVerb } from "../verbs/wall.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
 import {
   scanVerb,
@@ -96,6 +97,7 @@ export const VERBS: VerbSpec[] = [
   enhanceVerb,
   viewVerb,
   cropVerb,
+  wallVerb,
   scanVerb,
   captureVerb,
   monitorVerb,

@@ -28,6 +28,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.
+- `wall` — Open a control-room monitor wall: case videos looping at their evidence moments.
 - `scan` — Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
@@ -170,8 +171,8 @@ overcast index entities <entity-index-id> ./clip.mp4 --json
 ```
 
 `face` needs tinycloud ≥ 0.3.4 (`overcast doctor` flags an older install);
-overcast currently recommends tinycloud 0.3.6 for the latest face validation and
-CLI reliability behavior. Face detection counts are boxes per sampled frame, not
+overcast currently recommends tinycloud 0.3.7 for the latest face validation,
+CLI reliability, and image `see`/`extract` behavior. Face detection counts are boxes per sampled frame, not
 unique people; use `--match <photo>` for a specific person and `crop` when
 you need durable cropped image evidence. If a local video lacks descriptive
 content evidence, add it to the index with `overcast index add ./clip.mp4 --to

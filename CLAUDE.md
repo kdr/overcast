@@ -24,7 +24,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
   `exec`). Cloudglue is **also** a pickable *brain* LLM provider (anthropic-messages
   API) so it appears in `/model` — never forced. The tinycloud CLI is a runtime
   prerequisite (like ffmpeg), not an npm dep; `face` + `index` need **≥ 0.3.4**,
-  and current docs recommend tinycloud **0.3.6**.
+  and current docs recommend tinycloud **0.3.7** (image `see`/`extract` — the
+  opt-in `see:tinycloud` provider — need ≥ 0.3.7).
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
 - uv-managed visual DB Python — optional for visual DBs and
@@ -92,7 +93,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--detect` — **default: the brain LLM** when image-capable, i.e. a direct
   "describe this image" call; falls back to the Hugging Face captioner,
   `builtin:hf`/`builtin:brain` + `OVERCAST_SEE_BRAIN=off` to switch; bindable fal
-  / local OWLv2 via `examples/providers/detect` for detection), `face`
+  / local OWLv2 via `examples/providers/detect` for detection / opt-in Cloudglue
+  `see`+`extract` via `examples/providers/tinycloud/see.sh`, tinycloud ≥ 0.3.7,
+  boxless `--detect`), `face`
   (tinycloud ≥ 0.3.4 by default, or
   `face:deepface-local` locally: detect faces, `--match <jpeg|png>` to find/rank a
   person in a clip, or `--index` to search a face-analysis / deepface-local index),
@@ -107,7 +110,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
-  `--square`).
+  `--square`), `wall` (control-room monitor wall: case videos muted + looping at
+  their evidence moments — open finding > face hit > record anchor — with
+  coverage badges and scan/monitor/brief freshness overlaid; `--limit`,
+  `--source`/`--since`, `--refresh`, `--theme plain|csi`, `--no-open`).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / web;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
@@ -143,7 +149,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   creds), `skills` (generate/install).
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
-Slash commands (TUI): `/target /source /index /case /prebrief /view /setup
+Slash commands (TUI): `/target /source /index /case /prebrief /view /wall /setup
 /provider /finding` (extension commands) and `/ask /brief` (prompt templates in
 `prompts/`), plus pi built-ins (`/model /tree /session /resume`).
 
@@ -160,8 +166,8 @@ Case memory is **evidence-only**. `ask` / `brief` read primary evidence
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
-prebrief`, finding review-rows, dismissed findings, cluster DB reads/maintenance
-`list/show/view/label/recluster`) are excluded even when they
+prebrief wall`, finding review-rows, dismissed findings, cluster DB
+reads/maintenance `list/show/view/label/recluster`) are excluded even when they
 match the query. `face`/`see`/`image`/`similar`/`cluster` detections index only
 compact summaries / counts / moments / matched refs — raw boxes, thumbnails,
 homographies, and vectors stay in the record for exact reads and `crop`.

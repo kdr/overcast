@@ -1083,7 +1083,7 @@ test("face --match rejects a record id whose media isn't an image (#R7-2)", asyn
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
-test("face --match rejects unsupported query-image formats locally (tinycloud 0.3.6 gate)", async () => {
+test("face --match rejects unsupported query-image formats locally (tinycloud face preflight gate)", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-matchfmt-"));
   const v = join(cdir, "clip.mp4"); writeFileSync(v, "x");
   const webp = join(cdir, "suspect.webp"); writeFileSync(webp, "x");
@@ -1219,7 +1219,7 @@ test("doctor warns when tinycloud is below the recommended version", async () =>
     const [rec] = await doctorVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile(), home: cdir });
     const warnings = (rec.payload as Record<string, unknown>).warnings as string[];
     assert.equal(rec.state, "error");
-    assert.ok(warnings.some((w) => /recommended 0\.3\.6/.test(w) && /tinycloud update/.test(w)), `expected a tinycloud update warning; got ${JSON.stringify(warnings)}`);
+    assert.ok(warnings.some((w) => /recommended 0\.3\.7/.test(w) && /tinycloud update/.test(w)), `expected a tinycloud update warning; got ${JSON.stringify(warnings)}`);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
