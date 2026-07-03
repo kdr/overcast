@@ -179,10 +179,46 @@ test("event translation: user attribution + coalesced deltas reach the wire", as
     assert.equal(deltas.length, 1, "per-token deltas must coalesce");
     assert.equal(deltas[0].text, "the van returns");
 
+    // livePartial accumulates the in-flight assistant text and clears on finalize
+    assert.equal(bridge["agent"].livePartial?.(), "the van returns");
+    await emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "the van returns" }] } }, ctx);
+    assert.equal(bridge["agent"].livePartial?.(), "");
+
     await commands.get("chair")?.("off", ctx);
   } finally {
     if (prevCase === undefined) delete process.env.OVERCAST_CASE;
     else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("autostart is not latched when the bridge fails to bind", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-fail-"));
+  const prev = { chair: process.env.OVERCAST_CHAIR, bind: process.env.OVERCAST_CHAIR_BIND, port: process.env.OVERCAST_CHAIR_PORT, kase: process.env.OVERCAST_CASE };
+  try {
+    process.env.OVERCAST_CASE = dir;
+    process.env.OVERCAST_CHAIR = "1";
+    process.env.OVERCAST_CHAIR_BIND = "203.0.113.1"; // unassignable → EADDRNOTAVAIL
+    process.env.OVERCAST_CHAIR_PORT = "0";
+    const { pi, emit, commands, messages } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    // first session_start: bind fails, an error is surfaced, no bridge
+    await emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    assert.equal(handle.bridge(), undefined);
+    assert.match(messages.join("\n"), /could not start/);
+
+    // a later session_start (reload) must retry — the failed attempt didn't latch
+    delete process.env.OVERCAST_CHAIR_BIND; // now bindable
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    assert.ok(handle.bridge()?.running, "autostart retries after an earlier failure");
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    for (const [k, v] of [["OVERCAST_CHAIR", prev.chair], ["OVERCAST_CHAIR_BIND", prev.bind], ["OVERCAST_CHAIR_PORT", prev.port], ["OVERCAST_CASE", prev.kase]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -54,18 +54,22 @@ async function boot(): Promise<void> {
   let lastSeq = 0;
   let disconnect: (() => void) | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let resyncToken = 0;
 
   const onEvent = (evt: ChairWireEvent): void => {
-    // dedupe belt: EventSource reconnects can replay; hello is positional
-    if (evt.type !== "hello") {
-      if (evt.seq <= lastSeq) return;
+    if (evt.type === "hello") {
+      // a hello re-baselines the dedupe cursor: after a desk rebind the bridge
+      // resets its seq to 0, so a stale (larger) lastSeq would silently drop
+      // every new event until a full resync. Trust the connection's own seq.
       lastSeq = evt.seq;
+      statusbar.set({ caseName: evt.caseName, model: evt.model ?? "", busy: evt.busy });
+      composer.setBusy(evt.busy);
+      return;
     }
+    // dedupe belt: EventSource reconnects / since-replay can re-send events
+    if (evt.seq <= lastSeq) return;
+    lastSeq = evt.seq;
     switch (evt.type) {
-      case "hello":
-        statusbar.set({ caseName: evt.caseName, model: evt.model ?? "", busy: evt.busy });
-        composer.setBusy(evt.busy);
-        break;
       case "state":
         statusbar.set({ busy: evt.busy, model: evt.model ?? "" });
         composer.setBusy(evt.busy);
@@ -107,6 +111,10 @@ async function boot(): Promise<void> {
   };
 
   const resync = async (): Promise<void> => {
+    // in-flight guard: visibilitychange, gap, and the retry timer can all fire
+    // resync concurrently; only the newest run may touch the UI/stream so their
+    // getState/reset/openStream can't interleave.
+    const token = ++resyncToken;
     if (retryTimer) {
       clearTimeout(retryTimer);
       retryTimer = undefined;
@@ -115,13 +123,18 @@ async function boot(): Promise<void> {
     disconnect = undefined;
     try {
       const snap = await getState();
+      if (token !== resyncToken) return; // superseded by a newer resync
       statusbar.set({ caseName: snap.caseName, model: snap.model ?? "", busy: snap.busy, connected: true });
       composer.setBusy(snap.busy);
       transcript.reset(snap.transcript);
+      // seed the live assistant line with any in-flight (unfinalized) text so a
+      // mid-stream wake/gap doesn't blank it; later deltas append seamlessly
+      if (snap.live) transcript.assistantDelta(snap.live);
       lastSeq = snap.seq;
       booted = true;
       openStream(snap.seq); // resume exactly where the snapshot left off
     } catch (e) {
+      if (token !== resyncToken) return; // superseded — let the newer run own the outcome
       const message = (e as Error).message;
       if (!booted || message === "unauthorized") {
         // pre-boot failure, or the token was rotated (/chair off) → re-pair

@@ -74,6 +74,10 @@ export interface ChairSnapshot {
   clients: number;
   version: string;
   transcript: TranscriptItem[];
+  /** In-flight assistant text (partial, mid-stream). Absent when idle — the
+   *  console seeds its live line with this after a resync so a wake/gap during
+   *  an active run doesn't blank streamed text that isn't finalized yet. */
+  live?: string;
 }
 
 // --- case glance (`GET /api/case`) ------------------------------------------

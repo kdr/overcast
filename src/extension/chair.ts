@@ -64,6 +64,10 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   // delta coalescing — message_update fires per token; batch to ≤1 flush/40ms
   let textBuf = "";
   let thinkBuf = "";
+  // full accumulated text of the in-flight assistant message — surfaced in the
+  // snapshot so a mid-stream resync (visibility wake / gap) can rebuild the live
+  // line instead of blanking it (getBranch only holds finalized messages).
+  let livePartial = "";
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   const flush = (): void => {
     if (flushTimer) {
@@ -115,6 +119,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       return items.slice(-limit);
     },
     caseGlance: () => buildCaseGlance(openCase(process.env.OVERCAST_CASE || ctx?.cwd || process.cwd())),
+    livePartial: () => livePartial,
     onRemotePrompt: (info) => ctx?.ui.notify(`chair: remote prompt (${info.mode})`, "info"),
   });
 
@@ -123,13 +128,14 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   pi.on("session_start", async (_e, c) => {
     capture(c);
     if (!autostarted && (pi.getFlag("chair") === true || envTruthy(process.env.OVERCAST_CHAIR))) {
-      autostarted = true;
       await startChair();
+      // only latch on success — a failed autostart (e.g. EADDRINUSE) stays
+      // retryable on the next session_start (reload/new/resume) or via /chair on
+      autostarted = bridge?.running === true;
     }
   });
   pi.on("session_shutdown", async () => {
-    flush();
-    await stopChair();
+    await stopChair(); // flushes coalesced deltas before the sockets close
   });
 
   pi.on("agent_start", (_e, c) => {
@@ -156,8 +162,9 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   pi.on("message_start", (e, c) => {
     capture(c);
-    if (!bridge) return;
     const role = (e.message as { role?: string }).role;
+    if (role === "assistant") livePartial = ""; // fresh assistant line begins
+    if (!bridge) return;
     if (role === "user") {
       const raw = messageText(e.message);
       const chair = raw.startsWith(CHAIR_PREFIX);
@@ -168,18 +175,20 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   });
   pi.on("message_update", (e, c) => {
     capture(c);
-    if (!bridge) return;
     const ev = e.assistantMessageEvent;
-    if (ev.type === "text_delta") textBuf += ev.delta;
-    else if (ev.type === "thinking_delta") thinkBuf += ev.delta;
+    if (ev.type === "text_delta") {
+      textBuf += ev.delta;
+      livePartial += ev.delta;
+    } else if (ev.type === "thinking_delta") thinkBuf += ev.delta;
     else return;
-    scheduleFlush();
+    if (bridge) scheduleFlush();
   });
   pi.on("message_end", (e, c) => {
     capture(c);
+    const role = (e.message as { role?: string }).role;
+    if (role === "assistant") livePartial = ""; // finalized; snapshot uses getBranch now
     if (!bridge) return;
     flush();
-    const role = (e.message as { role?: string }).role;
     if (role === "assistant") {
       const text = messageText(e.message);
       bridge.publish({ type: "message", phase: "end", role: "assistant", text });
@@ -236,6 +245,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   async function stopChair(): Promise<void> {
     if (!bridge) return;
+    flush(); // deliver any coalesced assistant text before the sockets close
     const b = bridge;
     bridge = undefined; // rotate: the next start mints a fresh token (unless pinned)
     hideQr();

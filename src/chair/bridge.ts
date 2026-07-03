@@ -33,6 +33,9 @@ export interface ChairAgent {
   sessionName(): string | undefined;
   transcript(limit: number): TranscriptItem[];
   caseGlance(): CaseGlance;
+  /** Text of the in-flight assistant message, "" when none — lets a mid-stream
+   *  resync rebuild the live line (getBranch only holds finalized messages). */
+  livePartial?(): string;
   /** Surface a remote prompt in the desk TUI (notify), if a UI is attached. */
   onRemotePrompt?(info: { mode: ChairPromptResult["delivered"]; chars: number }): void;
 }
@@ -146,7 +149,7 @@ export class ChairBridge {
     this.boundPort = typeof addr === "object" && addr ? addr.port : (this.opts.port ?? DEFAULT_PORT);
     this.server = server;
     this.heartbeat = setInterval(() => {
-      for (const res of this.clients) res.write(": ping\n\n");
+      for (const res of this.clients) this.safeWrite(res, ": ping\n\n");
     }, HEARTBEAT_MS);
     this.heartbeat.unref();
     return { url: this.url, pairingUrl: this.pairingUrl, port: this.boundPort };
@@ -179,7 +182,22 @@ export class ChairBridge {
     const json = JSON.stringify({ ...evt, seq });
     this.ring.push({ seq, json });
     if (this.ring.length > this.ringSize) this.ring.splice(0, this.ring.length - this.ringSize);
-    for (const res of this.clients) res.write(`id: ${seq}\ndata: ${json}\n\n`);
+    for (const res of this.clients) this.safeWrite(res, `id: ${seq}\ndata: ${json}\n\n`);
+  }
+
+  /** Write to one SSE client, dropping it on error (a half-closed phone must
+   *  never throw out of a pi event handler mid-stream). */
+  private safeWrite(res: ServerResponse, chunk: string): void {
+    try {
+      res.write(chunk);
+    } catch {
+      this.clients.delete(res);
+      try {
+        res.end();
+      } catch {
+        /* already gone */
+      }
+    }
   }
 
   // --- request handling -------------------------------------------------------
@@ -217,21 +235,21 @@ export class ChairBridge {
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     });
-    res.write(": chair\n\n");
+    this.clients.add(res);
+    this.safeWrite(res, ": chair\n\n");
     // catch-up: replay anything the client missed, or tell it to resync
     const sinceRaw = req.headers["last-event-id"] ?? url.searchParams.get("since") ?? "";
     const since = Number(Array.isArray(sinceRaw) ? sinceRaw[0] : sinceRaw);
     if (Number.isFinite(since) && since > 0 && since < this.lastSeq) {
       const oldest = this.ring[0]?.seq ?? this.lastSeq + 1;
       if (since < oldest - 1) {
-        res.write(`id: ${this.lastSeq}\ndata: ${JSON.stringify({ type: "gap", seq: this.lastSeq })}\n\n`);
+        this.safeWrite(res, `id: ${this.lastSeq}\ndata: ${JSON.stringify({ type: "gap", seq: this.lastSeq })}\n\n`);
       } else {
         for (const item of this.ring) {
-          if (item.seq > since) res.write(`id: ${item.seq}\ndata: ${item.json}\n\n`);
+          if (item.seq > since) this.safeWrite(res, `id: ${item.seq}\ndata: ${item.json}\n\n`);
         }
       }
     }
-    this.clients.add(res);
     // per-connection hello (not published: each client gets its own counts)
     const hello: ChairWireEvent = {
       type: "hello",
@@ -243,7 +261,7 @@ export class ChairBridge {
       clients: this.clients.size,
       version: this.opts.version,
     };
-    res.write(`data: ${JSON.stringify(hello)}\n\n`);
+    this.safeWrite(res, `data: ${JSON.stringify(hello)}\n\n`);
     req.on("close", () => {
       this.clients.delete(res);
     });
@@ -279,6 +297,7 @@ export class ChairBridge {
   }
 
   private snapshot(): ChairSnapshot {
+    const live = this.agent.livePartial?.() ?? "";
     return {
       seq: this.lastSeq,
       busy: !this.agent.isIdle(),
@@ -290,6 +309,7 @@ export class ChairBridge {
       clients: this.clients.size,
       version: this.opts.version,
       transcript: this.agent.transcript(TRANSCRIPT_LIMIT),
+      ...(live ? { live } : {}),
     };
   }
 

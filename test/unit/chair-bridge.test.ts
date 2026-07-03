@@ -144,8 +144,49 @@ test("chair bridge: snapshot + case glance shapes", async () => {
     assert.equal(snap.model, "test-model");
     assert.equal(snap.version, "0.0.0-test");
     assert.deepEqual(snap.transcript, [{ role: "user", text: "hello", source: "desk" }]);
+    assert.equal("live" in snap, false, "no live field when idle");
     const glance = (await (await fetch(`${url}api/case`, { headers: auth })).json()) as CaseGlance;
     assert.equal(glance.caseName, "tc");
+  } finally {
+    await bridge.stop();
+  }
+});
+
+test("chair bridge: snapshot carries in-flight assistant text (live)", async () => {
+  const { agent } = fakeAgent({ livePartial: () => "the van ret" });
+  const bridge = makeBridge(agent);
+  const { url, pairingUrl } = await bridge.start();
+  const token = pairingUrl.split("#t=")[1];
+  try {
+    const snap = (await (await fetch(`${url}api/state`, { headers: { Authorization: `Bearer ${token}` } })).json()) as Record<string, unknown>;
+    assert.equal(snap.live, "the van ret");
+  } finally {
+    await bridge.stop();
+  }
+});
+
+test("chair bridge: a dead SSE client can't break publish for others", async () => {
+  const { agent } = fakeAgent();
+  const bridge = makeBridge(agent);
+  const { url, pairingUrl } = await bridge.start();
+  const token = pairingUrl.split("#t=")[1];
+  try {
+    // one healthy client
+    const live = sseReader(await fetch(`${url}events?token=${token}`));
+    await live.next(1); // hello
+    assert.equal(bridge.clientCount(), 1);
+
+    // a client that connects then abruptly drops its socket mid-stream
+    const controller = new AbortController();
+    await fetch(`${url}events?token=${token}`, { signal: controller.signal }).then((r) => r.body?.getReader().read());
+    controller.abort();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // publishing must not throw even if a half-closed client is still in the set
+    assert.doesNotThrow(() => bridge.publish({ type: "notice", level: "info", text: "still alive" }));
+    const frame = await live.next(1);
+    assert.equal(frame[0].data.text, "still alive");
+    await live.close();
   } finally {
     await bridge.stop();
   }
