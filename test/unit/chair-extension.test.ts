@@ -9,7 +9,7 @@ import { openCase } from "../../src/case.ts";
 type CommandHandler = (args: string, ctx: unknown) => Promise<void>;
 type EventHandler = (event: unknown, ctx: unknown) => unknown;
 
-function fakePi() {
+function fakePi(opts: { throwOnSend?: boolean } = {}) {
   const commands = new Map<string, CommandHandler>();
   const events = new Map<string, EventHandler[]>();
   const messages: string[] = [];
@@ -17,8 +17,8 @@ function fakePi() {
   const flags = new Map<string, boolean | string>();
   const pi = {
     registerMessageRenderer: () => {},
-    registerCommand: (name: string, opts: { handler: CommandHandler }) => {
-      commands.set(name, opts.handler);
+    registerCommand: (name: string, o: { handler: CommandHandler }) => {
+      commands.set(name, o.handler);
     },
     registerFlag: () => {},
     getFlag: (name: string) => flags.get(name),
@@ -28,8 +28,9 @@ function fakePi() {
     sendMessage: (message: { details?: { text?: string }; content?: string }) => {
       messages.push(message.details?.text ?? message.content ?? "");
     },
-    sendUserMessage: (content: string, opts?: { deliverAs?: string }) => {
-      sent.push({ text: content, opts });
+    sendUserMessage: (content: string, o?: { deliverAs?: string }) => {
+      if (opts.throwOnSend) throw new Error("send failed");
+      sent.push({ text: content, opts: o });
     },
   };
   const emit = async (event: string, payload: unknown, ctx: unknown): Promise<void> => {
@@ -258,6 +259,79 @@ test("OVERCAST_CHAIR=1 auto-starts the bridge on session_start", async () => {
     else process.env.OVERCAST_CHAIR_PORT = prev.port;
     if (prev.kase === undefined) delete process.env.OVERCAST_CASE;
     else process.env.OVERCAST_CASE = prev.kase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failed chair injection does not inflate the pending count", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-sendfail-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi({ throwOnSend: true });
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+    await commands.get("chair")?.("on --port 0", ctx);
+    const bridge = handle.bridge()!;
+    const published: Record<string, unknown>[] = [];
+    const orig = bridge.publish.bind(bridge);
+    (bridge as unknown as { publish: typeof bridge.publish }).publish = (evt) => {
+      published.push(evt as Record<string, unknown>);
+      orig(evt);
+    };
+
+    // the injection throws (pi.sendUserMessage fails) → count must roll back
+    assert.throws(() => bridge["agent"].sendUserMessage("dropped remote prompt"));
+    // so a desk message that starts with the marker is NOT misattributed as chair
+    await emit("message_start", { message: { role: "user", content: "[chair] typed at the desk" } }, ctx);
+    const user = published.find((e) => e.type === "message" && e.role === "user");
+    assert.equal(user?.source, "desk");
+    assert.equal(user?.text, "[chair] typed at the desk");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("stream buffers reset across a mid-stream /chair off → on (no stale/ghost text)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-reset-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await commands.get("chair")?.("on --port 0", ctx);
+    // an assistant streams, we flush, so livePartial holds published text
+    await emit("message_start", { message: { role: "assistant", content: [] } }, ctx);
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "stale text" } }, ctx);
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(handle.bridge()!["agent"].livePartial?.(), "stale text");
+
+    // stop mid-stream: livePartial + buffers must be dropped
+    await commands.get("chair")?.("off", ctx);
+
+    // deltas that arrive while offline must NOT be buffered
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: " LEAK" } }, ctx);
+    await emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "stale text LEAK" }] } }, ctx);
+
+    // a fresh bridge must not surface a ghost `live`, and a new stream is clean
+    await commands.get("chair")?.("on --port 0", ctx);
+    const bridge = handle.bridge()!;
+    assert.equal(bridge["agent"].livePartial?.(), "", "no ghost live after restart");
+    await emit("message_start", { message: { role: "assistant", content: [] } }, ctx);
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "fresh" } }, ctx);
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(bridge["agent"].livePartial?.(), "fresh", "new stream carries only new text");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
     rmSync(dir, { recursive: true, force: true });
   }
 });

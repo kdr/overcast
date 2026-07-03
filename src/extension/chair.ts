@@ -94,6 +94,20 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   const scheduleFlush = (): void => {
     if (!flushTimer) flushTimer = setTimeout(flush, DELTA_FLUSH_MS);
   };
+  // Drop all in-flight streaming state (pending deltas + the published-baseline
+  // partial + the flush timer). Called at every assistant-message boundary and
+  // when the bridge stops, so buffers never leak across messages or across a
+  // /chair off → on, which would otherwise merge stale text or seed a ghost
+  // `live` line into a later snapshot (Bugbot round 5).
+  const resetStream = (): void => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = undefined;
+    }
+    textBuf = "";
+    thinkBuf = "";
+    livePartial = "";
+  };
 
   const capture = (c: ExtensionContext): void => {
     ctx = c;
@@ -118,8 +132,16 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     isIdle: () => ctx?.isIdle() ?? true,
     abort: () => ctx?.abort(),
     sendUserMessage: (text, opts) => {
+      // count the injection up front (message_start may fire synchronously), but
+      // roll back if the dispatch throws so a failed send can't inflate the
+      // count and mislabel a later desk message as chair (Bugbot round 5)
       pendingChairMsgs++;
-      pi.sendUserMessage(CHAIR_PREFIX + text, opts);
+      try {
+        pi.sendUserMessage(CHAIR_PREFIX + text, opts);
+      } catch (e) {
+        pendingChairMsgs--;
+        throw e;
+      }
     },
     model: () => ctx?.model?.id,
     sessionName: () => ctx?.sessionManager.getSessionName(),
@@ -195,7 +217,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   pi.on("message_start", (e, c) => {
     capture(c);
     const role = (e.message as { role?: string }).role;
-    if (role === "assistant") livePartial = ""; // fresh assistant line begins
+    if (role === "assistant") resetStream(); // fresh assistant line: drop any leftover buffers
     if (!bridge) return;
     if (role === "user") {
       const { source, text } = classifyUser(messageText(e.message), true);
@@ -206,22 +228,21 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   });
   pi.on("message_update", (e, c) => {
     capture(c);
+    if (!bridge) return; // no consumer — don't accumulate deltas while offline
     const ev = e.assistantMessageEvent;
     if (ev.type === "text_delta") textBuf += ev.delta; // livePartial advances on flush
     else if (ev.type === "thinking_delta") thinkBuf += ev.delta;
     else return;
-    if (bridge) scheduleFlush();
+    scheduleFlush();
   });
   pi.on("message_end", (e, c) => {
     capture(c);
     const role = (e.message as { role?: string }).role;
-    if (role === "assistant") livePartial = ""; // finalized; snapshot uses getBranch now
-    if (!bridge) return;
-    flush();
-    if (role === "assistant") {
-      const text = messageText(e.message);
-      bridge.publish({ type: "message", phase: "end", role: "assistant", text });
+    if (bridge) {
+      flush(); // deliver any remaining coalesced text before the boundary
+      if (role === "assistant") bridge.publish({ type: "message", phase: "end", role: "assistant", text: messageText(e.message) });
     }
+    if (role === "assistant") resetStream(); // finalized; snapshot uses getBranch now
   });
 
   pi.on("tool_execution_start", (e, c) => {
@@ -272,6 +293,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   async function stopChair(): Promise<void> {
     if (!bridge) return;
     flush(); // deliver any coalesced assistant text before the sockets close
+    resetStream(); // drop live/partial state so a later bridge can't expose a ghost `live`
     const b = bridge;
     bridge = undefined; // rotate: the next start mints a fresh token (unless pinned)
     hideQr();
