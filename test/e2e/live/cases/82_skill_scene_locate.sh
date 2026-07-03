@@ -55,7 +55,8 @@ if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
     match="$(echo "$lout" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.match // empty' 2>/dev/null)"
     ok "$C.lens_match" "top lens match ($match): $LENS_URL"
   fi
-  lens_done=1
+  # only claim the reverse-image search in the note if it ran clean AND matched pages
+  [ -z "$lerr" ] && [ "${lhits:-0}" -ge 1 ] && lens_done=1
   unset OVERCAST_SOURCE_LENS_CMD
 fi
 
@@ -68,7 +69,8 @@ if require_cred "$C.web" TAVILY_API_KEY "web corroboration tier needs Tavily"; t
   save_json "82_web" "$wout" >/dev/null
   whits="$(echo "$wout" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")]|length' 2>/dev/null)"
   if [ "${whits:-0}" -ge 1 ]; then ok "$C.web_hits" "web corroboration returned $whits page(s)"; else fail "$C.web_hits" "web search returned no pages"; fi
-  web_done=1
+  # only claim web corroboration in the note if it actually returned pages
+  [ "${whits:-0}" -ge 1 ] && web_done=1
   unset OVERCAST_SOURCE_WEB_CMD
 fi
 

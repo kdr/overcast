@@ -47,7 +47,8 @@ if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
   lhits="$(echo "$lout" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")]|length' 2>/dev/null)"
   if [ -z "$lerr" ]; then ok "$C.lens_ran" "lens reverse-image tier ran clean ($lhits page match(es))"; else fail "$C.lens_ran" "lens errored: $lerr"; fi
   [ "${lhits:-0}" -ge 1 ] && LENS_URL="$(echo "$lout" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")][0].payload.url' 2>/dev/null)"
-  lens_done=1
+  # only claim the reverse-image search in the note if it ran clean AND matched pages
+  [ -z "$lerr" ] && [ "${lhits:-0}" -ge 1 ] && lens_done=1
   unset OVERCAST_SOURCE_LENS_CMD
 fi
 
@@ -60,7 +61,8 @@ if require_cred "$C.web" TAVILY_API_KEY "keyword-sweep tier needs Tavily"; then
   save_json "85_web" "$wout" >/dev/null
   whits="$(echo "$wout" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")]|length' 2>/dev/null)"
   if [ "${whits:-0}" -ge 1 ]; then ok "$C.web_hits" "keyword sweep returned $whits candidate page(s)"; else fail "$C.web_hits" "keyword sweep returned no pages"; fi
-  web_done=1
+  # only claim the keyword sweep in the note if it actually returned pages
+  [ "${whits:-0}" -ge 1 ] && web_done=1
   unset OVERCAST_SOURCE_WEB_CMD
 fi
 

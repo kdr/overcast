@@ -39,6 +39,7 @@ echo "$diar" | jq -e 'has("payload") and (.payload|has("transcript"))' >/dev/nul
 cond "wiretap skill: listen --describe surfaces the background audio scene"
 desc="$(OC_TIMEOUT=300 oc "$CASE" listen "$REC" --describe --json)"
 save_json "84_describe" "$desc" >/dev/null
+desc_ok=0; [ "$(echo "$desc" | jq -r '.state')" = "ready" ] && desc_ok=1
 assert_eq "$C.desc_state" "ready" "$(echo "$desc" | jq -r '.state')" "audio-scene describe ready"
 
 # 3) skill step: spectrogram as a visual inspection artifact
@@ -47,8 +48,9 @@ v="$(oc "$CASE" view "$REC" --spectrogram --no-open --json)"
 save_json "84_view" "$v" >/dev/null
 assert_eq "$C.view_mode" "audio" "$(echo "$v" | jq -r '.payload.mode')" "view detects audio"
 SPEC="$(echo "$v" | jq -r '.payload.spectrogram // empty')"
+spec_ok=0
 if [ -n "$SPEC" ] && [ -s "$SPEC" ]; then
-  cp "$SPEC" "$SMOKE_DIR/84_spectrogram.png"
+  cp "$SPEC" "$SMOKE_DIR/84_spectrogram.png"; spec_ok=1
   ok "$C.spectrogram" "spectrogram PNG rendered ($(basename "$SPEC"))"
 else
   fail "$C.spectrogram" "no spectrogram PNG at ${SPEC:-none}"
@@ -58,11 +60,14 @@ fi
 cond "wiretap skill: enhance voice-isolate,denoise then re-listen the cleaned track"
 enh="$(OC_TIMEOUT=240 oc "$CASE" enhance "$REC" --ops voice-isolate,denoise --json)"
 save_json "84_enhance" "$enh" >/dev/null
+iso_ok=0; [ "$(echo "$enh" | jq -r '.state')" = "ready" ] && iso_ok=1
 assert_eq "$C.enh_state" "ready" "$(echo "$enh" | jq -r '.state')" "voice-isolate enhance ready"
 ENH_ID="$(echo "$enh" | jq -r '.id // empty')"
+relisten_ok=0
 if [ -n "$ENH_ID" ]; then
   re="$(OC_TIMEOUT=300 oc "$CASE" listen "$ENH_ID" --json)"
   save_json "84_relisten" "$re" >/dev/null
+  [ "$(echo "$re" | jq -r '.state')" = "ready" ] && relisten_ok=1
   assert_eq "$C.relisten" "ready" "$(echo "$re" | jq -r '.state')" "re-listen of the isolated track ready"
 fi
 
@@ -80,8 +85,9 @@ assert_nonempty "$C.ask_answer" "$ans" "ask returned a cited answer over the lis
 # --diarize; this leg proves the skill's diarization works with the right provider.
 # Runs BEFORE the finding/note/brief so those honestly reflect whether diarization
 # happened, and AFTER every Cloudglue listen step so the provider rebind is safe.
-DIARIZED=0
+DIARIZED=0; el_attempted=0
 if require_cred "$C.diarize" ELEVENLABS_API_KEY "speaker separation needs a diarize-capable provider (ElevenLabs)"; then
+  el_attempted=1
   cond "wiretap skill: a bound ElevenLabs provider does listen --diarize (speaker separation)"
   EL="$PWD/examples/providers/elevenlabs/listen.sh"
   ocrun "$CASE" setup provider listen "exec:bash $EL {{input}}" --json >/dev/null 2>&1
@@ -93,14 +99,23 @@ fi
 
 # 7) skill step: cited finding + mandatory tldr note + brief. The claim reflects
 # what actually ran — speaker separation is only asserted when diarization happened.
-cond "wiretap skill: a finding cites the listen record; a tldr note (honest about diarization) feeds the brief"
+cond "wiretap skill: a finding cites the listen record; a tldr note (honest about every step's outcome) feeds the brief"
+# name only the steps that actually succeeded, and be precise about diarization:
+# separated / attempted-but-failed / not-run (no provider).
+steps="transcribed the recording"
+[ "$desc_ok" -eq 1 ]     && steps="$steps, described the background scene"
+[ "$spec_ok" -eq 1 ]     && steps="$steps, rendered a spectrogram"
+[ "$iso_ok" -eq 1 ]      && steps="$steps, voice-isolated"
+[ "$relisten_ok" -eq 1 ] && steps="$steps, re-transcribed the cleaned track"
 if [ "$DIARIZED" -eq 1 ]; then
-  sep="separated speakers (ElevenLabs diarization)"; sepnote="speakers separated via ElevenLabs diarization"
+  sep="separated speakers via ElevenLabs diarization"
+elif [ "$el_attempted" -eq 1 ]; then
+  sep="speaker separation attempted but the provider failed"
 else
-  sep="speaker separation skipped (no diarize-capable provider)"; sepnote="speaker separation skipped (no ElevenLabs)"
+  sep="speaker separation not run (no diarize-capable provider)"
 fi
-oc "$CASE" finding create "audio workup: transcribed + described the recording, isolated + re-transcribed voices, $sep" --ref "${LID:-}" --confidence medium --json >/dev/null
-oc "$CASE" note "wiretap: 1 recording transcribed + described; spectrogram rendered; voice-isolated and re-listened; $sepnote." --tag tldr --json >/dev/null
+oc "$CASE" finding create "audio workup: $steps; $sep" --ref "${LID:-}" --confidence medium --json >/dev/null
+oc "$CASE" note "wiretap: $steps; $sep." --tag tldr --json >/dev/null
 BRIEF="$SMOKE_DIR/84_wiretap_brief.html"
 oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
 if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then
