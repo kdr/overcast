@@ -36,9 +36,25 @@ need_exiftool
 [ -f "$input" ] || { jq -nc --arg i "$input" '{verb:"exif",format:"json",payload:{error:("file not found: "+$i)},error:"file not found",state:"error"}'; exit 0; }
 
 # -n = numeric values (signed decimal GPS via the Composite group), -json = one
-# object per file. Take the first (only) element; {} if exiftool returns nothing.
-obj="$(exiftool -n -json "$input" 2>/dev/null | jq -c '.[0] // {}')"
+# object per file. Capture exiftool's exit status so a genuine failure (corrupt/
+# unreadable file) surfaces as an ERROR record rather than a ready "no metadata"
+# result. A valid file with no interesting tags still exits 0 with a minimal object.
+errf="$(mktemp)"
+raw="$(exiftool -n -json "$input" 2>"$errf")"; code=$?
+err="$(cat "$errf")"; rm -f "$errf"
+if [ "$code" -ne 0 ]; then
+  jq -nc --arg ref "$input" --arg e "$err" '{verb:"exif",format:"json",payload:{},media:{ref:$ref},error:("exiftool failed: "+($e|.[0:300])),state:"error"}'
+  exit 0
+fi
+obj="$(printf '%s' "$raw" | jq -c '.[0] // {}')"
 [ -n "$obj" ] || obj='{}'
+# exiftool can exit 0 yet report a hard Error tag on a malformed file — surface
+# that as an error too (a non-fatal Warning, e.g. a partial read, stays ready).
+etErr="$(printf '%s' "$obj" | jq -r '.Error // empty')"
+if [ -n "$etErr" ]; then
+  jq -nc --arg ref "$input" --arg e "$etErr" '{verb:"exif",format:"json",payload:{},media:{ref:$ref},error:("exiftool: "+$e),state:"error"}'
+  exit 0
+fi
 
 get() { printf '%s' "$obj" | jq -r --arg k "$1" '.[$k] // empty' 2>/dev/null; }
 lat="$(get GPSLatitude)"; lng="$(get GPSLongitude)"; alt="$(get GPSAltitude)"

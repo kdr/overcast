@@ -12,7 +12,7 @@ import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
-import { resolveMediaRef, resolveImageArg } from "./media-ref.js";
+import { resolveMediaRef, isImage } from "./media-ref.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -44,7 +44,14 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
     return [rec];
   };
 
-  // resolve the input to a local file
+  // resolve the input to a local file, in three steps:
+  // 1) a case record/capture id → its media.ref (which may be a local path OR a
+  //    remote URL — scan hits carry http media.ref).
+  if (!isHttpUrl(ref)) ref = resolveMediaRef(ctx.case, ref).ref;
+  // 2) a remote ref — passed directly OR resolved from a scan hit — is fetched
+  //    into the case first (like see/capture) so providers read a local file.
+  //    Without this a scan hit's http media.ref would reach the provider as
+  //    --input and fail its local-file check.
   if (isHttpUrl(ref)) {
     sourceUrl = ref;
     let dl;
@@ -53,9 +60,9 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
     } catch (e) {
       return stamp(errorRecord(cfg.verb, `could not fetch ${sourceUrl}: ${(e as Error).message}`));
     }
-    // image-only senses (geolocate) must validate the FETCHED content too, not
-    // just local paths — else a URL resolving to video/HTML is sent to the
-    // provider (wasted API call, misleading error). Mirrors the `see` sense.
+    // image-only senses (geolocate) must validate the FETCHED content, not just
+    // local paths — else a URL resolving to video/HTML reaches the provider
+    // (wasted API call, misleading error). Mirrors the `see` sense.
     if (cfg.resolve === "image" && kindForExt(dl.ext) !== "image") {
       return stamp(
         errorRecord(
@@ -65,14 +72,11 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
       );
     }
     ref = dl.path;
-  } else if (cfg.resolve === "image") {
-    const r = resolveImageArg(ctx.case, ref, cfg.verb, { requireReady: false });
-    if (r.error) return stamp(errorRecord(cfg.verb, r.error));
-    ref = r.ref!;
-  } else {
-    // any file: resolve a case record/capture id to its media, else the ref as-is
-    ref = resolveMediaRef(ctx.case, ref).ref;
-    if (!existsSync(ref)) return stamp(errorRecord(cfg.verb, `${cfg.verb}: file not found: ${ref}`));
+  }
+  // 3) local file: must exist; image-only senses must get an image.
+  if (!existsSync(ref)) return stamp(errorRecord(cfg.verb, `${cfg.verb}: file not found: ${ref}`));
+  if (cfg.resolve === "image" && !isImage(ref)) {
+    return stamp(errorRecord(cfg.verb, `${cfg.verb}: ${ref} is not an image file`));
   }
 
   // dispatch: a bound provider wins; else the shipped default exec script.

@@ -8,7 +8,14 @@ import { fileURLToPath } from "node:url";
 import { exifVerb, verifyVerb, geolocateVerb } from "../../src/verbs/forensics.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
+import { makeRecord } from "../../src/record.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
+
+// minimal valid JPEG for the fetch-a-remote-record test
+const TINY_JPEG = Buffer.from(
+  "ffd8ffe000104a46494600010100000100010000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc4001f0000010501010101010100000000000000000102030405060708090a0bffc400b5100002010303020403050504040000017d01020300041105122131410613516107227114328191a1082342b1c11552d1f02433627282090a161718191a25262728292a3435363738393a434445464748494a535455565758595a636465666768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffda0008010100003f00fbfeffd9",
+  "hex",
+);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_EXIF = join(HERE, "..", "fixtures", "fake-exif.sh");
@@ -121,6 +128,36 @@ test("geolocate rejects a non-image input (image resolver)", async () => {
     assert.equal(rec.state, "error");
     assert.match(rec.error as string, /not an image/);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("forensic sense fetches a scan-hit record's REMOTE media.ref before calling the provider", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-"));
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "image/jpeg" });
+    res.end(TINY_JPEG);
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const url = `http://127.0.0.1:${port}/photo.jpg`;
+    const c = openCase(dir);
+    c.ensure();
+    // a scan hit whose media.ref is a REMOTE url (the case Bugbot flagged)
+    const scan = makeRecord({ verb: "scan", payload: { url, source: "web" }, media: { ref: url } });
+    c.writeRecord(scan);
+    chmodSync(FAKE_EXIF, 0o755);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, exif: { type: "exec", run: `bash ${FAKE_EXIF} --input {{input}}` } };
+    const [rec] = await exifVerb.run({ input: scan.id, rest: [], opts: {}, case: c, profile });
+    assert.equal(rec.state, "ready");
+    // the provider (fake-exif echoes media.ref = its --input) must have received a
+    // LOCAL fetched file, not the remote url
+    assert.ok(!String(rec.media?.ref).startsWith("http"), `expected a local file, got ${rec.media?.ref}`);
+    assert.equal((rec.meta as Record<string, unknown>)?.source_url, url);
+  } finally {
+    server.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });

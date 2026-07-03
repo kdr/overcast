@@ -48,6 +48,14 @@ if ! printf '%s' "$resp" | jq -e 'type == "object"' >/dev/null 2>&1; then
   jq -nc --arg ref "$input" --arg e "$(printf '%s' "$resp" | head -c 200)" '{verb:"geolocate",format:"json",payload:{},media:{ref:$ref},error:("unexpected Picarta response: "+$e),state:"error"}'
   exit 0
 fi
+# a 200 body can still be an API error (invalid token, quota, bad image) — surface
+# it as an error record instead of storing failed geolocation as ready evidence.
+apierr="$(printf '%s' "$resp" | jq -r '(.error // .detail // .message // .Error // empty) | if type=="object" or type=="array" then tojson else tostring end' 2>/dev/null)"
+if [ -n "$apierr" ]; then
+  echo "geolocate: Picarta API error: $apierr" >&2
+  jq -nc --arg ref "$input" --arg e "$apierr" '{verb:"geolocate",format:"json",payload:{},media:{ref:$ref},error:("Picarta API error: "+($e|.[0:300])),state:"error"}'
+  exit 0
+fi
 
 # map defensively — Picarta field names vary; prefer ai_* then generic fallbacks.
 printf '%s' "$resp" | jq -c --arg ref "$input" '
@@ -65,11 +73,13 @@ printf '%s' "$resp" | jq -c --arg ref "$input" '
   | {
       verb:"geolocate", format:"json",
       payload:{
-        summary: ("geolocation"
-                  + (if $city != null then " · " + ($city|tostring) else "" end)
-                  + (if $country != null then ", " + ($country|tostring) else "" end)
-                  + (if ($lat != null and $lng != null) then " (" + ($lat|tostring) + "," + ($lng|tostring) + ")" else "" end)
-                  + (if $conf != null then " · conf " + ($conf|tostring) else "" end)),
+        summary: (if ($lat == null and $lng == null)
+                  then "geolocation · no confident location predicted"
+                  else ("geolocation"
+                        + (if $city != null then " · " + ($city|tostring) else "" end)
+                        + (if $country != null then ", " + ($country|tostring) else "" end)
+                        + " (" + ($lat|tostring) + "," + ($lng|tostring) + ")"
+                        + (if $conf != null then " · conf " + ($conf|tostring) else "" end)) end),
         lat: $lat, lng: $lng, city: $city, country: $country, province: $prov,
         confidence: $conf, candidates: $topk
       },

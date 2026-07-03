@@ -74,7 +74,10 @@ case "$op" in
                (try (.timestamp | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime) catch 0));
       [ .[]
         | select(((.url // "") | length) > 0)
-        | select($cut == 0 or ts == 0 or ts >= $cut)
+        # Instagram timestamps are reliably ISO-8601, so under an active --since
+        # cutoff a post whose timestamp fails to parse (ts == 0) is dropped, not
+        # kept: a post that cannot be dated must not slip past the window.
+        | select($cut == 0 or ts >= $cut)
         | (.videoUrl // (.images // [])[0] // .displayUrl // null) as $asset
         | {
             title: ((.caption // "") | gsub("\\s+"; " ") | .[0:120]),
