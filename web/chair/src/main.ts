@@ -1,5 +1,11 @@
 // Chair console boot: pair (token from the QR's URL fragment), snapshot, then
 // live-drive the desk session — stream, steer/follow-up, abort, case glance.
+//
+// Resync discipline: the stream is closed BEFORE the snapshot fetch and
+// reopened from the snapshot's seq (?since=), so a visibility wake or ring
+// gap never duplicates or drops transcript entries. After first boot a failed
+// resync degrades to a notice + retry — only an auth failure (token rotated /
+// chair off) tears the console down to the pairing gate.
 
 import "./theme.css";
 import type { ChairWireEvent } from "../../../src/chair/wire.js";
@@ -9,6 +15,8 @@ import { createStatusBar } from "./views/statusbar.js";
 import { createTranscript } from "./views/transcript.js";
 import { createComposer } from "./views/composer.js";
 import { openCaseDrawer } from "./views/case.js";
+
+const RETRY_MS = 8000;
 
 const app = document.getElementById("app")!;
 
@@ -42,18 +50,17 @@ async function boot(): Promise<void> {
     },
   });
 
-  const resync = async (): Promise<void> => {
-    try {
-      const snap = await getState();
-      statusbar.set({ caseName: snap.caseName, model: snap.model ?? "", busy: snap.busy, connected: true });
-      composer.setBusy(snap.busy);
-      transcript.reset(snap.transcript);
-    } catch (e) {
-      gate(`connection failed: ${(e as Error).message} — re-scan the pairing QR?`);
-    }
-  };
+  let booted = false;
+  let lastSeq = 0;
+  let disconnect: (() => void) | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
   const onEvent = (evt: ChairWireEvent): void => {
+    // dedupe belt: EventSource reconnects can replay; hello is positional
+    if (evt.type !== "hello") {
+      if (evt.seq <= lastSeq) return;
+      lastSeq = evt.seq;
+    }
     switch (evt.type) {
       case "hello":
         statusbar.set({ caseName: evt.caseName, model: evt.model ?? "", busy: evt.busy });
@@ -87,13 +94,55 @@ async function boot(): Promise<void> {
     }
   };
 
+  const openStream = (since?: number): void => {
+    disconnect?.();
+    disconnect = connectStream(
+      {
+        onEvent,
+        onResync: () => void resync(),
+        onStatus: (connected) => statusbar.set({ connected }),
+      },
+      since,
+    );
+  };
+
+  const resync = async (): Promise<void> => {
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+    }
+    disconnect?.(); // no events while the transcript is rebuilt
+    disconnect = undefined;
+    try {
+      const snap = await getState();
+      statusbar.set({ caseName: snap.caseName, model: snap.model ?? "", busy: snap.busy, connected: true });
+      composer.setBusy(snap.busy);
+      transcript.reset(snap.transcript);
+      lastSeq = snap.seq;
+      booted = true;
+      openStream(snap.seq); // resume exactly where the snapshot left off
+    } catch (e) {
+      const message = (e as Error).message;
+      if (!booted || message === "unauthorized") {
+        // pre-boot failure, or the token was rotated (/chair off) → re-pair
+        gate(`connection failed: ${message} — re-scan the pairing QR from the desk (/chair qr).`);
+        return;
+      }
+      // transient (network blip, laptop asleep): keep the console, keep trying
+      statusbar.set({ connected: false });
+      transcript.notice(`resync failed: ${message} — retrying…`, "warning");
+      openStream(lastSeq);
+      retryTimer = setTimeout(() => void resync(), RETRY_MS);
+    }
+  };
+
+  document.addEventListener("visibilitychange", () => {
+    // Safari suspends EventSource in background tabs; rebuild on return
+    if (document.visibilityState === "visible") void resync();
+  });
+
   app.replaceChildren(statusbar.el, transcript.el, composer.el);
   await resync();
-  connectStream({
-    onEvent,
-    onResync: () => void resync(),
-    onStatus: (connected) => statusbar.set({ connected }),
-  });
 }
 
 void boot();

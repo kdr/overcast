@@ -59,6 +59,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   let ctx: ExtensionContext | undefined;
   let bridge: ChairBridge | undefined;
   let autostarted = false;
+  let qrVisible = false;
 
   // delta coalescing — message_update fires per token; batch to ≤1 flush/40ms
   let textBuf = "";
@@ -198,8 +199,13 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   async function startChair(opts: StartOptions = {}): Promise<void> {
     if (bridge?.running) {
-      showStatus();
-      return;
+      // explicit bind/port → rebind: stop (rotating the token unless pinned)
+      // and fall through to a fresh start; a bare `/chair on` just reports.
+      if (opts.bind === undefined && opts.port === undefined) {
+        showStatus();
+        return;
+      }
+      await stopChair();
     }
     const bind = opts.bind || process.env.OVERCAST_CHAIR_BIND || "127.0.0.1";
     const port = opts.port ?? envPort(process.env.OVERCAST_CHAIR_PORT) ?? 7373;
@@ -231,8 +237,8 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   async function stopChair(): Promise<void> {
     if (!bridge) return;
     const b = bridge;
-    bridge = undefined; // rotate: the next start mints a fresh token
-    ctx?.ui.setWidget(QR_WIDGET_KEY, undefined);
+    bridge = undefined; // rotate: the next start mints a fresh token (unless pinned)
+    hideQr();
     await b.stop();
   }
 
@@ -246,6 +252,12 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       `  ${bridge.url}   ·   /chair qr to hide`,
     ];
     ctx.ui.setWidget(QR_WIDGET_KEY, lines);
+    qrVisible = true;
+  }
+
+  function hideQr(): void {
+    ctx?.ui.setWidget(QR_WIDGET_KEY, undefined);
+    qrVisible = false;
   }
 
   function showStatus(): void {
@@ -281,14 +293,23 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       const sub = (tokens[0] || "status").toLowerCase();
       if (sub === "off" || sub === "stop") {
         await stopChair();
-        emitResult(pi, "▶ chair: offline (token rotated)");
+        // honest about rotation: a pinned OVERCAST_CHAIR_TOKEN survives restarts
+        emitResult(
+          pi,
+          process.env.OVERCAST_CHAIR_TOKEN
+            ? "▶ chair: offline (token pinned via OVERCAST_CHAIR_TOKEN — unset it to rotate)"
+            : "▶ chair: offline (token rotated)",
+        );
         return;
       }
       if (sub === "qr") {
         if (!bridge) return void emitResult(pi, "▶ chair: offline — /chair on first");
-        // toggle: hide if shown
-        ctx?.ui.setWidget(QR_WIDGET_KEY, undefined);
-        showQr();
+        if (qrVisible) {
+          hideQr();
+          emitResult(pi, "▶ chair: QR hidden — /chair qr to show it again");
+        } else {
+          showQr();
+        }
         return;
       }
       if (sub === "status") {
@@ -305,7 +326,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
             if (!addr) return void emitResult(pi, "▶ chair: no tailnet (100.64.0.0/10) address found — is Tailscale up?");
             opts.bind = addr;
           } else if (t === "--bind") opts.bind = rest[++i];
-          else if (t === "--port") opts.port = Number(rest[++i]) || undefined;
+          else if (t === "--port") {
+            const port = envPort(rest[++i]); // validates 0..65535 (0 = ephemeral, not falsy-dropped)
+            if (port === undefined) return void emitResult(pi, "▶ chair: --port must be a number 0–65535");
+            opts.port = port;
+          }
         }
         await startChair(opts);
         return;

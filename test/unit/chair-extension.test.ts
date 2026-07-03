@@ -98,13 +98,40 @@ test("/chair on|status|off lifecycle: real listener, no token leak, no case reco
     assert.equal(sent[0].text, "[chair] run the plate again");
     assert.match(notices.join("\n"), /remote prompt/);
 
+    // /chair qr toggles: hide on the first call, re-show on the second
+    await commands.get("chair")?.("qr", ctx);
+    assert.equal(widgets.get("chair-qr"), undefined, "first /chair qr hides");
+    await commands.get("chair")?.("qr", ctx);
+    assert.ok((widgets.get("chair-qr")?.length ?? 0) > 10, "second /chair qr re-shows");
+
+    // bare `/chair on` while running keeps the same bridge (status only)…
+    await commands.get("chair")?.("on", ctx);
+    assert.equal(handle.bridge(), bridge, "bare on does not restart");
+    // …but an explicit --port rebinds: new bridge, old port closed
+    const oldUrl = bridge.url;
+    await commands.get("chair")?.("on --port 0", ctx);
+    const rebound = handle.bridge();
+    assert.ok(rebound?.running && rebound !== bridge, "explicit opts restart the bridge");
+    await assert.rejects(fetch(oldUrl), /fetch failed/);
+
     // /chair off closes the port, clears the QR, rotates state
-    const url = bridge.url;
+    const url = rebound.url;
     await commands.get("chair")?.("off", ctx);
+    assert.match(messages.at(-1) ?? "", /token rotated/);
     assert.equal(handle.bridge(), undefined);
     assert.equal(widgets.get("chair-qr"), undefined);
     assert.equal(handle.footerLabel(), undefined);
     await assert.rejects(fetch(url), /fetch failed/);
+
+    // with a pinned token the off message must not claim rotation
+    process.env.OVERCAST_CHAIR_TOKEN = "pinned-secret";
+    try {
+      await commands.get("chair")?.("on --port 0", ctx);
+      await commands.get("chair")?.("off", ctx);
+      assert.match(messages.at(-1) ?? "", /pinned via OVERCAST_CHAIR_TOKEN/);
+    } finally {
+      delete process.env.OVERCAST_CHAIR_TOKEN;
+    }
 
     // chair is operational, not evidence: nothing persisted to the case store
     assert.equal(openCase(dir).records().length, 0);

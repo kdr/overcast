@@ -13,12 +13,26 @@ export function isTailnetAddr(addr: string): boolean {
   return second >= 64 && second <= 127;
 }
 
-/** First tailnet (100.64.0.0/10) IPv4 on any interface, if the host is on one. */
-export function detectTailnetAddr(): string | undefined {
-  for (const addrs of Object.values(networkInterfaces())) {
+interface IfaceAddr {
+  address: string;
+  /** "IPv4" on current Node/bun; numeric 4 on the Node 18.0–18.3 regression —
+   *  accept both so the compiled binary stays robust across runtimes. */
+  family: string | number;
+  internal: boolean;
+}
+
+/** Pure core of detectTailnetAddr (unit-testable against a fixed iface map). */
+export function pickTailnetAddr(ifaces: Record<string, IfaceAddr[] | undefined>): string | undefined {
+  for (const addrs of Object.values(ifaces)) {
     for (const a of addrs ?? []) {
-      if (a.family === "IPv4" && !a.internal && isTailnetAddr(a.address)) return a.address;
+      const isV4 = a.family === "IPv4" || a.family === 4;
+      if (isV4 && !a.internal && isTailnetAddr(a.address)) return a.address;
     }
   }
   return undefined;
+}
+
+/** First tailnet (100.64.0.0/10) IPv4 on any interface, if the host is on one. */
+export function detectTailnetAddr(): string | undefined {
+  return pickTailnetAddr(networkInterfaces());
 }
