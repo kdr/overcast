@@ -15,34 +15,37 @@ was recorded, and whether two clips share a voice or a phrase. Use the broad
 
 ## Workflow
 
-1. Transcribe the recording into time-anchored segments. `--diarize` attributes
-   speech to distinct voices, but it needs a **diarize-capable listen provider** —
-   the default tinycloud/Cloudglue `listen` does speech transcript only and
-   rejects `--diarize`, so bind ElevenLabs first for speaker separation:
+1. Transcribe the recording and read its background scene on the **default
+   backend**. `--describe` surfaces the whole audio scene (traffic, trains, a PA
+   announcement, church bells) — the "enhance the background noise" move that
+   places a recording — and is a tinycloud/Cloudglue multimodal feature, so do all
+   the transcript/describe work FIRST, before binding any speech-only provider:
 
 ```bash
 overcast doctor --json
 overcast case init --json
-overcast listen ./call.wav --json                          # speech transcript + segments (default backend)
-overcast provider setup apply --verb listen --choice elevenlabs --yes --json   # diarize-capable
-overcast listen ./call.wav --diarize --json                # now separates speakers
+overcast listen ./call.wav --json                 # speech transcript + time-anchored segments
+overcast listen ./call.wav --describe --json       # background audio scene (tinycloud describe)
+overcast view ./call.wav --spectrogram --json      # visual inspection artifact (tones, hums, edits)
 ```
 
-2. Read the background scene — `--describe` surfaces the whole audio scene (traffic,
-   trains, a PA announcement, church bells, machinery), the "enhance the background
-   noise" move that places a recording:
-
-```bash
-overcast listen ./call.wav --describe --json
-overcast view ./call.wav --spectrogram --json     # visual inspection artifact (tones, hums, edits)
-```
-
-3. Isolate voices from noise and re-transcribe the cleaned track — a second pass
+2. Isolate voices from noise and re-transcribe the cleaned track — a second pass
    often recovers words the first missed:
 
 ```bash
 overcast enhance ./call.wav --ops voice-isolate,denoise --json
-overcast listen <enhanced-record-id> --diarize --json
+overcast listen <enhanced-record-id> --json
+```
+
+3. Separate the speakers. `--diarize` needs a **diarize-capable listen provider**
+   (the default tinycloud/Cloudglue `listen` is speech-transcript only and rejects
+   `--diarize`). Bind ElevenLabs for this — but do it LAST, after the describe /
+   multimodal steps above, because ElevenLabs Scribe is speech-only and drops the
+   audio-scene describe:
+
+```bash
+overcast provider setup apply --verb listen --choice elevenlabs --yes --json
+overcast listen ./call.wav --diarize --json        # attribute speech to distinct voices
 ```
 
 4. Record per-speaker and per-clue observations, then correlate across recordings:
@@ -72,7 +75,10 @@ artifacts — each cited by `record.id` + `media.at`.
 `--diarize` needs a diarize-capable listen provider: the default tinycloud/Cloudglue
 `listen` transcribes speech only and errors on `--diarize` — bind ElevenLabs
 (`provider setup apply --verb listen --choice elevenlabs --yes`) for speaker
-separation. Diarization LABELS speakers ("Speaker 1/2"), it does not IDENTIFY them —
+separation. Bind it LAST: ElevenLabs Scribe is speech-only and drops the audio-scene
+`--describe`, so run all transcript/describe/multimodal work on the default backend
+first, then rebind for the diarize pass. Diarization LABELS speakers ("Speaker
+1/2"), it does not IDENTIFY them —
 a name is a corroborated inference, never a diarizer output. `voice-isolate` on the
 bundled ffmpeg is a filter, not source separation; bind ElevenLabs
 (`--verb enhance --choice elevenlabs`) for stronger isolation, and re-listen to
