@@ -110,8 +110,8 @@ do_segment() {
   local subtype imime iurl
   subtype="$ext"; [ "$subtype" = "jpg" ] && subtype="jpeg"; imime="image/$subtype"
   iurl="$(fal_upload "$input" "$imime")" || { emit_err "fal: image upload to storage failed"; return; }
-  local outputs dets idx cls resp nmask apierr i murl score box boxobj mout cout ref kind maskfield item det
-  outputs="[]"; dets="[]"; idx=0
+  local outputs dets idx cls resp nmask apierr class_errors i murl score box boxobj mout cout ref kind maskfield item det
+  outputs="[]"; dets="[]"; idx=0; class_errors=""
   # sam-3 segments ONE concept per call; comma-separated prompt classes are looped
   # (parity with the local GroundingDINO provider), each output labeled per class.
   local OLDIFS="$IFS"; IFS=','
@@ -123,11 +123,12 @@ do_segment() {
       -d "$(jq -nc --arg u "$iurl" --arg p "$cls" --argjson n "$SEG_MAX" \
         '{image_url:$u,prompt:$p,return_multiple_masks:true,max_masks:$n,include_scores:true,include_boxes:true,output_format:"png"}')")"
     nmask="$(jq -r '(.masks // []) | length' <<<"$resp" 2>/dev/null || echo 0)"
-    apierr="$(jq -r '(.detail // .error // empty)' <<<"$resp" 2>/dev/null | head -c 300)"
-    # a hard API error (auth/quota/etc.) surfaces detail with no masks — fail loudly.
-    # a well-formed response with 0 masks is a clean "this class matched nothing".
+    apierr="$(jq -r '(.detail // .error // empty)' <<<"$resp" 2>/dev/null | head -c 200)"
+    # A per-class hard error (detail with no masks) is recorded but NOT fatal —
+    # earlier classes' masks must survive. A clean 0-mask response is just a
+    # class that matched nothing. Errors are only surfaced if NOTHING succeeded.
     if ! [ "$nmask" -gt 0 ] 2>/dev/null; then
-      [ -n "$apierr" ] && { emit_err "sam-3 ($cls): $apierr"; return; }
+      [ -n "$apierr" ] && class_errors="${class_errors}${class_errors:+; }$cls: $apierr"
       IFS=','; continue
     fi
     i=0
@@ -166,9 +167,11 @@ do_segment() {
     IFS=','
   done
   IFS="$OLDIFS"
-  # zero matches across all classes is a VALID empty result (like the local
-  # provider / see --detect), not an error — emit a ready record with count 0.
   if [ "$(jq 'length' <<<"$outputs")" = "0" ]; then
+    # nothing succeeded: a real API error (auth/quota) → surface it; otherwise a
+    # clean no-match is a VALID empty result (ready, count 0) like the local
+    # provider / see --detect.
+    [ -n "$class_errors" ] && { emit_err "sam-3 segment: $class_errors"; return; }
     jq -nc --arg inp "$input" --arg m "$SEG_MODEL" --arg p "$prompt" \
       '{verb:"enhance",format:"json",payload:{op:"segment",input:$inp,model:$m,prompt:$p,count:0,detections:[],outputs:[],note:"no instances matched the prompt"},media:{ref:$inp},meta:{provider:("fal:"+$m)},state:"ready"}'
     return

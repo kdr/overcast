@@ -152,8 +152,18 @@ def run():
               "media": {"ref": inp}, "meta": {"provider": "local:grounded-sam"}, "state": "ready"})
         return
 
-    # rank by score, cap instances
-    order = sorted(range(len(boxes)), key=lambda k: -scores[k])[:max(1, MAX_INSTANCES)]
+    # rank by score and cap PER CLASS (SEGMENT_MAX_INSTANCES is a per-class cap,
+    # matching the fal toolbox which applies max_masks to each comma-split class —
+    # so `--prompt "person, car"` yields up to N of each, not N total).
+    cap = max(1, MAX_INSTANCES)
+    per_class_count: dict = {}
+    order = []
+    for k in sorted(range(len(boxes)), key=lambda k: -scores[k]):
+        lbl = labels[k]
+        if per_class_count.get(lbl, 0) >= cap:
+            continue
+        per_class_count[lbl] = per_class_count.get(lbl, 0) + 1
+        order.append(k)
     boxes = [boxes[k] for k in order]
     scores = [scores[k] for k in order]
     labels = [labels[k] for k in order]
