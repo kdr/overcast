@@ -9,14 +9,19 @@ REPO="$(cd "$DIR/../.." && pwd)"
 source "$DIR/lib.sh"
 
 casedir="$SMOKE_DIR/case_dist"; mkdir -p "$casedir"
-shipped_skills=(
-  overcast
-  overcast-init
-  overcast-skill-creator
-  overcast-media-bug-triage
-  overcast-recon-brief
-  overcast-visual-target-search
+# Derive the expected skill folders from the single source of truth (SHIPPED_SKILLS
+# in src/verbs/skills.ts) so adding a shipped skill can't silently pass this test.
+# Portable read loop (macOS bash 3.2 has no `mapfile`).
+shipped_skills=()
+while IFS= read -r s; do [ -n "$s" ] && shipped_skills+=("$s"); done < <(
+  sed -n '/const SHIPPED_SKILLS = \[/,/\] as const/p' "$REPO/src/verbs/skills.ts" \
+    | grep -oE '"overcast[^"]*"' | tr -d '"'
 )
+if [ "${#shipped_skills[@]}" -lt 7 ]; then
+  fail "skills.shipped_list" "could not parse SHIPPED_SKILLS from src/verbs/skills.ts (${#shipped_skills[@]} found)"
+else
+  ok "skills.shipped_list" "derived ${#shipped_skills[@]} shipped skills from source"
+fi
 
 # generate the skill + reference from the registry
 gen="$($OVERCAST skills generate --json --case "$casedir" 2>/dev/null)"

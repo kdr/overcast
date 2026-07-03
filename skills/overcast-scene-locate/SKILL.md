@@ -27,13 +27,15 @@ overcast see frame://<watch-record-id>@<seconds> --prompt "signage, storefront n
 overcast see frame://<watch-record-id>@<seconds> --ocr --json     # street signs, storefronts, plates, notices
 ```
 
-2. Materialize the strongest clue regions as crops (needs a detection provider —
-   e.g. `overcast setup provider see "exec:python3 examples/providers/detect/detect.py"`
-   for boxes). Crops become the reverse-search queries:
+2. Materialize the strongest clue regions as crops. `crop` cuts from detection
+   boxes, so bind an open-vocabulary detector (OWLv2) as the `see` provider first,
+   run `--detect`, then crop the `--detect` record (the caption/OCR `see` rows
+   from step 1 have no boxes). Crops become the reverse-search queries:
 
 ```bash
-overcast see ./clip.mp4 --detect "sign, storefront, logo, landmark" --json
-overcast crop <see-record-id> --all --class sign --pad 0.2 --json
+overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json  # bind OWLv2 for --detect
+overcast see ./clip.mp4 --detect "sign, storefront, logo, landmark" --json   # -> <detect-record-id>
+overcast crop <detect-record-id> --all --class sign --pad 0.2 --json          # crop the --detect record (it has boxes)
 ```
 
 3. Reverse-image-search the best crops through Google Lens, and corroborate OCR'd

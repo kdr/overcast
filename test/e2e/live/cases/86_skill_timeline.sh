@@ -56,11 +56,20 @@ assert_eq "$C.ask_state" "ready" "$(echo "$ask" | jq -r '.state')" "cross-clip a
 ans="$(echo "$ask" | jq -r '(.payload.answer // .payload.text // .payload.summary // "")')"
 assert_nonempty "$C.ask_answer" "$ans" "ask returned a cited chronological answer"
 
-# 4) skill step: contradictions become low-confidence findings; brief is the deliverable
-cond "timeline skill: a contradiction finding + tldr note feed the chronological brief"
-oc "$CASE" finding create "timeline: possible ordering conflict between the recordings — flagged for review" --ref "$W1" --at 1-4 --confidence low --json >/dev/null
+# 4) skill step: turn a REAL cross-clip contradiction into a finding — only when the
+# answer actually reports one (the skill says flag real conflicts, not invent one
+# every run); the chronological brief is the deliverable regardless.
+if echo "$ans" | grep -qiE 'conflict|contradict|disagree|inconsist|mismatch|out of order|do(es)? not match'; then
+  cond "timeline skill: a reported cross-clip conflict becomes a low-confidence finding"
+  oc "$CASE" finding create "timeline: cross-clip answer reports an ordering conflict — flagged for review" --ref "$W1" --at 1-4 --confidence low --json >/dev/null
+  ok "$C.conflict" "answer reported a conflict → finding created"
+  conflict_summary="flagged an ordering conflict"
+else
+  ok "$C.conflict" "no cross-clip conflict reported → no invented finding"
+  conflict_summary="no ordering conflicts reported"
+fi
 nclips=1; [ -n "$W2" ] && nclips=2
-oc "$CASE" note "timeline: reconstructed the event across $nclips clip(s); anchored shared moments; asked for ordering + conflicts." --tag tldr --json >/dev/null
+oc "$CASE" note "timeline: reconstructed the event across $nclips clip(s); anchored shared moments; $conflict_summary." --tag tldr --json >/dev/null
 BRIEF="$SMOKE_DIR/86_timeline_brief.html"
 oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
 if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then

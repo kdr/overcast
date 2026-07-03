@@ -35,7 +35,7 @@ assert_nonempty "$C.clues" "${CAP}${OCR}" "extracted caption/OCR clues from the 
 SEE_ID="$(echo "$see" | jq -r '.id // empty')"
 
 # 2) skill step (billed tier): reverse-image-search the still through Google Lens
-LENS_URL=""; lens_done=0; web_done=0
+LENS_URL=""; LENS_HIT_ID=""; lens_done=0; web_done=0
 if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
   cond "scene-locate skill: lens reverse-image-searches the still for matching pages"
   export OVERCAST_SOURCE_LENS_CMD="bash $PWD/examples/providers/sources/lens.sh"
@@ -52,6 +52,7 @@ if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
   fi
   if [ "${lhits:-0}" -ge 1 ]; then
     LENS_URL="$(echo "$lout" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")][0].payload.url' 2>/dev/null)"
+    LENS_HIT_ID="$(echo "$lout" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")][0].id' 2>/dev/null)"
     match="$(echo "$lout" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.match // empty' 2>/dev/null)"
     ok "$C.lens_match" "top lens match ($match): $LENS_URL"
   fi
@@ -80,9 +81,11 @@ oc "$CASE" note "scene clue: ${OCR:-$CAP}" --ref "$SEE_ID" --confidence medium -
 # the finding uses the SAME lens_done gate as the tldr (a clean search that matched
 # pages), so the two never disagree on a mixed error+hits response.
 if [ "$lens_done" -eq 1 ] && [ -n "$LENS_URL" ]; then
-  oc "$CASE" finding create "location workup: lens matched the scene to $LENS_URL; OCR/landmark clues corroborate" --confidence medium --json >/dev/null
+  # point the finding at the lens hit record so the match rides into the brief
+  ref_args=(--confidence medium); [ -n "$LENS_HIT_ID" ] && ref_args=(--ref "$LENS_HIT_ID" --confidence medium)
+  oc "$CASE" finding create "location workup: lens matched the scene to $LENS_URL; OCR/landmark clues corroborate" "${ref_args[@]}" --json >/dev/null
 else
-  oc "$CASE" finding create "location workup: extracted scene clues; reverse-image match undetermined" --confidence low --json >/dev/null
+  oc "$CASE" finding create "location workup: extracted scene clues; reverse-image match undetermined" --ref "$SEE_ID" --confidence low --json >/dev/null
 fi
 legs="read clues from the still"
 [ "$lens_done" -eq 1 ] && legs="$legs, reverse-image-searched via lens"
