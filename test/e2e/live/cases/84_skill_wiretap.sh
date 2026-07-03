@@ -94,7 +94,7 @@ if require_cred "$C.diarize" ELEVENLABS_API_KEY "speaker separation needs a diar
   dz="$(OC_TIMEOUT=240 oc "$CASE" listen "$REC" --diarize --json)"
   save_json "84_diarize" "$dz" >/dev/null
   st="$(echo "$dz" | jq -r '.state')"
-  if [ "$st" = "ready" ]; then DIARIZED=1; ok "$C.diarize_state" "ElevenLabs diarization ready (speaker separation)"; else fail "$C.diarize_state" "diarize state=$st err=$(echo "$dz"|jq -r '.error // empty'|head -c 80)"; fi
+  if [ "$st" = "ready" ]; then DIARIZED=1; DZ_ID="$(echo "$dz" | jq -r '.id // empty')"; ok "$C.diarize_state" "ElevenLabs diarization ready (speaker separation)"; else fail "$C.diarize_state" "diarize state=$st err=$(echo "$dz"|jq -r '.error // empty'|head -c 80)"; fi
 fi
 
 # 7) skill step: cited finding + mandatory tldr note + brief. The claim reflects
@@ -114,7 +114,10 @@ elif [ "$el_attempted" -eq 1 ]; then
 else
   sep="speaker separation not run (no diarize-capable provider)"
 fi
-oc "$CASE" finding create "audio workup: $steps; $sep" --ref "${LID:-}" --confidence medium --json >/dev/null
+# when diarization succeeded, cite the speaker-labeled diarize record (matches the
+# skill); otherwise cite the transcript record.
+finding_ref="${LID:-}"; [ "$DIARIZED" -eq 1 ] && [ -n "${DZ_ID:-}" ] && finding_ref="$DZ_ID"
+oc "$CASE" finding create "audio workup: $steps; $sep" --ref "$finding_ref" --confidence medium --json >/dev/null
 oc "$CASE" note "wiretap: $steps; $sep." --tag tldr --json >/dev/null
 BRIEF="$SMOKE_DIR/84_wiretap_brief.html"
 oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null

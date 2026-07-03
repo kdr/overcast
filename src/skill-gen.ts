@@ -931,7 +931,8 @@ overcast see frame://<watch-record-id>@<seconds> --ocr --json     # street signs
 
 \`\`\`bash
 overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json  # bind OWLv2 for --detect
-overcast see ./clip.mp4 --detect "sign, storefront, logo, landmark" --json   # -> <detect-record-id>
+# detect on the SAME still from step 1 (a photo, or frame://<watch-record-id>@<seconds> for video):
+overcast see ./photo.jpg --detect "sign, storefront, logo, landmark" --json   # -> <detect-record-id>
 overcast crop <detect-record-id> --all --class sign --pad 0.2 --json          # crop the --detect record (it has boxes)
 \`\`\`
 
