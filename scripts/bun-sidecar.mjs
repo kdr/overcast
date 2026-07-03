@@ -80,7 +80,23 @@ try {
   /* cosmetic; the binary just stays quiet without it */
 }
 
+// 5) chair console (vite build output) → dist/bin/assets/chair-console/, so
+// /chair serves the real SPA from beside the binary; without it the bridge
+// falls back to its inline minimal page.
+let chair = 0;
+try {
+  const src = join(process.cwd(), "assets", "chair-console");
+  if (existsSync(src)) {
+    cpSync(src, join(OUT, "assets", "chair-console"), { recursive: true });
+    chair = 1;
+  } else {
+    console.error("[build:bun] WARNING: assets/chair-console missing (run `npm run build:web`); /chair will serve the fallback page");
+  }
+} catch (e) {
+  console.error(`[build:bun] WARNING: could not copy chair console (${e.message}); /chair will serve the fallback page`);
+}
+
 console.error(
   `[build:bun] wrote ${OUT}/package.json + ${copied} builtin theme file(s)` +
-    `${providers ? " + example providers" : ""}${sting ? " + branding audio" : ""}`,
+    `${providers ? " + example providers" : ""}${sting ? " + branding audio" : ""}${chair ? " + chair console" : ""}`,
 );

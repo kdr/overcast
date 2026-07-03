@@ -22,6 +22,7 @@ import { buildSystemPrompt } from "./system-prompt.js";
 import { OvercastHeader, OvercastFooter, workingIndicator, opLabel, idleLabel } from "./branding.js";
 import { registerSlashCommands } from "./slash.js";
 import { registerYeahEasterEgg } from "./horatio.js";
+import { registerChair } from "./chair.js";
 import { OvercastEditor } from "./editor.js";
 import { OVERCAST_VERSION } from "../version.js";
 import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
@@ -131,6 +132,11 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   // state verbs as TUI slash commands (/target /source /case /prebrief /view /setup)
   registerSlashCommands(pi);
 
+  // man in the chair: /chair on → token-authed bridge that remote-drives this
+  // live session from a phone (src/extension/chair.ts). footerLabel() feeds the
+  // status segment below.
+  const chair = registerChair(pi);
+
   // unlisted: the sunglasses moment (src/extension/horatio.ts)
   registerYeahEasterEgg(pi);
 
@@ -216,6 +222,7 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
           ctxPercent: usage?.percent ?? null,
           model: ctx.model?.id ?? CLOUDGLUE_MODEL_ID,
           thinking: pi.getThinkingLevel?.() ?? "medium",
+          chair: chair.footerLabel(),
         };
       });
     });

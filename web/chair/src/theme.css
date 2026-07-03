@@ -1,0 +1,365 @@
+/* chair console — the csi control-room palette from src/report/html.ts,
+   mobile-first, safe-area aware. */
+
+:root {
+  color-scheme: dark;
+  --bg: #050708;
+  --panel: #0b1214;
+  --panel2: #10181b;
+  --line: #1f3a3b;
+  --green: #5cff96;
+  --cyan: #38e8ff;
+  --amber: #ffd166;
+  --magenta: #ff4fd8;
+  --text: #d8ffe4;
+  --muted: #8aa69d;
+  --bad: #ff6b6b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: radial-gradient(circle at top left, #10241b 0, #050708 34rem);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+/* --- status bar ------------------------------------------------------------ */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel), var(--panel2));
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.statusbar .mark {
+  color: var(--magenta);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.statusbar .case {
+  color: var(--green);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.statusbar .chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--cyan);
+  background: #07100c;
+}
+
+.statusbar .spacer {
+  flex: 1;
+}
+
+.statusbar .busy {
+  color: var(--amber);
+}
+
+.statusbar .busy::before {
+  content: "●";
+  margin-right: 5px;
+  animation: pulse 1.1s ease-in-out infinite;
+  display: inline-block;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.statusbar button {
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--amber);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+
+/* --- transcript -------------------------------------------------------------- */
+
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  overscroll-behavior: contain;
+}
+
+.entry {
+  margin: 0 0 10px;
+  max-width: 100%;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.entry.user {
+  color: var(--cyan);
+  border-left: 2px solid var(--cyan);
+  padding-left: 9px;
+}
+
+.entry.user.chair {
+  color: var(--magenta);
+  border-left-color: var(--magenta);
+}
+
+.entry.user .who {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+
+.entry.assistant {
+  color: var(--text);
+}
+
+.entry.assistant.live::after {
+  content: "▋";
+  color: var(--green);
+  animation: pulse 0.9s ease-in-out infinite;
+}
+
+.entry.thinking {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 12px;
+  max-height: 5.6em;
+  overflow: hidden;
+}
+
+.entry.tool {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  display: inline-block;
+}
+
+.entry.tool .name {
+  color: var(--amber);
+}
+
+.entry.tool.error {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.entry.tool.running .name::after {
+  content: "…";
+  animation: pulse 1s ease-in-out infinite;
+  display: inline-block;
+}
+
+.entry.notice {
+  color: var(--amber);
+  font-size: 12px;
+}
+
+.entry.notice.error {
+  color: var(--bad);
+}
+
+/* --- composer ---------------------------------------------------------------- */
+
+.composer {
+  border-top: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  padding: 10px 12px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.composer textarea {
+  grid-column: 1 / -1;
+  resize: none;
+  min-height: 44px;
+  max-height: 30dvh;
+  background: #06100b;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  padding: 10px;
+}
+
+.composer textarea:focus {
+  outline: none;
+  border-color: var(--green);
+}
+
+.composer .modes {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.composer .modes button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.composer .modes button.active {
+  background: var(--panel2);
+  color: var(--cyan);
+}
+
+.composer .actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.composer .send {
+  background: #07100c;
+  border: 1px solid var(--green);
+  color: var(--green);
+  border-radius: 6px;
+  font: inherit;
+  padding: 8px 16px;
+}
+
+.composer .send:disabled {
+  opacity: 0.4;
+}
+
+.composer .abort {
+  background: #170a0a;
+  border: 1px solid var(--bad);
+  color: var(--bad);
+  border-radius: 6px;
+  font: inherit;
+  padding: 8px 14px;
+  font-weight: 700;
+}
+
+/* --- case drawer --------------------------------------------------------------- */
+
+.drawer {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 5, 4, 0.72);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 10;
+}
+
+.drawer .panel {
+  width: min(420px, 92vw);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  padding: 14px;
+  padding-top: calc(14px + env(safe-area-inset-top));
+}
+
+.drawer h2 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--magenta);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.drawer h3 {
+  margin: 16px 0 6px;
+  font-size: 11px;
+  color: var(--amber);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.drawer ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drawer li {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  margin: 4px 0;
+  font-size: 12px;
+  background: var(--panel2);
+  word-break: break-word;
+}
+
+.drawer .id {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.drawer .verb {
+  color: var(--cyan);
+}
+
+.drawer .muted {
+  color: var(--muted);
+}
+
+.drawer .close {
+  float: right;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--text);
+  border-radius: 6px;
+  font: inherit;
+  padding: 2px 10px;
+}
+
+/* --- pairing / error screen ----------------------------------------------------- */
+
+.gate {
+  margin: auto;
+  max-width: 320px;
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+}
+
+.gate .mark {
+  color: var(--magenta);
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}

@@ -82,6 +82,9 @@ jobs:
       # Deps are needed: bun-sidecar.mjs copies pi's builtin themes out of
       # node_modules, and `bun --compile` resolves imports from node_modules.
       - run: npm ci
+      # The chair console SPA — bun-sidecar.mjs copies assets/chair-console
+      # beside each binary (this job never runs `npm run build`).
+      - run: npm run build:web
       - name: Cross-compile binaries + sidecar trees
         run: |
           set -euo pipefail
