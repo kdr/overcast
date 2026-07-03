@@ -508,6 +508,22 @@ export interface FrameRef {
   second: number;
 }
 
+/** Parse a seek/timestamp value: plain seconds ("42", "42.5") or a timecode
+ *  ("1:02", "1:02:14"). Returns undefined for anything unparseable or negative —
+ *  the single implementation shared by `grid` window flags and `view --at` so the
+ *  two can't disagree on a malformed string. */
+export function parseTimecode(s: string): number | undefined {
+  const str = s.trim();
+  if (!str) return undefined;
+  if (str.includes(":")) {
+    const parts = str.split(":").map((p) => Number(p));
+    if (parts.some((p) => !Number.isFinite(p) || p < 0)) return undefined;
+    return parts.reduce((acc, p) => acc * 60 + p, 0);
+  }
+  const n = Number(str);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 /** Parse a `frame://rec_xxx@134` reference. Returns null if not a frame ref. */
 export function parseFrameRef(ref: string): FrameRef | null {
   const m = ref.match(/^frame:\/\/([^@]+)@(\d+(?:\.\d+)?)$/);

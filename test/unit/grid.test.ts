@@ -101,6 +101,24 @@ test("grid verb: an out-of-range --count is ignored when --at overrides it", asy
   assert.deepEqual(p.cells.map((c: any) => c.at), [2, 5, 8]);
 });
 
+test("grid verb: a fractional --count is rejected (skews window sampling)", async () => {
+  const [rec] = await gridVerb.run(ctx(clip, { count: 16.9, json: true }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /whole number/);
+});
+
+test("grid verb: an audio-only input is rejected with a clear video-required error", async () => {
+  const audio = join(dir, "tone.m4a");
+  execFileSync(
+    FFMPEG_PATH,
+    ["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "aac", audio],
+    { stdio: "ignore" },
+  );
+  const [rec] = await gridVerb.run(ctx(audio, { count: 4, json: true }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /no video stream/);
+});
+
 test("grid verb: a nested --out path has its parent dir created", async () => {
   const out = join(dir, "nested", "deep", "sheet.png");
   const [rec] = await gridVerb.run(ctx(clip, { count: 4, out, json: true }));

@@ -8,26 +8,13 @@
 
 import { basename, join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
-import { contactSheet, probe } from "../media/ffmpeg.js";
+import { contactSheet, probe, parseTimecode } from "../media/ffmpeg.js";
 import { resolveVideoArg } from "./media-ref.js";
 import { badNumber } from "./validate.js";
 import type { VerbSpec } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "grid", format: "json", payload: { error: message }, error: message, state: "error" });
-}
-
-/** Parse a seek value: plain seconds ("42", "42.5") or a timecode ("1:02", "1:02:14"). */
-function parseTimecode(s: string): number | undefined {
-  const str = s.trim();
-  if (!str) return undefined;
-  if (str.includes(":")) {
-    const parts = str.split(":").map((p) => Number(p));
-    if (parts.some((p) => !Number.isFinite(p) || p < 0)) return undefined;
-    return parts.reduce((acc, p) => acc * 60 + p, 0);
-  }
-  const n = Number(str);
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
 const MAX_CELLS = 64;
@@ -62,12 +49,15 @@ export const gridVerb: VerbSpec = {
   run: async (ctx) => {
     if (!ctx.input) return [err("grid requires a video input (path or record id)")];
     const numErr =
-      badNumber(ctx.opts, "cols", (n) => n >= 1 && n <= 12, "1–12") ??
+      // count/cols set array lengths + the grid shape, so they must be whole
+      // numbers — a fractional count truncates the samples while the step math
+      // still divides by the float, skewing the window.
+      badNumber(ctx.opts, "cols", (n) => Number.isInteger(n) && n >= 1 && n <= 12, "a whole number 1–12") ??
       badNumber(ctx.opts, "width", (n) => n >= 120 && n <= 960, "120–960") ??
       // --count only drives window sampling; an explicit --at overrides it, so
       // don't reject a count the user isn't actually using.
       (ctx.opts.at == null
-        ? badNumber(ctx.opts, "count", (n) => n >= 1 && n <= MAX_CELLS, `1–${MAX_CELLS}`)
+        ? badNumber(ctx.opts, "count", (n) => Number.isInteger(n) && n >= 1 && n <= MAX_CELLS, `a whole number 1–${MAX_CELLS}`)
         : undefined);
     if (numErr) return [err(numErr)];
 
@@ -75,6 +65,14 @@ export const gridVerb: VerbSpec = {
     const resolved = resolveVideoArg(ctx.case, ctx.input, "grid input", { requireReady: false });
     if (resolved.error) return [err(resolved.error)];
     const input = resolved.ref ?? ctx.input;
+
+    // grid tiles VIDEO frames — reject audio-only media that passes the AV gate
+    // (resolveVideoArg accepts audio too). Probe once here and reuse it for the
+    // window duration below. Lenient on a probe failure (proceed rather than block).
+    const probed = await probe(input).catch(() => undefined);
+    if (probed && !probed.hasVideo) {
+      return [err(`grid needs a video — ${basename(input)} has no video stream`)];
+    }
 
     // decide the timestamps: explicit --at wins; otherwise sample the window.
     let seconds: number[];
@@ -97,8 +95,7 @@ export const gridVerb: VerbSpec = {
       let end = ctx.opts.end != null ? parseTimecode(String(ctx.opts.end)) : undefined;
       if (ctx.opts.end != null && end === undefined) return [err(`invalid --end: ${ctx.opts.end}`)];
       if (end === undefined) {
-        const p = await probe(input).catch(() => undefined);
-        end = p?.durationSeconds;
+        end = probed?.durationSeconds;
         if (end === undefined) {
           return [err("could not read video duration — pass --end or an explicit --at list")];
         }
