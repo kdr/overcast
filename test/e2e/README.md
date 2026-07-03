@@ -118,7 +118,11 @@ Then the **agentic** cases: `88_skill_agent` (a real headless pi agent —
 bounded slice against real media; asserts on the persisted records + the JSONL
 tool-call trace) and `89_skill_claude` (loads a skill into the real `claude` CLI
 headless and lets Claude drive the overcast binary; **opt-in** behind
-`OC_E2E_CLAUDE=1`).
+`OC_E2E_CLAUDE=1`). `90_skill_variations` runs the same real input through
+different modes/flags and asserts the outputs actually DIFFER — `listen` plain vs
+`--describe` (adds an audio-scene field, or an audio-only fallback warning) vs
+`--diarize` (speaker labels); `see --ocr` vs `--prompt`; `brief --theme plain` vs
+`csi` — saving every raw output for inspection.
 
 The offline suite also covers setup management (`phase4_setup`): `case setup
 plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
