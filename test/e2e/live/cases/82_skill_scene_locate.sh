@@ -77,7 +77,9 @@ fi
 # 4) skill step: cited location note + finding + mandatory tldr note + brief
 cond "scene-locate skill: a location finding cites the evidence and a tldr note feeds the brief"
 oc "$CASE" note "scene clue: ${OCR:-$CAP}" --ref "$SEE_ID" --confidence medium --json >/dev/null
-if [ -n "$LENS_URL" ]; then
+# the finding uses the SAME lens_done gate as the tldr (a clean search that matched
+# pages), so the two never disagree on a mixed error+hits response.
+if [ "$lens_done" -eq 1 ] && [ -n "$LENS_URL" ]; then
   oc "$CASE" finding create "location workup: lens matched the scene to $LENS_URL; OCR/landmark clues corroborate" --confidence medium --json >/dev/null
 else
   oc "$CASE" finding create "location workup: extracted scene clues; reverse-image match undetermined" --confidence low --json >/dev/null

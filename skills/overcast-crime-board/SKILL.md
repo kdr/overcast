@@ -16,14 +16,18 @@ existing evidence into two shareable surfaces. Use the broad `overcast` skill an
 ## Workflow
 
 1. Materialize the evidence cards — faces and objects as durable crops (run
-   `face --thumbnails` first so `crop` has frame images to cut from):
+   `face --thumbnails` first so `crop` has frame images to cut from). Object cards
+   need a bound open-vocabulary detector (OWLv2): `crop` cuts from detection boxes,
+   so bind a detector as the `see` provider before `--detect`, then crop the
+   `--detect` record (a caption/OCR `see` record has no boxes to crop):
 
 ```bash
 overcast doctor --json
 overcast face ./clip.mp4 --thumbnails --json
 overcast crop <face-record-id> --all --class face --square --pad 0.1 --json
+overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json  # bind OWLv2 for --detect
 overcast see ./clip.mp4 --detect "car, bag, weapon, phone" --json
-overcast crop <see-record-id> --all --kind object --json
+overcast crop <detect-record-id> --all --kind object --json   # crop the --detect record (it has boxes)
 ```
 
 2. Draw the strings — link the same person across clips with the local face DB, and

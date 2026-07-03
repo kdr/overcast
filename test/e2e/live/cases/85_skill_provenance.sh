@@ -67,6 +67,7 @@ if require_cred "$C.web" TAVILY_API_KEY "keyword-sweep tier needs Tavily"; then
 fi
 
 # 4) skill step: CONFIRM a suspect clip carries the mark (geometry-gated), REJECT unrelated
+confirmed_ok=0; rejected_ok=0
 cond "provenance skill: a suspect clip carrying the mark is CONFIRMED through the planar-projection gate"
 "$FFMPEG" -y -v error -f lavfi -i "color=c=gray:s=854x480:d=6" -i "$LOGO" \
   -filter_complex "[1:v]scale=320:-1[l];[0:v][l]overlay=(W-w)/2:(H-h)/2" \
@@ -76,7 +77,7 @@ if [ -s "$WORK/suspect.mp4" ]; then
   save_json "85_match_suspect" "$mr" >/dev/null
   MR_ID="$(echo "$mr" | jq -r '.id // empty')"
   rc="$(echo "$mr" | jq -r '.payload.count // 0')"
-  if [ "${rc:-0}" -ge 1 ]; then ok "$C.confirmed" "suspect clip CONFIRMED: $rc gated frame match(es) carry the mark"; else fail "$C.confirmed" "suspect clip produced 0 gated matches (expected >=1)"; fi
+  if [ "${rc:-0}" -ge 1 ]; then confirmed_ok=1; ok "$C.confirmed" "suspect clip CONFIRMED: $rc gated frame match(es) carry the mark"; else fail "$C.confirmed" "suspect clip produced 0 gated matches (expected >=1)"; fi
   draws="$(echo "$mr" | jq -r '[.payload.matches[]?.match_draw_path | select(. != null)] | length')"
   [ "${draws:-0}" -ge 1 ] && ok "$C.overlay" "wrote $draws RANSAC overlay(s) as visual proof" || fail "$C.overlay" "no --draw overlay written"
 else
@@ -93,7 +94,7 @@ if [ -s "$WORK/unrelated.mp4" ]; then
   mu="$(OC_TIMEOUT=420 oc "$CASE" image match "$WORK/unrelated.mp4" --index "$IDX" --max-frames 30 --json)"
   save_json "85_match_unrelated" "$mu" >/dev/null
   uc="$(echo "$mu" | jq -r '.payload.count // 0')"
-  if [ "${uc:-0}" -eq 0 ]; then ok "$C.rejected" "unrelated clip ($unrelated_src) correctly rejected: 0 gated matches"; else fail "$C.rejected" "unrelated clip false-matched $uc time(s) — gate leak"; fi
+  if [ "${uc:-0}" -eq 0 ]; then rejected_ok=1; ok "$C.rejected" "unrelated clip ($unrelated_src) correctly rejected: 0 gated matches"; else fail "$C.rejected" "unrelated clip false-matched $uc time(s) — gate leak"; fi
 else
   skip "$C.rejected" "could not build an unrelated clip"
 fi
@@ -105,11 +106,15 @@ if [ -n "${MR_ID:-}" ] && [ "${rc:-0}" -ge 1 ]; then
   [ -n "$LENS_URL" ] && verdict="$verdict; reverse-image surfaced $LENS_URL as an origin candidate"
   oc "$CASE" finding create "$verdict" --ref "$MR_ID" --confidence high --json >/dev/null
 fi
-sweepnote=""
-[ "$lens_done" -eq 1 ] && sweepnote="reverse-image-searched"
-[ "$web_done" -eq 1 ] && { [ -n "$sweepnote" ] && sweepnote="$sweepnote + keyword-swept" || sweepnote="keyword-swept"; }
-[ -n "$sweepnote" ] && sweepnote="$sweepnote for origin (no recency floor), "
-oc "$CASE" note "provenance: fingerprinted the mark, ${sweepnote}CONFIRMED a suspect clip through the geometry gate and REJECTED an unrelated one." --tag tldr,provenance --confidence high --json >/dev/null
+# build the tldr strictly from what actually happened (sweep tiers + confirm/reject)
+parts="fingerprinted the mark"
+sw=""
+[ "$lens_done" -eq 1 ] && sw="reverse-image-searched"
+[ "$web_done" -eq 1 ] && { [ -n "$sw" ] && sw="$sw + keyword-swept" || sw="keyword-swept"; }
+[ -n "$sw" ] && parts="$parts, $sw for origin (no recency floor)"
+[ "$confirmed_ok" -eq 1 ] && parts="$parts, CONFIRMED a suspect clip through the geometry gate"
+[ "$rejected_ok" -eq 1 ] && parts="$parts, REJECTED an unrelated clip"
+oc "$CASE" note "provenance: $parts." --tag tldr,provenance --confidence high --json >/dev/null
 BRIEF="$SMOKE_DIR/85_provenance_brief.html"
 oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
 if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then
