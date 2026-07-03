@@ -16,6 +16,9 @@ import { payloadFields, pageText, fieldNames, getField } from "../render.js";
 import { redactSecrets } from "../env.js";
 import { addSource, listSources, parseSourceSpec, removeSource } from "../state/source.js";
 import { addTarget, listTargets, removeTarget } from "../state/target.js";
+import { casePulse, type CasePulse } from "../signals/pulse.js";
+import { sparkline } from "../report/components.js";
+import { THREAD_STAGE_LABEL } from "../signals/threads.js";
 import { addIndex, listIndexes, normalizeIndexType, removeIndex, LOCAL_INDEX_TYPES } from "../state/index.js";
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex, type SetupIndexConfig } from "../state/setup.js";
 import { indexVerb } from "./index.js";
@@ -166,11 +169,24 @@ async function buildCaseStatus(ctx: VerbContext): Promise<Record<string, unknown
   const clear = c.clearSummary();
   const saved = loadSetup(c);
   const records = c.records();
+  const pulse = casePulse({ records, targets: listTargets(c), sources: listSources(c) });
   return {
     dir: c.dir,
     initialized: c.exists(),
     info: c.exists() ? c.info() : null,
-    tldr: caseStatusTldr(ctx, records, clear.counts),
+    // mission board: the goal-progress read first, then the derived signals.
+    mission: {
+      headline: c.exists() ? `${c.info().name} — ${pulse.headline}` : "Case is not initialized",
+      progress: pulse.progress,
+    },
+    threads: pulse.threads,
+    coverage: pulse.coverage,
+    triage: statusTriage(records, pulse),
+    gaps: pulse.gaps,
+    freshness: pulse.freshness,
+    next_actions: caseStatusNext(ctx, records, clear.counts, pulse),
+    // tldr kept for one release (renderTldr + older consumers); superseded by mission.
+    tldr: caseStatusTldr(ctx, records, clear.counts, pulse),
     targets: statusTargets(ctx),
     sources: statusSources(ctx),
     match_visualizations: statusMatchVisualizations(records),
@@ -193,6 +209,50 @@ async function buildCaseStatus(ctx: VerbContext): Promise<Record<string, unknown
       indexes: listIndexes(c).length,
     },
   };
+}
+
+/** Suggested-lead rows for the status triage queue (compact, newest first). */
+function statusTriage(records: OvercastRecord[], _pulse: CasePulse): Array<Record<string, unknown>> {
+  const p = (r: OvercastRecord): Record<string, unknown> => (typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {});
+  const statusMap = new Map<string, string>();
+  for (const r of records) {
+    if (r.verb !== "finding" || typeof r.payload !== "object" || r.payload == null) continue;
+    const pay = p(r);
+    if (typeof pay.status !== "string") continue;
+    statusMap.set(typeof pay.finding_id === "string" ? pay.finding_id : r.id, pay.status);
+  }
+  return records
+    .filter((r) => {
+      if (r.verb !== "finding" || r.state === "error") return false;
+      const pay = p(r);
+      return typeof pay.finding_id !== "string" && typeof pay.text === "string" && (statusMap.get(r.id) ?? "open") === "suggested";
+    })
+    .sort((a, b) => Date.parse(String(b.meta?.time ?? "")) - Date.parse(String(a.meta?.time ?? "")))
+    .slice(0, 8)
+    .map((r) => {
+      const pay = p(r);
+      const sig = pay.signal && typeof pay.signal === "object" ? (pay.signal as Record<string, unknown>) : {};
+      return {
+        id: r.id,
+        text: String(pay.text ?? ""),
+        confidence: pay.confidence,
+        score: typeof sig.score === "number" ? sig.score : undefined,
+        review: `overcast finding accept ${r.id}`,
+      };
+    });
+}
+
+/** Suggested next actions — pulse-aware (triage first, then gaps, then brief). */
+function caseStatusNext(ctx: VerbContext, records: OvercastRecord[], counts: Record<string, number>, pulse: CasePulse): string[] {
+  const next: string[] = [];
+  if (pulse.progress.triage_pending) next.push(`Triage ${pulse.progress.triage_pending} suggested finding(s): \`overcast finding list --state triage\`.`);
+  if (!listTargets(ctx.case).length) next.push("Add a line of investigation: `overcast target add <value> --question \"…\"`.");
+  for (const g of pulse.gaps.slice(0, 2)) next.push(`Close a coverage gap: ${g}.`);
+  if ((counts.brief ?? 0) === 0 && records.some((r) => (r.state ?? "ready") === "ready")) {
+    next.push("Run `overcast brief --export report.html --theme csi` for the mission report.");
+  }
+  if (!next.length) next.push("Review the open lines of investigation and expand evidence.");
+  return next;
 }
 
 function statusTargets(ctx: VerbContext): Record<string, unknown>[] {
@@ -255,28 +315,16 @@ function statusMatchVisualizations(records: OvercastRecord[]): Record<string, un
 }
 
 
-function caseStatusTldr(ctx: VerbContext, records: OvercastRecord[], counts: Record<string, number>): Record<string, unknown> {
-  const targets = listTargets(ctx.case);
-  const targetText = targets.map((t) => t.value).slice(0, 4);
-  const readyRecords = records.filter((r) => (r.state ?? "ready") === "ready");
-  const evidenceKinds = ["watch", "listen", "see", "face", "image", "similar", "crop", "scan", "capture", "note", "finding"]
-    .filter((verb) => (counts[verb] ?? 0) > 0);
-  const headline = [
-    ctx.case.exists() ? `Case '${ctx.case.info().name}' is initialized` : "Case is not initialized",
-    targetText.length ? `tracking ${targetText.join(", ")}` : "with no standing target",
-    readyRecords.length ? `with ${readyRecords.length} ready record(s)` : "with no ready evidence yet",
-  ].join(" ");
+function caseStatusTldr(ctx: VerbContext, records: OvercastRecord[], counts: Record<string, number>, pulse: CasePulse): Record<string, unknown> {
+  const headline = ctx.case.exists()
+    ? `${ctx.case.info().name} — ${pulse.headline}`
+    : "Case is not initialized";
   const findings: string[] = [];
-  if (targetText.length) findings.push(`Targets in scope: ${targetText.join("; ")}.`);
-  if (evidenceKinds.length) findings.push(`Evidence present: ${evidenceKinds.map((verb) => `${verb} ${counts[verb]}`).join(", ")}.`);
-  for (const rec of recentEvidenceSummaries(records).slice(0, 4)) findings.push(rec);
-  if (!findings.length) findings.push("No evidence records have been added yet.");
-  const next: string[] = [];
-  if (!targetText.length) next.push("Add a target with `case setup --target ... --yes`.");
-  if (!evidenceKinds.length) next.push("Add evidence with watch/listen/see/face/image/similar/note records.");
-  if ((counts.brief ?? 0) === 0 && evidenceKinds.length) next.push("Run `brief --export report.html --theme csi` for an evidence timeline.");
-  if (!next.length) next.push("Review the latest evidence cards and expand details for citations.");
-  return { headline, findings, next };
+  const prog = pulse.progress;
+  findings.push(`${prog.targets_total} line(s) of investigation · ${prog.accepted_findings} accepted, ${prog.open_findings} open finding(s) · ${prog.triage_pending} awaiting triage.`);
+  for (const rec of recentEvidenceSummaries(records).slice(0, 3)) findings.push(rec);
+  if (findings.length === 1 && !prog.targets_total) findings.push("No evidence records have been added yet.");
+  return { headline, findings, next: caseStatusNext(ctx, records, counts, pulse) };
 }
 
 function recentEvidenceSummaries(records: OvercastRecord[]): string[] {
@@ -334,8 +382,75 @@ function caseRecordsMarkdown(title: string, records: OvercastRecord[], counts: R
   return lines.join("\n");
 }
 
-function statusMarkdown(title: string, payload: Record<string, unknown>): string {
-  return [`# ${title}`, "", "```json", JSON.stringify(payload, null, 2), "```", ""].join("\n");
+/** The mission-board status as markdown (terminal + plain HTML). Leads with the
+ *  goal-progress headline, then lines of investigation, triage, coverage, gaps,
+ *  and next actions — the operational store/setup detail is demoted to the tail.
+ *  `--full` appends the raw payload as JSON for auditing. */
+function statusMarkdown(title: string, payload: Record<string, unknown>, full = false): string {
+  const lines: string[] = [`# ${title}`, ""];
+  const mission = payload.mission as { headline?: string; progress?: Record<string, number> } | undefined;
+  if (mission?.headline) lines.push(`**${mission.headline}**`, "");
+
+  const next = Array.isArray(payload.next_actions) ? (payload.next_actions as string[]) : [];
+  if (next.length) {
+    for (const n of next) lines.push(`- next: ${n}`);
+    lines.push("");
+  }
+
+  const threads = Array.isArray(payload.threads) ? (payload.threads as Array<Record<string, unknown>>) : [];
+  lines.push("## Lines of investigation", "");
+  if (threads.length) {
+    for (const th of threads) {
+      const stage = THREAD_STAGE_LABEL[(th.stage as keyof typeof THREAD_STAGE_LABEL)] ?? String(th.stage ?? "").toUpperCase();
+      const bins = Array.isArray(th.activityBins) ? (th.activityBins as number[]) : [];
+      const spark = sparkline(bins);
+      const f = th.funnel as { scan: number; captures: number; senses: number; matches: number } | undefined;
+      const fnd = th.findings as { accepted: number; open: number; suggested: number } | undefined;
+      lines.push(`- **${th.value}** — [${stage}]${spark ? ` \`${spark}\`` : ""}`);
+      if (th.question) lines.push(`  - question: ${th.question}`);
+      if (f) lines.push(`  - scan ${f.scan} → cap ${f.captures} → sense ${f.senses} → match ${f.matches}${fnd ? ` · findings: ${fnd.accepted} acc / ${fnd.open} open / ${fnd.suggested} sug` : ""}`);
+      if (th.status !== "active" && th.why) lines.push(`  - closed: ${th.why}`);
+    }
+  } else {
+    lines.push("- none — add one with `overcast target add <value> --question \"…\"`");
+  }
+  lines.push("");
+
+  const triage = Array.isArray(payload.triage) ? (payload.triage as Array<Record<string, unknown>>) : [];
+  if (triage.length) {
+    lines.push(`## Triage — ${triage.length} awaiting review`, "");
+    for (const t of triage.slice(0, 8)) {
+      lines.push(`- \`${t.id}\`${t.confidence != null ? ` [${t.confidence}]` : ""} ${t.text}`);
+      lines.push(`  - ${t.review}`);
+    }
+    lines.push("");
+  }
+
+  const coverage = Array.isArray(payload.coverage) ? (payload.coverage as Array<Record<string, unknown>>) : [];
+  const gaps = Array.isArray(payload.gaps) ? (payload.gaps as string[]) : [];
+  lines.push("## Coverage", "");
+  if (coverage.length) {
+    for (const c of coverage) {
+      lines.push(`- **${c.spec}**${c.enabled ? "" : " (disabled)"} — ${c.hits} hit(s) → ${c.captured} captured → ${c.sensed} sensed`);
+    }
+  } else {
+    lines.push("- no sources configured");
+  }
+  if (gaps.length) {
+    lines.push("", "**Gaps:**");
+    for (const g of gaps.slice(0, 5)) lines.push(`- ${g}`);
+  }
+  lines.push("");
+
+  const store = payload.store as { records?: number } | undefined;
+  const registries = payload.registries as Record<string, number> | undefined;
+  lines.push("## Store", "");
+  if (store) lines.push(`- records: ${store.records ?? 0}`);
+  if (registries) lines.push(`- registries: ${registries.targets} target(s), ${registries.sources} source(s), ${registries.indexes} index(es)`);
+  lines.push("");
+
+  if (full) lines.push("## Raw", "", "```json", JSON.stringify(payload, null, 2), "```", "");
+  return lines.join("\n");
 }
 
 interface SetupChange {
@@ -754,15 +869,46 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
     setup.automation ??= { auto_sense: [], auto_index_new: false };
   }
   if (findingsMode) {
-    setup.findings = { mode: findingsMode };
+    setup.findings = { ...(setup.findings ?? {}), mode: findingsMode };
     operations.push(`findings: ${findingsMode}`);
   } else {
-    setup.findings ??= { mode: "off" };
+    setup.findings ??= { mode: "suggest" };
+  }
+  if (ctx.opts["findings-threshold"] != null) {
+    const parsed = parseFindingsThresholds(String(ctx.opts["findings-threshold"]));
+    if (!parsed.errors.length) {
+      setup.findings = { ...(setup.findings ?? { mode: "suggest" }), thresholds: { ...(setup.findings?.thresholds ?? {}), ...parsed.thresholds } };
+      operations.push(`findings thresholds: ${Object.entries(parsed.thresholds).map(([k, v]) => `${k}=${v}`).join(",")}`);
+    }
   }
   if (!operations.length && op === "startup_setup") operations.push("save empty setup");
 
   setup.updated_at = new Date().toISOString();
   return { setup, operations, noteRecords };
+}
+
+/** Parse `--findings-threshold face=75,similar=85,...` into a thresholds patch.
+ *  face/similar/cluster are 0–100 percent floors; image_inliers is a count ≥ 1. */
+function parseFindingsThresholds(raw: string): { thresholds: Record<string, number>; errors: string[] } {
+  const thresholds: Record<string, number> = {};
+  const errors: string[] = [];
+  for (const part of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const m = part.match(/^([a-z_]+)=(\d+(?:\.\d+)?)$/i);
+    if (!m) {
+      errors.push(`'${part}' (expected key=number)`);
+      continue;
+    }
+    const key = m[1].toLowerCase();
+    const value = Number(m[2]);
+    if (!["face", "similar", "cluster", "image_inliers"].includes(key)) {
+      errors.push(`unknown key '${key}' (expected face | similar | cluster | image_inliers)`);
+    } else if (key === "image_inliers" ? value < 1 : value < 0 || value > 100) {
+      errors.push(`'${part}' out of range (${key === "image_inliers" ? "count ≥ 1" : "0–100"})`);
+    } else {
+      thresholds[key] = value;
+    }
+  }
+  return { thresholds, errors };
 }
 
 function quoteCommandArg(arg: string): string {
@@ -817,7 +963,8 @@ export const caseVerb: VerbSpec = {
     { name: "auto-sense", summary: "setup/edit: comma-separated senses to run on newly captured media", type: "string" },
     { name: "auto-index-new", summary: "setup/edit: automatically add newly analyzed media to configured indexes", type: "boolean" },
     { name: "no-auto-index-new", summary: "setup/edit: disable automatic indexing for newly analyzed media", type: "boolean" },
-    { name: "findings", summary: "setup/edit: automated finding workflow (off | review)", type: "string" },
+    { name: "findings", summary: "setup/edit: automated finding workflow (suggest | review | off; default suggest)", type: "string" },
+    { name: "findings-threshold", summary: "setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,image_inliers=1)", type: "string" },
     { name: "video", summary: "setup/edit: comma-separated local videos/URLs to route", type: "string" },
     { name: "folder", summary: "setup/edit: comma-separated local media folders to remember", type: "string" },
     { name: "no-index", summary: "setup/edit: save setup routes without starting remote collection ingestion", type: "boolean" },
@@ -825,6 +972,7 @@ export const caseVerb: VerbSpec = {
     { name: "verb", summary: "Filter records by kind", type: "string" },
     { name: "since", summary: "Time filter (e.g. 24h, 2026-06-01)", type: "string" },
     { name: "export", summary: "Write a case status/log report (.md or .html)", type: "string" },
+    { name: "full", summary: "status: append the raw payload JSON for auditing", type: "boolean" },
     { name: "theme", summary: "HTML export theme: plain | csi", type: "string", choices: ["plain", "csi"], default: "plain" },
     { name: "field", summary: "Payload field to read in full (memory get)", type: "string" },
     { name: "offset", summary: "Start char offset when paging a field (memory get)", type: "number" },
@@ -890,7 +1038,7 @@ export const caseVerb: VerbSpec = {
       if (ctx.opts.export) {
         const path = resolve(String(ctx.opts.export));
         const title = `Case status — ${ctx.case.exists() ? ctx.case.info().name : "case"}`;
-        const md = statusMarkdown(title, payload);
+        const md = statusMarkdown(title, payload, ctx.opts.full === true);
         const html = theme === "csi"
           ? renderCsiStatusReport({ title, subtitle: ctx.case.dir, payload })
           : mdToPlainHtml(md, title);
@@ -938,6 +1086,7 @@ export const caseVerb: VerbSpec = {
         "auto-index-new",
         "no-auto-index-new",
         "findings",
+        "findings-threshold",
         "video",
         "folder",
         "memory",
@@ -991,8 +1140,12 @@ export const caseVerb: VerbSpec = {
           return [err(`unknown --auto-sense verb '${verb}' (expected watch, listen, see, face, enhance)`)];
         }
       }
-      if (ctx.opts.findings != null && !["off", "review"].includes(String(ctx.opts.findings).trim().toLowerCase())) {
-        return [err(`unknown --findings mode '${ctx.opts.findings}' (expected off | review)`)];
+      if (ctx.opts.findings != null && !["off", "review", "suggest"].includes(String(ctx.opts.findings).trim().toLowerCase())) {
+        return [err(`unknown --findings mode '${ctx.opts.findings}' (expected suggest | review | off)`)];
+      }
+      if (ctx.opts["findings-threshold"] != null) {
+        const bad = parseFindingsThresholds(String(ctx.opts["findings-threshold"])).errors;
+        if (bad.length) return [err(`invalid --findings-threshold: ${bad.join("; ")}`)];
       }
       const op = saved ? "startup_setup_update" : "startup_setup";
       const before = summarizeSavedSetup(saved);

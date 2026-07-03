@@ -12,6 +12,23 @@ export interface TargetEntry {
   kind: "name" | "prompt" | "image";
   value: string;
   created: string;
+  /** what would resolve this line of investigation (analyst-authored) */
+  question?: string;
+  /** missing = active. "answered"/"dead-end" close the thread (scan/monitor
+   *  stop seeding from it via primaryTarget). */
+  status?: "active" | "answered" | "dead-end";
+  status_note?: string;
+  status_updated?: string;
+}
+
+/** Effective status of a target (missing = active). */
+export function targetStatus(t: TargetEntry): "active" | "answered" | "dead-end" {
+  return t.status ?? "active";
+}
+
+/** Whether a target line is closed (answered or dead-end). */
+export function isTargetClosed(t: TargetEntry): boolean {
+  return t.status === "answered" || t.status === "dead-end";
 }
 
 export interface TargetStore {
@@ -40,7 +57,7 @@ export function listTargets(c: Case): TargetEntry[] {
 export function addTarget(
   c: Case,
   value: string,
-  opts: { image?: boolean } = {},
+  opts: { image?: boolean; question?: string } = {},
 ): TargetEntry {
   const store = load(c);
   const kind: TargetEntry["kind"] = opts.image
@@ -54,6 +71,7 @@ export function addTarget(
     value,
     created: new Date().toISOString(),
   };
+  if (opts.question) entry.question = opts.question;
   store.targets.push(entry);
   save(c, store);
   return entry;
@@ -67,8 +85,37 @@ export function removeTarget(c: Case, id: string): boolean {
   return store.targets.length < before;
 }
 
-/** The primary (most recent) target, used as the default scan/monitor seed. */
+/** Set a target's investigation status ("active" reopens). Returns the updated
+ *  entry, or undefined when the id is unknown. */
+export function setTargetStatus(
+  c: Case,
+  id: string,
+  status: "active" | "answered" | "dead-end",
+  note?: string,
+): TargetEntry | undefined {
+  const store = load(c);
+  const entry = store.targets.find((t) => t.id === id);
+  if (!entry) return undefined;
+  if (status === "active") {
+    delete entry.status;
+    delete entry.status_note;
+  } else {
+    entry.status = status;
+    if (note) entry.status_note = note;
+    else delete entry.status_note;
+  }
+  entry.status_updated = new Date().toISOString();
+  save(c, store);
+  return entry;
+}
+
+/** The primary (most recent OPEN) target, used as the default scan/monitor seed.
+ *  Closed lines (answered/dead-end) are skipped so sweeps don't chase them; if
+ *  every target is closed, falls back to the most recent so scope never vanishes. */
 export function primaryTarget(c: Case): TargetEntry | undefined {
   const t = load(c).targets;
+  for (let i = t.length - 1; i >= 0; i--) {
+    if (!isTargetClosed(t[i])) return t[i];
+  }
   return t[t.length - 1];
 }

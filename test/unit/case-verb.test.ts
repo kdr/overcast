@@ -60,7 +60,13 @@ test("case status returns combined status payload", async () => {
     assert.equal(((payload.registries as Record<string, unknown>).sources), 1);
     assert.equal(((payload.registries as Record<string, unknown>).indexes), 1);
     assert.ok(Array.isArray(payload.memory_index));
-    assert.match(String((payload.tldr as Record<string, unknown>).headline), /tracking subject/);
+    // mission board: goal-progress headline + per-target threads + coverage
+    const mission = payload.mission as { headline: string; progress: Record<string, number> };
+    assert.match(mission.headline, /2 lines active/);
+    assert.equal(mission.progress.targets_total, 2);
+    assert.equal((payload.threads as unknown[]).length, 2);
+    assert.ok(Array.isArray(payload.coverage));
+    assert.match(String((payload.tldr as Record<string, unknown>).headline), /2 lines active/);
     assert.equal((payload.targets as unknown[]).length, 2);
     assert.equal((payload.sources as unknown[]).length, 1);
     assert.equal((payload.match_visualizations as unknown[]).length, 1);

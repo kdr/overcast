@@ -24,8 +24,14 @@ export interface TimelineRecord {
 export interface TimelineSynthesis {
   tldr?: string;
   verdict: string;
+  /** the honest goal-progress line (pulse headline), shown under the verdict */
+  headline?: string;
   sources: Array<{ source: string; hits: number }>;
   findings: Array<{ id: string; status: string; text: string; confidence?: unknown; overlays?: string[] }>;
+  /** lines of investigation — per-target thread cards */
+  threads?: Array<{ value: string; stage: string; spark?: string; funnel: string; question?: string; note?: string }>;
+  /** suggested leads awaiting triage */
+  triage?: Array<{ id: string; text: string; confidence?: unknown }>;
 }
 
 const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
@@ -150,9 +156,10 @@ export function renderCsiTimelineReport(report: TimelineReport): string {
  *  rather than omitting the panel — "we checked and found nothing" is a result. */
 function renderSynthesis(syn: TimelineSynthesis | undefined): string {
   if (!syn) return "";
+  const tldrNext = [syn.tldr ? syn.verdict : "", syn.headline ?? ""].filter(Boolean);
   const tldr = renderTldr({
     headline: syn.tldr ?? syn.verdict,
-    findings: syn.tldr ? [syn.verdict] : [],
+    findings: tldrNext,
   });
   const sources = syn.sources.length
     ? `<ul>${syn.sources.map((s) => `<li><strong>${escapeHtml(s.source)}</strong> — ${s.hits} hit${s.hits === 1 ? "" : "s"}</li>`).join("")}</ul>`
@@ -164,29 +171,116 @@ function renderSynthesis(syn: TimelineSynthesis | undefined): string {
       }).join("")}</ul>`
     : `<p class="meta">none recorded</p>`;
   return `${tldr}
+    ${renderThreadCards(syn.threads)}
+    ${renderTriagePanel(syn.triage)}
     <section class="grid" data-csi-synthesis="true" style="margin:0 0 18px">
       <section class="panel"><h2>Sources checked</h2>${sources}</section>
       <section class="panel"><h2>Matches &amp; findings</h2>${findings}</section>
     </section>`;
 }
 
+/** Lines of investigation — a card grid of target threads with stage chip,
+ *  activity sparkline, evidence funnel, and next/why. Dead-end cards dim. */
+function renderThreadCards(threads: TimelineSynthesis["threads"]): string {
+  if (!threads || !threads.length) return "";
+  const toneFor = (stage: string) => (stage === "DEAD-END" ? "bad" : stage === "ANSWERED" ? "cyan" : stage === "CORROBORATED" || stage === "LEADS" ? "amber" : "");
+  const cards = threads.map((t) => {
+    const dim = t.stage === "DEAD-END" ? ' style="opacity:.55"' : "";
+    const chip = `<span class="chip ${toneFor(t.stage)}">${escapeHtml(t.stage)}</span>`;
+    return `<article class="context-card"${dim}>
+      <span class="label">TARGET</span>
+      <p><strong>${escapeHtml(t.value)}</strong> ${chip}${t.spark ? ` <span class="cyan">${escapeHtml(t.spark)}</span>` : ""}</p>
+      ${t.question ? `<p class="meta">? ${escapeHtml(t.question)}</p>` : ""}
+      <p class="meta">${escapeHtml(t.funnel)}</p>
+      ${t.note ? `<p class="meta">${escapeHtml(t.note)}</p>` : ""}
+    </article>`;
+  }).join("");
+  return `<section style="margin:0 0 18px"><h2 style="margin:0 0 8px">Lines of investigation</h2><section class="context">${cards}</section></section>`;
+}
+
+function renderTriagePanel(triage: TimelineSynthesis["triage"]): string {
+  if (!triage || !triage.length) return "";
+  const rows = triage.slice(0, 5).map((t) =>
+    `<li><span class="id">${escapeHtml(t.id)}</span>${t.confidence != null ? ` <span class="amber">[${escapeHtml(String(t.confidence))}]</span>` : ""} ${escapeHtml(t.text)}<div class="meta">accept: overcast finding accept ${escapeHtml(t.id)}</div></li>`,
+  ).join("");
+  return `<section class="panel" style="margin:0 0 18px"><h2>Triage — ${triage.length} awaiting review</h2><ul class="findings">${rows}</ul></section>`;
+}
+
 export function renderCsiStatusReport(report: StatusReport): string {
   const payload = report.payload;
   const chips = statusChips(payload);
-  const tldr = renderTldr(payload.tldr);
+  const mission = payload.mission as { headline?: string; progress?: Record<string, number> } | undefined;
+  const nextActions = Array.isArray(payload.next_actions) ? (payload.next_actions as string[]) : [];
+  // mission headline banner (falls back to the legacy tldr for older payloads)
+  const tldr = mission?.headline
+    ? renderTldr({ headline: mission.headline, next: nextActions })
+    : renderTldr(payload.tldr);
+  const missionThreads = statusThreads(payload);
+  const threads = renderThreadCards(missionThreads);
+  const triage = renderTriagePanel(statusTriageRows(payload));
+  const coverage = renderCoveragePanel(payload);
   const context = renderContextSections(payload);
-  const promoted = new Set(["tldr", "targets", "sources", "match_visualizations"]);
-  const panels = Object.entries(payload).filter(([key]) => !promoted.has(key)).map(([key, value]) => renderStatusPanel(key, value)).join("\n");
+  // demote operational detail (store/setup/memory/registries) into a collapsed
+  // panel grid below the mission board.
+  const demoted = new Set(["tldr", "mission", "threads", "coverage", "triage", "gaps", "freshness", "next_actions", "progress", "targets", "sources", "match_visualizations"]);
+  const panels = Object.entries(payload).filter(([key]) => !demoted.has(key)).map(([key, value]) => renderStatusPanel(key, value)).join("\n");
   return csiShell(report.title, report.subtitle, `
     ${tldr}
-    ${context}
     <section class="stats" aria-label="case status stats">
       ${chips}
     </section>
-    <main class="grid" data-csi-status="true">
+    ${threads}
+    <section class="grid" style="margin:0 0 18px">${triage}${coverage}</section>
+    ${context}
+    <details data-csi-status="true"><summary>store &amp; setup detail</summary><div class="grid">
       ${panels}
-    </main>
+    </div></details>
   `);
+}
+
+/** Map status payload threads → the thread-card view model. */
+function statusThreads(payload: Record<string, unknown>): TimelineSynthesis["threads"] {
+  const threads = Array.isArray(payload.threads) ? (payload.threads as Array<Record<string, unknown>>) : [];
+  const label: Record<string, string> = { answered: "ANSWERED", "dead-end": "DEAD-END", corroborated: "CORROBORATED", leads: "LEADS", collecting: "COLLECTING", cold: "COLD" };
+  return threads.map((th) => {
+    const f = th.funnel as { scan: number; captures: number; senses: number; matches: number } | undefined;
+    const fnd = th.findings as { accepted: number; open: number; suggested: number } | undefined;
+    const funnel = f ? `scan ${f.scan} → cap ${f.captures} → sense ${f.senses} → match ${f.matches}${fnd ? ` · findings ${fnd.accepted}/${fnd.open}/${fnd.suggested}` : ""}` : "";
+    return {
+      value: String(th.value ?? ""),
+      stage: label[String(th.stage)] ?? String(th.stage ?? "").toUpperCase(),
+      spark: sparklineFrom(Array.isArray(th.activityBins) ? (th.activityBins as number[]) : []),
+      funnel,
+      question: typeof th.question === "string" ? th.question : undefined,
+      note: th.status !== "active" && typeof th.why === "string" ? th.why : undefined,
+    };
+  });
+}
+
+function statusTriageRows(payload: Record<string, unknown>): TimelineSynthesis["triage"] {
+  const triage = Array.isArray(payload.triage) ? (payload.triage as Array<Record<string, unknown>>) : [];
+  if (!triage.length) return undefined;
+  return triage.map((t) => ({ id: String(t.id ?? ""), text: String(t.text ?? ""), confidence: t.confidence }));
+}
+
+function renderCoveragePanel(payload: Record<string, unknown>): string {
+  const coverage = Array.isArray(payload.coverage) ? (payload.coverage as Array<Record<string, unknown>>) : [];
+  const gaps = Array.isArray(payload.gaps) ? (payload.gaps as string[]) : [];
+  if (!coverage.length && !gaps.length) return "";
+  const rows = coverage.length
+    ? `<ul>${coverage.map((c) => `<li><strong>${escapeHtml(String(c.spec))}</strong>${c.enabled ? "" : " <span class=\"meta\">(disabled)</span>"} — ${escapeHtml(String(c.hits))} → ${escapeHtml(String(c.captured))} → ${escapeHtml(String(c.sensed))}${c.gap ? ` <span class="bad">gap</span>` : ""}</li>`).join("")}</ul>`
+    : `<p class="meta">no sources configured</p>`;
+  const gapList = gaps.length ? `<p class="meta">Gaps:</p><ul class="findings">${gaps.slice(0, 5).map((g) => `<li class="amber">${escapeHtml(g)}</li>`).join("")}</ul>` : "";
+  return `<section class="panel"><h2>Coverage</h2>${rows}${gapList}</section>`;
+}
+
+/** Local sparkline (avoids a components import cycle in html.ts). */
+function sparklineFrom(bins: number[]): string | undefined {
+  if (!bins.length) return undefined;
+  const blocks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+  const max = Math.max(...bins);
+  if (max <= 0) return blocks[0].repeat(bins.length);
+  return bins.map((v) => blocks[Math.min(blocks.length - 1, Math.round((v / max) * (blocks.length - 1)))]).join("");
 }
 
 export interface ClusterGalleryPerson {

@@ -10,6 +10,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
 import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
+import { persistRecords } from "./persist.js";
 import { expandHome, expandHomeArg } from "../fs-path.js";
 import { renderRecord, pageCommand } from "../render.js";
 import { isHtmlExportPath } from "../report/html.js";
@@ -274,14 +275,9 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         };
       }
 
-      // skip a record explicitly tagged for a different case (already persisted
-      // there) — e.g. `case init <other-dir>`. Transient records are user-facing
-      // control results, not case history.
-      for (const rec of records) {
-        if (rec.meta?.transient === true || rec.meta?.persisted === true) continue;
-        if (rec.meta?.case && rec.meta.case !== c.dir) continue;
-        c.writeRecord(rec);
-      }
+      // persist via the shared seam (guards + finding triggers); suggested
+      // leads ride back to the agent with the verb's own records.
+      records = [...records, ...persistRecords(c, records)];
 
       const summary = renderRecords(records);
       return {

@@ -7,6 +7,7 @@ import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
 import { makeFinding } from "../../src/verbs/finding.ts";
+import { addTarget } from "../../src/state/target.ts";
 import { LocalMemoryProvider, recordText } from "../../src/providers/memory/local.ts";
 import { resolveMemory, fanOutAnswer } from "../../src/providers/memory/index.ts";
 import { QmdMemoryProvider, DEFAULT_QMD_MODEL } from "../../src/providers/memory/qmd.ts";
@@ -765,11 +766,13 @@ test("brief synthesis: TL;DR note, sources-checked rollup, and findings surface 
     // markdown: newest tldr note wins, verdict line, rollup, and finding row
     assert.match(report, /## TL;DR/);
     assert.match(report, /SWEEP_NARRATIVE: checked x \+ youtube/);
-    assert.ok(!/old narrative/.test(report.split("## Sources checked")[0]), "older tldr note must not head the brief");
+    // the newest tldr note heads the brief; the older one must not (it may still
+    // appear later as an ordinary note in the record trail — it IS evidence)
+    assert.ok(!/old narrative/.test(report.split("## Key findings")[0]), "older tldr note must not head the brief");
     assert.match(report, /2 sources checked \(3 hits\), 1 media check — 1 finding recorded/);
     assert.match(report, /- \*\*x\*\* — 2 hits/);
     assert.match(report, /- \*\*youtube\*\* — 1 hit/);
-    assert.match(report, /## Matches & findings/);
+    assert.match(report, /## Key findings/);
     assert.match(report, /\[open\] \(confidence: high\) copycat: reskin by @codez/);
     // the finding's overlay (from its cited image-match record) is embedded in md
     assert.match(report, /!\[match overlay\]\(.*match_draw_orig65\.png\)/);
@@ -809,7 +812,7 @@ test("brief synthesis: a clean sweep says so explicitly (checked, found none)", 
     const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
     const report = (rec.payload as Record<string, unknown>).report as string;
     assert.match(report, /1 source checked \(1 hit\) — no findings recorded/);
-    assert.match(report, /## Matches & findings\n\n- none recorded/);
+    assert.match(report, /## Key findings\n\n- none recorded/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -925,17 +928,41 @@ test("brief on an empty evidence set is transient and does not export", async ()
   }
 });
 
-test("brief embeds the FULL primary field, not a 160-char stub", async () => {
+test("brief --full embeds the FULL primary field; short stubs it", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-brieffull-"));
   try {
     const c = openCase(dir); c.ensure();
     // a marker only reachable if the field is NOT truncated at ~160 chars
     const content = "lead ".repeat(60) + "DEEP_TAIL_MARKER";
     c.writeRecord(makeRecord({ verb: "watch", payload: { content }, media: { ref: "v.mp4" } }));
+    assert.ok(content.length > 200, "fixture should exceed the old 160-char cap");
+    // --full: the whole field is embedded verbatim under the audit timeline
+    const [full] = await briefVerb.run(ctx(c, undefined, { full: true }));
+    const fullReport = (full.payload as Record<string, unknown>).report as string;
+    assert.match(fullReport, /## Timeline \/ findings/);
+    assert.match(fullReport, /DEEP_TAIL_MARKER/);
+    // short (default): the record trail stubs the field, tail marker not present
+    const [short] = await briefVerb.run(ctx(c, undefined, {}));
+    const shortReport = (short.payload as Record<string, unknown>).report as string;
+    assert.match(shortReport, /## Record trail/);
+    assert.doesNotMatch(shortReport, /DEEP_TAIL_MARKER/);
+    assert.doesNotMatch(shortReport, /## Timeline \/ findings/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief short mode leads with the story: threads, and a compact record trail", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefshort-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    addTarget(c, "acme");
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "acme spotted at the pier" }, media: { ref: "v.mp4" }, meta: { time: "2026-06-20T10:00:00Z" } }));
     const [rec] = await briefVerb.run(ctx(c, undefined, {}));
     const report = (rec.payload as Record<string, unknown>).report as string;
-    assert.ok(content.length > 200, "fixture should exceed the old 160-char cap");
-    assert.match(report, /DEEP_TAIL_MARKER/); // full content embedded
+    assert.match(report, /## Lines of investigation/);
+    assert.match(report, /\*\*acme\*\* — \[COLLECTING\]/);
+    assert.match(report, /## Coverage/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -988,7 +1015,7 @@ test("brief html export does not reparse embedded content as markup", async () =
     const c = openCase(dir); c.ensure();
     c.writeRecord(makeRecord({ verb: "watch", payload: { content: "intro line\n### Scene 5 heading\n- bullet inside content" }, media: { ref: "v.mp4" } }));
     const htmlPath = join(dir, "b.html");
-    await briefVerb.run(ctx(c, undefined, { export: htmlPath }));
+    await briefVerb.run(ctx(c, undefined, { export: htmlPath, full: true }));
     const html = readFileSync(htmlPath, "utf8");
     assert.doesNotMatch(html, /<h3>Scene 5 heading<\/h3>/); // embedded line NOT a heading
     assert.match(html, /### Scene 5 heading/); // present as escaped literal text

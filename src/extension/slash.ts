@@ -11,6 +11,7 @@ import { tokenizeCommand } from "../providers/sources/index.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveHome } from "../profile.js";
 import type { OvercastRecord } from "../record.js";
+import { persistRecords } from "../registry/persist.js";
 import { renderForFormat, renderRecord } from "../render.js";
 import type { VerbContext } from "../registry/types.js";
 import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
@@ -76,15 +77,10 @@ export function registerSlashCommands(pi: ExtensionAPI): void {
           profileName,
         };
         try {
-          const recs = await spec.run(ctx);
-          // skip a record tagged for a different case (already persisted there),
-          // matching the CLI / agent-tool persist guards.
-          for (const r of recs) {
-            if (r.meta?.transient === true) continue;
-            if (r.meta?.persisted === true) continue;
-            if (r.meta?.case && r.meta.case !== c.dir) continue;
-            c.writeRecord(r);
-          }
+          let recs = await spec.run(ctx);
+          // persist via the shared seam (guards + finding triggers); surface
+          // suggested leads with the command's own output.
+          recs = [...recs, ...persistRecords(c, recs)];
           // honor --json/--format like the CLI (so a paged chunk isn't truncated)
           const fmt = parsed.opts.json ? "json" : (parsed.opts.format as string | undefined);
           emitResult(pi, recs.map((r) => summarize(r, fmt)).join("\n\n") || `▶ ${name}: (no records)`);

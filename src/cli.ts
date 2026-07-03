@@ -9,6 +9,7 @@ import { parseVerbArgs, renderVerbHelp } from "./registry/to-cli.js";
 import { openCase } from "./case.js";
 import { loadProfile, type HomeOptions } from "./profile.js";
 import { makeRecord, type OvercastRecord } from "./record.js";
+import { persistRecords } from "./registry/persist.js";
 import { renderForFormat } from "./render.js";
 import { loadDotEnv } from "./env.js";
 
@@ -353,14 +354,9 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
       return 1;
     }
 
-    // persist into the active case, but skip a record explicitly tagged for a
-    // different case (e.g. `case init <other-dir>` already wrote it there).
-    // Transient records are user-facing control results, not case history.
-    for (const rec of records) {
-      if (rec.meta?.transient === true || rec.meta?.persisted === true) continue;
-      if (rec.meta?.case && rec.meta.case !== c.dir) continue;
-      c.writeRecord(rec);
-    }
+    // persist into the active case (shared seam: guards + finding triggers);
+    // suggested-finding leads render alongside the verb's own output.
+    records = [...records, ...persistRecords(c, records)];
 
     const wantJson = parsed.opts.json === true || parsed.opts.format === "json";
     const format = wantJson ? "json" : (parsed.opts.format as string) ?? "human";
