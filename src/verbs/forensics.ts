@@ -11,7 +11,7 @@ import { makeRecord, type OvercastRecord } from "../record.js";
 import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
-import { fetchMediaToCase, isHttpUrl } from "../media/fetch.js";
+import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
 import { resolveMediaRef, resolveImageArg } from "./media-ref.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { shippedPath } from "../pkg.js";
@@ -47,12 +47,24 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
   // resolve the input to a local file
   if (isHttpUrl(ref)) {
     sourceUrl = ref;
+    let dl;
     try {
-      const dl = await fetchMediaToCase(ref, ctx.case.mediaDir, { signal: ctx.signal });
-      ref = dl.path;
+      dl = await fetchMediaToCase(ref, ctx.case.mediaDir, { signal: ctx.signal });
     } catch (e) {
       return stamp(errorRecord(cfg.verb, `could not fetch ${sourceUrl}: ${(e as Error).message}`));
     }
+    // image-only senses (geolocate) must validate the FETCHED content too, not
+    // just local paths — else a URL resolving to video/HTML is sent to the
+    // provider (wasted API call, misleading error). Mirrors the `see` sense.
+    if (cfg.resolve === "image" && kindForExt(dl.ext) !== "image") {
+      return stamp(
+        errorRecord(
+          cfg.verb,
+          `${sourceUrl} did not resolve to a still image (got ${dl.ext ? dl.ext.slice(1) : dl.contentType ?? "unknown"}, saved to ${dl.path}) — ${cfg.verb} needs an image`,
+        ),
+      );
+    }
+    ref = dl.path;
   } else if (cfg.resolve === "image") {
     const r = resolveImageArg(ctx.case, ref, cfg.verb, { requireReady: false });
     if (r.error) return stamp(errorRecord(cfg.verb, r.error));

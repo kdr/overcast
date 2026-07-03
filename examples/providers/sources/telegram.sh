@@ -50,6 +50,11 @@ case "$op" in
         *[0-9]m|*[0-9]h) days=1 ;;
         *[0-9]d) days="${since%d}" ;;
         *[0-9]w) days=$(( ${since%w} * 7 )) ;;
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+          # absolute calendar date → whole days back from now (BSD/GNU date)
+          now="$(date -u +%s)"
+          d="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')"
+          if [ -n "$d" ]; then days=$(( (now - d) / 86400 )); [ "$days" -lt 1 ] && days=1; fi ;;
         *) days="" ;;
       esac
       [ -n "$days" ] && [ "$days" -gt 30 ] 2>/dev/null && days=30

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -120,6 +121,28 @@ test("geolocate rejects a non-image input (image resolver)", async () => {
     assert.equal(rec.state, "error");
     assert.match(rec.error as string, /not an image/);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("geolocate rejects an http URL that resolves to non-image content", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-geo-"));
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "video/mp4" });
+    res.end(Buffer.from([0, 0, 0, 0]));
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const url = `http://127.0.0.1:${port}/clip.mp4`;
+    // fetched (not a local path) but not a still image → must error BEFORE the
+    // provider is called, and still carry the origin url.
+    const [rec] = await geolocateVerb.run(caseCtx(dir, url, { verb: "geolocate", script: FAKE_GEOLOCATE }));
+    assert.equal(rec.state, "error");
+    assert.match(rec.error as string, /needs an image/);
+    assert.equal((rec.meta as Record<string, unknown>)?.source_url, url);
+  } finally {
+    server.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
