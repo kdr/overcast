@@ -58,6 +58,7 @@ export const audioVerb: VerbSpec = {
     { name: "to", summary: "alias for --index when adding", type: "string" },
     { name: "min-votes", summary: "minimum time-aligned hash votes to confirm a match", type: "number", default: 6 },
     { name: "min-ratio", summary: "minimum aligned-votes / query-hashes ratio (0–1)", type: "number" },
+    { name: "min-margin", summary: "minimum ratio of best-offset votes over the next-best offset (≥1); a true exact match scores 100s–1000s×, a pitch/speed-shifted copy ~1.2–1.7× — raise this (e.g. 2) to reject sped-up re-uploads", type: "number" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -74,12 +75,14 @@ export const audioVerb: VerbSpec = {
 
     const numErr =
       badNumber(ctx.opts, "min-votes", (n) => n >= 1, "at least 1") ??
-      badNumber(ctx.opts, "min-ratio", (n) => n >= 0 && n <= 1, "0–1");
+      badNumber(ctx.opts, "min-ratio", (n) => n >= 0 && n <= 1, "0–1") ??
+      badNumber(ctx.opts, "min-margin", (n) => n >= 1, "at least 1");
     if (numErr) return [err(`audio ${action}: ${numErr}`)];
 
     const indexValue = ctx.opts.index ?? ctx.opts.to;
     const minVotes = ctx.opts["min-votes"] != null ? Number(ctx.opts["min-votes"]) : undefined;
     const minRatio = ctx.opts["min-ratio"] != null ? Number(ctx.opts["min-ratio"]) : undefined;
+    const minMargin = ctx.opts["min-margin"] != null ? Number(ctx.opts["min-margin"]) : undefined;
 
     // ---- add: fingerprint a member into an index (no pairwise) ----
     if (action === "add") {
@@ -116,11 +119,11 @@ export const audioVerb: VerbSpec = {
       const ref = resolveVideoArg(ctx.case, reference, "audio match");
       if (ref.error) return [err(ref.error)];
       if (!/^https?:\/\//i.test(ref.ref!) && !existsSync(ref.ref!)) return [err(`audio match: reference not found: ${ref.ref}`)];
-      rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", against: ref.ref!, minVotes, minRatio, signal: ctx.signal });
+      rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", against: ref.ref!, minVotes, minRatio, minMargin, signal: ctx.signal });
     } else {
       const idx = localAudioIndex(ctx.case, indexValue);
       if (idx.error) return [err(`audio match: ${idx.error}`)];
-      rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", indexId: idx.id!, minVotes, minRatio, signal: ctx.signal });
+      rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", indexId: idx.id!, minVotes, minRatio, minMargin, signal: ctx.signal });
     }
     // if the query was captured from a post, trace the match back to it
     stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));

@@ -62,6 +62,7 @@ def parse():
     p.add_argument("--against")  # pairwise: a second clip (no index)
     p.add_argument("--min-votes", dest="min_votes", type=int, default=6)
     p.add_argument("--min-ratio", dest="min_ratio", type=float, default=0.0)
+    p.add_argument("--min-margin", dest="min_margin", type=float, default=1.0)
     p.add_argument("input")
     return p.parse_args()
 
@@ -251,10 +252,17 @@ def build_member(ref, cfg, index_dir, op, persist=True):
 
 # ---- offset-histogram scoring ----------------------------------------------
 
-def score_member(q_hashes, q_times, m_hashes, m_times, cfg, min_votes, min_ratio):
+def score_member(q_hashes, q_times, m_hashes, m_times, cfg, min_votes, min_ratio, min_margin=1.0):
     """Vote query hashes against a member; return a match dict (offset, votes,
     ratio, margin, span) or None. Merges +/-1 delta bins so frame quantization
-    doesn't split a true alignment across the confirm threshold."""
+    doesn't split a true alignment across the confirm threshold.
+
+    A true exact match aligns almost all of its hashes into ONE offset bin, so it
+    has an overwhelming margin over the second-best bin (real matches score
+    500-1600x). A pitch/speed-changed copy drifts out of alignment and leaves only
+    a small scattered cluster (margin ~1.2-1.7, low ratio, short span) — `min_margin`
+    lets exact-copy detection reject those partial alignments the raw vote floor
+    would otherwise confirm."""
     if q_hashes.size == 0 or m_hashes.size == 0:
         return None
     mdict = defaultdict(list)
@@ -293,14 +301,15 @@ def score_member(q_hashes, q_times, m_hashes, m_times, cfg, min_votes, min_ratio
     span_frames = (max(aligned_tqs) - min(aligned_tqs)) if aligned_tqs else 0
     total_query_hashes = int(q_hashes.size)
     match_ratio = aligned_votes / max(1, total_query_hashes)
+    margin = aligned_votes / max(1, second)
     return {
         "offset_seconds": round(best_c * hop / float(sr), 2),
         "aligned_votes": int(aligned_votes),
         "total_query_hashes": total_query_hashes,
         "match_ratio": round(match_ratio, 4),
-        "margin": round(aligned_votes / max(1, second), 2),
+        "margin": round(margin, 2),
         "span_seconds": round(span_frames * hop / float(sr), 2),
-        "_confirmed": aligned_votes >= min_votes and match_ratio >= min_ratio,
+        "_confirmed": aligned_votes >= min_votes and match_ratio >= min_ratio and margin >= min_margin,
     }
 
 
@@ -314,14 +323,21 @@ def op_add(args):
         fail("audio add requires --index/--index-dir", ref, "add")
     cfg = read_config(args.index_dir)
     hashes, times, duration = _member_or_fail(ref, cfg, args.index_dir)
+    payload = {
+        "op": "add", "index": args.index, "file": ref,
+        "hashes": int(hashes.size), "duration_seconds": duration,
+        "summary": "fingerprinted %s into %s (%d hashes, %.1fs)" % (Path(ref).name, args.index, int(hashes.size), duration),
+    }
+    # a member with no (or barely any) constellation hashes is effectively
+    # silent/tonal and will never match — surface it rather than registering a
+    # dead member the user thinks is searchable.
+    if hashes.size == 0:
+        payload["warning"] = "no fingerprint hashes — the audio is silent or too quiet/tonal to fingerprint; this member cannot be matched"
+        payload["summary"] = "fingerprinted %s into %s but produced 0 hashes (silent/unmatchable audio)" % (Path(ref).name, args.index)
     emit({
         "verb": "audio",
         "format": "json",
-        "payload": {
-            "op": "add", "index": args.index, "file": ref,
-            "hashes": int(hashes.size), "duration_seconds": duration,
-            "summary": "fingerprinted %s into %s (%d hashes, %.1fs)" % (Path(ref).name, args.index, int(hashes.size), duration),
-        },
+        "payload": payload,
         "media": {"ref": ref},
         "meta": {"provider": "local:audio-fp", "model": MODEL},
         "state": "ready",
@@ -341,6 +357,8 @@ def op_match(args):
         fail("--min-votes must be at least 1", args.input, op)
     if args.min_ratio < 0 or args.min_ratio > 1:
         fail("--min-ratio must be between 0 and 1", args.input, op)
+    if args.min_margin < 1:
+        fail("--min-margin must be at least 1", args.input, op)
 
     if args.against:
         # ---- pairwise: fingerprint both, no index ----
@@ -353,7 +371,7 @@ def op_match(args):
         m_hashes, m_times, _, m_dur = fingerprint_file(args.against, cfg, op)
         matches = []
         best_rejected = None
-        s = score_member(q_hashes, q_times, m_hashes, m_times, cfg, args.min_votes, args.min_ratio)
+        s = score_member(q_hashes, q_times, m_hashes, m_times, cfg, args.min_votes, args.min_ratio, args.min_margin)
         if s:
             item = {"ref": args.against, "duration_seconds": m_dur, **_public(s)}
             if s["_confirmed"]:
@@ -379,7 +397,7 @@ def op_match(args):
         if not built:
             continue
         m_hashes, m_times, m_dur = built
-        s = score_member(q_hashes, q_times, m_hashes, m_times, cfg, args.min_votes, args.min_ratio)
+        s = score_member(q_hashes, q_times, m_hashes, m_times, cfg, args.min_votes, args.min_ratio, args.min_margin)
         if not s:
             continue
         item = {"ref": mem["ref"], "duration_seconds": m_dur, **_public(s)}

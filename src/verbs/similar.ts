@@ -156,7 +156,10 @@ export const similarVerb: VerbSpec = {
     const isClap = type === "basic-clap";
 
     const numErr =
-      badNumber(ctx.opts, "min-similarity", (n) => n >= 0 && n <= 100, "0–100") ??
+      // cosine×100 legitimately ranges [-100, 100]; a negative floor lets you
+      // retrieve low/negative-scoring matches (CLAP text→audio in particular
+      // scores near/below zero even for the right clip). Default stays 0.
+      badNumber(ctx.opts, "min-similarity", (n) => n >= -100 && n <= 100, "-100–100") ??
       badNumber(ctx.opts, "limit", (n) => n > 0, "a positive number") ??
       badNumber(ctx.opts, "offset", (n) => n >= 0, "a non-negative number") ??
       badNumber(ctx.opts, "window", (n) => n > 0, "a positive number") ??

@@ -129,6 +129,7 @@ export async function runLocalAudio(
     against?: string;
     minVotes?: number;
     minRatio?: number;
+    minMargin?: number;
     signal?: AbortSignal;
   },
 ): Promise<OvercastRecord> {
@@ -141,6 +142,7 @@ export async function runLocalAudio(
   if (opts.against) args.push("--against", opts.against);
   if (opts.minVotes != null) args.push("--min-votes", String(opts.minVotes));
   if (opts.minRatio != null) args.push("--min-ratio", String(opts.minRatio));
+  if (opts.minMargin != null) args.push("--min-margin", String(opts.minMargin));
   const env = { ...providerEnv(c.mediaDir), ...(opts.indexId ? { OVERCAST_INDEX_DIR: localIndexDir(c, opts.indexId) } : {}) };
   const rec = await runExecProvider("audio", localVisionPython(), input, {
     env,

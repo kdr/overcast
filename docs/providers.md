@@ -374,13 +374,28 @@ clip with no index). A match reports the aligned-vote count, the `offset_seconds
 where the query lines up inside the recording, the `match_ratio`, and a `margin`
 over the next-best alignment; `--min-votes` (default 6) is the confidence floor and
 `--min-ratio` an optional aligned/total ratio floor. Robust to transcode, noise,
-and clipping; **not** to pitch/speed change (a sped-up copy won't match — a
-`--speed-sweep` variant is planned).
+and clipping; **not** to pitch/speed change (classic Wang).
+
+`--min-margin` is the exact-copy vs evasive-reupload discriminator. A true exact
+match aligns nearly all of its hashes into one offset bin, so its `margin` (best
+bin ÷ next-best bin) is enormous — real self-location and transcoded-reupload
+matches score **250–1600×**. A *slightly sped-up* copy (a common content-ID evasion)
+drifts out of alignment into a small scattered cluster: it can still clear the raw
+`--min-votes` floor but its margin collapses to **~1.2–1.7×** (ratio to a few percent,
+span to a fraction of the query). `--min-margin 2` (default 1 = off) rejects those
+partial alignments while passing every true match. (A `--speed-sweep` that instead
+re-fingerprints the query at ±2/±4 % to *match* sped copies is still planned;
+`--min-margin` is the complementary knob that *rejects* them.)
+
+A member whose audio is silent or purely tonal produces **0 constellation hashes**
+and can never match; `audio add` still succeeds but the record carries a
+`payload.warning` so a silent screen-recording isn't mistaken for a searchable member.
 
 ```bash
 overcast index create jingles --type audio-fp --local --json
 overcast audio add ./original.mp4 --to jingles --json        # fingerprint (video → audio track)
 overcast audio match ./suspect.mp4 --index jingles --json    # offset-aligned exact match
+overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --json  # reject sped-up re-uploads
 overcast audio match ./a.mp3 ./b.mp3 --json                  # clip-to-clip, no index
 ```
 
@@ -394,9 +409,19 @@ to a track vector, or stored per-window as moments with `--granularity frame`.
 ```bash
 overcast index create sounds --type basic-clap --local --json
 overcast similar add ./scene.wav --index sounds --json        # embed + cache (10s windows)
-overcast similar match ./query.wav --index sounds --json      # audio → audio
+overcast similar match ./query.wav --index sounds --json      # audio → audio (strong: 20–90)
 overcast similar search "crowd chanting" --index sounds --json # text → audio
+overcast similar search "a person speaking" --index sounds --min-similarity -100 --json  # see full ranking
 ```
+
+Audio→audio scores are strong and well-separated (same-source clips rank 80–90,
+unrelated 20–30). **Text→audio is weaker and low-magnitude** — CLAP text queries
+often score near or *below* zero even for the right clip, and short generic phrases
+can be unreliable. Because `--min-similarity` defaults to `0`, a text search can
+come back empty even when a best candidate exists; the floor now accepts negatives
+(`-100…100`, cosine×100's true range), so pass e.g. `--min-similarity -100` to
+retrieve the full ranking. For finding a specific sound, audio→audio `match` is far
+more reliable than text `search`.
 
 The default model is `laion/larger_clap_general` (Apache-2.0, ~776 MB), overridable
 via `OC_CLAP_MODEL`; `OC_CLAP_DEVICE` defaults to `cpu`. **The first CLAP call

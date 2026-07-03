@@ -365,7 +365,11 @@ overcast similar search "crowd chanting" --index sounds --json # text -> audio m
 where the query lines up inside the recording, a `match_ratio`, and a `margin` over
 the next-best alignment; `--min-votes` (default 6) is the confidence floor. It is
 robust to transcode, noise, and clipping but **not** to pitch/speed change (classic
-Wang) — a sped-up copy will not match (planned for a future `--speed-sweep`).
+Wang). A slightly sped-up re-upload can still clear the raw vote floor as a weak
+partial alignment (margin ~1.2–1.7× vs a true match's 250–1600×) — pass
+`--min-margin 2` for exact-copy detection to reject those (a matching-oriented
+`--speed-sweep` is planned separately). A silent/tonal clip fingerprints to 0 hashes
+and `audio add` flags it with a `payload.warning`.
 `basic-clap` reuses the `similar` grammar and the `basic-clip` cache layout; audio is
 chunked into `--window`-second slices (default 10s), pooled to a track vector, or
 stored per-window as moments with `--granularity frame`. The first CLAP call

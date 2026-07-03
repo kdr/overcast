@@ -27,18 +27,20 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // or clap_match.py) → picks the record `verb`.
 const STUB = `#!/usr/bin/env bash
 script="$1"; shift
-op=""; against=""; minvotes=""; minratio=""; index=""; gran=""; samp=""; win=""; input=""
+op=""; against=""; minvotes=""; minratio=""; minmargin=""; minsim=""; index=""; gran=""; samp=""; win=""; input=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --op) op="$2"; shift 2;;
     --against) against="$2"; shift 2;;
     --min-votes) minvotes="$2"; shift 2;;
     --min-ratio) minratio="$2"; shift 2;;
+    --min-margin) minmargin="$2"; shift 2;;
+    --min-similarity) minsim="$2"; shift 2;;
     --index) index="$2"; shift 2;;
     --granularity) gran="$2"; shift 2;;
     --sampling) samp="$2"; shift 2;;
     --window) win="$2"; shift 2;;
-    --index-dir|--min-similarity|--limit|--offset|--pooling) shift 2;;
+    --index-dir|--limit|--offset|--pooling) shift 2;;
     *) input="$1"; shift;;
   esac
 done
@@ -46,7 +48,7 @@ case "$script" in
   *clap_match.py) verb="similar";;
   *) verb="audio";;
 esac
-printf '{"verb":"%s","format":"json","payload":{"op":"%s","against":"%s","min_votes":"%s","min_ratio":"%s","index":"%s","granularity":"%s","sampling":"%s","window":"%s","input":"%s","matches":[],"count":0},"state":"ready","meta":{"provider":"fake-audio"}}\\n' "$verb" "$op" "$against" "$minvotes" "$minratio" "$index" "$gran" "$samp" "$win" "$input"
+printf '{"verb":"%s","format":"json","payload":{"op":"%s","against":"%s","min_votes":"%s","min_ratio":"%s","min_margin":"%s","min_similarity":"%s","index":"%s","granularity":"%s","sampling":"%s","window":"%s","input":"%s","matches":[],"count":0},"state":"ready","meta":{"provider":"fake-audio"}}\\n' "$verb" "$op" "$against" "$minvotes" "$minratio" "$minmargin" "$minsim" "$index" "$gran" "$samp" "$win" "$input"
 `;
 
 // A fake that always fails (deps-missing style) to test the ready-gated add.
@@ -216,18 +218,31 @@ test("audio add rejects a reference positional and a bad --min-votes / image inp
 
 // ---- audio verb wiring (fake provider) -------------------------------------
 
-test("audio match forwards --op/--min-votes to the provider (indexed)", async () => {
+test("audio match forwards --op/--min-votes/--min-margin to the provider (indexed)", async () => {
   await withStub(STUB, async (dir) => {
     const q = join(dir, "q.wav");
     writeFileSync(q, "x");
     const id = await createIndex(dir, "audio-fp");
     addMember(openCase(dir), id, { ref: q });
-    const [rec] = await audioVerb.run(mk(dir, "match", [q], { index: id, "min-votes": 8 }));
+    const [rec] = await audioVerb.run(mk(dir, "match", [q], { index: id, "min-votes": 8, "min-margin": 2 }));
     assert.equal(rec.state, "ready", rec.error);
     const p = rec.payload as Record<string, unknown>;
     assert.equal(p.op, "match");
     assert.equal(p.min_votes, "8");
+    assert.equal(p.min_margin, "2"); // the speed-drift gate is forwarded
     assert.equal(p.against, ""); // indexed mode → no pairwise reference
+  });
+});
+
+test("audio match rejects a --min-margin below 1", async () => {
+  await withStub(STUB, async (dir) => {
+    const q = join(dir, "q.wav");
+    writeFileSync(q, "x");
+    const id = await createIndex(dir, "audio-fp");
+    addMember(openCase(dir), id, { ref: q });
+    const [rec] = await audioVerb.run(mk(dir, "match", [q], { index: id, "min-margin": 0.5 }));
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /min-margin/);
   });
 });
 
@@ -332,6 +347,24 @@ test("similar search reaches the clap provider with --op search", async () => {
   });
 });
 
+test("similar accepts a NEGATIVE --min-similarity (CLAP text→audio scores near/below 0)", async () => {
+  await withStub(STUB, async (dir) => {
+    const wav = join(dir, "q.wav");
+    writeFileSync(wav, "x");
+    const id = await createIndex(dir, "basic-clap");
+    addMember(openCase(dir), id, { ref: wav });
+    // -100 must be accepted (not rejected as out-of-range) and forwarded so a
+    // negative-cosine best match is retrievable instead of filtered to [].
+    const [rec] = await similarVerb.run(mk(dir, "search", ["a person speaking"], { index: id, "min-similarity": -100 }));
+    assert.equal(rec.state, "ready", rec.error);
+    assert.equal((rec.payload as Record<string, unknown>).min_similarity, "-100");
+    // out-of-range still rejected
+    const [bad] = await similarVerb.run(mk(dir, "search", ["x"], { index: id, "min-similarity": -101 }));
+    assert.equal(bad.state, "error");
+    assert.match(bad.error ?? "", /min-similarity/);
+  });
+});
+
 test("similar add embeds an audio member into a basic-clap index (ready-gated)", async () => {
   await withStub(STUB, async (dir) => {
     const wav = join(dir, "clip.wav");
@@ -382,6 +415,16 @@ test("audio_match.py anchors media on the query and never persists at query time
   assert.match(src, /persist=False/);
   // deps-missing hint points at the right installer flag
   assert.match(src, /run scripts\/visual-db-uv\.sh --audio/);
+});
+
+test("audio_match.py gates confirmation on margin and warns on a 0-hash (silent) add", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "audio-db", "audio_match.py"), "utf8");
+  // the confirm criterion must include the margin gate (rejects speed-drift
+  // partial alignments the raw vote floor would otherwise confirm)…
+  assert.match(src, /aligned_votes >= min_votes and match_ratio >= min_ratio and margin >= min_margin/);
+  // …and a silent/tonal member (0 hashes) must be flagged, not silently registered
+  assert.match(src, /if hashes\.size == 0:/);
+  assert.match(src, /"warning"\] = "no fingerprint hashes/);
 });
 
 test("clap_match.py uses the basic-clip emb/ cache layout and clap deps hint", () => {

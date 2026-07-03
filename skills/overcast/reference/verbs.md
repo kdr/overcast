@@ -160,6 +160,7 @@ Options:
   --to <string>          alias for --index when adding
   --min-votes <number>   minimum time-aligned hash votes to confirm a match (default: 6)
   --min-ratio <number>   minimum aligned-votes / query-hashes ratio (0–1)
+  --min-margin <number>  minimum ratio of best-offset votes over the next-best offset (≥1); a true exact match scores 100s–1000s×, a pitch/speed-shifted copy ~1.2–1.7× — raise this (e.g. 2) to reject sped-up re-uploads
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
