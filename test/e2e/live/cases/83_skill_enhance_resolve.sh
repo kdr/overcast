@@ -50,11 +50,23 @@ if require_cred "$C.reread" CLOUDGLUE_API_KEY "re-reading the enhanced frame nee
   assert_nonempty "$C.reread_text" "$txt" "recovered caption/OCR from the enhanced frame"
 fi
 
-# 4) skill step (optional crop): materialize the resolved region as evidence
-if [ -n "${DETECT_PY:-}" ] && [ -n "${SEE_ID:-}" ]; then
-  cond "enhance skill: crop materializes the resolved region (needs a detector)"
-  crop="$(oc "$CASE" crop "$SEE_ID" --all --pad 0.15 --square --json)"
-  assert_eq "$C.crop_state" "ready" "$(echo "$crop" | jq -r '.state')" "crop ready"
+# 4) skill step (optional crop): the skill's chain is enhance → see --detect → crop.
+# `crop` needs detection boxes, so bind an OWLv2 detector and run see --detect on the
+# ENHANCED frame (the --ocr record from step 3 carries no detections to crop).
+if [ -n "${DETECT_PY:-}" ] && [ -n "${ENH_ID:-}" ]; then
+  cond "enhance skill: see --detect on the enhanced frame, then crop the resolved region"
+  DET="$PWD/examples/providers/detect/detect.py"
+  ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
+  det="$(OC_TIMEOUT=240 oc "$CASE" see "frame://$ENH_ID@2" --detect "license plate, text, sign" --json)"
+  save_json "83_detect" "$det" >/dev/null
+  if [ "$(echo "$det" | jq -r '.state')" = "ready" ] && [ "$(echo "$det" | jq -r '.payload.detections | length')" -ge 1 ]; then
+    DID="$(echo "$det" | jq -r '.id')"
+    crop="$(oc "$CASE" crop "$DID" --all --pad 0.15 --square --json)"
+    nready="$(echo "$crop" | jq -s '[.[]|select(.verb=="crop" and .state=="ready")]|length')"
+    if [ "${nready:-0}" -ge 1 ]; then ok "$C.crop_state" "cropped $nready resolved region(s) from the detector"; else fail "$C.crop_state" "detections found but crop emitted no ready records"; fi
+  else
+    fail "$C.crop_state" "see --detect on the enhanced frame produced no detections (state=$(echo "$det"|jq -r '.state'))"
+  fi
 else
   skip "$C.crop" "no DETECT_PY — crop of a --detect region needs a bound detector"
 fi

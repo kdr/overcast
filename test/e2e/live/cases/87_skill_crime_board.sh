@@ -40,14 +40,23 @@ else
   skip "$C.crop" "no face boxes to crop in this clip"
 fi
 
-# 2) skill step (object cards): see --detect → crop (needs a bound detector)
+# 2) skill step (object cards): bind an OWLv2 detector, see --detect → crop.
+# The CLI has no OVERCAST_SEE_DETECT_PY knob — a detector is bound as the `see`
+# provider (exec), exactly like 15_crop.sh.
 if [ -n "${DETECT_PY:-}" ]; then
-  cond "crime-board skill: see --detect object cards (needs a detector)"
-  export OVERCAST_SEE_DETECT_PY="$DETECT_PY"
+  cond "crime-board skill: bound OWLv2 detector runs see --detect, then crop materializes object cards"
+  DET="$PWD/examples/providers/detect/detect.py"
+  ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
   det="$(OC_TIMEOUT=300 oc "$CASE" see "$CLIP" --detect "person, car, bag" --json)"
-  DID="$(echo "$det" | jq -r '.id // empty')"
-  [ -n "$DID" ] && oc "$CASE" crop "$DID" --all --kind object --json >/dev/null 2>&1
-  ok "$C.object_cards" "object detection card leg ran"
+  save_json "87_detect" "$det" >/dev/null
+  if [ "$(echo "$det" | jq -r '.state')" = "ready" ] && [ "$(echo "$det" | jq -r '.payload.detections | length')" -ge 1 ]; then
+    DID="$(echo "$det" | jq -r '.id')"
+    ocrop="$(oc "$CASE" crop "$DID" --all --kind object --json)"
+    nready="$(echo "$ocrop" | jq -s '[.[]|select(.verb=="crop" and .state=="ready")]|length')"
+    if [ "${nready:-0}" -ge 1 ]; then ok "$C.object_cards" "materialized $nready object crop card(s)"; else fail "$C.object_cards" "detections found but crop emitted no ready records"; fi
+  else
+    fail "$C.object_cards" "see --detect produced no detections (state=$(echo "$det"|jq -r '.state'))"
+  fi
 else
   skip "$C.object_cards" "no DETECT_PY — object crops need a bound detector"
 fi
