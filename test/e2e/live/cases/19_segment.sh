@@ -38,6 +38,19 @@ run_segment() {  # <case> <label>
   save_json "19_segment_${label}_crop" "$cout" >/dev/null
   nc="$(echo "$cout" | jq -s '[.[] | select(.state=="ready")] | length')"
   [ "${nc:-0}" -ge 1 ] && ok "$C.$label.crop" "$nc crop(s) from the segment parent" || fail "$C.$label.crop" "crop found no boxes on the parent"
+
+  # multi-class: a comma-separated prompt segments each class, labeled per class
+  # (fal loops sam-3 per class; local splits GroundingDINO candidate labels).
+  mout="$(OC_TIMEOUT=600 oc "$case" enhance "$IMG" --ops segment --prompt "person, safety vest" --json)"
+  save_json "19_segment_${label}_multiclass" "$mout" >/dev/null
+  labels="$(echo "$mout" | jq -s -r '[.[1:][]|.payload.label]|unique|join(",")')"
+  case "$labels" in *person*|*vest*) ok "$C.$label.multiclass" "multi-class labels: $labels" ;; *) fail "$C.$label.multiclass" "expected per-class labels, got: $labels" ;; esac
+
+  # no-match is a VALID empty result (ready, count 0), not an error
+  emt="$(OC_TIMEOUT=600 oc "$case" enhance "$IMG" --ops segment --prompt "spaceship rocket" --json)"
+  save_json "19_segment_${label}_nomatch" "$emt" >/dev/null
+  est="$(echo "$emt" | jq -s -r '.[0].state')"; ecnt="$(echo "$emt" | jq -s -r '.[0].payload.count // "?"')"
+  { [ "$est" = "ready" ] && [ "$ecnt" = "0" ]; } && ok "$C.$label.nomatch" "no-match → ready, count 0" || fail "$C.$label.nomatch" "expected ready/0, got state=$est count=$ecnt"
 }
 
 # ---- fal sam-3 --------------------------------------------------------------

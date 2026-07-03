@@ -23,7 +23,21 @@ FFMPEG="${OVERCAST_FFMPEG:-ffmpeg}"
 need() { [ -n "$KEY" ] || { echo "enhance (fal.ai) needs FAL_KEY (https://fal.ai/dashboard/keys)" >&2; exit 13; }; }
 
 emit_err() { jq -nc --arg e "$1" '{verb:"enhance",format:"json",payload:{},error:$e,state:"error"}'; }
-b64file() { base64 -i "$1" 2>/dev/null | tr -d '\n' || base64 "$1" | tr -d '\n'; }
+# Upload a local file (mime $2) to fal storage and print its public URL. We upload
+# rather than inline a base64 data URL because fal rejects large data URLs ("URL
+# too long", ~MBs) and multi-MB base64 also blows the shell ARG_MAX. Two-step:
+# initiate → PUT the bytes to the signed URL → use the returned file_url.
+fal_upload() {
+  local f="$1" ct="$2" init up fu
+  init="$(curl -s -m 120 -X POST "https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3" \
+    -H "Authorization: Key $KEY" -H "Content-Type: application/json" \
+    -d "$(jq -nc --arg ct "$ct" --arg fn "$(basename "$f")" '{content_type:$ct,file_name:$fn}')")"
+  up="$(jq -r '.upload_url // empty' <<<"$init" 2>/dev/null)"
+  fu="$(jq -r '.file_url // empty' <<<"$init" 2>/dev/null)"
+  { [ -n "$up" ] && [ -n "$fu" ]; } || return 1
+  curl -fsS -m 300 -X PUT -H "Content-Type: $ct" --data-binary @"$f" "$up" >/dev/null 2>&1 || return 1
+  printf '%s' "$fu"
+}
 
 op="${1:-run}"
 case "$op" in
@@ -64,10 +78,10 @@ do_separate() {
     flac) src="$input"; amime="audio/flac" ;;
     *)    src="$input"; amime="audio/$ext" ;;
   esac
-  local b64 body resp turl rurl tout rout
-  b64="$(b64file "$src")"
-  body="$(jq -nc --arg u "data:$amime;base64,$b64" --arg p "$prompt" '{audio_url:$u,prompt:$p}')"
-  resp="$(curl -s -m 600 -X POST "https://fal.run/$SEP_MODEL" -H "Authorization: Key $KEY" -H "Content-Type: application/json" -d "$body")"
+  local aurl resp turl rurl tout rout
+  aurl="$(fal_upload "$src" "$amime")" || { emit_err "fal: audio upload to storage failed"; return; }
+  resp="$(curl -s -m 600 -X POST "https://fal.run/$SEP_MODEL" -H "Authorization: Key $KEY" -H "Content-Type: application/json" \
+    -d "$(jq -nc --arg u "$aurl" --arg p "$prompt" '{audio_url:$u,prompt:$p}')")"
   turl="$(jq -r '.target.url // empty' <<<"$resp" 2>/dev/null)"
   rurl="$(jq -r '.residual.url // empty' <<<"$resp" 2>/dev/null)"
   if [ -z "$turl" ]; then
@@ -93,67 +107,88 @@ do_segment() {
     *) emit_err "segment is image-only (got .$ext); segment a frame:// still of a video first"; return ;;
   esac
   mkdir -p "$OUTDIR/segment"
-  local subtype imime b64 body resp nmask
+  local subtype imime iurl
   subtype="$ext"; [ "$subtype" = "jpg" ] && subtype="jpeg"; imime="image/$subtype"
-  b64="$(b64file "$input")"
-  body="$(jq -nc --arg u "data:$imime;base64,$b64" --arg p "$prompt" --argjson n "$SEG_MAX" \
-    '{image_url:$u,prompt:$p,return_multiple_masks:true,max_masks:$n,include_scores:true,include_boxes:true,output_format:"png"}')"
-  resp="$(curl -s -m 300 -X POST "https://fal.run/$SEG_MODEL" -H "Authorization: Key $KEY" -H "Content-Type: application/json" -d "$body")"
-  nmask="$(jq -r '(.masks // []) | length' <<<"$resp" 2>/dev/null || echo 0)"
-  if ! [ "$nmask" -gt 0 ] 2>/dev/null; then
-    emit_err "$(jq -r '(.detail // .error // "sam-3 segment returned no masks")' <<<"$resp" 2>/dev/null | head -c 300)"; return
-  fi
-  local outputs dets i murl score box boxobj idx mout cout ref kind maskfield item det
-  outputs="[]"; dets="[]"; i=0
-  while [ "$i" -lt "$nmask" ]; do
-    idx=$((i + 1))
-    murl="$(jq -r ".masks[$i].url // empty" <<<"$resp" 2>/dev/null)"
-    score="$(jq -r ".scores[$i] // .metadata[$i].score // null" <<<"$resp" 2>/dev/null)"
-    box="$(jq -c ".boxes[$i] // .metadata[$i].box // null" <<<"$resp" 2>/dev/null)"
-    i=$((i + 1))
-    [ -n "$murl" ] || continue
-    mout="$OUTDIR/segment/${base}_${idx}_mask.png"
-    curl -fsS -m 120 -o "$mout" "$murl" && [ -s "$mout" ] || continue
-    # SAM 3 boxes are normalized [cx,cy,w,h] -> {xmin,ymin,xmax,ymax} (still normalized)
-    boxobj="$(jq -c 'if type=="array" and length>=4 then {xmin:(.[0]-.[2]/2),ymin:(.[1]-.[3]/2),xmax:(.[0]+.[2]/2),ymax:(.[1]+.[3]/2)} else null end' <<<"$box" 2>/dev/null)"
-    [ -n "$boxobj" ] || boxobj="null"
-    if [ "$masks_only" = "1" ]; then
-      ref="$mout"; kind="mask"; maskfield="null"
-    else
-      cout="$OUTDIR/segment/${base}_${idx}.png"
-      if "$FFMPEG" -y -i "$input" -i "$mout" -filter_complex "[1:v][0:v]scale2ref[a][b];[a]format=gray[aa];[b][aa]alphamerge" "$cout" >/dev/null 2>&1 && [ -s "$cout" ]; then
-        ref="$cout"; kind="cutout"; maskfield="$(jq -nc --arg m "$mout" '$m')"
-      else
-        # cutout compositing failed — degrade HONESTLY to the binary mask rather
-        # than mislabeling a grayscale mask as an RGBA cutout.
-        rm -f "$cout"; ref="$mout"; kind="mask"; maskfield="null"
-      fi
+  iurl="$(fal_upload "$input" "$imime")" || { emit_err "fal: image upload to storage failed"; return; }
+  local outputs dets idx cls resp nmask apierr i murl score box boxobj mout cout ref kind maskfield item det
+  outputs="[]"; dets="[]"; idx=0
+  # sam-3 segments ONE concept per call; comma-separated prompt classes are looped
+  # (parity with the local GroundingDINO provider), each output labeled per class.
+  local OLDIFS="$IFS"; IFS=','
+  for cls in $prompt; do
+    IFS="$OLDIFS"
+    cls="$(printf '%s' "$cls" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    [ -n "$cls" ] || { IFS=','; continue; }
+    resp="$(curl -s -m 300 -X POST "https://fal.run/$SEG_MODEL" -H "Authorization: Key $KEY" -H "Content-Type: application/json" \
+      -d "$(jq -nc --arg u "$iurl" --arg p "$cls" --argjson n "$SEG_MAX" \
+        '{image_url:$u,prompt:$p,return_multiple_masks:true,max_masks:$n,include_scores:true,include_boxes:true,output_format:"png"}')")"
+    nmask="$(jq -r '(.masks // []) | length' <<<"$resp" 2>/dev/null || echo 0)"
+    apierr="$(jq -r '(.detail // .error // empty)' <<<"$resp" 2>/dev/null | head -c 300)"
+    # a hard API error (auth/quota/etc.) surfaces detail with no masks — fail loudly.
+    # a well-formed response with 0 masks is a clean "this class matched nothing".
+    if ! [ "$nmask" -gt 0 ] 2>/dev/null; then
+      [ -n "$apierr" ] && { emit_err "sam-3 ($cls): $apierr"; return; }
+      IFS=','; continue
     fi
-    item="$(jq -nc --arg ref "$ref" --arg k "$kind" --arg lab "$prompt" --argjson idx "$idx" \
-      --argjson sc "${score:-null}" --argjson bx "$boxobj" --argjson mask "$maskfield" \
-      '{kind:$k,ref:$ref,label:$lab,instance:$idx,score:$sc,box:$bx,box_normalized:true,mask:$mask}')"
-    outputs="$(jq -c --argjson it "$item" '. + [$it]' <<<"$outputs")"
-    det="$(jq -nc --arg lab "$prompt" --argjson sc "${score:-null}" --argjson bx "$boxobj" \
-      '{label:$lab,score:$sc,box:$bx,box_normalized:true}')"
-    dets="$(jq -c --argjson d "$det" '. + [$d]' <<<"$dets")"
+    i=0
+    while [ "$i" -lt "$nmask" ]; do
+      murl="$(jq -r ".masks[$i].url // empty" <<<"$resp" 2>/dev/null)"
+      score="$(jq -r ".scores[$i] // .metadata[$i].score // null" <<<"$resp" 2>/dev/null)"
+      box="$(jq -c ".boxes[$i] // .metadata[$i].box // null" <<<"$resp" 2>/dev/null)"
+      i=$((i + 1))
+      [ -n "$murl" ] || continue
+      idx=$((idx + 1))
+      mout="$OUTDIR/segment/${base}_${idx}_mask.png"
+      curl -fsS -m 120 -o "$mout" "$murl" && [ -s "$mout" ] || { idx=$((idx - 1)); continue; }
+      # SAM 3 boxes are normalized [cx,cy,w,h] -> {xmin,ymin,xmax,ymax} (still normalized)
+      boxobj="$(jq -c 'if type=="array" and length>=4 then {xmin:(.[0]-.[2]/2),ymin:(.[1]-.[3]/2),xmax:(.[0]+.[2]/2),ymax:(.[1]+.[3]/2)} else null end' <<<"$box" 2>/dev/null)"
+      [ -n "$boxobj" ] || boxobj="null"
+      if [ "$masks_only" = "1" ]; then
+        ref="$mout"; kind="mask"; maskfield="null"
+      else
+        cout="$OUTDIR/segment/${base}_${idx}.png"
+        if "$FFMPEG" -y -i "$input" -i "$mout" -filter_complex "[1:v][0:v]scale2ref[a][b];[a]format=gray[aa];[b][aa]alphamerge" "$cout" >/dev/null 2>&1 && [ -s "$cout" ]; then
+          ref="$cout"; kind="cutout"; maskfield="$(jq -nc --arg m "$mout" '$m')"
+        else
+          # cutout compositing failed — degrade HONESTLY to the binary mask rather
+          # than mislabeling a grayscale mask as an RGBA cutout.
+          rm -f "$cout"; ref="$mout"; kind="mask"; maskfield="null"
+        fi
+      fi
+      item="$(jq -nc --arg ref "$ref" --arg k "$kind" --arg lab "$cls" --argjson idx "$idx" \
+        --argjson sc "${score:-null}" --argjson bx "$boxobj" --argjson mask "$maskfield" \
+        '{kind:$k,ref:$ref,label:$lab,instance:$idx,score:$sc,box:$bx,box_normalized:true,mask:$mask}')"
+      outputs="$(jq -c --argjson it "$item" '. + [$it]' <<<"$outputs")"
+      det="$(jq -nc --arg lab "$cls" --argjson sc "${score:-null}" --argjson bx "$boxobj" \
+        '{label:$lab,score:$sc,box:$bx,box_normalized:true}')"
+      dets="$(jq -c --argjson d "$det" '. + [$d]' <<<"$dets")"
+    done
+    IFS=','
   done
-  if [ "$(jq 'length' <<<"$outputs")" = "0" ]; then emit_err "sam-3: all mask downloads failed"; return; fi
+  IFS="$OLDIFS"
+  # zero matches across all classes is a VALID empty result (like the local
+  # provider / see --detect), not an error — emit a ready record with count 0.
+  if [ "$(jq 'length' <<<"$outputs")" = "0" ]; then
+    jq -nc --arg inp "$input" --arg m "$SEG_MODEL" --arg p "$prompt" \
+      '{verb:"enhance",format:"json",payload:{op:"segment",input:$inp,model:$m,prompt:$p,count:0,detections:[],outputs:[],note:"no instances matched the prompt"},media:{ref:$inp},meta:{provider:("fal:"+$m)},state:"ready"}'
+    return
+  fi
   jq -nc --arg inp "$input" --arg m "$SEG_MODEL" --arg p "$prompt" --argjson outs "$outputs" --argjson dets "$dets" \
     '{verb:"enhance",format:"json",payload:{op:"segment",input:$inp,model:$m,prompt:$p,count:($outs|length),detections:$dets,outputs:$outs},media:{ref:$inp},meta:{provider:("fal:"+$m)},state:"ready"}'
 }
 
 # ---- default : ESRGAN (image) / DeepFilterNet3 (audio) -----------------------
 do_enhance() {
-  local model field subtype mime rkey out b64 resp url err
+  local model field subtype mime rkey out srcurl resp url err
   case "$ext" in
     jpg|jpeg|png|webp|bmp) model="$IMG_MODEL"; field=image_url; subtype="$ext"; [ "$subtype" = "jpg" ] && subtype="jpeg"; mime="image/$subtype"; rkey=".image.url"; out="$OUTDIR/${base}_fal.png" ;;
     mp3|wav|m4a|aac|flac|ogg) model="$AUD_MODEL"; field=audio_url; mime="audio/$ext"; rkey=".audio_file.url"; out="$OUTDIR/${base}_fal.mp3" ;;
     *) emit_err "unsupported modality .$ext"; return ;;
   esac
-  b64="$(b64file "$input")"
+  srcurl="$(fal_upload "$input" "$mime")" || { emit_err "fal: upload to storage failed"; return; }
   resp="$(curl -s -m 180 -X POST "https://fal.run/$model" \
     -H "Authorization: Key $KEY" -H "Content-Type: application/json" \
-    -d "{\"$field\":\"data:$mime;base64,$b64\"}")"
+    -d "$(jq -nc --arg u "$srcurl" --arg f "$field" '{($f):$u}')")"
   url="$(jq -r "$rkey // empty" <<<"$resp" 2>/dev/null)"
   err="$(jq -r '(.detail // .error // empty)' <<<"$resp" 2>/dev/null)"
   if [ -n "$url" ]; then
