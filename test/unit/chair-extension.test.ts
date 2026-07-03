@@ -235,6 +235,14 @@ test("OVERCAST_CHAIR=1 auto-starts the bridge on session_start", async () => {
     const { ctx } = fakeCtx(dir);
     await emit("session_start", { type: "session_start", reason: "startup" }, ctx);
     assert.ok(handle.bridge()?.running, "bridge should auto-start");
+
+    // a reload (session_shutdown → session_start) must re-autostart, not stay
+    // offline because the first success latched the flag
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    assert.equal(handle.bridge(), undefined, "shutdown stops the bridge");
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    assert.ok(handle.bridge()?.running, "bridge re-autostarts after reload");
+
     await commands.get("chair")?.("off", ctx);
   } finally {
     if (prev.chair === undefined) delete process.env.OVERCAST_CHAIR;

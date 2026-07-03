@@ -33,6 +33,8 @@ function fakeAgent(overrides: Partial<ChairAgent> = {}) {
     },
     model: () => "test-model",
     sessionName: () => "case session",
+    caseName: () => "tc",
+    caseDir: () => "/tmp/tc",
     transcript: () => [{ role: "user", text: "hello", source: "desk" }],
     caseGlance: () => GLANCE,
     onRemotePrompt: (info) => {
@@ -46,8 +48,6 @@ function fakeAgent(overrides: Partial<ChairAgent> = {}) {
 function makeBridge(agent: ChairAgent, extra: Partial<ConstructorParameters<typeof ChairBridge>[0]> = {}) {
   return new ChairBridge({
     agent,
-    caseName: "tc",
-    caseDir: "/tmp/tc",
     profile: "default",
     version: "0.0.0-test",
     port: 0,
@@ -147,6 +147,29 @@ test("chair bridge: snapshot + case glance shapes", async () => {
     assert.equal("live" in snap, false, "no live field when idle");
     const glance = (await (await fetch(`${url}api/case`, { headers: auth })).json()) as CaseGlance;
     assert.equal(glance.caseName, "tc");
+  } finally {
+    await bridge.stop();
+  }
+});
+
+test("chair bridge: snapshot reflects a live case change (not frozen at start)", async () => {
+  let name = "case-a";
+  let dir = "/tmp/case-a";
+  const { agent } = fakeAgent({ caseName: () => name, caseDir: () => dir });
+  const bridge = makeBridge(agent);
+  const { url, pairingUrl } = await bridge.start();
+  const token = pairingUrl.split("#t=")[1];
+  const state = () => fetch(`${url}api/state`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json() as Promise<Record<string, unknown>>);
+  try {
+    let snap = await state();
+    assert.equal(snap.caseName, "case-a");
+    assert.equal(snap.caseDir, "/tmp/case-a");
+    // the desk switches case while the bridge keeps running
+    name = "case-b";
+    dir = "/tmp/case-b";
+    snap = await state();
+    assert.equal(snap.caseName, "case-b");
+    assert.equal(snap.caseDir, "/tmp/case-b");
   } finally {
     await bridge.stop();
   }

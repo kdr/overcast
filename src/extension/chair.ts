@@ -91,12 +91,18 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     ctx = c;
   };
 
+  // the live case dir for this session (follows --case / a session switch), read
+  // fresh each call so a running bridge never reports a stale case.
+  const caseCwd = (): string => process.env.OVERCAST_CASE || ctx?.cwd || process.cwd();
+
   const buildAgent = (): ChairAgent => ({
     isIdle: () => ctx?.isIdle() ?? true,
     abort: () => ctx?.abort(),
     sendUserMessage: (text, opts) => pi.sendUserMessage(CHAIR_PREFIX + text, opts),
     model: () => ctx?.model?.id,
     sessionName: () => ctx?.sessionManager.getSessionName(),
+    caseName: () => openCaseName(caseCwd()),
+    caseDir: () => caseCwd(),
     transcript: (limit) => {
       const entries = ctx?.sessionManager.getBranch() ?? [];
       const items: TranscriptItem[] = [];
@@ -118,7 +124,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       }
       return items.slice(-limit);
     },
-    caseGlance: () => buildCaseGlance(openCase(process.env.OVERCAST_CASE || ctx?.cwd || process.cwd())),
+    caseGlance: () => buildCaseGlance(openCase(caseCwd())),
     livePartial: () => livePartial,
     onRemotePrompt: (info) => ctx?.ui.notify(`chair: remote prompt (${info.mode})`, "info"),
   });
@@ -136,6 +142,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   });
   pi.on("session_shutdown", async () => {
     await stopChair(); // flushes coalesced deltas before the sockets close
+    // reload/new/resume/fork fire session_shutdown then session_start; clear the
+    // latch so an OVERCAST_CHAIR / --chair bridge re-autostarts for the next
+    // session (and rebinds to its — possibly changed — case) instead of staying
+    // offline until a manual /chair on.
+    autostarted = false;
   });
 
   pi.on("agent_start", (_e, c) => {
@@ -218,12 +229,9 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     }
     const bind = opts.bind || process.env.OVERCAST_CHAIR_BIND || "127.0.0.1";
     const port = opts.port ?? envPort(process.env.OVERCAST_CHAIR_PORT) ?? 7373;
-    const cwd = process.env.OVERCAST_CASE || ctx?.cwd || process.cwd();
     const profile = loadProfile({ profile: process.env.OVERCAST_PROFILE || undefined });
     const b = new ChairBridge({
-      agent: buildAgent(),
-      caseName: openCaseName(cwd),
-      caseDir: cwd,
+      agent: buildAgent(), // caseName/caseDir are read live from the agent
       profile: profile.name ?? "default",
       version: OVERCAST_VERSION,
       bind,

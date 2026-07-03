@@ -31,6 +31,10 @@ export interface ChairAgent {
   sendUserMessage(text: string, opts?: { deliverAs?: "steer" | "followUp" }): void;
   model(): string | undefined;
   sessionName(): string | undefined;
+  /** Live case identity (follows --case / a session switch) — read per request
+   *  so a long-running bridge never reports a stale case in the snapshot. */
+  caseName(): string;
+  caseDir(): string;
   transcript(limit: number): TranscriptItem[];
   caseGlance(): CaseGlance;
   /** Text of the in-flight assistant message, "" when none — lets a mid-stream
@@ -42,8 +46,6 @@ export interface ChairAgent {
 
 export interface ChairBridgeOptions {
   agent: ChairAgent;
-  caseName: string;
-  caseDir: string;
   profile: string;
   version: string;
   /** Bind address; default loopback. Never bind wildcard unless asked to. */
@@ -254,7 +256,7 @@ export class ChairBridge {
     const hello: ChairWireEvent = {
       type: "hello",
       seq: this.lastSeq,
-      caseName: this.opts.caseName,
+      caseName: this.agent.caseName(),
       session: this.agent.sessionName(),
       model: this.agent.model(),
       busy: !this.agent.isIdle(),
@@ -303,8 +305,8 @@ export class ChairBridge {
       busy: !this.agent.isIdle(),
       session: this.agent.sessionName(),
       model: this.agent.model(),
-      caseName: this.opts.caseName,
-      caseDir: this.opts.caseDir,
+      caseName: this.agent.caseName(),
+      caseDir: this.agent.caseDir(),
       profile: this.opts.profile,
       clients: this.clients.size,
       version: this.opts.version,
