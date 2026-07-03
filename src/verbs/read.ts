@@ -359,7 +359,7 @@ function renderThreadSection(threads: TargetThread[]): string[] {
     } else if (th.stage === "cold") {
       lines.push("  - NEXT: no evidence yet — scan/capture toward this line");
     } else if (th.findings.suggested) {
-      lines.push(`  - NEXT: triage ${th.findings.suggested} suggested finding${th.findings.suggested === 1 ? "" : "s"} (\`overcast finding list --state triage\`)`);
+      lines.push(`  - NEXT: triage ${th.findings.suggested} suggested finding${th.findings.suggested === 1 ? "" : "s"} (\`overcast finding list --state suggested\`)`);
     }
   }
   lines.push("");
@@ -377,7 +377,7 @@ function renderTriageSection(records: OvercastRecord[], statusByFinding: Map<str
     lines.push(`- \`${r.id}\`${conf} ${r.text}`);
     lines.push(`  - accept: \`overcast finding accept ${r.id}\` · dismiss: \`overcast finding dismiss ${r.id}\``);
   }
-  if (suggested.length > 5) lines.push(`- …and ${suggested.length - 5} more (\`overcast finding list --state triage\`)`);
+  if (suggested.length > 5) lines.push(`- …and ${suggested.length - 5} more (\`overcast finding list --state suggested\`)`);
   lines.push("");
   return lines;
 }
@@ -416,10 +416,12 @@ function renderCoverageSection(pulse: CasePulse, swept: BriefSynthesis["sources"
 /** Build a markdown brief from the case records. Short (default) leads with the
  *  story — verdict, key findings, lines of investigation, triage, coverage — and
  *  a compact appendix; `full` appends the verbatim record dump (audit artifact). */
-function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: CasePulse; full: boolean }): BriefData {
+function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: CasePulse; full: boolean; triageRecords?: OvercastRecord[] }): BriefData {
   // capture reviewed finding statuses BEFORE memoryRecords drops the review rows
   const statusByFinding = findingStatusMap(records);
-  const allScoped = records;
+  // the triage backlog is case-wide (unscoped) — a --scope window must not hide
+  // pending suggested leads; falls back to the given records when not provided.
+  const triageRecords = opts.triageRecords ?? records;
   // Exclude read/meta and operational outputs (ask/brief/case/setup/doctor/etc.)
   // so briefs and memory search stay evidence-focused instead of citing setup
   // probes, doctor checks, or prior read envelopes as findings.
@@ -462,7 +464,7 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
   lines.push("");
 
   lines.push(...renderThreadSection(opts.pulse.threads));
-  lines.push(...renderTriageSection(allScoped, statusByFinding));
+  lines.push(...renderTriageSection(triageRecords, findingStatusMap(triageRecords)));
   lines.push(...renderCoverageSection(opts.pulse, synthesis.sources));
 
   // Appendix: the record trail. Short = a compact index with page-it pointers;
@@ -594,7 +596,8 @@ export const briefVerb: VerbSpec = {
   outputKind: "brief",
   providerKey: "brief",
   run: async (ctx) => {
-    let records = ctx.case.records();
+    const allRecords = ctx.case.records();
+    let records = allRecords;
     // a provided-but-blank `--scope=` is a user error (it would otherwise fall
     // through to the positional / no-filter and silently emit the FULL brief),
     // consistent with ask/face/index rejecting blank flags.
@@ -627,8 +630,12 @@ export const briefVerb: VerbSpec = {
       }
     }
     const info = ctx.case.exists() ? ctx.case.info() : { name: "case" };
-    const pulse = casePulse({ records, targets: listTargets(ctx.case), sources: listSources(ctx.case) });
-    const brief = buildBrief(records, info.name, { pulse, full: ctx.opts.full === true });
+    // pulse reflects the STANDING investigation state (threads, coverage,
+    // freshness) over the full case — computing it on scoped records would make
+    // configured sources look never-scanned and lines read cold under
+    // `--scope since:24h`. Only the brief body (synthesis + trail) is scoped.
+    const pulse = casePulse({ records: allRecords, targets: listTargets(ctx.case), sources: listSources(ctx.case) });
+    const brief = buildBrief(records, info.name, { pulse, full: ctx.opts.full === true, triageRecords: allRecords });
     const theme = normalizeHtmlTheme(ctx.opts.theme);
     if (!theme) return [readError("brief", `invalid --theme '${ctx.opts.theme}' (expected plain or csi)`)];
     if (brief.total === 0) {
@@ -670,7 +677,7 @@ export const briefVerb: VerbSpec = {
           records: timeline,
           counts: brief.counts,
           total: brief.total,
-          synthesis: enrichSynthesis(brief.synthesis, pulse, records),
+          synthesis: enrichSynthesis(brief.synthesis, pulse, allRecords),
         });
       } else {
         html = mdToPlainHtml(brief.md, `Brief — ${info.name}`);

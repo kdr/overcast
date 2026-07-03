@@ -20,7 +20,7 @@ import {
   setEnabled,
   removeSource,
 } from "../state/source.js";
-import { addTarget, listTargets, removeTarget, primaryTarget, setTargetStatus } from "../state/target.js";
+import { addTarget, listTargets, removeTarget, primaryTarget, setTargetStatus, isTargetClosed } from "../state/target.js";
 import { listIndexes } from "../state/index.js";
 import { loadSetup } from "../state/setup.js";
 import { loadSeen, saveSeen, hitKey } from "../state/seen.js";
@@ -82,8 +82,12 @@ function localVisualCandidates(refs: string[], imageTargets: Array<{ value: stri
 
 async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const targets = listTargets(ctx.case);
-  const imageTargets = targets.filter((t) => t.kind === "image");
-  const nameTargets = targets.filter((t) => t.kind !== "image").map((t) => t.value);
+  // closed lines (answered/dead-end) must not seed local matching either — same
+  // invariant primaryTarget enforces for external scan seeding, so a dead image
+  // line stops auto-producing match candidates + suggested findings.
+  const openTargets = targets.filter((t) => !isTargetClosed(t));
+  const imageTargets = openTargets.filter((t) => t.kind === "image");
+  const nameTargets = openTargets.filter((t) => t.kind !== "image").map((t) => t.value);
   const indexes = listIndexes(ctx.case);
   const faceIndexes = indexes.filter((i) => i.type === "face-analysis");
   const localFaceIndexes = indexes.filter((i) => i.backend === "local" && i.type === "deepface-local");

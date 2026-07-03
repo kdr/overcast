@@ -245,7 +245,9 @@ function statusTriage(records: OvercastRecord[], _pulse: CasePulse): Array<Recor
 /** Suggested next actions — pulse-aware (triage first, then gaps, then brief). */
 function caseStatusNext(ctx: VerbContext, records: OvercastRecord[], counts: Record<string, number>, pulse: CasePulse): string[] {
   const next: string[] = [];
-  if (pulse.progress.triage_pending) next.push(`Triage ${pulse.progress.triage_pending} suggested finding(s): \`overcast finding list --state triage\`.`);
+  // triage_pending counts SUGGESTED leads; point at --state suggested so the
+  // count matches the list (--state triage also returns open findings).
+  if (pulse.progress.triage_pending) next.push(`Triage ${pulse.progress.triage_pending} suggested finding(s): \`overcast finding list --state suggested\`.`);
   if (!listTargets(ctx.case).length) next.push("Add a line of investigation: `overcast target add <value> --question \"…\"`.");
   for (const g of pulse.gaps.slice(0, 2)) next.push(`Close a coverage gap: ${g}.`);
   if ((counts.brief ?? 0) === 0 && records.some((r) => (r.state ?? "ready") === "ready")) {

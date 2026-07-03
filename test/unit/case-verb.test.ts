@@ -73,6 +73,24 @@ test("case status returns combined status payload", async () => {
   });
 });
 
+test("case status next-action: triage hint count matches its command (--state suggested)", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    addTarget(c, "acme");
+    // a suggested lead + an OPEN manual finding: triage_pending counts only the
+    // suggested one, so the hint must point at --state suggested (not triage,
+    // which would also return the open finding and mismatch the count)
+    c.writeRecord(makeRecord({ verb: "finding", payload: { text: "lead", target: "acme", source_record: "s", source_verb: "face", trigger: "signal:face-match", status: "suggested" }, state: "ready" }));
+    c.writeRecord(makeRecord({ verb: "finding", payload: { text: "manual", target: "acme", source_record: "manual", source_verb: "manual", trigger: "human", status: "open" }, state: "ready" }));
+    const [rec] = await caseVerb.run(ctx(dir, "status"));
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal((payload.mission as { progress: Record<string, number> }).progress.triage_pending, 1);
+    const next = (payload.next_actions as string[]).join("\n");
+    assert.match(next, /Triage 1 suggested finding\(s\): `overcast finding list --state suggested`/);
+    assert.doesNotMatch(next, /--state triage/);
+  });
+});
+
 test("case status --export html --theme csi writes report", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);

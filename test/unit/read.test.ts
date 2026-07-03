@@ -952,6 +952,29 @@ test("brief --full embeds the FULL primary field; short stubs it", async () => {
   }
 });
 
+test("brief --scope: pulse (threads/coverage/triage) reflects the FULL case, not the scoped window", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefscope-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    addTarget(c, "acme");
+    // old (out-of-scope) evidence linking the target + an old suggested lead
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "acme at the pier" }, media: { ref: "old.mp4" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    c.writeRecord(makeRecord({ verb: "finding", payload: { text: "old lead", target: "acme", target_id: "x", source_record: "y", source_verb: "face", trigger: "signal:face-match", status: "suggested" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    // a recent in-scope record so the scoped brief still renders
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "fresh note" }, media: { ref: "n.txt" }, meta: { time: "2026-07-03T00:00:00Z" } }));
+    const [rec] = await briefVerb.run(ctx(c, "since:2026-07-01", {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    // the thread must read LEADS (the out-of-scope suggested finding links it),
+    // not COLD, despite the --scope window excluding those records from the body
+    assert.match(report, /\*\*acme\*\* — \[LEADS\]/);
+    assert.match(report, /1 line active \(1 with leads\)/);
+    // the old suggested lead must still appear in the case-wide triage backlog
+    assert.match(report, /## Triage — 1 suggestion awaiting review/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief short mode leads with the story: threads, and a compact record trail", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-briefshort-"));
   try {
