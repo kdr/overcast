@@ -71,6 +71,15 @@ test("enhance creates the parent dir of a nested explicit --out path", async () 
   assert.ok(existsSync(out), "output written into freshly-created nested dir");
 });
 
+test("enhance default output name distinguishes op sets but is idempotent per op set", async () => {
+  const g = await enhance(clip, ["grayscale"], join(dir, "enh-ops"));
+  const d = await enhance(clip, ["denoise"], join(dir, "enh-ops"));
+  assert.notEqual(g.output, d.output); // different ops -> different file, no overwrite
+  assert.ok(existsSync(g.output) && existsSync(d.output));
+  const g2 = await enhance(clip, ["grayscale"], join(dir, "enh-ops"));
+  assert.equal(g2.output, g.output); // same ops -> same (cached) name
+});
+
 test("defaultOps differ per modality", () => {
   assert.deepEqual(defaultOps("audio"), ["denoise", "normalize"]);
   assert.deepEqual(defaultOps("image"), ["denoise"]);

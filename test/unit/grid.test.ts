@@ -106,6 +106,18 @@ test("grid verb: validation rejects out-of-range flags and bad --at", async () =
   assert.match(emptyWin.error ?? "", /window/);
 });
 
+test("grid verb: same count, different windows produce distinct montage paths (no overwrite)", async () => {
+  const [a] = await gridVerb.run(ctx(clip, { count: 4, start: "0", end: "4", json: true }));
+  const [b] = await gridVerb.run(ctx(clip, { count: 4, start: "6", end: "10", json: true }));
+  const [c] = await gridVerb.run(ctx(clip, { count: 4, start: "0", end: "4", json: true }));
+  const pa = a.payload as Record<string, any>;
+  const pb = b.payload as Record<string, any>;
+  const pc = c.payload as Record<string, any>;
+  assert.notEqual(pa.montage, pb.montage); // different windows -> different file
+  assert.equal(pc.montage, pa.montage); // identical inputs -> same (idempotent) file
+  assert.ok(existsSync(pa.montage) && existsSync(pb.montage), "both montages persist, neither overwritten");
+});
+
 test("grid verb: missing input errors cleanly", async () => {
   const [rec] = await gridVerb.run(ctx("", { json: true }));
   assert.equal(rec.state, "error");

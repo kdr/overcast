@@ -8,6 +8,7 @@ import { dirname, join, extname, basename } from "node:path";
 import { existsSync, mkdirSync, mkdtempSync, copyFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
@@ -318,7 +319,11 @@ export async function contactSheet(
   const fontSize = clampInt(cellWidth / 14, 14, 40);
 
   const base = basename(input, extname(input));
-  const out = opts.outPath ?? join(outDir, `${safeName(base)}_grid_${n}.png`);
+  // include a hash of the actual samples + layout so two grids of the same clip
+  // with the same frame count but different windows/--at lists don't reuse (and
+  // overwrite) one path — which would strand earlier records on a stale montage.
+  const sig = shortHash({ seconds, cols, cellWidth, cellHeight, labeled });
+  const out = opts.outPath ?? join(outDir, `${safeName(base)}_grid_${n}_${sig}.png`);
   ensureDir(dirname(out)); // a caller-supplied nested --out needs its parent created first
   const work = mkdtempSync(join(tmpdir(), "oc-grid-"));
   try {
@@ -383,6 +388,14 @@ export async function contactSheet(
 /** Filesystem-safe filename part. */
 function safeName(s: string): string {
   return s.replace(/[^a-z0-9_.-]+/gi, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "grid";
+}
+
+/** Short deterministic content hash for a collision-free default output name:
+ *  same inputs → same name (idempotent), different inputs → different name (so a
+ *  second run with a different window/op set can't overwrite the first's file and
+ *  leave an earlier record pointing at a montage/output that no longer matches). */
+function shortHash(parts: unknown): string {
+  return createHash("sha1").update(JSON.stringify(parts)).digest("hex").slice(0, 10);
 }
 
 /** Escape a value (e.g. a font path) for an ffmpeg filtergraph option: backslash
@@ -490,8 +503,12 @@ export async function enhance(
   }
 
   const ext = modality === "image" ? ".png" : extname(input) || ".mp4";
+  // key the default name on the applied ops so enhancing one file two different
+  // ways (e.g. grayscale then denoise) doesn't overwrite the first output and
+  // leave its record pointing at the wrong media — same ops still map to one file.
   const out =
-    outPath ?? join(ensureDir(outDir), `${basename(input, extname(input))}_enhanced${ext}`);
+    outPath ??
+    join(ensureDir(outDir), `${basename(input, extname(input))}_enhanced_${shortHash(applied)}${ext}`);
   ensureDir(dirname(out)); // a caller-supplied nested --out needs its parent created too
 
   const args = ["-y", "-i", input];
