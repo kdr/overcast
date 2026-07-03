@@ -24,16 +24,19 @@ PY="$(resolve_py)"
 op="${1:-run}"
 case "$op" in
   init)
-    if ! "$PY" -c 'import transformers, torch' 2>/dev/null; then
+    # EITHER stack is enough — voice (--ops separate) needs pyannote+torch,
+    # segment (--ops segment) needs transformers+torch; a user may install just
+    # one. Only fail if NEITHER is present. Note whatever's missing.
+    have_seg=0; have_voice=0
+    "$PY" -c 'import transformers, torch' 2>/dev/null && have_seg=1
+    "$PY" -c 'import pyannote.audio' 2>/dev/null && have_voice=1
+    if [ "$have_seg" = 0 ] && [ "$have_voice" = 0 ]; then
       echo "local-models needs the uv env: scripts/visual-db-uv.sh --enhance (installs pyannote + transformers/SAM2/torch)" >&2
       exit 13
     fi
-    # pyannote (voice separation) is only needed for --ops separate; warn but don't
-    # block segment-only use.
-    if ! "$PY" -c 'import pyannote.audio' 2>/dev/null; then
-      echo "note: voice separation (--ops separate) also needs pyannote.audio: scripts/visual-db-uv.sh --voice" >&2
-    fi
-    if [ -z "${HF_TOKEN:-}${HUGGING_FACE_HUB_TOKEN:-}" ]; then
+    [ "$have_voice" = 0 ] && echo "note: --ops separate needs pyannote.audio: scripts/visual-db-uv.sh --voice" >&2
+    [ "$have_seg" = 0 ] && echo "note: --ops segment needs transformers+torch: scripts/visual-db-uv.sh --segment" >&2
+    if [ "$have_voice" = 1 ] && [ -z "${HF_TOKEN:-}${HUGGING_FACE_HUB_TOKEN:-}" ]; then
       echo "note: voice separation also needs HF_TOKEN + accepted license: https://huggingface.co/pyannote/speaker-diarization-community-1" >&2
     fi
     exit 0 ;;
@@ -52,10 +55,16 @@ while [ "$i" -le "$n" ]; do
   i=$((i + 1))
 done
 
-case ",$ops," in
-  *,separate,*) exec "$PY" "$VDB/enhance_voice.py" "$@" ;;
-  *,segment,*)  exec "$PY" "$VDB/enhance_segment.py" "$@" ;;
-  *)
-    jq -nc --arg o "$ops" '{verb:"enhance",format:"json",payload:{},error:("local-models handles --ops separate|segment (got ops=\"" + $o + "\"); for denoise/normalize/upscale bind the internal ffmpeg toolkit: overcast setup provider enhance ffmpeg"),state:"error"}'
-    ;;
-esac
+# pick the handler explicitly and reject ambiguous combos (no silent precedence).
+want_sep=0; want_seg=0
+case ",$ops," in *,separate,*) want_sep=1 ;; esac
+case ",$ops," in *,segment,*)  want_seg=1 ;; esac
+if [ $((want_sep + want_seg)) -gt 1 ]; then
+  jq -nc --arg o "$ops" '{verb:"enhance",format:"json",payload:{},error:("one split op at a time — got ops=\"" + $o + "\" (use --ops separate OR --ops segment)"),state:"error"}'
+elif [ "$want_sep" = 1 ]; then
+  exec "$PY" "$VDB/enhance_voice.py" "$@"
+elif [ "$want_seg" = 1 ]; then
+  exec "$PY" "$VDB/enhance_segment.py" "$@"
+else
+  jq -nc --arg o "$ops" '{verb:"enhance",format:"json",payload:{},error:("local-models handles --ops separate|segment (got ops=\"" + $o + "\"); for denoise/normalize/upscale bind the internal ffmpeg toolkit: overcast setup provider enhance ffmpeg"),state:"error"}'
+fi

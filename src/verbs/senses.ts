@@ -28,7 +28,7 @@ import {
 import { openHtmlPlayer, osOpen } from "../media/view.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
-import { fanOutEnhance } from "./enhance-fanout.js";
+import { fanOutEnhance, hasFanOut } from "./enhance-fanout.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -431,6 +431,18 @@ export const enhanceVerb: VerbSpec = {
     const enhBinding = providerBinding(ctx, "enhance");
     const providerOps = rawOps.filter((o) => PROVIDER_ONLY_OPS.has(o));
 
+    // A split op (separate/segment) can't compose with any other op: the toolbox
+    // providers dispatch to exactly ONE handler, so `--ops segment,separate` or
+    // `--ops separate,denoise` would silently drop the rest. Require it solo.
+    if (providerOps.length && rawOps.length !== 1) {
+      return [
+        errorRecord(
+          "enhance",
+          `a split op (${providerOps.join(", ")}) must be the only --ops value (got: ${rawOps.join(",")}). Run separate/segment one at a time.`,
+        ),
+      ];
+    }
+
     // A bound enhance provider (e.g. the HF model-ops provider, or the local /
     // fal split providers) takes over; the DEFAULT stays the internal ffmpeg
     // toolkit (invariant #7). Bind via `setup provider enhance <spec>`.
@@ -451,6 +463,24 @@ export const enhanceVerb: VerbSpec = {
         timeoutMs: 15 * 60_000,
         signal: ctx.signal,
       });
+      // Guard the silent no-op: a split op was requested but the bound provider
+      // is a single-output one (hf/esrgan/voice-isolator) that ignored --ops and
+      // returned one enhanced file. A real split either fans out (outputs[]) or
+      // at least echoes payload.op (e.g. a segment that matched nothing). Neither
+      // → fail loudly instead of handing back one file dressed as tracks/masks.
+      const recOp =
+        typeof rec.payload === "object" && rec.payload
+          ? (rec.payload as Record<string, unknown>).op
+          : undefined;
+      if (providerOps.length && rec.state === "ready" && !hasFanOut(rec) && recOp !== providerOps[0]) {
+        return [
+          errorRecord(
+            "enhance",
+            `the bound enhance provider did not perform '--ops ${providerOps[0]}' (it returned a single output). ` +
+              `Bind a split-capable provider: \`overcast provider setup plan --preset local-models\` (or --preset fal).`,
+          ),
+        ];
+      }
       // expand a multi-output envelope (per-speaker tracks / per-instance masks)
       // into [parent, ...children]; single-output providers pass through.
       const recs = fanOutEnhance(rec, { caseDir: ctx.case.dir });

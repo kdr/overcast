@@ -166,8 +166,13 @@ do_enhance() {
   fi
 }
 
-case ",$ops," in
-  *,separate,*) do_separate ;;
-  *,segment,*)  do_segment ;;
-  *)            do_enhance ;;
-esac
+# pick the handler explicitly and reject ambiguous combos (no silent precedence).
+want_sep=0; want_seg=0
+case ",$ops," in *,separate,*) want_sep=1 ;; esac
+case ",$ops," in *,segment,*)  want_seg=1 ;; esac
+if [ $((want_sep + want_seg)) -gt 1 ]; then
+  emit_err "one split op at a time — got ops=\"$ops\" (use --ops separate OR --ops segment)"
+elif [ "$want_sep" = 1 ]; then do_separate
+elif [ "$want_seg" = 1 ]; then do_segment
+else do_enhance
+fi

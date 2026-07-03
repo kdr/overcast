@@ -159,3 +159,27 @@ test("enhance --ops separate WITHOUT a bound provider errors helpfully", async (
   assert.equal(recs[0].state, "error");
   assert.match(String(recs[0].error), /bound enhance provider/);
 });
+
+test("a split op combined with another op is rejected (no silent drop)", async () => {
+  const clip = join(dir, "clip4.mp4");
+  writeFileSync(clip, "x");
+  // two split ops
+  let recs = await enhanceVerb.run(ctx(clip, { ops: "segment,separate" }, `bash ${join(FIX, "fake-enhance-separate.sh")} --input {{input}}`));
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].state, "error");
+  assert.match(String(recs[0].error), /only --ops value/);
+  // split op mixed with an ffmpeg op
+  recs = await enhanceVerb.run(ctx(clip, { ops: "separate,denoise" }, `bash ${join(FIX, "fake-enhance-separate.sh")} --input {{input}}`));
+  assert.equal(recs[0].state, "error");
+  assert.match(String(recs[0].error), /only --ops value/);
+});
+
+test("a split op against a single-output provider fails loudly (not a silent no-op)", async () => {
+  const clip = join(dir, "clip5.mp4");
+  writeFileSync(clip, "x");
+  // fake-enhance-single ignores --ops and returns one enhanced file (no payload.op)
+  const recs = await enhanceVerb.run(ctx(clip, { ops: "separate" }, `bash ${join(FIX, "fake-enhance-single.sh")} --input {{input}}`));
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].state, "error");
+  assert.match(String(recs[0].error), /did not perform '--ops separate'/);
+});
