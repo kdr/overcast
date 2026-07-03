@@ -994,6 +994,26 @@ test("brief --scope: finding status resolves case-wide (accept row outside the w
   }
 });
 
+test("brief --scope with an empty window still renders + exports (active case has a body)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-scopeexport-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    addTarget(c, "acme");
+    // all evidence is OLD (out of the since-window); the case is still active
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "acme at pier" }, media: { ref: "old.mp4" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    const out = join(dir, "scoped.html");
+    const [rec] = await briefVerb.run(ctx(c, "since:2026-01-01", { export: out, theme: "csi" }));
+    const payload = rec.payload as Record<string, unknown>;
+    // NOT pending: an active case with a pulse body must export despite 0 in-window evidence
+    assert.equal(rec.state, "ready");
+    assert.equal(payload.export, out);
+    assert.equal(existsSync(out), true);
+    assert.match(readFileSync(out, "utf8"), /Lines of investigation/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief coverage shows sub-hour freshness via shared fmtAge (not '0h')", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-briefage-"));
   try {

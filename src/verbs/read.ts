@@ -642,7 +642,10 @@ export const briefVerb: VerbSpec = {
     const brief = buildBrief(records, info.name, { pulse, full: ctx.opts.full === true, caseRecords: allRecords });
     const theme = normalizeHtmlTheme(ctx.opts.theme);
     if (!theme) return [readError("brief", `invalid --theme '${ctx.opts.theme}' (expected plain or csi)`)];
-    if (brief.total === 0) {
+    // Pending only when the WHOLE case is empty — not merely when a --scope
+    // window is. A scoped run over an active case still has a useful body
+    // (threads/coverage/triage from the full-case pulse), so it renders + exports.
+    if (memoryRecords(allRecords).length === 0) {
       return [
         makeRecord({
           verb: "brief",

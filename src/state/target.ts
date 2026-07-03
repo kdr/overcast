@@ -110,12 +110,15 @@ export function setTargetStatus(
 }
 
 /** The primary (most recent OPEN) target, used as the default scan/monitor seed.
- *  Closed lines (answered/dead-end) are skipped so sweeps don't chase them; if
- *  every target is closed, falls back to the most recent so scope never vanishes. */
+ *  Closed lines (answered/dead-end) are skipped so sweeps don't chase them; when
+ *  EVERY line is closed there is no active target — returns undefined rather than
+ *  a closed one, so a query-less source isn't seeded with a dead line's value
+ *  (the same "closed lines stop seeding scans" invariant scanLocalCase /
+ *  evaluateTriggers / autoSeeOpts enforce). */
 export function primaryTarget(c: Case): TargetEntry | undefined {
   const t = load(c).targets;
   for (let i = t.length - 1; i >= 0; i--) {
     if (!isTargetClosed(t[i])) return t[i];
   }
-  return t[t.length - 1];
+  return undefined;
 }

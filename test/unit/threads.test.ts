@@ -129,6 +129,16 @@ test("setTargetStatus: close + reopen round-trips; primaryTarget skips closed", 
     assert.equal(listTargets(c).find((t) => t.id === b.id)!.status, undefined);
   }));
 
+test("primaryTarget: returns undefined when EVERY line is closed (no seeding dead lines)", () =>
+  withCase((c) => {
+    const a = addTarget(c, "alpha");
+    const b = addTarget(c, "bravo");
+    setTargetStatus(c, a.id, "answered");
+    setTargetStatus(c, b.id, "dead-end");
+    // all lines closed → no active target seeds a query-less scan
+    assert.equal(primaryTarget(c), undefined);
+  }));
+
 test("target verb: add --question, close --as, reopen", () =>
   withCase(async (c) => {
     const add = await targetVerb.run(ctxFor(c, "add", ["mystery"], { question: "who runs it?" }));

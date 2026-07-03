@@ -78,6 +78,19 @@ test("casePulse: coverage counts scan hits lacking source_id via platform-type f
   assert.equal(Math.round(cov.lastScanAgeSeconds!), HOUR / 1000);
 });
 
+test("casePulse: an unstamped hit is NOT attributed when the type has multiple sources", () => {
+  // two web sources: an unstamped web hit is ambiguous, so it must attribute to
+  // neither (attributing to both would double-count + falsely clear gaps)
+  const a = source({ id: "src_a", type: "web", ref: "q1" });
+  const b = source({ id: "src_b", type: "web", ref: "q2" });
+  const unstamped = makeRecord({ verb: "scan", format: "json", payload: { source: "web", url: "http://x/1" }, meta: { time: iso(HOUR) } });
+  const pulse = casePulse({ records: [unstamped], targets: [], sources: [a, b], now: NOW });
+  assert.equal(pulse.coverage.find((c) => c.id === "src_a")!.hits, 0);
+  assert.equal(pulse.coverage.find((c) => c.id === "src_b")!.hits, 0);
+  // both remain gaps (neither can claim the ambiguous hit)
+  assert.ok(pulse.coverage.every((c) => c.gap));
+});
+
 test("casePulse: enabled-but-never-scanned source is a coverage gap", () => {
   const src = source({ id: "src_b", type: "x", ref: "@h" });
   const pulse = casePulse({ records: [], targets: [], sources: [src], now: NOW });

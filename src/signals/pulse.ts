@@ -129,17 +129,24 @@ function sensedRefs(records: OvercastRecord[]): Set<string> {
 function buildCoverage(records: OvercastRecord[], sources: SourceEntry[], now: number): SourceCoverage[] {
   const sensed = sensedRefs(records);
   const captures = records.filter((r) => r.verb === "capture" && isReady(r));
+  // how many enabled sources share each platform type — an unstamped hit can
+  // only be attributed by type when that type has a SINGLE source (otherwise
+  // it's ambiguous and attributing to all would double-count / clear real gaps).
+  const typeCount = new Map<string, number>();
+  for (const s of sources) typeCount.set(s.type, (typeCount.get(s.type) ?? 0) + 1);
 
   return sources.map((src) => {
+    const uniqueOfType = (typeCount.get(src.type) ?? 0) === 1;
     const hitRecords = records.filter((r) => {
       if (r.verb !== "scan" || !isReady(r)) return false;
       const p = payloadOf(r);
       if (typeof p.url !== "string" || !p.url.length) return false;
       // exact match on the stamped source_id (current pipeline stamps it at
-      // enumerate time); fall back to the platform type for legacy/adhoc hits
-      // that predate stamping, so real sweeps don't read as "never scanned".
+      // enumerate time); fall back to the platform type ONLY for the unique
+      // source of that type, so legacy/adhoc hits don't read as "never scanned"
+      // without over-attributing an ambiguous hit to every same-type source.
       if (typeof p.source_id === "string") return p.source_id === src.id;
-      return typeof p.source === "string" && p.source === src.type;
+      return uniqueOfType && typeof p.source === "string" && p.source === src.type;
     });
     const hitIds = new Set(hitRecords.map((r) => r.id));
     const captured = captures.filter((c) => {
