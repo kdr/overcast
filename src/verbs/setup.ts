@@ -516,6 +516,36 @@ export const doctorVerb: VerbSpec = {
         : `image deps missing via ${localPy} — run \`scripts/visual-db-uv.sh\` and set OC_VISUAL_DB_PY if needed`,
     });
 
+    // exiftool — optional system CLI backing the `exif` metadata/GPS sense.
+    const exiftool = await execCapture("exiftool", ["-ver"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    checks.push({
+      name: "exiftool",
+      ok: exiftool.code === 0,
+      detail: exiftool.code === 0
+        ? `optional metadata/GPS sense (exif) available (v${exiftool.stdout.trim()})`
+        : "optional — install exiftool for the `exif` sense (`brew install exiftool` / `apt install libimage-exiftool-perl`)",
+    });
+
+    // c2patool — optional system CLI backing the `verify` C2PA provenance sense.
+    const c2patool = await execCapture("c2patool", ["--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    checks.push({
+      name: "c2patool",
+      ok: c2patool.code === 0,
+      detail: c2patool.code === 0
+        ? `optional C2PA provenance sense (verify) available (${c2patool.stdout.trim()})`
+        : "optional — install c2patool for the `verify` sense (`brew install c2patool` / `cargo install c2patool`)",
+    });
+
+    // PICARTA_API_KEY — backs the optional `geolocate` (content-based image
+    // geolocation) sense; informational (not a hard failure when absent).
+    checks.push({
+      name: "geolocate",
+      ok: true,
+      detail: envPresent("PICARTA_API_KEY")
+        ? "PICARTA_API_KEY present — content-based geolocation (geolocate) available"
+        : "optional — set PICARTA_API_KEY for the `geolocate` sense (https://picarta.ai/)",
+    });
+
     const configuredSources = listSources(ctx.case);
     const sourceTypes = new Set(configuredSources.map((s) => s.type));
     if (ctx.opts.sources === true || sourceTypes.has("tiktok")) {
@@ -552,6 +582,47 @@ export const doctorVerb: VerbSpec = {
         detail: envPresent("APIFY_TOKEN")
           ? "APIFY_TOKEN present"
           : "APIFY_TOKEN missing for lens (Google Lens reverse image) scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("instagram")) {
+      checks.push({
+        name: "source:instagram",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN") ? "APIFY_TOKEN present" : "APIFY_TOKEN missing for instagram scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("telegram")) {
+      checks.push({
+        name: "source:telegram",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN") ? "APIFY_TOKEN present" : "APIFY_TOKEN missing for telegram scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("facesearch")) {
+      checks.push({
+        name: "source:facesearch",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present (opt-in face search — mind ToS/privacy)"
+          : "APIFY_TOKEN missing for facesearch scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("gdelttv")) {
+      // GDELT TV needs no key; note the corpus lag so an empty recent scan reads
+      // as expected rather than broken.
+      checks.push({
+        name: "source:gdelttv",
+        ok: true,
+        detail: "public GDELT TV API — no key needed (clipgallery corpus lags real time by weeks)",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("webcam")) {
+      checks.push({
+        name: "source:webcam",
+        ok: envPresent("WINDY_API_KEY"),
+        detail: envPresent("WINDY_API_KEY")
+          ? "WINDY_API_KEY present"
+          : "WINDY_API_KEY missing for webcam (Windy Webcams) scans (https://api.windy.com/webcams)",
       });
     }
 

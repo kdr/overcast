@@ -1434,6 +1434,7 @@ test("monitor --every redacts secrets in streamed stdout and alert files", async
 });
 
 import { hostSourceType } from "../../src/verbs/osint.ts";
+import { builtinDescriptor, APIFY_RUN_SYNC_TIMEOUT_MS } from "../../src/providers/sources/index.ts";
 
 test("hostSourceType routes apex and subdomain hosts (x.com regression)", () => {
   assert.equal(hostSourceType("https://x.com/user/status/123"), "x");
@@ -1446,4 +1447,62 @@ test("hostSourceType routes apex and subdomain hosts (x.com regression)", () => 
   assert.equal(hostSourceType("https://example.com/xx.com/page"), "web");
   assert.equal(hostSourceType("https://notx.com/a"), "web");
   assert.equal(hostSourceType("not a url"), "web");
+});
+
+test("hostSourceType routes yt-dlp video hosts to the generic dl downloader", () => {
+  assert.equal(hostSourceType("https://rumble.com/v123-clip.html"), "dl");
+  assert.equal(hostSourceType("https://www.bitchute.com/video/abc/"), "dl");
+  assert.equal(hostSourceType("https://odysee.com/@ch/clip"), "dl");
+  assert.equal(hostSourceType("https://vk.com/video-1_2"), "dl");
+  assert.equal(hostSourceType("https://www.bilibili.com/video/BV1xx"), "dl");
+  assert.equal(hostSourceType("https://vimeo.com/12345"), "dl");
+  assert.equal(hostSourceType("https://www.dailymotion.com/video/x9"), "dl");
+  assert.equal(hostSourceType("https://www.reddit.com/r/x/comments/1/y/"), "dl");
+  assert.equal(hostSourceType("https://v.redd.it/abcdef"), "dl");
+  assert.equal(hostSourceType("https://www.twitch.tv/videos/123"), "dl");
+  assert.equal(hostSourceType("https://kick.com/streamer"), "dl");
+  assert.equal(hostSourceType("https://www.facebook.com/watch/?v=1"), "dl");
+  // a bare domain that merely contains a video host as a substring stays web
+  assert.equal(hostSourceType("https://notrumble.com/x"), "web");
+  assert.equal(hostSourceType("https://example.com/rumble.com/x"), "web");
+});
+
+test("builtinDescriptor resolves the shipped dl source", () => {
+  const desc = builtinDescriptor("dl");
+  assert.ok(desc, "dl descriptor should resolve");
+  assert.equal(desc!.type, "dl");
+  assert.equal(desc!.base[0], "bash");
+  assert.ok(desc!.base[1]?.endsWith("dl.sh"), "dl base should point at dl.sh");
+  // dl is a plain yt-dlp source — it must NOT inherit the long Apify budget
+  assert.equal(desc!.timeoutMs, undefined);
+});
+
+test("builtinDescriptor resolves the shipped gdelttv source", () => {
+  const desc = builtinDescriptor("gdelttv");
+  assert.ok(desc, "gdelttv descriptor should resolve");
+  assert.equal(desc!.type, "gdelttv");
+  assert.ok(desc!.base[1]?.endsWith("gdelttv.sh"), "gdelttv base should point at gdelttv.sh");
+  // keyless HTTP source — plain (non-Apify) exec budget
+  assert.equal(desc!.timeoutMs, undefined);
+});
+
+test("builtinDescriptor resolves the Apify run-sync sources with the long budget", () => {
+  for (const [type, file] of [["instagram", "instagram.sh"], ["telegram", "telegram.sh"], ["facesearch", "facesearch.sh"]] as const) {
+    const desc = builtinDescriptor(type);
+    assert.ok(desc, `${type} descriptor should resolve`);
+    assert.equal(desc!.type, type);
+    assert.ok(desc!.base[1]?.endsWith(file), `${type} base should point at ${file}`);
+    // Apify run-sync sources must carry the extended budget so the harness
+    // doesn't kill them at the generic 2-minute default.
+    assert.equal(desc!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
+  }
+});
+
+test("builtinDescriptor resolves the webcam source with the plain budget", () => {
+  const desc = builtinDescriptor("webcam");
+  assert.ok(desc, "webcam descriptor should resolve");
+  assert.equal(desc!.type, "webcam");
+  assert.ok(desc!.base[1]?.endsWith("webcam.sh"), "webcam base should point at webcam.sh");
+  // a fast HTTP GET, not Apify run-sync — plain budget
+  assert.equal(desc!.timeoutMs, undefined);
 });

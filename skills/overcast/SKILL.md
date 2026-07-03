@@ -25,6 +25,9 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `image` — Match images or video frames against a local RANSAC image index.
 - `cluster` — Build and browse a local face-cluster DB: group faces into people, identify, label, and view.
 - `similar` — Find images/video moments by visual or text similarity in a local CLIP (basic-clip) index.
+- `exif` — Extract embedded metadata — GPS, capture time, device — from an image or video (ExifTool).
+- `verify` — Check a media file's C2PA / Content Credentials provenance manifest (c2patool).
+- `geolocate` — Predict where an image was taken from its content (Picarta AI) — GPS, city, country.
 - `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.

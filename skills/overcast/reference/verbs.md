@@ -207,6 +207,69 @@ Options:
 
 Emits `similar.match` records.
 
+### `overcast exif`
+
+Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus GPS coordinates (signed decimals), capture time, camera make/model, editing software, MIME/dimensions/duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with `setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed.
+
+```
+overcast exif <input> [options]
+
+  Extract embedded metadata — GPS, capture time, device — from an image or video (ExifTool).
+
+  Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus GPS coordinates (signed decimals), capture time, camera make/model, editing software, MIME/dimensions/duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with `setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed.
+
+Arguments:
+  input            Image/video/file path, case record id, or http(s) URL
+
+Options:
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `media.metadata` records.
+
+### `overcast verify`
+
+Reads the embedded C2PA / Content Credentials manifest of an image or video and emits a media.provenance record: whether a signed manifest is present, the claim generator, the signer/certificate issuer, the signature algorithm, the validation state + codes, and assertion/ingredient counts. Media with no credentials is a clean `ready` record (`has_manifest: false`), not an error. The default backend is the shipped c2patool provider (system `c2patool` on PATH; install with `brew install c2patool`); bind your own with `setup provider verify <spec>`. Accepts a path, a case record/capture id, or an http(s) URL. Distinct from source-post provenance (where a record came from) — this checks the media's own embedded credentials.
+
+```
+overcast verify <input> [options]
+
+  Check a media file's C2PA / Content Credentials provenance manifest (c2patool).
+
+  Reads the embedded C2PA / Content Credentials manifest of an image or video and emits a media.provenance record: whether a signed manifest is present, the claim generator, the signer/certificate issuer, the signature algorithm, the validation state + codes, and assertion/ingredient counts. Media with no credentials is a clean `ready` record (`has_manifest: false`), not an error. The default backend is the shipped c2patool provider (system `c2patool` on PATH; install with `brew install c2patool`); bind your own with `setup provider verify <spec>`. Accepts a path, a case record/capture id, or an http(s) URL. Distinct from source-post provenance (where a record came from) — this checks the media's own embedded credentials.
+
+Arguments:
+  input            Image/video/file path, case record id, or http(s) URL
+
+Options:
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `media.provenance` records.
+
+### `overcast geolocate`
+
+Estimates the geographic location of a still image from its visual content alone (architecture, signage, vegetation) — works even when EXIF GPS is stripped. Emits a geo.estimate record: a summary, predicted lat/lng, city/country/province, a confidence, and the top-K candidate locations. Complements `exif` (which reads embedded GPS when present). The default backend is the shipped Picarta provider (`PICARTA_API_KEY`, free credits to start); bind your own with `setup provider geolocate <spec>`. Accepts an image path, a case record/capture id, or an http(s) URL (fetched into the case media dir).
+
+```
+overcast geolocate <input> [options]
+
+  Predict where an image was taken from its content (Picarta AI) — GPS, city, country.
+
+  Estimates the geographic location of a still image from its visual content alone (architecture, signage, vegetation) — works even when EXIF GPS is stripped. Emits a geo.estimate record: a summary, predicted lat/lng, city/country/province, a confidence, and the top-K candidate locations. Complements `exif` (which reads embedded GPS when present). The default backend is the shipped Picarta provider (`PICARTA_API_KEY`, free credits to start); bind your own with `setup provider geolocate <spec>`. Accepts an image path, a case record/capture id, or an http(s) URL (fetched into the case media dir).
+
+Arguments:
+  input            Image path, case record id, or http(s) URL
+
+Options:
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `geo.estimate` records.
+
 ### `overcast enhance`
 
 Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.

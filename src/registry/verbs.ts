@@ -8,6 +8,7 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
+import { exifVerb, verifyVerb, geolocateVerb } from "../verbs/forensics.js";
 import { faceVerb } from "../verbs/face.js";
 import { imageVerb } from "../verbs/image.js";
 import { clusterVerb } from "../verbs/cluster.js";
@@ -94,6 +95,9 @@ export const VERBS: VerbSpec[] = [
   imageVerb,
   clusterVerb,
   similarVerb,
+  exifVerb,
+  verifyVerb,
+  geolocateVerb,
   enhanceVerb,
   viewVerb,
   cropVerb,

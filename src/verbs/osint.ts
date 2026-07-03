@@ -528,6 +528,16 @@ export function hostSourceType(url: string): string {
   if (/(^|\.)(youtube\.com|youtu\.be)$/.test(host)) return "youtube";
   // twimg.com = X's media CDN — the x provider downloads those directly
   if (/(^|\.)(x\.com|twitter\.com|twimg\.com)$/.test(host)) return "x";
+  // video hosts yt-dlp handles but that lack a dedicated source → the generic
+  // `dl` downloader, so `capture <url>` pulls the video instead of curling an
+  // HTML page (the `web` fallback). Keep in sync with dl.sh's coverage note.
+  if (
+    /(^|\.)(rumble\.com|bitchute\.com|odysee\.com|vk\.com|vkvideo\.ru|bilibili\.com|b23\.tv|vimeo\.com|dailymotion\.com|dai\.ly|reddit\.com|redd\.it|twitch\.tv|kick\.com|streamable\.com|facebook\.com|fb\.watch)$/.test(
+      host,
+    )
+  ) {
+    return "dl";
+  }
   return "web";
 }
 
