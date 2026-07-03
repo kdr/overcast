@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# SKILL: overcast-wiretap — the ransom-call workup (audio identity / earwitness).
+# Drives the skill's audio-forensics chain against a REAL recording: diarize the
+# speakers, describe the background scene, render a spectrogram, isolate voices and
+# RE-TRANSCRIBE the cleaned track, then correlate content across the case and land a
+# cited finding + brief. Proves the audio surface (--diarize/--describe, spectrogram,
+# voice-isolate) the skill is built on.
+#
+# Needs a real recording (OC_AUDIO or OC_VIDEO_SPEECH) + Cloudglue for listen.
+# Spectrogram + voice-isolate are bundled ffmpeg (free). ElevenLabs leg gates on key.
+LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
+C=skill_wiretap
+SKILL_FILE="$PWD/skills/overcast-wiretap/SKILL.md"
+[ -f "$SKILL_FILE" ] || { fail "$C.file" "vended skill missing: $SKILL_FILE"; exit 0; }
+require_cred "$C" CLOUDGLUE_API_KEY "wiretap needs a listen backend" || exit 0
+
+# a short recording: standalone audio, else a clipped speech video
+if have_media "$AUDIO_FILE"; then
+  REC="$AUDIO_FILE"
+elif have_media "$VIDEO_SPEECH_SRC"; then
+  REC="$SMOKE_DIR/wiretap_speech.mp4"; clip_av 15 "$VIDEO_SPEECH_SRC" "$REC"
+fi
+[ -n "${REC:-}" ] && [ -f "$REC" ] || { skip "$C" "no OC_AUDIO or OC_VIDEO_SPEECH"; exit 0; }
+
+CASE=$(case_dir skill_wiretap)
+
+# 1) skill step: transcribe (speech transcript + time-anchored segments)
+cond "wiretap skill: listen transcribes the recording into time-anchored segments"
+diar="$(OC_TIMEOUT=300 oc "$CASE" listen "$REC" --json)"
+save_json "84_listen" "$diar" >/dev/null
+assert_eq "$C.listen_state" "ready" "$(echo "$diar" | jq -r '.state')" "listen ready"
+assert_eq "$C.segments" "array" "$(echo "$diar" | jq -r '.payload.segments|type')" "payload.segments is an array"
+LID="$(echo "$diar" | jq -r '.id // empty')"
+echo "$diar" | jq -e 'has("payload") and (.payload|has("transcript"))' >/dev/null 2>&1 \
+  && ok "$C.transcript" "transcript present (len $(echo "$diar"|jq -r '.payload.transcript|length'))" \
+  || fail "$C.transcript" "no transcript field"
+
+# 2) skill step: read the background scene (the "enhance the background" move)
+cond "wiretap skill: listen --describe surfaces the background audio scene"
+desc="$(OC_TIMEOUT=300 oc "$CASE" listen "$REC" --describe --json)"
+save_json "84_describe" "$desc" >/dev/null
+assert_eq "$C.desc_state" "ready" "$(echo "$desc" | jq -r '.state')" "audio-scene describe ready"
+
+# 3) skill step: spectrogram as a visual inspection artifact
+cond "wiretap skill: view --spectrogram renders a real spectrogram PNG"
+v="$(oc "$CASE" view "$REC" --spectrogram --no-open --json)"
+save_json "84_view" "$v" >/dev/null
+assert_eq "$C.view_mode" "audio" "$(echo "$v" | jq -r '.payload.mode')" "view detects audio"
+SPEC="$(echo "$v" | jq -r '.payload.spectrogram // empty')"
+if [ -n "$SPEC" ] && [ -s "$SPEC" ]; then
+  cp "$SPEC" "$SMOKE_DIR/84_spectrogram.png"
+  ok "$C.spectrogram" "spectrogram PNG rendered ($(basename "$SPEC"))"
+else
+  fail "$C.spectrogram" "no spectrogram PNG at ${SPEC:-none}"
+fi
+
+# 4) skill step: isolate voices and re-transcribe the cleaned track
+cond "wiretap skill: enhance voice-isolate,denoise then re-listen the cleaned track"
+enh="$(OC_TIMEOUT=240 oc "$CASE" enhance "$REC" --ops voice-isolate,denoise --json)"
+save_json "84_enhance" "$enh" >/dev/null
+assert_eq "$C.enh_state" "ready" "$(echo "$enh" | jq -r '.state')" "voice-isolate enhance ready"
+ENH_ID="$(echo "$enh" | jq -r '.id // empty')"
+if [ -n "$ENH_ID" ]; then
+  re="$(OC_TIMEOUT=300 oc "$CASE" listen "$ENH_ID" --json)"
+  save_json "84_relisten" "$re" >/dev/null
+  assert_eq "$C.relisten" "ready" "$(echo "$re" | jq -r '.state')" "re-listen of the isolated track ready"
+fi
+
+# 5) skill step: per-speaker note + cross-clip correlation ask
+cond "wiretap skill: record a speaker/background note and correlate across listen records"
+[ -n "$LID" ] && oc "$CASE" note "Speaker breakdown + background scene recorded from the recording" --ref "$LID" --confidence medium --json >/dev/null
+ask="$(OC_TIMEOUT=180 oc "$CASE" ask "summarize the speakers and any background cues that could locate this recording; cite record.id + time" --verb listen --json)"
+save_json "84_ask" "$ask" >/dev/null
+assert_eq "$C.ask_state" "ready" "$(echo "$ask" | jq -r '.state')" "cross-listen ask ready"
+ans="$(echo "$ask" | jq -r '(.payload.answer // .payload.text // .payload.summary // "")')"
+assert_nonempty "$C.ask_answer" "$ans" "ask returned a cited answer over the listen records"
+
+# 6) skill step: cited finding + mandatory tldr note + brief
+cond "wiretap skill: a speaker/location finding cites the listen record; a tldr note feeds the brief"
+oc "$CASE" finding create "audio workup: diarized the recording, read the background scene, isolated + re-transcribed voices" --ref "${LID:-}" --confidence medium --json >/dev/null
+oc "$CASE" note "wiretap: 1 recording diarized + described; spectrogram rendered; voice-isolated and re-listened." --tag tldr --json >/dev/null
+BRIEF="$SMOKE_DIR/84_wiretap_brief.html"
+oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
+if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then
+  ok "$C.brief" "wiretap brief exported: $BRIEF ($(wc -c <"$BRIEF" | tr -d ' ') bytes)"
+else
+  fail "$C.brief" "no wiretap brief HTML at $BRIEF"
+fi
+
+# 7) skill step: real speaker separation — listen --diarize via a diarize-capable
+# provider (ElevenLabs). The default tinycloud/Cloudglue listen path does NOT accept
+# --diarize; this leg proves the skill's diarization works with the right provider.
+# Runs LAST so rebinding the listen provider can't affect the Cloudglue steps above.
+if require_cred "$C.diarize" ELEVENLABS_API_KEY "speaker separation needs a diarize-capable provider (ElevenLabs)"; then
+  cond "wiretap skill: a bound ElevenLabs provider does listen --diarize (speaker separation)"
+  EL="$PWD/examples/providers/elevenlabs/listen.sh"
+  ocrun "$CASE" setup provider listen "exec:bash $EL {{input}}" --json >/dev/null 2>&1
+  dz="$(OC_TIMEOUT=240 oc "$CASE" listen "$REC" --diarize --json)"
+  save_json "84_diarize" "$dz" >/dev/null
+  st="$(echo "$dz" | jq -r '.state')"
+  [ "$st" = "ready" ] && ok "$C.diarize_state" "ElevenLabs diarization ready (speaker separation)" || fail "$C.diarize_state" "diarize state=$st err=$(echo "$dz"|jq -r '.error // empty'|head -c 80)"
+fi
