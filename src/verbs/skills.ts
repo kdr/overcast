@@ -16,6 +16,14 @@ import {
   generateReconBriefSkill,
   generateVisualTargetSearchSkill,
   generateCopycatSweepSkill,
+  generateLineupSkill,
+  generateStakeoutSkill,
+  generateSceneLocateSkill,
+  generateEnhanceAndResolveSkill,
+  generateWiretapSkill,
+  generateProvenanceSkill,
+  generateTimelineSkill,
+  generateCrimeBoardSkill,
 } from "../skill-gen.js";
 import type { VerbSpec } from "../registry/types.js";
 
@@ -75,6 +83,14 @@ const SHIPPED_SKILLS = [
   "overcast-recon-brief",
   "overcast-visual-target-search",
   "overcast-copycat-sweep",
+  "overcast-lineup",
+  "overcast-stakeout",
+  "overcast-scene-locate",
+  "overcast-enhance-and-resolve",
+  "overcast-wiretap",
+  "overcast-provenance",
+  "overcast-timeline",
+  "overcast-crime-board",
 ] as const;
 
 /** Harnesses `skills install` knows how to target. */
@@ -115,6 +131,14 @@ function generateSkills(skillsDir: string): string[] {
     ["overcast-recon-brief", generateReconBriefSkill],
     ["overcast-visual-target-search", generateVisualTargetSearchSkill],
     ["overcast-copycat-sweep", generateCopycatSweepSkill],
+    ["overcast-lineup", generateLineupSkill],
+    ["overcast-stakeout", generateStakeoutSkill],
+    ["overcast-scene-locate", generateSceneLocateSkill],
+    ["overcast-enhance-and-resolve", generateEnhanceAndResolveSkill],
+    ["overcast-wiretap", generateWiretapSkill],
+    ["overcast-provenance", generateProvenanceSkill],
+    ["overcast-timeline", generateTimelineSkill],
+    ["overcast-crime-board", generateCrimeBoardSkill],
   ];
   for (const [name, generate] of focusedSkills) {
     const dir = join(skillsDir, name);
