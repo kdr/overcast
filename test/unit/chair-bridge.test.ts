@@ -291,6 +291,12 @@ test("chair bridge: SSE stream, replay, and gap", async () => {
     const gapFrames = await gapped.next(1);
     assert.equal(gapFrames[0].data.type, "gap");
     await gapped.close();
+
+    // reconnect with a since ABOVE lastSeq (bridge restarted / seq reset under
+    // the client) → gap, so a stale phone refetches instead of dropping events
+    const ahead = sseReader(await fetch(`${url}events?token=${token}`, { headers: { "Last-Event-ID": "9999" } }));
+    assert.equal((await ahead.next(1))[0].data.type, "gap");
+    await ahead.close();
   } finally {
     await bridge.stop();
   }

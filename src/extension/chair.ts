@@ -60,13 +60,20 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   let bridge: ChairBridge | undefined;
   let autostarted = false;
   let qrVisible = false;
+  // count of chair-injected prompts awaiting their message_start, so a live
+  // "chair" label reflects an ACTUAL injection — not merely a desk message that
+  // happens to start with the [chair] marker (Bugbot round 4).
+  let pendingChairMsgs = 0;
 
   // delta coalescing — message_update fires per token; batch to ≤1 flush/40ms
   let textBuf = "";
   let thinkBuf = "";
-  // full accumulated text of the in-flight assistant message — surfaced in the
-  // snapshot so a mid-stream resync (visibility wake / gap) can rebuild the live
-  // line instead of blanking it (getBranch only holds finalized messages).
+  // The in-flight assistant text ALREADY PUBLISHED as delta events, surfaced in
+  // the snapshot so a mid-stream resync rebuilds the live line (getBranch only
+  // holds finalized messages). It's advanced in flush(), in lockstep with the
+  // deltas + lastSeq — so a resync seeds `live` and then resumes from that seq
+  // with no overlap: the unflushed textBuf arrives as a *later* delta, never
+  // double-counted (Bugbot round 4).
   let livePartial = "";
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   const flush = (): void => {
@@ -75,6 +82,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       flushTimer = undefined;
     }
     if (textBuf) {
+      livePartial += textBuf; // published now → part of the snapshot baseline
       bridge?.publish({ type: "delta", kind: "text", text: textBuf });
       textBuf = "";
     }
@@ -95,10 +103,24 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   // fresh each call so a running bridge never reports a stale case.
   const caseCwd = (): string => process.env.OVERCAST_CASE || ctx?.cwd || process.cwd();
 
+  // Classify a user message as desk- or chair-originated. `live` (message_start)
+  // consumes a pending injection so the label reflects a real chair prompt, not
+  // a desk message that merely starts with the marker. Replayed history has no
+  // such signal, so it falls back to the marker heuristic (best-effort).
+  const classifyUser = (raw: string, live: boolean): { source: "desk" | "chair"; text: string } => {
+    const marked = raw.startsWith(CHAIR_PREFIX);
+    const chair = marked && (live ? pendingChairMsgs > 0 : true);
+    if (live && chair) pendingChairMsgs--;
+    return chair ? { source: "chair", text: raw.slice(CHAIR_PREFIX.length) } : { source: "desk", text: raw };
+  };
+
   const buildAgent = (): ChairAgent => ({
     isIdle: () => ctx?.isIdle() ?? true,
     abort: () => ctx?.abort(),
-    sendUserMessage: (text, opts) => pi.sendUserMessage(CHAIR_PREFIX + text, opts),
+    sendUserMessage: (text, opts) => {
+      pendingChairMsgs++;
+      pi.sendUserMessage(CHAIR_PREFIX + text, opts);
+    },
     model: () => ctx?.model?.id,
     sessionName: () => ctx?.sessionManager.getSessionName(),
     caseName: () => openCaseName(caseCwd()),
@@ -111,9 +133,8 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
         const msg = (entry as { message?: { role?: string; toolName?: string; isError?: boolean } }).message;
         const role = msg?.role;
         if (role === "user") {
-          const raw = messageText(msg);
-          const chair = raw.startsWith(CHAIR_PREFIX);
-          items.push({ role: "user", source: chair ? "chair" : "desk", text: chair ? raw.slice(CHAIR_PREFIX.length) : raw, at: entry.timestamp });
+          const { source, text } = classifyUser(messageText(msg), false);
+          items.push({ role: "user", source, text, at: entry.timestamp });
         } else if (role === "assistant") {
           const text = messageText(msg);
           if (text.trim()) items.push({ role: "assistant", text, at: entry.timestamp });
@@ -177,9 +198,8 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     if (role === "assistant") livePartial = ""; // fresh assistant line begins
     if (!bridge) return;
     if (role === "user") {
-      const raw = messageText(e.message);
-      const chair = raw.startsWith(CHAIR_PREFIX);
-      bridge.publish({ type: "message", phase: "start", role: "user", source: chair ? "chair" : "desk", text: chair ? raw.slice(CHAIR_PREFIX.length) : raw });
+      const { source, text } = classifyUser(messageText(e.message), true);
+      bridge.publish({ type: "message", phase: "start", role: "user", source, text });
     } else if (role === "assistant") {
       bridge.publish({ type: "message", phase: "start", role: "assistant" });
     }
@@ -187,10 +207,8 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   pi.on("message_update", (e, c) => {
     capture(c);
     const ev = e.assistantMessageEvent;
-    if (ev.type === "text_delta") {
-      textBuf += ev.delta;
-      livePartial += ev.delta;
-    } else if (ev.type === "thinking_delta") thinkBuf += ev.delta;
+    if (ev.type === "text_delta") textBuf += ev.delta; // livePartial advances on flush
+    else if (ev.type === "thinking_delta") thinkBuf += ev.delta;
     else return;
     if (bridge) scheduleFlush();
   });

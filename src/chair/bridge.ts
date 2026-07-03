@@ -187,6 +187,11 @@ export class ChairBridge {
     for (const res of this.clients) this.safeWrite(res, `id: ${seq}\ndata: ${json}\n\n`);
   }
 
+  /** Tell one client its cursor is unusable — it should refetch /api/state. */
+  private gap(res: ServerResponse): void {
+    this.safeWrite(res, `id: ${this.lastSeq}\ndata: ${JSON.stringify({ type: "gap", seq: this.lastSeq })}\n\n`);
+  }
+
   /** Write to one SSE client, dropping it on error (a half-closed phone must
    *  never throw out of a pi event handler mid-stream). */
   private safeWrite(res: ServerResponse, chunk: string): void {
@@ -239,18 +244,21 @@ export class ChairBridge {
     });
     this.clients.add(res);
     this.safeWrite(res, ": chair\n\n");
-    // catch-up: replay anything the client missed, or tell it to resync
+    // catch-up: replay what the client missed, or tell it to resync.
     const sinceRaw = req.headers["last-event-id"] ?? url.searchParams.get("since") ?? "";
     const since = Number(Array.isArray(sinceRaw) ? sinceRaw[0] : sinceRaw);
-    if (Number.isFinite(since) && since > 0 && since < this.lastSeq) {
-      const oldest = this.ring[0]?.seq ?? this.lastSeq + 1;
-      if (since < oldest - 1) {
-        this.safeWrite(res, `id: ${this.lastSeq}\ndata: ${JSON.stringify({ type: "gap", seq: this.lastSeq })}\n\n`);
-      } else {
-        for (const item of this.ring) {
-          if (item.seq > since) this.safeWrite(res, `id: ${item.seq}\ndata: ${item.json}\n\n`);
-        }
+    if (Number.isFinite(since) && since > 0) {
+      if (since > this.lastSeq) {
+        // client is AHEAD of us — the bridge restarted and reset its sequence
+        // (e.g. /chair off+on with a pinned token). Its transcript is stale, so
+        // force a full resync rather than silently dropping into the new stream.
+        this.gap(res);
+      } else if (since < this.lastSeq) {
+        const oldest = this.ring[0]?.seq ?? this.lastSeq + 1;
+        if (since < oldest - 1) this.gap(res); // missed events fell out of the ring
+        else for (const item of this.ring) if (item.seq > since) this.safeWrite(res, `id: ${item.seq}\ndata: ${item.json}\n\n`);
       }
+      // since === lastSeq: client is current, nothing to replay
     }
     // per-connection hello (not published: each client gets its own counts)
     const hello: ChairWireEvent = {
@@ -426,11 +434,12 @@ const FALLBACK_PAGE = `<!doctype html>
   const log = document.getElementById("log");
   const add = (cls, text) => { const d = document.createElement("div"); d.className = cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; };
   const api = (path, body) => fetch(path, { method: body ? "POST" : "GET", headers: { Authorization: "Bearer " + token, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body && JSON.stringify(body) });
+  let live = "";
   api("/api/state").then(r => r.json()).then(s => {
     document.getElementById("case").textContent = "case://" + s.caseName;
     for (const item of s.transcript) add(item.role === "user" ? "u" : item.role === "tool" ? "t" : "", (item.role === "user" ? "❯ " : item.role === "tool" ? "⚙ " + (item.toolName || "tool") + " " : "") + item.text);
+    if (s.live) { live = s.live; render(); } // seed the in-flight assistant line
   }).catch(() => add("n", "state fetch failed — check the token"));
-  let live = "";
   const es = new EventSource("/events?token=" + encodeURIComponent(token));
   es.onmessage = (m) => {
     const e = JSON.parse(m.data);

@@ -160,7 +160,13 @@ test("event translation: user attribution + coalesced deltas reach the wire", as
       orig(evt);
     };
 
+    // a real chair injection goes through the agent (increments the pending
+    // count); its message_start then classifies as chair and strips the marker
+    bridge["agent"].sendUserMessage("check the alley cam");
     await emit("message_start", { message: { role: "user", content: "[chair] check the alley cam" } }, ctx);
+    // a desk message that merely *starts with* the marker must NOT be faked as
+    // chair (no pending injection) — it stays desk, marker intact
+    await emit("message_start", { message: { role: "user", content: "[chair] i typed this at the desk" } }, ctx);
     await emit("message_start", { message: { role: "user", content: "typed at the desk" } }, ctx);
     await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "the van " } }, ctx);
     await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "returns" } }, ctx);
@@ -172,6 +178,7 @@ test("event translation: user attribution + coalesced deltas reach the wire", as
       users.map((u) => [u.source, u.text]),
       [
         ["chair", "check the alley cam"],
+        ["desk", "[chair] i typed this at the desk"],
         ["desk", "typed at the desk"],
       ],
     );
