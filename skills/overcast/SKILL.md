@@ -23,8 +23,9 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `see` — Understand an image or a single video frame (caption, OCR, detections).
 - `face` — Detect, match, or search faces in video (and across face-analysis indexes).
 - `image` — Match images or video frames against a local RANSAC image index.
+- `audio` — Shazam-style exact audio matching: fingerprint clips into a local audio-fp index, or match clip-to-clip with time-offset alignment.
 - `cluster` — Build and browse a local face-cluster DB: group faces into people, identify, label, and view.
-- `similar` — Find images/video moments by visual or text similarity in a local CLIP (basic-clip) index.
+- `similar` — Find images/video moments or audio by visual, audio, or text similarity in a local CLIP (basic-clip) or CLAP (basic-clap) index.
 - `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.
