@@ -22,8 +22,12 @@ on the strongest clues.
 ```bash
 overcast doctor --json
 overcast case init --json
+# A still PHOTO — read it directly with see (watch requires video, so don't watch a photo):
+overcast see ./photo.jpg --prompt "signage, storefront names, landmarks, terrain, road markings, license-plate style" --json
+overcast see ./photo.jpg --ocr --json                             # street signs, storefronts, plates, notices
+# A VIDEO — watch it, then read the clearest frames via frame://:
 overcast watch ./clip.mp4 --json
-overcast see frame://<watch-record-id>@<seconds> --prompt "signage, storefront names, landmarks, terrain, vegetation, road markings, license-plate style, side of road traffic drives on" --json
+overcast see frame://<watch-record-id>@<seconds> --prompt "signage, storefront names, landmarks, terrain, vegetation, road markings, side of road traffic drives on" --json
 overcast see frame://<watch-record-id>@<seconds> --ocr --json     # street signs, storefronts, plates, notices
 ```
 

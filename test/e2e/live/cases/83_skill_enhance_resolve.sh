@@ -75,9 +75,12 @@ fi
 cond "enhance skill: the finding states the enhancement provenance (ops + source), recovered text is a lead"
 [ -n "$WID" ] && oc "$CASE" note "before: moment illegible on $WID" --ref "$WID" --at 2-5 --json >/dev/null
 [ -n "${SEE_ID:-}" ] && oc "$CASE" note "after denoise+upscale: re-read the enhanced frame (recovered text is a lead, not proof)" --ref "$ENH_ID" --json >/dev/null
-# the finding/note name only the legs that ran: pin + re-read need a brain backend;
-# the ffmpeg enhance always runs.
-if [ -n "${SEE_ID:-}" ]; then
+# the finding names only the legs that ran and cites the STRONGEST evidence record:
+# the --detect record (has boxes + crops) > the --ocr re-read record > the enhanced
+# media record. pin + re-read need a brain backend; the ffmpeg enhance always runs.
+if [ -n "${DID:-}" ]; then
+  oc "$CASE" finding create "resolved a moment via enhance denoise,upscale then detected + cropped the region — recovered evidence is low-confidence (interpolation cannot invent detail)" --ref "$DID" --confidence low --json >/dev/null
+elif [ -n "${SEE_ID:-}" ]; then
   oc "$CASE" finding create "resolved a moment via enhance denoise,upscale then re-read the enhanced frame — recovered text is low-confidence (interpolation cannot invent detail)" --ref "$SEE_ID" --confidence low --json >/dev/null
 else
   oc "$CASE" finding create "enhanced a moment via ffmpeg denoise,upscale — re-read requires a brain see backend (interpolation cannot invent detail)" --ref "${ENH_ID:-}" --confidence low --json >/dev/null

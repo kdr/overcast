@@ -45,20 +45,22 @@ overcast listen <enhanced-record-id> --json
 
 ```bash
 overcast provider setup apply --verb listen --choice elevenlabs --yes --json
-overcast listen ./call.wav --diarize --json        # attribute speech to distinct voices
+overcast listen ./call.wav --diarize --json        # -> <diarize-record-id> (speaker-labeled)
 ```
 
-4. Record per-speaker and per-clue observations, then correlate across recordings:
+4. Record per-speaker and per-clue observations, then correlate across recordings.
+   Cite the speaker-labeled `<diarize-record-id>` for who-said-what claims (not the
+   step-1 transcript record):
 
 ```bash
-overcast note "Speaker 2: PA announces 'platform 4' at 00:38 → rail station" --ref <listen-record-id> --at 38 --confidence medium --json
+overcast note "Speaker 2: PA announces 'platform 4' at 00:38 → rail station" --ref <diarize-record-id> --at 38 --confidence medium --json
 overcast ask "which recordings share a speaker, phrase, or background cue? cite record.id + time" --verb listen --json
 ```
 
 5. Turn confirmed clues into findings and export; always leave a `tldr` note:
 
 ```bash
-overcast finding create "call.wav and voicemail.m4a share Speaker 2's phrasing + station PA — likely same caller/location" --ref <listen-record-id> --confidence medium --json
+overcast finding create "call.wav and voicemail.m4a share Speaker 2's phrasing + station PA — likely same caller/location" --ref <diarize-record-id> --confidence medium --json
 overcast note "3 recordings; 2 speakers on call.wav; background = rail station; cross-clip voice overlap on 2 of 3" --tag tldr --json
 # Wait for the note result before exporting, so the TL;DR is included.
 overcast brief --export ./wiretap.html --json

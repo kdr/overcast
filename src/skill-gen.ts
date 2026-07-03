@@ -915,8 +915,12 @@ on the strongest clues.
 \`\`\`bash
 overcast doctor --json
 overcast case init --json
+# A still PHOTO — read it directly with see (watch requires video, so don't watch a photo):
+overcast see ./photo.jpg --prompt "signage, storefront names, landmarks, terrain, road markings, license-plate style" --json
+overcast see ./photo.jpg --ocr --json                             # street signs, storefronts, plates, notices
+# A VIDEO — watch it, then read the clearest frames via frame://:
 overcast watch ./clip.mp4 --json
-overcast see frame://<watch-record-id>@<seconds> --prompt "signage, storefront names, landmarks, terrain, vegetation, road markings, license-plate style, side of road traffic drives on" --json
+overcast see frame://<watch-record-id>@<seconds> --prompt "signage, storefront names, landmarks, terrain, vegetation, road markings, side of road traffic drives on" --json
 overcast see frame://<watch-record-id>@<seconds> --ocr --json     # street signs, storefronts, plates, notices
 \`\`\`
 
@@ -1107,20 +1111,22 @@ overcast listen <enhanced-record-id> --json
 
 \`\`\`bash
 overcast provider setup apply --verb listen --choice elevenlabs --yes --json
-overcast listen ./call.wav --diarize --json        # attribute speech to distinct voices
+overcast listen ./call.wav --diarize --json        # -> <diarize-record-id> (speaker-labeled)
 \`\`\`
 
-4. Record per-speaker and per-clue observations, then correlate across recordings:
+4. Record per-speaker and per-clue observations, then correlate across recordings.
+   Cite the speaker-labeled \`<diarize-record-id>\` for who-said-what claims (not the
+   step-1 transcript record):
 
 \`\`\`bash
-overcast note "Speaker 2: PA announces 'platform 4' at 00:38 → rail station" --ref <listen-record-id> --at 38 --confidence medium --json
+overcast note "Speaker 2: PA announces 'platform 4' at 00:38 → rail station" --ref <diarize-record-id> --at 38 --confidence medium --json
 overcast ask "which recordings share a speaker, phrase, or background cue? cite record.id + time" --verb listen --json
 \`\`\`
 
 5. Turn confirmed clues into findings and export; always leave a \`tldr\` note:
 
 \`\`\`bash
-overcast finding create "call.wav and voicemail.m4a share Speaker 2's phrasing + station PA — likely same caller/location" --ref <listen-record-id> --confidence medium --json
+overcast finding create "call.wav and voicemail.m4a share Speaker 2's phrasing + station PA — likely same caller/location" --ref <diarize-record-id> --confidence medium --json
 overcast note "3 recordings; 2 speakers on call.wav; background = rail station; cross-clip voice overlap on 2 of 3" --tag tldr --json
 # Wait for the note result before exporting, so the TL;DR is included.
 overcast brief --export ./wiretap.html --json
@@ -1353,7 +1359,7 @@ overcast similar search "red backpack on a bicycle" --index <clip-index-id> --js
 3. Record the connections as notes so they land on the board:
 
 \`\`\`bash
-overcast note "same man (cluster <person-id>) appears in clip.mp4 and cctv.mp4 carrying the red backpack" --ref <cluster-record-id> --tag connection --confidence medium --json
+overcast note "same man (cluster <person-id>) appears in clip.mp4 and cctv.mp4 carrying the red backpack" --ref <identify-record-id> --tag connection --confidence medium --json
 \`\`\`
 
 4. Render the two visual surfaces — the CSI brief is the corkboard, the wall is the

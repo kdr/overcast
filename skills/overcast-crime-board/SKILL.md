@@ -45,7 +45,7 @@ overcast similar search "red backpack on a bicycle" --index <clip-index-id> --js
 3. Record the connections as notes so they land on the board:
 
 ```bash
-overcast note "same man (cluster <person-id>) appears in clip.mp4 and cctv.mp4 carrying the red backpack" --ref <cluster-record-id> --tag connection --confidence medium --json
+overcast note "same man (cluster <person-id>) appears in clip.mp4 and cctv.mp4 carrying the red backpack" --ref <identify-record-id> --tag connection --confidence medium --json
 ```
 
 4. Render the two visual surfaces — the CSI brief is the corkboard, the wall is the

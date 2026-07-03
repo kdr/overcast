@@ -12,13 +12,16 @@ casedir="$SMOKE_DIR/case_dist"; mkdir -p "$casedir"
 # Derive the expected skill folders from the single source of truth (SHIPPED_SKILLS
 # in src/verbs/skills.ts) so adding a shipped skill can't silently pass this test.
 # Portable read loop (macOS bash 3.2 has no `mapfile`).
+skills_block="$(sed -n '/const SHIPPED_SKILLS = \[/,/\] as const/p' "$REPO/src/verbs/skills.ts")"
 shipped_skills=()
-while IFS= read -r s; do [ -n "$s" ] && shipped_skills+=("$s"); done < <(
-  sed -n '/const SHIPPED_SKILLS = \[/,/\] as const/p' "$REPO/src/verbs/skills.ts" \
-    | grep -oE '"overcast[^"]*"' | tr -d '"'
-)
-if [ "${#shipped_skills[@]}" -lt 7 ]; then
-  fail "skills.shipped_list" "could not parse SHIPPED_SKILLS from src/verbs/skills.ts (${#shipped_skills[@]} found)"
+while IFS= read -r s; do [ -n "$s" ] && shipped_skills+=("$s"); done < <(printf '%s\n' "$skills_block" | grep -oE '"overcast[^"]*"' | tr -d '"')
+# guard against a truncated parse: the block must include BOTH the opening and the
+# `] as const` close, and yield the full shipped set (>= the 15 shipped today), so a
+# partial parse that drops the new skills can't quietly pass with a low count.
+if ! printf '%s' "$skills_block" | grep -q '\] as const'; then
+  fail "skills.shipped_list" "SHIPPED_SKILLS block did not close (truncated parse of src/verbs/skills.ts)"
+elif [ "${#shipped_skills[@]}" -lt 15 ]; then
+  fail "skills.shipped_list" "parsed only ${#shipped_skills[@]} shipped skills (expected >= 15) — parse likely incomplete"
 else
   ok "skills.shipped_list" "derived ${#shipped_skills[@]} shipped skills from source"
 fi
