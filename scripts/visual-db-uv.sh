@@ -2,10 +2,13 @@
 # Build a uv-managed Python for Overcast's visual DB providers.
 #
 # Usage:
-#   scripts/visual-db-uv.sh          # image matching deps: opencv + numpy
-#   scripts/visual-db-uv.sh --face   # also install DeepFace stack
-#   scripts/visual-db-uv.sh --clip   # also install OpenAI CLIP (open_clip + torch)
-#   scripts/visual-db-uv.sh --all    # install both the DeepFace and CLIP stacks
+#   scripts/visual-db-uv.sh           # image matching deps: opencv + numpy
+#   scripts/visual-db-uv.sh --face    # also install DeepFace stack
+#   scripts/visual-db-uv.sh --clip    # also install OpenAI CLIP (open_clip + torch)
+#   scripts/visual-db-uv.sh --voice   # also install pyannote.audio (enhance --ops separate)
+#   scripts/visual-db-uv.sh --segment # also install transformers+SAM2/GroundingDINO (enhance --ops segment)
+#   scripts/visual-db-uv.sh --enhance # both enhance stacks (--voice + --segment)
+#   scripts/visual-db-uv.sh --all     # install everything (face + clip + enhance)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,6 +31,13 @@ uv venv --allow-existing --python "$PYVER" "$VENV"
 uv pip install --python "$VENV/bin/python" --upgrade pip wheel setuptools
 uv pip install --python "$VENV/bin/python" opencv-python numpy
 
+install_voice() {   # pyannote diarization for enhance --ops separate
+  uv pip install --python "$VENV/bin/python" "pyannote.audio>=4.0" torch torchaudio
+}
+install_segment() { # GroundingDINO + SAM 2.1 for enhance --ops segment
+  uv pip install --python "$VENV/bin/python" "transformers>=4.56" torch pillow timm
+}
+
 case "$MODE" in
   --face|face)
     uv pip install --python "$VENV/bin/python" deepface tf-keras
@@ -35,14 +45,26 @@ case "$MODE" in
   --clip|clip)
     uv pip install --python "$VENV/bin/python" open-clip-torch torch pillow
     ;;
+  --voice|voice)
+    install_voice
+    ;;
+  --segment|segment)
+    install_segment
+    ;;
+  --enhance|enhance)
+    install_voice
+    install_segment
+    ;;
   --all|all)
     uv pip install --python "$VENV/bin/python" deepface tf-keras
     uv pip install --python "$VENV/bin/python" open-clip-torch torch pillow
+    install_voice
+    install_segment
     ;;
   --image|image|"")
     ;;
   *)
-    echo "unknown mode: $MODE (expected --image | --face | --clip | --all)" >&2
+    echo "unknown mode: $MODE (expected --image | --face | --clip | --voice | --segment | --enhance | --all)" >&2
     exit 2
     ;;
 esac

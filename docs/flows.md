@@ -148,7 +148,7 @@ Eligible fields when allowed by the signal filter:
 | `note` | title, text, tags, confidence, ref | — |
 | `scan` | title, snippet, url, source, published | — |
 | `capture` | title, snippet, text, path, source, kind | — |
-| `enhance` | summary, path, ops, output | — |
+| `enhance` | summary, path, ops, op, kind, output, speaker/label, prompt, transcript, count, score | mask/track binaries, raw boxes, segment arrays |
 | `finding` | root findings with `text` + `status` | review-rows, dismissed, list envelopes |
 
 Excluded from memory and briefs: prior read/meta output (`ask`, `brief`,
@@ -481,6 +481,22 @@ does **not** create a `face` detect record. Search with a JPEG/PNG reference.
 overcast enhance ./noisy.mp4 --ops denoise,normalize
 overcast watch <enhance-output-path>
 overcast ask "What is visible or said after enhancement?"
+```
+
+### 13b. Split ops — separate voices / segment objects
+
+Bind a split provider once (on-device or fal), then `enhance --ops separate|segment`
+fans out one evidence record per track / masked instance.
+
+```bash
+scripts/visual-db-uv.sh --enhance                       # on-device stacks (or use --preset fal)
+overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
+
+overcast enhance ./interview.mp4 --ops separate --summarize   # per-speaker tracks, each transcribed
+overcast ask "Summarize what each separated speaker said"
+
+overcast enhance ./scene.jpg --ops segment --prompt "the red car"   # mask + RGBA cutout per instance
+overcast crop <segment-parent-id> --all                        # same boxes as durable crops
 ```
 
 ### 14. Detection crop evidence

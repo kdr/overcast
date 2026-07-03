@@ -28,6 +28,7 @@ import {
 import { openHtmlPlayer, osOpen } from "../media/view.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
+import { fanOutEnhance } from "./enhance-fanout.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -36,6 +37,44 @@ function hfToken(): string | undefined {
 }
 
 // ---- listen ----------------------------------------------------------------
+
+export interface ListenDispatchOpts {
+  describe?: boolean;
+  diarize?: boolean;
+  lang?: string;
+}
+
+/** Resolve the bound listen provider and run it (custom exec provider vs the
+ *  tinycloud default), forwarding the declared flags. Shared by `listen` and by
+ *  `enhance --summarize` (which transcribes each separated track). */
+export async function dispatchListen(
+  ctx: VerbContext,
+  input: string,
+  opts: ListenDispatchOpts = {},
+): Promise<OvercastRecord> {
+  const describe = opts.describe === true;
+  const binding = providerBinding(ctx, "listen");
+  // forward the declared listen flags to a custom provider, and give it the
+  // same generous timeout the tinycloud mapper uses (long media).
+  const extraArgs: string[] = [];
+  if (describe) extraArgs.push("--describe");
+  if (opts.diarize === true) extraArgs.push("--diarize");
+  if (opts.lang) extraArgs.push("--lang", String(opts.lang));
+  return isCustomBinding(binding)
+    ? runBoundProvider("listen", binding!, input, {
+        env: providerEnv(ctx.case.mediaDir),
+        extraArgs,
+        timeoutMs: 15 * 60_000,
+        signal: ctx.signal,
+      })
+    : runListen(input, {
+        run: binding?.run,
+        describe,
+        signal: ctx.signal,
+        diarize: opts.diarize === true,
+        lang: opts.lang ? String(opts.lang) : undefined,
+      });
+}
 
 export const listenVerb: VerbSpec = {
   name: "listen",
@@ -62,28 +101,11 @@ export const listenVerb: VerbSpec = {
     const resolved = resolveVideoArg(ctx.case, ctx.input, "listen input", { requireReady: false });
     if (resolved.error) return [errorRecord("listen", resolved.error)];
     const input = resolved.ref ?? ctx.input;
-    const describe = ctx.opts.describe === true;
-    const binding = providerBinding(ctx, "listen");
-    // forward the declared listen flags to a custom provider, and give it the
-    // same generous timeout the tinycloud mapper uses (long media).
-    const extraArgs: string[] = [];
-    if (describe) extraArgs.push("--describe");
-    if (ctx.opts.diarize === true) extraArgs.push("--diarize");
-    if (ctx.opts.lang) extraArgs.push("--lang", String(ctx.opts.lang));
-    const rec = isCustomBinding(binding)
-      ? await runBoundProvider("listen", binding!, input, {
-          env: providerEnv(ctx.case.mediaDir),
-          extraArgs,
-          timeoutMs: 15 * 60_000,
-          signal: ctx.signal,
-        })
-      : await runListen(input, {
-          run: binding?.run,
-          describe,
-          signal: ctx.signal,
-          diarize: ctx.opts.diarize === true,
-          lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
-        });
+    const rec = await dispatchListen(ctx, input, {
+      describe: ctx.opts.describe === true,
+      diarize: ctx.opts.diarize === true,
+      lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
+    });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     // trace a transcript of a captured clip back to the post it came from
     stampProvenance(rec, provenanceFromCapture(ctx.case, input));
@@ -322,20 +344,74 @@ export const seeVerb: VerbSpec = {
   },
 };
 
-// ---- enhance (internal ffmpeg) ---------------------------------------------
+// ---- enhance (internal ffmpeg + bound split providers) ---------------------
+
+// Ops that CANNOT run on the internal ffmpeg toolkit — they split media into
+// many artifacts and require a bound model provider (local-models or fal).
+const PROVIDER_ONLY_OPS: ReadonlySet<string> = new Set(["separate", "segment"]);
+
+/** For each separated-voice track record, transcribe it via the bound listen
+ *  provider and fold the transcript + a short spoken-summary onto the track
+ *  record itself (self-contained evidence). Non-fatal per track: a failed
+ *  transcription just attaches `transcript_error`. No brain-LLM call (invariant
+ *  #2) — the "summary" is the provider's own summary field or a truncation. */
+async function summarizeTracks(ctx: VerbContext, recs: OvercastRecord[]): Promise<void> {
+  for (const r of recs) {
+    if (typeof r.payload !== "object" || r.payload == null) continue;
+    const p = r.payload as Record<string, unknown>;
+    if (p.kind !== "track") continue;
+    const ref = r.media?.ref;
+    if (!ref) continue;
+    try {
+      const listenRec = await dispatchListen(ctx, ref, {});
+      if (listenRec.state && listenRec.state !== "ready") {
+        p.transcript_error = listenRec.error ?? `listen ${listenRec.state}`;
+        continue;
+      }
+      const lp =
+        typeof listenRec.payload === "object" && listenRec.payload != null
+          ? (listenRec.payload as Record<string, unknown>)
+          : {};
+      const transcript = typeof lp.transcript === "string" ? lp.transcript : undefined;
+      if (transcript) p.transcript = transcript;
+      const spoken =
+        typeof lp.summary === "string" && lp.summary
+          ? lp.summary
+          : transcript
+            ? transcript.slice(0, 300) + (transcript.length > 300 ? "…" : "")
+            : undefined;
+      if (spoken) {
+        const base = typeof p.summary === "string" && p.summary ? `${p.summary} — ` : "";
+        p.summary = base + spoken;
+      }
+      if (listenRec.meta?.provider) p.listen_provider = listenRec.meta.provider;
+    } catch (e) {
+      p.transcript_error = (e as Error).message;
+    }
+  }
+}
 
 export const enhanceVerb: VerbSpec = {
   name: "enhance",
   group: "sense",
-  summary: "Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.",
+  summary: "Produce better media (denoise/normalize/upscale) or split it (separate voices / segment objects) via ffmpeg or a bound model provider.",
   description:
     "Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/" +
-    "voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration " +
-    "via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice " +
-    "isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.",
+    "voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI restoration or the " +
+    "SPLIT ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices " +
+    "into per-speaker tracks (add --summarize to transcribe each), `--ops segment --prompt \"<thing>\"` " +
+    "cuts requested objects out of an image as mask + cutout evidence. separate/segment need a bound " +
+    "provider (local-models = pyannote + GroundingDINO/SAM2, or fal = sam-audio + sam-3); image " +
+    "segmentation of a video is out of scope (segment a frame:// still). Emits a media.enhanced record " +
+    "per output — for the split ops, one child record per track/mask whose media.ref chains into " +
+    "watch/listen/see/view/crop.",
   args: [{ name: "input", summary: "Media file path", required: true }],
   flags: [
-    { name: "ops", summary: "Comma list of ops (denoise,normalize,upscale,...)", type: "string" },
+    { name: "ops", summary: "Comma list of ops (denoise,normalize,upscale,separate,segment,...)", type: "string" },
+    { name: "prompt", summary: "What to segment (--ops segment) or the target voice to extract", type: "string" },
+    { name: "speakers", summary: "Speaker-count hint for --ops separate", type: "string" },
+    { name: "summarize", summary: "Transcribe/summarize each separated track via the bound listen provider", type: "boolean" },
+    { name: "masks-only", summary: "For --ops segment, emit binary masks instead of RGBA cutouts", type: "boolean" },
     { name: "out", summary: "Output path (default .overcast/media/)", type: "string" },
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
@@ -347,25 +423,63 @@ export const enhanceVerb: VerbSpec = {
     if (!existsSync(ctx.input)) {
       return [errorRecord("enhance", `input not found: ${ctx.input}`)];
     }
-    // A bound enhance provider (e.g. the HF model-ops provider) takes over for
-    // model-based ops; the DEFAULT stays the internal ffmpeg toolkit (invariant
-    // #7). Bind via `overcast setup provider enhance "exec:bash …/hf/enhance.sh"`.
+    // parse ops loosely first: the split ops (separate/segment) are NOT ffmpeg
+    // ops — they REQUIRE a bound provider. Gate them before the ffmpeg cast so a
+    // helpful error fires instead of ffmpeg choking on an unknown filter.
+    const opsStr = ctx.opts.ops ? String(ctx.opts.ops) : "";
+    const rawOps = opsStr.split(",").map((s) => s.trim()).filter(Boolean);
     const enhBinding = providerBinding(ctx, "enhance");
+    const providerOps = rawOps.filter((o) => PROVIDER_ONLY_OPS.has(o));
+
+    // A bound enhance provider (e.g. the HF model-ops provider, or the local /
+    // fal split providers) takes over; the DEFAULT stays the internal ffmpeg
+    // toolkit (invariant #7). Bind via `setup provider enhance <spec>`.
     if (isCustomBinding(enhBinding)) {
+      // forward the declared flags to the provider ONLY when set, so existing
+      // single-output bindings (hf/fal/elevenlabs) still get byte-identical argv.
+      const extraArgs: string[] = [];
+      if (opsStr) extraArgs.push("--ops", opsStr);
+      if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
+      if (ctx.opts.speakers) extraArgs.push("--speakers", String(ctx.opts.speakers));
+      if (ctx.opts["masks-only"] === true) extraArgs.push("--masks-only");
       // dispatch by transport (exec runs it; http/inproc return an explicit
-      // error) rather than silently falling back to ffmpeg when a non-exec
-      // enhance provider is bound.
+      // error) rather than silently falling back to ffmpeg. Local CPU models
+      // (pyannote / SAM2) blow the 5-min default, so allow 15 min.
       const rec = await runBoundProvider("enhance", enhBinding!, ctx.input, {
         env: providerEnv(ctx.case.mediaDir),
+        extraArgs: extraArgs.length ? extraArgs : undefined,
+        timeoutMs: 15 * 60_000,
         signal: ctx.signal,
       });
-      rec.meta = { ...rec.meta, case: ctx.case.dir };
-      return [rec];
+      // expand a multi-output envelope (per-speaker tracks / per-instance masks)
+      // into [parent, ...children]; single-output providers pass through.
+      const recs = fanOutEnhance(rec, { caseDir: ctx.case.dir });
+      const prov = provenanceFromCapture(ctx.case, ctx.input);
+      for (const r of recs) {
+        r.meta = { ...r.meta, case: ctx.case.dir };
+        stampProvenance(r, prov);
+      }
+      // --summarize: transcribe each separated track through the bound listen
+      // provider, embedding transcript+summary on the track record itself.
+      if (ctx.opts.summarize === true) {
+        await summarizeTracks(ctx, recs);
+      }
+      return recs;
     }
-    const opsStr = ctx.opts.ops ? String(ctx.opts.ops) : "";
-    const requested = opsStr
-      ? (opsStr.split(",").map((s) => s.trim()).filter(Boolean) as EnhanceOp[])
-      : undefined;
+
+    // no custom binding: the split ops can't run on ffmpeg.
+    if (providerOps.length) {
+      return [
+        errorRecord(
+          "enhance",
+          `--ops ${providerOps.join(",")} needs a bound enhance provider. ` +
+            `Run \`overcast provider setup plan --preset local-models\` (or --preset fal), ` +
+            `then \`--yes\` to apply; local-models needs \`scripts/visual-db-uv.sh --enhance\`.`,
+        ),
+      ];
+    }
+
+    const requested = rawOps.length ? (rawOps as EnhanceOp[]) : undefined;
     const outDir = ctx.case.mediaDir;
     try {
       const p = await probe(ctx.input).catch(() => ({ modality: modalityFromExt(ctx.input!) }) as Awaited<ReturnType<typeof probe>>);

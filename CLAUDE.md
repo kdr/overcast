@@ -28,11 +28,14 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
   opt-in `see:tinycloud` provider — need ≥ 0.3.7).
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
-- uv-managed visual DB Python — optional for visual DBs and
-  `face:deepface-local`: `scripts/visual-db-uv.sh --face` installs OpenCV/Numpy and
-  DeepFace/TensorFlow; `--clip` adds OpenAI CLIP (open_clip + torch + pillow) for
-  the `basic-clip` semantic DB; `--all` installs both. Override with
-  `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`.
+- uv-managed visual DB Python — optional for visual DBs, `face:deepface-local`,
+  and the `enhance:local-models` split ops: `scripts/visual-db-uv.sh --face`
+  installs OpenCV/Numpy and DeepFace/TensorFlow; `--clip` adds OpenAI CLIP
+  (open_clip + torch + pillow) for the `basic-clip` semantic DB; `--voice` adds
+  pyannote.audio (`enhance --ops separate`), `--segment` adds transformers +
+  SAM2/GroundingDINO (`enhance --ops segment`), `--enhance` adds both, `--all`
+  installs everything. Override with `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`.
+  Voice separation additionally needs `HF_TOKEN` + accepted pyannote license.
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
 
 ## Invariants (do not violate)
@@ -106,7 +109,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `similar` (local OpenAI CLIP cross-modal semantic
   search — `add`/`match` image→image, `search` text→image — against `basic-clip`
   indexes; videos frame-sampled + pooled, or per-frame moments), `enhance` (system
-  ffmpeg ops or a bound model).
+  ffmpeg ops, a bound restore model, or the split ops `--ops separate` = per-speaker
+  tracks + optional `--summarize`, and `--ops segment --prompt` = text-prompted
+  masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
