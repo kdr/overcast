@@ -62,9 +62,18 @@ fi
 # 5) skill step: provenance-honest finding + before/after notes + brief
 cond "enhance skill: the finding states the enhancement provenance (ops + source), recovered text is a lead"
 [ -n "$WID" ] && oc "$CASE" note "before: moment illegible on $WID" --ref "$WID" --at 2-5 --json >/dev/null
-[ -n "$ENH_ID" ] && oc "$CASE" note "after denoise+upscale: re-read the enhanced frame (recovered text is a lead, not proof)" --ref "$ENH_ID" --json >/dev/null
-oc "$CASE" finding create "resolved a moment via enhance denoise,upscale — recovered text is low-confidence (interpolation cannot invent detail)" --ref "${SEE_ID:-$ENH_ID}" --confidence low --json >/dev/null
-oc "$CASE" note "enhance-and-resolve: pinned the moment, ran ffmpeg denoise+upscale, re-read the enhanced frame with OCR." --tag tldr --json >/dev/null
+[ -n "${SEE_ID:-}" ] && oc "$CASE" note "after denoise+upscale: re-read the enhanced frame (recovered text is a lead, not proof)" --ref "$ENH_ID" --json >/dev/null
+# the finding/note name only the legs that ran: pin + re-read need a brain backend;
+# the ffmpeg enhance always runs.
+if [ -n "${SEE_ID:-}" ]; then
+  oc "$CASE" finding create "resolved a moment via enhance denoise,upscale then re-read the enhanced frame — recovered text is low-confidence (interpolation cannot invent detail)" --ref "$SEE_ID" --confidence low --json >/dev/null
+else
+  oc "$CASE" finding create "enhanced a moment via ffmpeg denoise,upscale — re-read requires a brain see backend (interpolation cannot invent detail)" --ref "${ENH_ID:-}" --confidence low --json >/dev/null
+fi
+did="ran ffmpeg denoise+upscale"
+[ -n "$WID" ] && did="pinned the moment, $did"
+[ -n "${SEE_ID:-}" ] && did="$did, re-read the enhanced frame with OCR"
+oc "$CASE" note "enhance-and-resolve: $did." --tag tldr --json >/dev/null
 BRIEF="$SMOKE_DIR/83_enhance_brief.html"
 oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
 if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then

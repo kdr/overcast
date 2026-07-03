@@ -18,6 +18,7 @@ have_media "$SRC" || { skip "$C" "no OC_VIDEO_OBJECTS/OC_VIDEO_VISUAL"; exit 0; 
 
 CASE=$(case_dir skill_crime_board)
 CLIP="$SMOKE_DIR/crimeboard_clip.mp4"; clip_av 10 "$SRC" "$CLIP"
+crops_done=0; cluster_done=0; similar_done=0   # track which gated legs actually ran
 
 # 1) skill step: materialize evidence cards — face detections → crops
 cond "crime-board skill: face --thumbnails then crop materializes face evidence cards"
@@ -34,6 +35,7 @@ if [ -n "$FID" ] && [ "${fcount:-0}" -ge 1 ]; then
   ccount="$(echo "$crop" | jq -s '[.[]|select(.verb=="crop" and .state=="ready")]|length')"
   assert_eq "$C.crop_state" "ready" "$crop_ready" "crop stream all ready"
   assert_nonempty "$C.crops" "$([ "${ccount:-0}" -ge 1 ] && echo "$ccount")" "materialized $ccount face crop card(s)"
+  [ "${ccount:-0}" -ge 1 ] && crops_done=1
 else
   skip "$C.crop" "no face boxes to crop in this clip"
 fi
@@ -62,6 +64,7 @@ then
     add="$(OC_TIMEOUT=600 oc "$CASE" cluster add "$CLIP" --index "$cid" --fps 0.5 --max-frames 8 --json)"
     save_json "87_cluster" "$add" >/dev/null
     assert_eq "$C.cluster_state" "ready" "$(echo "$add" | jq -r '.state')" "cluster add linked $(echo "$add"|jq -r '.payload.count // 0') face(s)"
+    [ "$(echo "$add" | jq -r '.state')" = "ready" ] && cluster_done=1
   fi
 else
   skip "$C.cluster" "no deepface venv — person-linking DB skipped"
@@ -81,15 +84,25 @@ then
     ss="$(OC_TIMEOUT=300 oc "$CASE" similar search "a person at a work site" --index "$sid" --json)"
     save_json "87_similar_search" "$ss" >/dev/null
     assert_eq "$C.similar_search" "ready" "$(echo "$ss" | jq -r '.state')" "text→image thematic search ran"
+    [ "$(echo "$ss" | jq -r '.state')" = "ready" ] && similar_done=1
   fi
 else
   skip "$C.similar" "no open_clip venv — thematic CLIP links skipped"
 fi
 
-# 5) skill step: record the connections as notes so they land on the board
+# 5) skill step: record the connections as notes so they land on the board. The
+# note text names only the legs that actually ran (cluster/CLIP are venv-gated).
 cond "crime-board skill: connection notes tie the evidence together"
-oc "$CASE" note "connection: subject appears across the case media; visual theme links the clips" --ref "${FID:-}" --tag connection --confidence medium --json >/dev/null
-oc "$CASE" note "crime-board: materialized face cards, linked people via the local face DB, connected themes with CLIP." --tag tldr --json >/dev/null
+if [ "$similar_done" -eq 1 ]; then
+  oc "$CASE" note "connection: subject/theme links surfaced across the case media (face + CLIP)" --ref "${FID:-}" --tag connection --confidence medium --json >/dev/null
+else
+  oc "$CASE" note "connection: face evidence materialized across the case media" --ref "${FID:-}" --tag connection --confidence medium --json >/dev/null
+fi
+did="materialized face cards"
+[ "$crops_done" -eq 0 ] && did="detected faces"
+[ "$cluster_done" -eq 1 ] && did="$did, linked people via the local face DB"
+[ "$similar_done" -eq 1 ] && did="$did, connected themes with CLIP"
+oc "$CASE" note "crime-board: $did." --tag tldr --json >/dev/null
 
 # 6) skill step: the two visual surfaces — CSI brief (corkboard) + wall (monitor bank)
 cond "crime-board skill: render the corkboard (CSI brief) and the control-room wall"
