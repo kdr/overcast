@@ -352,6 +352,8 @@ function renderThreadSection(threads: TargetThread[]): string[] {
     lines.push(head);
     if (th.question) lines.push(`  - question: ${th.question}`);
     lines.push(`  - ${threadFunnelLine(th)}`);
+    // the analyst's line narrative (a `thread:<id>` note from /debrief)
+    if (th.narrative) lines.push(`  - ${th.narrative}`);
     if (th.status !== "active" && th.why) {
       lines.push(`  - closed: ${th.why}`);
     } else if (th.stage === "cold") {
@@ -540,7 +542,9 @@ function enrichSynthesis(syn: BriefSynthesis, pulse: CasePulse, records: Overcas
       spark: sparkline(th.activityBins) || undefined,
       funnel: threadFunnelLine(th),
       question: th.question,
-      note: th.status !== "active" ? th.why : undefined,
+      // the analyst's line narrative (thread note); the closed reason for a
+      // closed line with no note
+      note: th.narrative ?? (th.status !== "active" ? th.why : undefined),
     })),
     triage: triage.length ? triage : undefined,
   };

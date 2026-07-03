@@ -111,6 +111,26 @@ test("evaluateTriggers: text-target — suggested in suggest mode, legacy open i
   assert.equal((legacy[0].payload as Record<string, unknown>).trigger, "scan:watch");
 });
 
+test("evaluateTriggers: text-target fires on content verbs, NOT scan hits or captures", () => {
+  // a scan hit whose title mentions the target must NOT create a text lead —
+  // otherwise the same item leads once from its hit and again from its watch
+  const scanHit = makeRecord({ verb: "scan", format: "json", payload: { source: "x", url: "http://x/1", title: "acme handle reup", source_id: "s1" }, media: { ref: "http://x/1" } });
+  const capture = makeRecord({ verb: "capture", format: "json", payload: { path: "c.mp4", source_text: "acme handle" }, media: { ref: "c.mp4" } });
+  const watch = makeRecord({ verb: "watch", format: "json", payload: { content: "acme handle on screen" }, media: { ref: "c.mp4" } });
+  assert.equal(evaluateTriggers({ fresh: [scanHit], existing: [], targets: [nameTarget], policy: SUGGEST }).length, 0);
+  assert.equal(evaluateTriggers({ fresh: [capture], existing: [], targets: [nameTarget], policy: SUGGEST }).length, 0);
+  assert.equal(evaluateTriggers({ fresh: [watch], existing: [], targets: [nameTarget], policy: SUGGEST }).length, 1);
+});
+
+test("evaluateTriggers: two senses on the same clip fold to one text lead (shared media.ref)", () => {
+  const watch = makeRecord({ verb: "watch", format: "json", payload: { content: "acme handle appears" }, media: { ref: "c.mp4" } });
+  const listen = makeRecord({ verb: "listen", format: "json", payload: { transcript: "someone says acme handle" }, media: { ref: "c.mp4" } });
+  const first = evaluateTriggers({ fresh: [watch], existing: [], targets: [nameTarget], policy: SUGGEST });
+  assert.equal(first.length, 1);
+  // listen on the same clip must dedup via the shared media.ref, not re-lead
+  assert.equal(evaluateTriggers({ fresh: [listen], existing: first, targets: [nameTarget], policy: SUGGEST }).length, 0);
+});
+
 test("evaluateTriggers: mode off fires nothing; score triggers stay off in review mode", () => {
   assert.equal(evaluateTriggers({ fresh: [faceMatch(99)], existing: [], targets: [], policy: { mode: "off" } }).length, 0);
   assert.equal(evaluateTriggers({ fresh: [faceMatch(99)], existing: [], targets: [], policy: { mode: "review" } }).length, 0);
@@ -210,13 +230,16 @@ function ctxFor(c: ReturnType<typeof openCase>, input: string | undefined, rest:
 test("finding list: --state triage queues open + suggested newest first with provenance", () =>
   withCase(async (c) => {
     addTarget(c, "acme handle");
-    const scanHit = makeRecord({
-      verb: "scan",
+    // a watch record (sensed from a captured post) carrying its source provenance
+    // — text-target fires on content verbs; triage rows walk source_* for context
+    const watch = makeRecord({
+      verb: "watch",
       format: "json",
-      payload: { source: "x", url: "https://x.com/p/1", source_url: "https://x.com/p/1", source_text: "acme handle posted again", title: "post" },
+      payload: { content: "acme handle posted again", source_url: "https://x.com/p/1", source_text: "acme handle posted again" },
+      media: { ref: "c.mp4" },
       meta: { time: "2026-07-01T10:00:00Z" },
     });
-    persistRecords(c, [scanHit]);
+    persistRecords(c, [watch]);
     const manual = await findingVerb.run(ctxFor(c, "create", ["manual", "observation"], { target: "acme handle" }));
     persistRecords(c, manual, { signals: false });
     const listed = await findingVerb.run(ctxFor(c, "list", [], { state: "triage" }));

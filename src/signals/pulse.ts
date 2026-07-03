@@ -127,7 +127,6 @@ function sensedRefs(records: OvercastRecord[]): Set<string> {
 /** Per-source coverage funnel: configured sources joined to their scan hits,
  *  captures (via source_id → hit → capture provenance), and sensed media. */
 function buildCoverage(records: OvercastRecord[], sources: SourceEntry[], now: number): SourceCoverage[] {
-  const fresh = new Map(sourceScanFreshness(records, now).map((s) => [s.source, s.ageSeconds]));
   const sensed = sensedRefs(records);
   const captures = records.filter((r) => r.verb === "capture" && isReady(r));
 
@@ -147,8 +146,11 @@ function buildCoverage(records: OvercastRecord[], sources: SourceEntry[], now: n
         .map((c) => c.media?.ref ?? (typeof payloadOf(c).path === "string" ? (payloadOf(c).path as string) : undefined))
         .filter((ref): ref is string => !!ref && sensed.has(ref)),
     ).size;
-    const platform = typeof payloadOf(hitRecords[0] ?? {}).source === "string" ? String(payloadOf(hitRecords[0]).source) : undefined;
-    const age = platform ? fresh.get(platform) ?? null : null;
+    // per-SOURCE freshness: newest of THIS source's own hit records (source_id),
+    // not the platform-shared freshness — two x:@a / x:@b sources must not share
+    // an age just because they're the same platform.
+    const lastHitMs = Math.max(Number.NEGATIVE_INFINITY, ...hitRecords.map(timeMs).filter((t) => !Number.isNaN(t)));
+    const age = Number.isFinite(lastHitMs) ? Math.max(0, (now - lastHitMs) / 1000) : null;
     return {
       id: src.id,
       spec: `${src.type}:${src.ref}`,

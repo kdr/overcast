@@ -52,6 +52,20 @@ test("casePulse: coverage funnel joins source → hits → captures → sensed",
   assert.equal(pulse.media.unsensed, 0);
 });
 
+test("casePulse: per-source freshness uses the source's OWN hits, not the platform", () => {
+  // two X sources scanned at different times must not share a freshness age
+  const a = source({ id: "src_a", type: "x", ref: "@old" });
+  const b = source({ id: "src_b", type: "x", ref: "@new" });
+  const hitOld = makeRecord({ verb: "scan", format: "json", payload: { source: "x", source_id: "src_a", url: "http://x/old" }, meta: { time: iso(5 * HOUR) } });
+  const hitNew = makeRecord({ verb: "scan", format: "json", payload: { source: "x", source_id: "src_b", url: "http://x/new" }, meta: { time: iso(1 * HOUR) } });
+  const pulse = casePulse({ records: [hitOld, hitNew], targets: [], sources: [a, b], now: NOW });
+  const covA = pulse.coverage.find((c) => c.id === "src_a")!;
+  const covB = pulse.coverage.find((c) => c.id === "src_b")!;
+  assert.equal(Math.round(covA.lastScanAgeSeconds!), (5 * HOUR) / 1000);
+  assert.equal(Math.round(covB.lastScanAgeSeconds!), (1 * HOUR) / 1000);
+  assert.notEqual(covA.lastScanAgeSeconds, covB.lastScanAgeSeconds);
+});
+
 test("casePulse: enabled-but-never-scanned source is a coverage gap", () => {
   const src = source({ id: "src_b", type: "x", ref: "@h" });
   const pulse = casePulse({ records: [], targets: [], sources: [src], now: NOW });

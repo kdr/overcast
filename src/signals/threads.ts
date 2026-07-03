@@ -64,6 +64,9 @@ export interface TargetThread {
   recentIds: string[];
   /** a short "why" for a dead/answered line, else undefined */
   why?: string;
+  /** newest `thread:<id>`-tagged note text — the analyst's line narrative from
+   *  `/debrief`, surfaced on the brief/status thread cards */
+  narrative?: string;
 }
 
 const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "crop", "enhance"]);
@@ -184,6 +187,16 @@ export function buildThreads(records: OvercastRecord[], targets: TargetEntry[], 
       ? undefined
       : target.status_note ?? (status === "answered" ? "closed as answered" : "closed as dead end");
 
+    // newest `thread:<id>` note = the analyst's line narrative (from /debrief)
+    const narrative = [...linkedEvidence]
+      .filter((r) => noteTaggedForThread(r, target.id))
+      .sort((a, b) => timeOf(b) - timeOf(a))
+      .map((r) => {
+        const t = payloadOf(r).text;
+        return typeof t === "string" && t.trim() ? t.trim() : undefined;
+      })
+      .find(Boolean);
+
     return {
       id: target.id,
       value: target.value,
@@ -200,6 +213,7 @@ export function buildThreads(records: OvercastRecord[], targets: TargetEntry[], 
       activityBins: activityBins(times, now),
       recentIds,
       why,
+      narrative,
     };
   });
 }

@@ -252,7 +252,9 @@ function statusThreads(payload: Record<string, unknown>): TimelineSynthesis["thr
       spark: sparklineFrom(Array.isArray(th.activityBins) ? (th.activityBins as number[]) : []),
       funnel,
       question: typeof th.question === "string" ? th.question : undefined,
-      note: th.status !== "active" && typeof th.why === "string" ? th.why : undefined,
+      // analyst line narrative (thread note), else the closed reason
+      note: typeof th.narrative === "string" ? th.narrative
+        : th.status !== "active" && typeof th.why === "string" ? th.why : undefined,
     };
   });
 }

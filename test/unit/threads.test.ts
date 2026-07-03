@@ -80,6 +80,14 @@ test("buildThreads: notes tagged thread:<id> link even without value match", () 
   assert.equal(th.evidence.note, 1);
 });
 
+test("buildThreads: newest thread:<id> note surfaces as the line narrative", () => {
+  const t = target({ id: "tgt_n", value: "acme" });
+  const older = makeRecord({ verb: "note", format: "json", payload: { text: "early read on this line", tags: ["thread:tgt_n"] }, meta: { time: iso(2 * 24 * 3600_000) } });
+  const newer = makeRecord({ verb: "note", format: "json", payload: { text: "reups traced to @codez; next: subpoena the reseller", tags: ["thread:tgt_n"] }, meta: { time: iso(3600_000) } });
+  const th = buildThreads([older, newer], [t], NOW)[0];
+  assert.equal(th.narrative, "reups traced to @codez; next: subpoena the reseller");
+});
+
 test("threadsHeadline: honest progress sentence", () => {
   const threads = [
     { status: "active", stage: "leads" },

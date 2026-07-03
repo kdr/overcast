@@ -409,6 +409,7 @@ function statusMarkdown(title: string, payload: Record<string, unknown>, full = 
       lines.push(`- **${th.value}** — [${stage}]${spark ? ` \`${spark}\`` : ""}`);
       if (th.question) lines.push(`  - question: ${th.question}`);
       if (f) lines.push(`  - scan ${f.scan} → cap ${f.captures} → sense ${f.senses} → match ${f.matches}${fnd ? ` · findings: ${fnd.accepted} acc / ${fnd.open} open / ${fnd.suggested} sug` : ""}`);
+      if (th.narrative) lines.push(`  - ${th.narrative}`);
       if (th.status !== "active" && th.why) lines.push(`  - closed: ${th.why}`);
     }
   } else {

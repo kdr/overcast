@@ -25,6 +25,12 @@ import type { CaseSetup, SetupFindingsPolicy, SetupFindingsThresholds } from "..
 
 export const DEFAULT_FINDINGS_MODE = "suggest";
 
+/** Verbs whose payload carries meaningful free text a target phrase can match:
+ *  analyzed media (watch/listen/see) + analyst notes. Scan enumeration hits and
+ *  raw captures are excluded so one item can't emit a text lead from its hit AND
+ *  again from its analyzed content (matches the pre-persist-hook chain reach). */
+export const TEXT_TARGET_VERBS: ReadonlySet<string> = new Set(["watch", "listen", "see", "note"]);
+
 /** Fire floors (score triggers skip matches below these) and "high" confidence
  *  bands. face/similar/cluster are 0–100 percent; image is inlier count. */
 export interface TriggerThresholds {
@@ -279,9 +285,15 @@ export function evaluateTriggers(opts: EvaluateTriggerOpts): OvercastRecord[] {
     // and would otherwise self-match the text-target trigger.
     if (rec.verb === "finding" || !isMemoryRecord(rec)) continue;
 
-    // text-target: both modes; status + dismissed semantics differ.
+    // text-target: only content-bearing evidence (analyzed media + analyst
+    // notes), NOT scan enumeration hits or raw captures. The old chain ran the
+    // text trigger on the SENSED record only; the persist hook now sees every
+    // record, so without this gate a target phrase in a scan-hit title AND in the
+    // watch content of the same item would emit two leads (different source_record
+    // + media.ref, so dedup can't fold them). Multi-sense-on-one-clip still folds
+    // via the shared media.ref in hasEquivalentFinding.
     const haystack = payloadText(rec);
-    for (const target of opts.targets) {
+    for (const target of TEXT_TARGET_VERBS.has(rec.verb) ? opts.targets : []) {
       if (target.kind === "image") continue;
       if (!targetMatchesEvidence(target.value, haystack)) continue;
       const all = seen();
