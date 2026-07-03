@@ -110,7 +110,11 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
-  `--square`), `wall` (control-room monitor wall: case videos muted + looping at
+  `--square`), `grid` (tile timestamped video frames into ONE labeled contact
+  sheet for a single-call VLM triage pass — the "grid trick" for temporal search;
+  `--count`/`--at`/`--start`/`--end`/`--cols`/`--width`; emits `media.grid` with a
+  cell-number→timestamp map; labels burned only when ffmpeg has `drawtext`),
+  `wall` (control-room monitor wall: case videos muted + looping at
   their evidence moments — open finding > face hit > record anchor — with
   coverage badges and scan/monitor/brief freshness overlaid; `--limit`,
   `--source`/`--since`, `--refresh`, `--infinite` endless repeat-to-fill wall,

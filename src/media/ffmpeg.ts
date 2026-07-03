@@ -5,7 +5,8 @@
 // verifies it's installed and recent enough.
 
 import { dirname, join, extname, basename } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, copyFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -213,6 +214,172 @@ export async function cropStill(
   );
   await execFileP(FFMPEG_PATH, args, { maxBuffer: 32 * 1024 * 1024 });
   return out;
+}
+
+// ---- contact sheet (frame grid) --------------------------------------------
+// Tile N timestamped frames into ONE labeled image for a single-call VLM triage
+// pass (the "grid trick": T*/temporal-search + Set-of-Mark over time). Labels are
+// burned per cell ONLY when this ffmpeg build has `drawtext` (needs libfreetype)
+// AND a usable font is found; otherwise the sheet is unlabeled and the caller
+// falls back to positional numbering. Either way the cell→timestamp map is exact
+// and returned in `cells` — the burned label is a convenience, not the record.
+
+let drawtextCache: boolean | undefined;
+
+/** Does this ffmpeg build have the `drawtext` filter? (cached; libfreetype-gated) */
+export async function hasDrawtext(): Promise<boolean> {
+  if (drawtextCache !== undefined) return drawtextCache;
+  try {
+    const { stdout } = await execFileP(FFMPEG_PATH, ["-hide_banner", "-filters"], {
+      timeout: 10_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    drawtextCache = /\bdrawtext\b/.test(stdout);
+  } catch {
+    drawtextCache = false;
+  }
+  return drawtextCache;
+}
+
+// Common TTF locations across macOS + Linux; OVERCAST_GRID_FONT overrides. `.ttc`
+// collections are skipped (drawtext needs a face index for those).
+const FONT_CANDIDATES = [
+  process.env.OVERCAST_GRID_FONT,
+  "/System/Library/Fonts/Supplemental/Arial.ttf",
+  "/Library/Fonts/Arial.ttf",
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+  "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+  "/usr/share/fonts/TTF/DejaVuSans.ttf",
+  "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+];
+
+/** First usable TTF for drawtext labels, or undefined. */
+export function findGridFont(): string | undefined {
+  return FONT_CANDIDATES.find((f): f is string => !!f && existsSync(f));
+}
+
+const clampInt = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
+
+export interface GridCell {
+  /** 1-based cell number, left-to-right then top-to-bottom */
+  n: number;
+  /** source timestamp (seconds) this cell was sampled from */
+  at: number;
+}
+
+export interface ContactSheetResult {
+  output: string;
+  cells: GridCell[];
+  cols: number;
+  rows: number;
+  cellWidth: number;
+  cellHeight: number;
+  /** whether cell numbers/timestamps were burned into the image */
+  labeled: boolean;
+}
+
+export interface ContactSheetOpts {
+  cols?: number;
+  cellWidth?: number;
+  outPath?: string;
+  /** force labels off even when drawtext is available */
+  label?: boolean;
+}
+
+/**
+ * Build a labeled contact sheet from a video at the given `seconds`. Extracts one
+ * uniformly-sized cell per timestamp (letterboxed to preserve aspect), burns a
+ * `<n>  <t>s` label when drawtext is available, pads the final row with blank
+ * cells so `tile` gets an exact grid, then tiles them into one image.
+ */
+export async function contactSheet(
+  input: string,
+  seconds: number[],
+  outDir: string,
+  opts: ContactSheetOpts = {},
+): Promise<ContactSheetResult> {
+  if (seconds.length === 0) throw new Error("contact sheet needs at least one timestamp");
+  ensureDir(outDir);
+
+  const cellWidth = clampInt(opts.cellWidth ?? 320, 120, 960);
+  const p = await probe(input).catch(() => undefined);
+  const aspect = p?.width && p?.height ? p.height / p.width : 9 / 16;
+  let cellHeight = Math.round(cellWidth * aspect);
+  if (cellHeight % 2) cellHeight += 1; // keep even for codec friendliness
+
+  const n = seconds.length;
+  const cols = clampInt(opts.cols ?? Math.ceil(Math.sqrt(n)), 1, 12);
+  const rows = Math.ceil(n / cols);
+  const slots = cols * rows;
+
+  const labeled = opts.label !== false && (await hasDrawtext()) && !!findGridFont();
+  const font = findGridFont();
+  const fontSize = clampInt(cellWidth / 14, 14, 40);
+
+  const base = basename(input, extname(input));
+  const out = opts.outPath ?? join(outDir, `${safeName(base)}_grid_${n}.png`);
+  const work = mkdtempSync(join(tmpdir(), "oc-grid-"));
+  try {
+    const scalePad =
+      `scale=${cellWidth}:${cellHeight}:force_original_aspect_ratio=decrease,` +
+      `pad=${cellWidth}:${cellHeight}:(ow-iw)/2:(oh-ih)/2:color=black`;
+    for (let i = 0; i < n; i++) {
+      const cell = join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`);
+      let vf = scalePad;
+      if (labeled && font) {
+        // label text is number + rounded seconds only (no ':'/',' — those are
+        // filtergraph separators; avoiding them means no escaping is needed).
+        const label = `${i + 1}  ${Math.round(seconds[i])}s`;
+        vf +=
+          `,drawtext=fontfile=${font}:text=${label}:x=10:y=10:` +
+          `fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=6`;
+      }
+      await execFileP(
+        FFMPEG_PATH,
+        ["-y", "-ss", String(seconds[i]), "-i", input, "-frames:v", "1", "-q:v", "3", "-vf", vf, cell],
+        { maxBuffer: 16 * 1024 * 1024 },
+      );
+    }
+    // pad the last row so `tile` receives an exact cols×rows sequence — the
+    // partial-tile-at-EOF behavior varies across ffmpeg versions; a full grid is
+    // deterministic. Fillers reuse the tile background color.
+    if (n < slots) {
+      const filler = join(work, "filler.jpg");
+      await execFileP(
+        FFMPEG_PATH,
+        ["-y", "-f", "lavfi", "-i", `color=c=0x101418:s=${cellWidth}x${cellHeight}`, "-frames:v", "1", filler],
+        { maxBuffer: 8 * 1024 * 1024 },
+      );
+      for (let i = n; i < slots; i++) {
+        copyFileSync(filler, join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`));
+      }
+    }
+    await execFileP(
+      FFMPEG_PATH,
+      [
+        "-y", "-framerate", "1", "-i", join(work, "cell_%03d.jpg"),
+        "-frames:v", "1", "-vf", `tile=${cols}x${rows}:padding=6:margin=6:color=0x101418`, out,
+      ],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+
+  return {
+    output: out,
+    cells: seconds.map((at, i) => ({ n: i + 1, at })),
+    cols,
+    rows,
+    cellWidth,
+    cellHeight,
+    labeled,
+  };
+}
+
+/** Filesystem-safe filename part. */
+function safeName(s: string): string {
+  return s.replace(/[^a-z0-9_.-]+/gi, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "grid";
 }
 
 /** Render an audio spectrogram to a PNG via ffmpeg's native showspectrumpic. */

@@ -16,6 +16,11 @@ import {
   generateReconBriefSkill,
   generateVisualTargetSearchSkill,
   generateCopycatSweepSkill,
+  generatePinpointSkill,
+  generateFrameGridSkill,
+  generateEventBisectSkill,
+  generateWhereSkill,
+  generatePresenceWindowSkill,
 } from "../skill-gen.js";
 import type { VerbSpec } from "../registry/types.js";
 
@@ -75,6 +80,11 @@ const SHIPPED_SKILLS = [
   "overcast-recon-brief",
   "overcast-visual-target-search",
   "overcast-copycat-sweep",
+  "overcast-pinpoint",
+  "overcast-frame-grid",
+  "overcast-event-bisect",
+  "overcast-where",
+  "overcast-presence-window",
 ] as const;
 
 /** Harnesses `skills install` knows how to target. */
@@ -115,6 +125,11 @@ function generateSkills(skillsDir: string): string[] {
     ["overcast-recon-brief", generateReconBriefSkill],
     ["overcast-visual-target-search", generateVisualTargetSearchSkill],
     ["overcast-copycat-sweep", generateCopycatSweepSkill],
+    ["overcast-pinpoint", generatePinpointSkill],
+    ["overcast-frame-grid", generateFrameGridSkill],
+    ["overcast-event-bisect", generateEventBisectSkill],
+    ["overcast-where", generateWhereSkill],
+    ["overcast-presence-window", generatePresenceWindowSkill],
   ];
   for (const [name, generate] of focusedSkills) {
     const dir = join(skillsDir, name);
