@@ -121,11 +121,12 @@ do_segment() {
     else
       cout="$OUTDIR/segment/${base}_${idx}.png"
       if "$FFMPEG" -y -i "$input" -i "$mout" -filter_complex "[1:v][0:v]scale2ref[a][b];[a]format=gray[aa];[b][aa]alphamerge" "$cout" >/dev/null 2>&1 && [ -s "$cout" ]; then
-        ref="$cout"
+        ref="$cout"; kind="cutout"; maskfield="$(jq -nc --arg m "$mout" '$m')"
       else
-        cp "$mout" "$cout"; ref="$cout"
+        # cutout compositing failed — degrade HONESTLY to the binary mask rather
+        # than mislabeling a grayscale mask as an RGBA cutout.
+        rm -f "$cout"; ref="$mout"; kind="mask"; maskfield="null"
       fi
-      kind="cutout"; maskfield="$(jq -nc --arg m "$mout" '$m')"
     fi
     item="$(jq -nc --arg ref "$ref" --arg k "$kind" --arg lab "$prompt" --argjson idx "$idx" \
       --argjson sc "${score:-null}" --argjson bx "$boxobj" --argjson mask "$maskfield" \

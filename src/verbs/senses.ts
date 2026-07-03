@@ -463,23 +463,38 @@ export const enhanceVerb: VerbSpec = {
         timeoutMs: 15 * 60_000,
         signal: ctx.signal,
       });
-      // Guard the silent no-op: a split op was requested but the bound provider
-      // is a single-output one (hf/esrgan/voice-isolator) that ignored --ops and
-      // returned one enhanced file. A real split either fans out (outputs[]) or
-      // at least echoes payload.op (e.g. a segment that matched nothing). Neither
-      // → fail loudly instead of handing back one file dressed as tracks/masks.
-      const recOp =
-        typeof rec.payload === "object" && rec.payload
-          ? (rec.payload as Record<string, unknown>).op
-          : undefined;
-      if (providerOps.length && rec.state === "ready" && !hasFanOut(rec) && recOp !== providerOps[0]) {
-        return [
-          errorRecord(
-            "enhance",
-            `the bound enhance provider did not perform '--ops ${providerOps[0]}' (it returned a single output). ` +
-              `Bind a split-capable provider: \`overcast provider setup plan --preset local-models\` (or --preset fal).`,
-          ),
-        ];
+      // Guard split-op results. A ready record that does NOT fan out is one of
+      // three cases, only one of which is valid:
+      //   1. declared a non-empty outputs[] that fails validation (item missing
+      //      kind/ref) — MALFORMED: fanOutEnhance would silently drop it to just
+      //      the parent, losing the artifacts. Fail loudly.
+      //   2. no outputs[] and payload.op doesn't echo the requested op — a
+      //      single-output provider (hf/esrgan/voice-isolator) ignored --ops.
+      //   3. empty/absent outputs[] and payload.op matches — a legit "nothing
+      //      produced" (e.g. a segment prompt that matched nothing). Allowed.
+      const recPayload =
+        typeof rec.payload === "object" && rec.payload ? (rec.payload as Record<string, unknown>) : {};
+      const recOp = recPayload.op;
+      const declaredOutputs = Array.isArray(recPayload.outputs) ? recPayload.outputs : undefined;
+      if (providerOps.length && rec.state === "ready" && !hasFanOut(rec)) {
+        if (declaredOutputs && declaredOutputs.length > 0) {
+          return [
+            errorRecord(
+              "enhance",
+              `the '${providerOps[0]}' provider returned malformed outputs[] (each item needs a string 'ref' and 'kind'); no artifacts were expanded.`,
+            ),
+          ];
+        }
+        if (recOp !== providerOps[0]) {
+          return [
+            errorRecord(
+              "enhance",
+              `the bound enhance provider did not perform '--ops ${providerOps[0]}' (it returned a single output). ` +
+                `Bind a split-capable provider: \`overcast provider setup plan --preset local-models\` (or --preset fal).`,
+            ),
+          ];
+        }
+        // else: op matches + no outputs → a valid empty result, fall through.
       }
       // expand a multi-output envelope (per-speaker tracks / per-instance masks)
       // into [parent, ...children]; single-output providers pass through.

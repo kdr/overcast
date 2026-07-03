@@ -183,3 +183,23 @@ test("a split op against a single-output provider fails loudly (not a silent no-
   assert.equal(recs[0].state, "error");
   assert.match(String(recs[0].error), /did not perform '--ops separate'/);
 });
+
+test("a split op with malformed outputs[] errors instead of silently dropping artifacts", async () => {
+  const img = join(dir, "photo2.jpg");
+  writeFileSync(img, "x");
+  // provider echoes op:segment but its output item is missing `ref` → hasFanOut
+  // fails; without the guard the artifacts would vanish and only a parent return.
+  const recs = await enhanceVerb.run(ctx(img, { ops: "segment", prompt: "x" }, `bash ${join(FIX, "fake-enhance-malformed.sh")} --input {{input}}`));
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].state, "error");
+  assert.match(String(recs[0].error), /malformed outputs/);
+});
+
+test("a split op that matched nothing (op set, empty outputs) is a ready parent, not an error", async () => {
+  const img = join(dir, "photo3.jpg");
+  writeFileSync(img, "x");
+  const recs = await enhanceVerb.run(ctx(img, { ops: "segment", prompt: "nothing" }, `bash ${join(FIX, "fake-enhance-empty.sh")} --input {{input}}`));
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].state, "ready");
+  assert.equal((recs[0].payload as Record<string, unknown>).count, 0);
+});

@@ -168,6 +168,7 @@ def run():
     os.makedirs(outdir, exist_ok=True)
 
     outputs = []
+    skipped = []  # speakers whose track render failed — surfaced as a structured signal
     for speaker in sorted(spk):
         segs = merge_segments(spk[speaker])
         if not segs:
@@ -179,8 +180,9 @@ def run():
         r = subprocess.run([FFMPEG, "-y", "-i", src_wav, "-af", af, out],
                            capture_output=True, timeout=600)
         if r.returncode != 0 or not os.path.exists(out):
-            sys.stderr.write("track render failed for %s: %s\n"
-                             % (speaker, r.stderr.decode("utf-8", "ignore")[:200]))
+            err = r.stderr.decode("utf-8", "ignore")[:200]
+            sys.stderr.write("track render failed for %s: %s\n" % (speaker, err))
+            skipped.append({"speaker": speaker, "error": err})
             continue
         outputs.append({
             "kind": "track", "ref": out, "speaker": speaker,
@@ -192,10 +194,15 @@ def run():
     if not outputs:
         fail("all per-speaker track renders failed")
 
-    emit({"verb": "enhance", "format": "json",
-          "payload": {"op": "separate", "input": inp, "model": MODEL,
-                      "speakers": len(spk), "count": len(outputs),
-                      "overlap": overlaps, "outputs": outputs},
+    # `speakers` = diarized total, `count` = rendered tracks; if they differ,
+    # `skipped_speakers` names the ones whose ffmpeg render failed so downstream
+    # (fan-out / --summarize) has a structured signal, not just stderr.
+    payload = {"op": "separate", "input": inp, "model": MODEL,
+               "speakers": len(spk), "count": len(outputs),
+               "overlap": overlaps, "outputs": outputs}
+    if skipped:
+        payload["skipped_speakers"] = skipped
+    emit({"verb": "enhance", "format": "json", "payload": payload,
           "media": {"ref": inp}, "meta": {"provider": "local:pyannote", "model": MODEL},
           "state": "ready"})
 
