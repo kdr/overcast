@@ -62,9 +62,13 @@ export const gridVerb: VerbSpec = {
   run: async (ctx) => {
     if (!ctx.input) return [err("grid requires a video input (path or record id)")];
     const numErr =
-      badNumber(ctx.opts, "count", (n) => n >= 1 && n <= MAX_CELLS, `1–${MAX_CELLS}`) ??
       badNumber(ctx.opts, "cols", (n) => n >= 1 && n <= 12, "1–12") ??
-      badNumber(ctx.opts, "width", (n) => n >= 120 && n <= 960, "120–960");
+      badNumber(ctx.opts, "width", (n) => n >= 120 && n <= 960, "120–960") ??
+      // --count only drives window sampling; an explicit --at overrides it, so
+      // don't reject a count the user isn't actually using.
+      (ctx.opts.at == null
+        ? badNumber(ctx.opts, "count", (n) => n >= 1 && n <= MAX_CELLS, `1–${MAX_CELLS}`)
+        : undefined);
     if (numErr) return [err(numErr)];
 
     // accept a path / URL / case record id, and validate it's real AV media.
@@ -80,8 +84,13 @@ export const gridVerb: VerbSpec = {
       if (parts.some((p) => p === undefined)) {
         return [err(`invalid --at: ${ctx.opts.at} (use comma-separated SS or MM:SS)`)];
       }
-      seconds = [...new Set(parts as number[])].sort((a, b) => a - b).slice(0, MAX_CELLS);
+      seconds = [...new Set(parts as number[])].sort((a, b) => a - b);
       if (!seconds.length) return [err("--at listed no valid timestamps")];
+      // reject rather than silently drop: a truncated triage that still reports
+      // success would quietly miss the moments the caller explicitly asked for.
+      if (seconds.length > MAX_CELLS) {
+        return [err(`too many --at timestamps (${seconds.length}); max ${MAX_CELLS}`)];
+      }
     } else {
       const start = ctx.opts.start != null ? parseTimecode(String(ctx.opts.start)) : 0;
       if (start === undefined) return [err(`invalid --start: ${ctx.opts.start}`)];

@@ -64,6 +64,13 @@ test("enhance runs deterministic ffmpeg ops and writes output", async () => {
   assert.equal(r.modality, "video");
 });
 
+test("enhance creates the parent dir of a nested explicit --out path", async () => {
+  const out = join(dir, "enh-nested", "deep", "gray.mp4");
+  const r = await enhance(clip, ["grayscale"], join(dir, "enh"), out);
+  assert.equal(r.output, out);
+  assert.ok(existsSync(out), "output written into freshly-created nested dir");
+});
+
 test("defaultOps differ per modality", () => {
   assert.deepEqual(defaultOps("audio"), ["denoise", "normalize"]);
   assert.deepEqual(defaultOps("image"), ["denoise"]);

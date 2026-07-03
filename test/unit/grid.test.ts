@@ -86,3 +86,25 @@ test("grid verb: missing input errors cleanly", async () => {
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /requires a video/);
 });
+
+test("grid verb: >64 --at timestamps error instead of silently truncating", async () => {
+  const many = Array.from({ length: 65 }, (_, i) => i + 1).join(",");
+  const [rec] = await gridVerb.run(ctx(clip, { at: many, json: true }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /too many --at timestamps \(65\)/);
+});
+
+test("grid verb: an out-of-range --count is ignored when --at overrides it", async () => {
+  const [rec] = await gridVerb.run(ctx(clip, { count: 999, at: "2,5,8", json: true }));
+  assert.equal(rec.state, "ready"); // count is irrelevant with --at, so no validation error
+  const p = rec.payload as Record<string, any>;
+  assert.deepEqual(p.cells.map((c: any) => c.at), [2, 5, 8]);
+});
+
+test("grid verb: a nested --out path has its parent dir created", async () => {
+  const out = join(dir, "nested", "deep", "sheet.png");
+  const [rec] = await gridVerb.run(ctx(clip, { count: 4, out, json: true }));
+  assert.equal(rec.state, "ready");
+  assert.equal((rec.payload as Record<string, any>).montage, out);
+  assert.ok(existsSync(out), "montage written into freshly-created nested dir");
+});

@@ -896,22 +896,23 @@ overcast see frame://REC@<hi> --prompt "Is <predicate> true? answer only yes or 
 
 \\\`\\\`\\\`bash
 overcast see frame://REC@<mid> --prompt "Is <predicate> true? answer only yes or no" --json
-# yes at mid  -> the flip is in [lo, mid]; no at mid -> it's in [mid, hi]
+# keep the straddling half: if mid's answer == lo's answer, set lo=mid; else hi=mid
+# (correct whichever way it flips — false->true OR true->false)
 \\\`\\\`\\\`
 
 4. Report the transition window and show it:
 
 \\\`\\\`\\\`bash
-overcast note "<predicate> becomes true" --ref REC --at <lastFalse-firstTrue> --confidence high --json
-overcast view REC --at <lastFalse-firstTrue> --json
+overcast note "<predicate> flips" --ref REC --at <lo-hi> --confidence high --json
+overcast view REC --at <lo-hi> --json
 overcast brief --export ./transition.md --json
 \\\`\\\`\\\`
 
 ## Output
 
-The bracket \`[last-false, first-true]\`, the two \`see\` frames that straddle it
-(their \`record.id\`s + \`media.at\`), and the call count. That bracket IS the
-answer window — don't over-claim a single frame.
+The converged \`[lo, hi]\` bracket — the two adjacent \`see\` frames that straddle
+the flip (their \`record.id\`s + \`media.at\`) — and the call count. That bracket IS
+the answer window — don't over-claim a single frame.
 
 ## Caveats
 

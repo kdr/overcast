@@ -318,6 +318,7 @@ export async function contactSheet(
 
   const base = basename(input, extname(input));
   const out = opts.outPath ?? join(outDir, `${safeName(base)}_grid_${n}.png`);
+  ensureDir(dirname(out)); // a caller-supplied nested --out needs its parent created first
   const work = mkdtempSync(join(tmpdir(), "oc-grid-"));
   try {
     const scalePad =
@@ -328,10 +329,12 @@ export async function contactSheet(
       let vf = scalePad;
       if (labeled && font) {
         // label text is number + rounded seconds only (no ':'/',' — those are
-        // filtergraph separators; avoiding them means no escaping is needed).
+        // filtergraph separators, so the text itself needs no escaping). The font
+        // path CAN contain them (a Windows `C:\...` or OVERCAST_GRID_FONT), so it
+        // must be escaped for the filtergraph.
         const label = `${i + 1}  ${Math.round(seconds[i])}s`;
         vf +=
-          `,drawtext=fontfile=${font}:text=${label}:x=10:y=10:` +
+          `,drawtext=fontfile=${escFilterValue(font)}:text=${label}:x=10:y=10:` +
           `fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=6`;
       }
       await execFileP(
@@ -380,6 +383,18 @@ export async function contactSheet(
 /** Filesystem-safe filename part. */
 function safeName(s: string): string {
   return s.replace(/[^a-z0-9_.-]+/gi, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "grid";
+}
+
+/** Escape a value (e.g. a font path) for an ffmpeg filtergraph option: backslash
+ *  first, then the ':' option / ',' filter separators and the "'" quote — so a
+ *  Windows `C:\Fonts\Arial.ttf` becomes `C\:\\Fonts\\Arial.ttf` instead of
+ *  splitting the drawtext options. */
+function escFilterValue(s: string): string {
+  return s
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/,/g, "\\,")
+    .replace(/'/g, "\\'");
 }
 
 /** Render an audio spectrogram to a PNG via ffmpeg's native showspectrumpic. */
@@ -477,6 +492,7 @@ export async function enhance(
   const ext = modality === "image" ? ".png" : extname(input) || ".mp4";
   const out =
     outPath ?? join(ensureDir(outDir), `${basename(input, extname(input))}_enhanced${ext}`);
+  ensureDir(dirname(out)); // a caller-supplied nested --out needs its parent created too
 
   const args = ["-y", "-i", input];
   if (vFilters.length) args.push("-vf", vFilters.join(","));
