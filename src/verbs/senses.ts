@@ -420,14 +420,32 @@ export const enhanceVerb: VerbSpec = {
   providerKey: "enhance",
   run: async (ctx) => {
     if (!ctx.input) return [errorRecord("enhance", "enhance requires a media input")];
-    if (!existsSync(ctx.input)) {
-      return [errorRecord("enhance", `input not found: ${ctx.input}`)];
+    // resolve a frame:// reference to an extracted still first — so the documented
+    // "segment a video frame" path (enhance frame://rec@sec --ops segment) works,
+    // mirroring `see`. Never hand a literal frame://… string to a provider.
+    let input = ctx.input;
+    const fr = parseFrameRef(ctx.input);
+    if (fr) {
+      const src = ctx.case.recordById(fr.recordId)?.media?.ref;
+      if (!src || !existsSync(src)) {
+        return [errorRecord("enhance", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`)];
+      }
+      try {
+        input = await extractFrame(src, fr.second, ctx.case.mediaDir);
+      } catch (e) {
+        return [errorRecord("enhance", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`)];
+      }
+    }
+    if (!existsSync(input)) {
+      return [errorRecord("enhance", `input not found: ${input}`)];
     }
     // parse ops loosely first: the split ops (separate/segment) are NOT ffmpeg
     // ops — they REQUIRE a bound provider. Gate them before the ffmpeg cast so a
-    // helpful error fires instead of ffmpeg choking on an unknown filter.
+    // helpful error fires instead of ffmpeg choking on an unknown filter. Ops are
+    // normalized to lowercase so `Separate`/`SEGMENT` still hit the split guards
+    // (and the ffmpeg op set is lowercase too).
     const opsStr = ctx.opts.ops ? String(ctx.opts.ops) : "";
-    const rawOps = opsStr.split(",").map((s) => s.trim()).filter(Boolean);
+    const rawOps = opsStr.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     const enhBinding = providerBinding(ctx, "enhance");
     const providerOps = rawOps.filter((o) => PROVIDER_ONLY_OPS.has(o));
 
@@ -450,14 +468,16 @@ export const enhanceVerb: VerbSpec = {
       // forward the declared flags to the provider ONLY when set, so existing
       // single-output bindings (hf/fal/elevenlabs) still get byte-identical argv.
       const extraArgs: string[] = [];
-      if (opsStr) extraArgs.push("--ops", opsStr);
+      // forward the NORMALIZED ops (lowercased) so a bound toolbox matches
+      // `separate`/`segment` even if the user typed `Separate`.
+      if (rawOps.length) extraArgs.push("--ops", rawOps.join(","));
       if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
       if (ctx.opts.speakers) extraArgs.push("--speakers", String(ctx.opts.speakers));
       if (ctx.opts["masks-only"] === true) extraArgs.push("--masks-only");
       // dispatch by transport (exec runs it; http/inproc return an explicit
       // error) rather than silently falling back to ffmpeg. Local CPU models
       // (pyannote / SAM2) blow the 5-min default, so allow 15 min.
-      const rec = await runBoundProvider("enhance", enhBinding!, ctx.input, {
+      const rec = await runBoundProvider("enhance", enhBinding!, input, {
         env: providerEnv(ctx.case.mediaDir),
         extraArgs: extraArgs.length ? extraArgs : undefined,
         timeoutMs: 15 * 60_000,
@@ -499,7 +519,7 @@ export const enhanceVerb: VerbSpec = {
       // expand a multi-output envelope (per-speaker tracks / per-instance masks)
       // into [parent, ...children]; single-output providers pass through.
       const recs = fanOutEnhance(rec, { caseDir: ctx.case.dir });
-      const prov = provenanceFromCapture(ctx.case, ctx.input);
+      const prov = provenanceFromCapture(ctx.case, input);
       for (const r of recs) {
         r.meta = { ...r.meta, case: ctx.case.dir };
         stampProvenance(r, prov);
@@ -527,13 +547,13 @@ export const enhanceVerb: VerbSpec = {
     const requested = rawOps.length ? (rawOps as EnhanceOp[]) : undefined;
     const outDir = ctx.case.mediaDir;
     try {
-      const p = await probe(ctx.input).catch(() => ({ modality: modalityFromExt(ctx.input!) }) as Awaited<ReturnType<typeof probe>>);
+      const p = await probe(input).catch(() => ({ modality: modalityFromExt(input) }) as Awaited<ReturnType<typeof probe>>);
       const ops = requested ?? defaultOps(p.modality);
       if (ops.length === 0) {
         return [errorRecord("enhance", `no enhance ops apply to modality '${p.modality}'`)];
       }
       const result = await ffEnhance(
-        ctx.input,
+        input,
         ops,
         outDir,
         ctx.opts.out ? String(ctx.opts.out) : undefined,

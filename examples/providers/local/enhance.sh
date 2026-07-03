@@ -54,6 +54,7 @@ while [ "$i" -le "$n" ]; do
   if [ "$cur" = "--ops" ]; then j=$((i + 1)); eval "ops=\${$j:-}"; fi
   i=$((i + 1))
 done
+ops="$(printf '%s' "$ops" | tr 'A-Z' 'a-z')"  # normalize so Separate/SEGMENT match
 
 # pick the handler explicitly and reject ambiguous combos (no silent precedence).
 want_sep=0; want_seg=0

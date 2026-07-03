@@ -203,3 +203,16 @@ test("a split op that matched nothing (op set, empty outputs) is a ready parent,
   assert.equal(recs[0].state, "ready");
   assert.equal((recs[0].payload as Record<string, unknown>).count, 0);
 });
+
+test("split ops are recognized case-insensitively (Segment fans out; Separate hits the guard)", async () => {
+  const img = join(dir, "photo6.jpg");
+  writeFileSync(img, "x");
+  // `Segment` normalizes → fixture matches → fans out
+  let recs = await enhanceVerb.run(ctx(img, { ops: "Segment", prompt: "x" }, `bash ${join(FIX, "fake-enhance-segment.sh")} --input {{input}}`));
+  assert.equal(recs.length, 2);
+  assert.equal((recs[1].payload as Record<string, unknown>).kind, "cutout");
+  // `SEPARATE` against a single-output provider still triggers the no-op guard
+  recs = await enhanceVerb.run(ctx(img, { ops: "SEPARATE" }, `bash ${join(FIX, "fake-enhance-single.sh")} --input {{input}}`));
+  assert.equal(recs[0].state, "error");
+  assert.match(String(recs[0].error), /did not perform '--ops separate'/);
+});

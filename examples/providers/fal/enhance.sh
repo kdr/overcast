@@ -42,6 +42,7 @@ while [ "$#" -gt 0 ]; do case "$1" in
   *)            input="$1"; shift ;;
 esac; done
 : "${speakers:=}"  # accepted (SAM Audio doesn't use it); reserved for parity
+ops="$(printf '%s' "$ops" | tr 'A-Z' 'a-z')"  # normalize so Separate/SEGMENT match
 need
 [ -f "$input" ] || { emit_err "input not found: $input"; exit 0; }
 mkdir -p "$OUTDIR"
