@@ -803,7 +803,7 @@ function autoSeeOpts(ctx: VerbContext): VerbContext["opts"] {
     if (choice !== "owl-local" && !/detect\.py\b/.test(run)) return {};
   }
   const labels = listTargets(ctx.case)
-    .filter((t) => t.kind !== "image")
+    .filter((t) => t.kind !== "image" && !isTargetClosed(t))
     .map((t) => t.value.trim())
     .filter(Boolean);
   return labels.length ? { detect: labels.join(", ") } : {};

@@ -66,6 +66,18 @@ test("casePulse: per-source freshness uses the source's OWN hits, not the platfo
   assert.notEqual(covA.lastScanAgeSeconds, covB.lastScanAgeSeconds);
 });
 
+test("casePulse: coverage counts scan hits lacking source_id via platform-type fallback", () => {
+  // a legacy/adhoc hit with no source_id must still attribute to its platform's
+  // enabled source — not read as "never scanned"
+  const src = source({ id: "src_w", type: "web", ref: "pier" });
+  const unstamped = makeRecord({ verb: "scan", format: "json", payload: { source: "web", url: "http://x/1" }, meta: { time: iso(HOUR) } });
+  const pulse = casePulse({ records: [unstamped], targets: [], sources: [src], now: NOW });
+  const cov = pulse.coverage[0];
+  assert.equal(cov.hits, 1);
+  assert.equal(cov.gap, false);
+  assert.equal(Math.round(cov.lastScanAgeSeconds!), HOUR / 1000);
+});
+
 test("casePulse: enabled-but-never-scanned source is a coverage gap", () => {
   const src = source({ id: "src_b", type: "x", ref: "@h" });
   const pulse = casePulse({ records: [], targets: [], sources: [src], now: NOW });

@@ -134,7 +134,12 @@ function buildCoverage(records: OvercastRecord[], sources: SourceEntry[], now: n
     const hitRecords = records.filter((r) => {
       if (r.verb !== "scan" || !isReady(r)) return false;
       const p = payloadOf(r);
-      return p.source_id === src.id && typeof p.url === "string" && p.url.length > 0;
+      if (typeof p.url !== "string" || !p.url.length) return false;
+      // exact match on the stamped source_id (current pipeline stamps it at
+      // enumerate time); fall back to the platform type for legacy/adhoc hits
+      // that predate stamping, so real sweeps don't read as "never scanned".
+      if (typeof p.source_id === "string") return p.source_id === src.id;
+      return typeof p.source === "string" && p.source === src.type;
     });
     const hitIds = new Set(hitRecords.map((r) => r.id));
     const captured = captures.filter((c) => {

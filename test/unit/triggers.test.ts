@@ -131,6 +131,20 @@ test("evaluateTriggers: two senses on the same clip fold to one text lead (share
   assert.equal(evaluateTriggers({ fresh: [listen], existing: first, targets: [nameTarget], policy: SUGGEST }).length, 0);
 });
 
+test("evaluateTriggers: CLOSED lines accumulate no new suggestions (text + score)", () => {
+  const closedName: TargetEntry = { ...nameTarget, status: "dead-end" };
+  const closedImg: TargetEntry = { ...imageTarget, status: "answered" };
+  // text-target against a closed name line: no lead
+  const watch = makeRecord({ verb: "watch", format: "json", payload: { content: "the acme handle appears here" }, media: { ref: "v.mp4" } });
+  assert.equal(evaluateTriggers({ fresh: [watch], existing: [], targets: [closedName], policy: SUGGEST }).length, 0);
+  // score match whose reference IS a closed image line: still fires (the match is
+  // intrinsically interesting) but is NOT attributed to the dead line
+  const [f] = evaluateTriggers({ fresh: [faceMatch(90, { reference: imageTarget.value })], existing: [], targets: [closedImg], policy: SUGGEST });
+  assert.ok(f);
+  assert.equal((f.payload as Record<string, unknown>).target, "");
+  assert.equal((f.payload as Record<string, unknown>).target_id, undefined);
+});
+
 test("evaluateTriggers: mode off fires nothing; score triggers stay off in review mode", () => {
   assert.equal(evaluateTriggers({ fresh: [faceMatch(99)], existing: [], targets: [], policy: { mode: "off" } }).length, 0);
   assert.equal(evaluateTriggers({ fresh: [faceMatch(99)], existing: [], targets: [], policy: { mode: "review" } }).length, 0);

@@ -20,7 +20,7 @@
  */
 import { findingStatusMap, isMemoryRecord, type OvercastRecord } from "../record.js";
 import { makeFinding } from "../verbs/finding.js";
-import type { TargetEntry } from "../state/target.js";
+import { isTargetClosed, type TargetEntry } from "../state/target.js";
 import type { CaseSetup, SetupFindingsPolicy, SetupFindingsThresholds } from "../state/setup.js";
 
 export const DEFAULT_FINDINGS_MODE = "suggest";
@@ -276,6 +276,11 @@ export function evaluateTriggers(opts: EvaluateTriggerOpts): OvercastRecord[] {
   const mode = opts.policy?.mode ?? DEFAULT_FINDINGS_MODE;
   if (mode !== "review" && mode !== "suggest") return [];
   const thresholds = resolvedThresholds(opts.policy);
+  // closed lines (answered/dead-end) are no longer actively pursued, so they
+  // must not accumulate new suggested findings — same invariant scanLocalCase /
+  // primaryTarget enforce. A score match on media still fires unlinked (the
+  // match is intrinsically interesting), it just isn't attributed to a dead line.
+  const targets = opts.targets.filter((t) => !isTargetClosed(t));
   const out: OvercastRecord[] = [];
   const seen = () => [...opts.existing, ...(opts.pending ?? []), ...out];
 
@@ -293,7 +298,7 @@ export function evaluateTriggers(opts: EvaluateTriggerOpts): OvercastRecord[] {
     // + media.ref, so dedup can't fold them). Multi-sense-on-one-clip still folds
     // via the shared media.ref in hasEquivalentFinding.
     const haystack = payloadText(rec);
-    for (const target of TEXT_TARGET_VERBS.has(rec.verb) ? opts.targets : []) {
+    for (const target of TEXT_TARGET_VERBS.has(rec.verb) ? targets : []) {
       if (target.kind === "image") continue;
       if (!targetMatchesEvidence(target.value, haystack)) continue;
       const all = seen();
@@ -317,7 +322,7 @@ export function evaluateTriggers(opts: EvaluateTriggerOpts): OvercastRecord[] {
     if (mode !== "suggest") continue;
     const sig = extractSignal(rec, thresholds);
     if (!sig) continue;
-    const target = linkImageTarget(opts.targets, [
+    const target = linkImageTarget(targets, [
       obj(rec.payload)?.reference as string | undefined,
       sig.matched,
     ]);

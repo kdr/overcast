@@ -6,7 +6,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { makeRecord, memoryRecords, type OvercastRecord } from "../record.js";
 import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord, type TimelineSynthesis } from "../report/html.js";
-import { sparkline } from "../report/components.js";
+import { sparkline, fmtAge } from "../report/components.js";
 import { casePulse, type CasePulse } from "../signals/pulse.js";
 import { THREAD_STAGE_LABEL, type TargetThread } from "../signals/threads.js";
 import { groupTimeline, groupSummary } from "../signals/rollup.js";
@@ -394,7 +394,7 @@ function renderCoverageSection(pulse: CasePulse, swept: BriefSynthesis["sources"
   const lines: string[] = ["## Coverage", ""];
   if (pulse.coverage.length) {
     for (const c of pulse.coverage) {
-      const age = c.lastScanAgeSeconds != null ? ` · last scan ${Math.round(c.lastScanAgeSeconds / 3600)}h` : c.gap ? " · never scanned" : "";
+      const age = c.lastScanAgeSeconds != null ? ` · last scan ${fmtAge(c.lastScanAgeSeconds)}` : c.gap ? " · never scanned" : "";
       lines.push(`- **${c.spec}**${c.enabled ? "" : " (disabled)"} — ${c.hits} hit${c.hits === 1 ? "" : "s"} → ${c.captured} captured → ${c.sensed} sensed${age}`);
     }
     lines.push("");

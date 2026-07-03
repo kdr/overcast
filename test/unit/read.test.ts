@@ -8,6 +8,7 @@ import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
 import { makeFinding } from "../../src/verbs/finding.ts";
 import { addTarget } from "../../src/state/target.ts";
+import { addSource, listSources } from "../../src/state/source.ts";
 import { LocalMemoryProvider, recordText } from "../../src/providers/memory/local.ts";
 import { resolveMemory, fanOutAnswer } from "../../src/providers/memory/index.ts";
 import { QmdMemoryProvider, DEFAULT_QMD_MODEL } from "../../src/providers/memory/qmd.ts";
@@ -970,6 +971,24 @@ test("brief --scope: pulse (threads/coverage/triage) reflects the FULL case, not
     assert.match(report, /1 line active \(1 with leads\)/);
     // the old suggested lead must still appear in the case-wide triage backlog
     assert.match(report, /## Triage — 1 suggestion awaiting review/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief coverage shows sub-hour freshness via shared fmtAge (not '0h')", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefage-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    addSource(c, "web:pier");
+    const src = listSources(c)[0];
+    // a scan hit ~10 minutes ago — must read "10m", never "0h"
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    c.writeRecord(makeRecord({ verb: "scan", payload: { source: "web", source_id: src.id, url: "http://x/1" }, meta: { time: tenMinAgo } }));
+    const [rec] = await briefVerb.run(ctx(c, undefined, {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.match(report, /last scan \d+m/);
+    assert.doesNotMatch(report, /last scan 0h/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
