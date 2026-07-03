@@ -111,6 +111,16 @@ test("evaluateTriggers: text-target — suggested in suggest mode, legacy open i
   assert.equal((legacy[0].payload as Record<string, unknown>).trigger, "scan:watch");
 });
 
+test("evaluateTriggers: analyst notes do NOT self-suggest (only machine-analyzed content)", () => {
+  // a /debrief thread/tldr note routinely names the target — auto-suggesting a
+  // finding that cites the analyst's own note is triage noise, so notes are out
+  const note = makeRecord({ verb: "note", format: "json", payload: { text: "acme handle reups traced to @codez", tags: ["thread:tgt_a"] }, media: { ref: "n.txt" } });
+  assert.equal(evaluateTriggers({ fresh: [note], existing: [], targets: [nameTarget], policy: SUGGEST }).length, 0);
+  // the same phrase in a machine transcript still leads
+  const watch = makeRecord({ verb: "watch", format: "json", payload: { content: "acme handle reups traced to @codez" }, media: { ref: "v.mp4" } });
+  assert.equal(evaluateTriggers({ fresh: [watch], existing: [], targets: [nameTarget], policy: SUGGEST }).length, 1);
+});
+
 test("evaluateTriggers: text-target fires on content verbs, NOT scan hits or captures", () => {
   // a scan hit whose title mentions the target must NOT create a text lead —
   // otherwise the same item leads once from its hit and again from its watch

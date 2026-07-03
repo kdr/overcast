@@ -976,6 +976,24 @@ test("brief --scope: pulse (threads/coverage/triage) reflects the FULL case, not
   }
 });
 
+test("brief --scope: finding status resolves case-wide (accept row outside the window still shows [accepted])", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-scopestatus-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    // an undated root finding (kept in any since-scope) accepted by a review row
+    // dated BEFORE the scope cutoff (so it's dropped from the scoped record set)
+    const finding = makeRecord({ verb: "finding", payload: { text: "copycat by @codez", status: "open", source_record: "manual", source_verb: "manual", trigger: "human" }, state: "ready" });
+    c.writeRecord(finding);
+    c.writeRecord(makeRecord({ verb: "finding", payload: { finding_id: finding.id, status: "accepted", reviewed_at: "2020-01-01T00:00:00Z" }, meta: { time: "2020-01-01T00:00:00Z" }, state: "ready" }));
+    const [rec] = await briefVerb.run(ctx(c, "since:2026-01-01", {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.match(report, /\[accepted\][^\n]*copycat by @codez/);
+    assert.doesNotMatch(report, /\[open\][^\n]*copycat by @codez/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief coverage shows sub-hour freshness via shared fmtAge (not '0h')", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-briefage-"));
   try {

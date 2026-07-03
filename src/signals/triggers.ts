@@ -25,11 +25,18 @@ import type { CaseSetup, SetupFindingsPolicy, SetupFindingsThresholds } from "..
 
 export const DEFAULT_FINDINGS_MODE = "suggest";
 
-/** Verbs whose payload carries meaningful free text a target phrase can match:
- *  analyzed media (watch/listen/see) + analyst notes. Scan enumeration hits and
- *  raw captures are excluded so one item can't emit a text lead from its hit AND
- *  again from its analyzed content (matches the pre-persist-hook chain reach). */
-export const TEXT_TARGET_VERBS: ReadonlySet<string> = new Set(["watch", "listen", "see", "note"]);
+/** Verbs whose payload is MACHINE-analyzed content a target phrase can surface
+ *  in unexpectedly (watch/listen/see). Deliberately excludes:
+ *   - scan hits / raw captures — enumeration metadata; one item must not lead
+ *     from its hit AND again from its analyzed content (undedupable — different
+ *     source_record + media.ref);
+ *   - notes — analyst-authored input, not machine-discovered evidence. The
+ *     `/debrief` `thread:`/`tldr` notes routinely name the target, and
+ *     auto-suggesting a finding that cites the analyst's own narrative is pure
+ *     triage noise. Analysts promote a note to a finding explicitly via
+ *     `finding create`.
+ *  This matches the pre-persist-hook chain reach (it only ran on sensed records). */
+export const TEXT_TARGET_VERBS: ReadonlySet<string> = new Set(["watch", "listen", "see"]);
 
 /** Fire floors (score triggers skip matches below these) and "high" confidence
  *  bands. face/similar/cluster are 0–100 percent; image is inlier count. */

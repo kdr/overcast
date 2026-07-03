@@ -416,12 +416,16 @@ function renderCoverageSection(pulse: CasePulse, swept: BriefSynthesis["sources"
 /** Build a markdown brief from the case records. Short (default) leads with the
  *  story — verdict, key findings, lines of investigation, triage, coverage — and
  *  a compact appendix; `full` appends the verbatim record dump (audit artifact). */
-function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: CasePulse; full: boolean; triageRecords?: OvercastRecord[] }): BriefData {
-  // capture reviewed finding statuses BEFORE memoryRecords drops the review rows
-  const statusByFinding = findingStatusMap(records);
-  // the triage backlog is case-wide (unscoped) — a --scope window must not hide
-  // pending suggested leads; falls back to the given records when not provided.
-  const triageRecords = opts.triageRecords ?? records;
+function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: CasePulse; full: boolean; caseRecords?: OvercastRecord[] }): BriefData {
+  // case-wide record set (unscoped): a --scope window must not hide pending
+  // triage leads NOR drop out-of-window accept/dismiss review rows (which would
+  // make an accepted finding read stale `[open]`). Falls back to `records` when
+  // not provided (direct callers pass the full set).
+  const caseRecords = opts.caseRecords ?? records;
+  // reviewed finding statuses come from the FULL case (review rows can land
+  // outside the scope window), captured BEFORE memoryRecords drops them.
+  const statusByFinding = findingStatusMap(caseRecords);
+  const triageRecords = caseRecords;
   // Exclude read/meta and operational outputs (ask/brief/case/setup/doctor/etc.)
   // so briefs and memory search stay evidence-focused instead of citing setup
   // probes, doctor checks, or prior read envelopes as findings.
@@ -464,7 +468,7 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
   lines.push("");
 
   lines.push(...renderThreadSection(opts.pulse.threads));
-  lines.push(...renderTriageSection(triageRecords, findingStatusMap(triageRecords)));
+  lines.push(...renderTriageSection(triageRecords, statusByFinding));
   lines.push(...renderCoverageSection(opts.pulse, synthesis.sources));
 
   // Appendix: the record trail. Short = a compact index with page-it pointers;
@@ -635,7 +639,7 @@ export const briefVerb: VerbSpec = {
     // configured sources look never-scanned and lines read cold under
     // `--scope since:24h`. Only the brief body (synthesis + trail) is scoped.
     const pulse = casePulse({ records: allRecords, targets: listTargets(ctx.case), sources: listSources(ctx.case) });
-    const brief = buildBrief(records, info.name, { pulse, full: ctx.opts.full === true, triageRecords: allRecords });
+    const brief = buildBrief(records, info.name, { pulse, full: ctx.opts.full === true, caseRecords: allRecords });
     const theme = normalizeHtmlTheme(ctx.opts.theme);
     if (!theme) return [readError("brief", `invalid --theme '${ctx.opts.theme}' (expected plain or csi)`)];
     if (brief.total === 0) {
