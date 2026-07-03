@@ -263,8 +263,9 @@ const clampInt = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi
 export interface GridCell {
   /** 1-based cell number, left-to-right then top-to-bottom */
   n: number;
-  /** source timestamp (seconds) this cell was sampled from */
-  at: number;
+  /** source timestamp (seconds) this cell was sampled from, or null for a blank
+   *  padding tile that fills out the last row (so every tile position maps). */
+  at: number | null;
 }
 
 export interface ContactSheetResult {
@@ -369,15 +370,14 @@ export async function contactSheet(
     rmSync(work, { recursive: true, force: true });
   }
 
-  return {
-    output: out,
-    cells: seconds.map((at, i) => ({ n: i + 1, at })),
-    cols,
-    rows,
-    cellWidth,
-    cellHeight,
-    labeled,
-  };
+  // map EVERY tile position (cols×rows), not just the sampled ones — the trailing
+  // blank fillers get at:null, so a cell number read off the montage always
+  // resolves (to a timestamp, or to null = blank) instead of falling off the map.
+  const cells: GridCell[] = Array.from({ length: slots }, (_, i) => ({
+    n: i + 1,
+    at: i < n ? seconds[i] : null,
+  }));
+  return { output: out, cells, cols, rows, cellWidth, cellHeight, labeled };
 }
 
 /** Filesystem-safe filename part. */

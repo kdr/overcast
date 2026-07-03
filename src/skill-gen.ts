@@ -821,6 +821,9 @@ overcast see <montage-path> --prompt "Which numbered cells show <X>? Reply with 
 - If the grid record's \`payload.labeled\` is \`false\` (this ffmpeg build has no
   \`drawtext\`), tell \`see\` it's a \`<cols>\`-column grid numbered left-to-right,
   top-to-bottom (\`cols\` is in the record), so it can reference cells by position.
+- Only the first \`count\` cells hold frames; the last row may be blank padding
+  (those \`payload.cells[].at\` are \`null\`), so have \`see\` pick from 1..\`count\`
+  and ignore blank tiles.
 - Always map the chosen cell number back through \`payload.cells[n].at\` to get the
   real timestamp — never use a time the model typed out.
 

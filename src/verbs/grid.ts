@@ -48,6 +48,10 @@ export const gridVerb: VerbSpec = {
   providerKey: "grid",
   run: async (ctx) => {
     if (!ctx.input) return [err("grid requires a video input (path or record id)")];
+    // one notion of "is --at in use" for BOTH the validation gate and the branch
+    // below — a `--at=` (empty string) is not null but is falsy, so keying the two
+    // off different checks let an unvalidated --count slip into window sampling.
+    const hasAt = typeof ctx.opts.at === "string" && ctx.opts.at.trim() !== "";
     const numErr =
       // count/cols set array lengths + the grid shape, so they must be whole
       // numbers — a fractional count truncates the samples while the step math
@@ -56,9 +60,9 @@ export const gridVerb: VerbSpec = {
       badNumber(ctx.opts, "width", (n) => n >= 120 && n <= 960, "120–960") ??
       // --count only drives window sampling; an explicit --at overrides it, so
       // don't reject a count the user isn't actually using.
-      (ctx.opts.at == null
-        ? badNumber(ctx.opts, "count", (n) => Number.isInteger(n) && n >= 1 && n <= MAX_CELLS, `a whole number 1–${MAX_CELLS}`)
-        : undefined);
+      (hasAt
+        ? undefined
+        : badNumber(ctx.opts, "count", (n) => Number.isInteger(n) && n >= 1 && n <= MAX_CELLS, `a whole number 1–${MAX_CELLS}`));
     if (numErr) return [err(numErr)];
 
     // accept a path / URL / case record id, and validate it's real AV media.
@@ -75,9 +79,10 @@ export const gridVerb: VerbSpec = {
     }
 
     // decide the timestamps: explicit --at wins; otherwise sample the window.
+    const dur = probed?.durationSeconds; // known clip length, or undefined
     let seconds: number[];
     let window: { start: number; end: number } | undefined;
-    if (ctx.opts.at) {
+    if (hasAt) {
       const parts = String(ctx.opts.at).split(",").map((s) => parseTimecode(s));
       if (parts.some((p) => p === undefined)) {
         return [err(`invalid --at: ${ctx.opts.at} (use comma-separated SS or MM:SS)`)];
@@ -89,16 +94,28 @@ export const gridVerb: VerbSpec = {
       if (seconds.length > MAX_CELLS) {
         return [err(`too many --at timestamps (${seconds.length}); max ${MAX_CELLS}`)];
       }
+      // a --at past EOF would extract a repeated last frame while cells[].at still
+      // claims that (never-sampled) second — reject it instead of lying.
+      if (dur !== undefined) {
+        const past = seconds.filter((t) => t > dur);
+        if (past.length) {
+          return [err(`--at past the video duration (${dur.toFixed(1)}s): ${past.join(", ")}`)];
+        }
+      }
     } else {
       const start = ctx.opts.start != null ? parseTimecode(String(ctx.opts.start)) : 0;
       if (start === undefined) return [err(`invalid --start: ${ctx.opts.start}`)];
       let end = ctx.opts.end != null ? parseTimecode(String(ctx.opts.end)) : undefined;
       if (ctx.opts.end != null && end === undefined) return [err(`invalid --end: ${ctx.opts.end}`)];
       if (end === undefined) {
-        end = probed?.durationSeconds;
+        end = dur;
         if (end === undefined) {
           return [err("could not read video duration — pass --end or an explicit --at list")];
         }
+      } else if (dur !== undefined && end > dur) {
+        // never sample past EOF — clamp an over-long --end to the real clip length
+        // so midpoints stay inside the video (and cells[].at stays truthful).
+        end = dur;
       }
       if (!(end > start)) return [err(`empty window: --start ${start} is not before --end ${end}`)];
       const count = ctx.opts.count != null ? Number(ctx.opts.count) : 16;
@@ -115,23 +132,26 @@ export const gridVerb: VerbSpec = {
         outPath: ctx.opts.out ? String(ctx.opts.out) : undefined,
       });
       const grid = `${sheet.cols}x${sheet.rows}`;
+      const blanks = sheet.cells.length - seconds.length; // trailing padding tiles
       return [
         makeRecord({
           verb: "grid",
           format: "json",
           payload: {
             summary:
-              `contact sheet: ${sheet.cells.length} frames from ${basename(input)} ` +
-              `(${grid}${sheet.labeled ? ", labeled" : ", unlabeled — cells numbered left-to-right, top-to-bottom"})`,
+              `contact sheet: ${seconds.length} frames from ${basename(input)} ` +
+              `(${grid}${blanks > 0 ? `, last ${blanks} cell(s) blank` : ""}` +
+              `${sheet.labeled ? ", labeled" : ", unlabeled — cells numbered left-to-right, top-to-bottom"})`,
             source: input,
             source_record: resolved.recordId,
             montage: sheet.output,
             grid,
             cols: sheet.cols,
             rows: sheet.rows,
-            count: sheet.cells.length,
+            count: seconds.length,
             labeled: sheet.labeled,
             window,
+            // full tile map (cols×rows); entries with at:null are blank padding.
             cells: sheet.cells,
           },
           media: { ref: sheet.output },

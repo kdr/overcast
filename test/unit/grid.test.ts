@@ -59,12 +59,37 @@ test("grid verb: window sampling emits a media.grid record with midpoint cells",
   assert.equal(rec.media?.ref, p.montage);
 });
 
-test("grid verb: explicit --at overrides window and is sorted + deduped", async () => {
+test("grid verb: explicit --at overrides window, sorted + deduped, padding mapped as null", async () => {
   const [rec] = await gridVerb.run(ctx(clip, { at: "8,2,2,5", json: true }));
   assert.equal(rec.state, "ready");
   const p = rec.payload as Record<string, any>;
-  assert.deepEqual(p.cells.map((c: any) => c.at), [2, 5, 8]);
+  assert.deepEqual(p.cells.filter((c: any) => c.at != null).map((c: any) => c.at), [2, 5, 8]);
+  assert.equal(p.count, 3); // count is real frames, not tiles
+  // default layout for 3 frames is 2x2 → one trailing blank padding tile, mapped as null
+  assert.equal(p.cells.length, p.cols * p.rows);
+  assert.equal(p.cells.filter((c: any) => c.at === null).length, p.cols * p.rows - 3);
   assert.equal(p.window, undefined); // --at path carries no window
+});
+
+test("grid verb: an empty --at= does not skip --count validation (window sampling still runs)", async () => {
+  const [rec] = await gridVerb.run(ctx(clip, { at: "", count: 999, json: true }));
+  assert.equal(rec.state, "error"); // hasAt is false for "", so count IS validated
+  assert.match(rec.error ?? "", /whole number 1–64/);
+});
+
+test("grid verb: --at past the clip duration is rejected", async () => {
+  const [rec] = await gridVerb.run(ctx(clip, { at: "5,9999", json: true }));
+  assert.equal(rec.state, "error");
+  assert.match(rec.error ?? "", /past the video duration/);
+});
+
+test("grid verb: an over-long --end is clamped to the clip so cells stay truthful", async () => {
+  const [rec] = await gridVerb.run(ctx(clip, { start: "0", end: "9999", count: 4, json: true }));
+  assert.equal(rec.state, "ready");
+  const p = rec.payload as Record<string, any>;
+  assert.ok(p.window.end <= 12.5, `window end clamped to clip duration, got ${p.window.end}`);
+  const maxAt = Math.max(...p.cells.filter((c: any) => c.at != null).map((c: any) => c.at));
+  assert.ok(maxAt <= 12, `no sampled cell past EOF, got ${maxAt}`);
 });
 
 test("grid verb: validation rejects out-of-range flags and bad --at", async () => {
@@ -98,7 +123,7 @@ test("grid verb: an out-of-range --count is ignored when --at overrides it", asy
   const [rec] = await gridVerb.run(ctx(clip, { count: 999, at: "2,5,8", json: true }));
   assert.equal(rec.state, "ready"); // count is irrelevant with --at, so no validation error
   const p = rec.payload as Record<string, any>;
-  assert.deepEqual(p.cells.map((c: any) => c.at), [2, 5, 8]);
+  assert.deepEqual(p.cells.filter((c: any) => c.at != null).map((c: any) => c.at), [2, 5, 8]);
 });
 
 test("grid verb: a fractional --count is rejected (skews window sampling)", async () => {
