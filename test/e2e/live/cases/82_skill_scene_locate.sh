@@ -35,7 +35,7 @@ assert_nonempty "$C.clues" "${CAP}${OCR}" "extracted caption/OCR clues from the 
 SEE_ID="$(echo "$see" | jq -r '.id // empty')"
 
 # 2) skill step (billed tier): reverse-image-search the still through Google Lens
-LENS_URL=""
+LENS_URL=""; lens_done=0; web_done=0
 if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
   cond "scene-locate skill: lens reverse-image-searches the still for matching pages"
   export OVERCAST_SOURCE_LENS_CMD="bash $PWD/examples/providers/sources/lens.sh"
@@ -55,6 +55,7 @@ if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
     match="$(echo "$lout" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.match // empty' 2>/dev/null)"
     ok "$C.lens_match" "top lens match ($match): $LENS_URL"
   fi
+  lens_done=1
   unset OVERCAST_SOURCE_LENS_CMD
 fi
 
@@ -67,6 +68,7 @@ if require_cred "$C.web" TAVILY_API_KEY "web corroboration tier needs Tavily"; t
   save_json "82_web" "$wout" >/dev/null
   whits="$(echo "$wout" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")]|length' 2>/dev/null)"
   if [ "${whits:-0}" -ge 1 ]; then ok "$C.web_hits" "web corroboration returned $whits page(s)"; else fail "$C.web_hits" "web search returned no pages"; fi
+  web_done=1
   unset OVERCAST_SOURCE_WEB_CMD
 fi
 
@@ -78,7 +80,10 @@ if [ -n "$LENS_URL" ]; then
 else
   oc "$CASE" finding create "location workup: extracted scene clues; reverse-image match undetermined" --confidence low --json >/dev/null
 fi
-oc "$CASE" note "scene-locate: read clues from the still, reverse-image-searched via lens, corroborated on the web." --tag tldr --json >/dev/null
+legs="read clues from the still"
+[ "$lens_done" -eq 1 ] && legs="$legs, reverse-image-searched via lens"
+[ "$web_done" -eq 1 ] && legs="$legs, corroborated on the web"
+oc "$CASE" note "scene-locate: $legs." --tag tldr --json >/dev/null
 findings="$(ocrun "$CASE" case records --verb finding --json 2>/dev/null | jq -r '.payload.count // 0')"
 assert_nonempty "$C.finding" "$([ "${findings:-0}" -ge 1 ] && echo "$findings")" "location finding persisted"
 BRIEF="$SMOKE_DIR/82_scene_locate_brief.html"

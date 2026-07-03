@@ -24,18 +24,18 @@ assert_eq "$C.clip1" "ready" "$(echo "$w1" | jq -r '.state')" "clip 1 sensed"
 assert_nonempty "$C.clip1_id" "$W1" "clip 1 record id"
 
 # a second recording of the "event" — another video (watch) or the speech clip (listen)
-W2=""; SECOND_KIND=""
+W2=""
 if have_media "$VIDEO_OBJECTS" && [ "$VIDEO_OBJECTS" != "$VIDEO_VISUAL" ]; then
   CLIP2="$SMOKE_DIR/timeline_clip2.mp4"; clip_av 10 "$VIDEO_OBJECTS" "$CLIP2"
   cond "timeline skill: a second real recording of the event joins the case"
   w2="$(OC_TIMEOUT=300 oc "$CASE" watch "$CLIP2" --json)"
-  W2="$(echo "$w2" | jq -r '.id // empty')"; SECOND_KIND="watch"
+  W2="$(echo "$w2" | jq -r '.id // empty')"
   assert_eq "$C.clip2" "ready" "$(echo "$w2" | jq -r '.state')" "clip 2 sensed"
 elif have_media "$VIDEO_SPEECH_SRC"; then
   CLIP2="$SMOKE_DIR/timeline_clip2.mp4"; clip_av 12 "$VIDEO_SPEECH_SRC" "$CLIP2"
   cond "timeline skill: a second recording (audio account) joins the case"
   w2="$(OC_TIMEOUT=300 oc "$CASE" listen "$CLIP2" --json)"
-  W2="$(echo "$w2" | jq -r '.id // empty')"; SECOND_KIND="listen"
+  W2="$(echo "$w2" | jq -r '.id // empty')"
   assert_eq "$C.clip2" "ready" "$(echo "$w2" | jq -r '.state')" "clip 2 sensed (listen)"
 else
   skip "$C.clip2" "only one clip available — cross-anchor runs on a single feed"
@@ -59,7 +59,8 @@ assert_nonempty "$C.ask_answer" "$ans" "ask returned a cited chronological answe
 # 4) skill step: contradictions become low-confidence findings; brief is the deliverable
 cond "timeline skill: a contradiction finding + tldr note feed the chronological brief"
 oc "$CASE" finding create "timeline: possible ordering conflict between the recordings — flagged for review" --ref "$W1" --at 1-4 --confidence low --json >/dev/null
-oc "$CASE" note "timeline: reconstructed the event across ${SECOND_KIND:+2}${SECOND_KIND:-1} clip(s); anchored shared moments; asked for ordering + conflicts." --tag tldr --json >/dev/null
+nclips=1; [ -n "$W2" ] && nclips=2
+oc "$CASE" note "timeline: reconstructed the event across $nclips clip(s); anchored shared moments; asked for ordering + conflicts." --tag tldr --json >/dev/null
 BRIEF="$SMOKE_DIR/86_timeline_brief.html"
 oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
 if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then

@@ -57,6 +57,9 @@ if require_cred "$C.monitor" APIFY_TOKEN "source-monitor tier needs Apify"; then
   cond "stakeout skill: monitor --once sweeps a real x source and pipes a new hit into watch"
   export OVERCAST_SOURCE_X_CMD="bash $PWD/examples/providers/sources/x.sh"
   ocrun "$CASE" source add 'x:video:from:NASA' --json >/dev/null 2>&1
+  # snapshot the watch count BEFORE monitor so we can prove a NEW feed was piped
+  # (the seed feed already makes the count 1, so a bare >=1 check proves nothing).
+  pre_watches="$(ocrun "$CASE" case records --verb watch --json 2>/dev/null | jq -r '.payload.count // 0')"
   mon="$(OC_TIMEOUT=600 oc "$CASE" monitor --once --source x --limit 2 --pipe watch --json)"
   save_json "81_monitor" "$mon" >/dev/null
   hits="$(cat "$CASE/.overcast/records/scan.jsonl" 2>/dev/null | jq -s '[.[]|select((.payload.url // "") != "")]|length')"
@@ -65,9 +68,19 @@ if require_cred "$C.monitor" APIFY_TOKEN "source-monitor tier needs Apify"; then
   else
     fail "$C.monitor_hits" "expected 1-2 monitor hits, got ${hits:-0}"
   fi
-  watches="$(ocrun "$CASE" case records --verb watch --json 2>/dev/null | jq -r '.payload.count // 0')"
-  # the seed feed is one; a piped feed is more — proves --pipe watch ran on new media
-  if [ "${watches:-0}" -ge 1 ]; then ok "$C.monitor_pipe" "case now holds $watches watch record(s) (feed + piped)"; else fail "$C.monitor_pipe" "no watch records after monitor"; fi
+  post_watches="$(ocrun "$CASE" case records --verb watch --json 2>/dev/null | jq -r '.payload.count // 0')"
+  # a --pipe watch that saw new media must ADD a watch record beyond the seed feed;
+  # if the diff surfaced no fresh items (hits==0) there's nothing to pipe, so that's a
+  # clean no-op, not a failure.
+  if [ "${hits:-0}" -ge 1 ]; then
+    if [ "${post_watches:-0}" -gt "${pre_watches:-0}" ]; then
+      ok "$C.monitor_pipe" "--pipe watch added $((post_watches - pre_watches)) new watch record(s) beyond the seed feed"
+    else
+      fail "$C.monitor_pipe" "monitor found $hits hit(s) but piped no new watch record (pre=$pre_watches post=$post_watches)"
+    fi
+  else
+    ok "$C.monitor_pipe" "no fresh items to pipe this pass (0 new hits) — clean no-op"
+  fi
 fi
 
 # 6) skill step: periodic cited brief

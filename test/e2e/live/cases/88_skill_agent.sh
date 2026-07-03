@@ -46,8 +46,12 @@ else
   skip "$C.enhance" "no clip or skill file"
 fi
 
-# --- leg 2: wiretap (listen --diarize on a real recording) ------------------------
-cond "agent loads the wiretap skill and diarizes a real recording headless"
+# --- leg 2: wiretap (listen/transcribe a real recording) --------------------------
+# Bounded to plain transcription: the wiretap skill's --diarize step needs a
+# diarize-capable provider (ElevenLabs), which 84_skill_wiretap.sh proves
+# deterministically. Here we only prove the agent can drive the skill's listen
+# step on the default backend, so we ask for transcription (not --diarize).
+cond "agent loads the wiretap skill and transcribes a real recording headless"
 if have_media "$AUDIO_FILE"; then REC="$AUDIO_FILE"; elif have_media "$VIDEO_SPEECH_SRC"; then REC="$SMOKE_DIR/agent_speech.mp4"; clip_av 12 "$VIDEO_SPEECH_SRC" "$REC"; fi
 SKILL="$PWD/skills/overcast-wiretap/SKILL.md"
 if [ -n "${REC:-}" ] && [ -f "$REC" ] && [ -f "$SKILL" ]; then
@@ -56,13 +60,14 @@ if [ -n "${REC:-}" ] && [ -f "$REC" ] && [ -f "$SKILL" ]; then
 
 $(cat "$SKILL")
 
-Invoke the skill above for this BOUNDED task only: run the overcast listen tool on the recording at $REC with --diarize to separate the speakers, then STOP. Do not enhance or brief. Reply in one line: 'SPEAKERS: <n>'."
+Invoke the skill above for this BOUNDED task only: run the overcast listen tool on the recording at $REC to transcribe it (plain listen — do NOT pass --diarize, and do not bind any provider), then STOP. Do not enhance, diarize, or brief. Reply in one line: 'TRANSCRIBED: <chars>'."
   trace="$(OC_TIMEOUT=420 oc "$CASE" --mode json "$prompt")"
   save_json "88_wiretap_trace" "$trace" >/dev/null
   assert_nonempty "$C.wiretap.trace" "$trace" "wiretap-skill JSONL trace captured"
   assert_agent_ran "$C.wiretap" "$trace" "listen" "wiretap"
-  recs="$(cat "$CASE/.overcast/records/listen.jsonl" 2>/dev/null | jq -s '[.[]|select(.state=="ready")]|length')"
-  if [ "${recs:-0}" -ge 1 ]; then ok "$C.wiretap.persisted" "agent persisted $recs ready listen record(s)"; else fail "$C.wiretap.persisted" "no ready listen record persisted"; fi
+  # a plain listen on the default backend yields a ready record with a real transcript
+  recs="$(cat "$CASE/.overcast/records/listen.jsonl" 2>/dev/null | jq -s '[.[]|select(.state=="ready" and ((.payload.transcript // "")|length>0))]|length')"
+  if [ "${recs:-0}" -ge 1 ]; then ok "$C.wiretap.persisted" "agent persisted $recs ready listen record(s) with a transcript"; else fail "$C.wiretap.persisted" "no ready listen record with a transcript persisted"; fi
 else
   skip "$C.wiretap" "no recording or skill file"
 fi

@@ -101,7 +101,8 @@ if [ -n "$IDREF" ]; then
 else
   oc "$CASE" finding create "lineup DB built with $people person(s); no probe matched confidently" --confidence low --json >/dev/null
 fi
-oc "$CASE" note "lineup sweep: booked faces into a local face-cluster DB, clustered into $people people, ran a held-out identify probe." --tag tldr --json >/dev/null
+if [ -n "$IDREF" ]; then probe="ran a held-out identify probe"; else probe="no probe image to identify against"; fi
+oc "$CASE" note "lineup sweep: booked faces into a local face-cluster DB, clustered into $people people, $probe." --tag tldr --json >/dev/null
 findings="$(ocrun "$CASE" case records --verb finding --json 2>/dev/null | jq -r '.payload.count // 0')"
 assert_nonempty "$C.finding" "$([ "${findings:-0}" -ge 1 ] && echo "$findings")" "identification finding persisted"
 BRIEF="$SMOKE_DIR/80_lineup_brief.html"

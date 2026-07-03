@@ -35,7 +35,7 @@ add="$(oc "$CASE" image add "$LOGO" --index "$IDX" --json)"
 assert_eq "$C.fingerprint" "ready" "$(echo "$add" | jq -r '.state')" "distinctive mark fingerprinted"
 
 # 2) skill step: reverse-image-search the mark (lens) — origin candidates
-LENS_URL=""
+LENS_URL=""; lens_done=0; web_done=0
 if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
   cond "provenance skill: lens reverse-image-searches the mark for its earliest/original pages"
   export OVERCAST_SOURCE_LENS_CMD="bash $PWD/examples/providers/sources/lens.sh"
@@ -47,6 +47,7 @@ if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
   lhits="$(echo "$lout" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")]|length' 2>/dev/null)"
   if [ -z "$lerr" ]; then ok "$C.lens_ran" "lens reverse-image tier ran clean ($lhits page match(es))"; else fail "$C.lens_ran" "lens errored: $lerr"; fi
   [ "${lhits:-0}" -ge 1 ] && LENS_URL="$(echo "$lout" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")][0].payload.url' 2>/dev/null)"
+  lens_done=1
   unset OVERCAST_SOURCE_LENS_CMD
 fi
 
@@ -59,6 +60,7 @@ if require_cred "$C.web" TAVILY_API_KEY "keyword-sweep tier needs Tavily"; then
   save_json "85_web" "$wout" >/dev/null
   whits="$(echo "$wout" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.url // "") != "")]|length' 2>/dev/null)"
   if [ "${whits:-0}" -ge 1 ]; then ok "$C.web_hits" "keyword sweep returned $whits candidate page(s)"; else fail "$C.web_hits" "keyword sweep returned no pages"; fi
+  web_done=1
   unset OVERCAST_SOURCE_WEB_CMD
 fi
 
@@ -101,7 +103,11 @@ if [ -n "${MR_ID:-}" ] && [ "${rc:-0}" -ge 1 ]; then
   [ -n "$LENS_URL" ] && verdict="$verdict; reverse-image surfaced $LENS_URL as an origin candidate"
   oc "$CASE" finding create "$verdict" --ref "$MR_ID" --confidence high --json >/dev/null
 fi
-oc "$CASE" note "provenance: fingerprinted the mark, reverse-image + keyword swept for origin (no recency floor), CONFIRMED a suspect clip through the geometry gate and REJECTED an unrelated one." --tag tldr,provenance --confidence high --json >/dev/null
+sweepnote=""
+[ "$lens_done" -eq 1 ] && sweepnote="reverse-image-searched"
+[ "$web_done" -eq 1 ] && { [ -n "$sweepnote" ] && sweepnote="$sweepnote + keyword-swept" || sweepnote="keyword-swept"; }
+[ -n "$sweepnote" ] && sweepnote="$sweepnote for origin (no recency floor), "
+oc "$CASE" note "provenance: fingerprinted the mark, ${sweepnote}CONFIRMED a suspect clip through the geometry gate and REJECTED an unrelated one." --tag tldr,provenance --confidence high --json >/dev/null
 BRIEF="$SMOKE_DIR/85_provenance_brief.html"
 oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
 if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then

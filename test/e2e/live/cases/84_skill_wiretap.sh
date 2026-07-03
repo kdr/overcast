@@ -75,22 +75,12 @@ assert_eq "$C.ask_state" "ready" "$(echo "$ask" | jq -r '.state')" "cross-listen
 ans="$(echo "$ask" | jq -r '(.payload.answer // .payload.text // .payload.summary // "")')"
 assert_nonempty "$C.ask_answer" "$ans" "ask returned a cited answer over the listen records"
 
-# 6) skill step: cited finding + mandatory tldr note + brief
-cond "wiretap skill: a speaker/location finding cites the listen record; a tldr note feeds the brief"
-oc "$CASE" finding create "audio workup: diarized the recording, read the background scene, isolated + re-transcribed voices" --ref "${LID:-}" --confidence medium --json >/dev/null
-oc "$CASE" note "wiretap: 1 recording diarized + described; spectrogram rendered; voice-isolated and re-listened." --tag tldr --json >/dev/null
-BRIEF="$SMOKE_DIR/84_wiretap_brief.html"
-oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
-if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then
-  ok "$C.brief" "wiretap brief exported: $BRIEF ($(wc -c <"$BRIEF" | tr -d ' ') bytes)"
-else
-  fail "$C.brief" "no wiretap brief HTML at $BRIEF"
-fi
-
-# 7) skill step: real speaker separation — listen --diarize via a diarize-capable
+# 6) skill step: real speaker separation — listen --diarize via a diarize-capable
 # provider (ElevenLabs). The default tinycloud/Cloudglue listen path does NOT accept
 # --diarize; this leg proves the skill's diarization works with the right provider.
-# Runs LAST so rebinding the listen provider can't affect the Cloudglue steps above.
+# Runs BEFORE the finding/note/brief so those honestly reflect whether diarization
+# happened, and AFTER every Cloudglue listen step so the provider rebind is safe.
+DIARIZED=0
 if require_cred "$C.diarize" ELEVENLABS_API_KEY "speaker separation needs a diarize-capable provider (ElevenLabs)"; then
   cond "wiretap skill: a bound ElevenLabs provider does listen --diarize (speaker separation)"
   EL="$PWD/examples/providers/elevenlabs/listen.sh"
@@ -98,5 +88,23 @@ if require_cred "$C.diarize" ELEVENLABS_API_KEY "speaker separation needs a diar
   dz="$(OC_TIMEOUT=240 oc "$CASE" listen "$REC" --diarize --json)"
   save_json "84_diarize" "$dz" >/dev/null
   st="$(echo "$dz" | jq -r '.state')"
-  [ "$st" = "ready" ] && ok "$C.diarize_state" "ElevenLabs diarization ready (speaker separation)" || fail "$C.diarize_state" "diarize state=$st err=$(echo "$dz"|jq -r '.error // empty'|head -c 80)"
+  if [ "$st" = "ready" ]; then DIARIZED=1; ok "$C.diarize_state" "ElevenLabs diarization ready (speaker separation)"; else fail "$C.diarize_state" "diarize state=$st err=$(echo "$dz"|jq -r '.error // empty'|head -c 80)"; fi
+fi
+
+# 7) skill step: cited finding + mandatory tldr note + brief. The claim reflects
+# what actually ran — speaker separation is only asserted when diarization happened.
+cond "wiretap skill: a finding cites the listen record; a tldr note (honest about diarization) feeds the brief"
+if [ "$DIARIZED" -eq 1 ]; then
+  sep="separated speakers (ElevenLabs diarization)"; sepnote="speakers separated via ElevenLabs diarization"
+else
+  sep="speaker separation skipped (no diarize-capable provider)"; sepnote="speaker separation skipped (no ElevenLabs)"
+fi
+oc "$CASE" finding create "audio workup: transcribed + described the recording, isolated + re-transcribed voices, $sep" --ref "${LID:-}" --confidence medium --json >/dev/null
+oc "$CASE" note "wiretap: 1 recording transcribed + described; spectrogram rendered; voice-isolated and re-listened; $sepnote." --tag tldr --json >/dev/null
+BRIEF="$SMOKE_DIR/84_wiretap_brief.html"
+oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
+if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then
+  ok "$C.brief" "wiretap brief exported: $BRIEF ($(wc -c <"$BRIEF" | tr -d ' ') bytes)"
+else
+  fail "$C.brief" "no wiretap brief HTML at $BRIEF"
 fi
