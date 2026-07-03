@@ -536,15 +536,6 @@ export const doctorVerb: VerbSpec = {
         : "optional — install c2patool for the `verify` sense (`brew install c2patool` / `cargo install c2patool`)",
     });
 
-    // PICARTA_API_KEY — backs the optional `geolocate` (content-based image
-    // geolocation) sense; informational (not a hard failure when absent).
-    checks.push({
-      name: "geolocate",
-      ok: true,
-      detail: envPresent("PICARTA_API_KEY")
-        ? "PICARTA_API_KEY present — content-based geolocation (geolocate) available"
-        : "optional — set PICARTA_API_KEY for the `geolocate` sense (https://picarta.ai/)",
-    });
 
     const configuredSources = listSources(ctx.case);
     const sourceTypes = new Set(configuredSources.map((s) => s.type));

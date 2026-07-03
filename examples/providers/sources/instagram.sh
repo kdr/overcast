@@ -47,6 +47,8 @@ case "$op" in
           cut="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo 0)" ;;
         *) cut=0 ;;
       esac
+      # an unparseable --since must not silently disable the window
+      [ "$cut" -eq 0 ] && echo "instagram: could not parse --since '$since'; no date cutoff applied" >&2
     fi
     # translate the ref into a directUrls target for the actor
     case "$query" in

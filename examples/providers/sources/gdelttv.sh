@@ -64,6 +64,8 @@ case "$op" in
         # recent window (e.g. --since 7d) can legitimately return zero clips.
         [ -n "$stamp" ] && startparam="&STARTDATETIME=$stamp&ENDDATETIME=$endstamp"
       fi
+      # an unparseable --since must not silently widen to the full corpus
+      [ -z "$startparam" ] && echo "gdelttv: could not parse --since '$since'; no date window applied" >&2
     fi
 
     q="$(jq -rn --arg q "$query" '$q|@uri')"

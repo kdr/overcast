@@ -1,10 +1,9 @@
-// Media-forensics / geolocation senses: exif (ExifTool metadata + GPS), and —
-// added in later waves — verify (C2PA provenance) and geolocate (Picarta). Each
-// analyzes a captured/sensed artifact and emits an evidence record. They share
-// one runner: resolve the input (path / http URL fetched into the case / case
-// record id), dispatch to a bound provider or the shipped default exec script,
-// then stamp case + source-post provenance — mirroring the see/listen senses
-// (src/verbs/senses.ts) so behavior can't drift.
+// Media-forensics senses: exif (ExifTool metadata + GPS) and verify (C2PA
+// provenance). Each analyzes a captured/sensed artifact and emits an evidence
+// record. They share one runner: resolve the input (path / http URL fetched into
+// the case / case record id), dispatch to a bound provider or the shipped default
+// exec script, then stamp case + source-post provenance — mirroring the see/listen
+// senses (src/verbs/senses.ts) so behavior can't drift.
 
 import { existsSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../record.js";
@@ -12,7 +11,7 @@ import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
-import { resolveMediaRef, isImage } from "./media-ref.js";
+import { resolveMediaRef } from "./media-ref.js";
 import { provenanceFromCapture, scanHitProvenance, stampProvenance } from "./provenance.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -25,8 +24,6 @@ interface SenseConfig {
   verb: string;
   /** shipped default provider script, as shippedPath() segments */
   shipped: string[];
-  /** input resolution: "media" = any file (exif/verify), "image" = still only (geolocate) */
-  resolve: "media" | "image";
 }
 
 /** Shared runner for the forensic senses. */
@@ -76,24 +73,16 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
     }
     // validate the FETCHED content by kind, not just local paths: an expired CDN /
     // auth URL returns HTML, which would otherwise yield a misleading "ready"
-    // forensic result ("no GPS", has_manifest:false). image-only senses need an
-    // image; media senses (exif/verify) accept image OR av but reject non-media.
-    // Mirrors the `see` sense's fetched-kind guard.
-    const k = kindForExt(dl.ext);
-    const got = dl.ext ? dl.ext.slice(1) : dl.contentType ?? "unknown";
-    if (cfg.resolve === "image" && k !== "image") {
-      return stamp(errorRecord(cfg.verb, `${sourceUrl} did not resolve to a still image (got ${got}, saved to ${dl.path}) — ${cfg.verb} needs an image`));
-    }
-    if (cfg.resolve === "media" && k === "other") {
+    // forensic result ("no GPS", has_manifest:false). Accept image OR av, reject
+    // non-media. Mirrors the `see` sense's fetched-kind guard.
+    if (kindForExt(dl.ext) === "other") {
+      const got = dl.ext ? dl.ext.slice(1) : dl.contentType ?? "unknown";
       return stamp(errorRecord(cfg.verb, `${sourceUrl} did not resolve to media (got ${got}, saved to ${dl.path}) — likely an expired link or a login/HTML page`));
     }
     ref = dl.path;
   }
-  // 3) local file: must exist; image-only senses must get an image.
+  // 3) local file must exist.
   if (!existsSync(ref)) return stamp(errorRecord(cfg.verb, `${cfg.verb}: file not found: ${ref}`));
-  if (cfg.resolve === "image" && !isImage(ref)) {
-    return stamp(errorRecord(cfg.verb, `${cfg.verb}: ${ref} is not an image file`));
-  }
 
   // dispatch: a bound provider wins; else the shipped default exec script.
   const binding = providerBinding(ctx, cfg.verb);
@@ -128,7 +117,7 @@ export const exifVerb: VerbSpec = {
   ],
   outputKind: "media.metadata",
   providerKey: "exif",
-  run: (ctx) => runForensicSense(ctx, { verb: "exif", shipped: ["examples", "providers", "exif", "exif.sh"], resolve: "media" }),
+  run: (ctx) => runForensicSense(ctx, { verb: "exif", shipped: ["examples", "providers", "exif", "exif.sh"] }),
 };
 
 // ---- verify (C2PA / Content Credentials provenance) ------------------------
@@ -153,28 +142,5 @@ export const verifyVerb: VerbSpec = {
   ],
   outputKind: "media.provenance",
   providerKey: "verify",
-  run: (ctx) => runForensicSense(ctx, { verb: "verify", shipped: ["examples", "providers", "verify", "verify.sh"], resolve: "media" }),
-};
-
-// ---- geolocate (content-based image geolocation) ---------------------------
-
-export const geolocateVerb: VerbSpec = {
-  name: "geolocate",
-  group: "sense",
-  summary: "Predict where an image was taken from its content (Picarta AI) — GPS, city, country.",
-  description:
-    "Estimates the geographic location of a still image from its visual content alone (architecture, " +
-    "signage, vegetation) — works even when EXIF GPS is stripped. Emits a geo.estimate record: a summary, " +
-    "predicted lat/lng, city/country/province, a confidence, and the top-K candidate locations. Complements " +
-    "`exif` (which reads embedded GPS when present). The default backend is the shipped Picarta provider " +
-    "(`PICARTA_API_KEY`, free credits to start); bind your own with `setup provider geolocate <spec>`. " +
-    "Accepts an image path, a case record/capture id, or an http(s) URL (fetched into the case media dir).",
-  args: [{ name: "input", summary: "Image path, case record id, or http(s) URL", required: true }],
-  flags: [
-    { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
-    { name: "json", summary: "Shorthand for --format json", type: "boolean" },
-  ],
-  outputKind: "geo.estimate",
-  providerKey: "geolocate",
-  run: (ctx) => runForensicSense(ctx, { verb: "geolocate", shipped: ["examples", "providers", "geolocate", "geolocate.sh"], resolve: "image" }),
+  run: (ctx) => runForensicSense(ctx, { verb: "verify", shipped: ["examples", "providers", "verify", "verify.sh"] }),
 };

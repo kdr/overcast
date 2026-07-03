@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { exifVerb, verifyVerb, geolocateVerb } from "../../src/verbs/forensics.ts";
+import { exifVerb, verifyVerb } from "../../src/verbs/forensics.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
@@ -20,7 +20,6 @@ const TINY_JPEG = Buffer.from(
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_EXIF = join(HERE, "..", "fixtures", "fake-exif.sh");
 const FAKE_VERIFY = join(HERE, "..", "fixtures", "fake-verify.sh");
-const FAKE_GEOLOCATE = join(HERE, "..", "fixtures", "fake-geolocate.sh");
 
 function caseCtx(dir: string, input: string | undefined, bind?: { verb: string; script: string }): VerbContext {
   const c = openCase(dir);
@@ -101,37 +100,6 @@ test("verify errors when no input is given", async () => {
   }
 });
 
-test("geolocate dispatches to a bound provider and passes the geo record through", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "oc-geo-"));
-  try {
-    const img = join(dir, "p.jpg");
-    writeFileSync(img, "exists");
-    chmodSync(FAKE_GEOLOCATE, 0o755);
-    const [rec] = await geolocateVerb.run(caseCtx(dir, img, { verb: "geolocate", script: FAKE_GEOLOCATE }));
-    assert.equal(rec.verb, "geolocate");
-    assert.equal(rec.state, "ready");
-    const p = rec.payload as Record<string, unknown>;
-    assert.equal(p.city, "Paris");
-    assert.equal(p.lat, 48.8584);
-    assert.equal((rec.meta as Record<string, unknown>)?.case, dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("geolocate rejects a non-image input (image resolver)", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "oc-geo-"));
-  try {
-    const vid = join(dir, "clip.mp4");
-    writeFileSync(vid, "exists");
-    const [rec] = await geolocateVerb.run(caseCtx(dir, vid, { verb: "geolocate", script: FAKE_GEOLOCATE }));
-    assert.equal(rec.state, "error");
-    assert.match(rec.error as string, /not an image/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("forensic sense fetches a scan-hit record's REMOTE media.ref before calling the provider", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-exif-"));
   const server = createServer((_req, res) => {
@@ -186,24 +154,3 @@ test("media senses reject an http URL that resolves to HTML (expired/auth page)"
   }
 });
 
-test("geolocate rejects an http URL that resolves to non-image content", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "oc-geo-"));
-  const server = createServer((_req, res) => {
-    res.writeHead(200, { "content-type": "video/mp4" });
-    res.end(Buffer.from([0, 0, 0, 0]));
-  });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
-  const port = (server.address() as { port: number }).port;
-  try {
-    const url = `http://127.0.0.1:${port}/clip.mp4`;
-    // fetched (not a local path) but not a still image → must error BEFORE the
-    // provider is called, and still carry the origin url.
-    const [rec] = await geolocateVerb.run(caseCtx(dir, url, { verb: "geolocate", script: FAKE_GEOLOCATE }));
-    assert.equal(rec.state, "error");
-    assert.match(rec.error as string, /needs an image/);
-    assert.equal((rec.meta as Record<string, unknown>)?.source_url, url);
-  } finally {
-    server.close();
-    rmSync(dir, { recursive: true, force: true });
-  }
-});

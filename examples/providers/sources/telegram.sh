@@ -34,11 +34,18 @@ case "$op" in
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN" >&2; exit 13; }
     [ -n "$query" ] || { echo "telegram enumerate requires a channel ref (<channel>, @channel, or a t.me URL)" >&2; exit 1; }
     # normalize the ref to a bare channel username: strip @, or pull the first
-    # path segment out of a t.me URL (handles t.me/<ch> and t.me/s/<ch>).
+    # path segment out of a t.me URL (handles t.me/<ch>, t.me/s/<ch> preview, and
+    # rejects t.me/c/<id> private-channel links the public scraper can't reach —
+    # otherwise the naive parse would target the literal channel "c").
     channel="$query"
     case "$query" in
       http*://*)
-        channel="$(printf '%s' "$query" | sed -E 's#^https?://[^/]*/##; s#^s/##; s#/.*$##; s/[?#].*$//')" ;;
+        path="$(printf '%s' "$query" | sed -E 's#^https?://[^/]+/##; s/[?#].*$//')"
+        case "$path" in
+          s/*) channel="${path#s/}"; channel="${channel%%/*}" ;;
+          c/*) echo "telegram: private-channel links (t.me/c/<id>) are not supported by the public scraper" >&2; exit 1 ;;
+          *)   channel="${path%%/*}" ;;
+        esac ;;
       @*) channel="${query#@}" ;;
     esac
     [ -n "$channel" ] || { echo "telegram: could not parse a channel from '$query'" >&2; exit 1; }

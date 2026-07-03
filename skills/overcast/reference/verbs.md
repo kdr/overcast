@@ -249,27 +249,6 @@ Options:
 
 Emits `media.provenance` records.
 
-### `overcast geolocate`
-
-Estimates the geographic location of a still image from its visual content alone (architecture, signage, vegetation) — works even when EXIF GPS is stripped. Emits a geo.estimate record: a summary, predicted lat/lng, city/country/province, a confidence, and the top-K candidate locations. Complements `exif` (which reads embedded GPS when present). The default backend is the shipped Picarta provider (`PICARTA_API_KEY`, free credits to start); bind your own with `setup provider geolocate <spec>`. Accepts an image path, a case record/capture id, or an http(s) URL (fetched into the case media dir).
-
-```
-overcast geolocate <input> [options]
-
-  Predict where an image was taken from its content (Picarta AI) — GPS, city, country.
-
-  Estimates the geographic location of a still image from its visual content alone (architecture, signage, vegetation) — works even when EXIF GPS is stripped. Emits a geo.estimate record: a summary, predicted lat/lng, city/country/province, a confidence, and the top-K candidate locations. Complements `exif` (which reads embedded GPS when present). The default backend is the shipped Picarta provider (`PICARTA_API_KEY`, free credits to start); bind your own with `setup provider geolocate <spec>`. Accepts an image path, a case record/capture id, or an http(s) URL (fetched into the case media dir).
-
-Arguments:
-  input            Image path, case record id, or http(s) URL
-
-Options:
-  --format <string>      Output surface: json | md | txt
-  --json                 Shorthand for --format json
-```
-
-Emits `geo.estimate` records.
-
 ### `overcast enhance`
 
 Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.

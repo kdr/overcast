@@ -248,21 +248,6 @@ Default backend: the shipped [`examples/providers/verify/verify.sh`](../examples
 `setup provider verify <spec>`. `overcast doctor` reports whether `c2patool` is on
 PATH.
 
-`geolocate` predicts where a still image was taken from its **content alone**
-(architecture, signage, vegetation) via the **Picarta** API — even when EXIF GPS
-is stripped. It emits a `geo.estimate` record: predicted `lat`/`lng`, city/
-country/province, a confidence, and the top-K candidate locations. Complements
-`exif` (embedded GPS when present).
-
-```bash
-export PICARTA_API_KEY=…    # https://picarta.ai (free credits to start)
-overcast geolocate ./street.jpg    # -> geo.estimate record (predicted city/country/GPS)
-```
-
-Default backend: the shipped [`examples/providers/geolocate/geolocate.sh`](../examples/providers/geolocate/geolocate.sh)
-(`PICARTA_API_KEY`; `exit 13` when absent). Bind your own with
-`setup provider geolocate <spec>`.
-
 ## ElevenLabs providers (`ELEVENLABS_API_KEY`)
 
 ```bash
@@ -422,7 +407,7 @@ sample 8 frames.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
 - [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
 - [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch) + web-search (Tavily/Brave) + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams source providers.
-- [`examples/providers/{exif,verify,geolocate}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`), Picarta content geolocation (`geolocate`).
+- [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
 
 ## Source providers (built-in types)
 

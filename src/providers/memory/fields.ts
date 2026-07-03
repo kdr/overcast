@@ -43,12 +43,11 @@ const FIELD_POLICY: Record<string, string[]> = {
     "detailed.summary",
   ],
   see: ["caption", "ocr", "text", "summary", "counts", "categories", "objects", "labels"],
-  // media forensics / geolocation senses index only their compact summary +
-  // the actionable geo/provenance facts; the full ExifTool/C2PA/Picarta dumps
-  // stay in the record for exact reads, never in searchable case memory.
+  // media-forensics senses index only their compact summary + the actionable
+  // geo/provenance facts; the full ExifTool/C2PA dumps stay in the record for
+  // exact reads, never in searchable case memory.
   exif: ["summary", "gps", "created", "make", "model", "software"],
   verify: ["summary", "claim_generator", "signer", "validation_state", "title"],
-  geolocate: ["summary", "city", "country", "province", "lat", "lng", "confidence"],
   face: ["summary", "op", "moments", "reference", "index"],
   // visual-DB verbs index compact summaries only — raw match internals
   // (homographies, boxes, embeddings, vectors, artifact paths) stay in the
