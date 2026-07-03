@@ -111,7 +111,10 @@ case "$op" in
         if yt-dlp -S "res:720" -o "$out" "$url" >&2; then
           real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"
           [ -n "$real" ] && [ -s "$real" ] || { echo "instagram fetch produced no file for $url" >&2; exit 1; }
-          jq -nc --arg p "$real" '{kind:"video",path:$p,source:"instagram"}'
+          case "$(printf '%s' "${real##*.}" | tr '[:upper:]' '[:lower:]')" in
+            jpg|jpeg|png|webp|gif|heic|avif) kind="image" ;; *) kind="video" ;;
+          esac
+          jq -nc --arg p "$real" --arg k "$kind" '{kind:$k,path:$p,source:"instagram"}'
         else
           echo "instagram fetch failed for $url" >&2; exit 1
         fi ;;

@@ -156,6 +156,30 @@ test("forensic sense fetches a scan-hit record's REMOTE media.ref before calling
     // LOCAL fetched file, not the remote url
     assert.ok(!String(rec.media?.ref).startsWith("http"), `expected a local file, got ${rec.media?.ref}`);
     assert.equal((rec.meta as Record<string, unknown>)?.source_url, url);
+    // the scan hit's post-level provenance must be carried onto the sense record
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.source_url, url);
+    assert.equal(p.source_platform, "web");
+    assert.equal(p.source_record, scan.id);
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("media senses reject an http URL that resolves to HTML (expired/auth page)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-"));
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<html><body>login required</body></html>");
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const url = `http://127.0.0.1:${port}/x.jpg`;
+    const [rec] = await exifVerb.run(caseCtx(dir, url, { verb: "exif", script: FAKE_EXIF }));
+    assert.equal(rec.state, "error");
+    assert.match(rec.error as string, /did not resolve to media/);
   } finally {
     server.close();
     rmSync(dir, { recursive: true, force: true });

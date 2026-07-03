@@ -108,7 +108,12 @@ case "$op" in
         if yt-dlp -o "$out" "$url" >&2; then
           real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"
           [ -n "$real" ] && [ -s "$real" ] || { echo "telegram fetch produced no file for $url" >&2; exit 1; }
-          jq -nc --arg p "$real" '{kind:"video",path:$p,source:"telegram"}'
+          case "$(printf '%s' "${real##*.}" | tr '[:upper:]' '[:lower:]')" in
+            mp3|m4a|aac|wav|flac|ogg|oga|opus) kind="audio" ;;
+            jpg|jpeg|png|webp|gif|heic|avif)   kind="image" ;;
+            *)                                 kind="video" ;;
+          esac
+          jq -nc --arg p "$real" --arg k "$kind" '{kind:$k,path:$p,source:"telegram"}'
         else
           echo "telegram fetch failed for $url" >&2; exit 1
         fi ;;

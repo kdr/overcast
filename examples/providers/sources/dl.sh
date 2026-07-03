@@ -66,7 +66,14 @@ case "$op" in
     if [ -z "$real" ] || [ ! -s "$real" ]; then
       echo "dl fetch produced no file for $url" >&2; exit 1
     fi
-    jq -nc --arg p "$real" --arg u "$url" '{kind:"video",path:$p,source:"dl",url:$u}'
+    # yt-dlp may write audio-only (or an image) for some hosts — label by the
+    # actual file extension so downstream doesn't trust a hardcoded "video".
+    case "$(printf '%s' "${real##*.}" | tr '[:upper:]' '[:lower:]')" in
+      mp3|m4a|aac|wav|flac|ogg|oga|opus|wma|aif|aiff) kind="audio" ;;
+      jpg|jpeg|png|webp|gif|bmp|tif|tiff|heic|avif)   kind="image" ;;
+      *)                                              kind="video" ;;
+    esac
+    jq -nc --arg p "$real" --arg u "$url" --arg k "$kind" '{kind:$k,path:$p,source:"dl",url:$u}'
     ;;
 
   *) echo "dl source: unknown op (expected enumerate|fetch|init|describe)" >&2; exit 2 ;;

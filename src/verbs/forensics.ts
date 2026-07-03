@@ -13,7 +13,7 @@ import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
 import { resolveMediaRef, isImage } from "./media-ref.js";
-import { provenanceFromCapture, stampProvenance } from "./provenance.js";
+import { provenanceFromCapture, scanHitProvenance, stampProvenance } from "./provenance.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -34,20 +34,34 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
   if (!ctx.input) return [errorRecord(cfg.verb, `${cfg.verb} requires a media input`)];
 
   let sourceUrl: string | undefined;
+  let sourceProv: Record<string, unknown> = {};
   let ref = ctx.input;
 
   // stamp case + URL origin + source-post provenance on EVERY outgoing record
   // (successes and failures) so an error on a URL still carries meta.source_url.
   const stamp = (rec: OvercastRecord): OvercastRecord[] => {
     rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}) };
+    // the resolved scan/capture record's post fields (source_url/author/text)
+    // first, then any capture the local file itself came from (stampProvenance
+    // never clobbers, so the direct source wins).
+    stampProvenance(rec, sourceProv);
     stampProvenance(rec, provenanceFromCapture(ctx.case, ref));
     return [rec];
   };
 
   // resolve the input to a local file, in three steps:
   // 1) a case record/capture id → its media.ref (which may be a local path OR a
-  //    remote URL — scan hits carry http media.ref).
-  if (!isHttpUrl(ref)) ref = resolveMediaRef(ctx.case, ref).ref;
+  //    remote URL — scan hits carry http media.ref). Carry the source record's
+  //    provenance so a sense run directly on a scan hit stays traceable to the
+  //    originating post (capture stamps the same via scanHitProvenance).
+  if (!isHttpUrl(ref)) {
+    const resolved = resolveMediaRef(ctx.case, ref);
+    if (resolved.recordId) {
+      const srcRec = ctx.case.recordById(resolved.recordId);
+      if (srcRec) sourceProv = scanHitProvenance(srcRec);
+    }
+    ref = resolved.ref;
+  }
   // 2) a remote ref — passed directly OR resolved from a scan hit — is fetched
   //    into the case first (like see/capture) so providers read a local file.
   //    Without this a scan hit's http media.ref would reach the provider as
@@ -60,16 +74,18 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
     } catch (e) {
       return stamp(errorRecord(cfg.verb, `could not fetch ${sourceUrl}: ${(e as Error).message}`));
     }
-    // image-only senses (geolocate) must validate the FETCHED content, not just
-    // local paths — else a URL resolving to video/HTML reaches the provider
-    // (wasted API call, misleading error). Mirrors the `see` sense.
-    if (cfg.resolve === "image" && kindForExt(dl.ext) !== "image") {
-      return stamp(
-        errorRecord(
-          cfg.verb,
-          `${sourceUrl} did not resolve to a still image (got ${dl.ext ? dl.ext.slice(1) : dl.contentType ?? "unknown"}, saved to ${dl.path}) — ${cfg.verb} needs an image`,
-        ),
-      );
+    // validate the FETCHED content by kind, not just local paths: an expired CDN /
+    // auth URL returns HTML, which would otherwise yield a misleading "ready"
+    // forensic result ("no GPS", has_manifest:false). image-only senses need an
+    // image; media senses (exif/verify) accept image OR av but reject non-media.
+    // Mirrors the `see` sense's fetched-kind guard.
+    const k = kindForExt(dl.ext);
+    const got = dl.ext ? dl.ext.slice(1) : dl.contentType ?? "unknown";
+    if (cfg.resolve === "image" && k !== "image") {
+      return stamp(errorRecord(cfg.verb, `${sourceUrl} did not resolve to a still image (got ${got}, saved to ${dl.path}) — ${cfg.verb} needs an image`));
+    }
+    if (cfg.resolve === "media" && k === "other") {
+      return stamp(errorRecord(cfg.verb, `${sourceUrl} did not resolve to media (got ${got}, saved to ${dl.path}) — likely an expired link or a login/HTML page`));
     }
     ref = dl.path;
   }

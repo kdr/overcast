@@ -1449,6 +1449,15 @@ test("hostSourceType routes apex and subdomain hosts (x.com regression)", () => 
   assert.equal(hostSourceType("not a url"), "web");
 });
 
+test("hostSourceType routes instagram/telegram to their dedicated sources", () => {
+  assert.equal(hostSourceType("https://www.instagram.com/p/ABC/"), "instagram");
+  assert.equal(hostSourceType("https://instagram.com/reel/XYZ/"), "instagram");
+  assert.equal(hostSourceType("https://t.me/durov/530"), "telegram");
+  // a lookalike host that merely contains the string stays web
+  assert.equal(hostSourceType("https://notinstagram.com/x"), "web");
+  assert.equal(hostSourceType("https://example.com/t.me/x"), "web");
+});
+
 test("hostSourceType routes yt-dlp video hosts to the generic dl downloader", () => {
   assert.equal(hostSourceType("https://rumble.com/v123-clip.html"), "dl");
   assert.equal(hostSourceType("https://www.bitchute.com/video/abc/"), "dl");
