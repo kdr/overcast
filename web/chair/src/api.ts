@@ -16,6 +16,13 @@ export function pairToken(): string {
   return sessionStorage.getItem(TOKEN_KEY) ?? "";
 }
 
+/** Drop the stored token — called when the bridge rejects it (401, i.e. the
+ *  token was rotated by /chair off) so a reload doesn't keep sending the
+ *  revoked bearer; re-pairing then needs a fresh QR scan. */
+export function clearToken(): void {
+  sessionStorage.removeItem(TOKEN_KEY);
+}
+
 async function call<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method: body === undefined ? "GET" : "POST",

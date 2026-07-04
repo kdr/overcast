@@ -264,6 +264,35 @@ test("OVERCAST_CHAIR=1 auto-starts the bridge on session_start", async () => {
   }
 });
 
+test("remote injection is prefixed so it can never be a slash command", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-slashguard-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, sent } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+    await commands.get("chair")?.("on --port 0", ctx);
+
+    // even a phone prompt that looks exactly like a slash command…
+    handle.bridge()!["agent"].sendUserMessage("/brief --export x.html");
+    handle.bridge()!["agent"].sendUserMessage("/model opus");
+    // …is prefixed, so the text handed to pi never starts with "/" (and pi's
+    // sendUserMessage forces expandPromptTemplates:false regardless)
+    assert.deepEqual(
+      sent.map((s) => s.text),
+      ["[chair] /brief --export x.html", "[chair] /model opus"],
+    );
+    for (const s of sent) assert.ok(!s.text.startsWith("/"), "injected text must not start with /");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a failed chair injection does not inflate the pending count", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-sendfail-"));
   const prevCase = process.env.OVERCAST_CASE;

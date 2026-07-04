@@ -159,6 +159,15 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     hasPending: () => ctx?.hasPendingMessages() ?? false,
     abort: () => ctx?.abort(),
     sendUserMessage: (text, opts) => {
+      // Remote input is untrusted (invariant #10). Two layers stop a phone from
+      // invoking slash commands / prompt templates:
+      //  1. pi.sendUserMessage forces `expandPromptTemplates: false` internally
+      //     (agent-session.js sendUserMessage → prompt({expandPromptTemplates:
+      //     false, source:"extension"})); the public ExtensionAPI has no option
+      //     to re-enable it, so this can't be bypassed from here.
+      //  2. we prefix CHAIR_PREFIX ("[chair] "), so the text never starts with
+      //     "/" — pi's command detection (`text.startsWith("/")`) can't match
+      //     even hypothetically.
       // queue the exact injected string up front (message_start may fire
       // synchronously), rolling it back if the dispatch throws so a failed send
       // can't leave a phantom entry that mislabels a later message (Bugbot r5/r10)

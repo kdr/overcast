@@ -9,7 +9,7 @@
 
 import "./theme.css";
 import type { ChairWireEvent } from "../../../src/chair/wire.js";
-import { getCase, getState, pairToken, postAbort, postPrompt } from "./api.js";
+import { clearToken, getCase, getState, pairToken, postAbort, postPrompt } from "./api.js";
 import { connectStream } from "./stream.js";
 import { createStatusBar } from "./views/statusbar.js";
 import { createTranscript } from "./views/transcript.js";
@@ -141,7 +141,10 @@ async function boot(): Promise<void> {
       if (token !== resyncToken) return; // superseded — let the newer run own the outcome
       const message = (e as Error).message;
       if (!booted || message === "unauthorized") {
-        // pre-boot failure, or the token was rotated (/chair off) → re-pair
+        // pre-boot failure, or the token was rotated (/chair off) → re-pair.
+        // Drop the revoked token so a reload without a fresh #t= doesn't keep
+        // sending it (matches the fallback console's 401 handling).
+        if (message === "unauthorized") clearToken();
         gate(`connection failed: ${message} — re-scan the pairing QR from the desk (/chair qr).`);
         return;
       }
