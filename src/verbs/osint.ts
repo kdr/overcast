@@ -535,9 +535,21 @@ export function hostSourceType(url: string): string {
   // instagram.sh's curl path instead of storing an HTML page.
   if (/(^|\.)(instagram\.com|cdninstagram\.com|fbcdn\.net)$/.test(host)) return "instagram";
   if (/(^|\.)t\.me$/.test(host)) return "telegram";
-  // Internet Archive hosts a gdelttv clip's media.ref (a bounded .mp4) — route to
-  // gdelttv.sh's direct curl+content-type fetch, not the `web` HTML fetcher.
-  if (/(^|\.)archive\.org$/.test(host)) return "gdelttv";
+  // A direct Internet Archive media DOWNLOAD (a gdelttv clip's media.ref, e.g.
+  // /download/<id>/<id>.mp4?start=…) → gdelttv.sh's curl+content-type fetch. Other
+  // archive.org URLs (detail pages, books, non-media items) fall through to the
+  // web fetcher so their provenance isn't mislabeled source:gdelttv.
+  if (/(^|\.)archive\.org$/.test(host)) {
+    try {
+      const p = new URL(url).pathname;
+      if (/^\/download\//.test(p) && /\.(mp4|m4v|mov|webm|mkv|ts|mp3|m4a|wav|jpe?g|png|webp|gif)$/i.test(p)) {
+        return "gdelttv";
+      }
+    } catch {
+      /* malformed → web */
+    }
+    return "web";
+  }
   // video hosts yt-dlp handles but that lack a dedicated source → the generic
   // `dl` downloader, so `capture <url>` pulls the video instead of curling an
   // HTML page (the `web` fallback). Keep in sync with dl.sh's coverage note.
