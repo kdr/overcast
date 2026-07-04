@@ -218,7 +218,16 @@ def run():
         dets.append({"label": label, "score": score, "box": box, "box_normalized": False})
 
     if not outputs:
-        fail("segmentation produced no masks")
+        # GroundingDINO found boxes but SAM produced no usable masks — a VALID
+        # empty result (state ready, count 0), consistent with the no-match branch
+        # and the fal path, not a hard error.
+        emit({"verb": "enhance", "format": "json",
+              "payload": {"op": "segment", "input": inp, "detect_model": DET_MODEL, "sam_model": SAM_MODEL,
+                          "prompt": prompt, "count": 0, "detections": [], "outputs": [],
+                          "note": "detected %d region(s) but SAM produced no usable masks" % len(boxes)},
+              "media": {"ref": inp}, "meta": {"provider": "local:grounded-sam", "model": SAM_MODEL},
+              "state": "ready"})
+        return
 
     emit({"verb": "enhance", "format": "json",
           "payload": {"op": "segment", "input": inp, "detect_model": DET_MODEL, "sam_model": SAM_MODEL,
