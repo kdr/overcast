@@ -50,6 +50,7 @@ assert_eq "$C.add_state" "ready" "$(echo "$add" | jq -r '.state')" "fingerprinte
 cond "a clip from the middle of the real video is located at the right offset (~${CUT}s)"
 ffmpeg -y -v error -ss "$CUT" -t "$SEG" -i "$SRC" -map 0:a:0 -c:a aac "$WORK/mid.m4a" 2>/dev/null
 loc="$(oc "$CASE" audio match "$WORK/mid.m4a" --index "$IDX" --json)"
+loc="$(echo "$loc" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 save_json "30_selfloc" "$loc" >/dev/null
 lc="$(echo "$loc" | jq -r '.payload.count // 0')"
 if [ "${lc:-0}" -ge 1 ]; then
@@ -68,6 +69,7 @@ fi
 cond "a heavily transcoded segment (22kHz mono mp3, low bitrate) still matches the original"
 ffmpeg -y -v error -ss "$CUT" -t "$SEG" -i "$SRC" -map 0:a:0 -ac 1 -ar 22050 -b:a 64k -c:a libmp3lame "$WORK/reup.mp3" 2>/dev/null
 ru="$(oc "$CASE" audio match "$WORK/reup.mp3" --index "$IDX" --json)"
+ru="$(echo "$ru" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 save_json "30_reupload" "$ru" >/dev/null
 ruc="$(echo "$ru" | jq -r '.payload.count // 0')"
 [ "${ruc:-0}" -ge 1 ] && ok "$C.reupload" "transcoded re-upload CONFIRMED ($(echo "$ru" | jq -r '.payload.matches[0].aligned_votes') votes, margin $(echo "$ru" | jq -r '.payload.matches[0].margin'))" || fail "$C.reupload" "transcoded segment failed to match"
@@ -76,7 +78,9 @@ ruc="$(echo "$ru" | jq -r '.payload.count // 0')"
 cond "a 1.08x sped-up copy is a WEAK partial alignment: default confirms, --min-margin 2 rejects"
 ffmpeg -y -v error -ss "$CUT" -t "$SEG" -i "$SRC" -filter:a "atempo=1.08" -map 0:a:0 -c:a aac "$WORK/sped.m4a" 2>/dev/null
 sp_def="$(oc "$CASE" audio match "$WORK/sped.m4a" --index "$IDX" --json)"
+sp_def="$(echo "$sp_def" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 sp_mrg="$(oc "$CASE" audio match "$WORK/sped.m4a" --index "$IDX" --min-margin 2 --json)"
+sp_mrg="$(echo "$sp_mrg" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 save_json "30_sped_default" "$sp_def" >/dev/null
 save_json "30_sped_margin" "$sp_mrg" >/dev/null
 spd_margin="$(echo "$sp_def" | jq -r '.payload.matches[0].margin // .payload.best_rejected.margin // 0')"
@@ -93,6 +97,7 @@ fi
 # --- --draw: render the alignment visualization + embed it in a brief ---------
 cond "audio match --draw renders an SVG alignment plot that embeds in a CSI brief"
 dr="$(oc "$CASE" audio match "$WORK/mid.m4a" --index "$IDX" --draw --json)"
+dr="$(echo "$dr" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 save_json "30_draw" "$dr" >/dev/null
 DRAW_PATH="$(echo "$dr" | jq -r '.payload.matches[0].match_draw_path // empty')"
 DR_ID="$(echo "$dr" | jq -r '.id // empty')"

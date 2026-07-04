@@ -465,9 +465,11 @@ test("case status counts similar records as evidence (#B6-1)", async () => {
       state: "ready",
     }));
     const [status] = await caseVerb.run(mk(dir, "status"));
-    const tldr = (status.payload as Record<string, unknown>).tldr as Record<string, unknown>;
+    const payload = status.payload as Record<string, unknown>;
+    const tldr = payload.tldr as Record<string, unknown>;
     const findings = (tldr.findings as string[]).join("\n");
-    assert.match(findings, /Evidence present:.*similar 1/, "similar counted in the evidence summary");
+    // similar is evidence: it counts in the store and surfaces in recent evidence
+    assert.equal((payload.store as { counts: Record<string, number> }).counts.similar, 1, "similar counted in the store");
     assert.match(findings, /similar: 2 semantic matches/, "similar record surfaces in recent evidence");
   });
 });

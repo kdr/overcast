@@ -23,6 +23,7 @@ const DOC_FILES = [
   "docs/providers.md",
   "prompts/ask.md",
   "prompts/brief.md",
+  "prompts/debrief.md",
   "examples/profiles/install-profiles.sh",
 ].map((f) => join(ROOT, f));
 

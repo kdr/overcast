@@ -41,6 +41,7 @@ then
   img_add="$(oc "$CASE" image add "$LOCAL_IMAGE_REF" --index "$IMG_INDEX" --json)"
   assert_eq "$C.starbucks.add" "ready" "$(echo "$img_add" | jq -r '.state')" "Starbucks reference added"
   img_match="$(OC_TIMEOUT=420 oc "$CASE" image match "$LOCAL_IMAGE_VIDEO_A" --index "$IMG_INDEX" --min-inliers "${OC_LOCAL_IMAGE_MIN_INLIERS:-8}" --min-ratio "${OC_LOCAL_IMAGE_MIN_RATIO:-0.25}" --fps "${OC_LOCAL_IMAGE_FPS:-0.7}" --max-frames "${OC_LOCAL_IMAGE_MAX_FRAMES:-12}" --draw --json)"
+  img_match="$(echo "$img_match" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
   starbucks_state="$(echo "$img_match" | jq -r '.state // empty' 2>/dev/null || true)"
   starbucks_count="$(echo "$img_match" | jq -r '.payload.count // 0' 2>/dev/null || echo 0)"
   if [ "$starbucks_state" = "ready" ]; then
@@ -72,6 +73,7 @@ then
   face_add="$(oc "$CASE" index add "$LOCAL_FACE_IMAGE" --to "$FACE_INDEX" --json)"
   assert_eq "$C.will.add" "ready" "$(echo "$face_add" | jq -r '.state')" "Will reference added"
   face_match="$(OC_TIMEOUT=420 oc "$CASE" face "$LOCAL_FACE_VIDEO" --match "$LOCAL_FACE_IMAGE" --index "$FACE_INDEX" --profile local --min-similarity "${OC_LOCAL_FACE_MIN_SIMILARITY:-45}" --fps "${OC_LOCAL_FACE_FPS:-0.5}" --max-frames "${OC_LOCAL_FACE_MAX_FRAMES:-24}" --json)"
+  face_match="$(echo "$face_match" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
   will_state="$(echo "$face_match" | jq -r '.state // empty' 2>/dev/null || true)"
   will_count="$(echo "$face_match" | jq -r '.payload.count // 0' 2>/dev/null || echo 0)"
   if [ "$will_state" = "ready" ]; then

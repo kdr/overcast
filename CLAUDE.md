@@ -144,14 +144,27 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `x:@handle`,
   `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`;
   `lens:<image url|path>` (Google Lens reverse image search via Apify).
-- **State** — `target` / `source` manage standing scope; `note` records human
-  observations (anchored via `--ref`/`--at`/`--tag`/`--confidence`); `finding`
-  (create/list/accept/dismiss) holds manual + setup-automated findings;
-  `prebrief` stands up name+target+source in one shot.
+- **State** — `target` / `source` manage standing scope; a target is a *line of
+  investigation* (`add --question`, `close <id> --as answered|dead-end --note`,
+  `reopen`; closed lines stop seeding scans). `note` records human observations
+  (anchored via `--ref`/`--at`/`--tag`/`--confidence`; the `thread:<tgt_id>` tag
+  narrates a line for the brief/status thread cards). `finding`
+  (create/list/accept/dismiss) holds manual + *suggested* findings: score/text
+  triggers (face ≥75, image RANSAC, similar ≥85, cluster ≥70, audio fingerprint, target-phrase
+  matches) emit `status:"suggested"` leads that stay OUT of ask/brief evidence
+  until reviewed — `finding list --state triage` queues them, `accept` promotes a
+  lead to evidence, `dismiss` rejects it (never re-fires). Mode is
+  `setup.findings` (`suggest` default | `review` legacy | `off`), thresholds via
+  `case setup --findings-threshold`. `prebrief` stands up name+target+source in
+  one shot.
 - **Read** — `ask` (cited retrieval over case memory; `--deep`/`--memory qmd` for
   semantic local search; `--index <id>` answers over a media-descriptions index,
-  `--probe` for moment search), `brief` (timeline/findings report, `--export`
-  md/html, `--theme plain|csi`).
+  `--probe` for moment search), `brief` — **short by default**: verdict + goal
+  status + key findings + lines of investigation (per-target threads with stage +
+  activity sparkline) + triage queue + coverage gaps + a compact record trail;
+  `--full` appends the verbatim record dump (audit), `--export` md/html,
+  `--theme plain|csi`. `/debrief` (prompt) drives the analyst loop: triage leads →
+  narrate each thread → close resolved lines → refresh `tldr` → export.
 - **Case** — `case init | setup | status | info | records | memory | clear`.
   `case status`/`records`/`brief` HTML `--export` takes `--theme plain|csi`
   (direct CLI defaults to `plain`; agent/TUI `.html` exports default to `csi`).
@@ -169,8 +182,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
 Slash commands (TUI): `/target /source /index /case /prebrief /view /wall /setup
-/provider /finding` (extension commands) and `/ask /brief` (prompt templates in
-`prompts/`), plus pi built-ins (`/model /tree /session /resume`).
+/provider /finding` (extension commands) and `/ask /brief /debrief` (prompt
+templates in `prompts/`), plus pi built-ins (`/model /tree /session /resume`).
 
 ## Case model & memory
 
@@ -185,7 +198,8 @@ Case memory is **evidence-only**. `ask` / `brief` read primary evidence
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
-prebrief wall`, finding review-rows, dismissed findings, cluster DB
+prebrief wall`, finding review-rows, dismissed **and suggested** findings (a
+suggested lead is quarantined until `finding accept` promotes it), cluster DB
 reads/maintenance `list/show/view/label/recluster`) are excluded even when they
 match the query. `face`/`see`/`image`/`audio`/`similar`/`cluster` detections index only
 compact summaries / counts / moments / matched refs / offsets — raw boxes, thumbnails,

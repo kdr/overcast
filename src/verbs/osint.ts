@@ -20,7 +20,7 @@ import {
   setEnabled,
   removeSource,
 } from "../state/source.js";
-import { addTarget, listTargets, removeTarget, primaryTarget } from "../state/target.js";
+import { addTarget, listTargets, removeTarget, primaryTarget, setTargetStatus, isTargetClosed } from "../state/target.js";
 import { listIndexes } from "../state/index.js";
 import { loadSetup } from "../state/setup.js";
 import { loadSeen, saveSeen, hitKey } from "../state/seen.js";
@@ -35,7 +35,7 @@ import { faceVerb } from "./face.js";
 import { imageVerb } from "./image.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
 import { indexVerb } from "./index.js";
-import { latestFindingStatus, makeFinding } from "./finding.js";
+import { evaluateTriggers, resolveFindingsPolicy } from "../signals/triggers.js";
 import { scanHitProvenance, stampProvenance } from "./provenance.js";
 import { redactSecrets } from "../env.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -82,8 +82,12 @@ function localVisualCandidates(refs: string[], imageTargets: Array<{ value: stri
 
 async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const targets = listTargets(ctx.case);
-  const imageTargets = targets.filter((t) => t.kind === "image");
-  const nameTargets = targets.filter((t) => t.kind !== "image").map((t) => t.value);
+  // closed lines (answered/dead-end) must not seed local matching either — same
+  // invariant primaryTarget enforces for external scan seeding, so a dead image
+  // line stops auto-producing match candidates + suggested findings.
+  const openTargets = targets.filter((t) => !isTargetClosed(t));
+  const imageTargets = openTargets.filter((t) => t.kind === "image");
+  const nameTargets = openTargets.filter((t) => t.kind !== "image").map((t) => t.value);
   const indexes = listIndexes(ctx.case);
   const faceIndexes = indexes.filter((i) => i.type === "face-analysis");
   const localFaceIndexes = indexes.filter((i) => i.backend === "local" && i.type === "deepface-local");
@@ -663,53 +667,17 @@ async function runExplicitPipeWithPolicy(ctx: VerbContext, caller: string, verb:
   return out;
 }
 
-function payloadText(rec: OvercastRecord): string {
-  if (typeof rec.payload === "string") return rec.payload;
-  try {
-    return JSON.stringify(rec.payload);
-  } catch {
-    return "";
-  }
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function targetMatchesEvidence(target: string, text: string): boolean {
-  const normalizedTarget = target.trim().replace(/\s+/g, " ");
-  if (!normalizedTarget) return false;
-  const phrase = normalizedTarget.split(" ").map(escapeRegex).join("\\s+");
-  return new RegExp(`(^|[^\\p{L}\\p{N}_])${phrase}(?=$|[^\\p{L}\\p{N}_])`, "iu").test(text);
-}
-
+/** Chain-inline finding triggers (scan/monitor sense chains). The shared
+ *  implementation lives in signals/triggers.ts — the persist seam re-runs it
+ *  for standalone verb runs; dedup keeps the two passes idempotent. */
 function automatedFindings(ctx: VerbContext, rec: OvercastRecord, trigger: string, pending: OvercastRecord[] = []): OvercastRecord[] {
-  const setup = loadSetup(ctx.case);
-  if (setup?.findings?.mode !== "review" || rec.state === "error" || rec.state === "needs_credentials") return [];
-  const haystack = payloadText(rec);
-  const out: OvercastRecord[] = [];
-  for (const target of listTargets(ctx.case).filter((t) => t.kind !== "image").map((t) => t.value)) {
-    if (!targetMatchesEvidence(target, haystack)) continue;
-    if (hasAutomatedFinding(ctx, rec, target, pending)) continue;
-    out.push(makeFinding({
-      text: `Automated match for target '${target}' in ${rec.verb} record ${rec.id}`,
-      target,
-      sourceRecord: rec,
-      trigger,
-    }));
-  }
-  return out;
-}
-
-function hasAutomatedFinding(ctx: VerbContext, sourceRecord: OvercastRecord, target: string, pending: OvercastRecord[] = []): boolean {
-  return [...ctx.case.records(), ...pending].some((rec) => {
-    if (rec.verb !== "finding" || !rec.payload || typeof rec.payload !== "object") return false;
-    const payload = rec.payload as Record<string, unknown>;
-    if (typeof payload.finding_id === "string") return false;
-    if (latestFindingStatus(ctx, rec.id) === "dismissed") return false;
-    if (String(payload.target ?? "") !== target) return false;
-    if (payload.source_record === sourceRecord.id) return true;
-    return !!sourceRecord.media?.ref && rec.media?.ref === sourceRecord.media.ref;
+  return evaluateTriggers({
+    fresh: [rec],
+    existing: ctx.case.records(),
+    pending,
+    targets: listTargets(ctx.case),
+    policy: resolveFindingsPolicy(loadSetup(ctx.case)),
+    via: trigger,
   });
 }
 
@@ -835,7 +803,7 @@ function autoSeeOpts(ctx: VerbContext): VerbContext["opts"] {
     if (choice !== "owl-local" && !/detect\.py\b/.test(run)) return {};
   }
   const labels = listTargets(ctx.case)
-    .filter((t) => t.kind !== "image")
+    .filter((t) => t.kind !== "image" && !isTargetClosed(t))
     .map((t) => t.value.trim())
     .filter(Boolean);
   return labels.length ? { detect: labels.join(", ") } : {};
@@ -1196,13 +1164,19 @@ export const monitorVerb: VerbSpec = {
 export const targetVerb: VerbSpec = {
   name: "target",
   group: "state",
-  summary: "Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.",
+  summary: "Define/refine the standing scope, a.k.a. a line of investigation (add|list|rm|show|close|reopen). Persisted to .overcast/target.json.",
+  description:
+    "A target is a line of investigation. `add --question` records what would resolve it; `close <id> --as answered|dead-end --note` " +
+    "marks the line done (closed lines stop seeding scan/monitor); `reopen <id>` reactivates it. Status feeds the brief/status thread cards.",
   args: [
-    { name: "action", summary: "add | list | rm | show", required: true },
-    { name: "value", summary: "target value (for add) or id (for rm)" },
+    { name: "action", summary: "add | list | rm | show | close | reopen", required: true },
+    { name: "value", summary: "target value (for add) or id (for rm/close/reopen)" },
   ],
   flags: [
     { name: "image", summary: "Treat the value as a reference image path", type: "boolean" },
+    { name: "question", summary: "add: what would resolve this line of investigation", type: "string" },
+    { name: "as", summary: "close: answered | dead-end", type: "string", choices: ["answered", "dead-end"] },
+    { name: "note", summary: "close: why (answered how / why it's a dead end)", type: "string" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
@@ -1213,7 +1187,10 @@ export const targetVerb: VerbSpec = {
     const value = ctx.rest[0];
     if (action === "add") {
       if (!value) return [err("target", "target add requires a value")];
-      const t = addTarget(ctx.case, value, { image: ctx.opts.image === true });
+      const t = addTarget(ctx.case, value, {
+        image: ctx.opts.image === true,
+        question: ctx.opts.question ? String(ctx.opts.question) : undefined,
+      });
       return [makeRecord({ verb: "target", format: "json", payload: { ...t }, state: "ready" })];
     }
     if (action === "rm") {
@@ -1221,9 +1198,23 @@ export const targetVerb: VerbSpec = {
       const ok = removeTarget(ctx.case, value);
       return [makeRecord({ verb: "target", format: "json", payload: { removed: ok, id: value }, state: "ready" })];
     }
+    if (action === "close") {
+      if (!value) return [err("target", "target close requires a target id")];
+      const as = ctx.opts.as ? String(ctx.opts.as) : "answered";
+      if (as !== "answered" && as !== "dead-end") return [err("target", `unknown --as '${as}' (expected answered | dead-end)`)];
+      const updated = setTargetStatus(ctx.case, value, as, ctx.opts.note ? String(ctx.opts.note) : undefined);
+      if (!updated) return [err("target", `target not found: ${value}`)];
+      return [makeRecord({ verb: "target", format: "json", payload: { op: "close", ...updated }, state: "ready" })];
+    }
+    if (action === "reopen") {
+      if (!value) return [err("target", "target reopen requires a target id")];
+      const updated = setTargetStatus(ctx.case, value, "active");
+      if (!updated) return [err("target", `target not found: ${value}`)];
+      return [makeRecord({ verb: "target", format: "json", payload: { op: "reopen", ...updated }, state: "ready" })];
+    }
     // an unrecognized action shouldn't silently fall through to a list
     if (action && action !== "list" && action !== "show") {
-      return [err("target", `unknown target action '${action}' (expected add|list|rm|show)`)];
+      return [err("target", `unknown target action '${action}' (expected add|list|rm|show|close|reopen)`)];
     }
     // list / show
     return [
