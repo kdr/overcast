@@ -130,6 +130,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   const buildAgent = (): ChairAgent => ({
     isIdle: () => ctx?.isIdle() ?? true,
+    hasPending: () => ctx?.hasPendingMessages() ?? false,
     abort: () => ctx?.abort(),
     sendUserMessage: (text, opts) => {
       // count the injection up front (message_start may fire synchronously), but

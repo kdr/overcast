@@ -27,6 +27,9 @@ import type {
  *  extension context in src/extension/chair.ts, or a plain fake in tests. */
 export interface ChairAgent {
   isIdle(): boolean;
+  /** True when pi has queued messages not yet picked up by the loop — an
+   *  `auto` remote prompt should join that queue, not start a competing turn. */
+  hasPending(): boolean;
   abort(): void;
   sendUserMessage(text: string, opts?: { deliverAs?: "steer" | "followUp" }): void;
   model(): string | undefined;
@@ -291,9 +294,14 @@ export class ChairBridge {
     if (mode !== "auto" && mode !== "steer" && mode !== "followUp") {
       return this.json(res, 400, { error: "mode must be auto|steer|followUp" });
     }
-    // idle → new turn; busy → must pick a queue lane (steer unless told followUp)
-    const busy = !this.agent.isIdle();
-    const lane: "steer" | "followUp" | undefined = busy ? (mode === "followUp" ? "followUp" : "steer") : undefined;
+    // Route the injection:
+    //  - streaming        → steer (interrupt) unless the caller asked followUp
+    //  - idle but queued  → followUp: join the pending queue, don't start a
+    //                       competing turn while pi still has follow-ups
+    //  - truly idle       → a fresh turn (no deliverAs)
+    let lane: "steer" | "followUp" | undefined;
+    if (!this.agent.isIdle()) lane = mode === "followUp" ? "followUp" : "steer";
+    else if (this.agent.hasPending()) lane = "followUp";
     const delivered: ChairPromptResult["delivered"] = lane ?? "turn";
     try {
       this.agent.sendUserMessage(text, lane ? { deliverAs: lane } : undefined);
@@ -435,14 +443,22 @@ const FALLBACK_PAGE = `<!doctype html>
   const add = (cls, text) => { const d = document.createElement("div"); d.className = cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; };
   const api = (path, body) => fetch(path, { method: body ? "POST" : "GET", headers: { Authorization: "Bearer " + token, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body && JSON.stringify(body) });
   let live = "";
+  let lastSeq = 0;
   api("/api/state").then(r => r.json()).then(s => {
     document.getElementById("case").textContent = "case://" + s.caseName;
     for (const item of s.transcript) add(item.role === "user" ? "u" : item.role === "tool" ? "t" : "", (item.role === "user" ? "❯ " : item.role === "tool" ? "⚙ " + (item.toolName || "tool") + " " : "") + item.text);
     if (s.live) { live = s.live; render(); } // seed the in-flight assistant line
+    lastSeq = s.seq || 0;
   }).catch(() => add("n", "state fetch failed — check the token"));
   const es = new EventSource("/events?token=" + encodeURIComponent(token));
   es.onmessage = (m) => {
     const e = JSON.parse(m.data);
+    if (e.type === "gap") { location.reload(); return; } // bypass dedupe: gap seq may be below our cursor
+    // dedupe: hello re-baselines the cursor (rebind resets seq); replayed events
+    // at/below it are skipped so an EventSource reconnect doesn't double lines
+    if (e.type === "hello") { lastSeq = e.seq; }
+    else if (e.seq <= lastSeq) { return; }
+    else { lastSeq = e.seq; }
     if (e.type === "delta" && e.kind === "text") { live += e.text; render(); }
     if (e.type === "delta" && e.kind === "thinking") { /* keep the live line clean */ }
     if (e.type === "message" && e.phase === "end" && e.role === "assistant") { live = ""; render(); add("", e.text || ""); }
@@ -452,7 +468,6 @@ const FALLBACK_PAGE = `<!doctype html>
     if (e.type === "agent" && e.phase === "end" && live) { add("", live); live = ""; render(); }
     if (e.type === "state" || e.type === "hello" || e.type === "agent") document.getElementById("state").textContent = (e.busy || (e.type === "agent" && e.phase === "start")) ? "● working" : "";
     if (e.type === "notice") add("n", e.text);
-    if (e.type === "gap") location.reload();
   };
   let liveEl = null;
   const render = () => {

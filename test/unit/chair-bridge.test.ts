@@ -25,6 +25,7 @@ function fakeAgent(overrides: Partial<ChairAgent> = {}) {
   };
   const agent: ChairAgent = {
     isIdle: () => true,
+    hasPending: () => false,
     abort: () => {
       calls.aborts++;
     },
@@ -217,7 +218,8 @@ test("chair bridge: a dead SSE client can't break publish for others", async () 
 
 test("chair bridge: prompt routing (idle turn, busy steer/followUp) + abort", async () => {
   let idle = true;
-  const { agent, calls } = fakeAgent({ isIdle: () => idle });
+  let pending = false;
+  const { agent, calls } = fakeAgent({ isIdle: () => idle, hasPending: () => pending });
   const bridge = makeBridge(agent);
   const { url, pairingUrl } = await bridge.start();
   const token = pairingUrl.split("#t=")[1];
@@ -230,15 +232,22 @@ test("chair bridge: prompt routing (idle turn, busy steer/followUp) + abort", as
     assert.deepEqual(await res.json(), { delivered: "turn" });
     assert.deepEqual(calls.sent[0], { text: "look into the van", opts: undefined });
 
+    // idle BUT pending follow-ups queued → followUp, not a competing fresh turn
+    pending = true;
+    res = await prompt({ text: "and the plate too" });
+    assert.deepEqual(await res.json(), { delivered: "followUp" });
+    assert.deepEqual(calls.sent[1].opts, { deliverAs: "followUp" });
+    pending = false;
+
     // busy + auto → steer; busy + followUp → followUp
     idle = false;
     res = await prompt({ text: "wrong plate" });
     assert.deepEqual(await res.json(), { delivered: "steer" });
-    assert.deepEqual(calls.sent[1].opts, { deliverAs: "steer" });
+    assert.deepEqual(calls.sent[2].opts, { deliverAs: "steer" });
     res = await prompt({ text: "afterwards run a brief", mode: "followUp" });
     assert.deepEqual(await res.json(), { delivered: "followUp" });
-    assert.deepEqual(calls.sent[2].opts, { deliverAs: "followUp" });
-    assert.deepEqual(calls.notified, ["turn", "steer", "followUp"]);
+    assert.deepEqual(calls.sent[3].opts, { deliverAs: "followUp" });
+    assert.deepEqual(calls.notified, ["turn", "followUp", "steer", "followUp"]);
 
     // validation
     assert.equal((await prompt({ text: "" })).status, 400);
