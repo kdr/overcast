@@ -334,8 +334,12 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       }
       await stopChair();
     }
-    const bind = opts.bind || process.env.OVERCAST_CHAIR_BIND || "127.0.0.1";
-    const port = opts.port ?? envPort(process.env.OVERCAST_CHAIR_PORT) ?? 7373;
+    // Resolve bind/port with the LAST resolved values as a fallback (below an
+    // explicit opt, above env/defaults), so a partial `/chair on --port …` keeps
+    // the current bind (e.g. tailnet) and a reload keeps the concrete address —
+    // not a partial/ephemeral one (Bugbot round 19).
+    const bind = opts.bind || lastStartOpts.bind || process.env.OVERCAST_CHAIR_BIND || "127.0.0.1";
+    const port = opts.port ?? lastStartOpts.port ?? envPort(process.env.OVERCAST_CHAIR_PORT) ?? 7373;
     const profile = loadProfile({ profile: process.env.OVERCAST_PROFILE || undefined });
     // pin > reused-session-token > fresh. The extension owns the token so it can
     // reuse it across reload-restarts (a reload must not rotate it, round 17).
@@ -359,7 +363,10 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     bridge = b;
     sessionToken = process.env.OVERCAST_CHAIR_TOKEN ? undefined : token; // reuse across reloads (pin isn't ours to keep)
     chairDesired = true; // now running by intent → survives reloads
-    lastStartOpts = opts; // replay bind/port on a reload restart
+    // store the RESOLVED bind + the ACTUAL bound port, so a reload rebinds to the
+    // same concrete address the phone is paired to (an ephemeral 0 became a real
+    // port; a partial rebind kept the prior bind)
+    lastStartOpts = { bind, port: b.port };
     showQr();
     showStatus();
   }

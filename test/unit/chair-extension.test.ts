@@ -415,6 +415,71 @@ test("a reload reuses the pairing token (phone stays paired) and rotates it only
   }
 });
 
+test("reload keeps the concrete bound port (ephemeral 0 doesn't drift)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-ephport-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  const prevChair = process.env.OVERCAST_CHAIR;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    delete process.env.OVERCAST_CHAIR;
+    const { pi, emit, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await commands.get("chair")?.("on --port 0", ctx); // ephemeral
+    const port1 = handle.bridge()!.port;
+    assert.ok(port1 > 0, "got a real ephemeral port");
+
+    // a reload must rebind to that SAME port (the phone's URL still works),
+    // not replay port 0 and land on a fresh ephemeral port
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    assert.equal(handle.bridge()!.port, port1, "reload reuses the concrete port");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    if (prevChair === undefined) delete process.env.OVERCAST_CHAIR;
+    else process.env.OVERCAST_CHAIR = prevChair;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a port-only rebind keeps the current bind (tailnet/explicit not reset to localhost)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-bindkeep-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  const prevChair = process.env.OVERCAST_CHAIR;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    delete process.env.OVERCAST_CHAIR;
+    const { pi, emit, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    // explicit non-default bind (0.0.0.0 stands in for a tailnet address)
+    await commands.get("chair")?.("on --bind 0.0.0.0 --port 0", ctx);
+    assert.equal(handle.bridge()!.bind, "0.0.0.0");
+
+    // a later port-only rebind must NOT drop back to 127.0.0.1
+    await commands.get("chair")?.("on --port 0", ctx);
+    assert.equal(handle.bridge()!.bind, "0.0.0.0", "port-only rebind keeps the bind");
+
+    // and a reload keeps it too
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    assert.equal(handle.bridge()!.bind, "0.0.0.0", "reload keeps the bind");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    if (prevChair === undefined) delete process.env.OVERCAST_CHAIR;
+    else process.env.OVERCAST_CHAIR = prevChair;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a manually-started /chair on survives a reload (no env/flag)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-manualreload-"));
   const prevCase = process.env.OVERCAST_CASE;
