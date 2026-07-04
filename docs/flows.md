@@ -338,6 +338,52 @@ frame-level and a video-level index side by side in the wizard (one comma-separa
 `--index`; per-index config pairs use `;`):
 `case setup --index "moments:basic-clip@granularity=frame,clips:basic-clip@granularity=video" --yes`.
 
+### 4b. Local audio DB: fingerprint matching + CLAP similarity
+
+The audio twins of `image` and `similar`: `audio` does Shazam-style **exact**
+recording matching (Wang 2003 constellation hashes), and a `basic-clap` index gives
+`similar` audio↔audio + text→audio **semantic** search.
+
+```bash
+scripts/visual-db-uv.sh --audio   # numpy/scipy fingerprint deps (add --clap for CLAP)
+overcast doctor --json            # the `audio-db` check reports fingerprint + clap deps
+
+# exact matching: which recording contains this clip, and WHERE
+overcast index create jingles --type audio-fp --local --json
+overcast audio add ./original.mp4 --to jingles --json          # fingerprint (videos → audio track)
+overcast audio match ./suspect.mp4 --index jingles --json      # offset-aligned: "appears at 01:23"
+overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --draw --json  # reject sped re-uploads + plot the alignment
+overcast audio match ./clipA.mp3 ./clipB.mp3 --json            # clip-to-clip, no index needed
+
+# semantic similarity: audio->audio and text->audio (CLAP)
+scripts/visual-db-uv.sh --clap    # ~776MB model, downloaded once on first use
+overcast index create sounds --type basic-clap --local --json
+overcast similar add ./scene.wav --index sounds --json         # embed + cache (10s audio windows)
+overcast similar match ./query.wav --index sounds --json       # audio -> audio
+overcast similar search "crowd chanting" --index sounds --json # text -> audio moments
+```
+
+`audio match` reports, per member, the aligned-vote count, the time `offset_seconds`
+where the query lines up inside the recording, a `match_ratio`, and a `margin` over
+the next-best alignment; `--min-votes` (default 6) is the confidence floor. It is
+robust to transcode, noise, and clipping but **not** to pitch/speed change (classic
+Wang). A slightly sped-up re-upload can still clear the raw vote floor as a weak
+partial alignment (margin ~1.2–1.7× vs a true match's 250–1600×) — pass
+`--min-margin 2` for exact-copy detection to reject those (a matching-oriented
+`--speed-sweep` is planned separately). A silent/tonal clip fingerprints to 0 hashes
+and `audio add` flags it with a `payload.warning`. `--draw` renders an SVG alignment
+plot per match (hash-pair scatter + offset histogram, the Shazam analog of `image
+--draw`) into the case media store; the `brief`/`case status` HTML embeds it — a true
+match shows a tight aligned band + one sharp spike, a rejected copy a short scattered
+cluster.
+`basic-clap` reuses the `similar` grammar and the `basic-clip` cache layout; audio is
+chunked into `--window`-second slices (default 10s), pooled to a track vector, or
+stored per-window as moments with `--granularity frame`. The first CLAP call
+downloads the model to the HF cache; pre-warm it, then set `HF_HUB_OFFLINE=1` for
+fully offline runs. `--clip` and `--clap` share one torch in the venv — install both
+together via `scripts/visual-db-uv.sh --all` when you want the whole visual+audio
+stack (see [providers.md](providers.md)).
+
 ### 5. Local-media-only person search
 
 Candidate videos on disk + a reference image, no external sources.

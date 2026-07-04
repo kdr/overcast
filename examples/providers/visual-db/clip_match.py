@@ -352,8 +352,8 @@ def op_query(args):
     if not members:
         fail("local basic-clip index has no members — add some with `similar add ... --index %s`" % args.index, args.input, op)
     qv = query_vector(args, op)[0]
-    if args.min_similarity < 0 or args.min_similarity > 100:
-        fail("--min-similarity must be between 0 and 100", args.input, op)
+    if args.min_similarity < -100 or args.min_similarity > 100:
+        fail("--min-similarity must be between -100 and 100", args.input, op)
     if args.limit <= 0:
         fail("--limit must be positive", args.input, op)
     if args.offset < 0:
