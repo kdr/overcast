@@ -10,6 +10,8 @@ export interface Transcript {
    *  from the finalized transcript) so their later end events still land. */
   reset(items: TranscriptItem[], running?: RunningTool[]): void;
   user(text: string, source: "desk" | "chair"): void;
+  /** Mark a new assistant message in progress (guards against double-finalize). */
+  assistantStart(): void;
   assistantDelta(text: string): void;
   thinkingDelta(text: string): void;
   assistantEnd(text: string): void;
@@ -27,6 +29,11 @@ export function createTranscript(): Transcript {
 
   let live: HTMLElement | undefined;
   let thinking: HTMLElement | undefined;
+  // true while an assistant message is in progress; whichever of assistantEnd /
+  // finalizeRun fires first closes it, so the second is a no-op — an aborted run
+  // (finalizeRun) followed by a late message_end (assistantEnd) can't render the
+  // assistant text twice (Bugbot round 17).
+  let assistantOpen = false;
   const tools = new Map<string, HTMLElement>();
 
   const nearBottom = (): boolean => el.scrollHeight - el.scrollTop - el.clientHeight < 60;
@@ -51,6 +58,7 @@ export function createTranscript(): Transcript {
   return {
     el,
     reset(items, running = []) {
+      assistantOpen = false; // rebuild from a clean slate; a seeded live line re-opens it
       endLive();
       tools.clear();
       el.replaceChildren();
@@ -79,10 +87,14 @@ export function createTranscript(): Transcript {
       div.appendChild(document.createTextNode(text));
       append(div);
     },
+    assistantStart() {
+      assistantOpen = true;
+    },
     assistantDelta(text) {
       if (!live) {
         live = entry("assistant live");
         append(live);
+        assistantOpen = true;
       }
       const stick = nearBottom();
       live.textContent = (live.textContent ?? "") + text;
@@ -96,6 +108,14 @@ export function createTranscript(): Transcript {
       thinking.textContent = ((thinking.textContent ?? "") + text).slice(-600);
     },
     assistantEnd(text) {
+      // an aborted run may already have closed this line via finalizeRun; don't
+      // render it a second time
+      if (!assistantOpen) {
+        thinking?.remove();
+        thinking = undefined;
+        return;
+      }
+      assistantOpen = false;
       if (live) {
         live.classList.remove("live");
         if (text) live.textContent = text;
@@ -122,7 +142,13 @@ export function createTranscript(): Transcript {
       if (isError) row.classList.add("error");
     },
     finalizeRun() {
-      endLive(); // commit the partial assistant line; a later delta starts fresh
+      // commit the partial assistant line only if it's still open — if a
+      // message_end already closed it, leave it be (a late-arriving message_end
+      // then no-ops in assistantEnd)
+      if (assistantOpen) {
+        assistantOpen = false;
+        endLive();
+      }
       for (const row of tools.values()) row.classList.remove("running");
       tools.clear();
     },

@@ -380,6 +380,75 @@ test("busy + running tools reflect an active loop even when ctx.isIdle() is true
   }
 });
 
+test("a reload reuses the pairing token (phone stays paired) and rotates it only on /chair off", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-tokenreuse-"));
+  const prev = { chair: process.env.OVERCAST_CHAIR, port: process.env.OVERCAST_CHAIR_PORT, kase: process.env.OVERCAST_CASE };
+  try {
+    process.env.OVERCAST_CASE = dir;
+    process.env.OVERCAST_CHAIR = "1";
+    process.env.OVERCAST_CHAIR_PORT = "0";
+    const { pi, emit, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+    const tok = () => handle.bridge()!.pairingUrl.split("#t=")[1];
+
+    await emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    const t1 = tok();
+
+    // a reload restarts the bridge with the SAME token → the phone stays paired
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    assert.equal(tok(), t1, "token reused across a reload");
+
+    // /chair off rotates it: the next /chair on mints a different token
+    await commands.get("chair")?.("off", ctx);
+    await commands.get("chair")?.("on --port 0", ctx);
+    assert.notEqual(tok(), t1, "token rotated after /chair off");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    for (const [k, v] of [["OVERCAST_CHAIR", prev.chair], ["OVERCAST_CHAIR_PORT", prev.port], ["OVERCAST_CASE", prev.kase]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a manually-started /chair on survives a reload (no env/flag)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-manualreload-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  const prevChair = process.env.OVERCAST_CHAIR;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    delete process.env.OVERCAST_CHAIR; // desk-only start, no autostart config
+    const { pi, emit, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    assert.equal(handle.bridge(), undefined, "no autostart without env/flag");
+
+    // operator starts it manually…
+    await commands.get("chair")?.("on --port 0", ctx);
+    const t1 = handle.bridge()!.pairingUrl.split("#t=")[1];
+
+    // …and a reload keeps it running with the same token (was previously lost)
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    assert.ok(handle.bridge()?.running, "manual /chair on survives a reload");
+    assert.equal(handle.bridge()!.pairingUrl.split("#t=")[1], t1, "same token after reload");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    if (prevChair === undefined) delete process.env.OVERCAST_CHAIR;
+    else process.env.OVERCAST_CHAIR = prevChair;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a mid-run reload does not carry ghost busy/runningTools into the next session", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-midreload-"));
   const prev = { chair: process.env.OVERCAST_CHAIR, port: process.env.OVERCAST_CHAIR_PORT, kase: process.env.OVERCAST_CASE };

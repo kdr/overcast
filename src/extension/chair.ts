@@ -8,6 +8,7 @@
 // The LLM gets NO chair tool: opening a network listener is an operator action,
 // never something the agent can trigger (invariant #10, untrusted content).
 
+import { randomBytes } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { openCase } from "../case.js";
@@ -58,12 +59,25 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   // refreshed automatically when session_start re-fires (reload/new/resume/fork).
   let ctx: ExtensionContext | undefined;
   let bridge: ChairBridge | undefined;
-  let autostarted = false;
   let qrVisible = false;
+  // Whether the chair should be running right now — set once it's started
+  // (manually via /chair on OR via --chair/OVERCAST_CHAIR), cleared only by
+  // /chair off. It persists across pi's session_shutdown→session_start so a
+  // reload/resume/fork restarts the bridge (Bugbot round 17 — a manual /chair on
+  // must survive a reload, not just an env-configured one).
+  let chairDesired = false;
   // operator ran /chair off → suppress autostart on later session_start until an
   // explicit /chair on, so a reload/resume/fork doesn't silently reopen remote
   // control after the operator turned it off (Bugbot round 10).
   let chairOptedOut = false;
+  // The pairing token reused across reload-restarts within this process, so a
+  // reload doesn't silently rotate it and 401 the phone (Bugbot round 17).
+  // Rotated only by /chair off (cleared here) or pinned via OVERCAST_CHAIR_TOKEN.
+  let sessionToken: string | undefined;
+  // The opts of the last successful start, replayed on a reload restart so a
+  // `/chair on tailnet` (or custom --bind/--port) survives a reload instead of
+  // silently falling back to localhost.
+  let lastStartOpts: StartOptions = {};
   // exact "[chair] …" strings of injected prompts awaiting their message_start.
   // Matching a live user message against this queue (by content, FIFO) — rather
   // than a blind counter — means a desk message that merely starts with the
@@ -215,25 +229,23 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   pi.on("session_start", async (_e, c) => {
     capture(c);
-    // respect an explicit /chair off: don't re-autostart on reload until /chair on
-    if (!autostarted && !chairOptedOut && (pi.getFlag("chair") === true || envTruthy(process.env.OVERCAST_CHAIR))) {
-      await startChair();
-      // only latch on success — a failed autostart (e.g. EADDRINUSE) stays
-      // retryable on the next session_start (reload/new/resume) or via /chair on
-      autostarted = bridge?.running === true;
+    // first launch adopts the --chair/OVERCAST_CHAIR intent (unless the operator
+    // turned it off); thereafter chairDesired carries a manual /chair on across
+    // reloads too. Restart only if it isn't already running.
+    const wantByConfig = pi.getFlag("chair") === true || envTruthy(process.env.OVERCAST_CHAIR);
+    if (!chairOptedOut && (chairDesired || wantByConfig)) {
+      chairDesired = true;
+      if (!bridge?.running) await startChair(lastStartOpts); // replay the last bind/port; token reused
     }
   });
   pi.on("session_shutdown", async () => {
+    // reload/new/resume/fork fire session_shutdown then session_start. Stop the
+    // bridge but DON'T touch chairDesired / sessionToken — the next session_start
+    // restarts it with the SAME token so the phone stays paired.
     await stopChair(); // flushes coalesced deltas before the sockets close
-    // reload/new/resume/fork fire session_shutdown then session_start; clear the
-    // latch so an OVERCAST_CHAIR / --chair bridge re-autostarts for the next
-    // session (and rebinds to its — possibly changed — case) instead of staying
-    // offline until a manual /chair on.
-    autostarted = false;
-    // this session's run is abandoned — clear run state so a reload's autostarted
+    // this session's run is abandoned — clear run state so a reload's restarted
     // bridge doesn't report ghost busy / runningTools while the new session is idle
-    // (agent_end may never fire on a mid-run reload). NOT done in stopChair: a bare
-    // /chair off must keep a genuinely-in-progress run's state for a later /chair on.
+    // (agent_end may never fire on a mid-run reload).
     agentRunning = false;
     runningTools.clear();
   });
@@ -325,13 +337,16 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     const bind = opts.bind || process.env.OVERCAST_CHAIR_BIND || "127.0.0.1";
     const port = opts.port ?? envPort(process.env.OVERCAST_CHAIR_PORT) ?? 7373;
     const profile = loadProfile({ profile: process.env.OVERCAST_PROFILE || undefined });
+    // pin > reused-session-token > fresh. The extension owns the token so it can
+    // reuse it across reload-restarts (a reload must not rotate it, round 17).
+    const token = process.env.OVERCAST_CHAIR_TOKEN || sessionToken || randomBytes(32).toString("base64url");
     const b = new ChairBridge({
       agent: buildAgent(), // caseName/caseDir are read live from the agent
       profile: profile.name ?? "default",
       version: OVERCAST_VERSION,
       bind,
       port,
-      token: process.env.OVERCAST_CHAIR_TOKEN || undefined,
+      token,
       assetsDir: chairConsoleDir(),
     });
     try {
@@ -342,6 +357,9 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       return;
     }
     bridge = b;
+    sessionToken = process.env.OVERCAST_CHAIR_TOKEN ? undefined : token; // reuse across reloads (pin isn't ours to keep)
+    chairDesired = true; // now running by intent → survives reloads
+    lastStartOpts = opts; // replay bind/port on a reload restart
     showQr();
     showStatus();
   }
@@ -352,7 +370,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     resetStream(); // drop live/partial state so a later bridge can't expose a ghost `live`
     pendingChair.length = 0; // a pending injection can't attribute across a restart
     const b = bridge;
-    bridge = undefined; // rotate: the next start mints a fresh token (unless pinned)
+    bridge = undefined;
     hideQr();
     await b.stop();
   }
@@ -408,6 +426,8 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       const sub = (tokens[0] || "status").toLowerCase();
       if (sub === "off" || sub === "stop") {
         chairOptedOut = true; // operator intent: stay off across reloads until /chair on
+        chairDesired = false;
+        sessionToken = undefined; // rotate: the next /chair on mints a fresh token
         await stopChair();
         // honest about rotation: a pinned OVERCAST_CHAIR_TOKEN survives restarts
         emitResult(

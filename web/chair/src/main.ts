@@ -84,6 +84,7 @@ async function boot(): Promise<void> {
         break;
       case "message":
         if (evt.phase === "start" && evt.role === "user") transcript.user(evt.text ?? "", evt.source ?? "desk");
+        if (evt.phase === "start" && evt.role === "assistant") transcript.assistantStart();
         if (evt.phase === "end" && evt.role === "assistant") transcript.assistantEnd(evt.text ?? "");
         break;
       case "delta":
