@@ -424,12 +424,17 @@ export const enhanceVerb: VerbSpec = {
     // "segment a video frame" path (enhance frame://rec@sec --ops segment) works,
     // mirroring `see`. Never hand a literal frame://… string to a provider.
     let input = ctx.input;
+    // provenance is traced from the ORIGINAL media, not the extracted still: a
+    // frame:// still is not itself a capture, so provenanceFromCapture must look up
+    // the source clip the frame came from (else the video-frame path loses it).
+    let provenanceSource = ctx.input;
     const fr = parseFrameRef(ctx.input);
     if (fr) {
       const src = ctx.case.recordById(fr.recordId)?.media?.ref;
       if (!src || !existsSync(src)) {
         return [errorRecord("enhance", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`)];
       }
+      provenanceSource = src;
       try {
         input = await extractFrame(src, fr.second, ctx.case.mediaDir);
       } catch (e) {
@@ -519,7 +524,7 @@ export const enhanceVerb: VerbSpec = {
       // expand a multi-output envelope (per-speaker tracks / per-instance masks)
       // into [parent, ...children]; single-output providers pass through.
       const recs = fanOutEnhance(rec, { caseDir: ctx.case.dir });
-      const prov = provenanceFromCapture(ctx.case, input);
+      const prov = provenanceFromCapture(ctx.case, provenanceSource);
       for (const r of recs) {
         r.meta = { ...r.meta, case: ctx.case.dir };
         stampProvenance(r, prov);

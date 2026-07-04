@@ -4,11 +4,13 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hasFanOut, fanOutEnhance } from "../../src/verbs/enhance-fanout.ts";
 import { enhanceVerb } from "../../src/verbs/senses.ts";
+import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
 import { makeRecord } from "../../src/record.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
@@ -193,6 +195,26 @@ test("a split op with malformed outputs[] errors instead of silently dropping ar
   assert.equal(recs.length, 1);
   assert.equal(recs[0].state, "error");
   assert.match(String(recs[0].error), /malformed outputs/);
+});
+
+test("frame:// enhance inherits capture provenance from the ORIGINAL clip, not the still", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  // a real clip that a `capture` record points at (carrying source provenance)
+  const clip = join(dir, "captured.mp4");
+  execFileSync(FFMPEG_PATH, ["-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10:duration=1", "-pix_fmt", "yuv420p", clip], { stdio: "ignore" });
+  const cap = makeRecord({
+    verb: "capture", format: "json",
+    payload: { path: clip, source_url: "https://x.com/p/1", source_author: "@src", capture_id: "cap1" },
+    media: { ref: clip }, state: "ready",
+  });
+  c.writeRecord(cap);
+  const p: Profile = defaultProfile();
+  p.providers = { ...p.providers, enhance: { type: "exec", run: `bash ${join(FIX, "fake-enhance-segment.sh")} --input {{input}}` } };
+  const recs = await enhanceVerb.run({ input: `frame://${cap.id}@0`, rest: [], opts: { ops: "segment", prompt: "x" }, case: c, profile: p });
+  const child = recs[1].payload as Record<string, unknown>;
+  assert.equal(child.source_url, "https://x.com/p/1", "provenance came from the source clip's capture record");
+  assert.equal(child.source_author, "@src");
 });
 
 test("a split op that matched nothing (op set, empty outputs) is a ready parent, not an error", async () => {
