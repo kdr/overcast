@@ -562,6 +562,17 @@ overcast view <segment-parent-id>                              # gallery: every 
 overcast crop <segment-parent-id> --all                        # same boxes as durable crops
 ```
 
+Each separated track is a first-class audio evidence record (a `.wav` under
+`.overcast/media/separate/`), so it chains into the audio senses — fingerprint-match
+an isolated voice against a reference recording, or embed it for CLAP search — to
+identify or compare a single speaker pulled out of a mix:
+
+```bash
+overcast audio match <track-record-id> ./known-speaker.wav       # exact-recording fingerprint match (clip-to-clip)
+overcast similar add <track-record-id> --to voices               # embed the isolated voice into a CLAP index
+overcast similar search "calm female narrator" --index voices    # then CLAP-search across the separated voices
+```
+
 ### 14. Detection crop evidence
 
 Turn face/object boxes into durable, citable, searchable images.
