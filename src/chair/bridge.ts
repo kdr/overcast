@@ -448,7 +448,16 @@ const FALLBACK_PAGE = `<!doctype html>
   <button type="button" id="abort">abort</button>
 </form>
 <script>
-  const token = new URLSearchParams(location.hash.slice(1)).get("t") || "";
+  // pair from the QR's URL #fragment, persisting to sessionStorage (same
+  // "chair-token" key as the SPA) so a same-tab reload without the fragment
+  // stays paired instead of falling back to an empty, unauthorized token.
+  const token = (() => {
+    try {
+      const fromHash = new URLSearchParams(location.hash.slice(1)).get("t");
+      if (fromHash) { sessionStorage.setItem("chair-token", fromHash); return fromHash; }
+      return sessionStorage.getItem("chair-token") || "";
+    } catch (e) { return new URLSearchParams(location.hash.slice(1)).get("t") || ""; }
+  })();
   const log = document.getElementById("log");
   const api = (path, body) => fetch(path, { method: body ? "POST" : "GET", headers: { Authorization: "Bearer " + token, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body && JSON.stringify(body) });
   let lastSeq = -1;
