@@ -32,13 +32,15 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
   `face:deepface-local`, and the `enhance:local-models` split ops:
   `scripts/visual-db-uv.sh --face` installs OpenCV/Numpy and DeepFace/TensorFlow;
   `--clip` adds OpenAI CLIP (open_clip + torch + pillow) for the `basic-clip`
-  semantic DB; `--audio` adds scipy for the `audio-fp` Shazam-style fingerprint DB;
-  `--clap` adds LAION CLAP (transformers + torch) for the `basic-clap`
-  audio-embedding DB; `--voice` adds pyannote.audio (`enhance --ops separate`),
-  `--segment` adds transformers + SAM2/GroundingDINO (`enhance --ops segment`),
-  `--enhance` adds both enhance stacks, `--all` installs everything. Override with
-  `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`. Voice separation additionally needs
-  `HF_TOKEN` + accepted pyannote license.
+  semantic DB; `--detect` adds the OWLv2 open-vocab detector (torch + transformers
+  + scipy + pillow) that backs `see --detect` (set `DETECT_PY` to the venv);
+  `--audio` adds scipy for the `audio-fp` Shazam-style fingerprint DB; `--clap`
+  adds LAION CLAP (transformers + torch) for the `basic-clap` audio-embedding DB;
+  `--voice` adds pyannote.audio (`enhance --ops separate`), `--segment` adds
+  transformers + SAM2/GroundingDINO (`enhance --ops segment`), `--enhance` adds both
+  enhance stacks, `--all` installs everything. Override with `OC_VISUAL_DB_PY` /
+  `OVERCAST_VISUAL_DB_PY`. Voice separation additionally needs `HF_TOKEN` + accepted
+  pyannote license.
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
 
 ## Invariants (do not violate)

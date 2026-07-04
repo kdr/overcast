@@ -94,6 +94,35 @@ overcast skills install --harness claude-code  # explicit harness (claude-code i
 npx skills add kdr/overcast                    # vercel-labs/skills; pulls skills from this repo
 ```
 
+Shipped skills — `overcast` (the broad driver + `reference/verbs.md` man pages),
+`overcast-init` (one-time setup), `overcast-skill-creator` (author your own), and
+focused workflows:
+
+| Skill | Trope / job |
+|---|---|
+| `overcast-recon-brief` | scan/monitor public sources → cited brief |
+| `overcast-visual-target-search` | find a person/logo/object across clips |
+| `overcast-media-bug-triage` | screen recordings/audio → cited bug reports |
+| `overcast-copycat-sweep` | hunt re-uploads/reskins of original video |
+| `overcast-lineup` | build a face DB, run a probe through it ("the lineup") |
+| `overcast-stakeout` | standing monitor + findings review + control-room wall |
+| `overcast-scene-locate` | "where was this taken?" — clues → reverse-image search |
+| `overcast-enhance-and-resolve` | "zoom in… enhance" — upscale, re-read, honestly |
+| `overcast-wiretap` | diarize + audio-scene + spectrogram + voice-isolate/separate |
+| `overcast-provenance` | "is this clip real?" — trace to the earliest source |
+| `overcast-timeline` | reconstruct one event across multiple clips |
+| `overcast-crime-board` | crops + person links + CLIP themes → CSI board + wall |
+| `overcast-pinpoint` | pinpoint WHEN something happens — coarse→fine temporal search |
+| `overcast-frame-grid` | triage a clip in one VLM call via a labeled frame contact sheet |
+| `overcast-event-bisect` | binary-search the exact instant of a one-way state change |
+| `overcast-where` | locate WHERE in a frame — detect box + VLM-verify the crop |
+| `overcast-presence-window` | find the interval a person/object is on screen |
+
+Each is generated from `src/skill-gen.ts` (one source of truth). The CSI/crime-trope
+skills (`lineup`…`crime-board`) are exercised end-to-end against real media in
+`test/e2e/live/cases/80`–`90`; the visual-CoT localization skills
+(`pinpoint`…`presence-window`) in `test/e2e/live/cases/18_grid`.
+
 **Claude Code plugin** (slash commands + skills as one package):
 
 ```text
@@ -149,8 +178,9 @@ overcast face ./clip.mp4 --thumbnails --json          # who is in this video + f
 overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/PNG query image), ranked by similarity
 overcast crop <face-record-id> --all --class face --json # write cropped face images as evidence
 
-# 6) objects: bind a detector, find boxes, and crop them
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py"
+# 6) objects: bind the OWLv2 detector, find boxes, and crop them
+scripts/visual-db-uv.sh --detect     # uv-installs torch + transformers + scipy (sets DETECT_PY)
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"
 overcast see ./clip.mp4 --detect "person, car, license plate" --json
 overcast crop <see-record-id> --all --class person --json
 

@@ -220,7 +220,8 @@ local case memory.
 
 Local `image-ransac` and `deepface-local` indexes are also explicit and case-owned.
 They do not upload media and do not change the tinycloud defaults; run
-`scripts/visual-db-uv.sh --face` once per checkout/machine, then use
+`scripts/visual-db-uv.sh --face` (or `--clip`/`--detect`/`--all`) once per
+checkout/machine, then use
 `overcast doctor` to confirm `uv` and `visual-db` are ready. DeepFace face
 detection/matching is available as a profile choice (`face:deepface-local`), but the
 local searchable DB remains a case-owned `deepface-local` index. Current case setup
@@ -320,7 +321,7 @@ overcast brief --export report.md        # short verdict-led brief; add --full f
 When you need a local, inspectable visual match DB instead of a remote index.
 
 ```bash
-scripts/visual-db-uv.sh --face   # or --clip for CLIP, --all for both
+scripts/visual-db-uv.sh --face   # or --clip for CLIP, --detect for OWLv2, --all for every stack
 overcast doctor --json
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
 
@@ -749,6 +750,29 @@ overcast ask "what GPS coordinates or camera devices appear?"
 `needs_credentials`, exit 13, when absent). Media with no credentials is a clean
 `ready` `verify` record (`has_manifest: false`), not an error — and distinct from
 source-post provenance (where a record was scraped from).
+
+### 22. CSI / crime-trope skills (packaged flows)
+
+Several of the flows above are packaged as installable agent **skills** — a
+numbered `## Workflow` funnel each agent can follow. They ship generated from
+`src/skill-gen.ts` and are exercised end-to-end against real media in
+`test/e2e/live/cases/80`–`90`:
+
+| Skill | Flow it packages |
+|---|---|
+| `overcast-lineup` | `cluster` face DB → gallery → held-out `identify` → cited finding |
+| `overcast-stakeout` | `case setup` review-target → `monitor` → findings review → `wall` |
+| `overcast-scene-locate` | `exif` GPS → `see --ocr/--prompt/--detect` clues → `lens` reverse-image + `web` |
+| `overcast-enhance-and-resolve` | `enhance` → re-read the enhanced frame (`see`) → `crop` |
+| `overcast-wiretap` | `listen --diarize/--describe` + `view --spectrogram` + `enhance --ops voice-isolate/separate` |
+| `overcast-provenance` | `verify`/`exif` + fingerprint → sweep (no recency floor) → geometry-gated verdict |
+| `overcast-timeline` | multi-clip `watch`/`listen` → span-note anchors → chronological `brief` |
+| `overcast-crime-board` | `crop` cards + `cluster` links + `similar` themes → CSI `brief` + `wall` |
+
+Speaker separation (`listen --diarize`) needs a diarize-capable provider — the
+default tinycloud path is speech-transcript only; bind ElevenLabs. Object crops
+(`see --detect` → `crop`) need a bound OWLv2 detector (`scripts/visual-db-uv.sh
+--detect`, then `setup provider see "exec:$DETECT_PY …/detect.py"`).
 
 ## Command matrix
 
