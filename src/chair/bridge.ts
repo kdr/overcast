@@ -486,8 +486,11 @@ const FALLBACK_PAGE = `<!doctype html>
     document.getElementById("state").textContent = s.busy ? "● working" : "";
   };
   let alive = true;
-  const poll = () => api("/api/state").then(r => r.ok ? r.json() : Promise.reject(r.status)).then(render).catch(() => {
-    document.getElementById("state").textContent = "· disconnected";
+  const poll = () => api("/api/state").then(r => r.ok ? r.json() : Promise.reject(r.status)).then(render).catch((err) => {
+    // 401 = the token was rotated (e.g. /chair off→on) — re-pairing needs a new
+    // QR scan; other failures are transient (desk offline / network).
+    if (err === 401) { try { sessionStorage.removeItem("chair-token"); } catch (e) {} document.getElementById("state").textContent = "· unauthorized — re-scan the QR to re-pair"; }
+    else document.getElementById("state").textContent = "· disconnected";
   }).finally(() => { if (alive) setTimeout(poll, 1500); });
   poll();
   document.getElementById("f").addEventListener("submit", (ev) => {
@@ -497,5 +500,6 @@ const FALLBACK_PAGE = `<!doctype html>
     api("/api/prompt", { text, mode: document.getElementById("mode").value }).then(r => { if (r.ok) poll(); }).catch(() => {});
     document.getElementById("text").value = "";
   });
-  document.getElementById("abort").addEventListener("click", () => api("/api/abort").then(poll).catch(() => {}));
+  // abort must be a POST — the bridge only runs agent.abort() on POST /api/abort
+  document.getElementById("abort").addEventListener("click", () => api("/api/abort", {}).then(poll).catch(() => {}));
 </script>`;
