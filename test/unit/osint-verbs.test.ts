@@ -313,6 +313,41 @@ test("scan --pull auto_sense dispatches the exif forensic sense (not 'unknown au
   }
 });
 
+test("scan --pull senses an IMAGE capture via auto_sense (exif) and stamps provenance", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-img-"));
+  const savedClip = process.env.OVERCAST_FIXTURE_CLIP;
+  const savedClip2 = process.env.OVERCAST_FIXTURE_CLIP2;
+  try {
+    const img = join(d, "still.jpg");
+    execFileSync(FFMPEG_PATH, ["-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=1:duration=1", "-frames:v", "1", img], { stdio: "ignore" });
+    process.env.OVERCAST_FIXTURE_CLIP = img;
+    process.env.OVERCAST_FIXTURE_CLIP2 = img;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const setup = emptySetup("auto-img-exif");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["exif"], auto_index_new: false };
+    saveSetup(c, setup);
+    (await import("node:fs")).chmodSync(FAKE_EXIF, 0o755);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, exif: { type: "exec", run: `bash ${FAKE_EXIF} --input {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    const exifRecs = recs.filter((r) => r.verb === "exif");
+    // High: an image capture must feed the auto_sense chain (was gated out as non-A/V)
+    assert.ok(exifRecs.length >= 1, "exif should run on the image capture");
+    // Medium: the scan hit's provenance is stamped onto the forensic record
+    assert.equal((exifRecs[0].payload as Record<string, unknown>).source_url, img);
+    // a still image has no default watch sense
+    assert.ok(!recs.some((r) => r.verb === "watch"), "an image capture must not trigger the default watch");
+  } finally {
+    if (savedClip !== undefined) process.env.OVERCAST_FIXTURE_CLIP = savedClip;
+    if (savedClip2 !== undefined) process.env.OVERCAST_FIXTURE_CLIP2 = savedClip2;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("scan --pull review findings do not use substring target matches", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-scan-finding-substring-"));
   try {
