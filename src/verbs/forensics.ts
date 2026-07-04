@@ -53,11 +53,20 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
   //    originating post (capture stamps the same via scanHitProvenance).
   if (!isHttpUrl(ref)) {
     const resolved = resolveMediaRef(ctx.case, ref);
-    if (resolved.recordId) {
-      const srcRec = ctx.case.recordById(resolved.recordId);
-      if (srcRec) sourceProv = scanHitProvenance(srcRec);
-    }
     ref = resolved.ref;
+    // carry the source record's provenance, and — when the record has no
+    // media.ref (a scan hit whose media is a page URL) — fall back to its
+    // payload.url, matching how capture/hitFetchRef resolve the same hit
+    // (resolveMediaRef only follows media.ref, so it would otherwise leave the
+    // bare record id and fail the local-file check).
+    const rec = ctx.case.recordById(resolved.recordId ?? ctx.input);
+    if (rec) {
+      sourceProv = scanHitProvenance(rec);
+      if (!resolved.recordId) {
+        const p = rec.payload && typeof rec.payload === "object" ? (rec.payload as Record<string, unknown>) : {};
+        if (typeof p.url === "string" && p.url) ref = p.url;
+      }
+    }
   }
   // 2) a remote ref — passed directly OR resolved from a scan hit — is fetched
   //    into the case first (like see/capture) so providers read a local file.
