@@ -444,13 +444,17 @@ const FALLBACK_PAGE = `<!doctype html>
   const api = (path, body) => fetch(path, { method: body ? "POST" : "GET", headers: { Authorization: "Bearer " + token, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body && JSON.stringify(body) });
   let live = "";
   let lastSeq = 0;
+  // Seed the snapshot FIRST, then open the stream from that seq — opening SSE in
+  // parallel would let live events apply + advance lastSeq before the snapshot
+  // seeds it, duplicating lines and letting a later-lowered lastSeq re-apply.
   api("/api/state").then(r => r.json()).then(s => {
     document.getElementById("case").textContent = "case://" + s.caseName;
     for (const item of s.transcript) add(item.role === "user" ? "u" : item.role === "tool" ? "t" : "", (item.role === "user" ? "❯ " : item.role === "tool" ? "⚙ " + (item.toolName || "tool") + " " : "") + item.text);
     if (s.live) { live = s.live; render(); } // seed the in-flight assistant line
     lastSeq = s.seq || 0;
-  }).catch(() => add("n", "state fetch failed — check the token"));
-  const es = new EventSource("/events?token=" + encodeURIComponent(token));
+  }).catch(() => add("n", "state fetch failed — check the token")).finally(connect);
+  function connect() {
+  const es = new EventSource("/events?token=" + encodeURIComponent(token) + "&since=" + lastSeq);
   es.onmessage = (m) => {
     const e = JSON.parse(m.data);
     if (e.type === "gap") { location.reload(); return; } // bypass dedupe: gap seq may be below our cursor
@@ -469,6 +473,7 @@ const FALLBACK_PAGE = `<!doctype html>
     if (e.type === "state" || e.type === "hello" || e.type === "agent") document.getElementById("state").textContent = (e.busy || (e.type === "agent" && e.phase === "start")) ? "● working" : "";
     if (e.type === "notice") add("n", e.text);
   };
+  }
   let liveEl = null;
   const render = () => {
     if (!liveEl) { liveEl = document.createElement("div"); log.appendChild(liveEl); }
