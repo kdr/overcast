@@ -27,6 +27,13 @@ MON="$(echo "$out"|jq -r '.payload.montage')"
 if have_media "$MON"; then ok "$C.montage" "contact sheet written ($(echo "$out"|jq -r '.payload.grid'))"; else fail "$C.montage" "no montage at $MON"; fi
 assert_nonempty "$C.cells" "$(echo "$out"|jq -r '.payload.cells[0].at')" "cell 1 has a timestamp"
 
+# --view renders the clickable HTML board (numbered, seekable cells)
+cond "grid --view renders an HTML board whose numbered cells seek the source clip"
+vout="$(oc "$CASE" grid "$VID" --count 9 --view --no-open --json)"
+assert_eq "$C.view.opened" "false" "$(echo "$vout"|jq -r '.payload.opened')" "--no-open respected"
+VH="$(echo "$vout"|jq -r '.payload.view')"
+if have_media "$VH" && grep -q 'onclick="seek(' "$VH"; then ok "$C.view.html" "board HTML has seekable cells"; else fail "$C.view.html" "no clickable board at $VH"; fi
+
 # --- 2) no filename collision: same count, different samples -> distinct montage ---
 cond "two grids of the same clip with the same count but different samples get distinct montage files"
 a="$(oc "$CASE" grid "$VID" --at "1,2,3" --json)"

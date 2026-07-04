@@ -1,11 +1,12 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gridVerb } from "../../src/verbs/grid.ts";
 import { contactSheet, probe, FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
+import { isMemoryRecord } from "../../src/record.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
@@ -122,6 +123,28 @@ test("grid verb: missing input errors cleanly", async () => {
   const [rec] = await gridVerb.run(ctx("", { json: true }));
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /requires a video/);
+});
+
+test("grid verb: --view --no-open renders a clickable HTML board (labels + per-cell seeks)", async () => {
+  const [rec] = await gridVerb.run(ctx(clip, { count: 6, cols: 3, view: true, "no-open": true, json: true }));
+  assert.equal(rec.state, "ready");
+  const p = rec.payload as Record<string, any>;
+  assert.equal(p.opened, false); // --no-open respected
+  assert.ok(existsSync(p.view), "board HTML written");
+  const html = readFileSync(p.view, "utf8");
+  // one seekable cell per sampled frame, each seeking to its exact timestamp
+  for (const cell of p.cells.filter((c: any) => c.at != null)) {
+    assert.ok(html.includes(`onclick="seek(${cell.at})"`), `board seeks cell ${cell.n} to ${cell.at}s`);
+  }
+  assert.match(html, /<video/); // the source video to seek
+  assert.ok(html.includes("_grid_"), "board references the montage");
+});
+
+test("grid records are operational — excluded from case memory (a triage artifact, not evidence)", () => {
+  assert.equal(
+    isMemoryRecord({ verb: "grid", state: "ready", payload: { summary: "contact sheet: 16 frames" } }),
+    false,
+  );
 });
 
 test("grid verb: >64 --at timestamps error instead of silently truncating", async () => {

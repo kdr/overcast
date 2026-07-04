@@ -287,14 +287,14 @@ Emits `media.crop` records.
 
 ### `overcast grid`
 
-Samples frames from a video — uniformly across a --start/--end window (default the whole clip, --count frames) or at an explicit --at timestamp list — and tiles them into ONE contact-sheet image via the internal ffmpeg toolkit, burning each cell's number + timestamp when the ffmpeg build has drawtext (else the sheet is unlabeled and cells are numbered left-to-right, top-to-bottom). Emits a media.grid record whose media.ref is the montage and whose payload.cells maps cell number → exact timestamp. Chain it: `overcast see <montage-path> --prompt "which numbered cell best shows X? give the cell number"` then read payload.cells to recover the source time — one VLM call triages a long clip before a frame-precise zoom-in (see frame://<record>@<sec>).
+Samples frames from a video — uniformly across a --start/--end window (default the whole clip, --count frames) or at an explicit --at timestamp list — and tiles them into ONE contact-sheet image via the internal ffmpeg toolkit, burning each cell's number + timestamp when the ffmpeg build has drawtext (else the sheet is unlabeled and cells are numbered left-to-right, top-to-bottom). Emits a media.grid record whose media.ref is the montage and whose payload.cells maps cell number → exact timestamp. Chain it: `overcast see <montage-path> --prompt "which numbered cell best shows X? give the cell number"` then read payload.cells to recover the source time — one VLM call triages a long clip before a frame-precise zoom-in (see frame://<record>@<sec>). Add --view for a clickable HTML contact sheet (cells labeled with their timestamp even when ffmpeg can't burn labels, each seeking the source video on click); --no-open writes it without launching.
 
 ```
 overcast grid <input> [options]
 
   Tile timestamped video frames into a labeled contact sheet for one-shot VLM triage.
 
-  Samples frames from a video — uniformly across a --start/--end window (default the whole clip, --count frames) or at an explicit --at timestamp list — and tiles them into ONE contact-sheet image via the internal ffmpeg toolkit, burning each cell's number + timestamp when the ffmpeg build has drawtext (else the sheet is unlabeled and cells are numbered left-to-right, top-to-bottom). Emits a media.grid record whose media.ref is the montage and whose payload.cells maps cell number → exact timestamp. Chain it: `overcast see <montage-path> --prompt "which numbered cell best shows X? give the cell number"` then read payload.cells to recover the source time — one VLM call triages a long clip before a frame-precise zoom-in (see frame://<record>@<sec>).
+  Samples frames from a video — uniformly across a --start/--end window (default the whole clip, --count frames) or at an explicit --at timestamp list — and tiles them into ONE contact-sheet image via the internal ffmpeg toolkit, burning each cell's number + timestamp when the ffmpeg build has drawtext (else the sheet is unlabeled and cells are numbered left-to-right, top-to-bottom). Emits a media.grid record whose media.ref is the montage and whose payload.cells maps cell number → exact timestamp. Chain it: `overcast see <montage-path> --prompt "which numbered cell best shows X? give the cell number"` then read payload.cells to recover the source time — one VLM call triages a long clip before a frame-precise zoom-in (see frame://<record>@<sec>). Add --view for a clickable HTML contact sheet (cells labeled with their timestamp even when ffmpeg can't burn labels, each seeking the source video on click); --no-open writes it without launching.
 
 Arguments:
   input            Video file path or case record id
@@ -307,6 +307,8 @@ Options:
   --cols <number>        Grid columns (default ceil(sqrt(count)), max 12)
   --width <number>       Cell width in px (default 320)
   --out <string>         Output image path (default .overcast/media/)
+  --view                 Also render a clickable HTML contact sheet (numbered cells seek the source video)
+  --no-open              With --view, write the HTML board but don't launch it
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
 ```

@@ -7,8 +7,11 @@
 // straight back to a source time. Pure internal ffmpeg (invariant #7), like crop.
 
 import { basename, join } from "node:path";
+import { writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { makeRecord, type OvercastRecord } from "../record.js";
-import { contactSheet, probe, parseTimecode } from "../media/ffmpeg.js";
+import { contactSheet, probe, parseTimecode, type GridCell } from "../media/ffmpeg.js";
+import { openHtmlPlayer } from "../media/view.js";
 import { resolveVideoArg } from "./media-ref.js";
 import { badNumber } from "./validate.js";
 import type { VerbSpec } from "../registry/types.js";
@@ -31,7 +34,9 @@ export const gridVerb: VerbSpec = {
     "media.grid record whose media.ref is the montage and whose payload.cells maps cell number → exact " +
     "timestamp. Chain it: `overcast see <montage-path> --prompt \"which numbered cell best shows X? give the " +
     "cell number\"` then read payload.cells to recover the source time — one VLM call triages a long clip " +
-    "before a frame-precise zoom-in (see frame://<record>@<sec>).",
+    "before a frame-precise zoom-in (see frame://<record>@<sec>). Add --view for a clickable HTML contact " +
+    "sheet (cells labeled with their timestamp even when ffmpeg can't burn labels, each seeking the source " +
+    "video on click); --no-open writes it without launching.",
   args: [{ name: "input", summary: "Video file path or case record id", required: true }],
   flags: [
     { name: "count", summary: "Number of frames to sample across the window (default 16)", type: "number" },
@@ -41,6 +46,8 @@ export const gridVerb: VerbSpec = {
     { name: "cols", summary: "Grid columns (default ceil(sqrt(count)), max 12)", type: "number" },
     { name: "width", summary: "Cell width in px (default 320)", type: "number" },
     { name: "out", summary: "Output image path (default .overcast/media/)", type: "string" },
+    { name: "view", summary: "Also render a clickable HTML contact sheet (numbered cells seek the source video)", type: "boolean" },
+    { name: "no-open", summary: "With --view, write the HTML board but don't launch it", type: "boolean" },
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -133,6 +140,33 @@ export const gridVerb: VerbSpec = {
       });
       const grid = `${sheet.cols}x${sheet.rows}`;
       const blanks = sheet.cells.length - seconds.length; // trailing padding tiles
+
+      // --view: render the human-facing counterpart to the VLM-facing PNG — a
+      // clickable HTML board that labels every cell with its number + timestamp
+      // (in CSS, so labels show even when this ffmpeg lacks drawtext) and seeks
+      // the source video on click. Opens unless --no-open (like `view`).
+      let viewPath: string | undefined;
+      let opened = false;
+      if (ctx.opts.view) {
+        viewPath = sheet.output.replace(/\.png$/i, "") + "_board.html";
+        const html = buildGridHtml({
+          montage: sheet.output,
+          video: input,
+          videoIsRemote: /^https?:\/\//i.test(input),
+          cells: sheet.cells,
+          cols: sheet.cols,
+          rows: sheet.rows,
+          cellWidth: sheet.cellWidth,
+          cellHeight: sheet.cellHeight,
+          title: basename(input),
+        });
+        writeFileSync(viewPath, html, "utf8");
+        if (ctx.opts["no-open"] !== true) {
+          openHtmlPlayer(viewPath);
+          opened = true;
+        }
+      }
+
       return [
         makeRecord({
           verb: "grid",
@@ -153,6 +187,7 @@ export const gridVerb: VerbSpec = {
             window,
             // full tile map (cols×rows); entries with at:null are blank padding.
             cells: sheet.cells,
+            ...(viewPath ? { view: viewPath, opened } : {}),
           },
           media: { ref: sheet.output },
           meta: { provider: "ffmpeg", case: ctx.case.dir },
@@ -164,3 +199,100 @@ export const gridVerb: VerbSpec = {
     }
   },
 };
+
+// --- HTML contact-sheet board (the --view render) ---------------------------
+
+interface GridHtmlOpts {
+  montage: string;
+  video: string;
+  videoIsRemote: boolean;
+  cells: GridCell[];
+  cols: number;
+  rows: number;
+  cellWidth: number;
+  cellHeight: number;
+  title: string;
+}
+
+/** Escape for HTML text content. */
+function htmlText(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+/** Escape for a double-quoted HTML attribute. */
+function htmlAttr(s: string): string {
+  return htmlText(s).replace(/"/g, "&quot;");
+}
+/** Whole seconds → M:SS (labels); the exact seconds ride the seek + the record. */
+function mmss(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * A self-contained board: the montage PNG with a percentage-positioned overlay of
+ * numbered, seekable cells (percentages so the overlay scales exactly with the
+ * image), above the source video. Clicking a cell seeks the video to that cell's
+ * timestamp. Blank padding tiles render dimmed and inert.
+ */
+function buildGridHtml(o: GridHtmlOpts): string {
+  const margin = 6, gap = 6; // must match contactSheet's tile margin/padding
+  const totalW = 2 * margin + o.cols * o.cellWidth + (o.cols - 1) * gap;
+  const totalH = 2 * margin + o.rows * o.cellHeight + (o.rows - 1) * gap;
+  const pct = (n: number, d: number) => `${((n / d) * 100).toFixed(4)}%`;
+
+  const overlay = o.cells
+    .map((cell) => {
+      const idx = cell.n - 1;
+      const c = idx % o.cols;
+      const r = Math.floor(idx / o.cols);
+      const style =
+        `left:${pct(margin + c * (o.cellWidth + gap), totalW)};` +
+        `top:${pct(margin + r * (o.cellHeight + gap), totalH)};` +
+        `width:${pct(o.cellWidth, totalW)};height:${pct(o.cellHeight, totalH)}`;
+      if (cell.at == null) {
+        return `<div class="cell blank" style="${style}"><span class="badge">${cell.n}</span></div>`;
+      }
+      return (
+        `<button class="cell" style="${style}" onclick="seek(${cell.at})" ` +
+        `title="cell ${cell.n} · ${cell.at}s">` +
+        `<span class="badge">${cell.n}</span><span class="tc">${htmlText(mmss(cell.at))}</span></button>`
+      );
+    })
+    .join("");
+
+  const videoUrl = htmlAttr(o.videoIsRemote ? o.video : pathToFileURL(o.video).href);
+  const montageUrl = htmlAttr(pathToFileURL(o.montage).href);
+  const nameEsc = htmlText(o.title);
+
+  return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>overcast grid — ${nameEsc}</title>
+<style>
+  :root{--bg:#08120c;--panel:#0d1c12;--rule:#1f9d57;--ink:#c6f7d5;--amber:#ffc400;--dim:#5f9e79}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-monospace,Menlo,Consolas,monospace;padding:20px}
+  h1{color:var(--amber);font-size:14px;letter-spacing:2px;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:12px;margin:0 0 16px}
+  .board{position:relative;max-width:1100px;margin:0 auto;border:1px solid var(--rule);border-radius:8px;overflow:hidden;line-height:0}
+  .board img{display:block;width:100%;height:auto}
+  .overlay{position:absolute;inset:0}
+  .cell{position:absolute;margin:0;padding:0;border:1px solid transparent;background:transparent;cursor:pointer;border-radius:4px;transition:border-color .12s,background .12s}
+  .cell:hover,.cell:focus-visible{border-color:var(--amber);background:rgba(255,196,0,.12);outline:none}
+  .cell .badge{position:absolute;top:5px;left:5px;font-size:12px;font-weight:700;color:#08120c;background:var(--amber);border-radius:4px;padding:1px 6px;line-height:1.4}
+  .cell .tc{position:absolute;bottom:5px;right:5px;font-size:11px;color:var(--ink);background:rgba(8,18,12,.72);border:1px solid var(--rule);border-radius:4px;padding:1px 5px}
+  .cell.blank{cursor:default;background:repeating-linear-gradient(45deg,rgba(255,255,255,.03),rgba(255,255,255,.03) 6px,transparent 6px,transparent 12px)}
+  .cell.blank .badge{background:var(--dim);opacity:.6}
+  video{display:block;width:100%;max-width:1100px;margin:16px auto 0;background:#000;border:1px solid var(--rule);border-radius:8px}
+  .hint{color:var(--dim);font-size:12px;text-align:center;margin:12px 0 0}
+</style></head><body>
+<h1>▦ OVERCAST GRID — ${nameEsc}</h1>
+<p class="sub">${o.cols}×${o.rows} contact sheet · click a numbered cell to seek the clip to that moment</p>
+<div class="board"><img src="${montageUrl}" alt="contact sheet"><div class="overlay">${overlay}</div></div>
+<video id="v" src="${videoUrl}" controls preload="metadata"></video>
+<p class="hint">cells labeled #n · M:SS — the exact seconds live in the grid record's payload.cells</p>
+<script>
+  var v=document.getElementById('v');
+  function seek(t){ if(!v)return; v.currentTime=t; v.play&&v.play().catch(function(){}); v.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+</script>
+</body></html>`;
+}

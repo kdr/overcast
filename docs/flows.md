@@ -114,7 +114,8 @@ The durable local store under `.overcast/records`, plus media/state/index files.
   object-detection records.
 - **Read/meta records:** `ask`, `brief`, `case`.
 - **Operational/setup records:** `setup`, `doctor`, `provider`, `skills`,
-  `index`, `target`, `source`, `prebrief`, and finding review-rows.
+  `index`, `target`, `source`, `prebrief`, `wall`, `grid`, and finding
+  review-rows. (`grid`/`wall` are triage/viewing artifacts — not evidence.)
 - **Media files:** captured/copied/enhanced media and crops under
   `.overcast/media`.
 - **State files:** targets, sources, index mirrors, seen sets, and memory-index
@@ -153,9 +154,9 @@ Eligible fields when allowed by the signal filter:
 
 Excluded from memory and briefs: prior read/meta output (`ask`, `brief`,
 `case`); setup/operational output (`setup`, `doctor`, `provider`, `skills`,
-`index`, `target`, `source`, `prebrief`); finding review-rows, finding-command
-errors, `finding list` envelopes, and dismissed root findings (still auditable in
-records/logs).
+`index`, `target`, `source`, `prebrief`, `wall`, `grid`); finding review-rows,
+finding-command errors, `finding list` envelopes, and dismissed root findings
+(still auditable in records/logs).
 
 Raw detection payloads are intentionally not searchable. Use exact record reads
 (`case memory get <id>`) or `crop <record-id>` for boxes/images.
@@ -508,6 +509,29 @@ overcast watch ./clip.mp4
 overcast see frame://<watch-record-id>@42 --prompt "Describe signage and visible objects"
 overcast ask "What signage appears around 42 seconds?"
 ```
+
+### 15b. Temporal localization — *when* did X happen (coarse → fine)
+
+Triage the whole clip in one vision call, then verify the exact moment at the
+frame. Every timestamp traces back to a frame the model actually looked at — a
+low-res tile invites a plausible-but-wrong read, so the frame check decides.
+
+```bash
+overcast watch ./clip.mp4                                   # -> record REC (media on disk)
+overcast grid ./clip.mp4 --count 16 --json                  # one contact sheet; payload.cells maps cell -> timestamp
+overcast see <montage-path> --prompt "which numbered cells show X? give cell numbers"
+# map the chosen cell number through payload.cells[n].at (never a time the model typed)
+overcast see frame://REC@<that-second> --prompt "is X happening here?"   # verify at full resolution
+overcast grid ./clip.mp4 --start <a> --end <b> --json       # re-grid tighter to zoom in
+overcast note "X occurs" --ref REC --at <t1-t2> --confidence medium
+```
+
+`grid` is a triage artifact (operational — excluded from case memory), not
+evidence; cite the verified `see` frame, and report a window, not a false-precise
+frame. `overcast grid ./clip.mp4 --view` opens a clickable HTML board (numbered,
+timestamped cells that seek the clip) for eyeballing the same sheet by hand. The
+`overcast-pinpoint`, `overcast-frame-grid`, `overcast-event-bisect`,
+`overcast-where`, and `overcast-presence-window` skills wrap these loops.
 
 ### 16. Human observation / analyst flagging
 

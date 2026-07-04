@@ -71,6 +71,13 @@ assert_eq "grid.cells" "4" "$(jq -r '.payload.cells | length' <<<"$gout")" "grid
 grid_path="$(jq -r '.media.ref' <<<"$gout")"
 if [ -f "$grid_path" ]; then ok "grid.output_exists" "contact sheet written"; else fail "grid.output_exists" "no montage at $grid_path"; fi
 
+# grid --view: render the clickable HTML board (numbered, seekable cells)
+gvout="$($OVERCAST grid "$clip" --count 4 --cols 2 --view --no-open --json --case "$casedir" 2>/dev/null)"
+save_json "phase2_grid_view" "$gvout" >/dev/null
+assert_eq "grid.view_not_opened" "false" "$(jq -r '.payload.opened' <<<"$gvout")" "--no-open respected"
+grid_html="$(jq -r '.payload.view' <<<"$gvout")"
+if [ -f "$grid_html" ] && grep -q 'onclick="seek(' "$grid_html"; then ok "grid.view_html" "board HTML has seekable cells"; else fail "grid.view_html" "no clickable board at $grid_html"; fi
+
 # see: with NO brain, NO HF token, and no binding, it's the placeholder.
 # (A brain / HF_TOKEN / a binding routes see to that backend instead.) Both the
 # brain default (OVERCAST_SEE_BRAIN=off) and .env auto-load (OVERCAST_NO_DOTENV=1)

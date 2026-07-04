@@ -839,7 +839,10 @@ overcast brief --export ./grid-triage.md --json
 
 Use \`--at "s1,s2,s3"\` instead of \`--count\` when you already have candidate
 timestamps to compare side by side; \`--start/--end\` to focus a window; \`--cols\`
-/ \`--width\` to shape the sheet.
+/ \`--width\` to shape the sheet. Add \`--view\` (\`--no-open\` in a headless run) to
+also write a clickable HTML board — numbered, timestamped cells that seek the
+source clip — for eyeballing the sheet by hand; the montage PNG stays the input
+you hand to \`see\`.
 
 ## Output
 
