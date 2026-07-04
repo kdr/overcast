@@ -91,6 +91,33 @@ test("case status next-action: triage hint count matches its command (--state su
   });
 });
 
+test("case status triage header shows the TRUE backlog count (not the capped rows)", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    addTarget(c, "acme");
+    // 11 suggested leads — payload.triage caps rows at 8, so the header must use
+    // the full triage_pending count, and md + CSI must show an "…and N more" line
+    for (let i = 0; i < 11; i++) {
+      c.writeRecord(makeRecord({ verb: "finding", payload: { text: `lead ${i}`, target: "acme", source_record: `s${i}`, source_verb: "face", trigger: "signal:face-match", status: "suggested" }, state: "ready" }));
+    }
+    const [rec] = await caseVerb.run(ctx(dir, "status"));
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal((payload.mission as { progress: Record<string, number> }).progress.triage_pending, 11);
+    // markdown
+    const mdPath = join(dir, "s.md");
+    await caseVerb.run(ctx(dir, "status", [], { export: mdPath }));
+    const md = readFileSync(mdPath, "utf8");
+    assert.match(md, /## Triage — 11 awaiting review/);
+    assert.match(md, /…and 3 more/); // 11 total − 8 shown
+    // CSI html
+    const htmlPath = join(dir, "s.html");
+    await caseVerb.run(ctx(dir, "status", [], { export: htmlPath, theme: "csi" }));
+    const html = readFileSync(htmlPath, "utf8");
+    assert.match(html, /Triage — 11 awaiting review/);
+    assert.match(html, /…and 6 more/); // CSI shows 5, so 11 − 5
+  });
+});
+
 test("case status --export html --theme csi writes report", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);

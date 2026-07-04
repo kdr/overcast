@@ -198,12 +198,20 @@ function renderThreadCards(threads: TimelineSynthesis["threads"]): string {
   return `<section style="margin:0 0 18px"><h2 style="margin:0 0 8px">Lines of investigation</h2><section class="context">${cards}</section></section>`;
 }
 
-function renderTriagePanel(triage: TimelineSynthesis["triage"]): string {
+/** `total` is the true backlog count (may exceed the rows passed, which are
+ *  capped for the payload); the heading and overflow line use it so the header
+ *  never claims more than it lists without an "…and N more" hint. */
+function renderTriagePanel(triage: TimelineSynthesis["triage"], total?: number): string {
   if (!triage || !triage.length) return "";
-  const rows = triage.slice(0, 5).map((t) =>
+  const count = total ?? triage.length;
+  const shown = triage.slice(0, 5);
+  const rows = shown.map((t) =>
     `<li><span class="id">${escapeHtml(t.id)}</span>${t.confidence != null ? ` <span class="amber">[${escapeHtml(String(t.confidence))}]</span>` : ""} ${escapeHtml(t.text)}<div class="meta">accept: overcast finding accept ${escapeHtml(t.id)}</div></li>`,
   ).join("");
-  return `<section class="panel" style="margin:0 0 18px"><h2>Triage — ${triage.length} awaiting review</h2><ul class="findings">${rows}</ul></section>`;
+  const more = count > shown.length
+    ? `<li class="meta">…and ${count - shown.length} more (overcast finding list --state suggested)</li>`
+    : "";
+  return `<section class="panel" style="margin:0 0 18px"><h2>Triage — ${count} awaiting review</h2><ul class="findings">${rows}${more}</ul></section>`;
 }
 
 export function renderCsiStatusReport(report: StatusReport): string {
@@ -217,7 +225,10 @@ export function renderCsiStatusReport(report: StatusReport): string {
     : renderTldr(payload.tldr);
   const missionThreads = statusThreads(payload);
   const threads = renderThreadCards(missionThreads);
-  const triage = renderTriagePanel(statusTriageRows(payload));
+  // the true backlog count (mission.progress.triage_pending) may exceed the
+  // capped rows in payload.triage — pass it so the heading doesn't undercount.
+  const triagePending = typeof mission?.progress?.triage_pending === "number" ? mission.progress.triage_pending : undefined;
+  const triage = renderTriagePanel(statusTriageRows(payload), triagePending);
   const coverage = renderCoveragePanel(payload);
   const context = renderContextSections(payload);
   // demote operational detail (store/setup/memory/registries) into a collapsed

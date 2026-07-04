@@ -420,12 +420,16 @@ function statusMarkdown(title: string, payload: Record<string, unknown>, full = 
   lines.push("");
 
   const triage = Array.isArray(payload.triage) ? (payload.triage as Array<Record<string, unknown>>) : [];
-  if (triage.length) {
-    lines.push(`## Triage — ${triage.length} awaiting review`, "");
-    for (const t of triage.slice(0, 8)) {
+  // true backlog count (progress.triage_pending); payload.triage is capped at 8
+  const triageTotal = typeof mission?.progress?.triage_pending === "number" ? mission.progress.triage_pending : triage.length;
+  if (triageTotal) {
+    lines.push(`## Triage — ${triageTotal} awaiting review`, "");
+    const shown = triage.slice(0, 8);
+    for (const t of shown) {
       lines.push(`- \`${t.id}\`${t.confidence != null ? ` [${t.confidence}]` : ""} ${t.text}`);
       lines.push(`  - ${t.review}`);
     }
+    if (triageTotal > shown.length) lines.push(`- …and ${triageTotal - shown.length} more (\`overcast finding list --state suggested\`)`);
     lines.push("");
   }
 
