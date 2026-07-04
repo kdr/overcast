@@ -20,6 +20,7 @@ import {
   defaultOps,
   extractFrame,
   parseFrameRef,
+  parseTimecode,
   modalityFromExt,
   spectrogram as ffSpectrogram,
   ENHANCE_OPS,
@@ -832,7 +833,7 @@ function buildPlayerHtml(
   spectrogramPath: string | undefined,
   isRemote = false,
 ): string {
-  const startAt = at ? parseTimecode(String(at).split("-")[0]) : 0;
+  const startAt = at ? parseTimecode(String(at).split("-")[0]) ?? 0 : 0;
   const tag = modality === "video" ? "video" : "audio";
   const markerPins = markers
     .map((m) => `<button class="pin" onclick="seek(${Number(m)})">⏱ ${Number(m)}s</button>`)
@@ -869,20 +870,6 @@ ${spectrogramPath ? `<img src="${htmlAttr(pathToFileURL(spectrogramPath).href)}"
 
 function basenameOf(p: string): string {
   return p.split("/").pop() ?? p;
-}
-
-/** Parse a seek value: plain seconds ("134", "134.5") or a timecode ("02:14",
- *  "1:02:14"). Returns 0 for anything unparseable. */
-function parseTimecode(s: string): number {
-  const str = s.trim();
-  if (str === "") return 0;
-  if (str.includes(":")) {
-    const parts = str.split(":").map((p) => Number(p));
-    if (parts.some((n) => !Number.isFinite(n))) return 0;
-    return parts.reduce((acc, p) => acc * 60 + p, 0);
-  }
-  const n = Number(str);
-  return Number.isFinite(n) ? n : 0;
 }
 
 /** Escape for HTML text content. */

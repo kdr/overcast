@@ -14,6 +14,7 @@ import { audioVerb } from "../verbs/audio.js";
 import { clusterVerb } from "../verbs/cluster.js";
 import { similarVerb } from "../verbs/similar.js";
 import { cropVerb } from "../verbs/crop.js";
+import { gridVerb } from "../verbs/grid.js";
 import { wallVerb } from "../verbs/wall.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
 import {
@@ -99,6 +100,7 @@ export const VERBS: VerbSpec[] = [
   enhanceVerb,
   viewVerb,
   cropVerb,
+  gridVerb,
   wallVerb,
   scanVerb,
   captureVerb,

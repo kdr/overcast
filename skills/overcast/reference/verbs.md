@@ -318,6 +318,36 @@ Options:
 
 Emits `media.crop` records.
 
+### `overcast grid`
+
+Samples frames from a video — uniformly across a --start/--end window (default the whole clip, --count frames) or at an explicit --at timestamp list — and tiles them into ONE contact-sheet image via the internal ffmpeg toolkit, burning each cell's number + timestamp when the ffmpeg build has drawtext (else the sheet is unlabeled and cells are numbered left-to-right, top-to-bottom). Emits a media.grid record whose media.ref is the montage and whose payload.cells maps cell number → exact timestamp. Chain it: `overcast see <montage-path> --prompt "which numbered cell best shows X? give the cell number"` then read payload.cells to recover the source time — one VLM call triages a long clip before a frame-precise zoom-in (see frame://<record>@<sec>). Add --view for a clickable HTML contact sheet (cells labeled with their timestamp even when ffmpeg can't burn labels, each seeking the source video on click); --no-open writes it without launching.
+
+```
+overcast grid <input> [options]
+
+  Tile timestamped video frames into a labeled contact sheet for one-shot VLM triage.
+
+  Samples frames from a video — uniformly across a --start/--end window (default the whole clip, --count frames) or at an explicit --at timestamp list — and tiles them into ONE contact-sheet image via the internal ffmpeg toolkit, burning each cell's number + timestamp when the ffmpeg build has drawtext (else the sheet is unlabeled and cells are numbered left-to-right, top-to-bottom). Emits a media.grid record whose media.ref is the montage and whose payload.cells maps cell number → exact timestamp. Chain it: `overcast see <montage-path> --prompt "which numbered cell best shows X? give the cell number"` then read payload.cells to recover the source time — one VLM call triages a long clip before a frame-precise zoom-in (see frame://<record>@<sec>). Add --view for a clickable HTML contact sheet (cells labeled with their timestamp even when ffmpeg can't burn labels, each seeking the source video on click); --no-open writes it without launching.
+
+Arguments:
+  input            Video file path or case record id
+
+Options:
+  --count <number>       Number of frames to sample across the window (default 16)
+  --at <string>          Explicit comma list of timestamps (SS or MM:SS), overrides --count/window
+  --start <string>       Window start (SS or MM:SS)
+  --end <string>         Window end (SS or MM:SS)
+  --cols <number>        Grid columns (default ceil(sqrt(count)), max 12)
+  --width <number>       Cell width in px (default 320)
+  --out <string>         Output image path (default .overcast/media/)
+  --view                 Also render a clickable HTML contact sheet (numbered cells seek the source video)
+  --no-open              With --view, write the HTML board but don't launch it
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `media.grid` records.
+
 ### `overcast wall`
 
 Generates a self-contained HTML wall of muted, looping video tiles — each anchored to its best evidence moment (open finding > face hit > record anchor) — overlaid with case state: sense-coverage badges, findings, per-source scan / monitor / brief freshness. Local media is referenced by file:// URL (not embedded); missing or browser-hostile media renders a NO SIGNAL / STILL tile (with an ffmpeg poster frame when extractable). Click a tile to open the media at its anchor; hover for the intel card. --infinite repeats the real feeds to fill the screen and keeps extending the grid as it scrolls — an endless monitor bank even from a handful of feeds. --no-open writes the wall and emits a record with its path instead of launching.

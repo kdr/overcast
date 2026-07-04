@@ -171,6 +171,12 @@ overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py
 overcast see ./clip.mp4 --detect "person, car, license plate" --json
 overcast crop <see-record-id> --all --class person --json
 
+# 6b) when did X happen? tile the clip, ask a VLM which cell, then verify the frame
+overcast grid ./clip.mp4 --count 16 --json               # one contact sheet + cell→timestamp map
+overcast see <montage-path> --prompt "which numbered cells show X?" --json
+overcast see frame://<watch-record>@<seconds> --prompt "is X happening here?" --json  # verify at the frame
+overcast grid ./clip.mp4 --view                          # clickable numbered board that seeks the clip
+
 # 7) index the target's videos, then search across ALL of them
 overcast index create faces --type face --json
 overcast index attach existing-face-index --type face --json       # or bind an existing remote index
@@ -280,6 +286,7 @@ surface + env vars.)
 |---|---|
 | `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram); on an `enhance` split-op parent, a gallery of the tracks (audio + spectrograms) or cutouts |
 | `crop` | materialize face/object detections as cropped image records with provenance |
+| `grid` | tile timestamped frames into one contact sheet for single-call VLM triage (cell → timestamp map); `--view` for a clickable, numbered HTML board that seeks the clip |
 | `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
 
 **OSINT** — search / capture / monitor

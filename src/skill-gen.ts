@@ -1455,3 +1455,360 @@ label its confidence and corroborate before drawing the string. Face similarity 
 CLIP scores are both 0–100; keep them distinct from an \`image match\` inlier count.
 `;
 }
+
+/** Skill: pinpoint WHEN something happens — coarse→fine temporal search. */
+export function generatePinpointSkill(): string {
+  return `---
+name: overcast-pinpoint
+description: >-
+  Pinpoint WHEN a specific thing happens in a video — funnel from cheap
+  coarse candidates (shots / CLIP / grid) to a frame-verified time window.
+---
+
+# overcast-pinpoint
+
+Use this skill to answer "exactly when does X happen?" in a clip and back it
+with evidence the model actually looked at. It mirrors the temporal-search
+pattern from the VLM video literature (T\\* / VideoAgent): score cheaply over the
+whole clip, then spend expensive VLM calls only on a few candidate frames and
+zoom in. Use the broad \`overcast\` skill and \`overcast/reference/verbs.md\` for
+exact flags.
+
+Two rules that make the answer trustworthy:
+
+- **Report a window, not a frame.** Frame-exact localization is unreliable; emit
+  \`[t1-t2]\` plus one verified keyframe.
+- **Every timestamp must trace to a frame you \`see\`-verified.** Never emit a
+  time the model merely guessed — models answer correctly while grounding on the
+  wrong moment, so confirm by looking at the frame.
+
+## Workflow
+
+1. Make the clip local and get a record id (\`see frame://\` needs media on disk —
+   capture a remote clip first). \`watch\` also gives per-shot timestamped content
+   to search:
+
+\\\`\\\`\\\`bash
+overcast doctor --json
+overcast case init --json
+overcast watch ./clip.mp4 --json         # -> video.analysis record id (REC)
+\\\`\\\`\\\`
+
+2. Get COARSE candidates cheaply (pick what's available):
+
+\\\`\\\`\\\`bash
+overcast ask "moments where <X> happens, with timestamps" --json      # over watch shots/notes
+overcast grid ./clip.mp4 --count 16 --json                            # one contact sheet ...
+overcast see <montage-path> --prompt "which numbered cells show <X>? give cell numbers" --json
+overcast similar search "<X>" --index <basic-clip-id> --json          # if a local CLIP index exists
+overcast ask "moments <X> happens" --index <media-descriptions-id> --probe --json  # remote index
+\\\`\\\`\\\`
+
+   For \`grid\`, translate the chosen cell number to a time via the grid record's
+   \`payload.cells[n].at\` (don't trust a model-guessed time). CLIP/shots only
+   SHORTLIST — CLIP is weak on actions/order — so verify next.
+
+3. VERIFY + zoom on each candidate time T (expensive, precise):
+
+\\\`\\\`\\\`bash
+overcast see frame://REC@T --prompt "Is <X> happening here? answer yes/no and what you see" --json
+# refine: sample T-d and T+d, halve d each round until adjacent frames flip yes<->no
+overcast see frame://REC@<T-2> --prompt "Is <X> happening?" --json
+overcast see frame://REC@<T+2> --prompt "Is <X> happening?" --json
+\\\`\\\`\\\`
+
+4. Record the verified window and eyeball it:
+
+\\\`\\\`\\\`bash
+overcast note "<X> occurs" --ref REC --at <t1-t2> --confidence medium --json
+overcast view REC --at <t1-t2> --json
+overcast brief --export ./pinpoint.md --json
+\\\`\\\`\\\`
+
+## Output
+
+The tightest \`[t1-t2]\` window, the single \`see\` keyframe that confirms it (its
+\`record.id\`), and how it was found (shots / grid / CLIP / probe). Cite
+\`record.id\` + \`media.at\` for every claim; state the window, not a false-precise
+single frame.
+
+## Caveats
+
+Needs the video local (a URL-only \`watch\` record can't extract frames). CLIP and
+shot text shortlist but don't decide — the \`see\` frame check does. If \`X\` recurs,
+pinpoint each occurrence separately; don't collapse them into one window.
+`;
+}
+
+/** Skill: one-call contact-sheet triage over a clip (the grid trick). */
+export function generateFrameGridSkill(): string {
+  return `---
+name: overcast-frame-grid
+description: >-
+  Triage a whole clip in one VLM call — tile sampled frames into a labeled
+  contact sheet, ask which cells show the target, then zoom in.
+---
+
+# overcast-frame-grid
+
+Use this skill to find roughly WHERE in a clip something appears with a single
+vision call, before spending per-frame calls. It's the "grid trick" from
+temporal-search research (frames tiled into one image; Set-of-Mark numbering over
+time). Pairs with \`overcast-pinpoint\` for the frame-precise follow-up. Use the
+broad \`overcast\` skill and \`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+\\\`\\\`\\\`bash
+overcast doctor --json
+overcast case init --json
+overcast grid ./clip.mp4 --count 16 --json     # -> media.grid: payload.montage + payload.cells + payload.cols
+overcast see <montage-path> --prompt "Which numbered cells show <X>? Reply with cell numbers and why." --json
+\\\`\\\`\\\`
+
+- If the grid record's \`payload.labeled\` is \`false\` (this ffmpeg build has no
+  \`drawtext\`), tell \`see\` it's a \`<cols>\`-column grid numbered left-to-right,
+  top-to-bottom (\`cols\` is in the record), so it can reference cells by position.
+- Only the first \`count\` cells hold frames; the last row may be blank padding
+  (those \`payload.cells[].at\` are \`null\`), so have \`see\` pick from 1..\`count\`
+  and ignore blank tiles.
+- Always map the chosen cell number back through \`payload.cells[n].at\` to get the
+  real timestamp — never use a time the model typed out.
+
+Zoom in on the winning region (narrow the window, or hand the timestamp to
+\`overcast-pinpoint\`):
+
+\\\`\\\`\\\`bash
+overcast grid ./clip.mp4 --start <a> --end <b> --count 16 --json   # finer sheet around the hit
+overcast see frame://<watch-record>@<t> --prompt "Is <X> here? yes/no + detail" --json
+overcast note "<X> first visible" --ref <record> --at <t1-t2> --json
+overcast brief --export ./grid-triage.md --json
+\\\`\\\`\\\`
+
+Use \`--at "s1,s2,s3"\` instead of \`--count\` when you already have candidate
+timestamps to compare side by side; \`--start/--end\` to focus a window; \`--cols\`
+/ \`--width\` to shape the sheet. Add \`--view\` (\`--no-open\` in a headless run) to
+also write a clickable HTML board — numbered, timestamped cells that seek the
+source clip — for eyeballing the sheet by hand; the montage PNG stays the input
+you hand to \`see\`.
+
+## Output
+
+The cell(s) that matched, the timestamp each maps to (via \`payload.cells\`), and
+the grid \`record.id\`. Treat grid hits as coarse (one frame per cell) — confirm
+the exact moment by \`see\`-ing that frame before citing it as evidence.
+
+## Caveats
+
+One contact sheet samples sparsely, so a brief event between cells can be missed —
+raise \`--count\` or re-grid a tighter \`--start/--end\`. The montage is a still, so
+motion/audio cues are gone; use \`watch\`/\`listen\` when those matter. Video can be
+local or a URL, but the \`see frame://\` zoom-in step needs it local.
+`;
+}
+
+/** Skill: bisect the exact instant of a monotone state change. */
+export function generateEventBisectSkill(): string {
+  return `---
+name: overcast-event-bisect
+description: >-
+  Localize the exact instant of a one-way state change (light on, door opens,
+  poster removed) by binary-searching frames — ~log2(N) VLM calls.
+---
+
+# overcast-event-bisect
+
+Use this skill when a video contains a single MONOTONE transition — a condition
+that is false before some instant and true after it (or vice versa), and does not
+flip back. Binary search finds it in about log2(window/precision) vision calls
+(~12 calls localizes to ~1s inside an hour). Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+1. Local clip + record id (\`see frame://\` needs media on disk):
+
+\\\`\\\`\\\`bash
+overcast doctor --json
+overcast case init --json
+overcast watch ./clip.mp4 --json        # -> record id REC (also gives shot context)
+\\\`\\\`\\\`
+
+2. Confirm the transition is bracketed AND monotone — the two endpoints must
+   disagree on the predicate:
+
+\\\`\\\`\\\`bash
+overcast see frame://REC@<lo> --prompt "Is <predicate> true? answer only yes or no" --json
+overcast see frame://REC@<hi> --prompt "Is <predicate> true? answer only yes or no" --json
+\\\`\\\`\\\`
+
+   If both give the same answer, the flip isn't in \`[lo,hi]\`. If the predicate
+   toggles more than once, it isn't monotone — use \`overcast-pinpoint\` instead.
+
+3. Bisect: test the midpoint, keep the half that still straddles the flip, repeat
+   until \`hi - lo\` is within your precision:
+
+\\\`\\\`\\\`bash
+overcast see frame://REC@<mid> --prompt "Is <predicate> true? answer only yes or no" --json
+# keep the straddling half: if mid's answer == lo's answer, set lo=mid; else hi=mid
+# (correct whichever way it flips — false->true OR true->false)
+\\\`\\\`\\\`
+
+4. Report the transition window and show it:
+
+\\\`\\\`\\\`bash
+overcast note "<predicate> flips" --ref REC --at <lo-hi> --confidence high --json
+overcast view REC --at <lo-hi> --json
+overcast brief --export ./transition.md --json
+\\\`\\\`\\\`
+
+## Output
+
+The converged \`[lo, hi]\` bracket — the two adjacent \`see\` frames that straddle
+the flip (their \`record.id\`s + \`media.at\`) — and the call count. That bracket IS
+the answer window — don't over-claim a single frame.
+
+## Caveats
+
+Bisection is only valid for a one-way change; a light that blinks or a person who
+comes and goes will mislead it — verify monotonicity at step 2, and fall back to
+\`overcast-pinpoint\` (peak search) or \`overcast-presence-window\` for recurring or
+interval events. Needs the video local.
+`;
+}
+
+/** Skill: locate WHERE in the frame — detector-propose, VLM-verify. */
+export function generateWhereSkill(): string {
+  return `---
+name: overcast-where
+description: >-
+  Locate WHERE in a frame a target is — open-vocab detect, crop the box, then
+  VLM-verify the crop so hallucinated boxes don't survive.
+---
+
+# overcast-where
+
+Use this skill to turn a moment into spatial evidence: a bounding box on the
+target plus a verified crop. It follows the detector-proposes / VLM-verifies
+pattern (open-vocab detection like OWLv2, then confirm the crop) — because chat
+VLMs are unreliable at emitting raw coordinates, so a real detector draws the box
+and the VLM only judges the crop. Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags.
+
+## Setup
+
+\`see --detect\` needs a detection provider bound (boxes come from OWLv2, not the
+brain LLM):
+
+\\\`\\\`\\\`bash
+overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json
+# or the catalog: overcast provider setup apply --preset owl-local --yes --json
+\\\`\\\`\\\`
+
+## Workflow
+
+1. Have the moment (use \`overcast-pinpoint\` / \`overcast-frame-grid\`): timestamp
+   T on record REC.
+
+2. Detect the target in that frame, then materialize + verify the box:
+
+\\\`\\\`\\\`bash
+overcast see frame://REC@T --detect "<target phrase>" --json      # -> see record with detections[]
+overcast crop <see-record-id> --all --class "<target phrase>" --pad 0.15 --json
+overcast see <crop-path> --prompt "Does this crop show <target>? yes/no + describe" --json
+\\\`\\\`\\\`
+
+   The re-\`see\` of each crop is what kills false positives — open-vocab detectors
+   emit confident boxes for almost any phrase at low thresholds.
+
+3. Optionally sharpen the exhibit and record the finding:
+
+\\\`\\\`\\\`bash
+overcast enhance <crop-path> --ops upscale,denoise --json
+overcast finding create "<target> located at T" --ref <see-record-id> --confidence medium --json
+overcast brief --export ./where.md --json
+\\\`\\\`\\\`
+
+## Output
+
+Per confirmed target: the timestamp, the box (from the \`see --detect\` record),
+the crop path, and the verification verdict. Cite the \`see\` detection
+\`record.id\` + \`media.at\`; note the crop is the durable, memory-friendly evidence
+artifact.
+
+## Caveats
+
+Never ask the brain LLM for coordinates directly — bind a detector and verify
+crops. Detector confidence is not calibrated across free-form phrases: a high
+score on a rare phrase can still be wrong, so the crop re-check decides. For a
+specific PERSON, use \`face --match\` instead of \`--detect\`. Boxes are per sampled
+frame, not tracks.
+`;
+}
+
+/** Skill: first/last appearance interval by sweeping outward from an anchor. */
+export function generatePresenceWindowSkill(): string {
+  return `---
+name: overcast-presence-window
+description: >-
+  Find the interval a person or object is present — anchor one appearance, then
+  sweep outward with face-match / detect until it drops off both sides.
+---
+
+# overcast-presence-window
+
+Use this skill to answer "from when to when is <target> on screen?" — a first/last
+appearance interval, not a single instant. It anchors one confirmed appearance and
+expands until the target stops appearing, the presence-tracking analog of a
+temporal search. Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+1. Local clip + record id:
+
+\\\`\\\`\\\`bash
+overcast doctor --json
+overcast case init --json
+overcast watch ./clip.mp4 --json        # -> record id REC
+\\\`\\\`\\\`
+
+2. Anchor one appearance (whichever fits the target):
+
+\\\`\\\`\\\`bash
+overcast face ./clip.mp4 --match ./person.jpg --json          # a specific person (similarity 0-100)
+overcast grid ./clip.mp4 --count 16 --json                    # then see the montage for an object
+\\\`\\\`\\\`
+
+3. Sweep outward from the anchor until K consecutive misses on each side:
+
+\\\`\\\`\\\`bash
+# person: widen the window; --fps controls sample density (precision vs cost)
+overcast face ./clip.mp4 --match ./person.jpg --start <a> --end <b> --fps 1 --min-similarity 55 --json
+# object: step frames outward and check presence
+overcast see frame://REC@<t> --prompt "Is <target> present? answer only yes or no" --json
+\\\`\\\`\\\`
+
+4. Emit the presence interval(s) and show them:
+
+\\\`\\\`\\\`bash
+overcast note "<target> present" --ref REC --at <first-last> --confidence medium --json
+overcast view REC --at <first-last> --json
+overcast brief --export ./presence.md --json
+\\\`\\\`\\\`
+
+## Output
+
+One or more \`[first-last]\` intervals with the per-hit citations (\`record.id\` +
+\`media.at\`) that bound them, and the sample density used. If the target leaves
+and returns, report each interval separately rather than one span covering the
+gap.
+
+## Caveats
+
+Sampled detections are per-frame, not continuous — presence between samples is
+inferred; raise \`--fps\` to tighten boundaries at higher cost. Occlusion or an
+off-camera moment splits one presence into several intervals — that's a real
+result, not noise. Face similarity is 0-100. Needs the video local.
+`;
+}

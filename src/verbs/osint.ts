@@ -562,6 +562,7 @@ async function captureRef(
   // sharing a basename don't clobber each other / share a capture_id.
   if (existsSync(ref)) {
     const dest = opts.out ? opts.out : join(outDir, uniqueName(ref));
+    mkdirSync(dirname(dest), { recursive: true }); // a nested --out needs its parent first
     try {
       copyFileSync(ref, dest);
     } catch (e) {
@@ -590,6 +591,7 @@ async function captureRef(
     return err("capture", `no source provider can fetch ${ref} (source type '${type}')`);
   }
   const dest = opts.out ? opts.out : join(outDir, uniqueName(ref));
+  mkdirSync(dirname(dest), { recursive: true }); // a nested --out needs its parent first
   return fetchSource(desc, { url: ref, out: dest, signal: ctx.signal });
 }
 

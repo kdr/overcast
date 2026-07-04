@@ -17,6 +17,11 @@ import {
   generateProvenanceSkill,
   generateTimelineSkill,
   generateCrimeBoardSkill,
+  generatePinpointSkill,
+  generateFrameGridSkill,
+  generateEventBisectSkill,
+  generateWhereSkill,
+  generatePresenceWindowSkill,
 } from "../../src/skill-gen.ts";
 import { VERBS } from "../../src/registry/verbs.ts";
 
@@ -114,6 +119,31 @@ const generatedSkills = [
     name: "overcast-crime-board",
     body: generateCrimeBoardSkill,
     verbs: ["doctor", "face", "crop", "see", "index", "cluster", "similar", "note", "brief", "wall"],
+  },
+  {
+    name: "overcast-pinpoint",
+    body: generatePinpointSkill,
+    verbs: ["doctor", "case init", "watch", "grid", "see", "similar", "ask", "note", "view", "brief"],
+  },
+  {
+    name: "overcast-frame-grid",
+    body: generateFrameGridSkill,
+    verbs: ["doctor", "case init", "grid", "see", "note", "brief"],
+  },
+  {
+    name: "overcast-event-bisect",
+    body: generateEventBisectSkill,
+    verbs: ["doctor", "case init", "watch", "see", "note", "view", "brief"],
+  },
+  {
+    name: "overcast-where",
+    body: generateWhereSkill,
+    verbs: ["see", "crop", "enhance", "finding", "face", "brief"],
+  },
+  {
+    name: "overcast-presence-window",
+    body: generatePresenceWindowSkill,
+    verbs: ["doctor", "case init", "watch", "face", "grid", "see", "note", "view", "brief"],
   },
 ];
 
