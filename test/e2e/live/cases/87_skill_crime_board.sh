@@ -120,11 +120,19 @@ cond "crime-board skill: connection notes tie the evidence together"
 # the skill cites the cluster identify record that PROVES the person link; fall back
 # to the face-detect record only when no identify ran (no deepface/probe image).
 conn_ref="${IDENT_ID:-${FID:-}}"
-if [ "$similar_done" -eq 1 ]; then
-  oc "$CASE" note "connection: subject/theme links surfaced across the case media (face + CLIP)" --ref "$conn_ref" --tag connection --confidence medium --json >/dev/null
+# name only the evidence that actually materialized (face crops / cluster links are
+# clip/venv-gated; CLIP is venv-gated) — don't claim "face" when no face card ran.
+have_face=0; { [ "$crops_done" -eq 1 ] || [ "$cluster_done" -eq 1 ]; } && have_face=1
+if [ "$have_face" -eq 1 ] && [ "$similar_done" -eq 1 ]; then
+  conn="connection: face evidence + CLIP theme links surfaced across the case media"
+elif [ "$similar_done" -eq 1 ]; then
+  conn="connection: CLIP theme links surfaced across the case media"
+elif [ "$have_face" -eq 1 ]; then
+  conn="connection: face evidence materialized across the case media"
 else
-  oc "$CASE" note "connection: face evidence materialized across the case media" --ref "$conn_ref" --tag connection --confidence medium --json >/dev/null
+  conn="connection: evidence materialized across the case media"
 fi
+oc "$CASE" note "$conn" --ref "$conn_ref" --tag connection --confidence medium --json >/dev/null
 did="materialized face cards"
 [ "$crops_done" -eq 0 ] && did="detected faces"
 [ "$cluster_done" -eq 1 ] && did="$did, linked people via the local face DB"

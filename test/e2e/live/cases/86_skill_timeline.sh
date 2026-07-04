@@ -81,7 +81,10 @@ stripped="$(printf '%s' "$low" | sed -E \
 # for a human to resolve) rather than over-claiming an ORDERING conflict.
 if printf '%s' "$stripped" | grep -qE 'conflict|contradict|disagree|(different|opposite|wrong|reversed) order|out of (sequence|order)|order[a-z ]*(differ|disagree)'; then
   cond "timeline skill: a reported cross-clip disagreement becomes a low-confidence finding"
-  oc "$CASE" finding create "timeline: cross-clip answer reports a disagreement between the accounts — flagged for review" --ref "$W1" --at 1-4 --confidence low --json >/dev/null
+  # the answer text names which clips/moments disagree; we can't parse that reliably,
+  # so DON'T pin the finding to a specific clip+span (a fixed --ref W1 --at 1-4 would
+  # mis-anchor a conflict about the second recording). Leave it a case-level lead.
+  oc "$CASE" finding create "timeline: cross-clip answer reports a disagreement between the accounts — flagged for review (see the ask answer for the specific clips + moments)" --confidence low --json >/dev/null
   ok "$C.conflict" "answer reported a real disagreement (survived negation strip) → finding created"
   conflict_summary="flagged a cross-clip disagreement"
 else
