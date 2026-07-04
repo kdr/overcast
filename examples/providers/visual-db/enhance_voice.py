@@ -187,8 +187,14 @@ def run():
     except Exception as e:  # noqa: BLE001
         fail("diarization failed: %s" % str(e)[:200])
 
+    # pyannote 4.x returns a DiarizeOutput wrapper (.speaker_diarization is the
+    # Annotation); 3.x returned the Annotation directly. Support both.
+    annotation = getattr(diar, "speaker_diarization", diar)
+    if not hasattr(annotation, "itertracks"):
+        fail("unexpected diarization output %s (no speaker_diarization/itertracks)" % type(diar).__name__)
+
     spk = {}
-    for turn, _, speaker in diar.itertracks(yield_label=True):
+    for turn, _, speaker in annotation.itertracks(yield_label=True):
         spk.setdefault(speaker, []).append((float(turn.start), float(turn.end)))
     if not spk:
         fail("no speech/speakers detected")

@@ -228,6 +228,14 @@ image as mask + cutout evidence. Both need a **bound provider** (they are not
 ffmpeg ops); pick **local-models** (on-device) or **fal** (hosted) — one binding
 exposes both ops:
 
+> **One-time gate for local voice separation:** pyannote
+> `speaker-diarization-community-1` is a **gated** Hugging Face model. Before the
+> first `--ops separate` run you must (1) set `HF_TOKEN`, and (2) **accept the
+> license** — open <https://huggingface.co/pyannote/speaker-diarization-community-1>
+> while logged in and click **"Agree and access repository"**. Until then the
+> provider returns a clean `needs_credentials` record (not a crash). Local
+> `--ops segment` (GroundingDINO + SAM 2.1) is ungated and needs no token.
+
 ```bash
 # on-device: pyannote diarization + GroundingDINO/SAM 2.1 (Apache-2.0, CPU-ok)
 scripts/visual-db-uv.sh --enhance          # installs both stacks into the uv venv
