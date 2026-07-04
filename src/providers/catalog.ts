@@ -32,6 +32,7 @@ export function providerChoices(): ProviderChoice[] {
   const elListen = sidecar("examples", "providers", "elevenlabs", "listen.sh");
   const elEnhance = sidecar("examples", "providers", "elevenlabs", "enhance.sh");
   const detect = sidecar("examples", "providers", "detect", "detect.py");
+  const localEnhance = sidecar("examples", "providers", "local", "enhance.sh");
   const localVisionSetup = sidecar("scripts", "visual-db-uv.sh");
   return [
     {
@@ -172,9 +173,18 @@ export function providerChoices(): ProviderChoice[] {
       id: "fal",
       verb: "enhance",
       label: "fal.ai enhance",
-      summary: "fal.ai image/audio enhancement provider.",
+      summary: "fal.ai enhance toolbox: image/audio restore, plus --ops separate (sam-audio voice split) and --ops segment (sam-3 text-prompted masks).",
       descriptor: exec(`bash ${falEnhance} --input {{input}}`, `bash ${falEnhance} init`, `bash ${falEnhance} describe`),
       env: ["FAL_KEY"],
+      indexableDefault: true,
+    },
+    {
+      id: "local-models",
+      verb: "enhance",
+      label: "Local separation & segmentation",
+      summary: "On-device enhance toolbox: --ops separate (pyannote per-speaker tracks) + --ops segment (GroundingDINO + SAM 2.1 text-prompted masks/cutouts). Set up with scripts/visual-db-uv.sh --enhance.",
+      descriptor: exec(`bash ${localEnhance} --input {{input}}`, `bash ${localEnhance} init`, `bash ${localEnhance} describe`),
+      env: ["OC_VISUAL_DB_PY", "HF_TOKEN"],
       indexableDefault: true,
     },
     {
@@ -228,6 +238,9 @@ export const PROVIDER_PRESETS: Record<string, Array<{ verb: string; choice: stri
   ],
   "owl-local": [
     { verb: "see", choice: "owl-local" },
+  ],
+  "local-models": [
+    { verb: "enhance", choice: "local-models" },
   ],
   "deepface-local": [
     { verb: "face", choice: "deepface-local" },

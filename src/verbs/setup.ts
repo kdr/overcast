@@ -316,7 +316,7 @@ export const providerVerb: VerbSpec = {
     { name: "profile", summary: "Profile name to write/read (default: active/default)", type: "string" },
     { name: "verb", summary: "provider setup: verb to configure", type: "string" },
     { name: "choice", summary: "provider setup: catalog choice id", type: "string" },
-    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip|audio-fp|basic-clap)", type: "string" },
+    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap)", type: "string" },
     { name: "yes", summary: "provider setup apply: confirm profile changes", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -529,6 +529,21 @@ export const doctorVerb: VerbSpec = {
       detail: localAudioFp.code === 0
         ? `fingerprint deps OK via ${localPy}${localClap.code === 0 ? "; clap deps OK" : "; clap deps missing (run scripts/visual-db-uv.sh --clap)"}`
         : `fingerprint deps missing via ${localPy} — run \`scripts/visual-db-uv.sh --audio\` (scipy) and set OC_VISUAL_DB_PY if needed`,
+    });
+    // enhance --ops separate/segment (local-models provider): report which stacks
+    // are installed. Informational (ok) — these are opt-in and don't gate core.
+    const localSegment = await execCapture(localPy, ["-c", "import transformers, torch; print('seg-ok')"], { timeoutMs: 30_000 })
+      .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    const localVoice = await execCapture(localPy, ["-c", "import pyannote.audio; print('voice-ok')"], { timeoutMs: 30_000 })
+      .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    const segPart = localSegment.code === 0 ? "segment deps OK" : "segment deps missing (scripts/visual-db-uv.sh --segment)";
+    const voicePart = localVoice.code === 0
+      ? `voice deps OK${envPresent("HF_TOKEN") || envPresent("HUGGING_FACE_HUB_TOKEN") ? "" : " (set HF_TOKEN + accept pyannote license)"}`
+      : "voice deps missing (scripts/visual-db-uv.sh --voice)";
+    checks.push({
+      name: "enhance-local",
+      ok: true,
+      detail: `${segPart}; ${voicePart}`,
     });
 
     const configuredSources = listSources(ctx.case);

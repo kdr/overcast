@@ -156,7 +156,7 @@ Eligible fields when allowed by the signal filter:
 | `note` | title, text, tags, confidence, ref | — |
 | `scan` | title, snippet, url, source, published | — |
 | `capture` | title, snippet, text, path, source, kind | — |
-| `enhance` | summary, path, ops, output | — |
+| `enhance` | summary, path, ops, op, kind, output, speaker/label, prompt, transcript, count, score | mask/track binaries, raw boxes, segment arrays |
 | `finding` | root findings with `text` + `status` | review-rows, suggested, dismissed, list envelopes |
 
 Excluded from memory and briefs: prior read/meta output (`ask`, `brief`,
@@ -542,6 +542,35 @@ does **not** create a `face` detect record. Search with a JPEG/PNG reference.
 overcast enhance ./noisy.mp4 --ops denoise,normalize
 overcast watch <enhance-output-path>
 overcast ask "What is visible or said after enhancement?"
+```
+
+### 13b. Split ops — separate voices / segment objects
+
+Bind a split provider once (on-device or fal), then `enhance --ops separate|segment`
+fans out one evidence record per track / masked instance.
+
+```bash
+scripts/visual-db-uv.sh --enhance                       # on-device stacks (or use --preset fal)
+overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
+
+overcast enhance ./interview.mp4 --ops separate --summarize   # per-speaker tracks, each transcribed
+overcast view <separate-parent-id>                             # gallery: audition each track + spectrograms + cross-talk
+overcast ask "Summarize what each separated speaker said"
+
+overcast enhance ./scene.jpg --ops segment --prompt "the red car"   # mask + RGBA cutout per instance
+overcast view <segment-parent-id>                              # gallery: every cutout/mask in one page
+overcast crop <segment-parent-id> --all                        # same boxes as durable crops
+```
+
+Each separated track is a first-class audio evidence record (a `.wav` under
+`.overcast/media/separate/`), so it chains into the audio senses — fingerprint-match
+an isolated voice against a reference recording, or embed it for CLAP search — to
+identify or compare a single speaker pulled out of a mix:
+
+```bash
+overcast audio match <track-record-id> ./known-speaker.wav       # exact-recording fingerprint match (clip-to-clip)
+overcast similar add <track-record-id> --to voices               # embed the isolated voice into a CLAP index
+overcast similar search "calm female narrator" --index voices    # then CLAP-search across the separated voices
 ```
 
 ### 14. Detection crop evidence

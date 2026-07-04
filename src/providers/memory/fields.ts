@@ -55,7 +55,10 @@ const FIELD_POLICY: Record<string, string[]> = {
   note: ["title", "text", "tags", "confidence", "ref"],
   scan: ["title", "snippet", "url", "source", "published"],
   capture: ["title", "snippet", "text", "path", "source", "kind"],
-  enhance: ["summary", "path", "ops", "output"],
+  // enhance now also fans out separate/segment child records — index the compact
+  // signal (op, kind, speaker/label, prompt, transcript) but keep binaries
+  // (mask/track paths), raw boxes, and segment arrays out of case memory.
+  enhance: ["summary", "path", "ops", "op", "kind", "output", "speaker", "label", "prompt", "transcript", "count", "score"],
   finding: ["text", "target", "source_record", "source_verb", "trigger", "confidence", "status"],
 };
 
