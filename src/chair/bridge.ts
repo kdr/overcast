@@ -416,10 +416,14 @@ function readBody(req: IncomingMessage, limit = MAX_BODY_BYTES): Promise<string>
   });
 }
 
-// The zero-build console: served when the vite bundle isn't shipped (e.g. a bun
-// sidecar copy went missing). Spartan but fully functional — stream, prompt,
-// steer/follow-up, abort. Contains no secrets; the token arrives via the URL
-// fragment and lives only in the browser.
+// The zero-build console: served only when the vite bundle isn't shipped (a
+// broken build / missing sidecar). Deliberately POLL-BASED — it re-renders the
+// whole /api/state snapshot on a timer rather than maintaining an incremental
+// SSE state machine. That makes it robust by construction: there is no live
+// buffer, seq cursor, dedupe, or reconnect logic to drift from the real SPA
+// (which is where every past fallback bug came from). Functional — send,
+// steer/follow-up, abort — just a couple seconds behind. Contains no secrets;
+// the token arrives via the URL fragment and lives only in the browser.
 const FALLBACK_PAGE = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -427,15 +431,15 @@ const FALLBACK_PAGE = `<!doctype html>
 <style>
   body { background:#0a0f0a; color:#9fdf9f; font:14px/1.45 ui-monospace,Menlo,monospace; margin:0; display:flex; flex-direction:column; height:100dvh; }
   header { padding:8px 12px; border-bottom:1px solid #1e3320; color:#e0ffe0; display:flex; gap:10px; align-items:baseline; }
-  header .busy { color:#ffb347; }
+  header .busy { color:#ffb347; } header .note { color:#5a705a; margin-left:auto; font-size:12px; }
   #log { flex:1; overflow-y:auto; padding:12px; white-space:pre-wrap; word-break:break-word; }
-  .u { color:#7fd4ff; } .t { color:#8a8f8a; } .n { color:#ffb347; } .th { color:#5a705a; font-style:italic; }
+  .u { color:#7fd4ff; } .a {} .t { color:#8a8f8a; } .n { color:#ffb347; } .live { color:#9fdf9f; }
   form { display:flex; gap:6px; padding:10px 12px; border-top:1px solid #1e3320; }
   input,select,button { background:#101810; color:#cfe; border:1px solid #2e4d30; border-radius:4px; padding:8px; font:inherit; }
   input { flex:1; min-width:0; }
   #abort { color:#ff6b6b; border-color:#5d2626; }
 </style>
-<header><strong>◉ CHAIR</strong><span id="case"></span><span id="state" class="busy"></span></header>
+<header><strong>◉ CHAIR</strong><span id="case"></span><span id="state" class="busy"></span><span class="note">fallback · polling</span></header>
 <div id="log"></div>
 <form id="f">
   <input id="text" placeholder="message the desk…" autocomplete="off">
@@ -446,53 +450,43 @@ const FALLBACK_PAGE = `<!doctype html>
 <script>
   const token = new URLSearchParams(location.hash.slice(1)).get("t") || "";
   const log = document.getElementById("log");
-  const add = (cls, text) => { const d = document.createElement("div"); d.className = cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; };
   const api = (path, body) => fetch(path, { method: body ? "POST" : "GET", headers: { Authorization: "Bearer " + token, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body && JSON.stringify(body) });
-  let live = "";
-  let lastSeq = 0;
-  // Seed the snapshot FIRST, then open the stream from that seq — opening SSE in
-  // parallel would let live events apply + advance lastSeq before the snapshot
-  // seeds it, duplicating lines and letting a later-lowered lastSeq re-apply.
-  api("/api/state").then(r => r.json()).then(s => {
+  let lastSeq = -1;
+  // Full re-render from a snapshot. No incremental state → nothing to dedupe or
+  // drift; we only rebuild when the snapshot's seq changed, and keep the view
+  // pinned to the bottom if the reader was already there.
+  const render = (s) => {
+    if (s.seq === lastSeq) { setState(s); return; }
+    lastSeq = s.seq;
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+    const rows = [];
+    const row = (cls, text) => { const d = document.createElement("div"); d.className = cls; d.textContent = text; rows.push(d); };
+    for (const it of s.transcript) {
+      if (it.role === "user") row("u", "❯ " + it.text);
+      else if (it.role === "tool") row("t", "⚙ " + (it.toolName || "tool") + " " + it.text);
+      else row("a", it.text);
+    }
+    for (const t of (s.runningTools || [])) row("t", "⚙ " + t.name + " …");
+    if (s.live) row("a live", s.live); // the in-flight assistant line, always kept
+    log.replaceChildren(...rows);
+    if (atBottom) log.scrollTop = log.scrollHeight;
+    setState(s);
+  };
+  const setState = (s) => {
     document.getElementById("case").textContent = "case://" + s.caseName;
-    for (const item of s.transcript) add(item.role === "user" ? "u" : item.role === "tool" ? "t" : "", (item.role === "user" ? "❯ " : item.role === "tool" ? "⚙ " + (item.toolName || "tool") + " " : "") + item.text);
-    for (const t of (s.runningTools || [])) add("t", "⚙ " + t.name); // in-flight tools
-    if (s.live) { live = s.live; render(); } // seed the in-flight assistant line
-    lastSeq = s.seq || 0;
-  }).catch(() => add("n", "state fetch failed — check the token")).finally(connect);
-  function connect() {
-  const es = new EventSource("/events?token=" + encodeURIComponent(token) + "&since=" + lastSeq);
-  es.onmessage = (m) => {
-    const e = JSON.parse(m.data);
-    if (e.type === "gap") { location.reload(); return; } // bypass dedupe: gap seq may be below our cursor
-    // dedupe: hello re-baselines the cursor (rebind resets seq); replayed events
-    // at/below it are skipped so an EventSource reconnect doesn't double lines
-    if (e.type === "hello") { lastSeq = e.seq; }
-    else if (e.seq <= lastSeq) { return; }
-    else { lastSeq = e.seq; }
-    if (e.type === "delta" && e.kind === "text") { live += e.text; render(); }
-    if (e.type === "delta" && e.kind === "thinking") { /* keep the live line clean */ }
-    if (e.type === "message" && e.phase === "end" && e.role === "assistant") { live = ""; render(); add("", e.text || ""); }
-    if (e.type === "message" && e.phase === "start" && e.role === "user") add("u", "❯ " + (e.text || ""));
-    if (e.type === "tool") { if (e.phase === "start") add("t", "⚙ " + e.name); if (e.phase === "end" && e.isError) add("n", "⚠ " + e.name + " failed"); }
-    // run ended (incl. abort): commit any partial line so later text starts fresh
-    if (e.type === "agent" && e.phase === "end" && live) { add("", live); live = ""; render(); }
-    if (e.type === "state" || e.type === "hello" || e.type === "agent") document.getElementById("state").textContent = (e.busy || (e.type === "agent" && e.phase === "start")) ? "● working" : "";
-    if (e.type === "notice") add("n", e.text);
+    document.getElementById("state").textContent = s.busy ? "● working" : "";
   };
-  }
-  let liveEl = null;
-  const render = () => {
-    if (!liveEl) { liveEl = document.createElement("div"); log.appendChild(liveEl); }
-    liveEl.textContent = live; log.scrollTop = log.scrollHeight;
-    if (!live) { liveEl.remove(); liveEl = null; }
-  };
+  let alive = true;
+  const poll = () => api("/api/state").then(r => r.ok ? r.json() : Promise.reject(r.status)).then(render).catch(() => {
+    document.getElementById("state").textContent = "· disconnected";
+  }).finally(() => { if (alive) setTimeout(poll, 1500); });
+  poll();
   document.getElementById("f").addEventListener("submit", (ev) => {
     ev.preventDefault();
     const text = document.getElementById("text").value.trim();
     if (!text) return;
-    api("/api/prompt", { text, mode: document.getElementById("mode").value }).then(r => { if (!r.ok) add("n", "send failed (" + r.status + ")"); });
+    api("/api/prompt", { text, mode: document.getElementById("mode").value }).then(r => { if (r.ok) poll(); }).catch(() => {});
     document.getElementById("text").value = "";
   });
-  document.getElementById("abort").addEventListener("click", () => api("/api/abort"));
+  document.getElementById("abort").addEventListener("click", () => api("/api/abort").then(poll).catch(() => {}));
 </script>`;
