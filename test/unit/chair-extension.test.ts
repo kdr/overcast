@@ -297,6 +297,87 @@ test("a failed chair injection does not inflate the pending count", async () => 
   }
 });
 
+test("desk [chair] message interleaved with a pending injection stays desk", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-interleave-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+    await commands.get("chair")?.("on --port 0", ctx);
+    const bridge = handle.bridge()!;
+    const published: Record<string, unknown>[] = [];
+    const orig = bridge.publish.bind(bridge);
+    (bridge as unknown as { publish: typeof bridge.publish }).publish = (evt) => {
+      published.push(evt as Record<string, unknown>);
+      orig(evt);
+    };
+
+    // a real chair injection is pending its message_start…
+    bridge["agent"].sendUserMessage("scan the north gate");
+    // …but a desk message that also starts with the marker arrives FIRST. With a
+    // blind counter it would steal the slot; content-matching keeps it desk.
+    await emit("message_start", { message: { role: "user", content: "[chair] not from the phone" } }, ctx);
+    // then the actual injected message arrives and matches exactly → chair
+    await emit("message_start", { message: { role: "user", content: "[chair] scan the north gate" } }, ctx);
+
+    const users = published.filter((e) => e.type === "message" && e.role === "user");
+    assert.deepEqual(
+      users.map((u) => [u.source, u.text]),
+      [
+        ["desk", "[chair] not from the phone"],
+        ["chair", "scan the north gate"],
+      ],
+    );
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("/chair off keeps the bridge off across reloads until an explicit /chair on", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-optout-"));
+  const prev = { chair: process.env.OVERCAST_CHAIR, port: process.env.OVERCAST_CHAIR_PORT, kase: process.env.OVERCAST_CASE };
+  try {
+    process.env.OVERCAST_CASE = dir;
+    process.env.OVERCAST_CHAIR = "1";
+    process.env.OVERCAST_CHAIR_PORT = "0";
+    const { pi, emit, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    assert.ok(handle.bridge()?.running, "autostart on launch");
+
+    // operator explicitly turns it off
+    await commands.get("chair")?.("off", ctx);
+    assert.equal(handle.bridge(), undefined);
+
+    // a reload must NOT reopen remote control despite OVERCAST_CHAIR=1
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    assert.equal(handle.bridge(), undefined, "off intent survives reload");
+
+    // an explicit /chair on re-enables (and clears the opt-out for future reloads)
+    await commands.get("chair")?.("on --port 0", ctx);
+    assert.ok(handle.bridge()?.running, "explicit /chair on restarts");
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    assert.ok(handle.bridge()?.running, "autostart resumes after re-enable");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    for (const [k, v] of [["OVERCAST_CHAIR", prev.chair], ["OVERCAST_CHAIR_PORT", prev.port], ["OVERCAST_CASE", prev.kase]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("an aborted run (agent_end without message_end) leaves no ghost live", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-abort-"));
   const prevCase = process.env.OVERCAST_CASE;

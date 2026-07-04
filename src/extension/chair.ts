@@ -60,10 +60,15 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   let bridge: ChairBridge | undefined;
   let autostarted = false;
   let qrVisible = false;
-  // count of chair-injected prompts awaiting their message_start, so a live
-  // "chair" label reflects an ACTUAL injection — not merely a desk message that
-  // happens to start with the [chair] marker (Bugbot round 4).
-  let pendingChairMsgs = 0;
+  // operator ran /chair off → suppress autostart on later session_start until an
+  // explicit /chair on, so a reload/resume/fork doesn't silently reopen remote
+  // control after the operator turned it off (Bugbot round 10).
+  let chairOptedOut = false;
+  // exact "[chair] …" strings of injected prompts awaiting their message_start.
+  // Matching a live user message against this queue (by content, FIFO) — rather
+  // than a blind counter — means a desk message that merely starts with the
+  // marker can't consume a remote slot or get relabeled chair (Bugbot round 10).
+  const pendingChair: string[] = [];
 
   // delta coalescing — message_update fires per token; batch to ≤1 flush/40ms
   let textBuf = "";
@@ -118,13 +123,20 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   const caseCwd = (): string => process.env.OVERCAST_CASE || ctx?.cwd || process.cwd();
 
   // Classify a user message as desk- or chair-originated. `live` (message_start)
-  // consumes a pending injection so the label reflects a real chair prompt, not
-  // a desk message that merely starts with the marker. Replayed history has no
-  // such signal, so it falls back to the marker heuristic (best-effort).
+  // matches the exact text against the pending-injection queue and consumes it,
+  // so only a message we actually injected is labeled chair — a desk message
+  // that merely starts with the marker (even one identical in prefix) stays desk
+  // unless its full text matches a real pending injection. Replayed history has
+  // no such signal, so it falls back to the marker heuristic (best-effort).
   const classifyUser = (raw: string, live: boolean): { source: "desk" | "chair"; text: string } => {
-    const marked = raw.startsWith(CHAIR_PREFIX);
-    const chair = marked && (live ? pendingChairMsgs > 0 : true);
-    if (live && chair) pendingChairMsgs--;
+    let chair: boolean;
+    if (live) {
+      const i = pendingChair.indexOf(raw);
+      chair = i >= 0;
+      if (chair) pendingChair.splice(i, 1);
+    } else {
+      chair = raw.startsWith(CHAIR_PREFIX);
+    }
     return chair ? { source: "chair", text: raw.slice(CHAIR_PREFIX.length) } : { source: "desk", text: raw };
   };
 
@@ -133,14 +145,16 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     hasPending: () => ctx?.hasPendingMessages() ?? false,
     abort: () => ctx?.abort(),
     sendUserMessage: (text, opts) => {
-      // count the injection up front (message_start may fire synchronously), but
-      // roll back if the dispatch throws so a failed send can't inflate the
-      // count and mislabel a later desk message as chair (Bugbot round 5)
-      pendingChairMsgs++;
+      // queue the exact injected string up front (message_start may fire
+      // synchronously), rolling it back if the dispatch throws so a failed send
+      // can't leave a phantom entry that mislabels a later message (Bugbot r5/r10)
+      const full = CHAIR_PREFIX + text;
+      pendingChair.push(full);
       try {
-        pi.sendUserMessage(CHAIR_PREFIX + text, opts);
+        pi.sendUserMessage(full, opts);
       } catch (e) {
-        pendingChairMsgs--;
+        const i = pendingChair.lastIndexOf(full);
+        if (i >= 0) pendingChair.splice(i, 1);
         throw e;
       }
     },
@@ -177,7 +191,8 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   pi.on("session_start", async (_e, c) => {
     capture(c);
-    if (!autostarted && (pi.getFlag("chair") === true || envTruthy(process.env.OVERCAST_CHAIR))) {
+    // respect an explicit /chair off: don't re-autostart on reload until /chair on
+    if (!autostarted && !chairOptedOut && (pi.getFlag("chair") === true || envTruthy(process.env.OVERCAST_CHAIR))) {
       await startChair();
       // only latch on success — a failed autostart (e.g. EADDRINUSE) stays
       // retryable on the next session_start (reload/new/resume) or via /chair on
@@ -298,7 +313,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     if (!bridge) return;
     flush(); // deliver any coalesced assistant text before the sockets close
     resetStream(); // drop live/partial state so a later bridge can't expose a ghost `live`
-    pendingChairMsgs = 0; // a pending injection can't attribute across a restart
+    pendingChair.length = 0; // a pending injection can't attribute across a restart
     const b = bridge;
     bridge = undefined; // rotate: the next start mints a fresh token (unless pinned)
     hideQr();
@@ -355,6 +370,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       const tokens = args.trim().split(/\s+/).filter(Boolean);
       const sub = (tokens[0] || "status").toLowerCase();
       if (sub === "off" || sub === "stop") {
+        chairOptedOut = true; // operator intent: stay off across reloads until /chair on
         await stopChair();
         // honest about rotation: a pinned OVERCAST_CHAIR_TOKEN survives restarts
         emitResult(
@@ -380,6 +396,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
         return;
       }
       if (sub === "on" || sub === "start") {
+        chairOptedOut = false; // explicit re-enable clears any earlier /chair off
         const opts: StartOptions = {};
         const rest = tokens.slice(1);
         for (let i = 0; i < rest.length; i++) {
