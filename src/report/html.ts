@@ -298,9 +298,17 @@ export function renderEnhanceGallery(r: EnhanceGalleryReport): string {
   </section>`;
 
   const origUrl = isSep && r.sourceRef ? localMediaUrl(r.sourceRef) : undefined;
+  // the original may be a VIDEO (separate ran on a clip); browsers won't play a
+  // video's audio inside an <audio> element, so use <video> for it (you still
+  // hear the mix, and can see who's speaking). Per-speaker tracks are always WAV.
+  const origIsVideo = !!r.sourceRef && /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(r.sourceRef);
+  const origMedia = origUrl
+    ? origIsVideo
+      ? `<video class="embed" controls preload="none" src="${escapeHtml(origUrl)}"></video>`
+      : `<audio controls preload="none" src="${escapeHtml(origUrl)}" style="width:100%"></audio>`
+    : "";
   const origCard = origUrl
-    ? `<article class="card"><div class="card-head"><span class="verb">ORIGINAL</span><span class="media">mixed</span></div>
-        <audio controls preload="none" src="${escapeHtml(origUrl)}" style="width:100%"></audio></article>`
+    ? `<article class="card"><div class="card-head"><span class="verb">ORIGINAL</span><span class="media">mixed</span></div>${origMedia}</article>`
     : "";
 
   const cards = r.items.map((it) => {

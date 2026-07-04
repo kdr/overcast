@@ -185,8 +185,20 @@ test("view on a separate PARENT record renders a gallery of its tracks", async (
   assert.equal((view.payload as Record<string, unknown>).mode, "separation");
   assert.equal((view.payload as Record<string, unknown>).items, 2);
   const gallery = readFileSync(view.media!.ref, "utf8");
-  assert.match(gallery, /<audio/); // players present
+  assert.match(gallery, /<audio/); // per-speaker track players
+  assert.match(gallery, /<video/); // the ORIGINAL is a .mp4 → a video element, not audio
   assert.match(gallery, /SPEAKER_00/);
+});
+
+test("separation gallery uses <audio> for the original when the source is not a video", () => {
+  const existing = join(FIX, "fake-enhance-separate.sh"); // a real file, non-video ext
+  const html = renderEnhanceGallery({
+    op: "separate", title: "t", sourceRef: existing,
+    items: [{ kind: "track", ref: existing, label: "S0" }],
+  });
+  // non-video source → the original card must be an <audio>, never <video>
+  assert.match(html, /ORIGINAL[\s\S]*?<audio/);
+  assert.doesNotMatch(html, /<video/);
 });
 
 test("view on a segment PARENT record renders a cutout gallery (no audio)", async () => {
