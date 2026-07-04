@@ -53,6 +53,8 @@ One-time setup for overcast.
    ```
 7. **Case setup later** — use the main `overcast` skill per investigation to run
    `case setup`, select targets/sources/indexes, and optionally set case-level
-   automation such as `--auto-sense`, `--auto-index-new`, and `--findings review`.
+   automation such as `--auto-sense`, `--auto-index-new`, and `--findings`
+   (defaults to `suggest` — score/text triggers auto-suggest leads; `review` is
+   the legacy text-only mode, `off` disables).
 
 Then use the `overcast` skill to drive the verbs.

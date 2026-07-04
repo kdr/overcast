@@ -19,9 +19,10 @@ overcast doctor --sources --json
 overcast case init --json
 overcast case setup --target "<target>" --source "web:<query>" --yes --json
 overcast scan --pull --json
-overcast finding list --json
+overcast finding list --state triage --json   # auto-suggested leads (bare `list` shows only open)
+overcast finding accept <id> --json            # promote a real lead to evidence (or `dismiss <id>`)
 overcast ask "what are the relevant hits, dates, sources, and confidence levels?" --json
-overcast brief --export ./recon-brief.md --json
+overcast brief --export ./recon-brief.md --json   # short by default; add --full for the verbatim timeline
 ```
 
 For a one-time polling pass, use:
@@ -40,10 +41,14 @@ overcast monitor --every 30m --json
 
 Produce a cited brief with:
 
-- timeline entries tied to source URLs and record IDs;
+- the short brief's lead sections — verdict, key findings, lines of investigation
+  (per-target threads), triage queue, and coverage gaps (`--full` for the
+  verbatim per-record timeline tied to source URLs and record IDs);
 - relevant hits from `scan --pull` and captured media observations;
-- accepted, dismissed, and review-needed findings separated by confidence;
+- findings triaged from the auto-suggested queue via `finding accept`/`dismiss`,
+  separated by confidence;
 - clear gaps where sources, credentials, or media captures were unavailable.
+- `/debrief` automates this recon → triage → thread-notes → brief loop.
 
 ## Evidence Rules
 

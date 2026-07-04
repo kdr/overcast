@@ -48,6 +48,7 @@ const FIELD_POLICY: Record<string, string[]> = {
   // (homographies, boxes, embeddings, vectors, artifact paths) stay in the
   // record / typed local index, never in searchable case memory.
   image: ["summary", "op", "index", "count", "matches[].label", "matches[].db_img_path", "matches[].num_inliers", "matches[].inlier_ratio", "matches[].at"],
+  audio: ["summary", "op", "index", "count", "matches[].ref", "matches[].offset_seconds", "matches[].aligned_votes", "matches[].match_ratio", "matches[].span_seconds"],
   cluster: ["summary", "op", "index", "count", "new_clusters", "clusters_total"],
   similar: ["summary", "query", "matches[].ref"],
   crop: ["summary", "kind", "class", "detection_id", "source_record", "source_verb", "source_media", "at", "confidence", "crop"],
