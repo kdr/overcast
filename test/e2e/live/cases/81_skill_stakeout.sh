@@ -28,6 +28,10 @@ assert_eq "$C.findings_mode" "suggest" "$mode" "findings suggest mode persisted 
 # 2) skill step: a real feed joins the case (the thing the wall renders)
 cond "stakeout skill: a real feed is sensed into the case as watch evidence"
 wa="$(OC_TIMEOUT=300 oc "$CASE" watch "$CLIP" --json)"
+# under --findings suggest with a text target, a watch whose content mentions the
+# target co-emits a `suggested` finding in the stream — select the watch record so
+# WID (used as the pin --ref below) and .state don't pick up the finding.
+wa="$(echo "$wa" | jq -s -c '[.[]|select(.verb=="watch")][0]')"
 WID="$(echo "$wa" | jq -r '.id // empty')"
 assert_eq "$C.feed" "ready" "$(echo "$wa" | jq -r '.state')" "feed watched into the case"
 assert_nonempty "$C.feed_id" "$WID" "feed record id"
