@@ -75,14 +75,18 @@ stripped="$(printf '%s' "$low" | sed -E \
 # loose nouns (inconsistent/mismatch/discrepancy) are only used in the negation
 # strip above — an answer like "lighting is inconsistent but no ordering conflict"
 # must NOT file a finding.
+# the grep detects a cross-clip DISAGREEMENT; it can't reliably tell an ordering
+# disagreement from a detail disagreement (a car's colour) from free text, so the
+# finding is worded as a general "disagreement flagged for review" (low confidence,
+# for a human to resolve) rather than over-claiming an ORDERING conflict.
 if printf '%s' "$stripped" | grep -qE 'conflict|contradict|disagree|(different|opposite|wrong|reversed) order|out of (sequence|order)|order[a-z ]*(differ|disagree)'; then
-  cond "timeline skill: a reported cross-clip conflict becomes a low-confidence finding"
-  oc "$CASE" finding create "timeline: cross-clip answer reports an ordering conflict — flagged for review" --ref "$W1" --at 1-4 --confidence low --json >/dev/null
-  ok "$C.conflict" "answer reported a real conflict (survived negation strip) → finding created"
-  conflict_summary="flagged an ordering conflict"
+  cond "timeline skill: a reported cross-clip disagreement becomes a low-confidence finding"
+  oc "$CASE" finding create "timeline: cross-clip answer reports a disagreement between the accounts — flagged for review" --ref "$W1" --at 1-4 --confidence low --json >/dev/null
+  ok "$C.conflict" "answer reported a real disagreement (survived negation strip) → finding created"
+  conflict_summary="flagged a cross-clip disagreement"
 else
-  ok "$C.conflict" "answer reported agreement / denied a conflict → no invented finding"
-  conflict_summary="no ordering conflicts reported"
+  ok "$C.conflict" "answer reported agreement / denied a disagreement → no invented finding"
+  conflict_summary="no cross-clip disagreements reported"
 fi
 nclips=1; [ -n "$W2" ] && nclips=2
 oc "$CASE" note "timeline: reconstructed the event across $nclips clip(s); anchored shared moments; $conflict_summary." --tag tldr --json >/dev/null
