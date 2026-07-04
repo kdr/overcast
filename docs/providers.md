@@ -245,6 +245,7 @@ overcast provider setup plan --preset fal && overcast provider setup apply --pre
 
 overcast enhance interview.mp4 --ops separate --summarize          # per-speaker tracks, each transcribed
 overcast enhance photo.jpg     --ops segment  --prompt "the red car"   # mask + RGBA cutout per instance
+overcast view <split-op-parent-id>                                 # gallery: audition tracks (audio + spectrograms) or view cutouts
 overcast crop <segment-parent-id> --all                            # materialize the same boxes as crops
 ```
 

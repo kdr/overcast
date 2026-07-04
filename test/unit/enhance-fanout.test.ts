@@ -8,8 +8,10 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { hasFanOut, fanOutEnhance } from "../../src/verbs/enhance-fanout.ts";
-import { enhanceVerb } from "../../src/verbs/senses.ts";
+import { renderEnhanceGallery } from "../../src/report/html.ts";
+import { enhanceVerb, viewVerb } from "../../src/verbs/senses.ts";
 import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
 import { makeRecord } from "../../src/record.ts";
 import { openCase } from "../../src/case.ts";
@@ -148,6 +150,59 @@ test("enhance single-output provider still returns exactly one record", async ()
   const recs = await enhanceVerb.run(ctx(img, {}, `bash ${join(FIX, "fake-enhance-single.sh")} --input {{input}}`));
   assert.equal(recs.length, 1);
   assert.equal((recs[0].payload as Record<string, unknown>).model, "fake");
+});
+
+test("renderEnhanceGallery (separate) emits audio players, overlaps, and transcripts", () => {
+  const html = renderEnhanceGallery({
+    op: "separate", title: "enhance separate", model: "pyannote/x",
+    overlaps: [{ at: [11.4, 12.9], speakers: ["SPEAKER_00", "SPEAKER_01"] }],
+    items: [
+      { kind: "track", ref: "/nope/a.wav", label: "SPEAKER_00", speechSeconds: 35.2, segments: 5, transcript: "hello world" },
+      { kind: "track", ref: "/nope/b.wav", label: "SPEAKER_01", speechSeconds: 3.8, segments: 3 },
+    ],
+  });
+  assert.match(html, /SPEAKER_00/);
+  assert.match(html, /Cross-talk/);
+  assert.match(html, /11\.4–12\.9s/);
+  assert.match(html, /hello world/);
+  // a missing track file degrades to a note, never a broken player
+  assert.match(html, /track file missing/);
+  assert.doesNotMatch(html, /<script/i); // no injected script
+});
+
+test("view on a separate PARENT record renders a gallery of its tracks", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const clip = join(dir, "gallery.mp4");
+  writeFileSync(clip, "x");
+  const p: Profile = defaultProfile();
+  p.providers = { ...p.providers, enhance: { type: "exec", run: `bash ${join(FIX, "fake-enhance-separate.sh")} --input {{input}}` } };
+  const recs = await enhanceVerb.run({ input: clip, rest: [], opts: { ops: "separate" }, case: c, profile: p });
+  for (const r of recs) c.writeRecord(r);
+  const parentId = recs[0].id;
+  const [view] = await viewVerb.run({ input: parentId, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
+  assert.equal(view.verb, "view");
+  assert.equal((view.payload as Record<string, unknown>).mode, "separation");
+  assert.equal((view.payload as Record<string, unknown>).items, 2);
+  const gallery = readFileSync(view.media!.ref, "utf8");
+  assert.match(gallery, /<audio/); // players present
+  assert.match(gallery, /SPEAKER_00/);
+});
+
+test("view on a segment PARENT record renders a cutout gallery (no audio)", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const img = join(dir, "gallery.jpg");
+  writeFileSync(img, "x");
+  const p: Profile = defaultProfile();
+  p.providers = { ...p.providers, enhance: { type: "exec", run: `bash ${join(FIX, "fake-enhance-segment.sh")} --input {{input}}` } };
+  const recs = await enhanceVerb.run({ input: img, rest: [], opts: { ops: "segment", prompt: "car" }, case: c, profile: p });
+  for (const r of recs) c.writeRecord(r);
+  const [view] = await viewVerb.run({ input: recs[0].id, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
+  assert.equal((view.payload as Record<string, unknown>).mode, "segmentation");
+  const gallery = readFileSync(view.media!.ref, "utf8");
+  assert.doesNotMatch(gallery, /<audio/);
+  assert.match(gallery, /INSTANCES/);
 });
 
 test("enhance --ops separate WITHOUT a bound provider errors helpfully", async () => {

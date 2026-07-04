@@ -238,14 +238,14 @@ Emits `media.enhanced` records.
 
 ### `overcast view`
 
-For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. --no-open writes the viewer and emits a view record with its path instead of launching.
+For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or cutout/mask images for segment. --no-open writes the viewer and emits a view record with its path.
 
 ```
 overcast view <ref> [options]
 
   Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 
-  For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. --no-open writes the viewer and emits a view record with its path instead of launching.
+  For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or cutout/mask images for segment. --no-open writes the viewer and emits a view record with its path.
 
 Arguments:
   ref              Media path, capture-id, or record-id

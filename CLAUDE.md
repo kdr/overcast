@@ -113,7 +113,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   tracks + optional `--summarize`, and `--ops segment --prompt` = text-prompted
   masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
-  `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
+  `--no-open`; on an `enhance` split-op parent it renders a GALLERY of the fanned-out
+  children — per-track audio + spectrograms for `separate`, cutouts for `segment`,
+  via `renderEnhanceGallery` in `src/report/html.ts`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
   `--square`), `wall` (control-room monitor wall: case videos muted + looping at
   their evidence moments — open finding > face hit > record anchor — with

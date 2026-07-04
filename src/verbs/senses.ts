@@ -26,6 +26,7 @@ import {
   type Modality,
 } from "../media/ffmpeg.js";
 import { openHtmlPlayer, osOpen } from "../media/view.js";
+import { renderEnhanceGallery, type EnhanceGalleryItem, type EnhanceGalleryReport } from "../report/html.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { fanOutEnhance, hasFanOut } from "./enhance-fanout.js";
@@ -594,8 +595,10 @@ export const viewVerb: VerbSpec = {
   summary: "Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.",
   description:
     "For video/audio, generates a self-contained HTML player (timeline + markers for a referenced " +
-    "record's media.at) and opens it. For other files, uses the OS open command. --no-open writes " +
-    "the viewer and emits a view record with its path instead of launching.",
+    "record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` " +
+    "split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children " +
+    "instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or " +
+    "cutout/mask images for segment. --no-open writes the viewer and emits a view record with its path.",
   args: [{ name: "ref", summary: "Media path, capture-id, or record-id", required: true }],
   flags: [
     { name: "at", summary: "Start at SS or seek a START-END span", type: "string" },
@@ -643,6 +646,14 @@ export const viewVerb: VerbSpec = {
           if (!at) at = String(markers[0]);
         }
       }
+    }
+
+    // An enhance split-op PARENT record → render a gallery of its fanned-out
+    // children (per-track audio + spectrograms, or cutout/mask images) instead of
+    // the parent's single source media. Falls through when it isn't such a parent.
+    if (rec) {
+      const gallery = await maybeEnhanceGallery(ctx, rec);
+      if (gallery) return [gallery];
     }
 
     // watch/listen accept and persist http(s) URLs; view must too (don't treat
@@ -725,6 +736,70 @@ function errorRecord(verb: string, message: string): OvercastRecord {
     payload: { error: message },
     error: message,
     state: "error",
+  });
+}
+
+/** If `rec` is an enhance split-op PARENT (payload.op separate|segment) with
+ *  fanned-out children in the case, render an HTML gallery and return the view
+ *  record; else null (so `view` falls through to its single-media player). */
+async function maybeEnhanceGallery(ctx: VerbContext, rec: OvercastRecord): Promise<OvercastRecord | null> {
+  if (rec.verb !== "enhance" || typeof rec.payload !== "object" || !rec.payload) return null;
+  const p = rec.payload as Record<string, unknown>;
+  const op = p.op;
+  if (op !== "separate" && op !== "segment") return null;
+  const children = ctx.case.records().filter(
+    (r) => r.verb === "enhance" && (r.payload as Record<string, unknown> | undefined)?.source_record === rec.id,
+  );
+  if (!children.length) return null;
+
+  const items: EnhanceGalleryItem[] = [];
+  for (const child of children) {
+    const cp = (typeof child.payload === "object" && child.payload ? child.payload : {}) as Record<string, unknown>;
+    const ref = child.media?.ref;
+    if (typeof ref !== "string") continue;
+    const item: EnhanceGalleryItem = {
+      kind: typeof cp.kind === "string" ? cp.kind : "output",
+      ref,
+      label: typeof cp.speaker === "string" ? cp.speaker : typeof cp.label === "string" ? cp.label : undefined,
+      score: typeof cp.score === "number" ? cp.score : undefined,
+      speechSeconds: typeof cp.speech_seconds === "number" ? cp.speech_seconds : undefined,
+      segments: Array.isArray(cp.segments) ? cp.segments.length : undefined,
+      transcript: typeof cp.transcript === "string" ? cp.transcript : undefined,
+    };
+    // a spectrogram makes the separation legible — best-effort (needs local audio).
+    if (op === "separate" && existsSync(ref)) {
+      item.spectrogram = await ffSpectrogram(ref, ctx.case.mediaDir).catch(() => undefined);
+    }
+    items.push(item);
+  }
+  if (!items.length) return null;
+
+  const overlaps = Array.isArray(p.overlap)
+    ? (p.overlap as Array<Record<string, unknown>>)
+        .map((o) => ({ at: o?.at, speakers: o?.speakers }))
+        .filter((o): o is { at: [number, number]; speakers: string[] } =>
+          Array.isArray(o.at) && o.at.length === 2 && o.at.every((n) => typeof n === "number") && Array.isArray(o.speakers))
+    : undefined;
+
+  const report: EnhanceGalleryReport = {
+    op,
+    title: `enhance ${op}`,
+    subtitle: typeof p.input === "string" ? (p.input.split("/").pop() ?? rec.id) : rec.id,
+    sourceRef: rec.media?.ref,
+    model: typeof p.model === "string" ? p.model : typeof p.detect_model === "string" ? p.detect_model : undefined,
+    overlaps,
+    items,
+  };
+  const htmlPath = join(ctx.case.mediaDir, `enhance-gallery-${rec.id}.html`);
+  writeFileSync(htmlPath, renderEnhanceGallery(report), "utf8");
+  if (ctx.opts["no-open"] !== true) openHtmlPlayer(htmlPath);
+  return makeRecord({
+    verb: "view",
+    format: "json",
+    payload: { mode: op === "separate" ? "separation" : "segmentation", op, viewer: htmlPath, items: items.length, source_record: rec.id },
+    media: { ref: htmlPath },
+    meta: { case: ctx.case.dir },
+    state: "ready",
   });
 }
 

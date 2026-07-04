@@ -225,12 +225,12 @@ surface + env vars.)
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) index — `search` by text, `match` by image, video moments included |
-| `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
+| `enhance` | denoise / normalize / upscale via bundled ffmpeg, a bound restore model, or the split ops — `--ops separate` (per-speaker tracks, `--summarize` to transcribe each) and `--ops segment --prompt` (text-prompted masks + cutouts), bound local or fal, one evidence record per artifact |
 
 **Inspect** — look at the evidence
 | verb | does |
 |---|---|
-| `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
+| `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram); on an `enhance` split-op parent, a gallery of the tracks (audio + spectrograms) or cutouts |
 | `crop` | materialize face/object detections as cropped image records with provenance |
 | `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
 

@@ -59,6 +59,17 @@ if [ "$pst" = "ready" ] && [ "${ntrack:-0}" -ge 1 ]; then
   ok "$C.local.tracks" "$ntrack per-speaker track(s) from pyannote"
   hasseg="$(echo "$out" | jq -s '[.[] | select(.payload.kind=="track") | select(.payload.segments|length>0)] | length')"
   [ "${hasseg:-0}" -ge 1 ] && ok "$C.local.segments" "tracks carry speaker segments" || fail "$C.local.segments" "no segments on any track"
+
+  # view the split-op parent → a separation gallery (audio players + real spectrograms)
+  pid="$(echo "$out" | jq -s -r '.[0].id')"
+  gv="$(oc "$CASE" view "$pid" --no-open --json 2>/dev/null)"
+  save_json "18_separate_gallery" "$gv" >/dev/null
+  gmode="$(echo "$gv" | jq -r '.payload.mode')"; gfile="$(echo "$gv" | jq -r '.payload.viewer // empty')"
+  if [ "$gmode" = "separation" ] && [ -f "$gfile" ] && grep -q "<audio" "$gfile"; then
+    ok "$C.local.gallery" "view <parent> → separation gallery with audio players"
+  else
+    fail "$C.local.gallery" "no gallery (mode=$gmode file=$gfile)"
+  fi
 else
   fail "$C.local.tracks" "state=$pst tracks=$ntrack err=$(echo "$out"|jq -s -r '.[0].error // empty'|head -c 120)"
 fi

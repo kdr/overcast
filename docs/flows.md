@@ -493,9 +493,11 @@ scripts/visual-db-uv.sh --enhance                       # on-device stacks (or u
 overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
 
 overcast enhance ./interview.mp4 --ops separate --summarize   # per-speaker tracks, each transcribed
+overcast view <separate-parent-id>                             # gallery: audition each track + spectrograms + cross-talk
 overcast ask "Summarize what each separated speaker said"
 
 overcast enhance ./scene.jpg --ops segment --prompt "the red car"   # mask + RGBA cutout per instance
+overcast view <segment-parent-id>                              # gallery: every cutout/mask in one page
 overcast crop <segment-parent-id> --all                        # same boxes as durable crops
 ```
 
