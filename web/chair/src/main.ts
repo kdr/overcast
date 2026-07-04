@@ -145,10 +145,12 @@ async function boot(): Promise<void> {
         gate(`connection failed: ${message} — re-scan the pairing QR from the desk (/chair qr).`);
         return;
       }
-      // transient (network blip, laptop asleep): keep the console, keep trying
+      // transient (network blip, laptop asleep): keep the console and retry, but
+      // leave the stream CLOSED. Reopening it here with the old cursor while the
+      // transcript wasn't rebuilt would replay events on top of stale state and
+      // duplicate lines — the next successful resync reopens after a full reset.
       statusbar.set({ connected: false });
       transcript.notice(`resync failed: ${message} — retrying…`, "warning");
-      openStream(lastSeq);
       retryTimer = setTimeout(() => void resync(), RETRY_MS);
     }
   };
