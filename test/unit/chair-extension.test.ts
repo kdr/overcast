@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer, type Server } from "node:http";
 import { registerChair } from "../../src/extension/chair.ts";
 import { openCase } from "../../src/case.ts";
 
@@ -411,6 +412,45 @@ test("a reload reuses the pairing token (phone stays paired) and rotates it only
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failed rebind restores the previous bridge (control not lost)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-rebindfail-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  const prevChair = process.env.OVERCAST_CHAIR;
+  let blocker: Server | undefined;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    delete process.env.OVERCAST_CHAIR;
+    const { pi, commands, messages } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await commands.get("chair")?.("on --port 0", ctx);
+    const port1 = handle.bridge()!.port;
+    const token1 = handle.bridge()!.pairingUrl.split("#t=")[1];
+
+    // occupy a port so a rebind to it collides (EADDRINUSE)
+    blocker = createServer();
+    await new Promise<void>((r) => blocker!.listen(0, "127.0.0.1", () => r()));
+    const taken = (blocker.address() as { port: number }).port;
+
+    // rebind to the taken port fails → the previous listener must be restored
+    await commands.get("chair")?.(`on --port ${taken}`, ctx);
+    assert.ok(handle.bridge()?.running, "bridge is still online after a failed rebind");
+    assert.equal(handle.bridge()!.port, port1, "restored to the previous port");
+    assert.equal(handle.bridge()!.pairingUrl.split("#t=")[1], token1, "same token (phone stays paired)");
+    assert.match(messages.at(-1) ?? "", /rebind failed.*kept the previous bind/);
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    blocker?.close();
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    if (prevChair === undefined) delete process.env.OVERCAST_CHAIR;
+    else process.env.OVERCAST_CHAIR = prevChair;
     rmSync(dir, { recursive: true, force: true });
   }
 });

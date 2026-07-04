@@ -327,20 +327,10 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   // --- start / stop ------------------------------------------------------------
 
-  async function startChair(opts: StartOptions = {}): Promise<void> {
-    if (bridge?.running) {
-      // explicit bind/port → rebind: stop (rotating the token unless pinned)
-      // and fall through to a fresh start; a bare `/chair on` just reports.
-      if (opts.bind === undefined && opts.port === undefined) {
-        showStatus();
-        return;
-      }
-      await stopChair();
-    }
-    // wait for any in-flight stop to actually release the listen port before we
-    // rebind — session_shutdown's stopChair and session_start's startChair can
-    // otherwise race and EADDRINUSE on the reused port (Bugbot round 20)
-    await stopping;
+  /** Resolve, bind, and adopt a bridge. Returns the error message on failure
+   *  (bridge untouched), or undefined on success. Does NOT emit — the caller
+   *  decides (a rebind can retry the previous bind before reporting). */
+  async function bindBridge(opts: StartOptions): Promise<string | undefined> {
     // Resolve bind/port with the LAST resolved values as a fallback (below an
     // explicit opt, above env/defaults), so a partial `/chair on --port …` keeps
     // the current bind (e.g. tailnet) and a reload keeps the concrete address —
@@ -363,9 +353,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     try {
       await b.start();
     } catch (e) {
-      const msg = (e as NodeJS.ErrnoException).code === "EADDRINUSE" ? `port ${port} already in use — try /chair on --port <n>` : (e as Error).message;
-      emitResult(pi, `▶ chair: could not start — ${msg}`);
-      return;
+      return (e as NodeJS.ErrnoException).code === "EADDRINUSE" ? `port ${port} already in use — try /chair on --port <n>` : (e as Error).message;
     }
     bridge = b;
     sessionToken = process.env.OVERCAST_CHAIR_TOKEN ? undefined : token; // reuse across reloads (pin isn't ours to keep)
@@ -374,8 +362,39 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     // same concrete address the phone is paired to (an ephemeral 0 became a real
     // port; a partial rebind kept the prior bind)
     lastStartOpts = { bind, port: b.port };
-    showQr();
-    showStatus();
+    return undefined;
+  }
+
+  async function startChair(opts: StartOptions = {}): Promise<void> {
+    const wasRunning = bridge?.running === true;
+    const prevOpts = lastStartOpts; // the opts the running bridge is using (concrete)
+    if (wasRunning) {
+      // explicit bind/port → rebind: stop (rotating the token unless pinned)
+      // and fall through to a fresh start; a bare `/chair on` just reports.
+      if (opts.bind === undefined && opts.port === undefined) {
+        showStatus();
+        return;
+      }
+      await stopChair();
+    }
+    // wait for any in-flight stop to actually release the listen port before we
+    // rebind — session_shutdown's stopChair and session_start's startChair can
+    // otherwise race and EADDRINUSE on the reused port (Bugbot round 20)
+    await stopping;
+    const err = await bindBridge(opts);
+    if (!err) {
+      showQr();
+      showStatus();
+      return;
+    }
+    // A rebind of a previously-running bridge failed (bad bind / port taken) —
+    // restore the previous listener so remote control isn't lost (Bugbot r22).
+    if (wasRunning && !(await bindBridge(prevOpts))) {
+      showQr();
+      emitResult(pi, `▶ chair: rebind failed (${err}) — kept the previous bind ${bridge?.bind}:${bridge?.port}`);
+      return;
+    }
+    emitResult(pi, `▶ chair: could not start — ${err}`);
   }
 
   async function stopChair(): Promise<void> {
