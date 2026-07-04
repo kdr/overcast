@@ -115,6 +115,48 @@ non-zero if any case fails.
 `OVERCAST_USE_NODE=1` (node instead of bun) · `SKIP_BUILD=1` (reuse `dist/`) ·
 `OC_TIMEOUT=<secs>` (per-command timeout, default 300).
 
+## Man in the chair (`/chair`) — manual smoke
+
+The remote-drive bridge (`/chair`, see [flow 20](../../docs/flows.md)) isn't in
+the CLI e2e suites: it's an **interactive TUI feature + a network/browser
+client**, so there's no headless CLI case for it. Its automated coverage is the
+unit tests — `test/unit/chair-{bridge,extension,glance,qr,net}.test.ts` (auth,
+SSE replay/dedupe, prompt routing, reload/token lifecycle, case glance, the
+vendored QR encoder). The browser console's DOM logic is checked with throwaway
+`document`/`EventSource`/`fetch` shims during development, not in the committed
+suite (no in-repo DOM harness).
+
+To exercise it end-to-end by hand:
+
+**Local, no phone** — launch the TUI with the bridge on a known token/port, then
+drive it with `curl` from a second terminal (needs a real terminal — don't pipe
+stdin):
+
+```bash
+OVERCAST_CHAIR_TOKEN=testtoken123 OVERCAST_CHAIR_PORT=7373 npm run dev -- --chair
+# second terminal:
+T='Authorization: Bearer testtoken123'; B=http://127.0.0.1:7373
+curl -s -H "$T" $B/api/state | jq                       # snapshot (case/model/busy/transcript)
+curl -s -o/dev/null -w '%{http_code}\n' $B/api/state    # 401 without the token
+curl -s -X POST -H "$T" -H 'Content-Type: application/json' \
+  -d '{"text":"say PINEAPPLE"}' $B/api/prompt            # inject → lands as a [chair] msg in the TUI
+curl -N "$B/events?token=testtoken123"                  # live SSE stream (Ctrl-C to stop)
+```
+
+Or open the console in a browser at `http://127.0.0.1:7373/#t=testtoken123`
+(the token rides in the `#fragment`) and use send / steer-follow-up / ABORT /
+case-drawer. Verify the token never leaks: `grep -r testtoken123 ~/.pi
+.overcast` should find nothing (it lives only in the QR fragment + browser).
+
+**Phone / tailnet** — the real path: `/chair on tailnet` in the TUI, scan the QR
+from a phone on the same Tailscale tailnet. No tailnet → bare `/chair on`
+(localhost) + `ssh -L 7373:127.0.0.1:7373 …` from a phone SSH client. Console
+dev loop: `npm run dev:web` (Vite, proxies `/api`+`/events` to a running chair).
+
+**Binary** — `npm run build:bun` then `dist/bin/overcast --chair` should serve
+the real Vite console (not the inline fallback) from its sidecar
+`assets/chair-console/`.
+
 ## Adding a live case
 
 1. Create `test/e2e/live/cases/NN_name.sh`; first lines:
