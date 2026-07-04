@@ -108,7 +108,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `image-ransac` indexes), `audio` (local Shazam-style Wang-2003 fingerprint
   matching — `add`/`match` exact-recording clips against `audio-fp` indexes with
   time-offset alignment, or clip-to-clip `audio match <query> <reference>`;
-  numpy/scipy, robust to transcode/noise, NOT to pitch/speed change), `cluster`
+  numpy/scipy, `--min-margin` rejects sped-up re-uploads, `--draw` renders an SVG
+  alignment plot (hash-pair scatter + offset histogram) that embeds in briefs like
+  `image --draw`; robust to transcode/noise, NOT to pitch/speed change), `cluster`
   (persistent LOCAL face DB: ingest faces out
   of media → assign-or-create people, `identify`, `recluster`, `list/show/label`,
   and an HTML gallery `view`; deepface-only, over a `face-cluster` local index),

@@ -185,6 +185,8 @@ scripts/visual-db-uv.sh --audio           # numpy/scipy fingerprint deps (add --
 overcast index create jingles --type audio-fp --local --json
 overcast audio add ./original.mp4 --to jingles --json                 # fingerprint (video → audio track)
 overcast audio match ./suspect.mp4 --index jingles --json             # which recording + WHERE (offset)
+overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --json # reject sped-up re-uploads
+overcast audio match ./suspect.mp4 --index jingles --draw --json      # + SVG alignment plot (embeds in briefs)
 overcast audio match ./a.mp3 ./b.mp3 --json                           # clip-to-clip, no index
 overcast index create sounds --type basic-clap --local --json         # CLAP audio-embedding DB
 overcast similar add ./clip.wav --index sounds --json                 # embed + cache (10s audio windows)
@@ -233,7 +235,7 @@ surface + env vars.)
 | `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM / the opt-in tinycloud `see`+`extract` provider, ≥ 0.3.7) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
-| `audio` | Shazam-style exact audio matching against a local `audio-fp` index (with time-offset alignment), or clip-to-clip `audio match <query> <reference>` |
+| `audio` | Shazam-style exact audio matching against a local `audio-fp` index (time-offset alignment), or clip-to-clip `audio match <query> <reference>`; `--min-margin` rejects sped re-uploads, `--draw` renders an SVG alignment plot for briefs |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
