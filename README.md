@@ -44,8 +44,14 @@ another backend or your own script with no code changes.
 - **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
   `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
   `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.
-- **yt-dlp** on `PATH` — only for the `youtube` / `tiktok` / `x` capture sources
-  (x post-page URLs; direct twimg.com media downloads with curl).
+- **yt-dlp** on `PATH` — for the `youtube` and generic `dl` sources, and for
+  fetching post pages on `tiktok` / `x` / `instagram` / `telegram` (direct-CDN
+  media still downloads with curl). `dl` handles any yt-dlp-supported host
+  (Rumble, BitChute, Odysee, Vimeo, Reddit, …).
+- **ExifTool** / **c2patool** — optional, only for the forensic senses:
+  `exif` (metadata + GPS) needs `exiftool`; `verify` (C2PA / Content Credentials)
+  needs `c2patool`. `brew install exiftool c2patool` · `apt install libimage-exiftool-perl`.
+  Both report `needs_credentials` (exit 13) when absent, so the rest of overcast is unaffected.
 
 `overcast doctor` verifies core prerequisites and reports qmd when installed or
 configured.
@@ -425,8 +431,8 @@ for cadence, and add `--max-frames` when you want a hard cap.
 
 | class | verbs | shipped providers |
 |---|---|---|
-| **sense** | watch / listen / see / face / similar / enhance | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
-| **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), x (Apify), web (Tavily/Brave), lens (Apify Google Lens reverse image) |
+| **sense** | watch / listen / see / face / image / audio / similar / cluster / enhance / exif / verify | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`) |
+| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / facesearch (Apify), web (Tavily/Brave), gdelttv (GDELT TV, no key), webcam (Windy Webcams) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
@@ -441,6 +447,12 @@ Built-in source refs:
 - `x:video:<query>` / `x:image:<query>` — only X posts with native video / images (media targeting).
 - `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
 - `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
+- `dl:<url>` — capture-only generic fetcher: any yt-dlp-supported host (Rumble, BitChute, Odysee, VK, Bilibili, Vimeo, Dailymotion, Reddit, Facebook, …). `scan`/`monitor` enumerate returns nothing; it exists to route ad-hoc `capture <url>`.
+- `instagram:@handle` / `instagram:#tag` / `instagram:<post URL>` — Instagram posts & reels (Apify); `--since` honored server-side.
+- `telegram:<channel>` / `telegram:<t.me URL>` — public Telegram channel posts (Apify, no login); stable `t.me/<channel>/<id>` per-post URL for clean monitor dedup.
+- `gdelttv:"<query>"` — GDELT 2.0 TV API broadcast-news clips (**no key**) → bounded Internet-Archive `.mp4?start=…&end=…` segments; `--since` maps to the GDELT date window.
+- `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` / `webcam:category:<slug>` / `webcam:<id>` — live public webcams (Windy Webcams API); each hit's `media.ref` is the current still, re-captured every `monitor` pass (`recapture`).
+- `facesearch:<image url or local path>` — **opt-in** reverse **face** search (Apify); ToS/privacy-gated, never a default source.
 
 ### Profiles
 
@@ -490,9 +502,12 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 
 **OSINT sources**
 - `TAVILY_API_KEY` (preferred) / `BRAVE_API_KEY` — the `web` search source
-- `APIFY_TOKEN` — the `tiktok` and `x` sources (enumerate; fetch uses yt-dlp / direct CDN)
-- youtube needs `yt-dlp` on `PATH` (no key)
+- `APIFY_TOKEN` — the `tiktok`, `x`, `instagram`, `telegram`, `lens`, and `facesearch` sources (enumerate; fetch uses yt-dlp / direct CDN). Actor overrides: `OVERCAST_INSTAGRAM_ACTOR`, `OVERCAST_TELEGRAM_ACTOR`, `OVERCAST_LENS_ACTOR`, `OVERCAST_FACE_SEARCH_ACTOR`
+- `WINDY_API_KEY` — the `webcam` source (Windy Webcams API; free tier covers scan + still capture + monitor). Base override: `OVERCAST_WEBCAM_API`
+- `gdelttv` needs **no key** (GDELT 2.0 TV API is open)
+- `youtube` and `dl` need `yt-dlp` on `PATH` (no key)
 - `OVERCAST_SOURCE_<TYPE>_CMD` — override/add a source provider command
+- `APIFY_RUN_SYNC_TIMEOUT_MS` — Apify run-sync budget for the Apify-backed sources
 
 **Runtime / session** — `OVERCAST_HOME` (profiles, default `~/.overcast`),
 `OVERCAST_CASE` / `OVERCAST_PROFILE` (set by the launcher from `--case` / `--profile`),
