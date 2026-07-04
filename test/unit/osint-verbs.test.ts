@@ -1456,6 +1456,9 @@ test("hostSourceType routes instagram/telegram to their dedicated sources", () =
   assert.equal(hostSourceType("https://scontent-sea5-1.cdninstagram.com/v/t51/x.jpg"), "instagram");
   assert.equal(hostSourceType("https://video.fbcdn.net/v/x.mp4"), "instagram");
   assert.equal(hostSourceType("https://t.me/durov/530"), "telegram");
+  // Internet Archive clip URLs (gdelttv media.ref) → gdelttv direct fetch
+  assert.equal(hostSourceType("https://archive.org/download/X/X.mp4?start=1&end=2"), "gdelttv");
+  assert.equal(hostSourceType("https://dn720805.ca.archive.org/0/items/X/X.mp4"), "gdelttv");
   // a lookalike host that merely contains the string stays web
   assert.equal(hostSourceType("https://notinstagram.com/x"), "web");
   assert.equal(hostSourceType("https://example.com/t.me/x"), "web");

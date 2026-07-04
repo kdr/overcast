@@ -33,22 +33,21 @@ case "$op" in
     esac; done
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN" >&2; exit 13; }
     [ -n "$query" ] || { echo "instagram enumerate requires a ref (@handle, #tag, or an instagram URL)" >&2; exit 1; }
-    # honor --since with a client-side epoch cutoff (the actor has no portable
-    # date param). 0 = no filter.
-    cut=0
+    # honor --since via the actor's SERVER-SIDE date filter (onlyPostsNewerThan
+    # accepts YYYY-MM-DD, ISO, or a relative phrase). This is far more reliable
+    # than parsing ISO timestamps client-side across timezones and format variants.
+    newer=""
     if [ -n "$since" ]; then
-      now="$(date +%s)"
       case "$since" in
-        *[0-9]m) cut=$(( now - ${since%m} * 60 )) ;;
-        *[0-9]h) cut=$(( now - ${since%h} * 3600 )) ;;
-        *[0-9]d) cut=$(( now - ${since%d} * 86400 )) ;;
-        *[0-9]w) cut=$(( now - ${since%w} * 604800 )) ;;
-        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
-          cut="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo 0)" ;;
-        *) cut=0 ;;
+        *[0-9]m) newer="${since%m} minutes" ;;
+        *[0-9]h) newer="${since%h} hours" ;;
+        *[0-9]d) newer="${since%d} days" ;;
+        *[0-9]w) newer="${since%w} weeks" ;;
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) newer="$since" ;;
+        *) newer="" ;;
       esac
-      # an unparseable --since must not silently disable the window
-      [ "$cut" -eq 0 ] && echo "instagram: could not parse --since '$since'; no date cutoff applied" >&2
+      # an unrecognized --since must not silently disable the window
+      [ -z "$newer" ] && echo "instagram: could not parse --since '$since'; no date filter applied" >&2
     fi
     # translate the ref into a directUrls target for the actor
     case "$query" in
@@ -57,8 +56,9 @@ case "$op" in
       @*)        url="https://www.instagram.com/${query#@}/" ;;
       *)         url="https://www.instagram.com/${query}/" ;;
     esac
-    input="$(jq -nc --arg u "$url" --argjson n "$limit" \
-      '{directUrls:[$u], resultsType:"posts", resultsLimit:$n, addParentData:false}')"
+    input="$(jq -nc --arg u "$url" --argjson n "$limit" --arg newer "$newer" \
+      '{directUrls:[$u], resultsType:"posts", resultsLimit:$n, addParentData:false}
+       + (if $newer != "" then {onlyPostsNewerThan:$newer} else {} end)')"
     if ! run=$(curl -fsS -m 280 -X POST \
       "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items?token=$APIFY_TOKEN" \
       -H 'content-type: application/json' -d "$input"); then
@@ -68,18 +68,12 @@ case "$op" in
       echo "instagram enumerate: unexpected response (not an array): $(printf '%s' "$run" | head -c 200)" >&2
       exit 1
     fi
-    # map posts → hits. ts from ISO timestamp; drop items with no url (the actor
-    # can emit a profile-summary/error item without one). media.ref prefers the
-    # direct video asset, then the first image, then the display image.
-    jq -c --argjson cut "$cut" --argjson n "$limit" '
-      def ts: (try (.timestamp | strptime("%Y-%m-%dT%H:%M:%S.000Z") | mktime) catch
-               (try (.timestamp | strptime("%Y-%m-%dT%H:%M:%SZ") | mktime) catch 0));
+    # map posts → hits. Date filtering is server-side (onlyPostsNewerThan); drop
+    # items with no url (the actor can emit a profile-summary/error item without
+    # one). media.ref prefers the direct video asset, then the first/display image.
+    jq -c --argjson n "$limit" '
       [ .[]
         | select(((.url // "") | length) > 0)
-        # Instagram timestamps are reliably ISO-8601, so under an active --since
-        # cutoff a post whose timestamp fails to parse (ts == 0) is dropped, not
-        # kept: a post that cannot be dated must not slip past the window.
-        | select($cut == 0 or ts >= $cut)
         | (.videoUrl // (.images // [])[0] // .displayUrl // null) as $asset
         | {
             title: ((.caption // "") | gsub("\\s+"; " ") | .[0:120]),
