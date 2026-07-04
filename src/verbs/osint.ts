@@ -305,6 +305,14 @@ function hitProcessKey(hit: OvercastRecord): string {
   return `${hitKey(hit)}\u001f${hitFetchRef(hit) ?? ""}`;
 }
 
+/** An "ephemeral" hit is a live resource (a webcam's CURRENT still) whose content
+ *  changes every poll: `monitor` should re-capture it each pass WITHOUT persisting
+ *  it to the seen-set (which would otherwise grow unbounded). Source opts in with
+ *  `payload.recapture: true`. */
+function isEphemeralHit(hit: OvercastRecord): boolean {
+  return (hit.payload as Record<string, unknown> | undefined)?.recapture === true;
+}
+
 /** Perception + forensic senses whose records are the PRIMARY result of pulling a
  *  hit. One source of truth so the pull/monitor plumbing — outcome classification,
  *  provenance stamping, index-retry, auto_sense dispatch — never drifts when a new
@@ -1023,7 +1031,10 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     // ref) only gates WITHIN-pass fan-out, where finer granularity is safe.
     const key = hitKey(hit);
     const processKey = hitProcessKey(hit);
-    if (seen.has(key)) {
+    // an ephemeral hit (a webcam's current still) is re-captured every pass and
+    // never persisted to `seen`, so it neither dedups nor grows the store.
+    const ephemeral = isEphemeralHit(hit);
+    if (!ephemeral && seen.has(key)) {
       const retry = await retryAuxiliaryForSeenHit(ctx, hit);
       out.push(...retry);
       if (retry.some((r) => r.state === "error")) procErrors++;
@@ -1056,7 +1067,8 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     }
     // a hard error is permanent → mark seen (no infinite retry) but DON'T count it
     // as a successfully-ingested new item; the summary reports it via process_errors.
-    seen.add(key);
+    // ephemeral hits are never persisted (they must re-process every pass).
+    if (!ephemeral) seen.add(key);
     if (outcome === "failed") procErrors++;
     else if (outcome === "completed_with_error") {
       procErrors++;

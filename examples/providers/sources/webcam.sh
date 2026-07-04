@@ -76,10 +76,10 @@ case "$op" in
           | {
               title: (.title // ("webcam " + ((.webcamId // .id) | tostring))),
               url: $detail,
-              # a per-poll dedup key → a fresh hitKey each monitor pass, so the
-              # current still is re-captured; url stays the clean cam page so
-              # provenance (source_url) is stable across polls.
-              dedup_key: ($detail + "#t=" + $now),
+              # ephemeral: monitor re-captures the CURRENT still each pass but does
+              # not persist this hit to the seen-set (which would grow unbounded).
+              # url stays the clean cam page so provenance (source_url) is stable.
+              recapture: true,
               snapshot_at: ($now | tonumber),
               source: "webcam",
               published: (.lastUpdatedOn // null),

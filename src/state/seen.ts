@@ -43,11 +43,6 @@ const SEP = "\u001f";
  */
 export function hitKey(rec: OvercastRecord): string {
   const p = (typeof rec.payload === "object" ? rec.payload : {}) as Record<string, unknown>;
-  // An explicit per-hit dedup key wins — a source that must re-emit the "same"
-  // logical item each pass (e.g. a webcam re-polling its CURRENT still) sets this
-  // so `monitor` re-captures it, while payload.url stays a stable, clean reference
-  // for provenance (scanHitProvenance copies payload.url into source_url).
-  if (typeof p.dedup_key === "string" && p.dedup_key) return `k:${p.dedup_key}`;
   // Prefer payload.url, THEN media.ref: the url is the item's stable logical
   // identity, while media.ref can be a run-varying materialized artifact (e.g.
   // a lens match thumbnail that decodes on one pass and falls back to the page

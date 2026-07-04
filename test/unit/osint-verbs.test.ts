@@ -10,7 +10,7 @@ import { defaultProfile } from "../../src/profile.ts";
 import { scanVerb, captureVerb, monitorVerb } from "../../src/verbs/osint.ts";
 import { exitCodeForRecords } from "../../src/cli.ts";
 import { addSource } from "../../src/state/source.ts";
-import { saveSeen } from "../../src/state/seen.ts";
+import { saveSeen, loadSeen } from "../../src/state/seen.ts";
 import { addTarget } from "../../src/state/target.ts";
 import { addIndex, addMember } from "../../src/state/index.ts";
 import { emptySetup, saveSetup } from "../../src/state/setup.ts";
@@ -1358,6 +1358,47 @@ test("monitor --once diffs the seen-set: new items first pass, none second", asy
     assert.equal((summary2.payload as Record<string, unknown>).new_items, 0);
   } finally {
     rmSync(d2, { recursive: true, force: true });
+  }
+});
+
+test("monitor re-captures an ephemeral (recapture) hit every pass without growing seen", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-mon-eph-"));
+  const src = join(d, "cam-source.sh");
+  const img = join(d, "still.jpg");
+  execFileSync(FFMPEG_PATH, ["-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=1:duration=1", "-frames:v", "1", img], { stdio: "ignore" });
+  writeFileSync(
+    src,
+    [
+      "#!/usr/bin/env bash",
+      'op="${1:-enumerate}"',
+      "case \"$op\" in",
+      `  enumerate) printf '[{"title":"cam","url":"http://cam/1","source":"webcam","recapture":true,"media":{"ref":"${img}"}}]\\n' ;;`,
+      '  fetch) out=""; while [ "$#" -gt 0 ]; do case "$1" in --out) out="$2"; shift 2 ;; *) shift ;; esac; done;' +
+        ` cp "${img}" "$out"; printf '{"kind":"image","path":"%s","source":"webcam"}\\n' "$out" ;;`,
+      "esac",
+    ].join("\n"),
+  );
+  const prev = process.env.OVERCAST_SOURCE_WEBCAM_CMD;
+  try {
+    (await import("node:fs")).chmodSync(src, 0o755);
+    process.env.OVERCAST_SOURCE_WEBCAM_CMD = `bash ${src}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "webcam:x");
+    const mkCtx = (): VerbContext => ({ input: undefined, rest: [], opts: { once: true }, case: openCase(d), profile: defaultProfile() });
+
+    const p1 = await monitorVerb.run(mkCtx());
+    assert.ok(p1.some((r) => r.verb === "capture" && r.state === "ready"), "pass 1 captured the still");
+    const p2 = await monitorVerb.run(mkCtx());
+    // re-captured (NOT skipped as already-seen) even though the cam url is stable
+    assert.ok(p2.some((r) => r.verb === "capture" && r.state === "ready"), "pass 2 re-captured the still");
+    assert.equal((p2.find((r) => r.verb === "monitor")!.payload as Record<string, unknown>).new_items, 1);
+    // and the seen store did NOT accumulate the ephemeral hit
+    assert.equal(loadSeen(openCase(d)).size, 0, "ephemeral hits are not persisted to seen");
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_SOURCE_WEBCAM_CMD;
+    else process.env.OVERCAST_SOURCE_WEBCAM_CMD = prev;
+    rmSync(d, { recursive: true, force: true });
   }
 });
 
