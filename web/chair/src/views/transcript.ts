@@ -2,11 +2,13 @@
 // deltas, tool rows keyed by toolCallId, sticky autoscroll (only when the
 // reader is already at the bottom).
 
-import type { TranscriptItem } from "../../../../src/chair/wire.js";
+import type { RunningTool, TranscriptItem } from "../../../../src/chair/wire.js";
 
 export interface Transcript {
   el: HTMLElement;
-  reset(items: TranscriptItem[]): void;
+  /** Rebuild from a snapshot. `running` re-registers in-flight tool rows (absent
+   *  from the finalized transcript) so their later end events still land. */
+  reset(items: TranscriptItem[], running?: RunningTool[]): void;
   user(text: string, source: "desk" | "chair"): void;
   assistantDelta(text: string): void;
   thinkingDelta(text: string): void;
@@ -48,7 +50,7 @@ export function createTranscript(): Transcript {
 
   return {
     el,
-    reset(items) {
+    reset(items, running = []) {
       endLive();
       tools.clear();
       el.replaceChildren();
@@ -62,6 +64,9 @@ export function createTranscript(): Transcript {
           append(row);
         }
       }
+      // re-register in-flight tools (not in the finalized transcript) so a later
+      // `tool end` for a call that started before the resync still updates a row
+      for (const rt of running) this.toolStart(rt.toolCallId, rt.name, rt.argsSummary);
       el.scrollTop = el.scrollHeight;
     },
     user(text, source) {

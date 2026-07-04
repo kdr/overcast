@@ -70,6 +70,15 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   // marker can't consume a remote slot or get relabeled chair (Bugbot round 10).
   const pendingChair: string[] = [];
 
+  // true between agent_start and agent_end — the authoritative "run active"
+  // signal. ctx.isIdle() only means "not streaming" and is true between LLM
+  // responses (e.g. while a tool runs), so routing/busy must not rely on it
+  // alone (Bugbot round 11).
+  let agentRunning = false;
+  // tools started but not yet ended, so a resyncing console can re-register
+  // their rows (they aren't in the finalized snapshot transcript).
+  const runningTools = new Map<string, { name: string; argsSummary?: string }>();
+
   // delta coalescing — message_update fires per token; batch to ≤1 flush/40ms
   let textBuf = "";
   let thinkBuf = "";
@@ -141,7 +150,9 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   };
 
   const buildAgent = (): ChairAgent => ({
-    isIdle: () => ctx?.isIdle() ?? true,
+    // idle only when no agent loop is active AND not streaming — so a running
+    // tool (ctx.isIdle() true, agentRunning true) still reads as busy
+    isIdle: () => !agentRunning && (ctx?.isIdle() ?? true),
     hasPending: () => ctx?.hasPendingMessages() ?? false,
     abort: () => ctx?.abort(),
     sendUserMessage: (text, opts) => {
@@ -184,6 +195,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     },
     caseGlance: () => buildCaseGlance(openCase(caseCwd())),
     livePartial: () => livePartial,
+    runningTools: () => [...runningTools.entries()].map(([toolCallId, t]) => ({ toolCallId, name: t.name, ...(t.argsSummary ? { argsSummary: t.argsSummary } : {}) })),
     onRemotePrompt: (info) => ctx?.ui.notify(`chair: remote prompt (${info.mode})`, "info"),
   });
 
@@ -210,15 +222,19 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   pi.on("agent_start", (_e, c) => {
     capture(c);
+    agentRunning = true;
     bridge?.publish({ type: "agent", phase: "start" });
   });
   pi.on("agent_end", (_e, c) => {
     capture(c);
+    agentRunning = false;
     flush(); // deliver any remaining coalesced text
     bridge?.publish({ type: "agent", phase: "end" });
-    // the turn is over (including an abort, where message_end may not fire) —
-    // drop live/partial state so an aborted run leaves no ghost `live` snapshot
+    // the turn is over (including an abort, where message_end / tool ends may not
+    // fire) — drop live/partial state + any lingering tool rows so the snapshot
+    // leaves no ghost `live`/running tool
     resetStream();
+    runningTools.clear();
   });
   pi.on("turn_start", (e, c) => {
     capture(c);
@@ -266,10 +282,13 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   pi.on("tool_execution_start", (e, c) => {
     capture(c);
-    bridge?.publish({ type: "tool", phase: "start", toolCallId: e.toolCallId, name: e.toolName, argsSummary: summarizeArgs(e.args) });
+    const argsSummary = summarizeArgs(e.args);
+    runningTools.set(e.toolCallId, { name: e.toolName, argsSummary });
+    bridge?.publish({ type: "tool", phase: "start", toolCallId: e.toolCallId, name: e.toolName, argsSummary });
   });
   pi.on("tool_execution_end", (e, c) => {
     capture(c);
+    runningTools.delete(e.toolCallId);
     bridge?.publish({ type: "tool", phase: "end", toolCallId: e.toolCallId, name: e.toolName, isError: e.isError });
   });
 

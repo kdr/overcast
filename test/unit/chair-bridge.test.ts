@@ -189,6 +189,20 @@ test("chair bridge: snapshot carries in-flight assistant text (live)", async () 
   }
 });
 
+test("chair bridge: snapshot carries in-flight tools (runningTools)", async () => {
+  const running = [{ toolCallId: "t1", name: "watch", argsSummary: "clip=north.mp4" }];
+  const { agent } = fakeAgent({ runningTools: () => running });
+  const bridge = makeBridge(agent);
+  const { url, pairingUrl } = await bridge.start();
+  const token = pairingUrl.split("#t=")[1];
+  try {
+    const snap = (await (await fetch(`${url}api/state`, { headers: { Authorization: `Bearer ${token}` } })).json()) as Record<string, unknown>;
+    assert.deepEqual(snap.runningTools, running);
+  } finally {
+    await bridge.stop();
+  }
+});
+
 test("chair bridge: a dead SSE client can't break publish for others", async () => {
   const { agent } = fakeAgent();
   const bridge = makeBridge(agent);

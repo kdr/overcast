@@ -297,6 +297,48 @@ test("a failed chair injection does not inflate the pending count", async () => 
   }
 });
 
+test("busy + running tools reflect an active loop even when ctx.isIdle() is true", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-busy-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir); // fakeCtx.isIdle() always returns true
+    await commands.get("chair")?.("on --port 0", ctx);
+    const agent = handle.bridge()!["agent"];
+
+    // truly idle
+    assert.equal(agent.isIdle(), true);
+
+    // agent loop is active (tools may run while ctx.isIdle() is still true)
+    await emit("agent_start", { messages: [] }, ctx);
+    await emit("tool_execution_start", { toolCallId: "t1", toolName: "watch", args: { clip: "n.mp4" } }, ctx);
+    assert.equal(agent.isIdle(), false, "an active loop reads as busy");
+    assert.deepEqual(agent.runningTools?.(), [{ toolCallId: "t1", name: "watch", argsSummary: "clip=n.mp4" }]);
+
+    // a remote auto prompt during the run must steer, not start a fresh turn
+    const res = await fetch(`${handle.bridge()!.url}api/prompt`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${handle.bridge()!.pairingUrl.split("#t=")[1]}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "focus the plate" }),
+    });
+    assert.deepEqual(await res.json(), { delivered: "steer" });
+
+    // run ends → idle again, running tools cleared
+    await emit("tool_execution_end", { toolCallId: "t1", toolName: "watch", isError: false }, ctx);
+    await emit("agent_end", { messages: [] }, ctx);
+    assert.equal(agent.isIdle(), true);
+    assert.deepEqual(agent.runningTools?.(), []);
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("desk [chair] message interleaved with a pending injection stays desk", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-interleave-"));
   const prevCase = process.env.OVERCAST_CASE;

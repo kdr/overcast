@@ -52,6 +52,14 @@ export type ChairWireEvent =
    *  it should refetch `GET /api/state` and continue from the stream. */
   | { type: "gap"; seq: number };
 
+/** A tool that has started but not yet finished — carried in the snapshot so a
+ *  resyncing console can re-register its row and still receive the end event. */
+export interface RunningTool {
+  toolCallId: string;
+  name: string;
+  argsSummary?: string;
+}
+
 /** A flattened session entry for the late-joiner snapshot. */
 export interface TranscriptItem {
   role: "user" | "assistant" | "tool";
@@ -78,6 +86,9 @@ export interface ChairSnapshot {
    *  console seeds its live line with this after a resync so a wake/gap during
    *  an active run doesn't blank streamed text that isn't finalized yet. */
   live?: string;
+  /** Tools currently running (not in the finalized transcript). The console
+   *  re-registers these after a resync so their end events still land. */
+  runningTools?: RunningTool[];
 }
 
 // --- case glance (`GET /api/case`) ------------------------------------------

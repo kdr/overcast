@@ -130,7 +130,7 @@ async function boot(): Promise<void> {
       if (token !== resyncToken) return; // superseded by a newer resync
       statusbar.set({ caseName: snap.caseName, model: snap.model ?? "", busy: snap.busy, connected: true });
       composer.setBusy(snap.busy);
-      transcript.reset(snap.transcript);
+      transcript.reset(snap.transcript, snap.runningTools);
       // seed the live assistant line with any in-flight (unfinalized) text so a
       // mid-stream wake/gap doesn't blank it; later deltas append seamlessly
       if (snap.live) transcript.assistantDelta(snap.live);

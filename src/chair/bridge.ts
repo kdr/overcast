@@ -20,6 +20,7 @@ import type {
   ChairPromptResult,
   ChairSnapshot,
   ChairWireEvent,
+  RunningTool,
   TranscriptItem,
 } from "./wire.js";
 
@@ -43,6 +44,9 @@ export interface ChairAgent {
   /** Text of the in-flight assistant message, "" when none — lets a mid-stream
    *  resync rebuild the live line (getBranch only holds finalized messages). */
   livePartial?(): string;
+  /** Tools currently running (started, not yet ended) — re-registered by a
+   *  resyncing console so their end events still land. */
+  runningTools?(): RunningTool[];
   /** Surface a remote prompt in the desk TUI (notify), if a UI is attached. */
   onRemotePrompt?(info: { mode: ChairPromptResult["delivered"]; chars: number }): void;
 }
@@ -316,6 +320,7 @@ export class ChairBridge {
 
   private snapshot(): ChairSnapshot {
     const live = this.agent.livePartial?.() ?? "";
+    const running = this.agent.runningTools?.() ?? [];
     return {
       seq: this.lastSeq,
       busy: !this.agent.isIdle(),
@@ -328,6 +333,7 @@ export class ChairBridge {
       version: this.opts.version,
       transcript: this.agent.transcript(TRANSCRIPT_LIMIT),
       ...(live ? { live } : {}),
+      ...(running.length ? { runningTools: running } : {}),
     };
   }
 
@@ -450,6 +456,7 @@ const FALLBACK_PAGE = `<!doctype html>
   api("/api/state").then(r => r.json()).then(s => {
     document.getElementById("case").textContent = "case://" + s.caseName;
     for (const item of s.transcript) add(item.role === "user" ? "u" : item.role === "tool" ? "t" : "", (item.role === "user" ? "❯ " : item.role === "tool" ? "⚙ " + (item.toolName || "tool") + " " : "") + item.text);
+    for (const t of (s.runningTools || [])) add("t", "⚙ " + t.name); // in-flight tools
     if (s.live) { live = s.live; render(); } // seed the in-flight assistant line
     lastSeq = s.seq || 0;
   }).catch(() => add("n", "state fetch failed — check the token")).finally(connect);
