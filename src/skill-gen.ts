@@ -85,15 +85,15 @@ Run any verb from bash and parse the JSON record:
 \`\`\`bash
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
-overcast finding list --json              # review automated target matches
+overcast finding list --state triage --json  # triage auto-suggested leads (accept/dismiss)
 overcast note "rear plate is missing" --ref <record-id> --at 12-18 --json
 overcast face ./clip.mp4 --thumbnails --json  # detect faces (boxes + provider frame thumbnails)
 overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video (JPEG/PNG query image)
 overcast crop <face-or-see-record-id> --all --class face --json  # materialize detection crops as evidence
 overcast ask "every white van, with timestamps" --json
 overcast case memory index status --json  # inspect default local-grep case search
-overcast brief --export ./brief.html      # evidence-only narrative report
-overcast case status --export ./status.html --theme csi   # current case dashboard
+overcast brief --export ./brief.html      # short analyst brief (verdict-led); --full for the verbatim timeline
+overcast case status --export ./status.html --theme csi   # mission board (threads, coverage, triage)
 overcast case records --export ./records.html --theme csi # full audit log
 \`\`\`
 
@@ -114,15 +114,37 @@ Built-in source refs for \`source add <type>:<ref>\`:
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
 read it when you need a verb's exact flags).
 
+### Lines of investigation & triage
+
+A \`target\` is a **line of investigation**: \`target add <value> --question "…"\`
+records what would resolve it; \`target close <id> --as answered|dead-end --note\`
+marks it done (closed lines stop seeding scans); \`target reopen <id>\` reactivates.
+
+Findings **auto-suggest** by default: score triggers (face ≥75, image RANSAC,
+similar ≥85, cluster ≥70) and non-image target text matches emit \`suggested\`
+leads on every verb — so a standalone \`face --match\` / \`image match\` /
+\`similar match\` / \`cluster identify\` surfaces a lead. Suggested leads are
+quarantined from \`ask\`/\`brief\` until accepted. Triage with
+\`finding list --state triage\` (bare \`list\` shows only \`open\`), then
+\`finding accept <id>\` (→ evidence) or \`finding dismiss <id>\` (blocks re-suggestion).
+The **\`/debrief\`** prompt automates the loop: triage leads → write one
+\`thread:<target-id>\` narrative note per line → \`target close\` resolved lines →
+refresh the \`tldr\` note → \`brief --export\`.
+
 ### Brief vs status vs records
 
-Use \`brief\` for the evidence narrative: it reports over the same evidence-only
-boundary as case memory, so setup/read/meta records are excluded.
+Use \`brief\` for the evidence narrative — **short by default**: verdict → goal
+status → key findings (with visual proof) → lines of investigation (per-target
+threads with a stage + activity sparkline) → triage queue → coverage gaps → a
+compact record trail. \`--full\` appends the verbatim per-record timeline. It
+reports over the same evidence-only boundary as case memory, so setup/read/meta
+records — and un-accepted \`suggested\` findings — are excluded.
 
-Use \`case status\` for the current dashboard: setup health, targets, sources,
-indexes, memory/index state, record/store counts, artifacts, and match
-visualizations when available. Treat it as situational context, not evidence for
-later memory or briefs.
+Use \`case status\` as the **mission board**: a goal headline + per-target threads
+on a stage ladder (cold → collecting → leads → corroborated → answered/dead-end),
+a per-source coverage funnel, scan/monitor/brief freshness, and the triage queue —
+with setup health, store counts, and match visualizations below. Treat it as
+situational context, not evidence for later memory or briefs.
 
 Use \`case records\` for the audit trail: it includes the append-only operational
 history, including setup, target/source changes, index work, asks, briefs, and
@@ -261,9 +283,15 @@ overcast case setup edit \\
   --provider-indexable "listen,see" \\
   --auto-sense "watch,listen" \\
   --auto-index-new \\
-  --findings review \\
+  --findings suggest \\
   --yes --json
 \`\`\`
+
+Findings default to \`--findings suggest\` (score/text triggers auto-emit
+\`suggested\` leads on every verb; tune floors with
+\`case setup --findings-threshold face=75,similar=85,cluster=70,image_inliers=1\`);
+\`review\` is the legacy text-only mode, \`off\` disables. \`finding list\` alone
+shows only \`open\` findings — pass \`--state triage\` to see the leads.
 
 Use \`overcast case setup edit --no-auto-index-new --yes --json\` to disable
 automatic indexing later without removing the selected providers or auto-sense
@@ -328,7 +356,9 @@ One-time setup for overcast.
    \`\`\`
 7. **Case setup later** — use the main \`overcast\` skill per investigation to run
    \`case setup\`, select targets/sources/indexes, and optionally set case-level
-   automation such as \`--auto-sense\`, \`--auto-index-new\`, and \`--findings review\`.
+   automation such as \`--auto-sense\`, \`--auto-index-new\`, and \`--findings\`
+   (defaults to \`suggest\` — score/text triggers auto-suggest leads; \`review\` is
+   the legacy text-only mode, \`off\` disables).
 
 Then use the \`overcast\` skill to drive the verbs.
 `;
@@ -447,7 +477,7 @@ overcast listen ./screen-recording.mp4 --describe --json
 overcast see frame://<record-id>@<seconds> --ocr --json
 overcast note "observed UI state or suspected failure" --ref <record-id> --at <time-range> --json
 overcast ask "summarize the bug with reproduction steps and citations" --json
-overcast brief --export ./bug-brief.md --json
+overcast brief --full --export ./bug-brief.md --json   # --full: this flow wants the verbatim evidence timeline (the default brief is short)
 \`\`\`
 
 Use \`watch\` for screen recordings and demos. Add \`listen --describe\` when
@@ -497,9 +527,10 @@ overcast doctor --sources --json
 overcast case init --json
 overcast case setup --target "<target>" --source "web:<query>" --yes --json
 overcast scan --pull --json
-overcast finding list --json
+overcast finding list --state triage --json   # auto-suggested leads (bare \`list\` shows only open)
+overcast finding accept <id> --json            # promote a real lead to evidence (or \`dismiss <id>\`)
 overcast ask "what are the relevant hits, dates, sources, and confidence levels?" --json
-overcast brief --export ./recon-brief.md --json
+overcast brief --export ./recon-brief.md --json   # short by default; add --full for the verbatim timeline
 \`\`\`
 
 For a one-time polling pass, use:
@@ -518,10 +549,14 @@ overcast monitor --every 30m --json
 
 Produce a cited brief with:
 
-- timeline entries tied to source URLs and record IDs;
+- the short brief's lead sections — verdict, key findings, lines of investigation
+  (per-target threads), triage queue, and coverage gaps (\`--full\` for the
+  verbatim per-record timeline tied to source URLs and record IDs);
 - relevant hits from \`scan --pull\` and captured media observations;
-- accepted, dismissed, and review-needed findings separated by confidence;
+- findings triaged from the auto-suggested queue via \`finding accept\`/\`dismiss\`,
+  separated by confidence;
 - clear gaps where sources, credentials, or media captures were unavailable.
+- \`/debrief\` automates this recon → triage → thread-notes → brief loop.
 
 ## Evidence Rules
 
@@ -553,10 +588,12 @@ For a person with a reference image:
 \`\`\`bash
 overcast doctor --json
 overcast case init --json
-overcast face ./clip.mp4 --match ./person.jpg --json
+overcast face ./clip.mp4 --match ./person.jpg --json   # a match ≥75% auto-suggests a finding
+overcast finding list --state triage --json            # triage the auto-suggested lead(s)…
+overcast finding accept <id> --json                    # …accept a real match (or \`dismiss <id>\`)
 overcast crop <face-record-id> --all --class face --json
 overcast ask "where does the reference person appear, with timestamps and confidence?" --json
-overcast brief --export ./visual-search.md --json
+overcast brief --export ./visual-search.md --json      # short by default; --full for the per-match timeline
 \`\`\`
 
 For an object or open-vocabulary target (\`--detect\` needs a bound detection
@@ -573,13 +610,17 @@ For logos, landmarks, or near-duplicate visual references:
 \`\`\`bash
 overcast index create refs --type image-ransac --local --json
 overcast index add ./reference-logo.png --to <index-id> --json
-overcast image match ./clip.mp4 --index <index-id> --json
+overcast image match ./clip.mp4 --index <index-id> --json   # a RANSAC hit auto-suggests a finding
+overcast finding list --state triage --json                  # then accept/dismiss the lead
 \`\`\`
 
 ## Output
 
 Return timestamped matches, similarity or confidence where available, source
 \`record.id\`, \`media.at\`, and cropped evidence paths created by \`crop\`.
+\`face --match\` / \`image match\` auto-suggest findings — resolve them with
+\`finding list --state triage\` → \`accept\`/\`dismiss\` so a run doesn't leave an
+un-triaged queue; the default \`brief\` is short, \`--full\` for the per-match timeline.
 State whether the match came from \`face --match\`, \`see --detect\`, or local
 \`image-ransac\` matching.
 
@@ -651,6 +692,13 @@ Pass \`--draw\` on \`image match\` so each matched frame writes a RANSAC overlay
 \`--ref\` in step 5 — the brief embeds that overlay in the finding card as
 visual proof.
 
+Each \`image match\` / \`face --match\` / \`listen\`-on-a-match already
+**auto-suggests** a finding (image RANSAC ≥1 inlier, face ≥75%): run
+\`overcast finding list --state triage --json\` to see the leads, then
+\`finding accept <id>\` (usually enough — the lead is already there) or
+\`finding dismiss <id>\`. Step 5's manual \`finding create --ref <match-record>\`
+stays valid for a richer because-clause (dedup suppresses the duplicate).
+
 **Local mode (no external source).** The skill works entirely on local files:
 skip steps 2–3 and run \`image match\` / \`face --match\` / \`listen\` directly on
 candidate videos already on disk (or captured earlier). This is how you compare a
@@ -669,8 +717,9 @@ media/indexes when no source is enabled.
 \`\`\`bash
 overcast finding create "copycat: <original> re-uploaded by @<author> (<views> views) — image frames 3x (best 94 inliers), face 87/100" --ref <image-match-record-id> --confidence high --json
 overcast note "checked x + youtube (<n> hits); <m> candidates escalated; <k> confirmed: @<author> ..." --tag tldr --json
+overcast target close <target-id> --as answered --note "copycats found + reported" --json  # once a line resolves
 # Wait for the note result before exporting, so the TL;DR is included.
-overcast brief --export ./copycats.html --json
+overcast brief --export ./copycats.html --json   # short by default (verdict-led); add --full for the frame-by-frame dump
 overcast monitor --every 1d --json
 \`\`\`
 

@@ -95,14 +95,16 @@ overcast case setup edit \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
-  --findings review \
+  --findings suggest \
   --yes --json
 ```
 
 This records which provider choices the case expects, which outputs can feed
 local memory/indexing, and whether `scan --pull` / `monitor` should run senses
-automatically for newly discovered media. Explicit `--pipe` on `scan` or
-`monitor` still overrides setup automation for that run. Use
+automatically for newly discovered media. `--findings suggest` (the default)
+auto-suggests findings from score/text matches on every evidence verb; `review`
+is the legacy text-only mode and `off` disables it. Explicit `--pipe` on `scan`
+or `monitor` still overrides setup automation for that run. Use
 `case setup edit --no-auto-index-new --yes --json` to disable automatic indexing
 later without removing the selected providers or auto-sense chain.
 
@@ -405,7 +407,10 @@ default is `local-grep`, which scans indexable fields from `.overcast/records`
 Only primary evidence records are eligible for memory and briefs: read/meta and
 operational bookkeeping records (`ask`, `brief`, `case`, `setup`, `doctor`,
 `index`, `target`, `source`, `prebrief`, legacy `collection`, etc.) are excluded even if they contain matching
-text. Remote indexes stay explicit through the case index mirror and
+text. Root `finding`s follow the same rule as flows.md's searchability table:
+accepted findings are evidence, but `suggested` (until accepted) and dismissed
+findings are quarantined from memory/briefs. Remote indexes stay explicit
+through the case index mirror and
 `ask --index`. Face and object detection records are searchable only through
 compact summary fields (summaries, counts, categories, moments), not raw boxes,
 thumbnail blobs, or full detection arrays. `crop` records are fully searchable
