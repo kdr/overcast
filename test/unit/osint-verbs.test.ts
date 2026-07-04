@@ -1452,6 +1452,9 @@ test("hostSourceType routes apex and subdomain hosts (x.com regression)", () => 
 test("hostSourceType routes instagram/telegram to their dedicated sources", () => {
   assert.equal(hostSourceType("https://www.instagram.com/p/ABC/"), "instagram");
   assert.equal(hostSourceType("https://instagram.com/reel/XYZ/"), "instagram");
+  // Meta CDN hosts that scan hits put media.ref at → instagram (curl asset path)
+  assert.equal(hostSourceType("https://scontent-sea5-1.cdninstagram.com/v/t51/x.jpg"), "instagram");
+  assert.equal(hostSourceType("https://video.fbcdn.net/v/x.mp4"), "instagram");
   assert.equal(hostSourceType("https://t.me/durov/530"), "telegram");
   // a lookalike host that merely contains the string stays web
   assert.equal(hostSourceType("https://notinstagram.com/x"), "web");

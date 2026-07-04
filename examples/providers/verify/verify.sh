@@ -75,7 +75,7 @@ printf '%s' "$out" | jq -c --arg ref "$input" '
   .active_manifest as $a
   | (.manifests[$a] // {}) as $m
   | ($m.claim_generator_info[0] // {}) as $gen
-  | ([.validation_status[]?.code] | unique) as $codes
+  | ([(.validation_status // [])[].code] | unique) as $codes
   | (if ($gen.name // "") != ""
      then $gen.name + (if ($gen.version // "") != "" then " " + $gen.version else "" end)
      else null end) as $genstr

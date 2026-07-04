@@ -530,7 +530,10 @@ export function hostSourceType(url: string): string {
   if (/(^|\.)(x\.com|twitter\.com|twimg\.com)$/.test(host)) return "x";
   // platforms with a dedicated source provider — route to it (CDN download or
   // yt-dlp) instead of the generic `web` HTML fetcher, like the hosts above.
-  if (/(^|\.)instagram\.com$/.test(host)) return "instagram";
+  // Include the Meta CDN hosts (cdninstagram/fbcdn) that scan hits point
+  // media.ref at, so an ad-hoc capture of one downloads the asset via
+  // instagram.sh's curl path instead of storing an HTML page.
+  if (/(^|\.)(instagram\.com|cdninstagram\.com|fbcdn\.net)$/.test(host)) return "instagram";
   if (/(^|\.)t\.me$/.test(host)) return "telegram";
   // video hosts yt-dlp handles but that lack a dedicated source → the generic
   // `dl` downloader, so `capture <url>` pulls the video instead of curling an
