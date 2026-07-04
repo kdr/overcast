@@ -107,6 +107,37 @@ def merge_segments(times):
     return out
 
 
+def render_muted_track(src_wav, segs, out):
+    """Write a full-length copy of src_wav with samples OUTSIDE `segs` zeroed —
+    timeline-preserving, this speaker audible only in their turns. Done on the raw
+    samples (numpy), NOT an ffmpeg `enable` expression: the expression grows with
+    the segment count and both the argv and ffmpeg's own evaluator overflow on long
+    clips with many diarization turns. Sample-zeroing is O(samples), unbounded."""
+    import wave
+    import numpy as np
+    with wave.open(src_wav, "rb") as w:
+        sr, ch, sw, nframes = w.getframerate(), w.getnchannels(), w.getsampwidth(), w.getnframes()
+        raw = w.readframes(nframes)
+    if sw != 2:
+        return False  # to_mono_wav writes pcm_s16le; anything else is unexpected
+    data = np.frombuffer(raw, dtype=np.int16).copy()
+    total = data.shape[0] // ch if ch else data.shape[0]
+    keep = np.zeros(total, dtype=bool)
+    for s, e in segs:
+        i0 = max(0, int(s * sr)); i1 = min(total, int(round(e * sr)))
+        if i1 > i0:
+            keep[i0:i1] = True
+    if ch > 1:
+        data = data.reshape(-1, ch)
+        data[~keep, :] = 0
+    else:
+        data[~keep] = 0
+    with wave.open(out, "wb") as w:
+        w.setnchannels(ch); w.setsampwidth(sw); w.setframerate(sr)
+        w.writeframes(data.tobytes())
+    return os.path.exists(out) and os.path.getsize(out) > 0
+
+
 def compute_overlaps(spk):
     """Pairwise speaker-overlap intervals (evidence flags for true cross-talk)."""
     names = sorted(spk)
@@ -174,13 +205,14 @@ def run():
         if not segs:
             continue
         out = os.path.join(outdir, "%s_%s.wav" % (base, speaker))
-        # audible only inside this speaker's segments; muted (volume=0) elsewhere.
-        expr = "+".join("between(t,%.3f,%.3f)" % (s, e) for s, e in segs)
-        af = "volume=0:enable='not(%s)'" % expr
-        r = subprocess.run([FFMPEG, "-y", "-i", src_wav, "-af", af, out],
-                           capture_output=True, timeout=600)
-        if r.returncode != 0 or not os.path.exists(out):
-            err = r.stderr.decode("utf-8", "ignore")[:200]
+        try:
+            ok = render_muted_track(src_wav, segs, out)
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            err = "%s: %s" % (type(e).__name__, str(e)[:180])
+        else:
+            err = "wrote no output"
+        if not ok:
             sys.stderr.write("track render failed for %s: %s\n" % (speaker, err))
             skipped.append({"speaker": speaker, "error": err})
             continue

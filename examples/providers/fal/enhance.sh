@@ -160,9 +160,14 @@ do_segment() {
         --argjson sc "${score:-null}" --argjson bx "$boxobj" --argjson mask "$maskfield" \
         '{kind:$k,ref:$ref,label:$lab,instance:$idx,score:$sc,box:$bx,box_normalized:true,mask:$mask}')"
       outputs="$(jq -c --argjson it "$item" '. + [$it]' <<<"$outputs")"
-      det="$(jq -nc --arg lab "$cls" --argjson sc "${score:-null}" --argjson bx "$boxobj" \
-        '{label:$lab,score:$sc,box:$bx,box_normalized:true}')"
-      dets="$(jq -c --argjson d "$det" '. + [$d]' <<<"$dets")"
+      # only mirror a box into the crop-facing detections[] when it's usable — a
+      # null box would make `crop <parent>` emit "empty box" errors even though the
+      # cutout/mask child record was created fine.
+      if [ "$boxobj" != "null" ]; then
+        det="$(jq -nc --arg lab "$cls" --argjson sc "${score:-null}" --argjson bx "$boxobj" \
+          '{label:$lab,score:$sc,box:$bx,box_normalized:true}')"
+        dets="$(jq -c --argjson d "$det" '. + [$d]' <<<"$dets")"
+      fi
     done
     IFS=','
   done
