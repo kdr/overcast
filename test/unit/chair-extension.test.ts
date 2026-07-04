@@ -172,7 +172,6 @@ test("event translation: user attribution + coalesced deltas reach the wire", as
     await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "the van " } }, ctx);
     await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "returns" } }, ctx);
     await new Promise((r) => setTimeout(r, 80)); // > coalescer flush window
-    await emit("agent_end", { messages: [] }, ctx);
 
     const users = published.filter((e) => e.type === "message" && e.role === "user");
     assert.deepEqual(
@@ -187,9 +186,11 @@ test("event translation: user attribution + coalesced deltas reach the wire", as
     assert.equal(deltas.length, 1, "per-token deltas must coalesce");
     assert.equal(deltas[0].text, "the van returns");
 
-    // livePartial accumulates the in-flight assistant text and clears on finalize
+    // livePartial holds the published in-flight text, then clears on finalize.
+    // Real ordering is message_end(assistant) → agent_end.
     assert.equal(bridge["agent"].livePartial?.(), "the van returns");
     await emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "the van returns" }] } }, ctx);
+    await emit("agent_end", { messages: [] }, ctx);
     assert.equal(bridge["agent"].livePartial?.(), "");
 
     await commands.get("chair")?.("off", ctx);
@@ -287,6 +288,69 @@ test("a failed chair injection does not inflate the pending count", async () => 
     const user = published.find((e) => e.type === "message" && e.role === "user");
     assert.equal(user?.source, "desk");
     assert.equal(user?.text, "[chair] typed at the desk");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an aborted run (agent_end without message_end) leaves no ghost live", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-abort-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+    await commands.get("chair")?.("on --port 0", ctx);
+    const agent = handle.bridge()!["agent"];
+
+    await emit("message_start", { message: { role: "assistant", content: [] } }, ctx);
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "half a thought" } }, ctx);
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(agent.livePartial?.(), "half a thought");
+
+    // abort: agent_end fires but the assistant message_end never does
+    await emit("agent_end", { messages: [] }, ctx);
+    assert.equal(agent.livePartial?.(), "", "aborted run must not leave a partial live line");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a pending chair injection does not carry across /chair off → on", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-pendreset-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await commands.get("chair")?.("on --port 0", ctx);
+    // inject a remote prompt but stop before its message_start arrives
+    handle.bridge()!["agent"].sendUserMessage("in-flight prompt");
+    await commands.get("chair")?.("off", ctx);
+    await commands.get("chair")?.("on --port 0", ctx);
+
+    const bridge = handle.bridge()!;
+    const published: Record<string, unknown>[] = [];
+    const orig = bridge.publish.bind(bridge);
+    (bridge as unknown as { publish: typeof bridge.publish }).publish = (evt) => {
+      published.push(evt as Record<string, unknown>);
+      orig(evt);
+    };
+    // the stale count was cleared on stop → this desk message stays desk
+    await emit("message_start", { message: { role: "user", content: "[chair] desk after restart" } }, ctx);
+    const user = published.find((e) => e.type === "message" && e.role === "user");
+    assert.equal(user?.source, "desk");
 
     await commands.get("chair")?.("off", ctx);
   } finally {

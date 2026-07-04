@@ -77,6 +77,10 @@ async function boot(): Promise<void> {
       case "agent":
         statusbar.set({ busy: evt.phase === "start" });
         composer.setBusy(evt.phase === "start");
+        // the run ended (possibly an abort, where message/tool end events don't
+        // arrive) — close the open live line + running tool chips so later text
+        // can't append to a stale line
+        if (evt.phase === "end") transcript.finalizeRun();
         break;
       case "message":
         if (evt.phase === "start" && evt.role === "user") transcript.user(evt.text ?? "", evt.source ?? "desk");

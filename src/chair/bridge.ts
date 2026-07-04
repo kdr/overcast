@@ -448,6 +448,8 @@ const FALLBACK_PAGE = `<!doctype html>
     if (e.type === "message" && e.phase === "end" && e.role === "assistant") { live = ""; render(); add("", e.text || ""); }
     if (e.type === "message" && e.phase === "start" && e.role === "user") add("u", "❯ " + (e.text || ""));
     if (e.type === "tool") { if (e.phase === "start") add("t", "⚙ " + e.name); if (e.phase === "end" && e.isError) add("n", "⚠ " + e.name + " failed"); }
+    // run ended (incl. abort): commit any partial line so later text starts fresh
+    if (e.type === "agent" && e.phase === "end" && live) { add("", live); live = ""; render(); }
     if (e.type === "state" || e.type === "hello" || e.type === "agent") document.getElementById("state").textContent = (e.busy || (e.type === "agent" && e.phase === "start")) ? "● working" : "";
     if (e.type === "notice") add("n", e.text);
     if (e.type === "gap") location.reload();

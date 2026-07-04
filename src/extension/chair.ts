@@ -198,8 +198,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   });
   pi.on("agent_end", (_e, c) => {
     capture(c);
-    flush();
+    flush(); // deliver any remaining coalesced text
     bridge?.publish({ type: "agent", phase: "end" });
+    // the turn is over (including an abort, where message_end may not fire) —
+    // drop live/partial state so an aborted run leaves no ghost `live` snapshot
+    resetStream();
   });
   pi.on("turn_start", (e, c) => {
     capture(c);
@@ -294,6 +297,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     if (!bridge) return;
     flush(); // deliver any coalesced assistant text before the sockets close
     resetStream(); // drop live/partial state so a later bridge can't expose a ghost `live`
+    pendingChairMsgs = 0; // a pending injection can't attribute across a restart
     const b = bridge;
     bridge = undefined; // rotate: the next start mints a fresh token (unless pinned)
     hideQr();

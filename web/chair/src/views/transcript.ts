@@ -13,6 +13,9 @@ export interface Transcript {
   assistantEnd(text: string): void;
   toolStart(id: string, name: string, argsSummary?: string): void;
   toolEnd(id: string, isError?: boolean): void;
+  /** Close out an interrupted run: commit the open live line and stop any tool
+   *  chips still showing "running" (their end events won't arrive on abort). */
+  finalizeRun(): void;
   notice(text: string, level?: "info" | "warning" | "error"): void;
 }
 
@@ -112,6 +115,11 @@ export function createTranscript(): Transcript {
       if (!row) return;
       row.classList.remove("running");
       if (isError) row.classList.add("error");
+    },
+    finalizeRun() {
+      endLive(); // commit the partial assistant line; a later delta starts fresh
+      for (const row of tools.values()) row.classList.remove("running");
+      tools.clear();
     },
     notice(text, level = "info") {
       append(entry(`notice${level === "error" ? " error" : ""}`, text));
