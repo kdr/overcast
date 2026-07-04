@@ -53,6 +53,7 @@ fi
 # 4) skill step (optional crop): the skill's chain is enhance → see --detect → crop.
 # `crop` needs detection boxes, so bind an OWLv2 detector and run see --detect on the
 # ENHANCED frame (the --ocr record from step 3 carries no detections to crop).
+cropped_ok=0   # set to 1 only when the detector cropped a real region
 if [ -n "${DETECT_PY:-}" ] && [ -n "${ENH_ID:-}" ]; then
   cond "enhance skill: see --detect on the enhanced frame, then crop the resolved region"
   DET="$PWD/examples/providers/detect/detect.py"
@@ -70,7 +71,9 @@ if [ -n "${DETECT_PY:-}" ] && [ -n "${ENH_ID:-}" ]; then
     DID="$(echo "$det" | jq -r '.id')"
     crop="$(oc "$CASE" crop "$DID" --all --pad 0.15 --square --json)"
     nready="$(echo "$crop" | jq -s '[.[]|select(.verb=="crop" and .state=="ready")]|length')"
-    if [ "${nready:-0}" -ge 1 ]; then ok "$C.crop_state" "cropped $nready resolved region(s) from the detector"; else fail "$C.crop_state" "detections found but crop emitted no ready records"; fi
+    # cropped_ok gates the "detected + cropped" finding below — the finding must not
+    # claim a crop that the crop leg failed to produce.
+    if [ "${nready:-0}" -ge 1 ]; then cropped_ok=1; ok "$C.crop_state" "cropped $nready resolved region(s) from the detector"; else fail "$C.crop_state" "detections found but crop emitted no ready records"; fi
   else
     ok "$C.crop_state" "detector ran clean; no plate/text/sign in this enhanced frame (0 detections) — not a failure"
   fi
@@ -85,7 +88,7 @@ cond "enhance skill: the finding states the enhancement provenance (ops + source
 # the finding names only the legs that ran and cites the STRONGEST evidence record:
 # the --detect record (has boxes + crops) > the --ocr re-read record > the enhanced
 # media record. pin + re-read need a brain backend; the ffmpeg enhance always runs.
-if [ -n "${DID:-}" ]; then
+if [ "${cropped_ok:-0}" -eq 1 ]; then
   oc "$CASE" finding create "resolved a moment via enhance denoise,upscale then detected + cropped the region — recovered evidence is low-confidence (interpolation cannot invent detail)" --ref "$DID" --confidence low --json >/dev/null
 elif [ -n "${SEE_ID:-}" ]; then
   oc "$CASE" finding create "resolved a moment via enhance denoise,upscale then re-read the enhanced frame — recovered text is low-confidence (interpolation cannot invent detail)" --ref "$SEE_ID" --confidence low --json >/dev/null
