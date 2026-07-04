@@ -78,7 +78,12 @@ export function createTranscript(): Transcript {
       el.scrollTop = el.scrollHeight;
     },
     user(text, source) {
+      // a user message mid-stream (a steer, or a desk message) closes the
+      // current assistant segment: commit whatever streamed so far and mark it
+      // finalized, so a continuation opens a fresh line and a late assistantEnd
+      // doesn't re-append the same reply (Bugbot round 20)
       endLive();
+      assistantOpen = false;
       const div = entry(`user${source === "chair" ? " chair" : ""}`);
       const who = document.createElement("span");
       who.className = "who";
@@ -118,7 +123,10 @@ export function createTranscript(): Transcript {
       assistantOpen = false;
       if (live) {
         live.classList.remove("live");
-        if (text) live.textContent = text;
+        // keep the streamed deltas; only fall back to the final text if nothing
+        // streamed — overwriting with the full message would duplicate a segment
+        // already committed above a mid-stream user message
+        if (text && !live.textContent) live.textContent = text;
         live = undefined;
       } else if (text) {
         append(entry("assistant", text));

@@ -253,15 +253,20 @@ test("chair bridge: prompt routing (idle turn, busy steer/followUp) + abort", as
     assert.deepEqual(calls.sent[1].opts, { deliverAs: "followUp" });
     pending = false;
 
+    // idle + an EXPLICIT followUp mode → honored (not silently downgraded to turn)
+    res = await prompt({ text: "queue this for after", mode: "followUp" });
+    assert.deepEqual(await res.json(), { delivered: "followUp" });
+    assert.deepEqual(calls.sent[2].opts, { deliverAs: "followUp" });
+
     // busy + auto → steer; busy + followUp → followUp
     idle = false;
     res = await prompt({ text: "wrong plate" });
     assert.deepEqual(await res.json(), { delivered: "steer" });
-    assert.deepEqual(calls.sent[2].opts, { deliverAs: "steer" });
+    assert.deepEqual(calls.sent[3].opts, { deliverAs: "steer" });
     res = await prompt({ text: "afterwards run a brief", mode: "followUp" });
     assert.deepEqual(await res.json(), { delivered: "followUp" });
-    assert.deepEqual(calls.sent[3].opts, { deliverAs: "followUp" });
-    assert.deepEqual(calls.notified, ["turn", "followUp", "steer", "followUp"]);
+    assert.deepEqual(calls.sent[4].opts, { deliverAs: "followUp" });
+    assert.deepEqual(calls.notified, ["turn", "followUp", "followUp", "steer", "followUp"]);
 
     // validation
     assert.equal((await prompt({ text: "" })).status, 400);

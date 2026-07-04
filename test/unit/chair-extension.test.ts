@@ -415,6 +415,41 @@ test("a reload reuses the pairing token (phone stays paired) and rotates it only
   }
 });
 
+test("a reload that races shutdown against start does not EADDRINUSE (stays online)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-race-"));
+  const prev = { chair: process.env.OVERCAST_CHAIR, port: process.env.OVERCAST_CHAIR_PORT, kase: process.env.OVERCAST_CASE };
+  try {
+    process.env.OVERCAST_CASE = dir;
+    process.env.OVERCAST_CHAIR = "1";
+    // pin a fixed port so a racing rebind would collide if not serialized
+    const fixed = 8100 + Math.floor(process.pid % 400);
+    process.env.OVERCAST_CHAIR_PORT = String(fixed);
+    const { pi, emit, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    assert.equal(handle.bridge()!.port, fixed);
+
+    // fire session_start WITHOUT awaiting session_shutdown's stop — the restart
+    // must wait for the port to be released rather than binding a still-held port
+    const shutdownP = emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    await shutdownP;
+
+    assert.ok(handle.bridge()?.running, "bridge is online after a raced reload");
+    assert.equal(handle.bridge()!.port, fixed, "rebound to the same fixed port");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    for (const [k, v] of [["OVERCAST_CHAIR", prev.chair], ["OVERCAST_CHAIR_PORT", prev.port], ["OVERCAST_CASE", prev.kase]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("reload keeps the concrete bound port (ephemeral 0 doesn't drift)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-ephport-"));
   const prevCase = process.env.OVERCAST_CASE;

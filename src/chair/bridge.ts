@@ -299,12 +299,16 @@ export class ChairBridge {
       return this.json(res, 400, { error: "mode must be auto|steer|followUp" });
     }
     // Route the injection:
-    //  - streaming        → steer (interrupt) unless the caller asked followUp
-    //  - idle but queued  → followUp: join the pending queue, don't start a
-    //                       competing turn while pi still has follow-ups
-    //  - truly idle       → a fresh turn (no deliverAs)
+    //  - explicit steer/followUp → honor the operator's choice (they picked it
+    //    in the composer), even when idle — pi ignores deliverAs when it's not
+    //    streaming, so it's safe and the report matches what they asked for
+    //  - auto + streaming        → steer (interrupt the run)
+    //  - auto + idle but queued  → followUp: join the pending queue, don't start
+    //    a competing turn while pi still has follow-ups
+    //  - auto + truly idle       → a fresh turn (no deliverAs)
     let lane: "steer" | "followUp" | undefined;
-    if (!this.agent.isIdle()) lane = mode === "followUp" ? "followUp" : "steer";
+    if (mode === "steer" || mode === "followUp") lane = mode;
+    else if (!this.agent.isIdle()) lane = "steer";
     else if (this.agent.hasPending()) lane = "followUp";
     const delivered: ChairPromptResult["delivered"] = lane ?? "turn";
     try {

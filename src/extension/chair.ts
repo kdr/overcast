@@ -78,6 +78,9 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   // `/chair on tailnet` (or custom --bind/--port) survives a reload instead of
   // silently falling back to localhost.
   let lastStartOpts: StartOptions = {};
+  // The in-flight bridge.stop() promise, so a restart waits for the port to be
+  // released before rebinding (round 20). Resolved when no stop is pending.
+  let stopping: Promise<void> = Promise.resolve();
   // exact "[chair] …" strings of injected prompts awaiting their message_start.
   // Matching a live user message against this queue (by content, FIFO) — rather
   // than a blind counter — means a desk message that merely starts with the
@@ -334,6 +337,10 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       }
       await stopChair();
     }
+    // wait for any in-flight stop to actually release the listen port before we
+    // rebind — session_shutdown's stopChair and session_start's startChair can
+    // otherwise race and EADDRINUSE on the reused port (Bugbot round 20)
+    await stopping;
     // Resolve bind/port with the LAST resolved values as a fallback (below an
     // explicit opt, above env/defaults), so a partial `/chair on --port …` keeps
     // the current bind (e.g. tailnet) and a reload keeps the concrete address —
@@ -379,7 +386,10 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     const b = bridge;
     bridge = undefined;
     hideQr();
-    await b.stop();
+    // publish the stop promise synchronously (before the await yields) so a
+    // concurrent startChair waits on it for the port to be released
+    stopping = b.stop();
+    await stopping;
   }
 
   function showQr(): void {
