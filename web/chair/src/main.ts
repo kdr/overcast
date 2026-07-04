@@ -54,7 +54,9 @@ async function boot(): Promise<void> {
   let lastSeq = 0;
   let disconnect: (() => void) | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let errorTimer: ReturnType<typeof setTimeout> | undefined;
   let resyncToken = 0;
+  const ERROR_RESYNC_MS = 3000;
 
   const onEvent = (evt: ChairWireEvent): void => {
     if (evt.type === "hello") {
@@ -109,7 +111,22 @@ async function boot(): Promise<void> {
       {
         onEvent,
         onResync: () => void resync(),
-        onStatus: (connected) => statusbar.set({ connected }),
+        onStatus: (connected) => {
+          statusbar.set({ connected });
+          // EventSource can't read the HTTP status, and it silently retries a
+          // 401 (rotated token) forever. If it stays down, force a resync — its
+          // getState surfaces the 401 → clearToken + re-pair gate. A quick
+          // recovery cancels it, so a transient blip just reconnects.
+          if (connected) {
+            if (errorTimer) clearTimeout(errorTimer);
+            errorTimer = undefined;
+          } else if (!errorTimer) {
+            errorTimer = setTimeout(() => {
+              errorTimer = undefined;
+              void resync();
+            }, ERROR_RESYNC_MS);
+          }
+        },
       },
       since,
     );
@@ -123,6 +140,10 @@ async function boot(): Promise<void> {
     if (retryTimer) {
       clearTimeout(retryTimer);
       retryTimer = undefined;
+    }
+    if (errorTimer) {
+      clearTimeout(errorTimer);
+      errorTimer = undefined;
     }
     disconnect?.(); // no events while the transcript is rebuilt
     disconnect = undefined;
