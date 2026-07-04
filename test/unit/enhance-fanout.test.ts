@@ -217,6 +217,38 @@ test("view on a segment PARENT record renders a cutout gallery (no audio)", asyn
   assert.match(gallery, /INSTANCES/);
 });
 
+test("view on an EMPTY segment parent (count 0) still renders the gallery, not the source image", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const img = join(dir, "empty.jpg");
+  writeFileSync(img, "x");
+  const p: Profile = defaultProfile();
+  p.providers = { ...p.providers, enhance: { type: "exec", run: `bash ${join(FIX, "fake-enhance-empty.sh")} --input {{input}}` } };
+  const recs = await enhanceVerb.run({ input: img, rest: [], opts: { ops: "segment", prompt: "nothing" }, case: c, profile: p });
+  for (const r of recs) c.writeRecord(r);
+  assert.equal(recs.length, 1); // just the parent, no children
+  const [view] = await viewVerb.run({ input: recs[0].id, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
+  assert.equal((view.payload as Record<string, unknown>).mode, "segmentation");
+  assert.equal((view.payload as Record<string, unknown>).items, 0);
+  assert.match(readFileSync(view.media!.ref, "utf8"), /No instances to show/);
+});
+
+test("view on a fanned-out CHILD plays it normally (not a gallery)", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const img = join(dir, "child.jpg");
+  writeFileSync(img, "x");
+  const p: Profile = defaultProfile();
+  p.providers = { ...p.providers, enhance: { type: "exec", run: `bash ${join(FIX, "fake-enhance-segment.sh")} --input {{input}}` } };
+  const recs = await enhanceVerb.run({ input: img, rest: [], opts: { ops: "segment", prompt: "car" }, case: c, profile: p });
+  for (const r of recs) c.writeRecord(r);
+  const child = recs[1]; // a cutout child — has source_record, no outputs[]
+  const [view] = await viewVerb.run({ input: child.id, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
+  const mode = (view.payload as Record<string, unknown>).mode;
+  assert.notEqual(mode, "segmentation"); // not the gallery
+  assert.notEqual(mode, "separation");
+});
+
 test("enhance --ops separate WITHOUT a bound provider errors helpfully", async () => {
   const clip = join(dir, "clip3.mp4");
   writeFileSync(clip, "x");

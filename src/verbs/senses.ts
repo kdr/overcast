@@ -755,18 +755,20 @@ function errorRecord(verb: string, message: string): OvercastRecord {
   });
 }
 
-/** If `rec` is an enhance split-op PARENT (payload.op separate|segment) with
- *  fanned-out children in the case, render an HTML gallery and return the view
- *  record; else null (so `view` falls through to its single-media player). */
+/** If `rec` is an enhance split-op PARENT (payload.op separate|segment carrying
+ *  the outputs[] envelope), render an HTML gallery of its fanned-out children and
+ *  return the view record; else null (so `view` falls through to its single-media
+ *  player). A parent is identified by the outputs[] array — NOT by children
+ *  existing — so a valid EMPTY result (count 0) still renders the gallery, while a
+ *  fanned-out CHILD (has source_record, no outputs) plays/shows normally. */
 async function maybeEnhanceGallery(ctx: VerbContext, rec: OvercastRecord): Promise<OvercastRecord | null> {
   if (rec.verb !== "enhance" || typeof rec.payload !== "object" || !rec.payload) return null;
   const p = rec.payload as Record<string, unknown>;
   const op = p.op;
-  if (op !== "separate" && op !== "segment") return null;
+  if ((op !== "separate" && op !== "segment") || !Array.isArray(p.outputs)) return null;
   const children = ctx.case.records().filter(
     (r) => r.verb === "enhance" && (r.payload as Record<string, unknown> | undefined)?.source_record === rec.id,
   );
-  if (!children.length) return null;
 
   const items: EnhanceGalleryItem[] = [];
   for (const child of children) {
@@ -788,7 +790,8 @@ async function maybeEnhanceGallery(ctx: VerbContext, rec: OvercastRecord): Promi
     }
     items.push(item);
   }
-  if (!items.length) return null;
+  // no early return on empty items — a valid count-0 parent still renders the
+  // gallery (renderEnhanceGallery shows an explicit empty state).
 
   const overlaps = Array.isArray(p.overlap)
     ? (p.overlap as Array<Record<string, unknown>>)
