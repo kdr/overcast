@@ -76,7 +76,7 @@ else
 fi
 
 # 4) skill step: run a probe through the database (held-out identify)
-IDREF=""
+IDREF=""; identified_ok=0
 if [ "$have_fixtures" -eq 1 ]; then
   cond "lineup skill: cluster identify runs the held-out probe through the DB and names the right person"
   idout="$(oc "$CASE" cluster identify "$FIXDIR/willsmith_ref.jpg" --index "$ID" --json)"; save_json "80_identify" "$idout" >/dev/null
@@ -85,8 +85,13 @@ if [ "$have_fixtures" -eq 1 ]; then
   best_sim="$(echo "$idout" | jq -r '.payload.matches[0].candidates[0].similarity // 0')"
   best_is_ws="$(echo "$list" | jq -r --arg c "$best_cid" '[.payload.clusters[]|select(.cluster_id==$c)|select(any(.sources[];test("willsmith")))]|length')"
   assert_eq "$C.identify" "1" "${best_is_ws:-0}" "probe matched a Will Smith cluster ($best_cid @ $best_sim)"
-  # 5) skill step: label the identified person (labels survive recluster)
-  oc "$CASE" cluster label "$best_cid" "Will Smith" --index "$ID" --json >/dev/null
+  # 5) label + confident finding ONLY when the match is actually correct — a WRONG
+  # match already failed the assert above; don't also write a misleading "Will Smith"
+  # label + high-confidence identification into the case store.
+  if [ "${best_is_ws:-0}" -eq 1 ]; then
+    identified_ok=1
+    oc "$CASE" cluster label "$best_cid" "Will Smith" --index "$ID" --json >/dev/null
+  fi
 elif have_media "$LOCAL_FACE_IMAGE"; then
   cond "lineup skill: cluster identify runs a probe image through the DB"
   idout="$(oc "$CASE" cluster identify "$LOCAL_FACE_IMAGE" --index "$ID" --json)"; save_json "80_identify" "$idout" >/dev/null
@@ -96,8 +101,11 @@ fi
 
 # 6) skill step: cited identification finding + mandatory tldr note + brief
 cond "lineup skill: an identification finding cites the identify record, a tldr note feeds the brief"
-if [ -n "$IDREF" ]; then
-  oc "$CASE" finding create "identified the probe against the lineup DB — cited to the identify record" --ref "$IDREF" --confidence high --json >/dev/null
+if [ "$identified_ok" -eq 1 ]; then
+  oc "$CASE" finding create "identified the probe as a known person in the lineup DB — cited to the identify record" --ref "$IDREF" --confidence high --json >/dev/null
+elif [ -n "$IDREF" ]; then
+  # a probe ran but the identity was not confirmed in-test — record it, not as a confident ID
+  oc "$CASE" finding create "ran a probe through the lineup DB (top match ${best_cid:-unknown}); not a confirmed identification" --ref "$IDREF" --confidence low --json >/dev/null
 else
   oc "$CASE" finding create "lineup DB built with $people person(s); no probe matched confidently" --confidence low --json >/dev/null
 fi

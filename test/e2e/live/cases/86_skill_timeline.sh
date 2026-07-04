@@ -70,7 +70,12 @@ stripped="$(printf '%s' "$low" | sed -E \
   -e 's/(accounts?|clips?|they) (broadly |largely |all )?(agree|are consistent|align|match)//g' \
   -e 's/does? not (conflict|disagree|contradict)//g' \
   -e 's/no evidence of [a-z ]*//g')"
-if printf '%s' "$stripped" | grep -qE 'conflict|contradict|disagree|discrepanc|inconsist|mismatch|out of order'; then
+# positive match = a real DISAGREEMENT in the accounts, not any "inconsistency":
+# the strong verbs (conflict/contradict/disagree) or an explicit ordering mismatch.
+# loose nouns (inconsistent/mismatch/discrepancy) are only used in the negation
+# strip above — an answer like "lighting is inconsistent but no ordering conflict"
+# must NOT file a finding.
+if printf '%s' "$stripped" | grep -qE 'conflict|contradict|disagree|(different|opposite|wrong|reversed) order|out of (sequence|order)|order[a-z ]*(differ|disagree)'; then
   cond "timeline skill: a reported cross-clip conflict becomes a low-confidence finding"
   oc "$CASE" finding create "timeline: cross-clip answer reports an ordering conflict — flagged for review" --ref "$W1" --at 1-4 --confidence low --json >/dev/null
   ok "$C.conflict" "answer reported a real conflict (survived negation strip) → finding created"
