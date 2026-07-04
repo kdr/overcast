@@ -31,7 +31,9 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 - uv-managed visual DB Python — optional for visual DBs and
   `face:deepface-local`: `scripts/visual-db-uv.sh --face` installs OpenCV/Numpy and
   DeepFace/TensorFlow; `--clip` adds OpenAI CLIP (open_clip + torch + pillow) for
-  the `basic-clip` semantic DB; `--all` installs both. Override with
+  the `basic-clip` semantic DB; `--detect` adds the OWLv2 open-vocab detector
+  (torch + transformers + scipy + pillow) that backs `see --detect` (set
+  `DETECT_PY` to the venv); `--all` installs all three. Override with
   `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`.
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
 

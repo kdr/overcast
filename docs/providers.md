@@ -227,8 +227,8 @@ returns bounding boxes. It runs **locally** via `transformers` — no fixed COCO
 vocabulary, no remote API:
 
 ```bash
-pip install torch transformers pillow scipy     # Grounding DINO also needs `timm`
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py"
+scripts/visual-db-uv.sh --detect                 # uv-installs torch + transformers + scipy + pillow (Grounding DINO also needs `timm`)
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"   # $DETECT_PY = the venv python printed above
 
 overcast see ./scene.jpg --detect "car, person, license plate" --json
 overcast see ./clip.mp4  --detect "weapon, hard hat" --json      # video → frames sampled, each box carries `at`
@@ -258,6 +258,8 @@ below). They use shipped Python providers under
 scripts/visual-db-uv.sh          # image matching: opencv-python + numpy
 scripts/visual-db-uv.sh --face   # face matching too: deepface + tf-keras
 scripts/visual-db-uv.sh --clip   # CLIP semantic search: open_clip + torch + pillow
+scripts/visual-db-uv.sh --detect # OWLv2 object detector for see --detect: torch + transformers + scipy
+scripts/visual-db-uv.sh --all    # all of the above (face + CLIP + detector)
 overcast doctor --json              # reports uv + visual-db readiness
 
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
