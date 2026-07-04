@@ -33,6 +33,9 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
+    // any 401 is an auth failure regardless of body shape (a proxy may return
+    // HTML) — surface it as "unauthorized" so the caller clears the token + gates
+    if (res.status === 401) throw new Error("unauthorized");
     const detail = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(detail.error || `${res.status}`);
   }

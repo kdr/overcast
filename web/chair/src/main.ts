@@ -36,17 +36,27 @@ async function boot(): Promise<void> {
       .catch(() => transcript.notice("case glance failed", "error"));
   });
   const transcript = createTranscript();
+  // whether the SSE stream is currently live; when it isn't (a transient resync
+  // is retrying), a successful send/abort kicks a resync so the transcript
+  // catches up now instead of waiting out the retry timer (Bugbot round 21).
+  let streamConnected = false;
+  const refreshIfDisconnected = (): void => {
+    if (!streamConnected) void resync();
+  };
   const composer = createComposer({
     onSend: async (text, mode) => {
       try {
         const res = await postPrompt(text, mode);
         if (res.delivered !== "turn") transcript.notice(`queued as ${res.delivered} — lands at the next loop point`);
+        refreshIfDisconnected();
       } catch (e) {
         transcript.notice(`send failed: ${(e as Error).message}`, "error");
       }
     },
     onAbort: () => {
-      void postAbort().catch(() => transcript.notice("abort failed", "error"));
+      void postAbort()
+        .then(refreshIfDisconnected)
+        .catch(() => transcript.notice("abort failed", "error"));
     },
   });
 
@@ -112,6 +122,7 @@ async function boot(): Promise<void> {
         onEvent,
         onResync: () => void resync(),
         onStatus: (connected) => {
+          streamConnected = connected;
           statusbar.set({ connected });
           // EventSource can't read the HTTP status, and it silently retries a
           // 401 (rotated token) forever. If it stays down, force a resync — its
@@ -147,6 +158,7 @@ async function boot(): Promise<void> {
     }
     disconnect?.(); // no events while the transcript is rebuilt
     disconnect = undefined;
+    streamConnected = false; // a manual close doesn't fire onStatus
     try {
       const snap = await getState();
       if (token !== resyncToken) return; // superseded by a newer resync
