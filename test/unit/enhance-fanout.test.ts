@@ -233,6 +233,23 @@ test("view on an EMPTY segment parent (count 0) still renders the gallery, not t
   assert.match(readFileSync(view.media!.ref, "utf8"), /No instances to show/);
 });
 
+test("view renders the gallery for a valid empty parent even when outputs is ABSENT (not just [])", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const img = join(dir, "noout.jpg");
+  writeFileSync(img, "x");
+  const p: Profile = defaultProfile();
+  p.providers = { ...p.providers, enhance: { type: "exec", run: `bash ${join(FIX, "fake-enhance-noout.sh")} --input {{input}}` } };
+  const recs = await enhanceVerb.run({ input: img, rest: [], opts: { ops: "segment", prompt: "x" }, case: c, profile: p });
+  for (const r of recs) c.writeRecord(r);
+  assert.equal(recs.length, 1);
+  // the parent has op:segment but NO outputs key — must still be detected as a parent
+  assert.equal((recs[0].payload as Record<string, unknown>).outputs, undefined);
+  const [view] = await viewVerb.run({ input: recs[0].id, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
+  assert.equal((view.payload as Record<string, unknown>).mode, "segmentation");
+  assert.match(readFileSync(view.media!.ref, "utf8"), /No instances to show/);
+});
+
 test("view on a fanned-out CHILD plays it normally (not a gallery)", async () => {
   const c = openCase(dir);
   c.ensure();

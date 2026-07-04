@@ -755,17 +755,19 @@ function errorRecord(verb: string, message: string): OvercastRecord {
   });
 }
 
-/** If `rec` is an enhance split-op PARENT (payload.op separate|segment carrying
- *  the outputs[] envelope), render an HTML gallery of its fanned-out children and
- *  return the view record; else null (so `view` falls through to its single-media
- *  player). A parent is identified by the outputs[] array — NOT by children
- *  existing — so a valid EMPTY result (count 0) still renders the gallery, while a
- *  fanned-out CHILD (has source_record, no outputs) plays/shows normally. */
+/** If `rec` is an enhance split-op PARENT (payload.op separate|segment), render an
+ *  HTML gallery of its fanned-out children and return the view record; else null
+ *  (so `view` falls through to its single-media player). A parent is identified by
+ *  op + the ABSENCE of a top-level `kind` — a fanned-out CHILD carries `kind`
+ *  (track/cutout/mask). This (not an outputs[] check) is used so a valid EMPTY
+ *  result — op matches with outputs empty OR absent (handler guard case 3) — still
+ *  renders the gallery, while children play/show normally. `source_record` isn't a
+ *  discriminator: a parent can carry it too (capture provenance). */
 async function maybeEnhanceGallery(ctx: VerbContext, rec: OvercastRecord): Promise<OvercastRecord | null> {
   if (rec.verb !== "enhance" || typeof rec.payload !== "object" || !rec.payload) return null;
   const p = rec.payload as Record<string, unknown>;
   const op = p.op;
-  if ((op !== "separate" && op !== "segment") || !Array.isArray(p.outputs)) return null;
+  if ((op !== "separate" && op !== "segment") || typeof p.kind === "string") return null;
   const children = ctx.case.records().filter(
     (r) => r.verb === "enhance" && (r.payload as Record<string, unknown> | undefined)?.source_record === rec.id,
   );
