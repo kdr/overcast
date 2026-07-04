@@ -33,7 +33,9 @@ overcast view ./call.wav --spectrogram --json      # visual inspection artifact 
    often recovers words the first missed:
 
 ```bash
-overcast enhance ./call.wav --ops voice-isolate,denoise --json
+overcast enhance ./call.wav --ops voice-isolate,denoise --json   # bundled-ffmpeg filter (fast, lossy)
+overcast enhance ./call.wav --ops separate --json                # true source separation → a track per speaker
+                                                                 # (local pyannote: scripts/visual-db-uv.sh --voice + HF_TOKEN, or fal)
 overcast listen <enhanced-record-id> --json
 ```
 
@@ -82,7 +84,9 @@ separation. Bind it LAST: ElevenLabs Scribe is speech-only and drops the audio-s
 first, then rebind for the diarize pass. Diarization LABELS speakers ("Speaker
 1/2"), it does not IDENTIFY them —
 a name is a corroborated inference, never a diarizer output. `voice-isolate` on the
-bundled ffmpeg is a filter, not source separation; bind ElevenLabs
-(`--verb enhance --choice elevenlabs`) for stronger isolation, and re-listen to
-confirm the cleaned transcript rather than trusting it blind. Background-cue
+bundled ffmpeg is a filter, not source separation — for a real per-speaker split use
+`enhance --ops separate` (local pyannote via `scripts/visual-db-uv.sh --voice` +
+`HF_TOKEN` and the accepted pyannote license, or fal), or bind ElevenLabs
+(`--verb enhance --choice elevenlabs`) for stronger isolation; either way re-listen
+to confirm the cleaned transcript rather than trusting it blind. Background-cue
 geolocation is suggestive, not definitive.
