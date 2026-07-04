@@ -5,8 +5,10 @@
 // verifies it's installed and recent enough.
 
 import { dirname, join, extname, basename } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, copyFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
@@ -215,6 +217,199 @@ export async function cropStill(
   return out;
 }
 
+// ---- contact sheet (frame grid) --------------------------------------------
+// Tile N timestamped frames into ONE labeled image for a single-call VLM triage
+// pass (the "grid trick": T*/temporal-search + Set-of-Mark over time). Labels are
+// burned per cell ONLY when this ffmpeg build has `drawtext` (needs libfreetype)
+// AND a usable font is found; otherwise the sheet is unlabeled and the caller
+// falls back to positional numbering. Either way the cell→timestamp map is exact
+// and returned in `cells` — the burned label is a convenience, not the record.
+
+let drawtextCache: boolean | undefined;
+
+/** Does this ffmpeg build have the `drawtext` filter? (cached; libfreetype-gated) */
+export async function hasDrawtext(): Promise<boolean> {
+  if (drawtextCache !== undefined) return drawtextCache;
+  try {
+    const { stdout } = await execFileP(FFMPEG_PATH, ["-hide_banner", "-filters"], {
+      timeout: 10_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    drawtextCache = /\bdrawtext\b/.test(stdout);
+  } catch {
+    drawtextCache = false;
+  }
+  return drawtextCache;
+}
+
+// Common TTF locations across macOS + Linux; OVERCAST_GRID_FONT overrides. `.ttc`
+// collections are skipped (drawtext needs a face index for those).
+const FONT_CANDIDATES = [
+  process.env.OVERCAST_GRID_FONT,
+  "/System/Library/Fonts/Supplemental/Arial.ttf",
+  "/Library/Fonts/Arial.ttf",
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+  "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+  "/usr/share/fonts/TTF/DejaVuSans.ttf",
+  "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+];
+
+/** First usable TTF for drawtext labels, or undefined. */
+export function findGridFont(): string | undefined {
+  return FONT_CANDIDATES.find((f): f is string => !!f && existsSync(f));
+}
+
+const clampInt = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
+
+export interface GridCell {
+  /** 1-based cell number, left-to-right then top-to-bottom */
+  n: number;
+  /** source timestamp (seconds) this cell was sampled from, or null for a blank
+   *  padding tile that fills out the last row (so every tile position maps). */
+  at: number | null;
+}
+
+export interface ContactSheetResult {
+  output: string;
+  cells: GridCell[];
+  cols: number;
+  rows: number;
+  cellWidth: number;
+  cellHeight: number;
+  /** whether cell numbers/timestamps were burned into the image */
+  labeled: boolean;
+}
+
+export interface ContactSheetOpts {
+  cols?: number;
+  cellWidth?: number;
+  outPath?: string;
+  /** force labels off even when drawtext is available */
+  label?: boolean;
+}
+
+/**
+ * Build a labeled contact sheet from a video at the given `seconds`. Extracts one
+ * uniformly-sized cell per timestamp (letterboxed to preserve aspect), burns a
+ * `<n>  <t>s` label when drawtext is available, pads the final row with blank
+ * cells so `tile` gets an exact grid, then tiles them into one image.
+ */
+export async function contactSheet(
+  input: string,
+  seconds: number[],
+  outDir: string,
+  opts: ContactSheetOpts = {},
+): Promise<ContactSheetResult> {
+  if (seconds.length === 0) throw new Error("contact sheet needs at least one timestamp");
+  ensureDir(outDir);
+
+  const cellWidth = clampInt(opts.cellWidth ?? 320, 120, 960);
+  const p = await probe(input).catch(() => undefined);
+  const aspect = p?.width && p?.height ? p.height / p.width : 9 / 16;
+  let cellHeight = Math.round(cellWidth * aspect);
+  if (cellHeight % 2) cellHeight += 1; // keep even for codec friendliness
+
+  const n = seconds.length;
+  const cols = clampInt(opts.cols ?? Math.ceil(Math.sqrt(n)), 1, 12);
+  const rows = Math.ceil(n / cols);
+  const slots = cols * rows;
+
+  const labeled = opts.label !== false && (await hasDrawtext()) && !!findGridFont();
+  const font = findGridFont();
+  const fontSize = clampInt(cellWidth / 14, 14, 40);
+
+  const base = basename(input, extname(input));
+  // include a hash of the actual samples + layout so two grids of the same clip
+  // with the same frame count but different windows/--at lists don't reuse (and
+  // overwrite) one path — which would strand earlier records on a stale montage.
+  const sig = shortHash({ seconds, cols, cellWidth, cellHeight, labeled });
+  const out = opts.outPath ?? join(outDir, `${safeName(base)}_grid_${n}_${sig}.png`);
+  ensureDir(dirname(out)); // a caller-supplied nested --out needs its parent created first
+  const work = mkdtempSync(join(tmpdir(), "oc-grid-"));
+  try {
+    const scalePad =
+      `scale=${cellWidth}:${cellHeight}:force_original_aspect_ratio=decrease,` +
+      `pad=${cellWidth}:${cellHeight}:(ow-iw)/2:(oh-ih)/2:color=black`;
+    for (let i = 0; i < n; i++) {
+      const cell = join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`);
+      let vf = scalePad;
+      if (labeled && font) {
+        // label text is number + rounded seconds only (no ':'/',' — those are
+        // filtergraph separators, so the text itself needs no escaping). The font
+        // path CAN contain them (a Windows `C:\...` or OVERCAST_GRID_FONT), so it
+        // must be escaped for the filtergraph.
+        const label = `${i + 1}  ${Math.round(seconds[i])}s`;
+        vf +=
+          `,drawtext=fontfile=${escFilterValue(font)}:text=${label}:x=10:y=10:` +
+          `fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=6`;
+      }
+      await execFileP(
+        FFMPEG_PATH,
+        ["-y", "-ss", String(seconds[i]), "-i", input, "-frames:v", "1", "-q:v", "3", "-vf", vf, cell],
+        { maxBuffer: 16 * 1024 * 1024 },
+      );
+    }
+    // pad the last row so `tile` receives an exact cols×rows sequence — the
+    // partial-tile-at-EOF behavior varies across ffmpeg versions; a full grid is
+    // deterministic. Fillers reuse the tile background color.
+    if (n < slots) {
+      const filler = join(work, "filler.jpg");
+      await execFileP(
+        FFMPEG_PATH,
+        ["-y", "-f", "lavfi", "-i", `color=c=0x101418:s=${cellWidth}x${cellHeight}`, "-frames:v", "1", filler],
+        { maxBuffer: 8 * 1024 * 1024 },
+      );
+      for (let i = n; i < slots; i++) {
+        copyFileSync(filler, join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`));
+      }
+    }
+    await execFileP(
+      FFMPEG_PATH,
+      [
+        "-y", "-framerate", "1", "-i", join(work, "cell_%03d.jpg"),
+        "-frames:v", "1", "-vf", `tile=${cols}x${rows}:padding=6:margin=6:color=0x101418`, out,
+      ],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+
+  // map EVERY tile position (cols×rows), not just the sampled ones — the trailing
+  // blank fillers get at:null, so a cell number read off the montage always
+  // resolves (to a timestamp, or to null = blank) instead of falling off the map.
+  const cells: GridCell[] = Array.from({ length: slots }, (_, i) => ({
+    n: i + 1,
+    at: i < n ? seconds[i] : null,
+  }));
+  return { output: out, cells, cols, rows, cellWidth, cellHeight, labeled };
+}
+
+/** Filesystem-safe filename part. */
+function safeName(s: string): string {
+  return s.replace(/[^a-z0-9_.-]+/gi, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "grid";
+}
+
+/** Short deterministic content hash for a collision-free default output name:
+ *  same inputs → same name (idempotent), different inputs → different name (so a
+ *  second run with a different window/op set can't overwrite the first's file and
+ *  leave an earlier record pointing at a montage/output that no longer matches). */
+function shortHash(parts: unknown): string {
+  return createHash("sha1").update(JSON.stringify(parts)).digest("hex").slice(0, 10);
+}
+
+/** Escape a value (e.g. a font path) for an ffmpeg filtergraph option: backslash
+ *  first, then the ':' option / ',' filter separators and the "'" quote — so a
+ *  Windows `C:\Fonts\Arial.ttf` becomes `C\:\\Fonts\\Arial.ttf` instead of
+ *  splitting the drawtext options. */
+function escFilterValue(s: string): string {
+  return s
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/,/g, "\\,")
+    .replace(/'/g, "\\'");
+}
+
 /** Render an audio spectrogram to a PNG via ffmpeg's native showspectrumpic. */
 export async function spectrogram(input: string, outDir: string): Promise<string> {
   ensureDir(outDir);
@@ -306,8 +501,13 @@ export async function enhance(
   }
 
   const ext = modality === "image" ? ".png" : extname(input) || ".mp4";
+  // key the default name on the applied ops so enhancing one file two different
+  // ways (e.g. grayscale then denoise) doesn't overwrite the first output and
+  // leave its record pointing at the wrong media — same ops still map to one file.
   const out =
-    outPath ?? join(ensureDir(outDir), `${basename(input, extname(input))}_enhanced${ext}`);
+    outPath ??
+    join(ensureDir(outDir), `${basename(input, extname(input))}_enhanced_${shortHash(applied)}${ext}`);
+  ensureDir(dirname(out)); // a caller-supplied nested --out needs its parent created too
 
   const args = ["-y", "-i", input];
   if (vFilters.length) args.push("-vf", vFilters.join(","));
@@ -321,6 +521,22 @@ export async function enhance(
 export interface FrameRef {
   recordId: string;
   second: number;
+}
+
+/** Parse a seek/timestamp value: plain seconds ("42", "42.5") or a timecode
+ *  ("1:02", "1:02:14"). Returns undefined for anything unparseable or negative —
+ *  the single implementation shared by `grid` window flags and `view --at` so the
+ *  two can't disagree on a malformed string. */
+export function parseTimecode(s: string): number | undefined {
+  const str = s.trim();
+  if (!str) return undefined;
+  if (str.includes(":")) {
+    const parts = str.split(":").map((p) => Number(p));
+    if (parts.some((p) => !Number.isFinite(p) || p < 0)) return undefined;
+    return parts.reduce((acc, p) => acc * 60 + p, 0);
+  }
+  const n = Number(str);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
 /** Parse a `frame://rec_xxx@134` reference. Returns null if not a frame ref. */

@@ -130,7 +130,13 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   children — per-track audio + spectrograms for `separate`, cutouts for `segment`,
   via `renderEnhanceGallery` in `src/report/html.ts`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
-  `--square`), `wall` (control-room monitor wall: case videos muted + looping at
+  `--square`), `grid` (tile timestamped video frames into ONE labeled contact
+  sheet for a single-call VLM triage pass — the "grid trick" for temporal search;
+  `--count`/`--at`/`--start`/`--end`/`--cols`/`--width`; emits `media.grid` with a
+  cell-number→timestamp map; labels burned only when ffmpeg has `drawtext`, else
+  positional; `--view` renders a clickable HTML board — CSS-labeled numbered cells
+  that seek the source clip — the human counterpart to the VLM-facing PNG),
+  `wall` (control-room monitor wall: case videos muted + looping at
   their evidence moments — open finding > face hit > record anchor — with
   coverage badges and scan/monitor/brief freshness overlaid; `--limit`,
   `--source`/`--since`, `--refresh`, `--infinite` endless repeat-to-fill wall,
@@ -204,7 +210,7 @@ Case memory is **evidence-only**. `ask` / `brief` read primary evidence
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
-prebrief wall`, finding review-rows, dismissed **and suggested** findings (a
+prebrief wall grid`, finding review-rows, dismissed **and suggested** findings (a
 suggested lead is quarantined until `finding accept` promotes it), cluster DB
 reads/maintenance `list/show/view/label/recluster`) are excluded even when they
 match the query. `face`/`see`/`image`/`audio`/`similar`/`cluster` detections index only
