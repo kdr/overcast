@@ -216,6 +216,44 @@ overcast setup provider enhance "exec:bash examples/providers/fal/enhance.sh {{i
 - **see** → `fal-ai/florence-2-large` (detailed caption; `--ocr` for text).
 - **enhance** is a **toolbox** dispatched by `--ops`: image → `fal-ai/esrgan`, audio → `fal-ai/deepfilternet3`; `--ops separate` → `fal-ai/sam-audio/separate`, `--ops segment` → `fal-ai/sam-3/image`. Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL` / `FAL_SEPARATE_MODEL` / `FAL_SEGMENT_MODEL`. See **Enhance split ops** below.
 
+## Forensic senses — `exif` (metadata + GPS, no key)
+
+`exif` runs the system **ExifTool** over an image or video and emits a
+`media.metadata` record: a searchable `summary` plus signed-decimal `gps`
+(`{lat,lng[,altitude]}`), capture time, camera `make`/`model`, editing
+`software`, MIME/dimensions/duration, and a total tag count. Highest-leverage
+"where/when/what device" evidence, before any AI.
+
+```bash
+brew install exiftool   # or: apt install libimage-exiftool-perl
+overcast exif ./photo.jpg          # -> media.metadata record (GPS, device, capture time)
+overcast exif <capture-id|record>  # a captured clip's metadata (video GPS tracks too)
+```
+
+Default backend: the shipped [`examples/providers/exif/exif.sh`](../examples/providers/exif/exif.sh)
+(system `exiftool`; `exit 13` → `needs_credentials` when absent). Bind your own
+with `setup provider exif <spec>`. Only the compact `summary`/`gps`/device fields
+are indexed into case memory — the full raw tag dump stays in the record for
+exact reads. `overcast doctor` reports whether `exiftool` is on PATH.
+
+`verify` checks a media file's embedded **C2PA / Content Credentials** manifest
+via **c2patool** and emits a `media.provenance` record: `has_manifest`, the claim
+generator, the signer/certificate issuer, `validation_state`, and assertion/
+ingredient counts. Media with no credentials is a clean `ready` record
+(`has_manifest: false`), not an error. This is distinct from source-post
+provenance (which records where a record *came from*) — it checks the media's own
+signed credentials.
+
+```bash
+brew install c2patool   # or: cargo install c2patool
+overcast verify ./photo.jpg        # -> media.provenance record (signer, validation state)
+```
+
+Default backend: the shipped [`examples/providers/verify/verify.sh`](../examples/providers/verify/verify.sh)
+(system `c2patool`; `exit 13` when absent). Bind your own with
+`setup provider verify <spec>`. `overcast doctor` reports whether `c2patool` is on
+PATH.
+
 ## ElevenLabs providers (`ELEVENLABS_API_KEY`)
 
 ```bash
@@ -524,7 +562,8 @@ sample 8 frames.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
 - [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
 - [`examples/providers/audio-db/{audio_match,clap_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp) and LAION CLAP audio embeddings (basic-clap) for audio DB indexes.
-- [`examples/providers/sources/{youtube,tiktok,x,web,lens}.sh`](../examples/providers/sources/) — yt-dlp + Apify (tiktok/x/lens) + web-search (Tavily/Brave) + Google Lens reverse-image source providers.
+- [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch) + web-search (Tavily/Brave) + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams source providers.
+- [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
 
 ## Source providers (built-in types)
 
@@ -534,6 +573,12 @@ sample 8 frames.
 - **`x`** (alias `twitter`) — Apify (`APIFY_TOKEN`). Default actor: kaitoeasyapi's pay-per-result tweet scraper, which works on any Apify plan against platform credit; override with `OVERCAST_X_ACTOR` (e.g. `apidojo~tweet-scraper` — same schema and faster, but **rental**: an unrented/free account gets only placeholder items, which map to zero hits). Supported refs: `x:@handle` for a profile's posts (translated to a `from:` search); `x:<query>` / `x:#tag` for X advanced search (`from:`, `filter:native_video`, `min_faves:`, `-filter:retweets`, …); `x:video:<query>` / `x:image:<query>` to return only posts carrying native video / images (applied as `filter:` operators so they hold across actors); `x:<full X URL>` for a post/profile/search/list URL. Hits point `media.ref` at the direct CDN asset (highest-bitrate mp4, else first photo) so `capture` downloads without X auth, and carry `author`/`views`/`thumb` triage metadata. Actors bill per result with a small per-query minimum — prefer fewer, broader queries.
 - **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). Supported ref: `web:<query>` for web search hits.
 - **`lens`** — Google Lens reverse image search via Apify (`APIFY_TOKEN`; actor override `OVERCAST_LENS_ACTOR`, default `borderline~google-lens`). Supported ref: `lens:<image url>` or `lens:<local image path>` (relative paths resolve against the cwd, then the case media dir, then the case root; local files are uploaded to the account's `overcast-lens` key-value store so the actor can fetch them). Hits carry the matched page (`payload.url`), `match: "exact" | "visual"`, the matching site, and for exact matches the match thumbnail materialized into the case media dir (`media.ref`); `--limit` applies per match type; `--since` is ignored (Lens has no recency filter).
+- **`dl`** — generic yt-dlp downloader (no key), **capture-only**: `enumerate` returns no hits, `fetch` downloads any of yt-dlp's ~1800 supported hosts. You rarely bind it directly — `overcast capture <url>` auto-routes video hosts without a dedicated source (Rumble/BitChute/Odysee/VK/Bilibili/Vimeo/Dailymotion/Reddit/Twitch/Kick/Facebook/…) to `dl` instead of the `web` page fetcher, and a scan.hit stamped `source:dl` captures back through it. Bindable as `dl:<url>` (the ref is carried but ignored by `enumerate`).
+- **`gdelttv`** — GDELT 2.0 TV API: broadcast-news video search over the Internet Archive TV News Archive (**no key**). Supported ref/query: `gdelttv:<phrase>`, optionally with GDELT operators (`station:CNN`, `market:"National"`); a query naming neither a station nor a market gets `market:"National"` appended (the API requires one). Hits carry the station/show/air-date title, the archive.org page (`payload.url`), snippet, thumbnail, and a **bounded clip** `media.ref` (`…/<show>.mp4?start=S&end=E`, ~30s) that `capture` downloads directly (full-show download is copyright-restricted; the clip service and thumbnails are public). `--since` maps to `STARTDATETIME`/`ENDDATETIME`, but the clipgallery corpus lags real time by weeks — a very recent window can return zero clips. Strong `monitor` fit (each clip has a stable page URL for dedup).
+- **`instagram`** — Instagram profiles/hashtags via Apify (`APIFY_TOKEN`; actor override `OVERCAST_INSTAGRAM_ACTOR`, default `apify~instagram-scraper`). Public data only, no login. Supported refs: `instagram:@handle` (profile posts/reels), `instagram:#tag` (hashtag posts), `instagram:<url>`. Hits carry the post page (`payload.url`), caption, owner, and a direct-CDN `media.ref` (video asset for videos, else the image) so `capture` downloads without login — CDN URLs are short-lived, so `scan --pull` is ideal.
+- **`telegram`** — public Telegram channels via Apify (`APIFY_TOKEN`; actor override `OVERCAST_TELEGRAM_ACTOR`, default `webfinity~telegram-channel-content-media-scraper-v2`). No login/phone. Supported refs: `telegram:<channel>`, `telegram:@channel`, `telegram:<t.me url>`. Each post's `payload.url` is a stable `t.me/<channel>/<id>` (great for `monitor` dedup); `media.ref` is the post's first media asset (text-only posts fall back to the post URL). `--since` maps to the actor's `daysRange` (capped at 30 days).
+- **`webcam`** — live public webcams via the Windy Webcams API (`WINDY_API_KEY`; ~70k geolocated cams; base override `OVERCAST_WEBCAM_API`). Supported refs: `webcam:<lat>,<lng>[,<radiusKm>]`, `webcam:country:<ISO2>`, `webcam:category:<slug>`, `webcam:<webcamId>`. Hits carry the cam title, location (`lat`/`lng`/`city`/`country`), the detail/player page (`payload.url`/`player`), and the cam's **current still** as `media.ref` (the free tier serves stills/timelapse, not a raw stream; tokened image URLs expire, so `scan --pull`/`monitor` are ideal). For a live clip, capture the player page with the `dl` source / yt-dlp. Strong `monitor` fit for watching a location on a schedule.
+- **`facesearch`** — **opt-in, sensitive** reverse FACE search via Apify (`APIFY_TOKEN`; actor override `OVERCAST_FACE_SEARCH_ACTOR`, default `nkactors~face-search`). Finds where a person's face appears online (complements `lens`, which matches whole images). Ref/query is a face image (`facesearch:<image url|local path>`; local files upload to the shared `overcast-lens` KV store). **Never a default binding** — face search raises real privacy / ToS / legal considerations; use only with authorization. Set `OVERCAST_FACE_SEARCH_DEMO=1` for the actor's cheap debug mode when wiring-testing.
 - Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
 For local-media-only cases, `scan` falls back to local case media/indexes instead

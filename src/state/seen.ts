@@ -27,6 +27,32 @@ export function saveSeen(c: Case, keys: Set<string>): void {
   writeFileSync(c.seenFile, JSON.stringify({ keys: [...keys] }, null, 2) + "\n", "utf8");
 }
 
+// Consecutive-failure counts for EPHEMERAL monitor hits (a webcam's current
+// still), persisted next to seen.json. Ephemeral hits deliberately skip `seen`
+// so they re-capture every pass, but that means a permanently broken hit would
+// re-run the pull pipeline forever. This counter lets monitor survive transient
+// failures yet give up (mark seen) after too many consecutive ones. The map only
+// holds CURRENTLY-failing hits — cleared on success or on give-up — so it stays
+// small; it never accumulates like a per-poll key would.
+const ephemeralFailsFile = (c: Case): string => join(c.seenFile, "..", "ephemeral-fails.json");
+
+export function loadEphemeralFails(c: Case): Map<string, number> {
+  const f = ephemeralFailsFile(c);
+  if (!existsSync(f)) return new Map();
+  try {
+    const o = JSON.parse(readFileSync(f, "utf8")) as Record<string, number>;
+    return new Map(Object.entries(o).filter(([, v]) => typeof v === "number"));
+  } catch {
+    return new Map();
+  }
+}
+
+export function saveEphemeralFails(c: Case, fails: Map<string, number>): void {
+  const f = ephemeralFailsFile(c);
+  mkdirSync(join(f, ".."), { recursive: true });
+  writeFileSync(f, JSON.stringify(Object.fromEntries(fails), null, 2) + "\n", "utf8");
+}
+
 // Field separator for composite keys: ASCII unit separator, which won't appear
 // in scraped title/url/snippet text, so distinct fields can't blur together.
 const SEP = "\u001f";

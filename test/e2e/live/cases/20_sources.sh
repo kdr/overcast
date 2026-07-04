@@ -142,3 +142,62 @@ if have_cmd yt-dlp; then
 else
   skip "$C.youtube" "yt-dlp not installed"
 fi
+
+# --- webcam (Windy Webcams API) — geolocated cams near a point + still capture ---
+if require_cred "$C.webcam" WINDY_API_KEY "skipping webcam (Windy)"; then
+  CASE=$(case_dir src_webcam)
+  export OVERCAST_SOURCE_WEBCAM_CMD="bash $SRCDIR/webcam.sh"
+  ocrun "$CASE" source add 'webcam:48.8584,2.2945,50' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=120 oc "$CASE" scan --source webcam --limit 3 --json)"
+  save_json "20_scan_webcam" "$out" >/dev/null
+  assert_scan_hits "$C.webcam.nearby" "$out" "webcam nearby"
+  # a webcam hit must carry geolocation (the point of the source)
+  lat="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.lat != null))][0].payload.lat // empty' 2>/dev/null)"
+  assert_nonempty "$C.webcam.geo" "$lat" "webcam hit carries lat/lng"
+  # capture the current still (the free tier serves a still image, kind:image)
+  hitid="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].id // empty' 2>/dev/null)"
+  if [ -n "$hitid" ]; then
+    capout="$(OC_TIMEOUT=120 oc "$CASE" capture "$hitid" --json)"
+    save_json "20_capture_webcam" "$capout" >/dev/null
+    capstate="$(echo "$capout" | jq -s -r '[.[]|select(.verb=="capture")][0].state // empty' 2>/dev/null)"
+    capkind="$(echo "$capout" | jq -s -r '[.[]|select(.verb=="capture")][0].payload.kind // empty' 2>/dev/null)"
+    if [ "$capstate" = "ready" ] && [ "$capkind" = "image" ]; then
+      ok "$C.webcam.capture" "captured current still (kind=$capkind)"
+    else
+      fail "$C.webcam.capture" "webcam still capture failed (state=${capstate:-?} kind=${capkind:-?})"
+    fi
+  else
+    fail "$C.webcam.capture" "no webcam hit to capture"
+  fi
+  unset OVERCAST_SOURCE_WEBCAM_CMD
+fi
+
+# --- gdelttv (GDELT 2.0 TV, no key) — broadcast-news clip search ---
+export OVERCAST_SOURCE_GDELTTV_CMD="bash $SRCDIR/gdelttv.sh"
+CASE=$(case_dir src_gdelttv)
+ocrun "$CASE" source add 'gdelttv:climate change' --json >/dev/null 2>&1
+out="$(OC_TIMEOUT=120 oc "$CASE" scan --source gdelttv --limit 3 --json)"
+save_json "20_scan_gdelttv" "$out" >/dev/null
+assert_scan_hits "$C.gdelttv.query" "$out" "gdelttv broadcast search"
+unset OVERCAST_SOURCE_GDELTTV_CMD
+
+# --- instagram + telegram (Apify) — small limits to keep cost low ---
+if require_cred "$C.instagram" APIFY_TOKEN "skipping instagram"; then
+  CASE=$(case_dir src_instagram)
+  export OVERCAST_SOURCE_INSTAGRAM_CMD="bash $SRCDIR/instagram.sh"
+  ocrun "$CASE" source add 'instagram:@nasa' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=300 oc "$CASE" scan --source instagram --limit 2 --json)"
+  save_json "20_scan_instagram" "$out" >/dev/null
+  assert_scan_hits "$C.instagram.profile" "$out" "instagram profile"
+  unset OVERCAST_SOURCE_INSTAGRAM_CMD
+fi
+
+if require_cred "$C.telegram" APIFY_TOKEN "skipping telegram"; then
+  CASE=$(case_dir src_telegram)
+  export OVERCAST_SOURCE_TELEGRAM_CMD="bash $SRCDIR/telegram.sh"
+  ocrun "$CASE" source add 'telegram:durov' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=300 oc "$CASE" scan --source telegram --limit 2 --since 30d --json)"
+  save_json "20_scan_telegram" "$out" >/dev/null
+  assert_scan_hits "$C.telegram.channel" "$out" "telegram channel"
+  unset OVERCAST_SOURCE_TELEGRAM_CMD
+fi

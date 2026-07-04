@@ -92,6 +92,42 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("lens.sh");
       return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
     }
+    case "dl": {
+      // generic yt-dlp downloader: capture-only fetch for any yt-dlp-supported
+      // host without a dedicated source (Rumble/BitChute/Odysee/VK/Bilibili/…).
+      // No API key; default (non-Apify) exec budget.
+      const script = shippedSource("dl.sh");
+      return script ? { type, base: ["bash", script], needs: "yt-dlp on PATH" } : undefined;
+    }
+    case "gdelttv": {
+      // GDELT 2.0 TV API — broadcast news video search over the Internet Archive
+      // TV News Archive. No API key; hits' media.ref is a bounded IA clip mp4.
+      const script = shippedSource("gdelttv.sh");
+      return script ? { type, base: ["bash", script], needs: "none (public GDELT API)" } : undefined;
+    }
+    case "instagram": {
+      // Instagram profiles/hashtags via Apify (apify/instagram-scraper).
+      const script = shippedSource("instagram.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
+    case "telegram": {
+      // Public Telegram channels via Apify. Stable per-post t.me URLs → strong
+      // monitor fit.
+      const script = shippedSource("telegram.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
+    case "facesearch": {
+      // Opt-in reverse FACE search via Apify (nkactors/face-search). Sensitive:
+      // never a default binding. Query/ref = a face image (url or local path).
+      const script = shippedSource("facesearch.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
+    case "webcam": {
+      // Live public webcams via the Windy Webcams API (geolocated cams). Fast
+      // HTTP GET → default exec budget. Hits' media.ref is the current still.
+      const script = shippedSource("webcam.sh");
+      return script ? { type, base: ["bash", script], needs: "WINDY_API_KEY" } : undefined;
+    }
     default:
       return undefined;
   }

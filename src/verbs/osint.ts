@@ -23,7 +23,7 @@ import {
 import { addTarget, listTargets, removeTarget, primaryTarget, setTargetStatus, isTargetClosed } from "../state/target.js";
 import { listIndexes } from "../state/index.js";
 import { loadSetup } from "../state/setup.js";
-import { loadSeen, saveSeen, hitKey } from "../state/seen.js";
+import { loadSeen, saveSeen, loadEphemeralFails, saveEphemeralFails, hitKey } from "../state/seen.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
@@ -34,6 +34,7 @@ import { isAv, isImage } from "./media-ref.js";
 import { faceVerb } from "./face.js";
 import { imageVerb } from "./image.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
+import { exifVerb, verifyVerb } from "./forensics.js";
 import { indexVerb } from "./index.js";
 import { evaluateTriggers, resolveFindingsPolicy } from "../signals/triggers.js";
 import { scanHitProvenance, stampProvenance } from "./provenance.js";
@@ -308,9 +309,28 @@ function hitProcessKey(hit: OvercastRecord): string {
   return `${hitKey(hit)}\u001f${hitFetchRef(hit) ?? ""}`;
 }
 
+/** An "ephemeral" hit is a live resource (a webcam's CURRENT still) whose content
+ *  changes every poll: `monitor` should re-capture it each pass WITHOUT persisting
+ *  it to the seen-set (which would otherwise grow unbounded). Source opts in with
+ *  `payload.recapture: true`. */
+function isEphemeralHit(hit: OvercastRecord): boolean {
+  return (hit.payload as Record<string, unknown> | undefined)?.recapture === true;
+}
+
+/** After this many CONSECUTIVE hard failures, an ephemeral hit is marked seen
+ *  (given up) so a permanently-broken live resource stops re-running the pull
+ *  pipeline every interval. A single success resets the count. */
+const EPHEMERAL_MAX_FAILS = 5;
+
+/** Perception + forensic senses whose records are the PRIMARY result of pulling a
+ *  hit. One source of truth so the pull/monitor plumbing — outcome classification,
+ *  provenance stamping, index-retry, auto_sense dispatch — never drifts when a new
+ *  sense verb is added. (Visual-DB ops image/similar/cluster stay auxiliary.) */
+const PRIMARY_SENSE_VERBS = ["watch", "listen", "see", "face", "enhance", "exif", "verify"];
+
 function classifyHitRecords(records: OvercastRecord[]): HitProcessOutcome {
   if (records.length === 0) return "failed";
-  const primary = records.filter((r) => ["capture", "watch", "listen", "see", "face", "enhance"].includes(r.verb));
+  const primary = records.filter((r) => r.verb === "capture" || PRIMARY_SENSE_VERBS.includes(r.verb));
   const senses = primary.filter((r) => r.verb !== "capture");
   const hasReadySense = senses.some((r) => r.state !== "error" && r.state !== "needs_credentials" && r.state !== "pending");
   const auxiliary = primary.length ? records.filter((r) => !primary.includes(r)) : [];
@@ -353,7 +373,7 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
   const prov = scanHitProvenance(hit);
   const finish = (): ProcessHitResult => {
     for (const r of records) {
-      if (["capture", "watch", "listen", "see", "face", "image", "enhance"].includes(r.verb)) stampProvenance(r, prov);
+      if (r.verb === "capture" || r.verb === "image" || PRIMARY_SENSE_VERBS.includes(r.verb)) stampProvenance(r, prov);
     }
     return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
   };
@@ -380,14 +400,20 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
   const cap = await captureRef(ctx, ref, { sourceType: hitSourceType(hit) });
   records.push(cap);
   if (cap.state !== "error" && cap.state !== "needs_credentials" && cap.media?.ref) {
-    if (explicitPipe || isSenseableMedia(cap.media.ref)) {
+    // sense the capture when it's A/V OR a still image: an image capture (an
+    // Instagram/webcam still) must feed the configured auto_sense chain — exif /
+    // verify / see — even though the DEFAULT sense (watch) is A/V-only. An
+    // explicit --pipe always runs.
+    if (explicitPipe || isSenseableMedia(cap.media.ref) || isImage(cap.media.ref)) {
       if (explicitPipe) {
         const sensedRecords = await runExplicitPipeWithPolicy(ctx, caller, explicitPipe, cap.media.ref);
         records.push(...(sensedRecords.length ? sensedRecords : [err(caller, `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`)]));
       } else {
         const automated = await runSetupAutomation(ctx, caller, cap.media.ref);
         if (automated.length) records.push(...automated);
-        else records.push(...await runDefaultWatchWithPolicy(ctx, caller, cap.media.ref));
+        // no configured chain → default watch, but only for A/V; a still image
+        // has no default sense (forensic/image senses must be set via auto_sense).
+        else if (isAv(cap.media.ref)) records.push(...await runDefaultWatchWithPolicy(ctx, caller, cap.media.ref));
       }
     }
   }
@@ -532,6 +558,41 @@ export function hostSourceType(url: string): string {
   if (/(^|\.)(youtube\.com|youtu\.be)$/.test(host)) return "youtube";
   // twimg.com = X's media CDN — the x provider downloads those directly
   if (/(^|\.)(x\.com|twitter\.com|twimg\.com)$/.test(host)) return "x";
+  // platforms with a dedicated source provider — route to it (CDN download or
+  // yt-dlp) instead of the generic `web` HTML fetcher, like the hosts above.
+  // Include the Instagram-only CDN host (cdninstagram) that scan hits point
+  // media.ref at, so an ad-hoc capture of one downloads the asset via
+  // instagram.sh's curl path. fbcdn.net is deliberately NOT routed here — it's a
+  // SHARED Meta CDN (Instagram AND Facebook), so a bare fbcdn URL would mislabel
+  // Facebook assets as source:instagram; the IG scan→capture flow routes by the
+  // hit's meta.provider (hitSourceType), not by host, so it's unaffected.
+  if (/(^|\.)(instagram\.com|cdninstagram\.com)$/.test(host)) return "instagram";
+  if (/(^|\.)t\.me$/.test(host)) return "telegram";
+  // A direct Internet Archive media DOWNLOAD (a gdelttv clip's media.ref, e.g.
+  // /download/<id>/<id>.mp4?start=…) → gdelttv.sh's curl+content-type fetch. Other
+  // archive.org URLs (detail pages, books, non-media items) fall through to the
+  // web fetcher so their provenance isn't mislabeled source:gdelttv.
+  if (/(^|\.)archive\.org$/.test(host)) {
+    try {
+      const p = new URL(url).pathname;
+      if (/^\/download\//.test(p) && /\.(mp4|m4v|mov|webm|mkv|ts|mp3|m4a|wav|jpe?g|png|webp|gif)$/i.test(p)) {
+        return "gdelttv";
+      }
+    } catch {
+      /* malformed → web */
+    }
+    return "web";
+  }
+  // video hosts yt-dlp handles but that lack a dedicated source → the generic
+  // `dl` downloader, so `capture <url>` pulls the video instead of curling an
+  // HTML page (the `web` fallback). Keep in sync with dl.sh's coverage note.
+  if (
+    /(^|\.)(rumble\.com|bitchute\.com|odysee\.com|vk\.com|vkvideo\.ru|bilibili\.com|b23\.tv|vimeo\.com|dailymotion\.com|dai\.ly|reddit\.com|redd\.it|twitch\.tv|kick\.com|streamable\.com|facebook\.com|fb\.watch)$/.test(
+      host,
+    )
+  ) {
+    return "dl";
+  }
   return "web";
 }
 
@@ -632,9 +693,13 @@ async function pipeSense(
     const [rec] = await faceVerb.run({ ...ctx, input: ref, rest: [], opts: {} });
     return rec;
   }
+  if (verb === "exif" || verb === "verify") {
+    const [rec] = await (verb === "exif" ? exifVerb : verifyVerb).run({ ...ctx, input: ref, rest: [], opts: {} });
+    return rec;
+  }
   // an unknown --pipe value (typo, or see/enhance) must surface, not silently
   // produce nothing — labelled with the ACTIVE command (monitor/scan).
-  return err(caller, `unknown --pipe '${verb}' (expected watch | listen | face)`);
+  return err(caller, `unknown --pipe '${verb}' (expected watch | listen | face | exif | verify)`);
 }
 
 async function runAutomationSense(ctx: VerbContext, caller: string, verb: string, ref: string): Promise<OvercastRecord> {
@@ -653,6 +718,10 @@ async function runAutomationSense(ctx: VerbContext, caller: string, verb: string
   }
   if (verb === "enhance") {
     const [rec] = await enhanceVerb.run({ ...ctx, input: ref, rest: [], opts: {} });
+    return rec;
+  }
+  if (verb === "exif" || verb === "verify") {
+    const [rec] = await (verb === "exif" ? exifVerb : verifyVerb).run({ ...ctx, input: ref, rest: [], opts: {} });
     return rec;
   }
   return err(caller, `unknown automated sense '${verb}'`);
@@ -732,7 +801,7 @@ function priorSuccessfulSenseRefs(ctx: VerbContext, hit: OvercastRecord): string
   );
   const mediaRef = cap?.media?.ref ?? ref;
   const sensed = records.find((r) =>
-    ["watch", "listen", "see", "face", "enhance"].includes(r.verb) &&
+    PRIMARY_SENSE_VERBS.includes(r.verb) &&
     r.state !== "error" &&
     r.state !== "needs_credentials" &&
     r.state !== "pending" &&
@@ -917,7 +986,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   });
 
 /** One monitor pass: enumerate, diff against `seen` (mutated), capture+sense new items. */
-async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<OvercastRecord[]> {
+async function monitorPass(ctx: VerbContext, seen: Set<string>, ephemeralFails: Map<string, number>): Promise<OvercastRecord[]> {
   const hits = await enumerateAll(ctx, "monitor");
   // a real hit is a scan.hit (ready/unstated); error AND needs_credentials
   // enumerate results are failures, not items to capture/count/mark seen.
@@ -937,6 +1006,11 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     // ref) only gates WITHIN-pass fan-out, where finer granularity is safe.
     const key = hitKey(hit);
     const processKey = hitProcessKey(hit);
+    // A hit in `seen` is done — skip it. An ephemeral hit (a webcam's current
+    // still) is NOT added to `seen` on success, so it re-captures every pass; it
+    // only lands in `seen` once monitor GIVES UP on it (too many consecutive hard
+    // failures, below), and from then on this check must stop it like any other.
+    const ephemeral = isEphemeralHit(hit);
     if (seen.has(key)) {
       const retry = await retryAuxiliaryForSeenHit(ctx, hit);
       out.push(...retry);
@@ -970,7 +1044,26 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     }
     // a hard error is permanent → mark seen (no infinite retry) but DON'T count it
     // as a successfully-ingested new item; the summary reports it via process_errors.
-    seen.add(key);
+    if (!ephemeral) {
+      seen.add(key);
+    } else if (outcome === "failed" || outcome === "completed_with_error") {
+      // ephemeral hits normally skip `seen` so they re-capture every pass — but a
+      // hit stuck on a HARD error (capture `failed`, or a sense that errors every
+      // pass → `completed_with_error`) must not re-run the pull pipeline forever.
+      // Count CONSECUTIVE hard-error passes and give up (mark seen) past the cap.
+      // completed_with_pending / _credential_gap are recoverable (a sub-sense is
+      // transiently pending / needs creds), so they fall through to the reset.
+      const n = (ephemeralFails.get(key) ?? 0) + 1;
+      if (n >= EPHEMERAL_MAX_FAILS) {
+        seen.add(key);
+        ephemeralFails.delete(key);
+      } else {
+        ephemeralFails.set(key, n);
+      }
+    } else {
+      // this pass captured successfully → the resource is alive; reset its run.
+      ephemeralFails.delete(key);
+    }
     if (outcome === "failed") procErrors++;
     else if (outcome === "completed_with_error") {
       procErrors++;
@@ -1087,6 +1180,7 @@ export const monitorVerb: VerbSpec = {
       const intervalMs = parseInterval(everyStr) ?? 0;
       if (intervalMs <= 0) return [makeRecord({ verb: "monitor", format: "json", payload: { error: `bad --every '${everyStr}'` }, error: "bad interval", state: "error" })];
       const seen = loadSeen(ctx.case);
+      const ephemeralFails = loadEphemeralFails(ctx.case);
       // cap passes from the env var; a non-numeric/≤0 value is ignored (→ Infinity)
       // rather than becoming NaN, which would make `pass < maxPasses` never run.
       const rawMax = Number(process.env.OVERCAST_MONITOR_MAX_PASSES);
@@ -1105,14 +1199,16 @@ export const monitorVerb: VerbSpec = {
         pass++;
         let recs: OvercastRecord[];
         try {
-          recs = await monitorPass(ctx, seen);
+          recs = await monitorPass(ctx, seen, ephemeralFails);
         } catch (e) {
           // a thrown pass (timeout, spawn failure) becomes one failed-pass error
           // record — the long-running loop keeps going, it doesn't crash.
           recs = [err("monitor", `monitor pass failed: ${(e as Error).message}`)];
         } finally {
-          // persist accumulated seen-set even if a pass throws mid-way.
+          // persist accumulated seen-set + ephemeral failure counts even if a pass
+          // throws mid-way.
           saveSeen(ctx.case, seen);
+          saveEphemeralFails(ctx.case, ephemeralFails);
         }
         for (const r of recs) {
           // a per-pass monitor SUMMARY is always emitted (consecutive passes can
@@ -1150,11 +1246,13 @@ export const monitorVerb: VerbSpec = {
     // single pass (--once or default). Persist the seen-set even if the pass
     // throws mid-way, so accumulated progress isn't lost.
     const seen = loadSeen(ctx.case);
+    const ephemeralFails = loadEphemeralFails(ctx.case);
     let out: OvercastRecord[] = [];
     try {
-      out = await monitorPass(ctx, seen);
+      out = await monitorPass(ctx, seen, ephemeralFails);
     } finally {
       saveSeen(ctx.case, seen);
+      saveEphemeralFails(ctx.case, ephemeralFails);
     }
     writeAlert(out.filter((r) => r.verb !== "monitor"));
     return out;
