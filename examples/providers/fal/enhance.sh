@@ -217,6 +217,21 @@ do_enhance() {
   fi
 }
 
+# reject unrecognized ops so a typo (e.g. "segement") can't silently fall through
+# to default enhance and look like a successful split op. overcast already gates
+# this, but a standalone invocation should too.
+bad=""
+oldifs="$IFS"; IFS=','
+for o in $ops; do
+  o="$(printf '%s' "$o" | tr -d '[:space:]')"
+  case "$o" in ""|separate|segment|denoise|normalize|voice-isolate|upscale|stabilize|grayscale) : ;; *) bad="$o" ;; esac
+done
+IFS="$oldifs"
+if [ -n "$bad" ]; then
+  emit_err "unknown --ops '$bad' (valid: separate, segment, denoise, normalize, voice-isolate, upscale, stabilize, grayscale)"
+  exit 0
+fi
+
 # pick the handler explicitly and reject ambiguous combos (no silent precedence).
 want_sep=0; want_seg=0
 case ",$ops," in *,separate,*) want_sep=1 ;; esac

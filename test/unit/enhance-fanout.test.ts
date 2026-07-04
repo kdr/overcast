@@ -229,6 +229,21 @@ test("enhance --ops separate WITHOUT a bound provider errors helpfully", async (
   assert.match(String(recs[0].error), /bound enhance provider/);
 });
 
+test("an unknown/typo'd op is rejected (not silently forwarded to a provider)", async () => {
+  const clip = join(dir, "typo.mp4");
+  writeFileSync(clip, "x");
+  // `segement` is a typo of segment — must error, not fall through to the bound
+  // provider's default enhance and look like success.
+  const recs = await enhanceVerb.run(ctx(clip, { ops: "segement" }, `bash ${join(FIX, "fake-enhance-single.sh")} --input {{input}}`));
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].state, "error");
+  assert.match(String(recs[0].error), /unknown --ops: segement/);
+  // a real ffmpeg op is still accepted (no binding → ffmpeg path)
+  const c = openCase(dir); c.ensure();
+  const ff = await enhanceVerb.run({ input: clip, rest: [], opts: { ops: "grayscale" }, case: c, profile: defaultProfile() });
+  assert.doesNotMatch(String(ff[0].error ?? ""), /unknown --ops/);
+});
+
 test("a split op combined with another op is rejected (no silent drop)", async () => {
   const clip = join(dir, "clip4.mp4");
   writeFileSync(clip, "x");

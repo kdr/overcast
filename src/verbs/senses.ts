@@ -22,6 +22,7 @@ import {
   parseFrameRef,
   modalityFromExt,
   spectrogram as ffSpectrogram,
+  ENHANCE_OPS,
   type EnhanceOp,
   type Modality,
 } from "../media/ffmpeg.js";
@@ -454,6 +455,21 @@ export const enhanceVerb: VerbSpec = {
     const rawOps = opsStr.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     const enhBinding = providerBinding(ctx, "enhance");
     const providerOps = rawOps.filter((o) => PROVIDER_ONLY_OPS.has(o));
+
+    // Reject unrecognized ops up front (known = ffmpeg ops + split ops). Without
+    // this a typo like `--ops segement` slips past the split-op checks and gets
+    // forwarded to a bound toolbox, which falls through to its DEFAULT enhance —
+    // a failed split op that looks like success. Fail loudly at the chokepoint.
+    const KNOWN_OPS = new Set<string>([...ENHANCE_OPS, ...PROVIDER_ONLY_OPS]);
+    const unknownOps = rawOps.filter((o) => !KNOWN_OPS.has(o));
+    if (unknownOps.length) {
+      return [
+        errorRecord(
+          "enhance",
+          `unknown --ops: ${unknownOps.join(", ")}. Valid ops: ${[...ENHANCE_OPS, ...PROVIDER_ONLY_OPS].join(", ")}.`,
+        ),
+      ];
+    }
 
     // A split op (separate/segment) can't compose with any other op: the toolbox
     // providers dispatch to exactly ONE handler, so `--ops segment,separate` or
