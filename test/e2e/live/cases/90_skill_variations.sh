@@ -64,6 +64,24 @@ if [ -n "$FRAME" ] && [ -f "$FRAME" ]; then
   assert_eq "$C.see_ocr_state" "ready" "$(echo "$so" | jq -r '.state')" "--ocr ready"
   assert_nonempty "$C.see_prompt" "$cap" "--prompt returned a focused description (${#cap} chars)"
   if [ "$ocr" != "$cap" ]; then ok "$C.see_differ" "--ocr text and --prompt description DIFFER (as they should)"; else fail "$C.see_differ" "--ocr and --prompt returned identical text"; fi
+
+  # third mode: --detect returns structured bounding boxes (a bound OWLv2 detector),
+  # a completely different payload shape from the free-text --ocr/--prompt. Bind the
+  # detector LAST so it doesn't affect the brain-see calls above.
+  if [ -n "${DETECT_PY:-}" ]; then
+    DET="$PWD/examples/providers/detect/detect.py"
+    ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
+    sd="$(OC_TIMEOUT=300 oc "$CASE" see "$FRAME" --detect "person, helmet, safety vest, truck" --json)"; save_json "90_see_detect" "$sd" >/dev/null
+    nd="$(echo "$sd" | jq -r '.payload.detections | length')"
+    if [ "$(echo "$sd" | jq -r '.state')" = "ready" ] && [ "${nd:-0}" -ge 1 ]; then
+      counts="$(echo "$sd" | jq -c '.payload.counts')"
+      ok "$C.see_detect" "--detect returned $nd bounding-box detections $counts — structured boxes, not prose"
+    else
+      fail "$C.see_detect" "--detect produced no detections (state=$(echo "$sd"|jq -r '.state'))"
+    fi
+  else
+    skip "$C.see_detect" "no DETECT_PY — the --detect variation needs a bound OWLv2 detector (scripts/visual-db-uv.sh --detect)"
+  fi
 else
   skip "$C.see" "no OC_VIDEO_OBJECTS/OC_VIDEO_VISUAL for a frame"
 fi
