@@ -73,6 +73,7 @@ Catalog presets:
 | `fal` | `see:fal`, `enhance:fal` |
 | `elevenlabs` | `listen:elevenlabs`, `enhance:elevenlabs` |
 | `owl-local` | `see:owl-local` |
+| `local-models` | `enhance:local-models` (on-device separate + segment) |
 | `deepface-local` | `face:deepface-local` |
 | `basic-clip` | `similar:basic-clip` |
 | `audio-fp` | `audio:audio-fp` |
@@ -213,8 +214,7 @@ overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input
 overcast setup provider enhance "exec:bash examples/providers/fal/enhance.sh {{input}}"  # image: esrgan · audio: deepfilternet3
 ```
 - **see** → `fal-ai/florence-2-large` (detailed caption; `--ocr` for text).
-- **enhance image** → `fal-ai/esrgan` (faithful Real-ESRGAN super-resolution — better for forensic use than diffusion editors).
-- **enhance audio** → `fal-ai/deepfilternet3` (speech denoise + 48 kHz). Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL`.
+- **enhance** is a **toolbox** dispatched by `--ops`: image → `fal-ai/esrgan`, audio → `fal-ai/deepfilternet3`; `--ops separate` → `fal-ai/sam-audio/separate`, `--ops segment` → `fal-ai/sam-3/image`. Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL` / `FAL_SEPARATE_MODEL` / `FAL_SEGMENT_MODEL`. See **Enhance split ops** below.
 
 ## ElevenLabs providers (`ELEVENLABS_API_KEY`)
 
@@ -224,6 +224,62 @@ overcast setup provider enhance "exec:bash examples/providers/elevenlabs/enhance
 ```
 - **listen** → ElevenLabs Speech-to-Text (Scribe) → transcript + word-level `segments[]` with `media.at` anchors + language.
 - **enhance** → ElevenLabs Voice Isolator (strips background noise/music → clean speech).
+
+## Enhance split ops — `separate` (voices) + `segment` (objects)
+
+Two `enhance` ops **split** media into many artifacts instead of returning one
+improved file: `--ops separate` isolates each speaker in an audio/video as its own
+track, and `--ops segment --prompt "<thing>"` cuts requested objects out of an
+image as mask + cutout evidence. Both need a **bound provider** (they are not
+ffmpeg ops); pick **local-models** (on-device) or **fal** (hosted) — one binding
+exposes both ops:
+
+> **One-time gate for local voice separation:** pyannote
+> `speaker-diarization-community-1` is a **gated** Hugging Face model. Before the
+> first `--ops separate` run you must (1) set `HF_TOKEN`, and (2) **accept the
+> license** — open <https://huggingface.co/pyannote/speaker-diarization-community-1>
+> while logged in and click **"Agree and access repository"**. Until then the
+> provider returns a clean `needs_credentials` record (not a crash). Local
+> `--ops segment` (GroundingDINO + SAM 2.1) is ungated and needs no token.
+
+```bash
+# on-device: pyannote diarization + GroundingDINO/SAM 2.1 (Apache-2.0, CPU-ok)
+scripts/visual-db-uv.sh --enhance          # installs both stacks into the uv venv
+overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
+#   ...or hosted on fal (FAL_KEY): sam-audio + sam-3
+overcast provider setup plan --preset fal && overcast provider setup apply --preset fal --yes
+
+overcast enhance interview.mp4 --ops separate --summarize          # per-speaker tracks, each transcribed
+overcast enhance photo.jpg     --ops segment  --prompt "the red car"   # mask + RGBA cutout per instance
+overcast view <split-op-parent-id>                                 # gallery: audition tracks (audio + spectrograms) or view cutouts
+overcast crop <segment-parent-id> --all                            # materialize the same boxes as crops
+```
+
+- **Multi-output contract.** A split provider still emits ONE record (the exec wire
+  contract), carrying its artifacts in `payload.outputs[] = [{ kind, ref, ... }]`
+  (`kind` = `track` | `cutout` | `mask`). The `enhance` verb **fans this out** into
+  `[parent, ...children]`: the parent is the audit summary (and, for `segment`,
+  mirrors `payload.detections[]` so `crop` works), each child is a first-class
+  `enhance` record whose `media.ref` is the artifact and payload carries a compact
+  `summary` + provenance (`source_record`, `op`, `kind`, `speaker`/`label`, `box`,
+  `segments`). Single-output providers (esrgan, voice-isolator, hf) have no
+  `outputs[]` and pass through unchanged. Only the compact summary/label/transcript
+  fields are indexed into case memory — mask PNGs, WAV tracks, and raw boxes stay in
+  the record.
+- **separate** — *local* uses pyannote `speaker-diarization-community-1` (a **GATED**
+  model: set `HF_TOKEN` and accept the license) → timeline-preserving per-speaker
+  tracks (other speakers muted; `segments[].at` stay valid; overlap regions flagged).
+  `--speakers N` hints the speaker count. *fal* uses text-prompted `sam-audio`
+  (`--prompt "the man speaking"` → target + residual tracks; loop on the residual for
+  N-way). `--summarize` transcribes each track through the bound `listen` provider and
+  folds the transcript + a short summary onto the track record (off by default — it's
+  N× the listen cost).
+- **segment** — *local* runs GroundingDINO-tiny (`--prompt` → boxes) + SAM 2.1-tiny
+  (boxes → masks); *fal* runs `sam-3` (up to `SEGMENT_MAX_INSTANCES` masks). Each
+  instance writes a binary mask PNG + an RGBA cutout (only those pixels); `--masks-only`
+  emits masks instead of cutouts. Image-only — segment a `frame://rec@sec` still of a
+  video, not the video. Boxes are crop-compatible (`{xmin,ymin,xmax,ymax}`, with
+  `box_normalized` when the model returns normalized coordinates).
 
 ## Object detection (`see` — open-vocabulary, local)
 
@@ -463,7 +519,8 @@ sample 8 frames.
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec/in-proc).
 - [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
-- [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN image enhance, and DeepFilterNet3 audio enhance.
+- [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance, plus `--ops separate` (sam-audio) and `--ops segment` (sam-3).
+- [`examples/providers/local/enhance.sh`](../examples/providers/local/enhance.sh) + [`examples/providers/visual-db/enhance_{voice,segment}.py`](../examples/providers/visual-db/) — on-device `enhance --ops separate` (pyannote) and `--ops segment` (GroundingDINO + SAM 2.1).
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
 - [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.

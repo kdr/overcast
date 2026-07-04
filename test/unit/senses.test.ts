@@ -172,6 +172,23 @@ test("enhance errors cleanly on a missing input", async () => {
   assert.equal(rec.state, "error");
 });
 
+test("enhance resolves a frame:// ref to an extracted still (segment-a-frame path)", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  // a record whose media is the real clip, so frame://<id>@sec can resolve
+  const src = makeRecord({ verb: "watch", format: "json", payload: {}, media: { ref: clip }, state: "ready" });
+  c.writeRecord(src);
+  const [rec] = await enhanceVerb.run({ input: `frame://${src.id}@0`, rest: [], opts: { ops: "grayscale" }, case: c, profile: defaultProfile() });
+  assert.equal(rec.state, "ready", `expected ready, got ${rec.state} (${rec.error ?? ""})`);
+  assert.ok(existsSync(rec.media!.ref), "enhanced still written from the resolved frame");
+});
+
+test("enhance frame:// with an unresolvable record errors clearly (not 'input not found')", async () => {
+  const [rec] = await enhanceVerb.run(ctx("frame://rec_missing@2", { ops: "grayscale" }));
+  assert.equal(rec.state, "error");
+  assert.match(String(rec.error), /cannot resolve/);
+});
+
 test("view --no-open writes an HTML player and emits a view record", async () => {
   const [rec] = await viewVerb.run(ctx(clip, { "no-open": true }));
   assert.equal(rec.verb, "view");

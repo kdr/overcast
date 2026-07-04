@@ -273,12 +273,12 @@ surface + env vars.)
 | `audio` | Shazam-style exact audio matching against a local `audio-fp` index (time-offset alignment), or clip-to-clip `audio match <query> <reference>`; `--min-margin` rejects sped re-uploads, `--draw` renders an SVG alignment plot for briefs |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
-| `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
+| `enhance` | denoise / normalize / upscale via bundled ffmpeg, a bound restore model, or the split ops — `--ops separate` (per-speaker tracks, `--summarize` to transcribe each) and `--ops segment --prompt` (text-prompted masks + cutouts), bound local or fal, one evidence record per artifact |
 
 **Inspect** — look at the evidence
 | verb | does |
 |---|---|
-| `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
+| `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram); on an `enhance` split-op parent, a gallery of the tracks (audio + spectrograms) or cutouts |
 | `crop` | materialize face/object detections as cropped image records with provenance |
 | `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
 
@@ -506,8 +506,9 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; install with `npm install -g @tobilu/qmd`, then rebuild before querying qmd)
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
-- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead.
-- `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`
+- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead. Also gates the **local** `enhance --ops separate` (pyannote diarization): its model is a **gated** HF repo — set `HF_TOKEN` **and** accept the license at <https://huggingface.co/pyannote/speaker-diarization-community-1> ("Agree and access repository") once before first use.
+- `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3), plus the split ops `enhance --ops separate` (sam-audio) / `--ops segment` (sam-3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`, `FAL_SEPARATE_MODEL`, `FAL_SEGMENT_MODEL`
+- `OC_VISUAL_DB_PY` — the **local-models** `enhance` toolbox: on-device `--ops separate` (pyannote, gated — see `HF_TOKEN`) and `--ops segment` (GroundingDINO + SAM 2.1, ungated); set up with `scripts/visual-db-uv.sh --enhance`
 - `ELEVENLABS_API_KEY` (or `XI_API_KEY`) — `listen` (Scribe STT) + `enhance` audio (voice isolation); `ELEVENLABS_STT_MODEL` (default `scribe_v1`)
 
 **OSINT sources**

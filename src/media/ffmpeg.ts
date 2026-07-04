@@ -227,13 +227,11 @@ export async function spectrogram(input: string, outDir: string): Promise<string
   return out;
 }
 
-export type EnhanceOp =
-  | "denoise"
-  | "normalize"
-  | "voice-isolate"
-  | "upscale"
-  | "stabilize"
-  | "grayscale";
+/** The deterministic ffmpeg enhance ops (runtime source of truth for the type +
+ *  the enhance verb's known-ops validation). Split ops (separate/segment) are NOT
+ *  here — they require a bound provider (see PROVIDER_ONLY_OPS in verbs/senses). */
+export const ENHANCE_OPS = ["denoise", "normalize", "voice-isolate", "upscale", "stabilize", "grayscale"] as const;
+export type EnhanceOp = (typeof ENHANCE_OPS)[number];
 
 /** Map an enhance op to an ffmpeg filter for the given modality. */
 function opFilter(op: EnhanceOp, modality: Modality): { v?: string; a?: string } {

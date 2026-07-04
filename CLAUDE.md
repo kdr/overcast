@@ -28,15 +28,19 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
   opt-in `see:tinycloud` provider — need ≥ 0.3.7).
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
-- uv-managed visual/audio DB Python — optional for visual/audio DBs and
-  `face:deepface-local`: `scripts/visual-db-uv.sh --face` installs OpenCV/Numpy and
-  DeepFace/TensorFlow; `--clip` adds OpenAI CLIP (open_clip + torch + pillow) for
-  the `basic-clip` semantic DB; `--detect` adds the OWLv2 open-vocab detector
-  (torch + transformers + scipy + pillow) that backs `see --detect` (set
-  `DETECT_PY` to the venv); `--audio` adds scipy for the `audio-fp` Shazam-style
-  fingerprint DB; `--clap` adds LAION CLAP (transformers + torch) for the
-  `basic-clap` audio-embedding DB; `--all` installs everything. Override with
-  `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`.
+- uv-managed visual/audio DB Python — optional for visual/audio DBs,
+  `face:deepface-local`, and the `enhance:local-models` split ops:
+  `scripts/visual-db-uv.sh --face` installs OpenCV/Numpy and DeepFace/TensorFlow;
+  `--clip` adds OpenAI CLIP (open_clip + torch + pillow) for the `basic-clip`
+  semantic DB; `--detect` adds the OWLv2 open-vocab detector (torch + transformers
+  + scipy + pillow) that backs `see --detect` (set `DETECT_PY` to the venv);
+  `--audio` adds scipy for the `audio-fp` Shazam-style fingerprint DB; `--clap`
+  adds LAION CLAP (transformers + torch) for the `basic-clap` audio-embedding DB;
+  `--voice` adds pyannote.audio (`enhance --ops separate`), `--segment` adds
+  transformers + SAM2/GroundingDINO (`enhance --ops segment`), `--enhance` adds both
+  enhance stacks, `--all` installs everything. Override with `OC_VISUAL_DB_PY` /
+  `OVERCAST_VISUAL_DB_PY`. Voice separation additionally needs `HF_TOKEN` + accepted
+  pyannote license.
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
 
 ## Invariants (do not violate)
@@ -120,9 +124,13 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   search — `add`/`match`/`search` image→image, text→image against `basic-clip`
   indexes, or audio→audio, text→audio against `basic-clap` indexes; videos
   frame-sampled + pooled, audio windowed into 10s moments), `enhance` (system
-  ffmpeg ops or a bound model).
+  ffmpeg ops, a bound restore model, or the split ops `--ops separate` = per-speaker
+  tracks + optional `--summarize`, and `--ops segment --prompt` = text-prompted
+  masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
-  `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
+  `--no-open`; on an `enhance` split-op parent it renders a GALLERY of the fanned-out
+  children — per-track audio + spectrograms for `separate`, cutouts for `segment`,
+  via `renderEnhanceGallery` in `src/report/html.ts`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
   `--square`), `wall` (control-room monitor wall: case videos muted + looping at
   their evidence moments — open finding > face hit > record anchor — with
