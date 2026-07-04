@@ -102,13 +102,20 @@ focused workflows:
 | `overcast-stakeout` | standing monitor + findings review + control-room wall |
 | `overcast-scene-locate` | "where was this taken?" — clues → reverse-image search |
 | `overcast-enhance-and-resolve` | "zoom in… enhance" — upscale, re-read, honestly |
-| `overcast-wiretap` | diarize + audio-scene + spectrogram + voice-isolate |
+| `overcast-wiretap` | diarize + audio-scene + spectrogram + voice-isolate/separate |
 | `overcast-provenance` | "is this clip real?" — trace to the earliest source |
 | `overcast-timeline` | reconstruct one event across multiple clips |
 | `overcast-crime-board` | crops + person links + CLIP themes → CSI board + wall |
+| `overcast-pinpoint` | pinpoint WHEN something happens — coarse→fine temporal search |
+| `overcast-frame-grid` | triage a clip in one VLM call via a labeled frame contact sheet |
+| `overcast-event-bisect` | binary-search the exact instant of a one-way state change |
+| `overcast-where` | locate WHERE in a frame — detect box + VLM-verify the crop |
+| `overcast-presence-window` | find the interval a person/object is on screen |
 
-Each is generated from `src/skill-gen.ts` (one source of truth) and is exercised
-end-to-end against real media in `test/e2e/live/cases/80`–`90`.
+Each is generated from `src/skill-gen.ts` (one source of truth). The CSI/crime-trope
+skills (`lineup`…`crime-board`) are exercised end-to-end against real media in
+`test/e2e/live/cases/80`–`90`; the visual-CoT localization skills
+(`pinpoint`…`presence-window`) in `test/e2e/live/cases/18_grid`.
 
 **Claude Code plugin** (slash commands + skills as one package):
 
