@@ -17,13 +17,14 @@ leaves the case.
 ## Prerequisites
 
 The lineup is deepface-only (clustering needs face embeddings the tinycloud face
-path doesn't expose). Prepare the local visual-DB Python once, bind DeepFace, and
-stand up a `face-cluster` index:
+path doesn't expose). `cluster` runs the uv-managed visual-DB Python directly
+(via `OC_VISUAL_DB_PY`), so you do NOT need to bind the `face` provider — leave
+your profile's `face` binding untouched. Just prepare the Python once and stand up
+a `face-cluster` index:
 
 ```bash
 overcast doctor --json                 # confirm uv + visual-db are ready
 scripts/visual-db-uv.sh --face         # install OpenCV/DeepFace (once per machine)
-overcast provider setup apply --verb face --choice deepface-local --profile default --yes --json
 overcast case init --json
 overcast index create people --type face-cluster --local --json
 ```
