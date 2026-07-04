@@ -30,10 +30,17 @@ async function boot(): Promise<void> {
     return;
   }
 
+  // Any 401 from an action (not just resync) means the token was rotated —
+  // clear it and re-pair, per api.ts's contract (Bugbot round 24).
+  const isAuthError = (e: unknown): boolean => (e as Error)?.message === "unauthorized";
+  const onAuthFailure = (): void => {
+    clearToken();
+    gate("unauthorized — the pairing token was rotated. Re-scan the QR from the desk (/chair qr).");
+  };
   const statusbar = createStatusBar(() => {
     void getCase()
       .then(openCaseDrawer)
-      .catch(() => transcript.notice("case glance failed", "error"));
+      .catch((e) => (isAuthError(e) ? onAuthFailure() : transcript.notice("case glance failed", "error")));
   });
   const transcript = createTranscript();
   // whether the SSE stream is currently live; when it isn't (a transient resync
@@ -50,13 +57,14 @@ async function boot(): Promise<void> {
         if (res.delivered !== "turn") transcript.notice(`queued as ${res.delivered} — lands at the next loop point`);
         refreshIfDisconnected();
       } catch (e) {
+        if (isAuthError(e)) return onAuthFailure();
         transcript.notice(`send failed: ${(e as Error).message}`, "error");
       }
     },
     onAbort: () => {
       void postAbort()
         .then(refreshIfDisconnected)
-        .catch(() => transcript.notice("abort failed", "error"));
+        .catch((e) => (isAuthError(e) ? onAuthFailure() : transcript.notice("abort failed", "error")));
     },
   });
 
@@ -162,7 +170,9 @@ async function boot(): Promise<void> {
     try {
       const snap = await getState();
       if (token !== resyncToken) return; // superseded by a newer resync
-      statusbar.set({ caseName: snap.caseName, model: snap.model ?? "", busy: snap.busy, connected: true });
+      // getState succeeded but the SSE isn't up yet — leave "connected" to the
+      // stream's onopen (still "reconnecting…" until then), don't claim it here
+      statusbar.set({ caseName: snap.caseName, model: snap.model ?? "", busy: snap.busy, connected: false });
       composer.setBusy(snap.busy);
       transcript.reset(snap.transcript, snap.runningTools);
       // seed the live assistant line with any in-flight (unfinalized) text so a
@@ -170,7 +180,7 @@ async function boot(): Promise<void> {
       if (snap.live) transcript.assistantDelta(snap.live);
       lastSeq = snap.seq;
       booted = true;
-      openStream(snap.seq); // resume exactly where the snapshot left off
+      openStream(snap.seq); // resume exactly where the snapshot left off — onopen flips connected true
     } catch (e) {
       if (token !== resyncToken) return; // superseded — let the newer run own the outcome
       const message = (e as Error).message;
