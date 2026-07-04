@@ -35,6 +35,7 @@ case "$op" in
     while [ "$#" -gt 0 ]; do case "$1" in
       --query) query="${2:-}"; shift 2 2>/dev/null || shift ;;
       --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --since) shift 2 2>/dev/null || shift ;;   # reverse-image face search has no recency filter
       *) shift ;;
     esac; done
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN" >&2; exit 13; }
