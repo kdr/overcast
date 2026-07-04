@@ -64,9 +64,12 @@ case "$op" in
       [ -n "$cutepoch" ] || { echo "gdelttv: could not parse --since '$since'" >&2; exit 1; }
       stamp="$(date -u -r "$cutepoch" +%Y%m%d%H%M%S 2>/dev/null || date -u -d "@$cutepoch" +%Y%m%d%H%M%S 2>/dev/null || echo '')"
       endstamp="$(date -u +%Y%m%d%H%M%S)"
+      # a stamp-formatting failure must ALSO fail closed — otherwise a valid
+      # --since would silently run windowless (the full corpus).
+      [ -n "$stamp" ] || { echo "gdelttv: could not format --since '$since' into a GDELT timestamp" >&2; exit 1; }
       # NOTE: GDELT's TV clipgallery corpus lags real time by weeks — a very
       # recent window (e.g. --since 7d) can legitimately return zero clips.
-      [ -n "$stamp" ] && startparam="&STARTDATETIME=$stamp&ENDDATETIME=$endstamp"
+      startparam="&STARTDATETIME=$stamp&ENDDATETIME=$endstamp"
     fi
 
     q="$(jq -rn --arg q "$query" '$q|@uri')"
