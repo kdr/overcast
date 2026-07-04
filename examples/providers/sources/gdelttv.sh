@@ -105,7 +105,12 @@ case "$op" in
           clip_start: ($se.s // null),
           clip_end: ($se.e // null),
           ia_show_id: (if $id != "" then $id else null end),
-          media: { ref: ($clip // .preview_thumb // $pu) }
+          # the bounded IA mp4 segment ONLY — never preview_thumb (a still) or
+          # preview_url (the clip-gallery HTML page). A clip we cannot construct a
+          # downloadable segment for is dropped, so `capture`/--pull always stores
+          # the documented broadcast video, not a page or thumbnail. (preview_thumb
+          # is still kept in the `thumb` field for reference.)
+          media: { ref: $clip }
         }
       | select(.media.ref != null and .media.ref != "")]'
     ;;

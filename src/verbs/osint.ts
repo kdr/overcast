@@ -23,7 +23,7 @@ import {
 import { addTarget, listTargets, removeTarget, primaryTarget } from "../state/target.js";
 import { listIndexes } from "../state/index.js";
 import { loadSetup } from "../state/setup.js";
-import { loadSeen, saveSeen, hitKey } from "../state/seen.js";
+import { loadSeen, saveSeen, loadEphemeralFails, saveEphemeralFails, hitKey } from "../state/seen.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
@@ -312,6 +312,11 @@ function hitProcessKey(hit: OvercastRecord): string {
 function isEphemeralHit(hit: OvercastRecord): boolean {
   return (hit.payload as Record<string, unknown> | undefined)?.recapture === true;
 }
+
+/** After this many CONSECUTIVE hard failures, an ephemeral hit is marked seen
+ *  (given up) so a permanently-broken live resource stops re-running the pull
+ *  pipeline every interval. A single success resets the count. */
+const EPHEMERAL_MAX_FAILS = 5;
 
 /** Perception + forensic senses whose records are the PRIMARY result of pulling a
  *  hit. One source of truth so the pull/monitor plumbing — outcome classification,
@@ -1011,7 +1016,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   });
 
 /** One monitor pass: enumerate, diff against `seen` (mutated), capture+sense new items. */
-async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<OvercastRecord[]> {
+async function monitorPass(ctx: VerbContext, seen: Set<string>, ephemeralFails: Map<string, number>): Promise<OvercastRecord[]> {
   const hits = await enumerateAll(ctx, "monitor");
   // a real hit is a scan.hit (ready/unstated); error AND needs_credentials
   // enumerate results are failures, not items to capture/count/mark seen.
@@ -1067,8 +1072,23 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>): Promise<Overcas
     }
     // a hard error is permanent → mark seen (no infinite retry) but DON'T count it
     // as a successfully-ingested new item; the summary reports it via process_errors.
-    // ephemeral hits are never persisted (they must re-process every pass).
-    if (!ephemeral) seen.add(key);
+    if (!ephemeral) {
+      seen.add(key);
+    } else if (outcome === "failed") {
+      // ephemeral hits normally skip `seen` so they re-capture every pass — but a
+      // permanently broken one must not re-run the pull pipeline forever. Count
+      // CONSECUTIVE hard failures and give up (mark seen) past the cap.
+      const n = (ephemeralFails.get(key) ?? 0) + 1;
+      if (n >= EPHEMERAL_MAX_FAILS) {
+        seen.add(key);
+        ephemeralFails.delete(key);
+      } else {
+        ephemeralFails.set(key, n);
+      }
+    } else {
+      // this pass produced content → the resource is alive; reset its failure run.
+      ephemeralFails.delete(key);
+    }
     if (outcome === "failed") procErrors++;
     else if (outcome === "completed_with_error") {
       procErrors++;
@@ -1185,6 +1205,7 @@ export const monitorVerb: VerbSpec = {
       const intervalMs = parseInterval(everyStr) ?? 0;
       if (intervalMs <= 0) return [makeRecord({ verb: "monitor", format: "json", payload: { error: `bad --every '${everyStr}'` }, error: "bad interval", state: "error" })];
       const seen = loadSeen(ctx.case);
+      const ephemeralFails = loadEphemeralFails(ctx.case);
       // cap passes from the env var; a non-numeric/≤0 value is ignored (→ Infinity)
       // rather than becoming NaN, which would make `pass < maxPasses` never run.
       const rawMax = Number(process.env.OVERCAST_MONITOR_MAX_PASSES);
@@ -1203,14 +1224,16 @@ export const monitorVerb: VerbSpec = {
         pass++;
         let recs: OvercastRecord[];
         try {
-          recs = await monitorPass(ctx, seen);
+          recs = await monitorPass(ctx, seen, ephemeralFails);
         } catch (e) {
           // a thrown pass (timeout, spawn failure) becomes one failed-pass error
           // record — the long-running loop keeps going, it doesn't crash.
           recs = [err("monitor", `monitor pass failed: ${(e as Error).message}`)];
         } finally {
-          // persist accumulated seen-set even if a pass throws mid-way.
+          // persist accumulated seen-set + ephemeral failure counts even if a pass
+          // throws mid-way.
           saveSeen(ctx.case, seen);
+          saveEphemeralFails(ctx.case, ephemeralFails);
         }
         for (const r of recs) {
           // a per-pass monitor SUMMARY is always emitted (consecutive passes can
@@ -1248,11 +1271,13 @@ export const monitorVerb: VerbSpec = {
     // single pass (--once or default). Persist the seen-set even if the pass
     // throws mid-way, so accumulated progress isn't lost.
     const seen = loadSeen(ctx.case);
+    const ephemeralFails = loadEphemeralFails(ctx.case);
     let out: OvercastRecord[] = [];
     try {
-      out = await monitorPass(ctx, seen);
+      out = await monitorPass(ctx, seen, ephemeralFails);
     } finally {
       saveSeen(ctx.case, seen);
+      saveEphemeralFails(ctx.case, ephemeralFails);
     }
     writeAlert(out.filter((r) => r.verb !== "monitor"));
     return out;

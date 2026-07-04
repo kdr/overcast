@@ -1402,6 +1402,45 @@ test("monitor re-captures an ephemeral (recapture) hit every pass without growin
   }
 });
 
+test("monitor gives up on a permanently-failing ephemeral hit after the retry cap", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-mon-eph-fail-"));
+  const src = join(d, "deadcam-source.sh");
+  // enumerate returns a recapture hit; fetch ALWAYS fails → hard capture failure.
+  writeFileSync(
+    src,
+    [
+      "#!/usr/bin/env bash",
+      'op="${1:-enumerate}"',
+      "case \"$op\" in",
+      `  enumerate) printf '[{"title":"deadcam","url":"http://cam/dead","source":"webcam","recapture":true,"media":{"ref":"http://127.0.0.1:9/nope.jpg"}}]\\n' ;;`,
+      '  fetch) echo "fetch failed" >&2; exit 1 ;;',
+      "esac",
+    ].join("\n"),
+  );
+  const prev = process.env.OVERCAST_SOURCE_WEBCAM_CMD;
+  try {
+    (await import("node:fs")).chmodSync(src, 0o755);
+    process.env.OVERCAST_SOURCE_WEBCAM_CMD = `bash ${src}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "webcam:dead");
+    const mkCtx = (): VerbContext => ({ input: undefined, rest: [], opts: { once: true }, case: openCase(d), profile: defaultProfile() });
+
+    // passes 1-4: the failing hit is retried each pass, NOT yet given up
+    for (let i = 1; i <= 4; i++) {
+      await monitorVerb.run(mkCtx());
+      assert.equal(loadSeen(openCase(d)).size, 0, `pass ${i}: broken cam still retried (not marked seen)`);
+    }
+    // pass 5 hits the cap (EPHEMERAL_MAX_FAILS) → the hit is marked seen (given up)
+    await monitorVerb.run(mkCtx());
+    assert.equal(loadSeen(openCase(d)).size, 1, "pass 5: permanently-broken cam is marked seen and stops retrying");
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_SOURCE_WEBCAM_CMD;
+    else process.env.OVERCAST_SOURCE_WEBCAM_CMD = prev;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("monitor --once dedupes duplicate fetch refs within a retryable pass", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-monitor-pass-dedupe-"));
   const sourceScript = join(d, "dupe-source.sh");
