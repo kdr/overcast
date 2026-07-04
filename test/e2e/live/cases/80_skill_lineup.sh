@@ -44,8 +44,10 @@ if [ "$have_fixtures" -eq 1 ]; then
   ingest=(); for f in "$FIXDIR"/willsmith_[0-9]*.jpg "$FIXDIR"/personB_[0-9]*.jpg; do [ -f "$f" ] && ingest+=("$f"); done
   cond "lineup skill: cluster add books curated crops into people (assign-or-create)"
   n=0
+  # a cluster op can co-emit a suggested `finding` record (setup.findings defaults to
+  # `suggest`), so select the `cluster` record from the stream — not the whole thing.
   for f in "${ingest[@]}"; do
-    st="$(OC_TIMEOUT=600 oc "$CASE" cluster add "$f" --index "$ID" --json | jq -r '.state')"
+    st="$(OC_TIMEOUT=600 oc "$CASE" cluster add "$f" --index "$ID" --json | jq -s -r '[.[]|select(.verb=="cluster")][0].state // ""')"
     [ "$st" = "ready" ] && n=$((n + 1))
   done
   assert_eq "$C.ingest" "${#ingest[@]}" "$n" "all ${#ingest[@]} crops booked ready"
@@ -54,6 +56,7 @@ else
   cond "lineup skill: cluster add books faces from a real video into the lineup"
   add="$(OC_TIMEOUT=600 oc "$CASE" cluster add "$LOCAL_FACE_VIDEO" --index "$ID" --fps "${OC_LOCAL_FACE_FPS:-0.5}" --max-frames "${OC_LOCAL_FACE_MAX_FRAMES:-12}" --json)"
   save_json "80_cluster_add" "$add" >/dev/null
+  add="$(echo "$add" | jq -s -c '[.[]|select(.verb=="cluster")][0]')"   # co-emitted finding may follow
   assert_eq "$C.add_state" "ready" "$(echo "$add" | jq -r '.state')" "cluster add ready"
   cnt="$(echo "$add" | jq -r '.payload.count // 0')"
   assert_nonempty "$C.add_count" "$([ "${cnt:-0}" -ge 1 ] && echo "$cnt")" "booked $cnt face(s)"
@@ -80,6 +83,7 @@ IDREF=""; identified_ok=0
 if [ "$have_fixtures" -eq 1 ]; then
   cond "lineup skill: cluster identify runs the held-out probe through the DB and names the right person"
   idout="$(oc "$CASE" cluster identify "$FIXDIR/willsmith_ref.jpg" --index "$ID" --json)"; save_json "80_identify" "$idout" >/dev/null
+  idout="$(echo "$idout" | jq -s -c '[.[]|select(.verb=="cluster")][0]')"   # drop any co-emitted suggested finding
   IDREF="$(echo "$idout" | jq -r '.id // empty')"
   best_cid="$(echo "$idout" | jq -r '.payload.matches[0].candidates[0].cluster_id // empty')"
   best_sim="$(echo "$idout" | jq -r '.payload.matches[0].candidates[0].similarity // 0')"
@@ -95,6 +99,7 @@ if [ "$have_fixtures" -eq 1 ]; then
 elif have_media "$LOCAL_FACE_IMAGE"; then
   cond "lineup skill: cluster identify runs a probe image through the DB"
   idout="$(oc "$CASE" cluster identify "$LOCAL_FACE_IMAGE" --index "$ID" --json)"; save_json "80_identify" "$idout" >/dev/null
+  idout="$(echo "$idout" | jq -s -c '[.[]|select(.verb=="cluster")][0]')"   # drop any co-emitted suggested finding
   IDREF="$(echo "$idout" | jq -r '.id // empty')"
   assert_eq "$C.identify_state" "ready" "$(echo "$idout" | jq -r '.state')" "identify ready"
 fi

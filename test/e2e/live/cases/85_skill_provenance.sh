@@ -75,10 +75,13 @@ cond "provenance skill: a suspect clip carrying the mark is CONFIRMED through th
 if [ -s "$WORK/suspect.mp4" ]; then
   mr="$(OC_TIMEOUT=420 oc "$CASE" image match "$WORK/suspect.mp4" --index "$IDX" --max-frames 30 --draw --json)"
   save_json "85_match_suspect" "$mr" >/dev/null
-  MR_ID="$(echo "$mr" | jq -r '.id // empty')"
-  rc="$(echo "$mr" | jq -r '.payload.count // 0')"
+  # a match now co-emits a suggested `finding` record in the stream (setup.findings
+  # defaults to `suggest`), so select the `image` record — not the whole stream.
+  imr="$(echo "$mr" | jq -s -r '[.[]|select(.verb=="image")][0]')"
+  MR_ID="$(echo "$imr" | jq -r '.id // empty')"
+  rc="$(echo "$imr" | jq -r '.payload.count // 0')"
   if [ "${rc:-0}" -ge 1 ]; then confirmed_ok=1; ok "$C.confirmed" "suspect clip CONFIRMED: $rc gated frame match(es) carry the mark"; else fail "$C.confirmed" "suspect clip produced 0 gated matches (expected >=1)"; fi
-  draws="$(echo "$mr" | jq -r '[.payload.matches[]?.match_draw_path | select(. != null)] | length')"
+  draws="$(echo "$imr" | jq -r '[.payload.matches[]?.match_draw_path | select(. != null)] | length')"
   [ "${draws:-0}" -ge 1 ] && ok "$C.overlay" "wrote $draws RANSAC overlay(s) as visual proof" || fail "$C.overlay" "no --draw overlay written"
 else
   fail "$C.confirmed" "ffmpeg could not build the suspect clip"
@@ -93,7 +96,7 @@ fi
 if [ -s "$WORK/unrelated.mp4" ]; then
   mu="$(OC_TIMEOUT=420 oc "$CASE" image match "$WORK/unrelated.mp4" --index "$IDX" --max-frames 30 --json)"
   save_json "85_match_unrelated" "$mu" >/dev/null
-  uc="$(echo "$mu" | jq -r '.payload.count // 0')"
+  uc="$(echo "$mu" | jq -s -r '[.[]|select(.verb=="image")][0].payload.count // 0')"
   if [ "${uc:-0}" -eq 0 ]; then rejected_ok=1; ok "$C.rejected" "unrelated clip ($unrelated_src) correctly rejected: 0 gated matches"; else fail "$C.rejected" "unrelated clip false-matched $uc time(s) — gate leak"; fi
 else
   skip "$C.rejected" "could not build an unrelated clip"

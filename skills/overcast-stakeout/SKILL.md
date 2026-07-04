@@ -2,8 +2,8 @@
 name: overcast-stakeout
 description: >-
   Run a standing surveillance watch on public sources for a target — auto-sense
-  new media, auto-flag matches for review, and keep a live control-room wall — so
-  new evidence surfaces itself over time.
+  new media, auto-suggest matches into a triage queue, and keep a live control-room
+  wall — so new evidence surfaces itself over time.
 ---
 
 # overcast-stakeout
@@ -15,14 +15,17 @@ continuous loop when the user asks for ongoing monitoring.
 
 ## Workflow
 
-1. Set the standing scope. A **text** target (a name, handle, plate, phrase)
-   drives auto-findings — new media whose `watch`/`listen` text mentions it is
-   flagged for review; pair it with `--auto-sense watch` and `--findings review`:
+1. Set the standing scope. As new media arrives, matches auto-**suggest** leads —
+   score/text triggers (a `face` ≥75 match, an `image` RANSAC hit, `similar`
+   ≥85, `cluster` ≥70, or a **text** target the `watch`/`listen` text mentions)
+   emit `status:"suggested"` findings that queue for triage (out of ask/brief
+   until reviewed). `--findings suggest` is the default; pair it with
+   `--auto-sense watch`:
 
 ```bash
 overcast doctor --sources --json
 overcast case init --json
-overcast case setup --name stakeout --target "<name / plate / phrase>" --source "x:@handle,youtube:@channel" --auto-sense watch --findings review --yes --json
+overcast case setup --name stakeout --target "<name / plate / phrase>" --source "x:@handle,youtube:@channel" --auto-sense watch --findings suggest --yes --json
 ```
 
 2. Sanity pass — one diff cycle, scheduler-friendly, to confirm sources resolve
@@ -39,11 +42,13 @@ overcast monitor --once --pipe watch --json
 overcast monitor --every 15m --limit 5 --pipe watch --alert ./stakeout.jsonl --brief --json
 ```
 
-4. Work the review queue as findings accrue — accept real matches, dismiss noise
-   (dismissed findings drop out of memory and the brief but stay auditable):
+4. Work the triage queue as leads accrue — `finding list --state triage` shows the
+   suggested leads awaiting review; `accept` promotes a lead to evidence (it enters
+   ask/brief), `dismiss` blocks it (never re-suggested for that match, but still
+   auditable):
 
 ```bash
-overcast finding list --json
+overcast finding list --state triage --json
 overcast finding accept <finding-id> --json
 overcast finding dismiss <finding-id> --json
 ```

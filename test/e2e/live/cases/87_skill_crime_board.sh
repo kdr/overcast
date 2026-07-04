@@ -77,12 +77,15 @@ then
   if [ -n "$cid" ]; then
     add="$(OC_TIMEOUT=600 oc "$CASE" cluster add "$CLIP" --index "$cid" --fps 0.5 --max-frames 8 --json)"
     save_json "87_cluster" "$add" >/dev/null
+    # a match verb can co-emit a suggested `finding` record — select the evidence record.
+    add="$(echo "$add" | jq -s -c '[.[]|select(.verb=="cluster")][0]')"
     assert_eq "$C.cluster_state" "ready" "$(echo "$add" | jq -r '.state')" "cluster add linked $(echo "$add"|jq -r '.payload.count // 0') face(s)"
     [ "$(echo "$add" | jq -r '.state')" = "ready" ] && cluster_done=1
     # identify a probe → the record the connection note should cite (proves the link)
     if have_media "$LOCAL_FACE_IMAGE"; then
       idn="$(OC_TIMEOUT=300 oc "$CASE" cluster identify "$LOCAL_FACE_IMAGE" --index "$cid" --json)"
       save_json "87_identify" "$idn" >/dev/null
+      idn="$(echo "$idn" | jq -s -c '[.[]|select(.verb=="cluster")][0]')"
       [ "$(echo "$idn" | jq -r '.state')" = "ready" ] && IDENT_ID="$(echo "$idn" | jq -r '.id // empty')"
     fi
   fi
@@ -103,6 +106,7 @@ then
     assert_eq "$C.similar_add" "ready" "$(echo "$sa" | jq -r '.state')" "clip embedded into the CLIP DB"
     ss="$(OC_TIMEOUT=300 oc "$CASE" similar search "a person at a work site" --index "$sid" --json)"
     save_json "87_similar_search" "$ss" >/dev/null
+    ss="$(echo "$ss" | jq -s -c '[.[]|select(.verb=="similar")][0]')"   # a match can co-emit a suggested finding
     assert_eq "$C.similar_search" "ready" "$(echo "$ss" | jq -r '.state')" "text→image thematic search ran"
     [ "$(echo "$ss" | jq -r '.state')" = "ready" ] && similar_done=1
   fi

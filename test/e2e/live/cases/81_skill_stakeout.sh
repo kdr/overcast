@@ -17,13 +17,13 @@ have_media "$VIDEO_VISUAL" || { skip "$C" "no OC_VIDEO_VISUAL"; exit 0; }
 CASE=$(case_dir skill_stakeout)
 CLIP="$SMOKE_DIR/stakeout_feed.mp4"; clip_av 12 "$VIDEO_VISUAL" "$CLIP"
 
-# 1) skill step: stand up the standing scope (text target drives review findings)
-cond "stakeout skill: case setup pins a text target with --findings review + --auto-sense watch"
-setup="$(oc "$CASE" case setup --name stakeout --target "surveillance target" --findings review --auto-sense watch --yes --json)"
+# 1) skill step: stand up the standing scope (matches auto-suggest into a triage queue)
+cond "stakeout skill: case setup pins a text target with --findings suggest + --auto-sense watch"
+setup="$(oc "$CASE" case setup --name stakeout --target "surveillance target" --findings suggest --auto-sense watch --yes --json)"
 setup_state="$(echo "$setup" | jq -rs '[.[]|select((.payload.op // "")|test("startup_setup"))][0].state // "missing"')"
 assert_eq "$C.setup" "ready" "$setup_state" "stakeout case setup is ready"
 mode="$(jq -r '.findings.mode // empty' "$CASE/.overcast/setup.json" 2>/dev/null)"
-assert_eq "$C.findings_mode" "review" "$mode" "findings review mode persisted for auto-flagging"
+assert_eq "$C.findings_mode" "suggest" "$mode" "findings suggest mode persisted for auto-triage"
 
 # 2) skill step: a real feed joins the case (the thing the wall renders)
 cond "stakeout skill: a real feed is sensed into the case as watch evidence"
@@ -83,9 +83,16 @@ if require_cred "$C.monitor" APIFY_TOKEN "source-monitor tier needs Apify"; then
   fi
 fi
 
-# 6) skill step: periodic cited brief
+# 6) skill step: the triage queue surfaces leads awaiting review
+cond "stakeout skill: finding list --state triage exposes the analyst's triage queue"
+triage="$(oc "$CASE" finding list --state triage --json)"
+save_json "81_triage" "$triage" >/dev/null
+tstate="$(echo "$triage" | jq -s -r '[.[]|select(.verb=="finding")][0].state // "missing"')"
+if [ "$tstate" != "missing" ]; then ok "$C.triage" "triage queue query ran (state=$tstate)"; else fail "$C.triage" "finding list --state triage returned no finding record"; fi
+
+# 7) skill step: periodic cited brief
 cond "stakeout skill: a periodic brief reports the standing case"
-oc "$CASE" note "stakeout: standing watch on 'surveillance target'; wall live; findings in review." --tag tldr --json >/dev/null
+oc "$CASE" note "stakeout: standing watch on 'surveillance target'; wall live; leads in triage." --tag tldr --json >/dev/null
 BRIEF="$SMOKE_DIR/81_stakeout_brief.html"
 oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
 if [ -s "$BRIEF" ] && grep -qi "<html" "$BRIEF"; then
