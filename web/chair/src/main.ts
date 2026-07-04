@@ -174,20 +174,19 @@ async function boot(): Promise<void> {
     } catch (e) {
       if (token !== resyncToken) return; // superseded — let the newer run own the outcome
       const message = (e as Error).message;
-      if (!booted || message === "unauthorized") {
-        // pre-boot failure, or the token was rotated (/chair off) → re-pair.
-        // Drop the revoked token so a reload without a fresh #t= doesn't keep
-        // sending it (matches the fallback console's 401 handling).
-        if (message === "unauthorized") clearToken();
+      if (message === "unauthorized") {
+        // token rotated (/chair off) or a bad QR → drop it and re-pair. Matches
+        // the fallback console's 401 handling.
+        clearToken();
         gate(`connection failed: ${message} — re-scan the pairing QR from the desk (/chair qr).`);
         return;
       }
-      // transient (network blip, laptop asleep): keep the console and retry, but
-      // leave the stream CLOSED. Reopening it here with the old cursor while the
-      // transcript wasn't rebuilt would replay events on top of stale state and
-      // duplicate lines — the next successful resync reopens after a full reset.
+      // transient (network blip, desk still starting, laptop asleep) — pre- OR
+      // post-boot: keep the console and retry. A first-load blip must NOT send
+      // the operator to the re-pair gate. The stream stays CLOSED; the next
+      // successful resync reopens after a full reset (no replay on stale state).
       statusbar.set({ connected: false });
-      transcript.notice(`resync failed: ${message} — retrying…`, "warning");
+      transcript.notice(booted ? `resync failed: ${message} — retrying…` : `connecting to the desk… (${message})`, "warning");
       retryTimer = setTimeout(() => void resync(), RETRY_MS);
     }
   };

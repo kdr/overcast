@@ -19,9 +19,15 @@ export function connectStream(handlers: StreamHandlers, since?: number): () => v
   const params = new URLSearchParams({ token: pairToken() });
   if (since !== undefined) params.set("since", String(since));
   const source = new EventSource(`/events?${params}`);
-  source.onopen = () => handlers.onStatus(true);
-  source.onerror = () => handlers.onStatus(false);
+  let closed = false;
+  source.onopen = () => {
+    if (!closed) handlers.onStatus(true);
+  };
+  source.onerror = () => {
+    if (!closed) handlers.onStatus(false);
+  };
   source.onmessage = (msg) => {
+    if (closed) return;
     let evt: ChairWireEvent;
     try {
       evt = JSON.parse(msg.data) as ChairWireEvent;
@@ -34,5 +40,14 @@ export function connectStream(handlers: StreamHandlers, since?: number): () => v
     }
     handlers.onEvent(evt);
   };
-  return () => source.close();
+  // detach handlers AND guard with `closed` — a replaced EventSource can still
+  // deliver a queued onerror/onmessage after close(), which would otherwise
+  // flip the healthy new stream's status and schedule a spurious resync (r23)
+  return () => {
+    closed = true;
+    source.onopen = null;
+    source.onerror = null;
+    source.onmessage = null;
+    source.close();
+  };
 }
