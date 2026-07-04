@@ -316,7 +316,7 @@ export const providerVerb: VerbSpec = {
     { name: "profile", summary: "Profile name to write/read (default: active/default)", type: "string" },
     { name: "verb", summary: "provider setup: verb to configure", type: "string" },
     { name: "choice", summary: "provider setup: catalog choice id", type: "string" },
-    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip)", type: "string" },
+    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip|audio-fp|basic-clap)", type: "string" },
     { name: "yes", summary: "provider setup apply: confirm profile changes", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -503,6 +503,13 @@ export const doctorVerb: VerbSpec = {
       .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
     const localFace = await execCapture(localPy, ["-c", "import deepface, numpy; print('face-ok')"], { timeoutMs: 30_000 })
       .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    // audio deps: scipy is the fingerprint half (audio-fp); transformers+torch is
+    // the heavier CLAP half (basic-clap). Probe imports only — never load a model
+    // (from_pretrained would trigger a ~776MB download).
+    const localAudioFp = await execCapture(localPy, ["-c", "import scipy, numpy; print('audio-ok')"], { timeoutMs: 30_000 })
+      .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    const localClap = await execCapture(localPy, ["-c", "import transformers, torch; print('clap-ok')"], { timeoutMs: 60_000 })
+      .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
     checks.push({
       name: "uv",
       ok: uv.code === 0,
@@ -514,6 +521,14 @@ export const doctorVerb: VerbSpec = {
       detail: localVision.code === 0
         ? `image deps OK via ${localPy}${localFace.code === 0 ? "; face deps OK" : "; face deps missing (run scripts/visual-db-uv.sh --face)"}`
         : `image deps missing via ${localPy} — run \`scripts/visual-db-uv.sh\` and set OC_VISUAL_DB_PY if needed`,
+    });
+    checks.push({
+      name: "audio-db",
+      // gate on the lightweight scipy half; CLAP is optional and reported in detail.
+      ok: localAudioFp.code === 0,
+      detail: localAudioFp.code === 0
+        ? `fingerprint deps OK via ${localPy}${localClap.code === 0 ? "; clap deps OK" : "; clap deps missing (run scripts/visual-db-uv.sh --clap)"}`
+        : `fingerprint deps missing via ${localPy} — run \`scripts/visual-db-uv.sh --audio\` (scipy) and set OC_VISUAL_DB_PY if needed`,
     });
 
     // exiftool — optional system CLI backing the `exif` metadata/GPS sense.

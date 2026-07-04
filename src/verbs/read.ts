@@ -274,10 +274,11 @@ function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, 
       const row: BriefSynthesis["findings"][number] = { id: r.id, status: statusByFinding.get(r.id) ?? String(pay.status), text: String(pay.text) };
       if (pay.confidence != null) row.confidence = pay.confidence;
       // attach match-draw overlays: from the finding's own payload, and from the
-      // image/face match record it cites via source_record (the geometric proof).
+      // image/face/audio match record it cites via source_record (the geometric
+      // proof for image/face, the offset-alignment plot for audio).
       const overlays = new Set(collectVisualRefs(pay));
       const src = typeof pay.source_record === "string" ? byId.get(pay.source_record) : undefined;
-      if (src && (src.verb === "image" || src.verb === "face")) {
+      if (src && (src.verb === "image" || src.verb === "face" || src.verb === "audio")) {
         for (const ref of collectVisualRefs(src.payload)) overlays.add(ref);
       }
       if (overlays.size) row.overlays = [...overlays].slice(0, 3);

@@ -11,6 +11,7 @@ import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
 import { exifVerb, verifyVerb } from "../verbs/forensics.js";
 import { faceVerb } from "../verbs/face.js";
 import { imageVerb } from "../verbs/image.js";
+import { audioVerb } from "../verbs/audio.js";
 import { clusterVerb } from "../verbs/cluster.js";
 import { similarVerb } from "../verbs/similar.js";
 import { cropVerb } from "../verbs/crop.js";
@@ -93,6 +94,7 @@ export const VERBS: VerbSpec[] = [
   seeVerb,
   faceVerb,
   imageVerb,
+  audioVerb,
   clusterVerb,
   similarVerb,
   exifVerb,

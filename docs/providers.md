@@ -75,6 +75,8 @@ Catalog presets:
 | `owl-local` | `see:owl-local` |
 | `deepface-local` | `face:deepface-local` |
 | `basic-clip` | `similar:basic-clip` |
+| `audio-fp` | `audio:audio-fp` |
+| `basic-clap` | `similar:basic-clap` |
 
 Common environment:
 
@@ -86,6 +88,8 @@ Common environment:
 | `elevenlabs` | `ELEVENLABS_API_KEY` |
 | `owl-local` | optional `DETECT_MODEL` |
 | `deepface-local` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY` |
+| `audio-fp` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY` |
+| `basic-clap` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`, `OC_CLAP_MODEL` |
 
 After provider/profile setup, use `case setup` for per-investigation policy:
 
@@ -296,7 +300,10 @@ below). They use shipped Python providers under
 scripts/visual-db-uv.sh          # image matching: opencv-python + numpy
 scripts/visual-db-uv.sh --face   # face matching too: deepface + tf-keras
 scripts/visual-db-uv.sh --clip   # CLIP semantic search: open_clip + torch + pillow
-overcast doctor --json              # reports uv + visual-db readiness
+scripts/visual-db-uv.sh --audio  # audio fingerprinting: scipy (see Audio DBs below)
+scripts/visual-db-uv.sh --clap   # CLAP audio embeddings: transformers + torch
+scripts/visual-db-uv.sh --all    # everything (one shared torch for CLIP + CLAP)
+overcast doctor --json              # reports uv + visual-db + audio-db readiness
 
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
 overcast face ./clip.mp4 --profile local --fps 0.5 --max-frames 32 --json
@@ -385,8 +392,97 @@ The record (`similar.match`) emits ranked `payload.matches[]` (`ref`, `similarit
 `OC_CLIP_MODEL` (default `ViT-B-32`) and `OC_CLIP_PRETRAINED` (default `openai`);
 `OC_CLIP_DEVICE` defaults to `cpu`.
 
-These emit ordinary Overcast records (`image.match`, `face.analysis`, or
-`similar.match`) and write
+## Audio DBs (`audio-fp`, `basic-clap`)
+
+The audio counterparts of `image-ransac` and `basic-clip`, under
+`examples/providers/audio-db/` and the same uv-managed Python (install with
+`scripts/visual-db-uv.sh --audio` and/or `--clap`; the `audio-db` doctor check
+reports both halves). Both decode a file's first audio stream via the system
+ffmpeg (so a **video** member's audio track is used automatically) and follow the
+loose-record + `indexes.json` wire contract of the visual-DB scripts.
+
+`audio-fp` is a local **Shazam-style** exact-recording matcher (Wang 2003
+constellation hashing: STFT → spectral peak picking → anchor/target-zone pair
+hashing → offset-histogram voting; pure numpy/scipy, reimplemented from the paper
+and MIT references). `audio add` fingerprints + caches a recording (`fp/<sha1>.npz`
+under the index dir, keyed on `config_hash` + `mtime`, mirroring `basic-clip`'s
+cache discipline — reads never write). `audio match` fingerprints the query and
+votes it against each member (or, in `audio match <query> <reference>`, a single
+clip with no index). A match reports the aligned-vote count, the `offset_seconds`
+where the query lines up inside the recording, the `match_ratio`, and a `margin`
+over the next-best alignment; `--min-votes` (default 6) is the confidence floor and
+`--min-ratio` an optional aligned/total ratio floor. Robust to transcode, noise,
+and clipping; **not** to pitch/speed change (classic Wang).
+
+`--min-margin` is the exact-copy vs evasive-reupload discriminator. A true exact
+match aligns nearly all of its hashes into one offset bin, so its `margin` (best
+bin ÷ next-best bin) is enormous — real self-location and transcoded-reupload
+matches score **250–1600×**. A *slightly sped-up* copy (a common content-ID evasion)
+drifts out of alignment into a small scattered cluster: it can still clear the raw
+`--min-votes` floor but its margin collapses to **~1.2–1.7×** (ratio to a few percent,
+span to a fraction of the query). `--min-margin 2` (default 1 = off) rejects those
+partial alignments while passing every true match. (A `--speed-sweep` that instead
+re-fingerprints the query at ±2/±4 % to *match* sped copies is still planned;
+`--min-margin` is the complementary knob that *rejects* them.)
+
+A member whose audio is silent or purely tonal produces **0 constellation hashes**
+and can never match; `audio add` still succeeds but the record carries a
+`payload.warning` so a silent screen-recording isn't mistaken for a searchable member.
+
+`--draw` renders a dependency-free **SVG alignment visualization** per match (the
+Shazam analog of `image --draw`'s `cv2.drawMatches`): a scatter of every matching
+`(query-time, member-time)` hash pair — a true match is a tight bright band, a
+speed-drift/false match is a short scattered cluster — plus the offset-vote
+histogram (one sharp spike for a real match). The `.svg` lands in the case media
+store under `audio-matches/`, its path in `matches[].match_draw_path`, and the
+`brief`/`case status` HTML embeds it exactly like the image-match overlays.
+
+```bash
+overcast index create jingles --type audio-fp --local --json
+overcast audio add ./original.mp4 --to jingles --json        # fingerprint (video → audio track)
+overcast audio match ./suspect.mp4 --index jingles --json    # offset-aligned exact match
+overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --json  # reject sped-up re-uploads
+overcast audio match ./suspect.mp4 --index jingles --draw --json          # + SVG alignment plot
+overcast audio match ./a.mp3 ./b.mp3 --json                  # clip-to-clip, no index
+```
+
+`basic-clap` is a local **LAION CLAP** (transformers `ClapModel`) DB for **audio
+semantic similarity** — audio→audio (`match`) and text→audio (`search`), the audio
+analog of `basic-clip`. It reuses the `similar` verb grammar and the
+`basic-clip` cache layout (`emb/<sha1>.npy` + sidecar, 512-d L2-normed vectors,
+cosine×100). Audio is chunked into `--window`-second slices (default 10s), pooled
+to a track vector, or stored per-window as moments with `--granularity frame`.
+
+```bash
+overcast index create sounds --type basic-clap --local --json
+overcast similar add ./scene.wav --index sounds --json        # embed + cache (10s windows)
+overcast similar match ./query.wav --index sounds --json      # audio → audio (strong: 20–90)
+overcast similar search "crowd chanting" --index sounds --json # text → audio
+overcast similar search "a person speaking" --index sounds --min-similarity -100 --json  # see full ranking
+```
+
+Audio→audio scores are strong and well-separated (same-source clips rank 80–90,
+unrelated 20–30). **Text→audio is weaker and low-magnitude** — CLAP text queries
+often score near or *below* zero even for the right clip, and short generic phrases
+can be unreliable. Because `--min-similarity` defaults to `0`, a text search can
+come back empty even when a best candidate exists; the floor now accepts negatives
+(`-100…100`, cosine×100's true range), so pass e.g. `--min-similarity -100` to
+retrieve the full ranking. For finding a specific sound, audio→audio `match` is far
+more reliable than text `search`.
+
+The default model is `laion/larger_clap_general` (Apache-2.0, ~776 MB), overridable
+via `OC_CLAP_MODEL`; `OC_CLAP_DEVICE` defaults to `cpu`. **The first CLAP call
+downloads the weights** to the Hugging Face cache — pre-warm it (e.g.
+`python -c "from transformers import ClapModel; ClapModel.from_pretrained('laion/larger_clap_general')"`),
+then set `HF_HUB_OFFLINE=1` for fully offline runs; `overcast doctor` only probes
+imports and never triggers a download. **Shared-venv note:** `--clip` (open-clip-torch)
+and `--clap` (transformers) both ride torch. Installing both at once with
+`scripts/visual-db-uv.sh --all` lets uv resolve a single shared torch; upgrading one
+package independently later can bump torch under the other, so prefer `--all` when
+you want the full visual+audio stack.
+
+These emit ordinary Overcast records (`image.match`, `face.analysis`, `audio.match`,
+or `similar.match`) and write
 local artifacts under the case `.overcast/` store. Local-grep/qmd memory indexes
 should index the records and summaries only; do not ingest raw media, embeddings,
 sampled frames, face boxes, or match visualization images as text. Add `note`,
@@ -406,6 +502,7 @@ sample 8 frames.
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
 - [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
+- [`examples/providers/audio-db/{audio_match,clap_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp) and LAION CLAP audio embeddings (basic-clap) for audio DB indexes.
 - [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch) + web-search (Tavily/Brave) + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams source providers.
 - [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
 

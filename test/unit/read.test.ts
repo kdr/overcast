@@ -800,6 +800,37 @@ test("brief synthesis: TL;DR note, sources-checked rollup, and findings surface 
   }
 });
 
+test("brief embeds an audio-match alignment SVG overlay (like the image RANSAC overlay)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-brief-audio-svg-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    // an audio match record carrying an SVG alignment overlay; a finding cites it
+    const svgPath = join(dir, "match_draw_audio.svg");
+    writeFileSync(svgPath, '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>');
+    const audioRec = makeRecord({
+      verb: "audio",
+      payload: { op: "match", index: "local_audio_fp_x", count: 1, matches: [{ ref: "/m/orig.mp4", offset_seconds: 12.0, aligned_votes: 900, match_draw_path: svgPath }] },
+      media: { ref: "/m/suspect.mp4" },
+      state: "ready",
+    });
+    c.writeRecord(audioRec);
+    c.writeRecord(makeRecord({ verb: "finding", payload: { text: "audio copy CONFIRMED at 00:12", status: "open", confidence: "high", source_record: audioRec.id, source_verb: "audio", trigger: "human" }, state: "ready" }));
+    const html = join(dir, "brief.html");
+    const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: { export: html, theme: "csi" }, case: c, profile: defaultProfile() });
+    // the finding's overlay resolves from its cited audio-match record
+    const syn = (rec.payload as Record<string, unknown>).synthesis as Record<string, unknown>;
+    const synFindings = syn.findings as Array<Record<string, unknown>>;
+    assert.deepEqual(synFindings[0].overlays, [svgPath]);
+    // csi html inlines the SVG file as an image/svg+xml data URI
+    const out = readFileSync(html, "utf8");
+    assert.match(out, /data-csi-overlays="true"/);
+    assert.match(out, /<img[^>]*src="data:image\/svg\+xml;base64,/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief synthesis: a clean sweep says so explicitly (checked, found none)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-brief-clean-"));
   try {
