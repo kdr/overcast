@@ -75,10 +75,15 @@ do_separate() {
       src="$OUTDIR/separate/${base}_audio.wav"
       "$FFMPEG" -y -i "$input" -vn -ac 1 -ar 48000 -acodec pcm_s16le "$src" >/dev/null 2>&1 || { emit_err "ffmpeg could not extract audio from $input"; return; }
       amime="audio/wav" ;;
-    wav)  src="$input"; amime="audio/wav" ;;
-    mp3)  src="$input"; amime="audio/mpeg" ;;
-    flac) src="$input"; amime="audio/flac" ;;
-    *)    src="$input"; amime="audio/$ext" ;;
+    wav)     src="$input"; amime="audio/wav" ;;
+    mp3)     src="$input"; amime="audio/mpeg" ;;
+    m4a|aac) src="$input"; amime="audio/mp4" ;;
+    flac)    src="$input"; amime="audio/flac" ;;
+    ogg|oga) src="$input"; amime="audio/ogg" ;;
+    # reject clearly-wrong modalities up front (e.g. an image) rather than
+    # uploading as audio/<ext> and failing opaquely inside sam-audio — matches
+    # how do_segment / the local provider reject the wrong modality client-side.
+    *) emit_err "separate is audio/video only (got .$ext); segment images with --ops segment"; return ;;
   esac
   local aurl resp turl rurl tout rout
   aurl="$(fal_upload "$src" "$amime")" || { emit_err "fal: audio upload to storage failed"; return; }
