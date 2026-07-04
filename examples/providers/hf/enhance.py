@@ -117,10 +117,12 @@ def main(argv):
             inp = val(i); i += 2
         elif a == "--prompt":
             prompt = val(i); i += 2
+        elif a in ("--ops", "--speakers"):
+            i += 2  # forwarded by enhance; this provider ignores them (consume the value)
         elif not a.startswith("-"):
             inp = a; i += 1
         else:
-            i += 1
+            i += 1  # valueless flags like --masks-only
     run(inp, prompt)
 
 

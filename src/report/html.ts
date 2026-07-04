@@ -24,8 +24,14 @@ export interface TimelineRecord {
 export interface TimelineSynthesis {
   tldr?: string;
   verdict: string;
+  /** the honest goal-progress line (pulse headline), shown under the verdict */
+  headline?: string;
   sources: Array<{ source: string; hits: number }>;
   findings: Array<{ id: string; status: string; text: string; confidence?: unknown; overlays?: string[] }>;
+  /** lines of investigation — per-target thread cards */
+  threads?: Array<{ value: string; stage: string; spark?: string; funnel: string; question?: string; note?: string }>;
+  /** suggested leads awaiting triage */
+  triage?: Array<{ id: string; text: string; confidence?: unknown }>;
 }
 
 const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
@@ -150,9 +156,10 @@ export function renderCsiTimelineReport(report: TimelineReport): string {
  *  rather than omitting the panel — "we checked and found nothing" is a result. */
 function renderSynthesis(syn: TimelineSynthesis | undefined): string {
   if (!syn) return "";
+  const tldrNext = [syn.tldr ? syn.verdict : "", syn.headline ?? ""].filter(Boolean);
   const tldr = renderTldr({
     headline: syn.tldr ?? syn.verdict,
-    findings: syn.tldr ? [syn.verdict] : [],
+    findings: tldrNext,
   });
   const sources = syn.sources.length
     ? `<ul>${syn.sources.map((s) => `<li><strong>${escapeHtml(s.source)}</strong> — ${s.hits} hit${s.hits === 1 ? "" : "s"}</li>`).join("")}</ul>`
@@ -164,29 +171,129 @@ function renderSynthesis(syn: TimelineSynthesis | undefined): string {
       }).join("")}</ul>`
     : `<p class="meta">none recorded</p>`;
   return `${tldr}
+    ${renderThreadCards(syn.threads)}
+    ${renderTriagePanel(syn.triage)}
     <section class="grid" data-csi-synthesis="true" style="margin:0 0 18px">
       <section class="panel"><h2>Sources checked</h2>${sources}</section>
       <section class="panel"><h2>Matches &amp; findings</h2>${findings}</section>
     </section>`;
 }
 
+/** Lines of investigation — a card grid of target threads with stage chip,
+ *  activity sparkline, evidence funnel, and next/why. Dead-end cards dim. */
+function renderThreadCards(threads: TimelineSynthesis["threads"]): string {
+  if (!threads || !threads.length) return "";
+  const toneFor = (stage: string) => (stage === "DEAD-END" ? "bad" : stage === "ANSWERED" ? "cyan" : stage === "CORROBORATED" || stage === "LEADS" ? "amber" : "");
+  const cards = threads.map((t) => {
+    const dim = t.stage === "DEAD-END" ? ' style="opacity:.55"' : "";
+    const chip = `<span class="chip ${toneFor(t.stage)}">${escapeHtml(t.stage)}</span>`;
+    return `<article class="context-card"${dim}>
+      <span class="label">TARGET</span>
+      <p><strong>${escapeHtml(t.value)}</strong> ${chip}${t.spark ? ` <span class="cyan">${escapeHtml(t.spark)}</span>` : ""}</p>
+      ${t.question ? `<p class="meta">? ${escapeHtml(t.question)}</p>` : ""}
+      <p class="meta">${escapeHtml(t.funnel)}</p>
+      ${t.note ? `<p class="meta">${escapeHtml(t.note)}</p>` : ""}
+    </article>`;
+  }).join("");
+  return `<section style="margin:0 0 18px"><h2 style="margin:0 0 8px">Lines of investigation</h2><section class="context">${cards}</section></section>`;
+}
+
+/** `total` is the true backlog count (may exceed the rows passed, which are
+ *  capped for the payload); the heading and overflow line use it so the header
+ *  never claims more than it lists without an "…and N more" hint. */
+function renderTriagePanel(triage: TimelineSynthesis["triage"], total?: number): string {
+  if (!triage || !triage.length) return "";
+  const count = total ?? triage.length;
+  const shown = triage.slice(0, 5);
+  const rows = shown.map((t) =>
+    `<li><span class="id">${escapeHtml(t.id)}</span>${t.confidence != null ? ` <span class="amber">[${escapeHtml(String(t.confidence))}]</span>` : ""} ${escapeHtml(t.text)}<div class="meta">accept: overcast finding accept ${escapeHtml(t.id)}</div></li>`,
+  ).join("");
+  const more = count > shown.length
+    ? `<li class="meta">…and ${count - shown.length} more (overcast finding list --state suggested)</li>`
+    : "";
+  return `<section class="panel" style="margin:0 0 18px"><h2>Triage — ${count} awaiting review</h2><ul class="findings">${rows}${more}</ul></section>`;
+}
+
 export function renderCsiStatusReport(report: StatusReport): string {
   const payload = report.payload;
   const chips = statusChips(payload);
-  const tldr = renderTldr(payload.tldr);
+  const mission = payload.mission as { headline?: string; progress?: Record<string, number> } | undefined;
+  const nextActions = Array.isArray(payload.next_actions) ? (payload.next_actions as string[]) : [];
+  // mission headline banner (falls back to the legacy tldr for older payloads)
+  const tldr = mission?.headline
+    ? renderTldr({ headline: mission.headline, next: nextActions })
+    : renderTldr(payload.tldr);
+  const missionThreads = statusThreads(payload);
+  const threads = renderThreadCards(missionThreads);
+  // the true backlog count (mission.progress.triage_pending) may exceed the
+  // capped rows in payload.triage — pass it so the heading doesn't undercount.
+  const triagePending = typeof mission?.progress?.triage_pending === "number" ? mission.progress.triage_pending : undefined;
+  const triage = renderTriagePanel(statusTriageRows(payload), triagePending);
+  const coverage = renderCoveragePanel(payload);
   const context = renderContextSections(payload);
-  const promoted = new Set(["tldr", "targets", "sources", "match_visualizations"]);
-  const panels = Object.entries(payload).filter(([key]) => !promoted.has(key)).map(([key, value]) => renderStatusPanel(key, value)).join("\n");
+  // demote operational detail (store/setup/memory/registries) into a collapsed
+  // panel grid below the mission board.
+  const demoted = new Set(["tldr", "mission", "threads", "coverage", "triage", "gaps", "freshness", "next_actions", "progress", "targets", "sources", "match_visualizations"]);
+  const panels = Object.entries(payload).filter(([key]) => !demoted.has(key)).map(([key, value]) => renderStatusPanel(key, value)).join("\n");
   return csiShell(report.title, report.subtitle, `
     ${tldr}
-    ${context}
     <section class="stats" aria-label="case status stats">
       ${chips}
     </section>
-    <main class="grid" data-csi-status="true">
+    ${threads}
+    <section class="grid" style="margin:0 0 18px">${triage}${coverage}</section>
+    ${context}
+    <details data-csi-status="true"><summary>store &amp; setup detail</summary><div class="grid">
       ${panels}
-    </main>
+    </div></details>
   `);
+}
+
+/** Map status payload threads → the thread-card view model. */
+function statusThreads(payload: Record<string, unknown>): TimelineSynthesis["threads"] {
+  const threads = Array.isArray(payload.threads) ? (payload.threads as Array<Record<string, unknown>>) : [];
+  const label: Record<string, string> = { answered: "ANSWERED", "dead-end": "DEAD-END", corroborated: "CORROBORATED", leads: "LEADS", collecting: "COLLECTING", cold: "COLD" };
+  return threads.map((th) => {
+    const f = th.funnel as { scan: number; captures: number; senses: number; matches: number } | undefined;
+    const fnd = th.findings as { accepted: number; open: number; suggested: number } | undefined;
+    const funnel = f ? `scan ${f.scan} → cap ${f.captures} → sense ${f.senses} → match ${f.matches}${fnd ? ` · findings ${fnd.accepted}/${fnd.open}/${fnd.suggested}` : ""}` : "";
+    return {
+      value: String(th.value ?? ""),
+      stage: label[String(th.stage)] ?? String(th.stage ?? "").toUpperCase(),
+      spark: sparklineFrom(Array.isArray(th.activityBins) ? (th.activityBins as number[]) : []),
+      funnel,
+      question: typeof th.question === "string" ? th.question : undefined,
+      // analyst line narrative (thread note), else the closed reason
+      note: typeof th.narrative === "string" ? th.narrative
+        : th.status !== "active" && typeof th.why === "string" ? th.why : undefined,
+    };
+  });
+}
+
+function statusTriageRows(payload: Record<string, unknown>): TimelineSynthesis["triage"] {
+  const triage = Array.isArray(payload.triage) ? (payload.triage as Array<Record<string, unknown>>) : [];
+  if (!triage.length) return undefined;
+  return triage.map((t) => ({ id: String(t.id ?? ""), text: String(t.text ?? ""), confidence: t.confidence }));
+}
+
+function renderCoveragePanel(payload: Record<string, unknown>): string {
+  const coverage = Array.isArray(payload.coverage) ? (payload.coverage as Array<Record<string, unknown>>) : [];
+  const gaps = Array.isArray(payload.gaps) ? (payload.gaps as string[]) : [];
+  if (!coverage.length && !gaps.length) return "";
+  const rows = coverage.length
+    ? `<ul>${coverage.map((c) => `<li><strong>${escapeHtml(String(c.spec))}</strong>${c.enabled ? "" : " <span class=\"meta\">(disabled)</span>"} — ${escapeHtml(String(c.hits))} → ${escapeHtml(String(c.captured))} → ${escapeHtml(String(c.sensed))}${c.gap ? ` <span class="bad">gap</span>` : ""}</li>`).join("")}</ul>`
+    : `<p class="meta">no sources configured</p>`;
+  const gapList = gaps.length ? `<p class="meta">Gaps:</p><ul class="findings">${gaps.slice(0, 5).map((g) => `<li class="amber">${escapeHtml(g)}</li>`).join("")}</ul>` : "";
+  return `<section class="panel"><h2>Coverage</h2>${rows}${gapList}</section>`;
+}
+
+/** Local sparkline (avoids a components import cycle in html.ts). */
+function sparklineFrom(bins: number[]): string | undefined {
+  if (!bins.length) return undefined;
+  const blocks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+  const max = Math.max(...bins);
+  if (max <= 0) return blocks[0].repeat(bins.length);
+  return bins.map((v) => blocks[Math.min(blocks.length - 1, Math.round((v / max) * (blocks.length - 1)))]).join("");
 }
 
 export interface ClusterGalleryPerson {
@@ -254,6 +361,93 @@ function renderPersonCard(cl: ClusterGalleryPerson): string {
     <div style="display:flex;flex-wrap:wrap;gap:2px;margin:8px 0">${thumbs || `<span class="meta">no crops</span>`}</div>
     ${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}
   </article>`;
+}
+
+/** One fanned-out enhance artifact for the split-op gallery — a separated track
+ *  (audio + optional spectrogram) or a segmented instance (cutout/mask image). */
+export interface EnhanceGalleryItem {
+  kind: string; // track | cutout | mask
+  ref: string;
+  label?: string;
+  score?: number;
+  speechSeconds?: number;
+  segments?: number;
+  spectrogram?: string; // local png path (tracks); generated by the caller
+  transcript?: string;
+}
+export interface EnhanceGalleryReport {
+  op: string; // "separate" | "segment"
+  title: string;
+  subtitle?: string;
+  sourceRef?: string; // the original media (separate: playable "mixed" track)
+  overlaps?: Array<{ at: [number, number]; speakers: string[] }>;
+  model?: string;
+  items: EnhanceGalleryItem[];
+}
+
+/** file:// URL for a local media file (audio/spectrogram), or undefined if gone.
+ *  Audio isn't inlined as a data URI (tracks are large); the gallery is opened
+ *  locally so a file:// ref plays fine. */
+function localMediaUrl(ref: string): string | undefined {
+  return existsSync(ref) ? pathToFileURL(ref).href : undefined;
+}
+
+/** Render a self-contained HTML gallery for an `enhance` split-op parent: per-track
+ *  audio players + spectrograms for `separate`, or per-instance cutouts/masks for
+ *  `segment`. Reuses the csi shell so it matches `cluster view` / `brief --csi`. */
+export function renderEnhanceGallery(r: EnhanceGalleryReport): string {
+  const isSep = r.op === "separate";
+  const stats = `<section class="stats" aria-label="enhance split-op stats">
+    <div><span class="label">OP</span><strong>${escapeHtml(r.op)}</strong></div>
+    <div><span class="label">${isSep ? "TRACKS" : "INSTANCES"}</span><strong>${r.items.length}</strong></div>
+    <div><span class="label">MODEL</span><strong>${escapeHtml(r.model ?? "—")}</strong></div>
+    ${isSep && r.overlaps?.length ? `<div><span class="label">CROSS-TALK</span><strong>${r.overlaps.length}</strong></div>` : ""}
+  </section>`;
+
+  const origUrl = isSep && r.sourceRef ? localMediaUrl(r.sourceRef) : undefined;
+  // the original may be a VIDEO (separate ran on a clip); browsers won't play a
+  // video's audio inside an <audio> element, so use <video> for it (you still
+  // hear the mix, and can see who's speaking). Per-speaker tracks are always WAV.
+  const origIsVideo = !!r.sourceRef && /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(r.sourceRef);
+  const origMedia = origUrl
+    ? origIsVideo
+      ? `<video class="embed" controls preload="none" src="${escapeHtml(origUrl)}"></video>`
+      : `<audio controls preload="none" src="${escapeHtml(origUrl)}" style="width:100%"></audio>`
+    : "";
+  const origCard = origUrl
+    ? `<article class="card"><div class="card-head"><span class="verb">ORIGINAL</span><span class="media">mixed</span></div>${origMedia}</article>`
+    : "";
+
+  const cards = r.items.map((it) => {
+    const name = escapeHtml((it.label || it.kind).toUpperCase());
+    const bits = [
+      it.score != null ? `<span class="state">${it.score.toFixed(2)}</span>` : "",
+      it.speechSeconds != null ? `<span class="media">${it.speechSeconds}s speech${it.segments != null ? ` · ${it.segments} seg` : ""}</span>` : "",
+    ].join("");
+    const head = `<div class="card-head"><span class="verb">${name}</span>${bits}</div>`;
+    if (isSep) {
+      const a = localMediaUrl(it.ref);
+      const player = a ? `<audio controls preload="none" src="${escapeHtml(a)}" style="width:100%"></audio>` : `<p class="meta">track file missing</p>`;
+      const spec = it.spectrogram ? (imageSrc(it.spectrogram) ?? (localMediaUrl(it.spectrogram))) : undefined;
+      const specImg = spec ? `<img class="embed" alt="spectrogram for ${name}" src="${escapeHtml(spec)}">` : "";
+      const tx = it.transcript ? `<p class="summary">${escapeHtml(it.transcript)}</p>` : "";
+      return `<article class="card">${head}${player}${specImg}${tx}</article>`;
+    }
+    const src = imageSrc(it.ref);
+    const img = src ? `<img class="embed" alt="${name}" src="${src}">` : `<p class="meta">image missing: ${escapeHtml(it.ref.split("/").pop() ?? it.ref)}</p>`;
+    return `<article class="card">${head}${img}</article>`;
+  }).join("");
+
+  const overlaps = isSep && r.overlaps?.length
+    ? `<section class="panel"><h2>Cross-talk regions</h2><div class="chips">${r.overlaps
+        .map((o) => `<span class="chip amber">${o.at[0]}–${o.at[1]}s · ${escapeHtml((o.speakers ?? []).join(" / "))}</span>`)
+        .join("")}</div></section>`
+    : "";
+
+  const empty = r.items.length === 0
+    ? `<section class="panel"><p class="meta">No ${isSep ? "tracks" : "instances"} to show.</p></section>` : "";
+
+  return csiShell(r.title, r.subtitle, `${stats}${overlaps}${empty}<section class="grid">${origCard}${cards}</section>`);
 }
 
 function csiShell(title: string, subtitle: string | undefined, body: string): string {

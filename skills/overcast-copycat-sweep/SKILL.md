@@ -56,6 +56,13 @@ Pass `--draw` on `image match` so each matched frame writes a RANSAC overlay
 `--ref` in step 5 — the brief embeds that overlay in the finding card as
 visual proof.
 
+Each `image match` / `face --match` / `listen`-on-a-match already
+**auto-suggests** a finding (image RANSAC ≥1 inlier, face ≥75%): run
+`overcast finding list --state triage --json` to see the leads, then
+`finding accept <id>` (usually enough — the lead is already there) or
+`finding dismiss <id>`. Step 5's manual `finding create --ref <match-record>`
+stays valid for a richer because-clause (dedup suppresses the duplicate).
+
 **Local mode (no external source).** The skill works entirely on local files:
 skip steps 2–3 and run `image match` / `face --match` / `listen` directly on
 candidate videos already on disk (or captured earlier). This is how you compare a
@@ -74,8 +81,9 @@ media/indexes when no source is enabled.
 ```bash
 overcast finding create "copycat: <original> re-uploaded by @<author> (<views> views) — image frames 3x (best 94 inliers), face 87/100" --ref <image-match-record-id> --confidence high --json
 overcast note "checked x + youtube (<n> hits); <m> candidates escalated; <k> confirmed: @<author> ..." --tag tldr --json
+overcast target close <target-id> --as answered --note "copycats found + reported" --json  # once a line resolves
 # Wait for the note result before exporting, so the TL;DR is included.
-overcast brief --export ./copycats.html --json
+overcast brief --export ./copycats.html --json   # short by default (verdict-led); add --full for the frame-by-frame dump
 overcast monitor --every 1d --json
 ```
 

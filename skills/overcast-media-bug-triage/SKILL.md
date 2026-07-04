@@ -22,7 +22,7 @@ overcast listen ./screen-recording.mp4 --describe --json
 overcast see frame://<record-id>@<seconds> --ocr --json
 overcast note "observed UI state or suspected failure" --ref <record-id> --at <time-range> --json
 overcast ask "summarize the bug with reproduction steps and citations" --json
-overcast brief --export ./bug-brief.md --json
+overcast brief --full --export ./bug-brief.md --json   # --full: this flow wants the verbatim evidence timeline (the default brief is short)
 ```
 
 Use `watch` for screen recordings and demos. Add `listen --describe` when

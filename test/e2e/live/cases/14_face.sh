@@ -28,6 +28,7 @@ assert_eq "$C.provider" "tinycloud" "$(echo "$out" | jq -r '.meta.provider')" "m
 if have_media "$IMAGE_FILE"; then
   cond "face --match <image> <video> finds the person and emits ranked matches (0-1 similarity)"
   mout="$(OC_TIMEOUT=300 oc "$CASE" face "$CLIP" --match "$IMAGE_FILE" --max-faces 5 --json)"; mrc=$?
+  mout="$(echo "$mout" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
   assert_eq "$C.match_exit" "0" "$mrc" "face --match exits 0"
   assert_eq "$C.match_op" "match" "$(echo "$mout" | jq -r '.payload.op')" "op is match"
   assert_eq "$C.match_state" "ready" "$(echo "$mout" | jq -r '.state')" "state is ready"

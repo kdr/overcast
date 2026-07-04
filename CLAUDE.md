@@ -28,13 +28,17 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
   opt-in `see:tinycloud` provider — need ≥ 0.3.7).
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
-- uv-managed visual/audio DB Python — optional for visual/audio DBs and
-  `face:deepface-local`: `scripts/visual-db-uv.sh --face` installs OpenCV/Numpy and
-  DeepFace/TensorFlow; `--clip` adds OpenAI CLIP (open_clip + torch + pillow) for
-  the `basic-clip` semantic DB; `--audio` adds scipy for the `audio-fp` Shazam-style
-  fingerprint DB; `--clap` adds LAION CLAP (transformers + torch) for the
-  `basic-clap` audio-embedding DB; `--all` installs everything. Override with
-  `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`.
+- uv-managed visual/audio DB Python — optional for visual/audio DBs,
+  `face:deepface-local`, and the `enhance:local-models` split ops:
+  `scripts/visual-db-uv.sh --face` installs OpenCV/Numpy and DeepFace/TensorFlow;
+  `--clip` adds OpenAI CLIP (open_clip + torch + pillow) for the `basic-clip`
+  semantic DB; `--audio` adds scipy for the `audio-fp` Shazam-style fingerprint DB;
+  `--clap` adds LAION CLAP (transformers + torch) for the `basic-clap`
+  audio-embedding DB; `--voice` adds pyannote.audio (`enhance --ops separate`),
+  `--segment` adds transformers + SAM2/GroundingDINO (`enhance --ops segment`),
+  `--enhance` adds both enhance stacks, `--all` installs everything. Override with
+  `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`. Voice separation additionally needs
+  `HF_TOKEN` + accepted pyannote license.
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
 
 ## Invariants (do not violate)
@@ -118,9 +122,13 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   search — `add`/`match`/`search` image→image, text→image against `basic-clip`
   indexes, or audio→audio, text→audio against `basic-clap` indexes; videos
   frame-sampled + pooled, audio windowed into 10s moments), `enhance` (system
-  ffmpeg ops or a bound model).
+  ffmpeg ops, a bound restore model, or the split ops `--ops separate` = per-speaker
+  tracks + optional `--summarize`, and `--ops segment --prompt` = text-prompted
+  masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
-  `--no-open`), `crop` (materialize `face`/`see` detection boxes into cropped
+  `--no-open`; on an `enhance` split-op parent it renders a GALLERY of the fanned-out
+  children — per-track audio + spectrograms for `separate`, cutouts for `segment`,
+  via `renderEnhanceGallery` in `src/report/html.ts`), `crop` (materialize `face`/`see` detection boxes into cropped
   image evidence records via ffmpeg — `--all/--id/--class/--kind`, `--pad`,
   `--square`), `wall` (control-room monitor wall: case videos muted + looping at
   their evidence moments — open finding > face hit > record anchor — with
@@ -142,14 +150,27 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `x:@handle`,
   `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`;
   `lens:<image url|path>` (Google Lens reverse image search via Apify).
-- **State** — `target` / `source` manage standing scope; `note` records human
-  observations (anchored via `--ref`/`--at`/`--tag`/`--confidence`); `finding`
-  (create/list/accept/dismiss) holds manual + setup-automated findings;
-  `prebrief` stands up name+target+source in one shot.
+- **State** — `target` / `source` manage standing scope; a target is a *line of
+  investigation* (`add --question`, `close <id> --as answered|dead-end --note`,
+  `reopen`; closed lines stop seeding scans). `note` records human observations
+  (anchored via `--ref`/`--at`/`--tag`/`--confidence`; the `thread:<tgt_id>` tag
+  narrates a line for the brief/status thread cards). `finding`
+  (create/list/accept/dismiss) holds manual + *suggested* findings: score/text
+  triggers (face ≥75, image RANSAC, similar ≥85, cluster ≥70, audio fingerprint, target-phrase
+  matches) emit `status:"suggested"` leads that stay OUT of ask/brief evidence
+  until reviewed — `finding list --state triage` queues them, `accept` promotes a
+  lead to evidence, `dismiss` rejects it (never re-fires). Mode is
+  `setup.findings` (`suggest` default | `review` legacy | `off`), thresholds via
+  `case setup --findings-threshold`. `prebrief` stands up name+target+source in
+  one shot.
 - **Read** — `ask` (cited retrieval over case memory; `--deep`/`--memory qmd` for
   semantic local search; `--index <id>` answers over a media-descriptions index,
-  `--probe` for moment search), `brief` (timeline/findings report, `--export`
-  md/html, `--theme plain|csi`).
+  `--probe` for moment search), `brief` — **short by default**: verdict + goal
+  status + key findings + lines of investigation (per-target threads with stage +
+  activity sparkline) + triage queue + coverage gaps + a compact record trail;
+  `--full` appends the verbatim record dump (audit), `--export` md/html,
+  `--theme plain|csi`. `/debrief` (prompt) drives the analyst loop: triage leads →
+  narrate each thread → close resolved lines → refresh `tldr` → export.
 - **Case** — `case init | setup | status | info | records | memory | clear`.
   `case status`/`records`/`brief` HTML `--export` takes `--theme plain|csi`
   (direct CLI defaults to `plain`; agent/TUI `.html` exports default to `csi`).
@@ -167,8 +188,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
 Slash commands (TUI): `/target /source /index /case /prebrief /view /wall /setup
-/provider /finding` (extension commands) and `/ask /brief` (prompt templates in
-`prompts/`), plus pi built-ins (`/model /tree /session /resume`).
+/provider /finding` (extension commands) and `/ask /brief /debrief` (prompt
+templates in `prompts/`), plus pi built-ins (`/model /tree /session /resume`).
 
 ## Case model & memory
 
@@ -183,7 +204,8 @@ Case memory is **evidence-only**. `ask` / `brief` read primary evidence
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
-prebrief wall`, finding review-rows, dismissed findings, cluster DB
+prebrief wall`, finding review-rows, dismissed **and suggested** findings (a
+suggested lead is quarantined until `finding accept` promotes it), cluster DB
 reads/maintenance `list/show/view/label/recluster`) are excluded even when they
 match the query. `face`/`see`/`image`/`audio`/`similar`/`cluster` detections index only
 compact summaries / counts / moments / matched refs / offsets — raw boxes, thumbnails,

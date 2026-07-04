@@ -11,6 +11,8 @@ import { pathToFileURL } from "node:url";
 import { findingStatusMap, isReady, type OvercastRecord } from "../record.js";
 import { isRegisterableMediaRecord } from "../verbs/media-ref.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
+import { sourceScanFreshness, latestTimed, triageCounts } from "../signals/pulse.js";
+import { fmtAge, fmtTime } from "./components.js";
 import { escapeHtml, summarizePayload, type HtmlTheme } from "./html.js";
 
 export interface WallAnchor {
@@ -56,6 +58,8 @@ export interface WallHud {
   records: number;
   counts: Record<string, number>;
   openFindings: number;
+  /** un-triaged suggested-finding leads awaiting accept/dismiss */
+  suggestedFindings: number;
   lastScans: Array<{ source: string; time: string; ageSeconds: number }>;
   lastScanAgeSeconds: number | null;
   monitor: { time: string; ageSeconds: number; newItems: number } | null;
@@ -384,27 +388,9 @@ function buildHud(records: OvercastRecord[], o: HudOptions): WallHud {
   const counts: Record<string, number> = {};
   for (const r of records) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
 
-  // last scan per source — not persisted anywhere; derived from scan records.
-  // Ready rows only (like monitor/brief freshness): a failed or cred-blocked
-  // sweep must not make a source look freshly scanned.
-  const scanTimes = new Map<string, number>();
-  for (const r of records) {
-    if (r.verb !== "scan" || !isReady(r)) continue;
-    const p = payloadOf(r);
-    if (p.op === "pull_progress") continue;
-    const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
-    if (Number.isNaN(t)) continue;
-    const source = typeof p.source === "string" && p.source ? p.source : "scan";
-    if (t > (scanTimes.get(source) ?? Number.NEGATIVE_INFINITY)) scanTimes.set(source, t);
-  }
-  const lastScans = [...scanTimes.entries()]
-    .map(([source, t]) => ({
-      source,
-      time: new Date(t).toISOString(),
-      ageSeconds: Math.max(0, (o.now - t) / 1000),
-    }))
-    .sort((a, b) => a.ageSeconds - b.ageSeconds);
-
+  // Freshness derivation is shared with case status via signals/pulse, so the
+  // HUD and the mission board can't drift.
+  const lastScans = sourceScanFreshness(records, o.now);
   const monitorLatest = latestTimed(records, "monitor");
   const briefLatest = latestTimed(records, "brief");
   const newItems = monitorLatest ? payloadOf(monitorLatest.rec).new_items : undefined;
@@ -418,6 +404,7 @@ function buildHud(records: OvercastRecord[], o: HudOptions): WallHud {
     records: records.length,
     counts,
     openFindings: o.openFindings,
+    suggestedFindings: triageCounts(records).suggested,
     lastScans,
     lastScanAgeSeconds: lastScans.length ? lastScans[0].ageSeconds : null,
     monitor: monitorLatest
@@ -431,17 +418,6 @@ function buildHud(records: OvercastRecord[], o: HudOptions): WallHud {
     refreshSeconds: o.refreshSeconds ?? null,
     infinite: o.infinite ?? false,
   };
-}
-
-function latestTimed(records: OvercastRecord[], verb: string): { rec: OvercastRecord; t: number } | undefined {
-  let best: { rec: OvercastRecord; t: number } | undefined;
-  for (const rec of records) {
-    if (rec.verb !== verb || !isReady(rec)) continue;
-    const t = rec.meta?.time ? Date.parse(String(rec.meta.time)) : NaN;
-    if (Number.isNaN(t)) continue;
-    if (!best || t > best.t) best = { rec, t };
-  }
-  return best;
 }
 
 function payloadOf(r: OvercastRecord): Record<string, unknown> {
@@ -529,6 +505,9 @@ function renderHud(hud: WallHud): string {
   chips.push(
     `<span class="chip${hud.openFindings ? " bad" : ""}">● ${hud.openFindings} OPEN FINDING${hud.openFindings === 1 ? "" : "S"}</span>`,
   );
+  if (hud.suggestedFindings) {
+    chips.push(`<span class="chip amber">TRIAGE ${hud.suggestedFindings}</span>`);
+  }
   for (const s of hud.lastScans.slice(0, 4)) {
     chips.push(`<span class="chip cyan">SCAN ${escapeHtml(s.source.toUpperCase())} ${fmtAge(s.ageSeconds)}</span>`);
   }
@@ -576,22 +555,6 @@ function renderTile(tile: WallTile, index: number): string {
     <code>overcast view ${escapeHtml(shellQuote(tile.ref))} --at ${tile.anchor.span ? `${tile.anchor.start}-${tile.anchor.end}` : Math.round(tile.anchor.at)}</code>
   </div>
 </figure>`;
-}
-
-function fmtTime(s: number): string {
-  const t = Math.max(0, Math.round(s));
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  const sec = String(t % 60).padStart(2, "0");
-  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
-}
-
-function fmtAge(sec: number | null): string {
-  if (sec == null || !Number.isFinite(sec)) return "—";
-  if (sec < 60) return `${Math.max(0, Math.round(sec))}s`;
-  if (sec < 3600) return `${Math.round(sec / 60)}m`;
-  if (sec < 86400) return `${Math.round(sec / 3600)}h`;
-  return `${Math.round(sec / 86400)}d`;
 }
 
 function shellQuote(s: string): string {

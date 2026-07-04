@@ -48,6 +48,7 @@ seg=$(( DUR > 70 ? 60 : DUR - mid - 1 )); [ "$seg" -lt 6 ] && seg=6
   -an -c:v libx264 -preset veryfast "$WORK/reskin.mp4" 2>/dev/null
 if [ ! -s "$WORK/reskin.mp4" ]; then fail "$C.reskin_build" "ffmpeg could not build the reskin clip"; exit 0; fi
 mr="$(OC_TIMEOUT=420 oc "$CASE" image match "$WORK/reskin.mp4" --index "$IDX" --max-frames 40 --draw --json)"
+mr="$(echo "$mr" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 save_json "27_match_reskin" "$mr" >/dev/null
 assert_eq "$C.reskin_state" "ready" "$(echo "$mr" | jq -r '.state')" "reskin match ran"
 rc="$(echo "$mr" | jq -r '.payload.count // 0')"
@@ -70,6 +71,7 @@ else
 fi
 if [ -s "$WORK/unrelated.mp4" ]; then
   mu="$(OC_TIMEOUT=420 oc "$CASE" image match "$WORK/unrelated.mp4" --index "$IDX" --max-frames 40 --json)"
+  mu="$(echo "$mu" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
   save_json "27_match_unrelated" "$mu" >/dev/null
   uc="$(echo "$mu" | jq -r '.payload.count // 0')"
   if [ "${uc:-0}" -eq 0 ]; then

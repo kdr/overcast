@@ -201,15 +201,27 @@ A **case is just a directory** with a `.overcast/` store — switch cases with
 
 Use the three report surfaces for different jobs:
 
-- `brief` answers "what does the evidence say?" It reports over the same
-  evidence-only boundary as case memory, so setup/read/meta records are excluded.
+- `brief` answers "what does the evidence say?" **Short by default**: it leads
+  with the verdict, key findings (with visual proof), the **lines of
+  investigation** (per-target threads with a stage + activity sparkline), the
+  triage queue of suggested leads, and coverage gaps — then a compact record
+  trail. `--full` appends the verbatim per-record timeline (the audit dump). It
+  reports over the same evidence-only boundary as case memory, so setup/read/meta
+  records — and un-accepted **suggested** findings — are excluded.
 - `case records` answers "what exactly happened?" It is the append-only audit log
   and includes operational records such as setup, target/source changes, index
   work, asks, briefs, and status checks.
-- `case status` answers "where is this case right now?" It summarizes setup
-  health, targets, sources, indexes, memory/index state, store counts, artifacts,
-  and match visualizations when available. It is a dashboard, not evidence for
-  later memory or briefs.
+- `case status` answers "where is this case right now?" It's a **mission board**:
+  a goal headline + per-target threads on a stage ladder
+  (cold → collecting → leads → corroborated → answered/dead-end), a per-source
+  coverage funnel, scan/monitor/brief freshness, and a **triage** queue of
+  suggested findings — with setup health, store counts, and match visualizations
+  below. It is a dashboard, not evidence for later memory or briefs.
+
+Run the **`/debrief`** prompt to drive the analyst loop over these surfaces:
+triage the suggested leads (`finding accept`/`dismiss`), write one
+`thread:<target-id>` note narrating each line of investigation, close resolved
+lines, refresh the `tldr` note, then export the brief.
 
 Direct CLI HTML exports default to the compatible `plain` theme unless
 `--theme csi` is set. Agent/TUI tool calls default `.html` exports to `csi` for
@@ -238,12 +250,12 @@ surface + env vars.)
 | `audio` | Shazam-style exact audio matching against a local `audio-fp` index (time-offset alignment), or clip-to-clip `audio match <query> <reference>`; `--min-margin` rejects sped re-uploads, `--draw` renders an SVG alignment plot for briefs |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
-| `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
+| `enhance` | denoise / normalize / upscale via bundled ffmpeg, a bound restore model, or the split ops — `--ops separate` (per-speaker tracks, `--summarize` to transcribe each) and `--ops segment --prompt` (text-prompted masks + cutouts), bound local or fal, one evidence record per artifact |
 
 **Inspect** — look at the evidence
 | verb | does |
 |---|---|
-| `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
+| `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram); on an `enhance` split-op parent, a gallery of the tracks (audio + spectrograms) or cutouts |
 | `crop` | materialize face/object detections as cropped image records with provenance |
 | `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
 
@@ -254,16 +266,17 @@ surface + env vars.)
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
 | `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `basic-clip`, `audio-fp`, and `basic-clap` DBs |
-| `target` / `source` / `note` | manage the standing scope, where to look, and human-authored observations |
-| `finding` | create and review findings (`create` / `list` / `accept` / `dismiss`) — manual + setup-automated |
+| `target` | a **line of investigation**: `add --question`, `list`, `close <id> --as answered\|dead-end --note`, `reopen` — closed lines stop seeding scans |
+| `source` / `note` | where to look, and human-authored observations |
+| `finding` | manual + **auto-suggested** findings (`create` / `list` / `accept` / `dismiss`). Score triggers (face / image / similar / cluster / audio match) + target text hits auto-emit `suggested` leads via a hook on every verb; `finding list --state triage` queues them, `accept` promotes a lead to evidence, `dismiss` blocks re-suggestion. Leads are quarantined from ask/brief until accepted |
 | `prebrief` | stand up a case (name + target + source) in one shot |
 
 **Read** — synthesize the case
 | verb | does |
 |---|---|
 | `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--deep` uses configured semantic memory such as qmd; `--index <id>` answers over a media-descriptions index (`--probe` for moment search) |
-| `brief` | timeline / findings report; `--export` to md/html |
-| `case` | inspect/manage the case: `init` / `setup` / `info` / `records` / `memory` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
+| `brief` | analyst report — **short by default** (verdict / key findings / lines of investigation / triage / coverage / compact trail), `--full` for the verbatim timeline; `--export` to md/html |
+| `case` | inspect/manage the case: `init` / `setup` / `status` (mission board) / `info` / `records` / `memory` / `clear` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
 
 **Config / SDK / dist** — `setup` (bind providers + brain LLM), `provider`
 (init/list/describe), `doctor` (preflight), `skills` (generate/install).
@@ -289,7 +302,7 @@ immediately; use `--no-index` to save the setup without starting remote ingest.
 ```bash
 overcast case setup plan --target "@pier9" --memory local-grep --source "web:pier 9" --index "media:media" --json
 overcast case setup --name "dock-incident" --target "@pier9" --memory local-grep --source "web:pier 9" --yes --json
-overcast case setup edit --provider "listen:elevenlabs,see:owl-local" --auto-sense "watch,listen" --auto-index-new --findings review --yes --json
+overcast case setup edit --provider "listen:elevenlabs,see:owl-local" --auto-sense "watch,listen" --auto-index-new --findings suggest --yes --json
 overcast case setup show --json
 overcast case setup edit --target "new subject" --source "youtube:@channel" --yes --json
 ```
@@ -349,13 +362,21 @@ overcast case setup edit \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
-  --findings review \
+  --findings suggest \
   --yes --json
 
 overcast monitor --once --json          # new media follows the setup automation policy
-overcast finding list --json            # review automated target matches
-overcast finding dismiss <finding-id> --json
+overcast finding list --state triage --json   # queue auto-suggested leads (open + suggested)
+overcast finding accept <finding-id> --json    # promote a lead into ask/brief evidence
+overcast finding dismiss <finding-id> --json   # reject a lead (never re-suggested)
 ```
+
+Findings default to `--findings suggest` (score/text triggers auto-emit
+`suggested` leads on every verb; tune the score floors with
+`case setup --findings-threshold face=75,similar=85,cluster=70,image_inliers=1`).
+`--findings review` is the legacy text-only mode; `--findings off` disables it.
+`finding list` alone shows only `open` findings — pass `--state triage` (or
+`--state suggested`) to see the auto-suggested leads.
 
 Use `overcast case setup edit --no-auto-index-new --yes --json` to turn off
 automatic indexing later without clearing the rest of the case automation
@@ -462,8 +483,9 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; install with `npm install -g @tobilu/qmd`, then rebuild before querying qmd)
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
-- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead.
-- `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`
+- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead. Also gates the **local** `enhance --ops separate` (pyannote diarization): its model is a **gated** HF repo — set `HF_TOKEN` **and** accept the license at <https://huggingface.co/pyannote/speaker-diarization-community-1> ("Agree and access repository") once before first use.
+- `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3), plus the split ops `enhance --ops separate` (sam-audio) / `--ops segment` (sam-3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`, `FAL_SEPARATE_MODEL`, `FAL_SEGMENT_MODEL`
+- `OC_VISUAL_DB_PY` — the **local-models** `enhance` toolbox: on-device `--ops separate` (pyannote, gated — see `HF_TOKEN`) and `--ops segment` (GroundingDINO + SAM 2.1, ungated); set up with `scripts/visual-db-uv.sh --enhance`
 - `ELEVENLABS_API_KEY` (or `XI_API_KEY`) — `listen` (Scribe STT) + `enhance` audio (voice isolation); `ELEVENLABS_STT_MODEL` (default `scribe_v1`)
 
 **OSINT sources**

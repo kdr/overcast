@@ -5,7 +5,13 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { makeRecord, memoryRecords, type OvercastRecord } from "../record.js";
-import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord } from "../report/html.js";
+import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord, type TimelineSynthesis } from "../report/html.js";
+import { sparkline, fmtAge } from "../report/components.js";
+import { casePulse, type CasePulse } from "../signals/pulse.js";
+import { THREAD_STAGE_LABEL, type TargetThread } from "../signals/threads.js";
+import { groupTimeline, groupSummary } from "../signals/rollup.js";
+import { listTargets } from "../state/target.js";
+import { listSources } from "../state/source.js";
 import { posterFrame } from "../media/ffmpeg.js";
 import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
@@ -302,10 +308,125 @@ function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, 
   return { tldr, verdict, sources: [...bySource].map(([source, hits]) => ({ source, hits })), captures, media_checks: mediaChecks, findings };
 }
 
-/** Build a markdown brief from the case records (timeline + by-kind sections). */
-function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
-  // capture reviewed finding statuses BEFORE memoryRecords drops the review rows
-  const statusByFinding = findingStatusMap(records);
+const CONFIDENCE_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+
+/** Key findings first: accepted before open, then by confidence, then recency
+ *  (findings arrive chronological, so a stable sort by rank keeps newest-wins
+ *  within a tier via the reversed index). Suggested/dismissed are already
+ *  excluded upstream by memoryRecords. */
+function rankFindings(findings: BriefSynthesis["findings"]): BriefSynthesis["findings"] {
+  return findings
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => {
+      const statusRank = (s: string) => (s === "accepted" ? 2 : s === "open" ? 1 : 0);
+      const byStatus = statusRank(b.f.status) - statusRank(a.f.status);
+      if (byStatus) return byStatus;
+      const byConf = (CONFIDENCE_RANK[String(b.f.confidence ?? "").toLowerCase()] ?? 0) - (CONFIDENCE_RANK[String(a.f.confidence ?? "").toLowerCase()] ?? 0);
+      if (byConf) return byConf;
+      return b.i - a.i; // newer first
+    })
+    .map((x) => x.f);
+}
+
+/** One markdown line summarizing a thread's evidence funnel. */
+function threadFunnelLine(th: TargetThread): string {
+  const f = th.funnel;
+  const parts = [`scan ${f.scan}`, `cap ${f.captures}`, `sense ${f.senses}`, `match ${f.matches}`];
+  const findings: string[] = [];
+  if (th.findings.accepted) findings.push(`${th.findings.accepted} accepted`);
+  if (th.findings.open) findings.push(`${th.findings.open} open`);
+  if (th.findings.suggested) findings.push(`${th.findings.suggested} suggested`);
+  const fnd = findings.length ? ` · findings: ${findings.join(", ")}` : "";
+  return `${parts.join(" → ")}${fnd}`;
+}
+
+/** The "Lines of investigation" section — one block per target thread. */
+function renderThreadSection(threads: TargetThread[]): string[] {
+  const lines: string[] = ["## Lines of investigation", ""];
+  if (!threads.length) {
+    lines.push("- none — add a target with `overcast target add <value> --question \"…\"`", "");
+    return lines;
+  }
+  for (const th of threads) {
+    const spark = sparkline(th.activityBins);
+    const head = `- **${th.value}** — [${THREAD_STAGE_LABEL[th.stage]}]${spark ? ` \`${spark}\`` : ""}`;
+    lines.push(head);
+    if (th.question) lines.push(`  - question: ${th.question}`);
+    lines.push(`  - ${threadFunnelLine(th)}`);
+    // the analyst's line narrative (a `thread:<id>` note from /debrief)
+    if (th.narrative) lines.push(`  - ${th.narrative}`);
+    if (th.status !== "active" && th.why) {
+      lines.push(`  - closed: ${th.why}`);
+    } else if (th.stage === "cold") {
+      lines.push("  - NEXT: no evidence yet — scan/capture toward this line");
+    } else if (th.findings.suggested) {
+      lines.push(`  - NEXT: triage ${th.findings.suggested} suggested finding${th.findings.suggested === 1 ? "" : "s"} (\`overcast finding list --state suggested\`)`);
+    }
+  }
+  lines.push("");
+  return lines;
+}
+
+/** The triage queue — suggested leads awaiting accept/dismiss. Rendered from
+ *  raw records (suggested findings are excluded from synthesis evidence). */
+function renderTriageSection(records: OvercastRecord[], statusByFinding: Map<string, string>): string[] {
+  const suggested = suggestedFindingRows(records, statusByFinding);
+  if (!suggested.length) return [];
+  const lines = [`## Triage — ${suggested.length} suggestion${suggested.length === 1 ? "" : "s"} awaiting review`, ""];
+  for (const r of suggested.slice(0, 5)) {
+    const conf = r.confidence != null ? ` [${r.confidence}]` : "";
+    lines.push(`- \`${r.id}\`${conf} ${r.text}`);
+    lines.push(`  - accept: \`overcast finding accept ${r.id}\` · dismiss: \`overcast finding dismiss ${r.id}\``);
+  }
+  if (suggested.length > 5) lines.push(`- …and ${suggested.length - 5} more (\`overcast finding list --state suggested\`)`);
+  lines.push("");
+  return lines;
+}
+
+function isRootFinding(r: OvercastRecord): boolean {
+  const pay = typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {};
+  return typeof pay.finding_id !== "string" && typeof pay.status === "string" && typeof pay.text === "string";
+}
+
+/** The coverage section — configured-source freshness funnel + what was actually
+ *  swept (scan-hit rollup) + gaps. Both views matter: configured tells you what
+ *  you meant to watch, swept tells you what you actually checked. */
+function renderCoverageSection(pulse: CasePulse, swept: BriefSynthesis["sources"]): string[] {
+  const lines: string[] = ["## Coverage", ""];
+  if (pulse.coverage.length) {
+    for (const c of pulse.coverage) {
+      const age = c.lastScanAgeSeconds != null ? ` · last scan ${fmtAge(c.lastScanAgeSeconds)}` : c.gap ? " · never scanned" : "";
+      lines.push(`- **${c.spec}**${c.enabled ? "" : " (disabled)"} — ${c.hits} hit${c.hits === 1 ? "" : "s"} → ${c.captured} captured → ${c.sensed} sensed${age}`);
+    }
+    lines.push("");
+  }
+  lines.push("**Sources checked:**");
+  if (swept.length) {
+    for (const src of swept) lines.push(`- **${src.source}** — ${src.hits} hit${src.hits === 1 ? "" : "s"}`);
+  } else {
+    lines.push("- none — no scan hits in scope");
+  }
+  if (pulse.gaps.length) {
+    lines.push("", "**Gaps:**");
+    for (const g of pulse.gaps.slice(0, 5)) lines.push(`- ${g}`);
+  }
+  lines.push("");
+  return lines;
+}
+
+/** Build a markdown brief from the case records. Short (default) leads with the
+ *  story — verdict, key findings, lines of investigation, triage, coverage — and
+ *  a compact appendix; `full` appends the verbatim record dump (audit artifact). */
+function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: CasePulse; full: boolean; caseRecords?: OvercastRecord[] }): BriefData {
+  // case-wide record set (unscoped): a --scope window must not hide pending
+  // triage leads NOR drop out-of-window accept/dismiss review rows (which would
+  // make an accepted finding read stale `[open]`). Falls back to `records` when
+  // not provided (direct callers pass the full set).
+  const caseRecords = opts.caseRecords ?? records;
+  // reviewed finding statuses come from the FULL case (review rows can land
+  // outside the scope window), captured BEFORE memoryRecords drops them.
+  const statusByFinding = findingStatusMap(caseRecords);
+  const triageRecords = caseRecords;
   // Exclude read/meta and operational outputs (ask/brief/case/setup/doctor/etc.)
   // so briefs and memory search stay evidence-focused instead of citing setup
   // probes, doctor checks, or prior read envelopes as findings.
@@ -330,42 +451,113 @@ function buildBrief(records: OvercastRecord[], caseName: string): BriefData {
   lines.push("## TL;DR", "");
   if (synthesis.tldr) lines.push(synthesis.tldr, "");
   lines.push(`_${synthesis.verdict}_`, "");
-  lines.push("## Sources checked", "");
-  if (synthesis.sources.length) {
-    for (const src of synthesis.sources) lines.push(`- **${src.source}** — ${src.hits} hit${src.hits === 1 ? "" : "s"}`);
-  } else {
-    lines.push("- none — no scan hits in scope");
-  }
-  lines.push("", "## Matches & findings", "");
+  lines.push(`**Status:** ${opts.pulse.headline}`, "");
+
+  // Key findings — ranked, capped, with visual proof. (Suggested leads live in
+  // the Triage section below; these are open + accepted evidence.)
+  lines.push("## Key findings", "");
   if (synthesis.findings.length) {
-    for (const f of synthesis.findings) {
+    for (const f of rankFindings(synthesis.findings).slice(0, 8)) {
       const conf = f.confidence != null ? ` (confidence: ${f.confidence})` : "";
       lines.push(`- \`${f.id}\` [${f.status}]${conf} ${f.text}`);
       for (const ref of f.overlays ?? []) lines.push(`  ![match overlay](${ref})`);
     }
+    if (synthesis.findings.length > 8) lines.push(`- …and ${synthesis.findings.length - 8} more`);
   } else {
     lines.push("- none recorded");
   }
-  lines.push("", "## Summary by kind", "");
-  for (const [verb, n] of Object.entries(counts).sort()) lines.push(`- \`${verb}\`: ${n}`);
-  lines.push("", "## Timeline / findings", "");
-  for (const r of sorted) {
-    const at = r.media?.at != null ? ` @${Array.isArray(r.media.at) ? r.media.at.join("-") : r.media.at}s` : "";
-    const ref = r.media?.ref ? ` (${r.media.ref})` : "";
-    lines.push(`### \`${r.verb}\` ${r.id}${at}${ref}`, "");
-    if (r.error) {
-      lines.push(`> error: ${r.error}`, "");
-      continue;
+  lines.push("");
+
+  lines.push(...renderThreadSection(opts.pulse.threads));
+  lines.push(...renderTriageSection(triageRecords, statusByFinding));
+  lines.push(...renderCoverageSection(opts.pulse, synthesis.sources));
+
+  // Appendix: the record trail. Short = a compact index with page-it pointers;
+  // full = each record's primary field embedded verbatim (the audit dump).
+  if (opts.full) {
+    lines.push("## Timeline / findings", "");
+    for (const r of sorted) {
+      const at = r.media?.at != null ? ` @${Array.isArray(r.media.at) ? r.media.at.join("-") : r.media.at}s` : "";
+      const ref = r.media?.ref ? ` (${r.media.ref})` : "";
+      lines.push(`### \`${r.verb}\` ${r.id}${at}${ref}`, "");
+      if (r.error) {
+        lines.push(`> error: ${r.error}`, "");
+        continue;
+      }
+      // Embedded record content is DATA, not markup — fence it so a line inside it
+      // that starts with #/##/###/- isn't reparsed as a heading or list item (both
+      // md viewers and our html exporter honor the fence). Use a fence longer than
+      // any backtick run in the body so the content can't close it early.
+      const body = briefBody(r);
+      const fence = fenceFor(body);
+      lines.push(fence, body, fence, "");
     }
-    // Embedded record content is DATA, not markup — fence it so a line inside it
-    // that starts with #/##/###/- isn't reparsed as a heading or list item (both
-    // md viewers and our html exporter honor the fence). Use a fence longer than
-    // any backtick run in the body so the content can't close it early.
-    const body = briefBody(r);
-    const fence = fenceFor(body);
-    lines.push(fence, body, fence, "");
+  } else {
+    lines.push("## Record trail", "");
+    lines.push(`_${sorted.length} evidence record${sorted.length === 1 ? "" : "s"} — read any in full with_ \`overcast case memory get <id>\` _· \`brief --full\` for the verbatim timeline_`, "");
+    // When a case fans out (many records per capture/sweep), group by media chain
+    // so the trail reads as "one artifact, N looks" instead of dozens of rows.
+    const byId = new Map(sorted.map((r) => [r.id, r]));
+    const groups = groupTimeline(sorted);
+    if (groups.length >= 12 && groups.length < sorted.length) {
+      for (const g of groups) {
+        const when = g.time ? g.time.replace("T", " ").replace(/\..*/, "") : "—";
+        lines.push(`- **${g.title}** · ${when} — ${groupSummary(g)}`);
+        // surface the group's most informative record inline as a one-liner
+        const lead = g.recordIds.map((id) => byId.get(id)).find((r) => r && !r.error && r.verb !== "capture");
+        if (lead) lines.push(`  - \`${lead.id}\` ${lead.verb}: ${briefStub(lead)}`);
+      }
+    } else {
+      for (const r of sorted) {
+        const when = r.meta?.time ? String(r.meta.time).replace("T", " ").replace(/\..*/, "") : "—";
+        const at = r.media?.at != null ? ` @${Array.isArray(r.media.at) ? r.media.at.join("-") : r.media.at}s` : "";
+        const stub = r.error ? `error: ${r.error}` : briefStub(r);
+        lines.push(`- \`${r.id}\` **${r.verb}**${at} · ${when} — ${stub}`);
+      }
+    }
+    lines.push("");
   }
   return { md: lines.join("\n"), counts, total: records.length, records: sorted, synthesis };
+}
+
+/** A one-line stub of a record's primary field for the compact appendix. */
+function briefStub(rec: OvercastRecord): string {
+  const body = briefBody(rec).replace(/\s+/g, " ").trim();
+  return body.length > 160 ? body.slice(0, 157) + "…" : body || "(empty)";
+}
+
+/** Compact suggested-lead rows (id/text/confidence), newest first — shared by
+ *  the markdown triage section and the CSI triage panel. */
+function suggestedFindingRows(records: OvercastRecord[], statusByFinding: Map<string, string>): Array<{ id: string; text: string; confidence?: unknown }> {
+  const p = (r: OvercastRecord): Record<string, unknown> => (typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {});
+  return records
+    .filter((r) => r.verb === "finding" && r.state !== "error" && isRootFinding(r) && (statusByFinding.get(r.id) ?? "open") === "suggested")
+    .sort((a, b) => Date.parse(String(b.meta?.time ?? "")) - Date.parse(String(a.meta?.time ?? "")))
+    .map((r) => ({ id: r.id, text: String(p(r).text ?? ""), confidence: p(r).confidence }));
+}
+
+/** Fold the pulse's headline + threads + triage into the CSI synthesis header
+ *  so the exported HTML tells the same story as the markdown. */
+function enrichSynthesis(syn: BriefSynthesis, pulse: CasePulse, records: OvercastRecord[]): TimelineSynthesis {
+  const triage = suggestedFindingRows(records, findingStatusMap(records));
+  return {
+    ...syn,
+    // rank + cap Key findings identically to the markdown brief (accepted first,
+    // then confidence, then recency, max 8) so --export and the terminal agree.
+    findings: rankFindings(syn.findings).slice(0, 8),
+    headline: pulse.headline,
+    threads: pulse.threads.map((th) => ({
+      value: th.value,
+      stage: THREAD_STAGE_LABEL[th.stage],
+      spark: sparkline(th.activityBins) || undefined,
+      funnel: threadFunnelLine(th),
+      question: th.question,
+      // the analyst's line narrative (thread note); the closed reason for a
+      // closed line with no note
+      note: th.narrative ?? (th.status !== "active" ? th.why : undefined),
+    })),
+    triage: triage.length ? triage : undefined,
+  };
 }
 
 // Brief is an export artifact: embed each record's primary field IN FULL (not a
@@ -403,6 +595,7 @@ export const briefVerb: VerbSpec = {
   args: [],
   flags: [
     { name: "scope", summary: "Filter, e.g. since:24h or verb:watch", type: "string" },
+    { name: "full", summary: "Include the full verbatim record timeline (audit dump) instead of the compact appendix", type: "boolean" },
     { name: "export", summary: "Write a report file (.md or .html)", type: "string" },
     { name: "theme", summary: "HTML export theme: plain | csi", type: "string", choices: ["plain", "csi"], default: "plain" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -411,7 +604,8 @@ export const briefVerb: VerbSpec = {
   outputKind: "brief",
   providerKey: "brief",
   run: async (ctx) => {
-    let records = ctx.case.records();
+    const allRecords = ctx.case.records();
+    let records = allRecords;
     // a provided-but-blank `--scope=` is a user error (it would otherwise fall
     // through to the positional / no-filter and silently emit the FULL brief),
     // consistent with ask/face/index rejecting blank flags.
@@ -444,10 +638,18 @@ export const briefVerb: VerbSpec = {
       }
     }
     const info = ctx.case.exists() ? ctx.case.info() : { name: "case" };
-    const brief = buildBrief(records, info.name);
+    // pulse reflects the STANDING investigation state (threads, coverage,
+    // freshness) over the full case — computing it on scoped records would make
+    // configured sources look never-scanned and lines read cold under
+    // `--scope since:24h`. Only the brief body (synthesis + trail) is scoped.
+    const pulse = casePulse({ records: allRecords, targets: listTargets(ctx.case), sources: listSources(ctx.case) });
+    const brief = buildBrief(records, info.name, { pulse, full: ctx.opts.full === true, caseRecords: allRecords });
     const theme = normalizeHtmlTheme(ctx.opts.theme);
     if (!theme) return [readError("brief", `invalid --theme '${ctx.opts.theme}' (expected plain or csi)`)];
-    if (brief.total === 0) {
+    // Pending only when the WHOLE case is empty — not merely when a --scope
+    // window is. A scoped run over an active case still has a useful body
+    // (threads/coverage/triage from the full-case pulse), so it renders + exports.
+    if (memoryRecords(allRecords).length === 0) {
       return [
         makeRecord({
           verb: "brief",
@@ -471,7 +673,10 @@ export const briefVerb: VerbSpec = {
       const isHtml = isHtmlExportPath(path);
       let html: string;
       if (theme === "csi") {
-        const timeline = brief.records.map(recordToTimelineRecord);
+        // short mode caps the timeline cards to the newest slice (the story lives
+        // in the synthesis header); --full renders every evidence record.
+        const timelineRecords = ctx.opts.full === true ? brief.records : brief.records.slice(-24);
+        const timeline = timelineRecords.map(recordToTimelineRecord);
         // extract tiny poster frames for local video previews so the player can
         // stay preload="none" — a report full of large clips must not stall the
         // page loading video metadata (see attachVideoPosters).
@@ -483,7 +688,7 @@ export const briefVerb: VerbSpec = {
           records: timeline,
           counts: brief.counts,
           total: brief.total,
-          synthesis: brief.synthesis,
+          synthesis: enrichSynthesis(brief.synthesis, pulse, allRecords),
         });
       } else {
         html = mdToPlainHtml(brief.md, `Brief — ${info.name}`);

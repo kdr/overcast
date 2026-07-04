@@ -280,20 +280,24 @@ Emits `media.provenance` records.
 
 ### `overcast enhance`
 
-Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
+Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI restoration or the SPLIT ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices into per-speaker tracks (add --summarize to transcribe each), `--ops segment --prompt "<thing>"` cuts requested objects out of an image as mask + cutout evidence. separate/segment need a bound provider (local-models = pyannote + GroundingDINO/SAM2, or fal = sam-audio + sam-3); image segmentation of a video is out of scope (segment a frame:// still). Emits a media.enhanced record per output — for the split ops, one child record per track/mask whose media.ref chains into watch/listen/see/view/crop.
 
 ```
 overcast enhance <input> [options]
 
-  Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
+  Produce better media (denoise/normalize/upscale) or split it (separate voices / segment objects) via ffmpeg or a bound model provider.
 
-  Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.
+  Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI restoration or the SPLIT ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices into per-speaker tracks (add --summarize to transcribe each), `--ops segment --prompt "<thing>"` cuts requested objects out of an image as mask + cutout evidence. separate/segment need a bound provider (local-models = pyannote + GroundingDINO/SAM2, or fal = sam-audio + sam-3); image segmentation of a video is out of scope (segment a frame:// still). Emits a media.enhanced record per output — for the split ops, one child record per track/mask whose media.ref chains into watch/listen/see/view/crop.
 
 Arguments:
   input            Media file path
 
 Options:
-  --ops <string>         Comma list of ops (denoise,normalize,upscale,...)
+  --ops <string>         Comma list of ops (denoise,normalize,upscale,separate,segment,...)
+  --prompt <string>      What to segment (--ops segment) or the target voice to extract
+  --speakers <string>    Speaker-count hint for --ops separate
+  --summarize            Transcribe/summarize each separated track via the bound listen provider
+  --masks-only           For --ops segment, emit binary masks instead of RGBA cutouts
   --out <string>         Output path (default .overcast/media/)
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
@@ -305,14 +309,14 @@ Emits `media.enhanced` records.
 
 ### `overcast view`
 
-For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. --no-open writes the viewer and emits a view record with its path instead of launching.
+For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or cutout/mask images for segment. --no-open writes the viewer and emits a view record with its path.
 
 ```
 overcast view <ref> [options]
 
   Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 
-  For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. --no-open writes the viewer and emits a view record with its path instead of launching.
+  For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or cutout/mask images for segment. --no-open writes the viewer and emits a view record with its path.
 
 Arguments:
   ref              Media path, capture-id, or record-id
@@ -545,6 +549,7 @@ overcast brief  [options]
 
 Options:
   --scope <string>       Filter, e.g. since:24h or verb:watch
+  --full                 Include the full verbatim record timeline (audit dump) instead of the compact appendix
   --export <string>      Write a report file (.md or .html)
   --theme <string>       HTML export theme: plain | csi (default: plain)
   --format <string>      json | md | txt
@@ -557,19 +562,24 @@ Emits `brief` records.
 
 ### `overcast target`
 
-Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
+A target is a line of investigation. `add --question` records what would resolve it; `close <id> --as answered|dead-end --note` marks the line done (closed lines stop seeding scan/monitor); `reopen <id>` reactivates it. Status feeds the brief/status thread cards.
 
 ```
 overcast target <action> [value] [options]
 
-  Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
+  Define/refine the standing scope, a.k.a. a line of investigation (add|list|rm|show|close|reopen). Persisted to .overcast/target.json.
+
+  A target is a line of investigation. `add --question` records what would resolve it; `close <id> --as answered|dead-end --note` marks the line done (closed lines stop seeding scan/monitor); `reopen <id>` reactivates it. Status feeds the brief/status thread cards.
 
 Arguments:
-  action           add | list | rm | show
-  value            target value (for add) or id (for rm)
+  action           add | list | rm | show | close | reopen
+  value            target value (for add) or id (for rm/close/reopen)
 
 Options:
   --image                Treat the value as a reference image path
+  --question <string>    add: what would resolve this line of investigation
+  --as <string>          close: answered | dead-end
+  --note <string>        close: why (answered how / why it's a dead end)
   --json                 JSON output
   --format <string>      json | md | txt
 ```
@@ -625,21 +635,21 @@ Emits `note` records.
 
 ### `overcast finding`
 
-Creates manual findings and lists/reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+Creates manual findings and lists/reviews automated findings. Score/text triggers emit `suggested` findings (leads) that stay OUT of memory/brief evidence until reviewed — `finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). Review records reference the original finding; dismissed findings remain auditable.
 
 ```
 overcast finding [action] [id] [options]
 
   Create and review findings (create|list|accept|dismiss).
 
-  Creates manual findings and lists/reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+  Creates manual findings and lists/reviews automated findings. Score/text triggers emit `suggested` findings (leads) that stay OUT of memory/brief evidence until reviewed — `finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). Review records reference the original finding; dismissed findings remain auditable.
 
 Arguments:
   action           create | list | accept | dismiss (default: list)
   id               finding id for accept/dismiss, or text for create
 
 Options:
-  --state <string>       list: open | accepted | dismissed | all
+  --state <string>       list: open | suggested | accepted | dismissed | all | triage (open+suggested), or a comma-list
   --target <string>      create: target/scope this finding supports
   --ref <string>         create: source record id, capture id, media path, or URL
   --at <string>          create: evidence timestamp seconds, hh:mm:ss, or start-end
@@ -683,7 +693,8 @@ Options:
   --auto-sense <string>  setup/edit: comma-separated senses to run on newly captured media
   --auto-index-new       setup/edit: automatically add newly analyzed media to configured indexes
   --no-auto-index-new    setup/edit: disable automatic indexing for newly analyzed media
-  --findings <string>    setup/edit: automated finding workflow (off | review)
+  --findings <string>    setup/edit: automated finding workflow (suggest | review | off; default suggest)
+  --findings-threshold <string> setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,image_inliers=1,audio_margin=1)
   --video <string>       setup/edit: comma-separated local videos/URLs to route
   --folder <string>      setup/edit: comma-separated local media folders to remember
   --no-index             setup/edit: save setup routes without starting remote collection ingestion
@@ -691,6 +702,7 @@ Options:
   --verb <string>        Filter records by kind
   --since <string>       Time filter (e.g. 24h, 2026-06-01)
   --export <string>      Write a case status/log report (.md or .html)
+  --full                 status: append the raw payload JSON for auditing
   --theme <string>       HTML export theme: plain | csi (default: plain)
   --field <string>       Payload field to read in full (memory get)
   --offset <number>      Start char offset when paging a field (memory get)
@@ -771,7 +783,7 @@ Options:
   --profile <string>     Profile name to write/read (default: active/default)
   --verb <string>        provider setup: verb to configure
   --choice <string>      provider setup: catalog choice id
-  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip|audio-fp|basic-clap)
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap)
   --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt

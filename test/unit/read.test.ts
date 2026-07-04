@@ -7,6 +7,8 @@ import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
 import { makeFinding } from "../../src/verbs/finding.ts";
+import { addTarget } from "../../src/state/target.ts";
+import { addSource, listSources } from "../../src/state/source.ts";
 import { LocalMemoryProvider, recordText } from "../../src/providers/memory/local.ts";
 import { resolveMemory, fanOutAnswer } from "../../src/providers/memory/index.ts";
 import { QmdMemoryProvider, DEFAULT_QMD_MODEL } from "../../src/providers/memory/qmd.ts";
@@ -765,11 +767,13 @@ test("brief synthesis: TL;DR note, sources-checked rollup, and findings surface 
     // markdown: newest tldr note wins, verdict line, rollup, and finding row
     assert.match(report, /## TL;DR/);
     assert.match(report, /SWEEP_NARRATIVE: checked x \+ youtube/);
-    assert.ok(!/old narrative/.test(report.split("## Sources checked")[0]), "older tldr note must not head the brief");
+    // the newest tldr note heads the brief; the older one must not (it may still
+    // appear later as an ordinary note in the record trail — it IS evidence)
+    assert.ok(!/old narrative/.test(report.split("## Key findings")[0]), "older tldr note must not head the brief");
     assert.match(report, /2 sources checked \(3 hits\), 1 media check — 1 finding recorded/);
     assert.match(report, /- \*\*x\*\* — 2 hits/);
     assert.match(report, /- \*\*youtube\*\* — 1 hit/);
-    assert.match(report, /## Matches & findings/);
+    assert.match(report, /## Key findings/);
     assert.match(report, /\[open\] \(confidence: high\) copycat: reskin by @codez/);
     // the finding's overlay (from its cited image-match record) is embedded in md
     assert.match(report, /!\[match overlay\]\(.*match_draw_orig65\.png\)/);
@@ -840,7 +844,7 @@ test("brief synthesis: a clean sweep says so explicitly (checked, found none)", 
     const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
     const report = (rec.payload as Record<string, unknown>).report as string;
     assert.match(report, /1 source checked \(1 hit\) — no findings recorded/);
-    assert.match(report, /## Matches & findings\n\n- none recorded/);
+    assert.match(report, /## Key findings\n\n- none recorded/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -956,17 +960,149 @@ test("brief on an empty evidence set is transient and does not export", async ()
   }
 });
 
-test("brief embeds the FULL primary field, not a 160-char stub", async () => {
+test("brief --full embeds the FULL primary field; short stubs it", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-brieffull-"));
   try {
     const c = openCase(dir); c.ensure();
     // a marker only reachable if the field is NOT truncated at ~160 chars
     const content = "lead ".repeat(60) + "DEEP_TAIL_MARKER";
     c.writeRecord(makeRecord({ verb: "watch", payload: { content }, media: { ref: "v.mp4" } }));
+    assert.ok(content.length > 200, "fixture should exceed the old 160-char cap");
+    // --full: the whole field is embedded verbatim under the audit timeline
+    const [full] = await briefVerb.run(ctx(c, undefined, { full: true }));
+    const fullReport = (full.payload as Record<string, unknown>).report as string;
+    assert.match(fullReport, /## Timeline \/ findings/);
+    assert.match(fullReport, /DEEP_TAIL_MARKER/);
+    // short (default): the record trail stubs the field, tail marker not present
+    const [short] = await briefVerb.run(ctx(c, undefined, {}));
+    const shortReport = (short.payload as Record<string, unknown>).report as string;
+    assert.match(shortReport, /## Record trail/);
+    assert.doesNotMatch(shortReport, /DEEP_TAIL_MARKER/);
+    assert.doesNotMatch(shortReport, /## Timeline \/ findings/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief --scope: pulse (threads/coverage/triage) reflects the FULL case, not the scoped window", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefscope-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    addTarget(c, "acme");
+    // old (out-of-scope) evidence linking the target + an old suggested lead
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "acme at the pier" }, media: { ref: "old.mp4" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    c.writeRecord(makeRecord({ verb: "finding", payload: { text: "old lead", target: "acme", target_id: "x", source_record: "y", source_verb: "face", trigger: "signal:face-match", status: "suggested" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    // a recent in-scope record so the scoped brief still renders
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "fresh note" }, media: { ref: "n.txt" }, meta: { time: "2026-07-03T00:00:00Z" } }));
+    const [rec] = await briefVerb.run(ctx(c, "since:2026-07-01", {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    // the thread must read LEADS (the out-of-scope suggested finding links it),
+    // not COLD, despite the --scope window excluding those records from the body
+    assert.match(report, /\*\*acme\*\* — \[LEADS\]/);
+    assert.match(report, /1 line active \(1 with leads\)/);
+    // the old suggested lead must still appear in the case-wide triage backlog
+    assert.match(report, /## Triage — 1 suggestion awaiting review/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief --scope: finding status resolves case-wide (accept row outside the window still shows [accepted])", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-scopestatus-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    // an undated root finding (kept in any since-scope) accepted by a review row
+    // dated BEFORE the scope cutoff (so it's dropped from the scoped record set)
+    const finding = makeRecord({ verb: "finding", payload: { text: "copycat by @codez", status: "open", source_record: "manual", source_verb: "manual", trigger: "human" }, state: "ready" });
+    c.writeRecord(finding);
+    c.writeRecord(makeRecord({ verb: "finding", payload: { finding_id: finding.id, status: "accepted", reviewed_at: "2020-01-01T00:00:00Z" }, meta: { time: "2020-01-01T00:00:00Z" }, state: "ready" }));
+    const [rec] = await briefVerb.run(ctx(c, "since:2026-01-01", {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.match(report, /\[accepted\][^\n]*copycat by @codez/);
+    assert.doesNotMatch(report, /\[open\][^\n]*copycat by @codez/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief --scope with an empty window still renders + exports (active case has a body)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-scopeexport-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    addTarget(c, "acme");
+    // all evidence is OLD (out of the since-window); the case is still active
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "acme at pier" }, media: { ref: "old.mp4" }, meta: { time: "2020-01-01T00:00:00Z" } }));
+    const out = join(dir, "scoped.html");
+    const [rec] = await briefVerb.run(ctx(c, "since:2026-01-01", { export: out, theme: "csi" }));
+    const payload = rec.payload as Record<string, unknown>;
+    // NOT pending: an active case with a pulse body must export despite 0 in-window evidence
+    assert.equal(rec.state, "ready");
+    assert.equal(payload.export, out);
+    assert.equal(existsSync(out), true);
+    assert.match(readFileSync(out, "utf8"), /Lines of investigation/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief CSI export ranks + caps Key findings like the markdown (accepted first, max 8)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefrank-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    // 10 open findings + 1 accepted (created earliest, so chronological order
+    // would bury it) — ranking must float the accepted one to the top and cap 8
+    const acc = makeRecord({ verb: "finding", payload: { text: "ACCEPTED_LEAD", status: "open", source_record: "manual", source_verb: "manual", trigger: "human" }, meta: { time: "2020-01-01T00:00:00Z" }, state: "ready" });
+    c.writeRecord(acc);
+    c.writeRecord(makeRecord({ verb: "finding", payload: { finding_id: acc.id, status: "accepted", reviewed_at: "2020-01-02T00:00:00Z" }, state: "ready" }));
+    for (let i = 0; i < 10; i++) {
+      c.writeRecord(makeRecord({ verb: "finding", payload: { text: `open finding ${i}`, status: "open", source_record: "manual", source_verb: "manual", trigger: "human" }, meta: { time: `2026-07-0${(i % 9) + 1}T00:00:00Z` }, state: "ready" }));
+    }
+    const html = join(dir, "b.html");
+    const [rec] = await briefVerb.run(ctx(c, undefined, { export: html, theme: "csi" }));
+    const out = readFileSync(html, "utf8");
+    // the accepted finding is present (ranked to the top), and the panel is capped
+    assert.match(out, /ACCEPTED_LEAD/);
+    assert.match(out, /\[accepted\]/);
+    // exactly 8 finding rows in the Key-findings panel (cap), not all 11
+    const panel = out.split('class="findings"')[1]?.split("</ul>")[0] ?? "";
+    assert.equal((panel.match(/<li>/g) || []).length, 8, "CSI Key-findings panel capped at 8");
+    // markdown (same record payload) also caps at 8 + floats accepted first
+    const md = (rec.payload as Record<string, unknown>).report as string;
+    assert.ok(md.indexOf("ACCEPTED_LEAD") < md.indexOf("open finding"), "accepted floats above open in md too");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief coverage shows sub-hour freshness via shared fmtAge (not '0h')", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefage-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    addSource(c, "web:pier");
+    const src = listSources(c)[0];
+    // a scan hit ~10 minutes ago — must read "10m", never "0h"
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    c.writeRecord(makeRecord({ verb: "scan", payload: { source: "web", source_id: src.id, url: "http://x/1" }, meta: { time: tenMinAgo } }));
     const [rec] = await briefVerb.run(ctx(c, undefined, {}));
     const report = (rec.payload as Record<string, unknown>).report as string;
-    assert.ok(content.length > 200, "fixture should exceed the old 160-char cap");
-    assert.match(report, /DEEP_TAIL_MARKER/); // full content embedded
+    assert.match(report, /last scan \d+m/);
+    assert.doesNotMatch(report, /last scan 0h/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("brief short mode leads with the story: threads, and a compact record trail", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefshort-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    addTarget(c, "acme");
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "acme spotted at the pier" }, media: { ref: "v.mp4" }, meta: { time: "2026-06-20T10:00:00Z" } }));
+    const [rec] = await briefVerb.run(ctx(c, undefined, {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    assert.match(report, /## Lines of investigation/);
+    assert.match(report, /\*\*acme\*\* — \[COLLECTING\]/);
+    assert.match(report, /## Coverage/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1019,7 +1155,7 @@ test("brief html export does not reparse embedded content as markup", async () =
     const c = openCase(dir); c.ensure();
     c.writeRecord(makeRecord({ verb: "watch", payload: { content: "intro line\n### Scene 5 heading\n- bullet inside content" }, media: { ref: "v.mp4" } }));
     const htmlPath = join(dir, "b.html");
-    await briefVerb.run(ctx(c, undefined, { export: htmlPath }));
+    await briefVerb.run(ctx(c, undefined, { export: htmlPath, full: true }));
     const html = readFileSync(htmlPath, "utf8");
     assert.doesNotMatch(html, /<h3>Scene 5 heading<\/h3>/); // embedded line NOT a heading
     assert.match(html, /### Scene 5 heading/); // present as escaped literal text

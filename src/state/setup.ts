@@ -46,8 +46,22 @@ export interface SetupAutomationPolicy {
   auto_index_new: boolean;
 }
 
+/** Score-trigger fire floors (face/similar/cluster: 0–100 percent similarity;
+ *  image_inliers: RANSAC inlier count). Missing keys use the built-in defaults
+ *  in signals/triggers.ts. */
+export interface SetupFindingsThresholds {
+  face?: number;
+  similar?: number;
+  cluster?: number;
+  image_inliers?: number;
+  audio_margin?: number;
+}
+
 export interface SetupFindingsPolicy {
-  mode: "off" | "review" | string;
+  /** "suggest" (default): all triggers emit quarantined suggested findings;
+   *  "review": legacy text-target-only open findings; "off": no automation. */
+  mode: "off" | "review" | "suggest" | string;
+  thresholds?: SetupFindingsThresholds;
 }
 
 export interface CaseSetup {
@@ -90,7 +104,7 @@ export function emptySetup(caseName: string, now = new Date().toISOString()): Ca
     media: { folders: [], videos: [], routes: [] },
     providers: {},
     automation: { auto_sense: [], auto_index_new: false },
-    findings: { mode: "off" },
+    findings: { mode: "suggest" },
     created_at: now,
     updated_at: now,
   };
@@ -104,7 +118,7 @@ export function loadSetup(c: Case): CaseSetup | undefined {
       parsed.memory ??= { backend: "local-grep", signals: ["note", "watch", "listen", "see", "scan"] };
       parsed.memory.signals = Array.isArray(parsed.memory.signals) ? parsed.memory.signals : ["note", "watch", "listen", "see", "scan"];
       parsed.automation ??= { auto_sense: [], auto_index_new: false };
-      parsed.findings ??= { mode: "off" };
+      parsed.findings ??= { mode: "suggest" };
       parsed.providers ??= {};
       return parsed;
     }
