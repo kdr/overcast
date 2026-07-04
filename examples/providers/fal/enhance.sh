@@ -65,7 +65,9 @@ base="$(basename "${input%.*}")"
 
 # ---- --ops separate : SAM Audio text-prompted source separation --------------
 do_separate() {
-  [ -n "$prompt" ] || { emit_err "separate needs --prompt (the voice/sound to isolate, e.g. --prompt 'the man speaking')"; return; }
+  if ! printf '%s' "$prompt" | grep -q '[^[:space:]]'; then
+    emit_err "separate needs --prompt (the voice/sound to isolate, e.g. --prompt 'the man speaking')"; return
+  fi
   mkdir -p "$OUTDIR/separate"
   local src amime
   case "$ext" in
@@ -101,7 +103,12 @@ do_separate() {
 
 # ---- --ops segment : SAM 3 text-prompted instance segmentation ---------------
 do_segment() {
-  [ -n "$prompt" ] || { emit_err "segment needs --prompt (what to segment, e.g. --prompt 'the red car')"; return; }
+  # require actual class text — reject empty, whitespace-only, or comma-only
+  # prompts (which would otherwise loop over zero classes and look like a clean
+  # no-match), matching the local provider which fails fast on the same input.
+  if ! printf '%s' "$prompt" | tr ',' ' ' | grep -q '[^[:space:]]'; then
+    emit_err "segment needs --prompt (what to segment, e.g. --prompt 'the red car')"; return
+  fi
   case "$ext" in
     jpg|jpeg|png|webp|bmp) : ;;
     *) emit_err "segment is image-only (got .$ext); segment a frame:// still of a video first"; return ;;
