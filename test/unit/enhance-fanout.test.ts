@@ -215,6 +215,11 @@ test("frame:// enhance inherits capture provenance from the ORIGINAL clip, not t
   const child = recs[1].payload as Record<string, unknown>;
   assert.equal(child.source_url, "https://x.com/p/1", "provenance came from the source clip's capture record");
   assert.equal(child.source_author, "@src");
+  // the internal ffmpeg path (no bound provider) inherits it too — same input,
+  // same provenance regardless of which op path handles it.
+  const [ff] = await enhanceVerb.run({ input: `frame://${cap.id}@0`, rest: [], opts: { ops: "grayscale" }, case: c, profile: defaultProfile() });
+  assert.equal(ff.meta?.provider, "ffmpeg");
+  assert.equal((ff.payload as Record<string, unknown>).source_url, "https://x.com/p/1");
 });
 
 test("a split op that matched nothing (op set, empty outputs) is a ready parent, not an error", async () => {

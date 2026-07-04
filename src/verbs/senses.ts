@@ -563,21 +563,23 @@ export const enhanceVerb: VerbSpec = {
         outDir,
         ctx.opts.out ? String(ctx.opts.out) : undefined,
       );
-      return [
-        makeRecord({
-          verb: "enhance",
-          format: "json",
-          payload: {
-            ops: result.ops,
-            skipped: result.skipped,
-            modality: result.modality,
-            output: result.output,
-          },
-          media: { ref: result.output },
-          meta: { provider: "ffmpeg", case: ctx.case.dir },
-          state: "ready",
-        }),
-      ];
+      const ffRec = makeRecord({
+        verb: "enhance",
+        format: "json",
+        payload: {
+          ops: result.ops,
+          skipped: result.skipped,
+          modality: result.modality,
+          output: result.output,
+        },
+        media: { ref: result.output },
+        meta: { provider: "ffmpeg", case: ctx.case.dir },
+        state: "ready",
+      });
+      // trace back to the originating post — same as the bound-provider path, and
+      // for the frame:// path use the ORIGINAL clip (provenanceSource), not the still.
+      stampProvenance(ffRec, provenanceFromCapture(ctx.case, provenanceSource));
+      return [ffRec];
     } catch (e) {
       return [errorRecord("enhance", `ffmpeg enhance failed: ${(e as Error).message}`)];
     }
