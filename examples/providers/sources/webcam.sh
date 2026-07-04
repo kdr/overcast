@@ -65,13 +65,21 @@ case "$op" in
       exit 1
     fi
     # a list response wraps cams in .webcams; the single-cam endpoint returns the
-    # cam object directly — normalize both to an array.
-    printf '%s' "$run" | jq -c --argjson n "$limit" --argjson single "$single" '
+    # cam object directly — normalize both to an array. `now` stamps each poll so
+    # `monitor` re-captures the CURRENT still every pass (a cam page is stable but
+    # its still image changes, and monitor dedups on the hit url via hitKey).
+    now="$(date -u +%s)"
+    printf '%s' "$run" | jq -c --argjson n "$limit" --argjson single "$single" --arg now "$now" '
       (if $single == 1 then [ . ] else (.webcams // []) end)
       | [ .[]
+          | (.urls.detail // .url // ("https://www.windy.com/webcams/" + ((.webcamId // .id) | tostring))) as $detail
           | {
               title: (.title // ("webcam " + ((.webcamId // .id) | tostring))),
-              url: (.urls.detail // .url // null),
+              # per-poll timestamp fragment → a fresh hitKey each monitor pass, so
+              # the current still is re-captured (the server ignores the #fragment).
+              url: ($detail + "#t=" + $now),
+              detail_url: $detail,
+              snapshot_at: ($now | tonumber),
               source: "webcam",
               published: (.lastUpdatedOn // null),
               snippet: ([(.location.city // ""), (.location.region // ""), (.location.country // "")]

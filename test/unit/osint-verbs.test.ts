@@ -21,6 +21,7 @@ import type { VerbContext } from "../../src/registry/types.ts";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_SOURCE = join(HERE, "..", "fixtures", "fake-source.sh");
 const FAKE_WATCH = join(HERE, "..", "fixtures", "fake-watch.sh");
+const FAKE_EXIF = join(HERE, "..", "fixtures", "fake-exif.sh");
 const FAKE_TINYCLOUD = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
 
 let dir: string;
@@ -280,6 +281,33 @@ test("scan --pull uses setup automation and emits review findings", async () => 
     const findings = recs.filter((r) => r.verb === "finding");
     assert.ok(findings.length >= 1);
     assert.equal((findings[0].payload as Record<string, unknown>).target, "Hacker News");
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan --pull auto_sense dispatches the exif forensic sense (not 'unknown automated sense')", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-exif-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const setup = emptySetup("auto-exif");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["exif"], auto_index_new: false };
+    saveSetup(c, setup);
+    const chmod = (await import("node:fs")).chmodSync;
+    chmod(FAKE_EXIF, 0o755);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, exif: { type: "exec", run: `bash ${FAKE_EXIF} --input {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    // the new forensic sense must run rather than erroring "unknown automated sense"
+    assert.ok(recs.some((r) => r.verb === "exif"), "auto_sense exif should produce an exif record");
+    assert.ok(
+      !recs.some((r) => String(r.error ?? "").includes("unknown automated sense")),
+      "auto_sense must not reject exif as unknown",
+    );
   } finally {
     rmSync(d, { recursive: true, force: true });
   }

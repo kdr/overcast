@@ -34,6 +34,7 @@ import { isAv, isImage } from "./media-ref.js";
 import { faceVerb } from "./face.js";
 import { imageVerb } from "./image.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
+import { exifVerb, verifyVerb } from "./forensics.js";
 import { indexVerb } from "./index.js";
 import { latestFindingStatus, makeFinding } from "./finding.js";
 import { scanHitProvenance, stampProvenance } from "./provenance.js";
@@ -679,6 +680,10 @@ async function runAutomationSense(ctx: VerbContext, caller: string, verb: string
   }
   if (verb === "enhance") {
     const [rec] = await enhanceVerb.run({ ...ctx, input: ref, rest: [], opts: {} });
+    return rec;
+  }
+  if (verb === "exif" || verb === "verify") {
+    const [rec] = await (verb === "exif" ? exifVerb : verifyVerb).run({ ...ctx, input: ref, rest: [], opts: {} });
     return rec;
   }
   return err(caller, `unknown automated sense '${verb}'`);
