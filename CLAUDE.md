@@ -67,8 +67,9 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `src/registry/verbs.ts`; the CLI subcommand, the pi AgentTool, and the skill doc
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
-   (`watch/listen/see/face/image/audio/similar/enhance`), **source** (`scan/capture/monitor`; youtube,
-   tiktok, x, web, lens), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
+   (`watch/listen/see/face/image/audio/similar/enhance/exif/verify`), **source**
+   (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
+   gdelttv, webcam, facesearch), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    transports are `exec` (default), `http`, `in-proc`. Default sense binding =
    tinycloud (exec) — except `see`, whose default is the in-proc brain-vision
    backend (invariant #2), falling back to the HF exec captioner;
@@ -126,7 +127,13 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   frame-sampled + pooled, audio windowed into 10s moments), `enhance` (system
   ffmpeg ops, a bound restore model, or the split ops `--ops separate` = per-speaker
   tracks + optional `--summarize`, and `--ops segment --prompt` = text-prompted
-  masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact).
+  masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact),
+  `exif` (ExifTool metadata/GPS on image **or** video → `payload.gps{lat,lng}`,
+  capture time, device, editing software, dimensions; shipped `exiftool` provider,
+  raw tag dump stays in-provider), `verify` (C2PA / Content Credentials provenance
+  via `c2patool` → `has_manifest`, signer, claim generator, validation state; no
+  credentials is a clean `ready` record, not an error — distinct from source-post
+  provenance in `src/verbs/provenance.ts`).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`; on an `enhance` split-op parent it renders a GALLERY of the fanned-out
   children — per-track audio + spectrograms for `separate`, cutouts for `segment`,
@@ -144,7 +151,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--source`/`--since`, `--refresh`, `--infinite` endless repeat-to-fill wall,
   `--theme plain|csi`, `--no-open`).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
-  lens reverse-image;
+  lens reverse-image / dl generic-yt-dlp capture / instagram / telegram /
+  gdelttv broadcast-TV / webcam live-cams / facesearch reverse-face;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
   (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
@@ -157,7 +165,15 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `x:@handle`,
   `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`;
-  `lens:<image url|path>` (Google Lens reverse image search via Apify).
+  `lens:<image url|path>` (Google Lens reverse image search via Apify);
+  `dl:<url>` (capture-only: any yt-dlp host — Rumble/BitChute/Odysee/Vimeo/Reddit/…;
+  `enumerate` returns `[]`); `instagram:@handle` / `instagram:#tag` / a post URL
+  (Apify); `telegram:<channel>` or a `t.me` URL (Apify, public channels);
+  `gdelttv:"<query>"` (GDELT 2.0 TV broadcast-news clips → bounded Internet-Archive
+  `.mp4`, **no key**); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
+  `webcam:category:<slug>` / `webcam:<id>` (Windy Webcams — current still per poll,
+  `recapture` ephemeral monitor fit); `facesearch:<image url|path>` (opt-in,
+  ToS/privacy-gated reverse **face** search via Apify — never a default).
 - **State** — `target` / `source` manage standing scope; a target is a *line of
   investigation* (`add --question`, `close <id> --as answered|dead-end --note`,
   `reopen`; closed lines stop seeding scans). `note` records human observations
@@ -207,8 +223,8 @@ index mirrors). `case setup` saves a *mutable* setup model to
 (`payload.op = startup_setup` / `startup_setup_update`).
 
 Case memory is **evidence-only**. `ask` / `brief` read primary evidence
-(`watch listen see face image audio similar crop note scan capture enhance` + root
-`finding`s + `cluster` ingest/identify) through
+(`watch listen see face image audio similar crop note scan capture enhance exif
+verify` + root `finding`s + `cluster` ingest/identify) through
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source

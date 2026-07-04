@@ -79,7 +79,8 @@ Provider classes:
   matching, the `cluster` face DB, and CLIP semantic search, selected by the
   `image-ransac` / `deepface-local` / `face-cluster` / `basic-clip` index types.
 - **source providers** — external discovery and URL fetching (youtube / tiktok /
-  x / web / lens reverse-image).
+  x / web / lens reverse-image / dl generic-yt-dlp / instagram / telegram /
+  gdelttv broadcast-TV / webcam live-cams / facesearch opt-in reverse-face).
 - **case memory** over primary evidence for `ask` / `brief` / `case memory` —
   `local-grep` by default, or qmd for lifecycle-managed semantic local search.
 
@@ -116,8 +117,8 @@ The quick answer to "where did this output go, and can `ask` find it later?"
 
 The durable local store under `.overcast/records`, plus media/state/index files.
 
-- **Primary evidence records:** `watch`, `listen`, `see`, `scan`, `capture`,
-  `enhance`, `crop`, `note`, and root `finding`s.
+- **Primary evidence records:** `watch`, `listen`, `see`, `exif`, `verify`,
+  `scan`, `capture`, `enhance`, `crop`, `note`, and root `finding`s.
 - **Typed evidence/tool records:** `face` (detect/match/search/list) and `see`
   object-detection records.
 - **Read/meta records:** `ask`, `brief`, `case`.
@@ -712,7 +713,45 @@ seeding scans), and `target reopen` revives it. The `/debrief` prompt automates
 this whole loop — triage leads, write `thread:<tgt_id>` narrative notes, close
 resolved lines, refresh the `tldr` note, and `brief --export`.
 
-### 20. CSI / crime-trope skills (packaged flows)
+### 20. New OSINT sources: broadcast, social, live cams, reverse-image
+
+Broadcast TV, more social platforms, live webcams, and reverse-image lookups —
+same `scan` / `capture` / `monitor` verbs, one loose record shape. All discover
+via `enumerate`; add `--pull` to capture + sense each hit.
+
+```bash
+overcast scan --source gdelttv --query "climate summit" --since 14d       # GDELT TV → bounded Internet-Archive clips (no key)
+overcast scan --source instagram --query @nasa --since 7d --pull           # Instagram posts/reels (Apify)
+overcast scan --source telegram --query durov --since 30d                  # public Telegram channel (Apify)
+overcast monitor --source webcam --query "48.8584,2.2945,25" --every 30m   # live Paris cams, re-captures each pass
+overcast capture "https://rumble.com/v123.html" --source dl                # any yt-dlp host, capture-only
+overcast scan --source facesearch --query ./person.jpg --pull              # opt-in reverse FACE search (ToS-gated)
+```
+
+`webcam` hits carry `recapture: true` so `monitor` re-captures the CURRENT still
+each pass without bloating the seen-set (a permanently broken cam is given up
+after repeated failures). An unparseable `--since` fails closed on the
+recency-aware sources rather than silently widening the window. `facesearch` is
+never a default — you must bind it explicitly.
+
+### 21. Media forensics: metadata, GPS & provenance
+
+Establish where a file came from and whether it carries signed credentials —
+evidence records like any other sense, cited by `ask` / `brief`.
+
+```bash
+overcast exif ./photo.jpg --json      # ExifTool: GPS lat/lng, capture time, device, editing software
+overcast verify ./clip.mp4 --json     # C2PA / Content Credentials: manifest, signer, validation state
+overcast exif <capture-record-id>     # or run over a captured scan hit (remote media is fetched first)
+overcast ask "what GPS coordinates or camera devices appear?"
+```
+
+`exif` needs `exiftool`, `verify` needs `c2patool` (both report
+`needs_credentials`, exit 13, when absent). Media with no credentials is a clean
+`ready` `verify` record (`has_manifest: false`), not an error — and distinct from
+source-post provenance (where a record was scraped from).
+
+### 22. CSI / crime-trope skills (packaged flows)
 
 Several of the flows above are packaged as installable agent **skills** — a
 numbered `## Workflow` funnel each agent can follow. They ship generated from
@@ -745,8 +784,11 @@ default tinycloud path is speech-transcript only; bind ElevenLabs. Object crops
 | `face` | sense | `face.analysis` | tinycloud | custom exec / pinned tinycloud | Face detect/match/index search |
 | `image` | sense | `image.match` | local OpenCV RANSAC (`image-ransac` index) | `OC_VISUAL_DB_PY` | Image/frame geometric matching |
 | `cluster` | sense | `cluster` | local DeepFace (`face-cluster` index) | `OC_VISUAL_DB_PY` | Persistent local face DB |
-| `similar` | sense | `similar.match` | local CLIP (`basic-clip` index) | `OC_VISUAL_DB_PY` | Cross-modal semantic search |
-| `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve media |
+| `similar` | sense | `similar.match` | local CLIP (`basic-clip`) / CLAP (`basic-clap`) | `OC_VISUAL_DB_PY` | Cross-modal semantic search |
+| `audio` | sense | `audio.match` | local fingerprint (`audio-fp` index) | `OC_VISUAL_DB_PY` | Shazam-style exact audio matching |
+| `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve / split media |
+| `exif` | sense | `media.metadata` | ExifTool (shipped) | `setup provider exif "exec:…"` | Embedded metadata + GPS |
+| `verify` | sense | `media.provenance` | c2patool (shipped) | `setup provider verify "exec:…"` | C2PA / Content Credentials |
 | `view` | inspect | `view` | local HTML viewer / OS open | none | Inspect media/anchors |
 | `crop` | inspect | `media.crop` | local ffmpeg | none | Materialize detection crops |
 | `wall` | inspect | `wall` | local HTML wall (file:// refs) | none | Control-room monitor wall |

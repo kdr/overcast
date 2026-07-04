@@ -10,7 +10,7 @@ import { defaultProfile } from "../../src/profile.ts";
 import { scanVerb, captureVerb, monitorVerb } from "../../src/verbs/osint.ts";
 import { exitCodeForRecords } from "../../src/cli.ts";
 import { addSource } from "../../src/state/source.ts";
-import { saveSeen } from "../../src/state/seen.ts";
+import { saveSeen, loadSeen } from "../../src/state/seen.ts";
 import { addTarget, setTargetStatus } from "../../src/state/target.ts";
 import { addIndex, addMember } from "../../src/state/index.ts";
 import { emptySetup, saveSetup } from "../../src/state/setup.ts";
@@ -21,6 +21,7 @@ import type { VerbContext } from "../../src/registry/types.ts";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_SOURCE = join(HERE, "..", "fixtures", "fake-source.sh");
 const FAKE_WATCH = join(HERE, "..", "fixtures", "fake-watch.sh");
+const FAKE_EXIF = join(HERE, "..", "fixtures", "fake-exif.sh");
 const FAKE_TINYCLOUD = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
 
 let dir: string;
@@ -311,6 +312,68 @@ test("scan --pull uses setup automation and emits review findings", async () => 
     assert.ok(findings.length >= 1);
     assert.equal((findings[0].payload as Record<string, unknown>).target, "Hacker News");
   } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan --pull auto_sense dispatches the exif forensic sense (not 'unknown automated sense')", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-exif-"));
+  try {
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const setup = emptySetup("auto-exif");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["exif"], auto_index_new: false };
+    saveSetup(c, setup);
+    const chmod = (await import("node:fs")).chmodSync;
+    chmod(FAKE_EXIF, 0o755);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, exif: { type: "exec", run: `bash ${FAKE_EXIF} --input {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    // the new forensic sense must run rather than erroring "unknown automated sense"
+    assert.ok(recs.some((r) => r.verb === "exif"), "auto_sense exif should produce an exif record");
+    assert.ok(
+      !recs.some((r) => String(r.error ?? "").includes("unknown automated sense")),
+      "auto_sense must not reject exif as unknown",
+    );
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan --pull senses an IMAGE capture via auto_sense (exif) and stamps provenance", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-scan-img-"));
+  const savedClip = process.env.OVERCAST_FIXTURE_CLIP;
+  const savedClip2 = process.env.OVERCAST_FIXTURE_CLIP2;
+  try {
+    const img = join(d, "still.jpg");
+    execFileSync(FFMPEG_PATH, ["-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=1:duration=1", "-frames:v", "1", img], { stdio: "ignore" });
+    process.env.OVERCAST_FIXTURE_CLIP = img;
+    process.env.OVERCAST_FIXTURE_CLIP2 = img;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "fixture:pier9");
+    const setup = emptySetup("auto-img-exif");
+    setup.completed = true;
+    setup.automation = { auto_sense: ["exif"], auto_index_new: false };
+    saveSetup(c, setup);
+    (await import("node:fs")).chmodSync(FAKE_EXIF, 0o755);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, exif: { type: "exec", run: `bash ${FAKE_EXIF} --input {{input}}` } };
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
+    const exifRecs = recs.filter((r) => r.verb === "exif");
+    // High: an image capture must feed the auto_sense chain (was gated out as non-A/V)
+    assert.ok(exifRecs.length >= 1, "exif should run on the image capture");
+    // Medium: the scan hit's provenance is stamped onto the forensic record
+    assert.equal((exifRecs[0].payload as Record<string, unknown>).source_url, img);
+    // a still image has no default watch sense
+    assert.ok(!recs.some((r) => r.verb === "watch"), "an image capture must not trigger the default watch");
+  } finally {
+    if (savedClip !== undefined) process.env.OVERCAST_FIXTURE_CLIP = savedClip;
+    if (savedClip2 !== undefined) process.env.OVERCAST_FIXTURE_CLIP2 = savedClip2;
     rmSync(d, { recursive: true, force: true });
   }
 });
@@ -1328,6 +1391,91 @@ test("monitor --once diffs the seen-set: new items first pass, none second", asy
   }
 });
 
+test("monitor re-captures an ephemeral (recapture) hit every pass without growing seen", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-mon-eph-"));
+  const src = join(d, "cam-source.sh");
+  const img = join(d, "still.jpg");
+  execFileSync(FFMPEG_PATH, ["-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=1:duration=1", "-frames:v", "1", img], { stdio: "ignore" });
+  writeFileSync(
+    src,
+    [
+      "#!/usr/bin/env bash",
+      'op="${1:-enumerate}"',
+      "case \"$op\" in",
+      `  enumerate) printf '[{"title":"cam","url":"http://cam/1","source":"webcam","recapture":true,"media":{"ref":"${img}"}}]\\n' ;;`,
+      '  fetch) out=""; while [ "$#" -gt 0 ]; do case "$1" in --out) out="$2"; shift 2 ;; *) shift ;; esac; done;' +
+        ` cp "${img}" "$out"; printf '{"kind":"image","path":"%s","source":"webcam"}\\n' "$out" ;;`,
+      "esac",
+    ].join("\n"),
+  );
+  const prev = process.env.OVERCAST_SOURCE_WEBCAM_CMD;
+  try {
+    (await import("node:fs")).chmodSync(src, 0o755);
+    process.env.OVERCAST_SOURCE_WEBCAM_CMD = `bash ${src}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "webcam:x");
+    const mkCtx = (): VerbContext => ({ input: undefined, rest: [], opts: { once: true }, case: openCase(d), profile: defaultProfile() });
+
+    const p1 = await monitorVerb.run(mkCtx());
+    assert.ok(p1.some((r) => r.verb === "capture" && r.state === "ready"), "pass 1 captured the still");
+    const p2 = await monitorVerb.run(mkCtx());
+    // re-captured (NOT skipped as already-seen) even though the cam url is stable
+    assert.ok(p2.some((r) => r.verb === "capture" && r.state === "ready"), "pass 2 re-captured the still");
+    assert.equal((p2.find((r) => r.verb === "monitor")!.payload as Record<string, unknown>).new_items, 1);
+    // and the seen store did NOT accumulate the ephemeral hit
+    assert.equal(loadSeen(openCase(d)).size, 0, "ephemeral hits are not persisted to seen");
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_SOURCE_WEBCAM_CMD;
+    else process.env.OVERCAST_SOURCE_WEBCAM_CMD = prev;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("monitor gives up on a permanently-failing ephemeral hit after the retry cap", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-mon-eph-fail-"));
+  const src = join(d, "deadcam-source.sh");
+  // enumerate returns a recapture hit; fetch ALWAYS fails → hard capture failure.
+  writeFileSync(
+    src,
+    [
+      "#!/usr/bin/env bash",
+      'op="${1:-enumerate}"',
+      "case \"$op\" in",
+      `  enumerate) printf '[{"title":"deadcam","url":"http://cam/dead","source":"webcam","recapture":true,"media":{"ref":"http://127.0.0.1:9/nope.jpg"}}]\\n' ;;`,
+      '  fetch) echo "fetch failed" >&2; exit 1 ;;',
+      "esac",
+    ].join("\n"),
+  );
+  const prev = process.env.OVERCAST_SOURCE_WEBCAM_CMD;
+  try {
+    (await import("node:fs")).chmodSync(src, 0o755);
+    process.env.OVERCAST_SOURCE_WEBCAM_CMD = `bash ${src}`;
+    const c = openCase(d);
+    c.ensure();
+    addSource(c, "webcam:dead");
+    const mkCtx = (): VerbContext => ({ input: undefined, rest: [], opts: { once: true }, case: openCase(d), profile: defaultProfile() });
+
+    // passes 1-4: the failing hit is retried each pass, NOT yet given up
+    for (let i = 1; i <= 4; i++) {
+      await monitorVerb.run(mkCtx());
+      assert.equal(loadSeen(openCase(d)).size, 0, `pass ${i}: broken cam still retried (not marked seen)`);
+    }
+    // pass 5 hits the cap (EPHEMERAL_MAX_FAILS) → the hit is marked seen (given up)
+    await monitorVerb.run(mkCtx());
+    assert.equal(loadSeen(openCase(d)).size, 1, "pass 5: permanently-broken cam is marked seen and stops retrying");
+    // pass 6: the given-up hit must actually be SKIPPED now (not re-processed with
+    // a reset counter) — no fresh capture attempt, no new item.
+    const p6 = await monitorVerb.run(mkCtx());
+    assert.ok(!p6.some((r) => r.verb === "capture"), "pass 6: given-up cam is skipped, not re-fetched");
+    assert.equal((p6.find((r) => r.verb === "monitor")!.payload as Record<string, unknown>).new_items, 0);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_SOURCE_WEBCAM_CMD;
+    else process.env.OVERCAST_SOURCE_WEBCAM_CMD = prev;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("monitor --once dedupes duplicate fetch refs within a retryable pass", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-monitor-pass-dedupe-"));
   const sourceScript = join(d, "dupe-source.sh");
@@ -1464,6 +1612,7 @@ test("monitor --every redacts secrets in streamed stdout and alert files", async
 });
 
 import { hostSourceType } from "../../src/verbs/osint.ts";
+import { builtinDescriptor, APIFY_RUN_SYNC_TIMEOUT_MS } from "../../src/providers/sources/index.ts";
 
 test("hostSourceType routes apex and subdomain hosts (x.com regression)", () => {
   assert.equal(hostSourceType("https://x.com/user/status/123"), "x");
@@ -1476,4 +1625,81 @@ test("hostSourceType routes apex and subdomain hosts (x.com regression)", () => 
   assert.equal(hostSourceType("https://example.com/xx.com/page"), "web");
   assert.equal(hostSourceType("https://notx.com/a"), "web");
   assert.equal(hostSourceType("not a url"), "web");
+});
+
+test("hostSourceType routes instagram/telegram to their dedicated sources", () => {
+  assert.equal(hostSourceType("https://www.instagram.com/p/ABC/"), "instagram");
+  assert.equal(hostSourceType("https://instagram.com/reel/XYZ/"), "instagram");
+  // the Instagram-only CDN host that scan hits put media.ref at → instagram
+  assert.equal(hostSourceType("https://scontent-sea5-1.cdninstagram.com/v/t51/x.jpg"), "instagram");
+  // fbcdn.net is a SHARED Meta CDN (IG + Facebook) — not routed to instagram
+  assert.equal(hostSourceType("https://video.fbcdn.net/v/x.mp4"), "web");
+  assert.equal(hostSourceType("https://t.me/durov/530"), "telegram");
+  // a direct IA media download (gdelttv clip media.ref) → gdelttv fetch, but other
+  // archive.org URLs (detail pages, books) stay on web so provenance isn't mislabeled
+  assert.equal(hostSourceType("https://archive.org/download/X/X.mp4?start=1&end=2"), "gdelttv");
+  assert.equal(hostSourceType("https://archive.org/download/X/X.jpg"), "gdelttv");
+  assert.equal(hostSourceType("https://archive.org/details/some-book"), "web");
+  assert.equal(hostSourceType("https://archive.org/download/X/X.pdf"), "web");
+  // a lookalike host that merely contains the string stays web
+  assert.equal(hostSourceType("https://notinstagram.com/x"), "web");
+  assert.equal(hostSourceType("https://example.com/t.me/x"), "web");
+});
+
+test("hostSourceType routes yt-dlp video hosts to the generic dl downloader", () => {
+  assert.equal(hostSourceType("https://rumble.com/v123-clip.html"), "dl");
+  assert.equal(hostSourceType("https://www.bitchute.com/video/abc/"), "dl");
+  assert.equal(hostSourceType("https://odysee.com/@ch/clip"), "dl");
+  assert.equal(hostSourceType("https://vk.com/video-1_2"), "dl");
+  assert.equal(hostSourceType("https://www.bilibili.com/video/BV1xx"), "dl");
+  assert.equal(hostSourceType("https://vimeo.com/12345"), "dl");
+  assert.equal(hostSourceType("https://www.dailymotion.com/video/x9"), "dl");
+  assert.equal(hostSourceType("https://www.reddit.com/r/x/comments/1/y/"), "dl");
+  assert.equal(hostSourceType("https://v.redd.it/abcdef"), "dl");
+  assert.equal(hostSourceType("https://www.twitch.tv/videos/123"), "dl");
+  assert.equal(hostSourceType("https://kick.com/streamer"), "dl");
+  assert.equal(hostSourceType("https://www.facebook.com/watch/?v=1"), "dl");
+  // a bare domain that merely contains a video host as a substring stays web
+  assert.equal(hostSourceType("https://notrumble.com/x"), "web");
+  assert.equal(hostSourceType("https://example.com/rumble.com/x"), "web");
+});
+
+test("builtinDescriptor resolves the shipped dl source", () => {
+  const desc = builtinDescriptor("dl");
+  assert.ok(desc, "dl descriptor should resolve");
+  assert.equal(desc!.type, "dl");
+  assert.equal(desc!.base[0], "bash");
+  assert.ok(desc!.base[1]?.endsWith("dl.sh"), "dl base should point at dl.sh");
+  // dl is a plain yt-dlp source — it must NOT inherit the long Apify budget
+  assert.equal(desc!.timeoutMs, undefined);
+});
+
+test("builtinDescriptor resolves the shipped gdelttv source", () => {
+  const desc = builtinDescriptor("gdelttv");
+  assert.ok(desc, "gdelttv descriptor should resolve");
+  assert.equal(desc!.type, "gdelttv");
+  assert.ok(desc!.base[1]?.endsWith("gdelttv.sh"), "gdelttv base should point at gdelttv.sh");
+  // keyless HTTP source — plain (non-Apify) exec budget
+  assert.equal(desc!.timeoutMs, undefined);
+});
+
+test("builtinDescriptor resolves the Apify run-sync sources with the long budget", () => {
+  for (const [type, file] of [["instagram", "instagram.sh"], ["telegram", "telegram.sh"], ["facesearch", "facesearch.sh"]] as const) {
+    const desc = builtinDescriptor(type);
+    assert.ok(desc, `${type} descriptor should resolve`);
+    assert.equal(desc!.type, type);
+    assert.ok(desc!.base[1]?.endsWith(file), `${type} base should point at ${file}`);
+    // Apify run-sync sources must carry the extended budget so the harness
+    // doesn't kill them at the generic 2-minute default.
+    assert.equal(desc!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
+  }
+});
+
+test("builtinDescriptor resolves the webcam source with the plain budget", () => {
+  const desc = builtinDescriptor("webcam");
+  assert.ok(desc, "webcam descriptor should resolve");
+  assert.equal(desc!.type, "webcam");
+  assert.ok(desc!.base[1]?.endsWith("webcam.sh"), "webcam base should point at webcam.sh");
+  // a fast HTTP GET, not Apify run-sync — plain budget
+  assert.equal(desc!.timeoutMs, undefined);
 });
