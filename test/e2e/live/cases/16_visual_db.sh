@@ -36,11 +36,13 @@ MAX_FRAMES="${OC_LOCAL_IMAGE_MAX_FRAMES:-12}"
 IMAGE_FPS="${OC_LOCAL_IMAGE_FPS:-0.7}"
 
 match_a="$(OC_TIMEOUT=420 oc "$CASE" image match "$LOCAL_IMAGE_VIDEO_A" --index "$IMG_INDEX" --min-inliers "$MIN_INLIERS" --min-ratio "$MIN_RATIO" --fps "$IMAGE_FPS" --max-frames "$MAX_FRAMES" --draw --json)"
+match_a="$(echo "$match_a" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 assert_eq "$C.image_match_a_state" "ready" "$(echo "$match_a" | jq -r '.state')" "video A image match state ready"
 count_a="$(echo "$match_a" | jq -r '.payload.count // 0')"
 assert_eq "$C.image_match_a_fps" "$IMAGE_FPS" "$(echo "$match_a" | jq -r '.payload.sampling.fps // empty')" "video A image match used fps sampling"
 
 match_b="$(OC_TIMEOUT=420 oc "$CASE" image match "$LOCAL_IMAGE_VIDEO_B" --index "$IMG_INDEX" --min-inliers "$MIN_INLIERS" --min-ratio "$MIN_RATIO" --fps "$IMAGE_FPS" --max-frames "$MAX_FRAMES" --draw --json)"
+match_b="$(echo "$match_b" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 assert_eq "$C.image_match_b_state" "ready" "$(echo "$match_b" | jq -r '.state')" "video B image match state ready"
 count_b="$(echo "$match_b" | jq -r '.payload.count // 0')"
 assert_eq "$C.image_match_b_fps" "$IMAGE_FPS" "$(echo "$match_b" | jq -r '.payload.sampling.fps // empty')" "video B image match used fps sampling"
@@ -91,6 +93,7 @@ assert_nonempty "$C.face_index_id" "$FACE_INDEX" "local face index id returned"
 face_add="$(oc "$CASE" index add "$LOCAL_FACE_IMAGE" --to "$FACE_INDEX" --json)"
 assert_eq "$C.face_add_state" "ready" "$(echo "$face_add" | jq -r '.state')" "reference face added to local face index"
 face_match="$(OC_TIMEOUT=420 oc "$CASE" face "$LOCAL_FACE_VIDEO" --match "$LOCAL_FACE_IMAGE" --index "$FACE_INDEX" --min-similarity "$FACE_MIN" --fps "$FACE_FPS" --max-frames "$FACE_FRAMES" --json)"
+face_match="$(echo "$face_match" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 assert_eq "$C.face_match_state" "ready" "$(echo "$face_match" | jq -r '.state')" "local face match state ready"
 assert_eq "$C.face_match_fps" "$FACE_FPS" "$(echo "$face_match" | jq -r '.payload.sampling.fps // empty')" "local face match used fps sampling"
 face_count="$(echo "$face_match" | jq -r '.payload.count // 0')"

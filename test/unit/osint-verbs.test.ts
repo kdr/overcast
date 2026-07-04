@@ -11,7 +11,7 @@ import { scanVerb, captureVerb, monitorVerb } from "../../src/verbs/osint.ts";
 import { exitCodeForRecords } from "../../src/cli.ts";
 import { addSource } from "../../src/state/source.ts";
 import { saveSeen } from "../../src/state/seen.ts";
-import { addTarget } from "../../src/state/target.ts";
+import { addTarget, setTargetStatus } from "../../src/state/target.ts";
 import { addIndex, addMember } from "../../src/state/index.ts";
 import { emptySetup, saveSetup } from "../../src/state/setup.ts";
 import { FFMPEG_PATH } from "../../src/media/ffmpeg.ts";
@@ -98,6 +98,36 @@ test("scan falls back to local case media and face index when no sources exist",
     assert.deepEqual((summary.payload as Record<string, unknown>).media, [video]);
     assert.match(JSON.stringify((summary.payload as Record<string, unknown>).suggested_commands), /face --match/);
     assert.equal(recs.some((r) => r.verb === "face" && (r.payload as Record<string, unknown>).op === "search"), true);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prev;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("scan --local skips CLOSED image lines (no match candidates / suggestions)", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-localscan-closed-"));
+  const prev = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    const c = openCase(d);
+    c.ensure();
+    const img = join(d, "face.jpg");
+    const video = join(d, "clip.mp4");
+    writeFileSync(img, "fake image");
+    writeFileSync(video, "fake video");
+    const t = addTarget(c, img, { image: true });
+    addIndex(c, { id: "idx_face", name: "faces", type: "face-analysis" });
+    addMember(c, "idx_face", { ref: video });
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TINYCLOUD}`;
+    // dead-end the only image line — it must stop auto-producing match work
+    setTargetStatus(c, t.id, "dead-end", "no hits");
+
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
+    const summary = recs.find((r) => r.verb === "scan")!;
+    assert.equal((summary.payload as Record<string, unknown>).op, "local");
+    // no face --match suggestion and no auto face search against a closed line
+    assert.doesNotMatch(JSON.stringify((summary.payload as Record<string, unknown>).suggested_commands), /face --match/);
+    assert.equal(recs.some((r) => r.verb === "face"), false);
   } finally {
     if (prev === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
     else process.env.OVERCAST_TINYCLOUD_CMD = prev;

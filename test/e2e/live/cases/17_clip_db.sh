@@ -88,6 +88,7 @@ save_json "clip_db_text_video" "$tv" >/dev/null
 
 cond "image×video: a real frame from video A ranks video A's nearest moment first"
 iv="$(OC_TIMEOUT=420 oc "$CASE" similar match "$IMG_A_QUERY" --index "$CLIP_INDEX" --limit 8 --json)"
+iv="$(echo "$iv" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 assert_eq "$C.image_video_state" "ready" "$(echo "$iv" | jq -r '.state')" "image×video match ready"
 assert_eq "$C.image_video_top" "$CLIP_A" "$(echo "$iv" | jq -r '.payload.matches[0].ref // empty')" "top image×video match is video A"
 iv_sim="$(echo "$iv" | jq -r '.payload.matches[0].similarity // 0')"
@@ -96,6 +97,7 @@ save_json "clip_db_image_video" "$iv" >/dev/null
 
 cond "image×image: a different frame of scene B finds the stored image member"
 ii="$(OC_TIMEOUT=420 oc "$CASE" similar match "$IMG_B_QUERY" --index "$CLIP_INDEX" --limit 8 --json)"
+ii="$(echo "$ii" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 assert_eq "$C.image_image_state" "ready" "$(echo "$ii" | jq -r '.state')" "image×image match ready"
 ii_top="$(echo "$ii" | jq -r '.payload.matches[0].ref // empty')"
 case "$ii_top" in "$CLIP_B"|"$IMG_B_MEMBER") ok "$C.image_image_top" "top match is scene B ($(basename "$ii_top"))" ;; *) fail "$C.image_image_top" "top match is not scene B: $ii_top" ;; esac

@@ -5,7 +5,9 @@
 #   scripts/visual-db-uv.sh          # image matching deps: opencv + numpy
 #   scripts/visual-db-uv.sh --face   # also install DeepFace stack
 #   scripts/visual-db-uv.sh --clip   # also install OpenAI CLIP (open_clip + torch)
-#   scripts/visual-db-uv.sh --all    # install both the DeepFace and CLIP stacks
+#   scripts/visual-db-uv.sh --audio  # also install audio fingerprint deps (scipy)
+#   scripts/visual-db-uv.sh --clap   # also install LAION CLAP audio embeddings (transformers + torch)
+#   scripts/visual-db-uv.sh --all    # install the DeepFace, CLIP, audio-fp, and CLAP stacks
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,14 +37,23 @@ case "$MODE" in
   --clip|clip)
     uv pip install --python "$VENV/bin/python" open-clip-torch torch pillow
     ;;
+  --audio|audio)
+    uv pip install --python "$VENV/bin/python" scipy
+    ;;
+  --clap|clap)
+    uv pip install --python "$VENV/bin/python" torch transformers
+    ;;
   --all|all)
+    # torch-owning packages first so uv resolves a single shared torch for the
+    # CLIP + CLAP stacks (see docs/providers.md on the shared-venv trade).
+    uv pip install --python "$VENV/bin/python" open-clip-torch torch transformers pillow
     uv pip install --python "$VENV/bin/python" deepface tf-keras
-    uv pip install --python "$VENV/bin/python" open-clip-torch torch pillow
+    uv pip install --python "$VENV/bin/python" scipy
     ;;
   --image|image|"")
     ;;
   *)
-    echo "unknown mode: $MODE (expected --image | --face | --clip | --all)" >&2
+    echo "unknown mode: $MODE (expected --image | --face | --clip | --audio | --clap | --all)" >&2
     exit 2
     ;;
 esac

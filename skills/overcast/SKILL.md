@@ -23,8 +23,9 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `see` — Understand an image or a single video frame (caption, OCR, detections).
 - `face` — Detect, match, or search faces in video (and across face-analysis indexes).
 - `image` — Match images or video frames against a local RANSAC image index.
+- `audio` — Shazam-style exact audio matching: fingerprint clips into a local audio-fp index, or match clip-to-clip with time-offset alignment.
 - `cluster` — Build and browse a local face-cluster DB: group faces into people, identify, label, and view.
-- `similar` — Find images/video moments by visual or text similarity in a local CLIP (basic-clip) index.
+- `similar` — Find images/video moments or audio by visual, audio, or text similarity in a local CLIP (basic-clip) or CLAP (basic-clap) index.
 - `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.
@@ -34,7 +35,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
 - `index` — Manage tinycloud indexes that index a target's videos (create/attach/add/list/show/delete/remove/entities).
-- `target` — Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
+- `target` — Define/refine the standing scope, a.k.a. a line of investigation (add|list|rm|show|close|reopen). Persisted to .overcast/target.json.
 - `source` — Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
 - `note` — Add a human observation/finding to the case, optionally anchored to evidence.
 - `finding` — Create and review findings (create|list|accept|dismiss).
@@ -54,15 +55,15 @@ Run any verb from bash and parse the JSON record:
 ```bash
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
-overcast finding list --json              # review automated target matches
+overcast finding list --state triage --json  # triage auto-suggested leads (accept/dismiss)
 overcast note "rear plate is missing" --ref <record-id> --at 12-18 --json
 overcast face ./clip.mp4 --thumbnails --json  # detect faces (boxes + provider frame thumbnails)
 overcast face ./clip.mp4 --match ./suspect.jpg --json   # find this person in the video (JPEG/PNG query image)
 overcast crop <face-or-see-record-id> --all --class face --json  # materialize detection crops as evidence
 overcast ask "every white van, with timestamps" --json
 overcast case memory index status --json  # inspect default local-grep case search
-overcast brief --export ./brief.html      # evidence-only narrative report
-overcast case status --export ./status.html --theme csi   # current case dashboard
+overcast brief --export ./brief.html      # short analyst brief (verdict-led); --full for the verbatim timeline
+overcast case status --export ./status.html --theme csi   # mission board (threads, coverage, triage)
 overcast case records --export ./records.html --theme csi # full audit log
 ```
 
@@ -83,15 +84,38 @@ Built-in source refs for `source add <type>:<ref>`:
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
 read it when you need a verb's exact flags).
 
+### Lines of investigation & triage
+
+A `target` is a **line of investigation**: `target add <value> --question "…"`
+records what would resolve it; `target close <id> --as answered|dead-end --note`
+marks it done (closed lines stop seeding scans); `target reopen <id>` reactivates.
+
+Findings **auto-suggest** by default: score triggers (face ≥75, image RANSAC,
+similar ≥85, cluster ≥70, audio fingerprint) and non-image target text matches
+emit `suggested` leads on every verb — so a standalone `face --match` /
+`image match` / `similar match` / `cluster identify` / `audio match` surfaces
+a lead. Suggested leads are
+quarantined from `ask`/`brief` until accepted. Triage with
+`finding list --state triage` (bare `list` shows only `open`), then
+`finding accept <id>` (→ evidence) or `finding dismiss <id>` (blocks re-suggestion).
+The **`/debrief`** prompt automates the loop: triage leads → write one
+`thread:<target-id>` narrative note per line → `target close` resolved lines →
+refresh the `tldr` note → `brief --export`.
+
 ### Brief vs status vs records
 
-Use `brief` for the evidence narrative: it reports over the same evidence-only
-boundary as case memory, so setup/read/meta records are excluded.
+Use `brief` for the evidence narrative — **short by default**: verdict → goal
+status → key findings (with visual proof) → lines of investigation (per-target
+threads with a stage + activity sparkline) → triage queue → coverage gaps → a
+compact record trail. `--full` appends the verbatim per-record timeline. It
+reports over the same evidence-only boundary as case memory, so setup/read/meta
+records — and un-accepted `suggested` findings — are excluded.
 
-Use `case status` for the current dashboard: setup health, targets, sources,
-indexes, memory/index state, record/store counts, artifacts, and match
-visualizations when available. Treat it as situational context, not evidence for
-later memory or briefs.
+Use `case status` as the **mission board**: a goal headline + per-target threads
+on a stage ladder (cold → collecting → leads → corroborated → answered/dead-end),
+a per-source coverage funnel, scan/monitor/brief freshness, and the triage queue —
+with setup health, store counts, and match visualizations below. Treat it as
+situational context, not evidence for later memory or briefs.
 
 Use `case records` for the audit trail: it includes the append-only operational
 history, including setup, target/source changes, index work, asks, briefs, and
@@ -230,9 +254,15 @@ overcast case setup edit \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
-  --findings review \
+  --findings suggest \
   --yes --json
 ```
+
+Findings default to `--findings suggest` (score/text triggers auto-emit
+`suggested` leads on every verb; tune floors with
+`case setup --findings-threshold face=75,similar=85,cluster=70,image_inliers=1`);
+`review` is the legacy text-only mode, `off` disables. `finding list` alone
+shows only `open` findings — pass `--state triage` to see the leads.
 
 Use `overcast case setup edit --no-auto-index-new --yes --json` to disable
 automatic indexing later without removing the selected providers or auto-sense

@@ -34,8 +34,9 @@ Provider configuration has **two levels**:
 - **Case provider policy** lives in `.overcast/setup.json` and records which
   provider choices a case expects, which provider outputs are eligible for local
   memory/indexing, which senses run automatically on newly captured media,
-  whether new media is auto-indexed, and whether automated target matches become
-  reviewable findings.
+  whether new media is auto-indexed, and how findings auto-suggest — a persist
+  hook fires on every verb and emits `suggested` leads from score triggers plus
+  target text matches (default `suggest` mode), quarantined until accepted.
 
 Runtime execution always follows the **active profile binding**. Case setup
 stores choice/policy metadata and can clear a built-in such as `enhance:ffmpeg`,
@@ -55,9 +56,16 @@ overcast case setup edit \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
-  --findings review \
+  --findings suggest \
   --yes --json
 ```
+
+Findings **auto-suggest** by default (`--findings suggest`): a persist hook on
+every evidence verb emits `status:"suggested"` findings from score triggers
+(face ≥75, image RANSAC ≥1 inlier, similar ≥85, cluster ≥70, audio fingerprint) and non-image
+target text matches, quarantined until you `finding accept` them. Tune the floors
+with `case setup --findings-threshold face=75,similar=85,cluster=70,image_inliers=1`;
+`--findings review` is the legacy text-only mode and `off` disables it.
 
 Provider classes:
 
@@ -150,13 +158,13 @@ Eligible fields when allowed by the signal filter:
 | `scan` | title, snippet, url, source, published | — |
 | `capture` | title, snippet, text, path, source, kind | — |
 | `enhance` | summary, path, ops, output | — |
-| `finding` | root findings with `text` + `status` | review-rows, dismissed, list envelopes |
+| `finding` | root findings with `text` + `status` | review-rows, suggested, dismissed, list envelopes |
 
 Excluded from memory and briefs: prior read/meta output (`ask`, `brief`,
 `case`); setup/operational output (`setup`, `doctor`, `provider`, `skills`,
 `index`, `target`, `source`, `prebrief`, `wall`, `grid`); finding review-rows,
-finding-command errors, `finding list` envelopes, and dismissed root findings
-(still auditable in records/logs).
+finding-command errors, `finding list` envelopes, and `suggested` (excluded until
+accepted) or dismissed root findings (still auditable in records/logs).
 
 Raw detection payloads are intentionally not searchable. Use exact record reads
 (`case memory get <id>`) or `crop <record-id>` for boxes/images.
@@ -168,10 +176,15 @@ Raw detection payloads are intentionally not searchable. Use exact record reads
   `setup memory qmd` (or `case setup --memory qmd`) and
   `case memory index rebuild --memory qmd`.
 - **Local memory passages:** `case memory search "..."` returns snippets.
-- **Briefs:** `brief` reports over the same evidence boundary.
-- **Case status:** `case status` is a current-state dashboard: setup health,
-  targets, sources, indexes, memory/index state, store counts, artifacts, and
-  match visualizations when available.
+- **Briefs:** `brief` reports over the same evidence boundary — short by default
+  (verdict → goal status → key findings → lines of investigation → triage →
+  coverage → compact record trail); `--full` appends the verbatim per-record
+  timeline.
+- **Case status:** `case status` is a **mission board**: the goal headline, each
+  target as a line of investigation on a stage ladder
+  (cold→collecting→leads→corroborated→answered/dead-end), a coverage funnel,
+  freshness, and the triage queue — with setup health, store counts, and match
+  visualizations below.
 - **Case records:** `case records` is the append-only audit log. It includes
   operational/read/meta records that are intentionally excluded from memory and
   briefs, so use it for trace, provenance, and debugging.
@@ -216,8 +229,8 @@ should not be used to create visual DBs; create them explicitly with
 binary media, embeddings, frame samples, or visualization images.
 
 In short: open `brief` when you want the evidence narrative, `case status` when
-you want the live case dashboard, and `case records` when you need the full
-history of what the system and user did.
+you want the live mission board (goal, target threads, coverage, triage), and
+`case records` when you need the full history of what the system and user did.
 
 Direct CLI HTML exports default to `plain` for compatibility. Agent/TUI tool
 calls default `.html` exports to the `csi` visualization theme when the verb
@@ -244,7 +257,7 @@ overcast case setup edit \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
-  --findings review \
+  --findings suggest \
   --yes --json
 ```
 
@@ -252,7 +265,8 @@ overcast case setup edit \
 2. Run init hooks + `doctor` to surface missing credentials or local deps.
 3. Per case, record the expected provider choices with `case setup --provider`.
 4. Mark which outputs are memory/index eligible (`--provider-indexable`).
-5. Choose whether scans/monitors auto-sense, auto-index, and create findings.
+5. Choose whether scans/monitors auto-sense and auto-index; findings auto-suggest
+   on every evidence verb (`--findings suggest`, the default).
 
 ### 2. First-run case setup wizard
 
@@ -275,7 +289,7 @@ overcast case setup \
   --provider "see:owl-local" \
   --provider-indexable "see" \
   --auto-sense "watch,see" \
-  --findings review \
+  --findings suggest \
   --yes
 overcast case setup status
 overcast scan --local
@@ -297,7 +311,7 @@ overcast watch ./clip.mp4
 overcast note "rear plate is missing" --ref <watch-record-id> --at 12-18 --tag vehicle
 overcast ask "What happened in the clip?"
 overcast view <watch-record-id>
-overcast brief --export report.md
+overcast brief --export report.md        # short verdict-led brief; add --full for the verbatim timeline
 ```
 
 ### 4. Local visual DB: logos, faces, and semantic (CLIP) search
@@ -338,6 +352,52 @@ frame-level and a video-level index side by side in the wizard (one comma-separa
 `--index`; per-index config pairs use `;`):
 `case setup --index "moments:basic-clip@granularity=frame,clips:basic-clip@granularity=video" --yes`.
 
+### 4b. Local audio DB: fingerprint matching + CLAP similarity
+
+The audio twins of `image` and `similar`: `audio` does Shazam-style **exact**
+recording matching (Wang 2003 constellation hashes), and a `basic-clap` index gives
+`similar` audio↔audio + text→audio **semantic** search.
+
+```bash
+scripts/visual-db-uv.sh --audio   # numpy/scipy fingerprint deps (add --clap for CLAP)
+overcast doctor --json            # the `audio-db` check reports fingerprint + clap deps
+
+# exact matching: which recording contains this clip, and WHERE
+overcast index create jingles --type audio-fp --local --json
+overcast audio add ./original.mp4 --to jingles --json          # fingerprint (videos → audio track)
+overcast audio match ./suspect.mp4 --index jingles --json      # offset-aligned: "appears at 01:23"
+overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --draw --json  # reject sped re-uploads + plot the alignment
+overcast audio match ./clipA.mp3 ./clipB.mp3 --json            # clip-to-clip, no index needed
+
+# semantic similarity: audio->audio and text->audio (CLAP)
+scripts/visual-db-uv.sh --clap    # ~776MB model, downloaded once on first use
+overcast index create sounds --type basic-clap --local --json
+overcast similar add ./scene.wav --index sounds --json         # embed + cache (10s audio windows)
+overcast similar match ./query.wav --index sounds --json       # audio -> audio
+overcast similar search "crowd chanting" --index sounds --json # text -> audio moments
+```
+
+`audio match` reports, per member, the aligned-vote count, the time `offset_seconds`
+where the query lines up inside the recording, a `match_ratio`, and a `margin` over
+the next-best alignment; `--min-votes` (default 6) is the confidence floor. It is
+robust to transcode, noise, and clipping but **not** to pitch/speed change (classic
+Wang). A slightly sped-up re-upload can still clear the raw vote floor as a weak
+partial alignment (margin ~1.2–1.7× vs a true match's 250–1600×) — pass
+`--min-margin 2` for exact-copy detection to reject those (a matching-oriented
+`--speed-sweep` is planned separately). A silent/tonal clip fingerprints to 0 hashes
+and `audio add` flags it with a `payload.warning`. `--draw` renders an SVG alignment
+plot per match (hash-pair scatter + offset histogram, the Shazam analog of `image
+--draw`) into the case media store; the `brief`/`case status` HTML embeds it — a true
+match shows a tight aligned band + one sharp spike, a rejected copy a short scattered
+cluster.
+`basic-clap` reuses the `similar` grammar and the `basic-clip` cache layout; audio is
+chunked into `--window`-second slices (default 10s), pooled to a track vector, or
+stored per-window as moments with `--granularity frame`. The first CLAP call
+downloads the model to the HF cache; pre-warm it, then set `HF_HUB_OFFLINE=1` for
+fully offline runs. `--clip` and `--clap` share one torch in the venv — install both
+together via `scripts/visual-db-uv.sh --all` when you want the whole visual+audio
+stack (see [providers.md](providers.md)).
+
 ### 5. Local-media-only person search
 
 Candidate videos on disk + a reference image, no external sources.
@@ -371,12 +431,13 @@ overcast case setup \
   --provider "listen:elevenlabs" \
   --provider-indexable "listen" \
   --auto-sense "watch,listen" \
-  --findings review \
+  --findings suggest \
   --yes
 overcast scan --limit 5 --pull
-overcast finding list --json
+overcast finding list --state triage --json      # open + suggested leads
+overcast finding accept <finding-id>             # promote a lead to evidence (or: finding dismiss)
 overcast ask "What new claims or events appear?"
-overcast brief --export acme-watch.md
+overcast brief --export acme-watch.md            # short verdict-led brief; --full for the timeline
 ```
 
 Each pulled AV hit is captured, then run through the setup automation chain
@@ -396,10 +457,10 @@ overcast case setup \
   --source youtube:@acme \
   --auto-sense "watch" \
   --auto-index-new \
-  --findings review \
+  --findings suggest \
   --yes
 overcast monitor --every 15m --limit 5 --brief --alert .overcast/alerts.jsonl
-overcast finding list --json
+overcast finding list --state triage --json      # open + suggested leads → finding accept/dismiss
 ```
 
 Run `monitor --every` under tmux/a scheduler. New hits are captured + sensed;
@@ -543,9 +604,13 @@ overcast ask "What observations mention license plates?"
 overcast brief --scope verb:note --export analyst-notes.md
 ```
 
-Use `note` for observations; use `finding create` to pin confirmed evidence
-(`finding accept`/`dismiss` append review rows; dismissed findings stay auditable
-but drop out of memory/briefs).
+Use `note` for observations; use `finding create` to pin confirmed evidence.
+Findings also **auto-suggest**: matching verbs (`face --match`, `image match`,
+`similar match`, `cluster identify`, or a sense verb hitting a target) emit
+`status:"suggested"` leads. Triage them with `finding list --state triage`
+(open + suggested), then `finding accept` (→ evidence) or `finding dismiss` (a
+dismissed suggestion never re-fires for the same match). Both `suggested` and
+dismissed findings stay auditable but drop out of memory/briefs.
 
 ### 17. Control-room wall
 
@@ -582,9 +647,10 @@ overcast source add "x:video:<topic keywords>" --json
 overcast source add lens:./original-frame.png --json          # reverse image search
 overcast scan --since 7d --limit 10 --json                    # triage first: Apify bills per result
 overcast capture <scan-hit-id> --json
-overcast image match <capture-id> --index <index-id> --draw --json
-overcast finding create "copycat: <because-clause>" --ref <image-match-id> --confidence high --json
-overcast brief --export copycats.html
+overcast image match <capture-id> --index <index-id> --draw --json   # a RANSAC hit auto-suggests a lead
+overcast finding list --state triage --json                          # the copycat lead is already suggested
+overcast finding accept <finding-id> --json                          # accept it (or hand-author: finding create --ref <image-match-id>; dedup drops the dup)
+overcast brief --export copycats.html                               # short verdict-led brief; --full for the frame dump
 overcast monitor --every 1d --json
 ```
 
@@ -594,6 +660,27 @@ Google Lens reverse image search via Apify. `image match` gates on
 planar-projection (homography) validity — read the inlier count + ratio and
 eyeball the `--draw` overlay before calling a rip; keyword overlap alone is not
 a match.
+
+### 19. Triage auto-suggested leads / analyst debrief
+
+Findings auto-suggest as you work — turn the queue of leads into resolved lines
+of investigation, then a verdict-led brief.
+
+```bash
+overcast face ./clip.mp4 --match ./suspect.jpg --json   # a ≥75 match auto-suggests a lead
+overcast finding list --state triage --json             # open + suggested leads awaiting review
+overcast finding accept <finding-id> --json             # promote a lead to evidence…
+overcast finding dismiss <other-id> --json              # …or block it (never re-suggested for that match)
+overcast target close <target-id> --as answered --note "confirmed: suspect appears at 00:14" --json
+overcast case status --json                             # mission board: threads on the stage ladder + triage
+overcast brief --export debrief.html                    # short verdict-led brief; --full for the timeline
+```
+
+Targets are **lines of investigation**: `target add --question` frames one,
+`target close <id> --as answered|dead-end --note` resolves it (closed lines stop
+seeding scans), and `target reopen` revives it. The `/debrief` prompt automates
+this whole loop — triage leads, write `thread:<tgt_id>` narrative notes, close
+resolved lines, refresh the `tldr` note, and `brief --export`.
 
 ## Command matrix
 
@@ -614,13 +701,13 @@ a match.
 | `capture` | osint | `capture` | local copy/stdin or source fetch | source provider | Acquire media/content |
 | `monitor` | osint | `scan.hit` + capture/sense | scan/capture/sense chain | source + sense overrides | Repeated discovery w/ dedupe |
 | `index` | osint | `index` | tinycloud library collections | pinned tinycloud | Remote typed indexes |
-| `target` | state | `target` | local state | none | Standing scope |
+| `target` | state | `target` | local state | none | Line of investigation (`add --question` / `close --as answered\|dead-end` / `reopen`) |
 | `source` | state | `source` | local state | source provider types | Where to look |
 | `note` | state | `note` | local human record | none | Human observations |
-| `finding` | state | `finding` | local record / setup automation | none | Findings + review |
+| `finding` | state | `finding` | local record / setup automation | none | Findings lifecycle: `create\|list\|accept\|dismiss`, `--state triage` (open + suggested) |
 | `prebrief` | config | `prebrief` | local state | none | Case kickoff |
 | `ask` | read | `answer` | local-grep | qmd or `--index` (tinycloud) | Query memory / remote index |
-| `brief` | read | `brief` | local records | none | Case report |
+| `brief` | read | `brief` | local records | none | Case report — short by default (verdict/threads/triage/coverage), `--full` for the timeline |
 | `case` | state | `case` | local store/memory/setup | none | Inspect/manage case + setup |
 | `setup` | config | `setup` | profile files | none | Bind providers/LLM/memory |
 | `provider` | config | `provider` | provider hooks / catalog | profile descriptors | Provider setup/init/list |

@@ -117,7 +117,11 @@ export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
   return records.filter((rec) => {
     if (!isMemoryRecord(rec)) return false;
     if (rec.verb !== "finding") return true;
-    return findingStatus.get(rec.id) !== "dismissed";
+    // quarantine: dismissed findings are rejected evidence; suggested findings
+    // are unreviewed leads — neither may pollute ask/brief until accepted
+    // (accepting flips the effective status via a review record).
+    const status = findingStatus.get(rec.id);
+    return status !== "dismissed" && status !== "suggested";
   });
 }
 

@@ -139,6 +139,35 @@ Options:
 
 Emits `image.match` records.
 
+### `overcast audio`
+
+`audio add <audio|video|record-id> --index <local-audio-fp-index>` fingerprints a recording (Wang 2003 constellation hashes) and caches it in a local audio-fp index. `audio match <query> --index <id>` finds which indexed recording contains the query and WHERE (offset-histogram alignment: 'query audio appears at 01:23 in recording Y'). `audio match <query> <reference>` compares two clips directly, no index needed. Videos are accepted — their audio track is extracted. Robust to transcode/noise/clipping; NOT robust to pitch/speed change.
+
+```
+overcast audio <action> [input] [reference] [options]
+
+  Shazam-style exact audio matching: fingerprint clips into a local audio-fp index, or match clip-to-clip with time-offset alignment.
+
+  `audio add <audio|video|record-id> --index <local-audio-fp-index>` fingerprints a recording (Wang 2003 constellation hashes) and caches it in a local audio-fp index. `audio match <query> --index <id>` finds which indexed recording contains the query and WHERE (offset-histogram alignment: 'query audio appears at 01:23 in recording Y'). `audio match <query> <reference>` compares two clips directly, no index needed. Videos are accepted — their audio track is extracted. Robust to transcode/noise/clipping; NOT robust to pitch/speed change.
+
+Arguments:
+  action           add | match
+  input            audio/video path, URL, or record id (the query for match)
+  reference        match: a second clip for direct clip-to-clip comparison (instead of --index)
+
+Options:
+  --index <string>       local audio-fp index id/name
+  --to <string>          alias for --index when adding
+  --min-votes <number>   minimum time-aligned hash votes to confirm a match (default: 6)
+  --min-ratio <number>   minimum aligned-votes / query-hashes ratio (0–1)
+  --min-margin <number>  minimum ratio of best-offset votes over the next-best offset (≥1); a true exact match scores 100s–1000s×, a pitch/speed-shifted copy ~1.2–1.7× — raise this (e.g. 2) to reject sped-up re-uploads
+  --draw                 match: render an SVG alignment visualization per match (hash-pair scatter + offset histogram) — embeds in briefs like image --draw
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `audio.match` records.
+
 ### `overcast cluster`
 
 A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); `cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new person) without writing; `cluster recluster` re-groups every stored face and carries human labels forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the case's sole one when --index is omitted. Emits a `cluster` record.
@@ -176,29 +205,29 @@ Emits `cluster` records.
 
 ### `overcast similar`
 
-`similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+`similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled); a `basic-clap` index instead embeds audio (or a video's audio track) with CLAP. `similar match <image|video|audio> --index <id>` ranks members by image→image (CLIP) or audio→audio (CLAP) similarity; `similar search "<text>" --index <id>` ranks members by text→image (CLIP) or text→audio (CLAP) similarity. Runs OpenAI CLIP / LAION CLAP locally; scores are cosine×100 (0–100).
 
 ```
 overcast similar <action> [input]... [options]
 
-  Find images/video moments by visual or text similarity in a local CLIP (basic-clip) index.
+  Find images/video moments or audio by visual, audio, or text similarity in a local CLIP (basic-clip) or CLAP (basic-clap) index.
 
-  `similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+  `similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled); a `basic-clap` index instead embeds audio (or a video's audio track) with CLAP. `similar match <image|video|audio> --index <id>` ranks members by image→image (CLIP) or audio→audio (CLAP) similarity; `similar search "<text>" --index <id>` ranks members by text→image (CLIP) or text→audio (CLAP) similarity. Runs OpenAI CLIP / LAION CLAP locally; scores are cosine×100 (0–100).
 
 Arguments:
   action           add | match | search
-  input            image/video path, URL, record id (add/match) — or a text query (search)
+  input            image/video/audio path, URL, record id (add/match) — or a text query (search)
 
 Options:
-  --index <string>       local basic-clip index id/name
+  --index <string>       local basic-clip (CLIP) or basic-clap (CLAP audio) index id/name
   --to <string>          alias for --index when adding
   --min-similarity <number> match/search: similarity floor (0–100)
   --limit <number>       match/search: max results
   --offset <number>      match/search: result offset
-  --pooling <string>     match: pool the query video's frames by max | mean (members follow the index config)
-  --granularity <string> video (one vector/video) | frame (moments) — set at `index create`; members always follow the index config
-  --sampling <string>    match query video: uniform windows | shots (tinycloud watch boundaries); members follow the index config
-  --window <number>      video: seconds per uniform sampling window
+  --pooling <string>     match: pool the query's frames/windows by max | mean (members follow the index config)
+  --granularity <string> video (one vector per file) | frame (moments — video frames, or 10s audio windows for basic-clap) — set at `index create`; members always follow the index config
+  --sampling <string>    basic-clip only — match query video: uniform windows | shots (tinycloud watch boundaries); members follow the index config
+  --window <number>      seconds per uniform sampling window (basic-clip video) or audio chunk (basic-clap)
   --fps <number>         video: frame sampling rate; --max-frames can cap it
   --max-frames <number>  video: frame sample count/cap
   --format <string>      json | md | txt
@@ -437,7 +466,7 @@ Arguments:
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip | audio-fp | basic-clap
   --local                create a local index instead of a tinycloud-backed index
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
@@ -450,10 +479,10 @@ Options:
   --no-download          add: don't materialize the source locally
   --limit <number>       entities: max entities
   --offset <number>      entities: entity offset
-  --pooling <string>     create basic-clip: pool video frames by max | mean
-  --granularity <string> create basic-clip: video | frame (moment-level)
+  --pooling <string>     create basic-clip/basic-clap: pool video frames / audio windows by max | mean
+  --granularity <string> create basic-clip/basic-clap: video (one vector/file) | frame (moment-level / audio windows)
   --sampling <string>    create basic-clip: uniform | shots (watch boundaries)
-  --window <number>      create basic-clip: seconds per uniform sampling window
+  --window <number>      create basic-clip/basic-clap: seconds per uniform sampling window / audio chunk
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -504,6 +533,7 @@ overcast brief  [options]
 
 Options:
   --scope <string>       Filter, e.g. since:24h or verb:watch
+  --full                 Include the full verbatim record timeline (audit dump) instead of the compact appendix
   --export <string>      Write a report file (.md or .html)
   --theme <string>       HTML export theme: plain | csi (default: plain)
   --format <string>      json | md | txt
@@ -516,19 +546,24 @@ Emits `brief` records.
 
 ### `overcast target`
 
-Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
+A target is a line of investigation. `add --question` records what would resolve it; `close <id> --as answered|dead-end --note` marks the line done (closed lines stop seeding scan/monitor); `reopen <id>` reactivates it. Status feeds the brief/status thread cards.
 
 ```
 overcast target <action> [value] [options]
 
-  Define/refine the standing scope (add|list|rm|show). Persisted to .overcast/target.json.
+  Define/refine the standing scope, a.k.a. a line of investigation (add|list|rm|show|close|reopen). Persisted to .overcast/target.json.
+
+  A target is a line of investigation. `add --question` records what would resolve it; `close <id> --as answered|dead-end --note` marks the line done (closed lines stop seeding scan/monitor); `reopen <id>` reactivates it. Status feeds the brief/status thread cards.
 
 Arguments:
-  action           add | list | rm | show
-  value            target value (for add) or id (for rm)
+  action           add | list | rm | show | close | reopen
+  value            target value (for add) or id (for rm/close/reopen)
 
 Options:
   --image                Treat the value as a reference image path
+  --question <string>    add: what would resolve this line of investigation
+  --as <string>          close: answered | dead-end
+  --note <string>        close: why (answered how / why it's a dead end)
   --json                 JSON output
   --format <string>      json | md | txt
 ```
@@ -584,21 +619,21 @@ Emits `note` records.
 
 ### `overcast finding`
 
-Creates manual findings and lists/reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+Creates manual findings and lists/reviews automated findings. Score/text triggers emit `suggested` findings (leads) that stay OUT of memory/brief evidence until reviewed — `finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). Review records reference the original finding; dismissed findings remain auditable.
 
 ```
 overcast finding [action] [id] [options]
 
   Create and review findings (create|list|accept|dismiss).
 
-  Creates manual findings and lists/reviews automated finding records emitted by setup automation. `accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.
+  Creates manual findings and lists/reviews automated findings. Score/text triggers emit `suggested` findings (leads) that stay OUT of memory/brief evidence until reviewed — `finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). Review records reference the original finding; dismissed findings remain auditable.
 
 Arguments:
   action           create | list | accept | dismiss (default: list)
   id               finding id for accept/dismiss, or text for create
 
 Options:
-  --state <string>       list: open | accepted | dismissed | all
+  --state <string>       list: open | suggested | accepted | dismissed | all | triage (open+suggested), or a comma-list
   --target <string>      create: target/scope this finding supports
   --ref <string>         create: source record id, capture id, media path, or URL
   --at <string>          create: evidence timestamp seconds, hh:mm:ss, or start-end
@@ -642,7 +677,8 @@ Options:
   --auto-sense <string>  setup/edit: comma-separated senses to run on newly captured media
   --auto-index-new       setup/edit: automatically add newly analyzed media to configured indexes
   --no-auto-index-new    setup/edit: disable automatic indexing for newly analyzed media
-  --findings <string>    setup/edit: automated finding workflow (off | review)
+  --findings <string>    setup/edit: automated finding workflow (suggest | review | off; default suggest)
+  --findings-threshold <string> setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,image_inliers=1,audio_margin=1)
   --video <string>       setup/edit: comma-separated local videos/URLs to route
   --folder <string>      setup/edit: comma-separated local media folders to remember
   --no-index             setup/edit: save setup routes without starting remote collection ingestion
@@ -650,6 +686,7 @@ Options:
   --verb <string>        Filter records by kind
   --since <string>       Time filter (e.g. 24h, 2026-06-01)
   --export <string>      Write a case status/log report (.md or .html)
+  --full                 status: append the raw payload JSON for auditing
   --theme <string>       HTML export theme: plain | csi (default: plain)
   --field <string>       Payload field to read in full (memory get)
   --offset <number>      Start char offset when paging a field (memory get)
@@ -730,7 +767,7 @@ Options:
   --profile <string>     Profile name to write/read (default: active/default)
   --verb <string>        provider setup: verb to configure
   --choice <string>      provider setup: catalog choice id
-  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip)
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip|audio-fp|basic-clap)
   --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt
