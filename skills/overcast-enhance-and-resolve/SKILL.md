@@ -38,7 +38,8 @@ overcast enhance ./raw.mp4 --ops denoise,upscale,stabilize --json
 
 ```bash
 overcast see frame://<enhanced-record-id>@<seconds> --ocr --json                 # -> <ocr-record-id> (text, no boxes)
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json  # bind OWLv2 for --detect
+scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
 overcast see frame://<enhanced-record-id>@<seconds> --detect "license plate, text" --json  # -> <detect-record-id> (boxes)
 ```
 

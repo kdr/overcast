@@ -37,7 +37,8 @@ overcast see frame://<watch-record-id>@<seconds> --ocr --json     # street signs
    from step 1 have no boxes). Crops become the reverse-search queries:
 
 ```bash
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json  # bind OWLv2 for --detect
+scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
 # detect on the SAME still from step 1 (a photo, or frame://<watch-record-id>@<seconds> for video):
 overcast see ./photo.jpg --detect "sign, storefront, logo, landmark" --json   # -> <detect-record-id>
 overcast crop <detect-record-id> --all --class sign --pad 0.2 --json          # crop the --detect record (it has boxes)

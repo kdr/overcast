@@ -597,8 +597,10 @@ overcast ask "where does the reference person appear, with timestamps and confid
 overcast brief --export ./visual-search.md --json      # short by default; --full for the per-match timeline
 \`\`\`
 
-For an object or open-vocabulary target (\`--detect\` needs a bound detection
-provider first, e.g. \`overcast setup provider see "exec:python3 examples/providers/detect/detect.py"\`):
+For an object or open-vocabulary target (\`--detect\` needs a bound OWLv2 detector —
+build it once with \`scripts/visual-db-uv.sh --detect\`, then bind the venv python it
+prints: \`overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"\`,
+NOT system \`python3\` which lacks torch/transformers):
 
 \`\`\`bash
 overcast see ./clip.mp4 --detect "red backpack" --json
@@ -986,7 +988,8 @@ overcast see frame://<watch-record-id>@<seconds> --ocr --json     # street signs
    from step 1 have no boxes). Crops become the reverse-search queries:
 
 \`\`\`bash
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json  # bind OWLv2 for --detect
+scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
 # detect on the SAME still from step 1 (a photo, or frame://<watch-record-id>@<seconds> for video):
 overcast see ./photo.jpg --detect "sign, storefront, logo, landmark" --json   # -> <detect-record-id>
 overcast crop <detect-record-id> --all --class sign --pad 0.2 --json          # crop the --detect record (it has boxes)
@@ -1079,7 +1082,8 @@ overcast enhance ./raw.mp4 --ops denoise,upscale,stabilize --json
 
 \`\`\`bash
 overcast see frame://<enhanced-record-id>@<seconds> --ocr --json                 # -> <ocr-record-id> (text, no boxes)
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json  # bind OWLv2 for --detect
+scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
 overcast see frame://<enhanced-record-id>@<seconds> --detect "license plate, text" --json  # -> <detect-record-id> (boxes)
 \`\`\`
 
@@ -1398,7 +1402,8 @@ existing evidence into two shareable surfaces. Use the broad \`overcast\` skill 
 overcast doctor --json
 overcast face ./clip.mp4 --thumbnails --json
 overcast crop <face-record-id> --all --class face --square --pad 0.1 --json
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json  # bind OWLv2 for --detect
+scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
 overcast see ./clip.mp4 --detect "car, bag, weapon, phone" --json
 overcast crop <detect-record-id> --all --kind object --json   # crop the --detect record (it has boxes)
 \`\`\`

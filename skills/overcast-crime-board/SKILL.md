@@ -25,7 +25,8 @@ existing evidence into two shareable surfaces. Use the broad `overcast` skill an
 overcast doctor --json
 overcast face ./clip.mp4 --thumbnails --json
 overcast crop <face-record-id> --all --class face --square --pad 0.1 --json
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json  # bind OWLv2 for --detect
+scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
 overcast see ./clip.mp4 --detect "car, bag, weapon, phone" --json
 overcast crop <detect-record-id> --all --kind object --json   # crop the --detect record (it has boxes)
 ```

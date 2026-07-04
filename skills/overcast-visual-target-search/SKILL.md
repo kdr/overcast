@@ -26,8 +26,10 @@ overcast ask "where does the reference person appear, with timestamps and confid
 overcast brief --export ./visual-search.md --json      # short by default; --full for the per-match timeline
 ```
 
-For an object or open-vocabulary target (`--detect` needs a bound detection
-provider first, e.g. `overcast setup provider see "exec:python3 examples/providers/detect/detect.py"`):
+For an object or open-vocabulary target (`--detect` needs a bound OWLv2 detector —
+build it once with `scripts/visual-db-uv.sh --detect`, then bind the venv python it
+prints: `overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"`,
+NOT system `python3` which lacks torch/transformers):
 
 ```bash
 overcast see ./clip.mp4 --detect "red backpack" --json
