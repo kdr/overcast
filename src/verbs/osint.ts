@@ -1076,10 +1076,13 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>, ephemeralFails: 
     // as a successfully-ingested new item; the summary reports it via process_errors.
     if (!ephemeral) {
       seen.add(key);
-    } else if (outcome === "failed") {
+    } else if (outcome === "failed" || outcome === "completed_with_error") {
       // ephemeral hits normally skip `seen` so they re-capture every pass — but a
-      // permanently broken one must not re-run the pull pipeline forever. Count
-      // CONSECUTIVE hard failures and give up (mark seen) past the cap.
+      // hit stuck on a HARD error (capture `failed`, or a sense that errors every
+      // pass → `completed_with_error`) must not re-run the pull pipeline forever.
+      // Count CONSECUTIVE hard-error passes and give up (mark seen) past the cap.
+      // completed_with_pending / _credential_gap are recoverable (a sub-sense is
+      // transiently pending / needs creds), so they fall through to the reset.
       const n = (ephemeralFails.get(key) ?? 0) + 1;
       if (n >= EPHEMERAL_MAX_FAILS) {
         seen.add(key);
@@ -1088,7 +1091,7 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>, ephemeralFails: 
         ephemeralFails.set(key, n);
       }
     } else {
-      // this pass produced content → the resource is alive; reset its failure run.
+      // this pass captured successfully → the resource is alive; reset its run.
       ephemeralFails.delete(key);
     }
     if (outcome === "failed") procErrors++;
