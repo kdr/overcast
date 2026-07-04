@@ -180,6 +180,18 @@ overcast similar add ./clip.mp4 --index scenes --json          # embed + cache (
 overcast similar search "a red car at night" --index scenes --json   # text → image/video moments
 overcast similar match ./reference.jpg --index scenes --json         # image → image/video moments
 
+# 9b) audio DBs: Shazam-style exact matching (audio-fp) + CLAP audio similarity (basic-clap)
+scripts/visual-db-uv.sh --audio           # numpy/scipy fingerprint deps (add --clap for CLAP embeddings)
+overcast index create jingles --type audio-fp --local --json
+overcast audio add ./original.mp4 --to jingles --json                 # fingerprint (video → audio track)
+overcast audio match ./suspect.mp4 --index jingles --json             # which recording + WHERE (offset)
+overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --json # reject sped-up re-uploads
+overcast audio match ./suspect.mp4 --index jingles --draw --json      # + SVG alignment plot (embeds in briefs)
+overcast audio match ./a.mp3 ./b.mp3 --json                           # clip-to-clip, no index
+overcast index create sounds --type basic-clap --local --json         # CLAP audio-embedding DB
+overcast similar add ./clip.wav --index sounds --json                 # embed + cache (10s audio windows)
+overcast similar search "crowd chanting" --index sounds --json        # text → audio moments
+
 # 10) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
@@ -223,8 +235,9 @@ surface + env vars.)
 | `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM / the opt-in tinycloud `see`+`extract` provider, ≥ 0.3.7) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
+| `audio` | Shazam-style exact audio matching against a local `audio-fp` index (time-offset alignment), or clip-to-clip `audio match <query> <reference>`; `--min-margin` rejects sped re-uploads, `--draw` renders an SVG alignment plot for briefs |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
-| `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) index — `search` by text, `match` by image, video moments included |
+| `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 
 **Inspect** — look at the evidence
@@ -240,7 +253,7 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, and `basic-clip` DBs |
+| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `basic-clip`, `audio-fp`, and `basic-clap` DBs |
 | `target` / `source` / `note` | manage the standing scope, where to look, and human-authored observations |
 | `finding` | create and review findings (`create` / `list` / `accept` / `dismiss`) — manual + setup-automated |
 | `prebrief` | stand up a case (name + target + source) in one shot |

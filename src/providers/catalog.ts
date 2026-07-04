@@ -95,6 +95,34 @@ export function providerChoices(): ProviderChoice[] {
       indexableDefault: true,
     },
     {
+      id: "audio-fp",
+      verb: "audio",
+      label: "Local audio fingerprint (audio-fp)",
+      summary: "Local Shazam-style fingerprint matcher (numpy/scipy); audio-fp indexes are the local hash store for `audio` (exact clip matching).",
+      descriptor: {
+        type: "inproc",
+        backend: "audio-fp",
+        id: "audio-fp",
+        init: { command: `bash ${localVisionSetup} --audio` },
+      },
+      env: ["OC_VISUAL_DB_PY"],
+      indexableDefault: true,
+    },
+    {
+      id: "basic-clap",
+      verb: "similar",
+      label: "Local CLAP audio (basic-clap)",
+      summary: "Local LAION CLAP audio-embedding DB; basic-clap indexes are the local vector store for `similar` (audio/text→audio search).",
+      descriptor: {
+        type: "inproc",
+        backend: "basic-clap",
+        id: "basic-clap",
+        init: { command: `bash ${localVisionSetup} --clap` },
+      },
+      env: ["OC_VISUAL_DB_PY", "OC_CLAP_MODEL"],
+      indexableDefault: true,
+    },
+    {
       id: "ffmpeg",
       verb: "enhance",
       label: "Local ffmpeg",
@@ -206,6 +234,12 @@ export const PROVIDER_PRESETS: Record<string, Array<{ verb: string; choice: stri
   ],
   "basic-clip": [
     { verb: "similar", choice: "basic-clip" },
+  ],
+  "audio-fp": [
+    { verb: "audio", choice: "audio-fp" },
+  ],
+  "basic-clap": [
+    { verb: "similar", choice: "basic-clap" },
   ],
 };
 

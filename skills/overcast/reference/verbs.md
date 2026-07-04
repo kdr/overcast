@@ -139,6 +139,35 @@ Options:
 
 Emits `image.match` records.
 
+### `overcast audio`
+
+`audio add <audio|video|record-id> --index <local-audio-fp-index>` fingerprints a recording (Wang 2003 constellation hashes) and caches it in a local audio-fp index. `audio match <query> --index <id>` finds which indexed recording contains the query and WHERE (offset-histogram alignment: 'query audio appears at 01:23 in recording Y'). `audio match <query> <reference>` compares two clips directly, no index needed. Videos are accepted — their audio track is extracted. Robust to transcode/noise/clipping; NOT robust to pitch/speed change.
+
+```
+overcast audio <action> [input] [reference] [options]
+
+  Shazam-style exact audio matching: fingerprint clips into a local audio-fp index, or match clip-to-clip with time-offset alignment.
+
+  `audio add <audio|video|record-id> --index <local-audio-fp-index>` fingerprints a recording (Wang 2003 constellation hashes) and caches it in a local audio-fp index. `audio match <query> --index <id>` finds which indexed recording contains the query and WHERE (offset-histogram alignment: 'query audio appears at 01:23 in recording Y'). `audio match <query> <reference>` compares two clips directly, no index needed. Videos are accepted — their audio track is extracted. Robust to transcode/noise/clipping; NOT robust to pitch/speed change.
+
+Arguments:
+  action           add | match
+  input            audio/video path, URL, or record id (the query for match)
+  reference        match: a second clip for direct clip-to-clip comparison (instead of --index)
+
+Options:
+  --index <string>       local audio-fp index id/name
+  --to <string>          alias for --index when adding
+  --min-votes <number>   minimum time-aligned hash votes to confirm a match (default: 6)
+  --min-ratio <number>   minimum aligned-votes / query-hashes ratio (0–1)
+  --min-margin <number>  minimum ratio of best-offset votes over the next-best offset (≥1); a true exact match scores 100s–1000s×, a pitch/speed-shifted copy ~1.2–1.7× — raise this (e.g. 2) to reject sped-up re-uploads
+  --draw                 match: render an SVG alignment visualization per match (hash-pair scatter + offset histogram) — embeds in briefs like image --draw
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `audio.match` records.
+
 ### `overcast cluster`
 
 A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); `cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new person) without writing; `cluster recluster` re-groups every stored face and carries human labels forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the case's sole one when --index is omitted. Emits a `cluster` record.
@@ -176,29 +205,29 @@ Emits `cluster` records.
 
 ### `overcast similar`
 
-`similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+`similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled); a `basic-clap` index instead embeds audio (or a video's audio track) with CLAP. `similar match <image|video|audio> --index <id>` ranks members by image→image (CLIP) or audio→audio (CLAP) similarity; `similar search "<text>" --index <id>` ranks members by text→image (CLIP) or text→audio (CLAP) similarity. Runs OpenAI CLIP / LAION CLAP locally; scores are cosine×100 (0–100).
 
 ```
 overcast similar <action> [input]... [options]
 
-  Find images/video moments by visual or text similarity in a local CLIP (basic-clip) index.
+  Find images/video moments or audio by visual, audio, or text similarity in a local CLIP (basic-clip) or CLAP (basic-clap) index.
 
-  `similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled). `similar match <image|video> --index <id>` ranks members by image→image similarity; `similar search "<text>" --index <id>` ranks members by text→image similarity. Runs OpenAI CLIP locally (open_clip); scores are cosine×100 (0–100).
+  `similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled); a `basic-clap` index instead embeds audio (or a video's audio track) with CLAP. `similar match <image|video|audio> --index <id>` ranks members by image→image (CLIP) or audio→audio (CLAP) similarity; `similar search "<text>" --index <id>` ranks members by text→image (CLIP) or text→audio (CLAP) similarity. Runs OpenAI CLIP / LAION CLAP locally; scores are cosine×100 (0–100).
 
 Arguments:
   action           add | match | search
-  input            image/video path, URL, record id (add/match) — or a text query (search)
+  input            image/video/audio path, URL, record id (add/match) — or a text query (search)
 
 Options:
-  --index <string>       local basic-clip index id/name
+  --index <string>       local basic-clip (CLIP) or basic-clap (CLAP audio) index id/name
   --to <string>          alias for --index when adding
   --min-similarity <number> match/search: similarity floor (0–100)
   --limit <number>       match/search: max results
   --offset <number>      match/search: result offset
-  --pooling <string>     match: pool the query video's frames by max | mean (members follow the index config)
-  --granularity <string> video (one vector/video) | frame (moments) — set at `index create`; members always follow the index config
-  --sampling <string>    match query video: uniform windows | shots (tinycloud watch boundaries); members follow the index config
-  --window <number>      video: seconds per uniform sampling window
+  --pooling <string>     match: pool the query's frames/windows by max | mean (members follow the index config)
+  --granularity <string> video (one vector per file) | frame (moments — video frames, or 10s audio windows for basic-clap) — set at `index create`; members always follow the index config
+  --sampling <string>    basic-clip only — match query video: uniform windows | shots (tinycloud watch boundaries); members follow the index config
+  --window <number>      seconds per uniform sampling window (basic-clip video) or audio chunk (basic-clap)
   --fps <number>         video: frame sampling rate; --max-frames can cap it
   --max-frames <number>  video: frame sample count/cap
   --format <string>      json | md | txt
@@ -407,7 +436,7 @@ Arguments:
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip | audio-fp | basic-clap
   --local                create a local index instead of a tinycloud-backed index
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
@@ -420,10 +449,10 @@ Options:
   --no-download          add: don't materialize the source locally
   --limit <number>       entities: max entities
   --offset <number>      entities: entity offset
-  --pooling <string>     create basic-clip: pool video frames by max | mean
-  --granularity <string> create basic-clip: video | frame (moment-level)
+  --pooling <string>     create basic-clip/basic-clap: pool video frames / audio windows by max | mean
+  --granularity <string> create basic-clip/basic-clap: video (one vector/file) | frame (moment-level / audio windows)
   --sampling <string>    create basic-clip: uniform | shots (watch boundaries)
-  --window <number>      create basic-clip: seconds per uniform sampling window
+  --window <number>      create basic-clip/basic-clap: seconds per uniform sampling window / audio chunk
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -700,7 +729,7 @@ Options:
   --profile <string>     Profile name to write/read (default: active/default)
   --verb <string>        provider setup: verb to configure
   --choice <string>      provider setup: catalog choice id
-  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip)
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip|audio-fp|basic-clap)
   --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt
