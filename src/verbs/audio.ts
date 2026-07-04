@@ -59,6 +59,7 @@ export const audioVerb: VerbSpec = {
     { name: "min-votes", summary: "minimum time-aligned hash votes to confirm a match", type: "number", default: 6 },
     { name: "min-ratio", summary: "minimum aligned-votes / query-hashes ratio (0–1)", type: "number" },
     { name: "min-margin", summary: "minimum ratio of best-offset votes over the next-best offset (≥1); a true exact match scores 100s–1000s×, a pitch/speed-shifted copy ~1.2–1.7× — raise this (e.g. 2) to reject sped-up re-uploads", type: "number" },
+    { name: "draw", summary: "match: render an SVG alignment visualization per match (hash-pair scatter + offset histogram) — embeds in briefs like image --draw", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -119,11 +120,11 @@ export const audioVerb: VerbSpec = {
       const ref = resolveVideoArg(ctx.case, reference, "audio match");
       if (ref.error) return [err(ref.error)];
       if (!/^https?:\/\//i.test(ref.ref!) && !existsSync(ref.ref!)) return [err(`audio match: reference not found: ${ref.ref}`)];
-      rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", against: ref.ref!, minVotes, minRatio, minMargin, signal: ctx.signal });
+      rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", against: ref.ref!, minVotes, minRatio, minMargin, draw: ctx.opts.draw === true, signal: ctx.signal });
     } else {
       const idx = localAudioIndex(ctx.case, indexValue);
       if (idx.error) return [err(`audio match: ${idx.error}`)];
-      rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", indexId: idx.id!, minVotes, minRatio, minMargin, signal: ctx.signal });
+      rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", indexId: idx.id!, minVotes, minRatio, minMargin, draw: ctx.opts.draw === true, signal: ctx.signal });
     }
     // if the query was captured from a post, trace the match back to it
     stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));

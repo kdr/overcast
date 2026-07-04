@@ -130,6 +130,8 @@ export async function runLocalAudio(
     minVotes?: number;
     minRatio?: number;
     minMargin?: number;
+    /** render an SVG alignment visualization per match (embeds in briefs) */
+    draw?: boolean;
     signal?: AbortSignal;
   },
 ): Promise<OvercastRecord> {
@@ -143,6 +145,7 @@ export async function runLocalAudio(
   if (opts.minVotes != null) args.push("--min-votes", String(opts.minVotes));
   if (opts.minRatio != null) args.push("--min-ratio", String(opts.minRatio));
   if (opts.minMargin != null) args.push("--min-margin", String(opts.minMargin));
+  if (opts.draw) args.push("--draw");
   const env = { ...providerEnv(c.mediaDir), ...(opts.indexId ? { OVERCAST_INDEX_DIR: localIndexDir(c, opts.indexId) } : {}) };
   const rec = await runExecProvider("audio", localVisionPython(), input, {
     env,

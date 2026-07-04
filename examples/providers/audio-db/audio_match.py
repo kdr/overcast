@@ -63,6 +63,7 @@ def parse():
     p.add_argument("--min-votes", dest="min_votes", type=int, default=6)
     p.add_argument("--min-ratio", dest="min_ratio", type=float, default=0.0)
     p.add_argument("--min-margin", dest="min_margin", type=float, default=1.0)
+    p.add_argument("--draw", action="store_true", help="render an SVG alignment visualization per match")
     p.add_argument("input")
     return p.parse_args()
 
@@ -310,7 +311,103 @@ def score_member(q_hashes, q_times, m_hashes, m_times, cfg, min_votes, min_ratio
         "margin": round(margin, 2),
         "span_seconds": round(span_frames * hop / float(sr), 2),
         "_confirmed": aligned_votes >= min_votes and match_ratio >= min_ratio and margin >= min_margin,
+        # plotting data for --draw (stripped from the public payload by _public):
+        # every matching (query-time, member-time) hash pair + the winning offset.
+        "_tqs": tqs, "_deltas": deltas, "_best_c": best_c,
     }
+
+
+# ---- match visualization (dependency-free SVG) -----------------------------
+# The Shazam analog of image_match.py's cv2.drawMatches: a scatter of every
+# matching (query-time, member-time) hash pair — a true match is a tight bright
+# diagonal at the offset, a spurious/speed-drift match is scattered — plus the
+# offset-vote histogram (one sharp spike for a real match). Hand-rolled SVG so it
+# needs no matplotlib; the .svg file drops into the case media store and the brief
+# HTML embeds it exactly like the image-match overlays.
+
+def _esc(s):
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def render_match_svg(query_name, member_name, s, cfg, out_dir):
+    tqs = s.get("_tqs") or []
+    deltas = s.get("_deltas") or []
+    best_c = s.get("_best_c", 0)
+    if not tqs:
+        return None
+    hop = cfg["hop"]
+    sr = cfg["sampleRate"]
+    to_s = hop / float(sr)
+    # (query_time, member_time) pairs in seconds; flag the aligned ones (the votes)
+    pts = [(tq * to_s, (tq + d) * to_s, abs(d - best_c) <= 1) for tq, d in zip(tqs, deltas)]
+    # cap plotted dots so the SVG stays small on dense audio (keep all aligned)
+    aligned = [p for p in pts if p[2]]
+    noise = [p for p in pts if not p[2]]
+    if len(noise) > 3000:
+        step = len(noise) / 3000.0
+        noise = [noise[int(i * step)] for i in range(3000)]
+    if len(aligned) > 3000:
+        step = len(aligned) / 3000.0
+        aligned = [aligned[int(i * step)] for i in range(3000)]
+
+    W, H = 720, 460
+    pad = 44
+    sc_h = 300  # scatter panel height
+    qmax = max((p[0] for p in pts), default=1.0) or 1.0
+    mmax = max((p[1] for p in pts), default=1.0) or 1.0
+
+    def sx(q):
+        return pad + (q / qmax) * (W - 2 * pad)
+
+    def sy(m):
+        return pad + (1 - m / mmax) * (sc_h - pad)
+
+    parts = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" font-family="monospace">' % (W, H, W, H)]
+    parts.append('<rect width="%d" height="%d" fill="#0a0f0d"/>' % (W, H))
+    off = best_c * to_s
+    conf = "CONFIRMED" if s.get("_confirmed") else "rejected"
+    color = "#39ff14" if s.get("_confirmed") else "#ff5f56"
+    parts.append('<text x="%d" y="20" fill="%s" font-size="13">%s  %s -> %s</text>' % (pad, color, conf, _esc(query_name), _esc(member_name)))
+    parts.append('<text x="%d" y="36" fill="#8fa" font-size="11">offset=%.2fs  votes=%d  ratio=%.3f  margin=%.1fx  span=%.1fs</text>'
+                 % (pad, off, s["aligned_votes"], s["match_ratio"], s["margin"], s["span_seconds"]))
+    # scatter axes
+    parts.append('<rect x="%d" y="%d" width="%d" height="%d" fill="none" stroke="#1e3b30"/>' % (pad, pad, W - 2 * pad, sc_h - pad))
+    parts.append('<text x="%d" y="%d" fill="#5a7" font-size="10">member time (s) ^   |   query time (s) ></text>' % (pad + 4, sc_h + 2))
+    # the offset diagonal member_t = query_t + offset (the true-match line)
+    x0, x1 = 0.0, qmax
+    parts.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#2f6" stroke-dasharray="4 4" opacity="0.5"/>'
+                 % (sx(x0), sy(x0 + off), sx(x1), sy(min(mmax, x1 + off))))
+    for q, m, _a in noise:
+        parts.append('<circle cx="%.1f" cy="%.1f" r="1" fill="#3a5" opacity="0.35"/>' % (sx(q), sy(m)))
+    for q, m, _a in aligned:
+        parts.append('<circle cx="%.1f" cy="%.1f" r="1.6" fill="%s" opacity="0.9"/>' % (sx(q), sy(m), color))
+
+    # offset histogram (bottom strip)
+    hist = Counter(int(round(d * to_s)) for d in deltas)  # 1-second offset bins
+    hy0, hy1 = sc_h + 24, H - 16
+    hmax = max(hist.values()) if hist else 1
+    keys = sorted(hist.keys())
+    kmin, kmax = (keys[0], keys[-1]) if keys else (0, 1)
+    span = max(1, kmax - kmin)
+    bw = max(1.0, (W - 2 * pad) / (span + 1))
+    parts.append('<text x="%d" y="%d" fill="#5a7" font-size="10">offset-vote histogram (spike = the match)</text>' % (pad, hy0 - 4))
+    for k, v in hist.items():
+        bx = pad + ((k - kmin) / span) * (W - 2 * pad - bw)
+        bh = (v / hmax) * (hy1 - hy0)
+        bc = color if abs(k - int(round(off))) <= 1 else "#2a6"
+        parts.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>' % (bx, hy1 - bh, bw, bh, bc))
+    parts.append('</svg>')
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha1(("%s|%s" % (query_name, member_name)).encode()).hexdigest()[:16]
+    path = out_dir / ("match_%s.svg" % key)
+    path.write_text("\n".join(parts))
+    return str(path.resolve())
+
+
+def draw_dir(args):
+    base = os.environ.get("OVERCAST_MEDIA_DIR") or args.index_dir or "."
+    return Path(base) / "audio-matches"
 
 
 # ---- ops -------------------------------------------------------------------
@@ -374,6 +471,10 @@ def op_match(args):
         s = score_member(q_hashes, q_times, m_hashes, m_times, cfg, args.min_votes, args.min_ratio, args.min_margin)
         if s:
             item = {"ref": args.against, "duration_seconds": m_dur, **_public(s)}
+            if args.draw:
+                p = render_match_svg(Path(args.input).name, Path(args.against).name, s, cfg, draw_dir(args))
+                if p:
+                    item["match_draw_path"] = p
             if s["_confirmed"]:
                 matches.append(item)
             else:
@@ -390,8 +491,8 @@ def op_match(args):
         fail("local audio-fp index has no members — add some with `audio add ... --index %s`" % args.index, args.input, op)
     q_hashes, q_times, _, q_dur = fingerprint_file(args.input, cfg, op)
 
-    matches = []
-    best_rejected = None
+    scored = []          # (item, s) for confirmed matches
+    best = None          # (item, s) for the single best rejected candidate
     for mem in members:
         built = build_member(mem["ref"], cfg, args.index_dir, op, persist=False)
         if not built:
@@ -404,10 +505,19 @@ def op_match(args):
         if mem.get("recordId"):
             item["recordId"] = mem["recordId"]
         if s["_confirmed"]:
-            matches.append(item)
-        elif best_rejected is None or item["aligned_votes"] > best_rejected["aligned_votes"]:
-            best_rejected = item
-    matches.sort(key=lambda x: x["aligned_votes"], reverse=True)
+            scored.append((item, s))
+        elif best is None or item["aligned_votes"] > best[0]["aligned_votes"]:
+            best = (item, s)
+    scored.sort(key=lambda pair: pair[0]["aligned_votes"], reverse=True)
+    # render only the confirmed matches + the single best rejected (bounds the
+    # SVG count regardless of how many members share a few coincidental hashes)
+    if args.draw:
+        for it, sc in scored + ([best] if best else []):
+            p = render_match_svg(Path(args.input).name, Path(it["ref"]).name, sc, cfg, draw_dir(args))
+            if p:
+                it["match_draw_path"] = p
+    matches = [it for it, _ in scored]
+    best_rejected = best[0] if best else None
     _emit_match(args, op, matches, q_hashes.size, q_dur, cfg, index=args.index, best_rejected=best_rejected)
 
 

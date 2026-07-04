@@ -27,7 +27,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // or clap_match.py) → picks the record `verb`.
 const STUB = `#!/usr/bin/env bash
 script="$1"; shift
-op=""; against=""; minvotes=""; minratio=""; minmargin=""; minsim=""; index=""; gran=""; samp=""; win=""; input=""
+op=""; against=""; minvotes=""; minratio=""; minmargin=""; minsim=""; index=""; gran=""; samp=""; win=""; draw="no"; input=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --op) op="$2"; shift 2;;
@@ -40,6 +40,7 @@ while [ $# -gt 0 ]; do
     --granularity) gran="$2"; shift 2;;
     --sampling) samp="$2"; shift 2;;
     --window) win="$2"; shift 2;;
+    --draw) draw="yes"; shift;;
     --index-dir|--limit|--offset|--pooling) shift 2;;
     *) input="$1"; shift;;
   esac
@@ -48,7 +49,7 @@ case "$script" in
   *clap_match.py) verb="similar";;
   *) verb="audio";;
 esac
-printf '{"verb":"%s","format":"json","payload":{"op":"%s","against":"%s","min_votes":"%s","min_ratio":"%s","min_margin":"%s","min_similarity":"%s","index":"%s","granularity":"%s","sampling":"%s","window":"%s","input":"%s","matches":[],"count":0},"state":"ready","meta":{"provider":"fake-audio"}}\\n' "$verb" "$op" "$against" "$minvotes" "$minratio" "$minmargin" "$minsim" "$index" "$gran" "$samp" "$win" "$input"
+printf '{"verb":"%s","format":"json","payload":{"op":"%s","against":"%s","min_votes":"%s","min_ratio":"%s","min_margin":"%s","min_similarity":"%s","index":"%s","granularity":"%s","sampling":"%s","window":"%s","draw":"%s","input":"%s","matches":[],"count":0},"state":"ready","meta":{"provider":"fake-audio"}}\\n' "$verb" "$op" "$against" "$minvotes" "$minratio" "$minmargin" "$minsim" "$index" "$gran" "$samp" "$win" "$draw" "$input"
 `;
 
 // A fake that always fails (deps-missing style) to test the ready-gated add.
@@ -231,6 +232,21 @@ test("audio match forwards --op/--min-votes/--min-margin to the provider (indexe
     assert.equal(p.min_votes, "8");
     assert.equal(p.min_margin, "2"); // the speed-drift gate is forwarded
     assert.equal(p.against, ""); // indexed mode → no pairwise reference
+  });
+});
+
+test("audio match forwards --draw to the provider", async () => {
+  await withStub(STUB, async (dir) => {
+    const q = join(dir, "q.wav");
+    writeFileSync(q, "x");
+    const id = await createIndex(dir, "audio-fp");
+    addMember(openCase(dir), id, { ref: q });
+    const [rec] = await audioVerb.run(mk(dir, "match", [q], { index: id, draw: true }));
+    assert.equal(rec.state, "ready", rec.error);
+    assert.equal((rec.payload as Record<string, unknown>).draw, "yes");
+    // no --draw → not forwarded
+    const [plain] = await audioVerb.run(mk(dir, "match", [q], { index: id }));
+    assert.equal((plain.payload as Record<string, unknown>).draw, "no");
   });
 });
 
@@ -425,6 +441,16 @@ test("audio_match.py gates confirmation on margin and warns on a 0-hash (silent)
   // …and a silent/tonal member (0 hashes) must be flagged, not silently registered
   assert.match(src, /if hashes\.size == 0:/);
   assert.match(src, /"warning"\] = "no fingerprint hashes/);
+});
+
+test("audio_match.py --draw renders a dependency-free SVG under audio-matches/", () => {
+  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "audio-db", "audio_match.py"), "utf8");
+  // the alignment visualization is hand-rolled SVG (no matplotlib dep) written to
+  // the case media store, surfaced to the record as match_draw_path
+  assert.match(src, /def render_match_svg\(/);
+  assert.match(src, /"audio-matches"/);
+  assert.match(src, /item\["match_draw_path"\] = p/);
+  assert.match(src, /<svg xmlns=/);
 });
 
 test("clap_match.py uses the basic-clip emb/ cache layout and clap deps hint", () => {

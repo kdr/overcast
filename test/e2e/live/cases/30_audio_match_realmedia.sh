@@ -90,6 +90,26 @@ else
   fail "$C.speed_margin" "--min-margin 2 still confirmed the sped copy (margin ${spd_margin})"
 fi
 
+# --- --draw: render the alignment visualization + embed it in a brief ---------
+cond "audio match --draw renders an SVG alignment plot that embeds in a CSI brief"
+dr="$(oc "$CASE" audio match "$WORK/mid.m4a" --index "$IDX" --draw --json)"
+save_json "30_draw" "$dr" >/dev/null
+DRAW_PATH="$(echo "$dr" | jq -r '.payload.matches[0].match_draw_path // empty')"
+DR_ID="$(echo "$dr" | jq -r '.id // empty')"
+if [ -n "$DRAW_PATH" ] && [ -s "$DRAW_PATH" ] && head -c 64 "$DRAW_PATH" | grep -q "<svg"; then
+  ok "$C.draw" "wrote SVG alignment plot ($(wc -c <"$DRAW_PATH" | tr -d ' ')B): $DRAW_PATH"
+  oc "$CASE" finding create "audio self-location CONFIRMED at ~${CUT}s (alignment plotted)" --ref "$DR_ID" --confidence high --json >/dev/null
+  BRIEF="$WORK/30_audio_brief.html"
+  oc "$CASE" brief --export "$BRIEF" --theme csi --json >/dev/null
+  if [ -s "$BRIEF" ] && grep -q 'data-csi-overlays' "$BRIEF" && grep -q 'data:image/svg' "$BRIEF"; then
+    ok "$C.draw_brief" "brief HTML embeds the SVG alignment overlay ($(wc -c <"$BRIEF" | tr -d ' ')B)"
+  else
+    fail "$C.draw_brief" "brief did not embed the audio-match SVG at $BRIEF"
+  fi
+else
+  fail "$C.draw" "audio match --draw did not write a valid SVG (got '$DRAW_PATH')"
+fi
+
 # --- negative: a different real video is rejected -----------------------------
 cond "a different real video is rejected (no false positive)"
 NEG=""

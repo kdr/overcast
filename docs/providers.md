@@ -391,11 +391,20 @@ A member whose audio is silent or purely tonal produces **0 constellation hashes
 and can never match; `audio add` still succeeds but the record carries a
 `payload.warning` so a silent screen-recording isn't mistaken for a searchable member.
 
+`--draw` renders a dependency-free **SVG alignment visualization** per match (the
+Shazam analog of `image --draw`'s `cv2.drawMatches`): a scatter of every matching
+`(query-time, member-time)` hash pair — a true match is a tight bright band, a
+speed-drift/false match is a short scattered cluster — plus the offset-vote
+histogram (one sharp spike for a real match). The `.svg` lands in the case media
+store under `audio-matches/`, its path in `matches[].match_draw_path`, and the
+`brief`/`case status` HTML embeds it exactly like the image-match overlays.
+
 ```bash
 overcast index create jingles --type audio-fp --local --json
 overcast audio add ./original.mp4 --to jingles --json        # fingerprint (video → audio track)
 overcast audio match ./suspect.mp4 --index jingles --json    # offset-aligned exact match
 overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --json  # reject sped-up re-uploads
+overcast audio match ./suspect.mp4 --index jingles --draw --json          # + SVG alignment plot
 overcast audio match ./a.mp3 ./b.mp3 --json                  # clip-to-clip, no index
 ```
 
