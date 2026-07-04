@@ -34,7 +34,7 @@ export interface TimelineSynthesis {
   triage?: Array<{ id: string; text: string; confidence?: unknown }>;
 }
 
-const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
+const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
 // deliberately NOT a bare `path`/`img` — the image-match payload carries
 // `db_img_path` (the reference frame) and `query_path` (a temp frame that's
 // deleted after the run); only the rendered `match_draw_path` overlay and real
@@ -429,6 +429,7 @@ function imageMime(path: string): string | undefined {
     case ".webp": return "image/webp";
     case ".bmp": return "image/bmp";
     case ".avif": return "image/avif";
+    case ".svg": return "image/svg+xml"; // audio-match alignment overlays
     default: return undefined;
   }
 }

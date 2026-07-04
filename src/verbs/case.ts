@@ -891,10 +891,12 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
 }
 
 /** Parse `--findings-threshold face=75,similar=85,...` into a thresholds patch.
- *  face/similar/cluster are 0–100 percent floors; image_inliers is a count ≥ 1. */
+ *  face/similar/cluster are 0–100 percent floors; image_inliers is a count ≥ 1;
+ *  audio_margin is a fingerprint-alignment margin ≥ 1. */
 function parseFindingsThresholds(raw: string): { thresholds: Record<string, number>; errors: string[] } {
   const thresholds: Record<string, number> = {};
   const errors: string[] = [];
+  const countKeys = new Set(["image_inliers", "audio_margin"]); // count/ratio floors, not 0–100
   for (const part of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
     const m = part.match(/^([a-z_]+)=(\d+(?:\.\d+)?)$/i);
     if (!m) {
@@ -903,10 +905,10 @@ function parseFindingsThresholds(raw: string): { thresholds: Record<string, numb
     }
     const key = m[1].toLowerCase();
     const value = Number(m[2]);
-    if (!["face", "similar", "cluster", "image_inliers"].includes(key)) {
-      errors.push(`unknown key '${key}' (expected face | similar | cluster | image_inliers)`);
-    } else if (key === "image_inliers" ? value < 1 : value < 0 || value > 100) {
-      errors.push(`'${part}' out of range (${key === "image_inliers" ? "count ≥ 1" : "0–100"})`);
+    if (!["face", "similar", "cluster", "image_inliers", "audio_margin"].includes(key)) {
+      errors.push(`unknown key '${key}' (expected face | similar | cluster | image_inliers | audio_margin)`);
+    } else if (countKeys.has(key) ? value < 1 : value < 0 || value > 100) {
+      errors.push(`'${part}' out of range (${countKeys.has(key) ? "≥ 1" : "0–100"})`);
     } else {
       thresholds[key] = value;
     }
@@ -967,7 +969,7 @@ export const caseVerb: VerbSpec = {
     { name: "auto-index-new", summary: "setup/edit: automatically add newly analyzed media to configured indexes", type: "boolean" },
     { name: "no-auto-index-new", summary: "setup/edit: disable automatic indexing for newly analyzed media", type: "boolean" },
     { name: "findings", summary: "setup/edit: automated finding workflow (suggest | review | off; default suggest)", type: "string" },
-    { name: "findings-threshold", summary: "setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,image_inliers=1)", type: "string" },
+    { name: "findings-threshold", summary: "setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,image_inliers=1,audio_margin=1)", type: "string" },
     { name: "video", summary: "setup/edit: comma-separated local videos/URLs to route", type: "string" },
     { name: "folder", summary: "setup/edit: comma-separated local media folders to remember", type: "string" },
     { name: "no-index", summary: "setup/edit: save setup routes without starting remote collection ingestion", type: "boolean" },

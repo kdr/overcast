@@ -39,7 +39,10 @@ export const DEFAULT_FINDINGS_MODE = "suggest";
 export const TEXT_TARGET_VERBS: ReadonlySet<string> = new Set(["watch", "listen", "see"]);
 
 /** Fire floors (score triggers skip matches below these) and "high" confidence
- *  bands. face/similar/cluster are 0–100 percent; image is inlier count. */
+ *  bands. face/similar/cluster are 0–100 percent; image is RANSAC inlier count;
+ *  audio is the fingerprint alignment margin (best-offset votes / next-best —
+ *  provider-gated, so any match already cleared min-margin; a clean exact match
+ *  scores 100s–1000s×, a sped/pitch-shifted copy ~1.2–1.7×). */
 export interface TriggerThresholds {
   face: number;
   face_high: number;
@@ -49,6 +52,8 @@ export interface TriggerThresholds {
   cluster_high: number;
   image_inliers: number;
   image_inliers_high: number;
+  audio_margin: number;
+  audio_margin_high: number;
 }
 
 export const DEFAULT_TRIGGER_THRESHOLDS: TriggerThresholds = {
@@ -60,6 +65,8 @@ export const DEFAULT_TRIGGER_THRESHOLDS: TriggerThresholds = {
   cluster_high: 80,
   image_inliers: 1,
   image_inliers_high: 40,
+  audio_margin: 1,
+  audio_margin_high: 2,
 };
 
 /** The saved findings policy, with the missing-setup / missing-policy default
@@ -92,10 +99,10 @@ export function targetMatchesEvidence(target: string, text: string): boolean {
 
 /** A cleared score trigger, ready to ride into the finding payload. */
 export interface TriggerSignal {
-  kind: "face-match" | "image-match" | "similar-match" | "cluster-identify" | "text-target";
+  kind: "face-match" | "image-match" | "similar-match" | "cluster-identify" | "audio-match" | "text-target";
   score?: number;
   threshold?: number;
-  unit?: "percent" | "inliers";
+  unit?: "percent" | "inliers" | "margin";
   /** the best-scoring moment (seconds or span) in the source media, if anchored */
   at?: number | [number, number];
   /** matched ref / person label — whatever names the other side of the match */
@@ -188,6 +195,16 @@ export function extractSignal(rec: OvercastRecord, thresholds: TriggerThresholds
     return { kind: "cluster-identify", score: top.score, threshold: thresholds.cluster, unit: "percent", at: top.at, matched: top.matched };
   }
 
+  if (rec.verb === "audio" && op === "match") {
+    // Shazam-style fingerprint match: the provider already gates on min-votes /
+    // -ratio / -margin, so any entry in matches[] is a confident hit (like a
+    // RANSAC image match). Rank by `margin` (best-offset votes over next-best);
+    // `offset_seconds` is the alignment offset, not a query anchor, so no at.
+    const top = best(arr(p.matches), "margin");
+    if (!top || top.score < thresholds.audio_margin) return undefined;
+    return { kind: "audio-match", score: top.score, threshold: thresholds.audio_margin, unit: "margin", matched: top.matched };
+  }
+
   return undefined;
 }
 
@@ -196,6 +213,7 @@ function highBandFor(kind: TriggerSignal["kind"], thresholds: TriggerThresholds)
   if (kind === "similar-match") return thresholds.similar_high;
   if (kind === "cluster-identify") return thresholds.cluster_high;
   if (kind === "image-match") return thresholds.image_inliers_high;
+  if (kind === "audio-match") return thresholds.audio_margin_high;
   return undefined;
 }
 
@@ -228,6 +246,7 @@ function suggestionText(rec: OvercastRecord, sig: TriggerSignal, target?: Target
   if (sig.kind === "image-match") return `Image fingerprint${forTarget} matched (${sig.score} inliers) in ${where}`;
   if (sig.kind === "similar-match") return `Visual similarity ${sig.score?.toFixed(1)}% to ${sig.matched ? baseName(sig.matched) : "indexed media"}${forTarget} in ${where}`;
   if (sig.kind === "cluster-identify") return `Probe face matches known person${sig.matched ? ` '${sig.matched}'` : ""} at ${sig.score?.toFixed(1)}% in ${where}`;
+  if (sig.kind === "audio-match") return `Audio fingerprint${forTarget} matched${sig.matched ? ` ${baseName(sig.matched)}` : ""} (${sig.score?.toFixed(1)}× margin) in ${where}`;
   return `Automated match${forTarget} in ${rec.verb} record ${rec.id}`;
 }
 

@@ -56,6 +56,17 @@ function clusterIdentify(similarity: number): OvercastRecord {
   });
 }
 
+function audioMatch(margin: number, op = "match"): OvercastRecord {
+  // provider-gated fingerprint match: any entry in matches[] already cleared
+  // min-votes/-ratio/-margin; `margin` = best-offset votes over next-best.
+  return makeRecord({
+    verb: "audio",
+    format: "json",
+    payload: { op, summary: `query matches original at +0s`, matches: op === "match" ? [{ ref: "original.mp4", margin, aligned_votes: 500, offset_seconds: 0 }] : [], count: op === "match" ? 1 : 0 },
+    media: { ref: "clip.m4a" },
+  });
+}
+
 const nameTarget: TargetEntry = { id: "tgt_a", kind: "name", value: "acme handle", created: "2026-07-01T00:00:00Z" };
 const imageTarget: TargetEntry = { id: "tgt_b", kind: "image", value: "refs/probe.jpg", created: "2026-07-01T00:00:00Z" };
 const SUGGEST = { mode: "suggest" as const };
@@ -100,6 +111,22 @@ test("evaluateTriggers: image / similar / cluster triggers fire per table", () =
   const cl = evaluateTriggers({ fresh: [clusterIdentify(82)], existing: [], targets: [], policy: SUGGEST });
   assert.equal((cl[0].payload as Record<string, unknown>).confidence, "high");
   assert.match(String((cl[0].payload as Record<string, unknown>).text), /person_1/);
+});
+
+test("evaluateTriggers: audio fingerprint match auto-suggests (margin high band; search never)", () => {
+  // a clean exact match (high margin) → high; a marginal one → medium
+  const strong = evaluateTriggers({ fresh: [audioMatch(50)], existing: [], targets: [], policy: SUGGEST });
+  assert.equal(strong.length, 1);
+  const sp = strong[0].payload as Record<string, unknown>;
+  assert.equal(sp.trigger, "signal:audio-match");
+  assert.equal(sp.confidence, "high");
+  assert.equal((sp.signal as Record<string, unknown>).unit, "margin");
+  assert.match(String(sp.text), /Audio fingerprint/);
+  const weak = evaluateTriggers({ fresh: [audioMatch(1.3)], existing: [], targets: [], policy: SUGGEST });
+  assert.equal((weak[0].payload as Record<string, unknown>).confidence, "medium");
+  // no confident match (empty matches[]) → nothing fires; op:add never fires
+  assert.equal(evaluateTriggers({ fresh: [audioMatch(0, "match")], existing: [], targets: [], policy: SUGGEST }).length, 0);
+  assert.equal(evaluateTriggers({ fresh: [audioMatch(50, "add")], existing: [], targets: [], policy: SUGGEST }).length, 0);
 });
 
 test("evaluateTriggers: text-target — suggested in suggest mode, legacy open in review mode", () => {

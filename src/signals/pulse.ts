@@ -102,7 +102,7 @@ export interface CasePulse {
   gaps: string[];
 }
 
-const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "crop", "enhance"]);
+const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "audio", "crop", "enhance"]);
 
 /** Triage buckets over root findings, by effective (reviewed) status. */
 export function triageCounts(records: OvercastRecord[]): TriageCounts {

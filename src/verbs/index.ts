@@ -47,6 +47,13 @@ import {
   removeClipEmbedding,
   type ClipConfig,
 } from "../providers/local/vision.js";
+import {
+  writeAudioFpConfig,
+  defaultAudioFpConfig,
+  writeClapConfig,
+  defaultClapConfig,
+  removeAudioFingerprint,
+} from "../providers/local/audio.js";
 import { resolveVideoArg, resolveImageArg, resolveVisualArg, isRegisterableMediaRecord, isImage } from "./media-ref.js";
 import { badNumber, numFlag } from "./validate.js";
 import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
@@ -66,9 +73,10 @@ function isLocalIndex(entry: { backend?: string; type: string }): boolean {
 }
 
 /** Build a validated basic-clip ClipConfig from create flags, merged over the
- *  defaults. Returns an error string for a bad enum/number value. */
-function clipConfigFromOpts(opts: Record<string, unknown>): { config?: ClipConfig; error?: string } {
-  const cfg = defaultClipConfig();
+ *  given defaults (basic-clap reuses this with its own base). Returns an error
+ *  string for a bad enum/number value. */
+function clipConfigFromOpts(opts: Record<string, unknown>, base: ClipConfig = defaultClipConfig()): { config?: ClipConfig; error?: string } {
+  const cfg = base;
   const enumFlag = <T extends string>(name: string, allowed: readonly T[]): T | undefined | string => {
     const v = opts[name];
     if (v == null) return undefined;
@@ -92,6 +100,15 @@ function clipConfigFromOpts(opts: Record<string, unknown>): { config?: ClipConfi
     cfg[key] = n;
   }
   return { config: cfg };
+}
+
+/** Build a validated basic-clap ClipConfig from create flags. Audio has no
+ *  frame/shot sampling, so reject those flags rather than silently ignoring. */
+function clapConfigFromOpts(opts: Record<string, unknown>): { config?: ClipConfig; error?: string } {
+  for (const f of ["sampling", "fps", "max-frames"] as const) {
+    if (opts[f] != null) return { error: `--${f} doesn't apply to a basic-clap index — audio is embedded in --window second chunks` };
+  }
+  return clipConfigFromOpts(opts, defaultClapConfig());
 }
 
 function indexRecord(rec: OvercastRecord): OvercastRecord {
@@ -314,7 +331,7 @@ export const indexVerb: VerbSpec = {
     { name: "arg2", summary: "entities: the video/record-id (index entities <id> <video>)", required: false },
   ],
   flags: [
-    { name: "type", summary: "create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip", type: "string" },
+    { name: "type", summary: "create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip | audio-fp | basic-clap", type: "string" },
     { name: "local", summary: "create a local index instead of a tinycloud-backed index", type: "boolean" },
     { name: "description", summary: "create: human description", type: "string" },
     { name: "prompt", summary: "create entities: free-text extraction prompt", type: "string" },
@@ -327,10 +344,10 @@ export const indexVerb: VerbSpec = {
     { name: "no-download", summary: "add: don't materialize the source locally", type: "boolean" },
     { name: "limit", summary: "entities: max entities", type: "number" },
     { name: "offset", summary: "entities: entity offset", type: "number" },
-    { name: "pooling", summary: "create basic-clip: pool video frames by max | mean", type: "string", choices: ["max", "mean"] },
-    { name: "granularity", summary: "create basic-clip: video | frame (moment-level)", type: "string", choices: ["video", "frame"] },
+    { name: "pooling", summary: "create basic-clip/basic-clap: pool video frames / audio windows by max | mean", type: "string", choices: ["max", "mean"] },
+    { name: "granularity", summary: "create basic-clip/basic-clap: video (one vector/file) | frame (moment-level / audio windows)", type: "string", choices: ["video", "frame"] },
     { name: "sampling", summary: "create basic-clip: uniform | shots (watch boundaries)", type: "string", choices: ["uniform", "shots"] },
-    { name: "window", summary: "create basic-clip: seconds per uniform sampling window", type: "number" },
+    { name: "window", summary: "create basic-clip/basic-clap: seconds per uniform sampling window / audio chunk", type: "number" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -359,7 +376,7 @@ export const indexVerb: VerbSpec = {
       const rawType = ctx.opts.type != null ? String(ctx.opts.type) : "media-descriptions";
       const type = normalizeIndexType(rawType);
       if (!type) {
-        return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip)`)];
+        return [err(`unknown --type '${rawType}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip | audio-fp | basic-clap)`)];
       }
       const local = ctx.opts.local === true || LOCAL_INDEX_TYPES.has(type);
       if (ctx.opts.local === true && !LOCAL_INDEX_TYPES.has(type)) {
@@ -384,17 +401,31 @@ export const indexVerb: VerbSpec = {
       }
       if (schema && !existsSync(schema)) return [err(`--schema file not found: ${schema}`)];
       if (local) {
-        // basic-clip carries a per-index CLIP config (pooling/granularity/sampling
-        // /window); persist it to config.json so `similar` + the wizard agree.
+        // basic-clip / basic-clap carry a per-index config (pooling/granularity/
+        // window; +sampling for CLIP); persist it to config.json so `similar` + the
+        // wizard agree. audio-fp persists its fingerprint params (fixed in v1) so
+        // the member cache's config_hash is stable.
         let clipConfig: ClipConfig | undefined;
         if (type === "basic-clip") {
           const built = clipConfigFromOpts(ctx.opts);
           if (built.error) return [err(`index create: ${built.error}`)];
           clipConfig = built.config;
+        } else if (type === "basic-clap") {
+          const built = clapConfigFromOpts(ctx.opts);
+          if (built.error) return [err(`index create: ${built.error}`)];
+          clipConfig = built.config;
         }
         const id = `local_${type.replace(/-/g, "_")}_${randomBytes(4).toString("hex")}`;
         mkdirSync(localIndexDir(c, id), { recursive: true });
-        if (clipConfig) writeClipConfig(localIndexDir(c, id), clipConfig);
+        let audioFpConfig: ReturnType<typeof defaultAudioFpConfig> | undefined;
+        if (type === "basic-clap") {
+          if (clipConfig) writeClapConfig(localIndexDir(c, id), clipConfig);
+        } else if (type === "audio-fp") {
+          audioFpConfig = defaultAudioFpConfig();
+          writeAudioFpConfig(localIndexDir(c, id), audioFpConfig);
+        } else if (clipConfig) {
+          writeClipConfig(localIndexDir(c, id), clipConfig);
+        }
         const entry = addIndex(c, { id, type, name, description, backend: "local" });
         // a face-cluster DB's ingest/identify records are case evidence; if a
         // saved setup already narrows memory search, back-fill the `cluster`
@@ -418,7 +449,7 @@ export const indexVerb: VerbSpec = {
             type: entry.type,
             backend: "local",
             path: localIndexDir(c, id),
-            ...(clipConfig ? { config: clipConfig } : {}),
+            ...(clipConfig ? { config: clipConfig } : audioFpConfig ? { config: audioFpConfig } : {}),
           },
           meta: { provider: "local", case: c.dir },
           state: "ready",
@@ -438,7 +469,7 @@ export const indexVerb: VerbSpec = {
       if (!requested) return [err("usage: index attach <remote-index-id-or-name> [--type <media|entities|face>]")];
       const typeHint = ctx.opts.type != null ? normalizeIndexType(String(ctx.opts.type)) : undefined;
       if (ctx.opts.type != null && !typeHint) {
-        return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip)`)];
+        return [err(`unknown --type '${ctx.opts.type}' (expected media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip | audio-fp | basic-clap)`)];
       }
       if (typeHint && LOCAL_INDEX_TYPES.has(typeHint)) {
         return [err(`index attach: ${typeHint} is local-only; create it with \`index create <name> --type ${typeHint} --local\``)];
@@ -561,6 +592,14 @@ export const indexVerb: VerbSpec = {
         // that path lives on the `similar` verb, which computes + caches them.
         if (targetEntry.type === "basic-clip") {
           return [err(`index add: '${id}' is a basic-clip index — embed members with \`similar add <image|video> --index ${id}\` (it computes and caches CLIP vectors)`)];
+        }
+        // basic-clap members must be embedded with CLAP; audio-fp members must be
+        // fingerprinted — both compute + cache artifacts on their own verb, not here.
+        if (targetEntry.type === "basic-clap") {
+          return [err(`index add: '${id}' is a basic-clap index — embed members with \`similar add <audio|video> --index ${id}\` (it computes and caches CLAP vectors)`)];
+        }
+        if (targetEntry.type === "audio-fp") {
+          return [err(`index add: '${id}' is an audio-fp index — fingerprint members with \`audio add <clip> --index ${id}\` (it computes and caches constellation hashes)`)];
         }
         if (ctx.opts["no-upload"] === true || ctx.opts["no-download"] === true) {
           return [err("index add: --no-upload/--no-download only apply to tinycloud indexes")];
@@ -747,14 +786,22 @@ export const indexVerb: VerbSpec = {
         return [err(`index remove doesn't apply to a face-cluster index — it stores face assignments in faces.jsonl/clusters.json. Create a new face-cluster index or rebuild with \`cluster recluster --index ${from.id}\`.`)];
       }
       if (local && isLocalIndex(local)) {
-        // basic-clip members can be videos (image-ransac/deepface store stills), so
-        // accept either; also drop the removed member's cached embedding.
-        const resolved = local.type === "basic-clip"
-          ? resolveVisualArg(c, arg, "index remove", { requireExists: false, requireReady: false })
+        // basic-clip/basic-clap/audio-fp members can be videos or audio (image-ransac
+        // /deepface store stills), so accept AV for those; also drop the removed
+        // member's cached embedding/fingerprint.
+        const avTypes = new Set(["basic-clip", "basic-clap", "audio-fp"]);
+        const resolved = avTypes.has(local.type)
+          ? (local.type === "basic-clip"
+              ? resolveVisualArg(c, arg, "index remove", { requireExists: false, requireReady: false })
+              : resolveVideoArg(c, arg, "index remove", { requireExists: false, requireReady: false }))
           : resolveImageArg(c, arg, "index remove", { requireExists: false, requireReady: false });
         if (resolved.error) return [err(resolved.error)];
         const removed = removeMember(c, from.id!, resolved.ref!);
-        if (local.type === "basic-clip" && removed) removeClipEmbedding(localIndexDir(c, from.id!), resolved.ref!);
+        if (removed) {
+          const dir = localIndexDir(c, from.id!);
+          if (local.type === "basic-clip" || local.type === "basic-clap") removeClipEmbedding(dir, resolved.ref!);
+          else if (local.type === "audio-fp") removeAudioFingerprint(dir, resolved.ref!);
+        }
         return [makeRecord({
           verb: "index",
           format: "json",

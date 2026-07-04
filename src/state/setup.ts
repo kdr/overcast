@@ -54,6 +54,7 @@ export interface SetupFindingsThresholds {
   similar?: number;
   cluster?: number;
   image_inliers?: number;
+  audio_margin?: number;
 }
 
 export interface SetupFindingsPolicy {

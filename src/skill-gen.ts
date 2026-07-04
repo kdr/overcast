@@ -121,9 +121,10 @@ records what would resolve it; \`target close <id> --as answered|dead-end --note
 marks it done (closed lines stop seeding scans); \`target reopen <id>\` reactivates.
 
 Findings **auto-suggest** by default: score triggers (face ≥75, image RANSAC,
-similar ≥85, cluster ≥70) and non-image target text matches emit \`suggested\`
-leads on every verb — so a standalone \`face --match\` / \`image match\` /
-\`similar match\` / \`cluster identify\` surfaces a lead. Suggested leads are
+similar ≥85, cluster ≥70, audio fingerprint) and non-image target text matches
+emit \`suggested\` leads on every verb — so a standalone \`face --match\` /
+\`image match\` / \`similar match\` / \`cluster identify\` / \`audio match\` surfaces
+a lead. Suggested leads are
 quarantined from \`ask\`/\`brief\` until accepted. Triage with
 \`finding list --state triage\` (bare \`list\` shows only \`open\`), then
 \`finding accept <id>\` (→ evidence) or \`finding dismiss <id>\` (blocks re-suggestion).

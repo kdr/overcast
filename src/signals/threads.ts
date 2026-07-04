@@ -69,8 +69,8 @@ export interface TargetThread {
   narrative?: string;
 }
 
-const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "crop", "enhance"]);
-const MATCH_VERBS = new Set(["face", "image", "similar", "cluster"]);
+const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "audio", "crop", "enhance"]);
+const MATCH_VERBS = new Set(["face", "image", "similar", "cluster", "audio"]);
 
 function payloadOf(r: OvercastRecord): Record<string, unknown> {
   return r.payload && typeof r.payload === "object" ? (r.payload as Record<string, unknown>) : {};
