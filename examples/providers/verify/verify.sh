@@ -62,8 +62,13 @@ if [ "$code" -ne 0 ]; then
 fi
 
 # c2patool can exit 0 yet print output with no active manifest (empty / minimal
-# JSON) — don't claim has_manifest:true for that. Treat it as "no credentials".
-if ! printf '%s' "$out" | jq -e 'type == "object" and ((.active_manifest // "") | tostring | length > 0)' >/dev/null 2>&1; then
+# JSON), or an active_manifest id whose manifest entry is missing/empty — don't
+# claim has_manifest:true for either. Treat both as "no credentials".
+if ! printf '%s' "$out" | jq -e '
+      type == "object"
+      and ((.active_manifest // "") | tostring | length > 0)
+      and ((.manifests[.active_manifest] // {}) | type == "object" and (keys | length > 0))
+    ' >/dev/null 2>&1; then
   jq -nc --arg ref "$input" '{verb:"verify",format:"json",
     payload:{summary:"no content credentials (no C2PA manifest)",has_manifest:false},
     media:{ref:$ref},meta:{provider:"c2patool"},state:"ready"}'
