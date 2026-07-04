@@ -134,7 +134,11 @@ do_segment() {
     i=0
     while [ "$i" -lt "$nmask" ]; do
       murl="$(jq -r ".masks[$i].url // empty" <<<"$resp" 2>/dev/null)"
-      score="$(jq -r ".scores[$i] // .metadata[$i].score // null" <<<"$resp" 2>/dev/null)"
+      # coerce score to a valid JSON number OR null — a non-numeric/absent value
+      # would otherwise make `--argjson sc` fail below, blanking $item and wiping
+      # the outputs accumulated so far (dropping already-downloaded masks).
+      score="$(jq -c "((.scores[$i] // .metadata[$i].score) | numbers) // null" <<<"$resp" 2>/dev/null)"
+      [ -n "$score" ] || score=null
       box="$(jq -c ".boxes[$i] // .metadata[$i].box // null" <<<"$resp" 2>/dev/null)"
       i=$((i + 1))
       [ -n "$murl" ] || continue
@@ -157,16 +161,18 @@ do_segment() {
         fi
       fi
       item="$(jq -nc --arg ref "$ref" --arg k "$kind" --arg lab "$cls" --argjson idx "$idx" \
-        --argjson sc "${score:-null}" --argjson bx "$boxobj" --argjson mask "$maskfield" \
-        '{kind:$k,ref:$ref,label:$lab,instance:$idx,score:$sc,box:$bx,box_normalized:true,mask:$mask}')"
-      outputs="$(jq -c --argjson it "$item" '. + [$it]' <<<"$outputs")"
+        --argjson sc "$score" --argjson bx "$boxobj" --argjson mask "$maskfield" \
+        '{kind:$k,ref:$ref,label:$lab,instance:$idx,score:$sc,box:$bx,box_normalized:true,mask:$mask}' 2>/dev/null)"
+      # only merge when the item built cleanly — never let a failed jq blank $item
+      # and wipe the outputs accumulated so far.
+      [ -n "$item" ] && outputs="$(jq -c --argjson it "$item" '. + [$it]' <<<"$outputs")"
       # only mirror a box into the crop-facing detections[] when it's usable — a
       # null box would make `crop <parent>` emit "empty box" errors even though the
       # cutout/mask child record was created fine.
       if [ "$boxobj" != "null" ]; then
-        det="$(jq -nc --arg lab "$cls" --argjson sc "${score:-null}" --argjson bx "$boxobj" \
-          '{label:$lab,score:$sc,box:$bx,box_normalized:true}')"
-        dets="$(jq -c --argjson d "$det" '. + [$d]' <<<"$dets")"
+        det="$(jq -nc --arg lab "$cls" --argjson sc "$score" --argjson bx "$boxobj" \
+          '{label:$lab,score:$sc,box:$bx,box_normalized:true}' 2>/dev/null)"
+        [ -n "$det" ] && dets="$(jq -c --argjson d "$det" '. + [$d]' <<<"$dets")"
       fi
     done
     IFS=','
