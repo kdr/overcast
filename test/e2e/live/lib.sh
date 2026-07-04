@@ -122,6 +122,15 @@ oc() {
   printf '%s' "$out"
 }
 
+# primary_rec — from a verb's --json output, keep ONLY the primary (first
+# non-finding) record. A real match/identify (face --match, image match, similar
+# match, cluster identify) now clears a score threshold and the shared persist
+# hook APPENDS an auto-suggested `finding` record after the verb's own record, so
+# the raw output has 2+ JSON values; pipe through this before a single-record
+# `jq -r '.field'` assert. (The finding itself is asserted separately in
+# 18_findings.sh.) Reads stdin, emits one compact JSON record.
+primary_rec() { jq -s '[.[] | select(.verb != "finding")][0]'; }
+
 # ocg <args...> — run the binary directly (no case dir; for version/commands/help)
 ocg() {
   local out; out="$(perl -e 'alarm shift; exec @ARGV or exit 127' "${OC_TIMEOUT:-60}" $OVERCAST "$@" 2>/dev/null)"

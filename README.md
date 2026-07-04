@@ -180,6 +180,18 @@ overcast similar add ./clip.mp4 --index scenes --json          # embed + cache (
 overcast similar search "a red car at night" --index scenes --json   # text → image/video moments
 overcast similar match ./reference.jpg --index scenes --json         # image → image/video moments
 
+# 9b) audio DBs: Shazam-style exact matching (audio-fp) + CLAP audio similarity (basic-clap)
+scripts/visual-db-uv.sh --audio           # numpy/scipy fingerprint deps (add --clap for CLAP embeddings)
+overcast index create jingles --type audio-fp --local --json
+overcast audio add ./original.mp4 --to jingles --json                 # fingerprint (video → audio track)
+overcast audio match ./suspect.mp4 --index jingles --json             # which recording + WHERE (offset)
+overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --json # reject sped-up re-uploads
+overcast audio match ./suspect.mp4 --index jingles --draw --json      # + SVG alignment plot (embeds in briefs)
+overcast audio match ./a.mp3 ./b.mp3 --json                           # clip-to-clip, no index
+overcast index create sounds --type basic-clap --local --json         # CLAP audio-embedding DB
+overcast similar add ./clip.wav --index sounds --json                 # embed + cache (10s audio windows)
+overcast similar search "crowd chanting" --index sounds --json        # text → audio moments
+
 # 10) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
@@ -193,20 +205,32 @@ appears, and the chair console opens in your phone browser — live assistant
 stream, steer / follow-up prompts, ABORT, and a read-only case glance. The
 bridge is a token-authed localhost/tailnet HTTP+SSE server (no TLS in v1 —
 pair it with Tailscale or an SSH tunnel; the pairing token rides in the QR
-URL's `#fragment` and rotates on `/chair off`). See flow 19 in
+URL's `#fragment` and rotates on `/chair off`). See flow 20 in
 [`docs/flows.md`](docs/flows.md).
 
 Use the three report surfaces for different jobs:
 
-- `brief` answers "what does the evidence say?" It reports over the same
-  evidence-only boundary as case memory, so setup/read/meta records are excluded.
+- `brief` answers "what does the evidence say?" **Short by default**: it leads
+  with the verdict, key findings (with visual proof), the **lines of
+  investigation** (per-target threads with a stage + activity sparkline), the
+  triage queue of suggested leads, and coverage gaps — then a compact record
+  trail. `--full` appends the verbatim per-record timeline (the audit dump). It
+  reports over the same evidence-only boundary as case memory, so setup/read/meta
+  records — and un-accepted **suggested** findings — are excluded.
 - `case records` answers "what exactly happened?" It is the append-only audit log
   and includes operational records such as setup, target/source changes, index
   work, asks, briefs, and status checks.
-- `case status` answers "where is this case right now?" It summarizes setup
-  health, targets, sources, indexes, memory/index state, store counts, artifacts,
-  and match visualizations when available. It is a dashboard, not evidence for
-  later memory or briefs.
+- `case status` answers "where is this case right now?" It's a **mission board**:
+  a goal headline + per-target threads on a stage ladder
+  (cold → collecting → leads → corroborated → answered/dead-end), a per-source
+  coverage funnel, scan/monitor/brief freshness, and a **triage** queue of
+  suggested findings — with setup health, store counts, and match visualizations
+  below. It is a dashboard, not evidence for later memory or briefs.
+
+Run the **`/debrief`** prompt to drive the analyst loop over these surfaces:
+triage the suggested leads (`finding accept`/`dismiss`), write one
+`thread:<target-id>` note narrating each line of investigation, close resolved
+lines, refresh the `tldr` note, then export the brief.
 
 Direct CLI HTML exports default to the compatible `plain` theme unless
 `--theme csi` is set. Agent/TUI tool calls default `.html` exports to `csi` for
@@ -232,8 +256,9 @@ surface + env vars.)
 | `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM / the opt-in tinycloud `see`+`extract` provider, ≥ 0.3.7) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
+| `audio` | Shazam-style exact audio matching against a local `audio-fp` index (time-offset alignment), or clip-to-clip `audio match <query> <reference>`; `--min-margin` rejects sped re-uploads, `--draw` renders an SVG alignment plot for briefs |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
-| `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) index — `search` by text, `match` by image, video moments included |
+| `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
 
 **Inspect** — look at the evidence
@@ -249,17 +274,18 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, and `basic-clip` DBs |
-| `target` / `source` / `note` | manage the standing scope, where to look, and human-authored observations |
-| `finding` | create and review findings (`create` / `list` / `accept` / `dismiss`) — manual + setup-automated |
+| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `basic-clip`, `audio-fp`, and `basic-clap` DBs |
+| `target` | a **line of investigation**: `add --question`, `list`, `close <id> --as answered\|dead-end --note`, `reopen` — closed lines stop seeding scans |
+| `source` / `note` | where to look, and human-authored observations |
+| `finding` | manual + **auto-suggested** findings (`create` / `list` / `accept` / `dismiss`). Score triggers (face / image / similar / cluster / audio match) + target text hits auto-emit `suggested` leads via a hook on every verb; `finding list --state triage` queues them, `accept` promotes a lead to evidence, `dismiss` blocks re-suggestion. Leads are quarantined from ask/brief until accepted |
 | `prebrief` | stand up a case (name + target + source) in one shot |
 
 **Read** — synthesize the case
 | verb | does |
 |---|---|
 | `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--deep` uses configured semantic memory such as qmd; `--index <id>` answers over a media-descriptions index (`--probe` for moment search) |
-| `brief` | timeline / findings report; `--export` to md/html |
-| `case` | inspect/manage the case: `init` / `setup` / `info` / `records` / `memory` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
+| `brief` | analyst report — **short by default** (verdict / key findings / lines of investigation / triage / coverage / compact trail), `--full` for the verbatim timeline; `--export` to md/html |
+| `case` | inspect/manage the case: `init` / `setup` / `status` (mission board) / `info` / `records` / `memory` / `clear` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
 
 **Config / SDK / dist** — `setup` (bind providers + brain LLM), `provider`
 (init/list/describe), `doctor` (preflight), `skills` (generate/install).
@@ -285,7 +311,7 @@ immediately; use `--no-index` to save the setup without starting remote ingest.
 ```bash
 overcast case setup plan --target "@pier9" --memory local-grep --source "web:pier 9" --index "media:media" --json
 overcast case setup --name "dock-incident" --target "@pier9" --memory local-grep --source "web:pier 9" --yes --json
-overcast case setup edit --provider "listen:elevenlabs,see:owl-local" --auto-sense "watch,listen" --auto-index-new --findings review --yes --json
+overcast case setup edit --provider "listen:elevenlabs,see:owl-local" --auto-sense "watch,listen" --auto-index-new --findings suggest --yes --json
 overcast case setup show --json
 overcast case setup edit --target "new subject" --source "youtube:@channel" --yes --json
 ```
@@ -345,13 +371,21 @@ overcast case setup edit \
   --provider-indexable "listen,see" \
   --auto-sense "watch,listen" \
   --auto-index-new \
-  --findings review \
+  --findings suggest \
   --yes --json
 
 overcast monitor --once --json          # new media follows the setup automation policy
-overcast finding list --json            # review automated target matches
-overcast finding dismiss <finding-id> --json
+overcast finding list --state triage --json   # queue auto-suggested leads (open + suggested)
+overcast finding accept <finding-id> --json    # promote a lead into ask/brief evidence
+overcast finding dismiss <finding-id> --json   # reject a lead (never re-suggested)
 ```
+
+Findings default to `--findings suggest` (score/text triggers auto-emit
+`suggested` leads on every verb; tune the score floors with
+`case setup --findings-threshold face=75,similar=85,cluster=70,image_inliers=1`).
+`--findings review` is the legacy text-only mode; `--findings off` disables it.
+`finding list` alone shows only `open` findings — pass `--state triage` (or
+`--state suggested`) to see the auto-suggested leads.
 
 Use `overcast case setup edit --no-auto-index-new --yes --json` to turn off
 automatic indexing later without clearing the rest of the case automation
