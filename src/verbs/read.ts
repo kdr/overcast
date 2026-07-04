@@ -541,6 +541,9 @@ function enrichSynthesis(syn: BriefSynthesis, pulse: CasePulse, records: Overcas
   const triage = suggestedFindingRows(records, findingStatusMap(records));
   return {
     ...syn,
+    // rank + cap Key findings identically to the markdown brief (accepted first,
+    // then confidence, then recency, max 8) so --export and the terminal agree.
+    findings: rankFindings(syn.findings).slice(0, 8),
     headline: pulse.headline,
     threads: pulse.threads.map((th) => ({
       value: th.value,

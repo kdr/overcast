@@ -1014,6 +1014,35 @@ test("brief --scope with an empty window still renders + exports (active case ha
   }
 });
 
+test("brief CSI export ranks + caps Key findings like the markdown (accepted first, max 8)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefrank-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    // 10 open findings + 1 accepted (created earliest, so chronological order
+    // would bury it) — ranking must float the accepted one to the top and cap 8
+    const acc = makeRecord({ verb: "finding", payload: { text: "ACCEPTED_LEAD", status: "open", source_record: "manual", source_verb: "manual", trigger: "human" }, meta: { time: "2020-01-01T00:00:00Z" }, state: "ready" });
+    c.writeRecord(acc);
+    c.writeRecord(makeRecord({ verb: "finding", payload: { finding_id: acc.id, status: "accepted", reviewed_at: "2020-01-02T00:00:00Z" }, state: "ready" }));
+    for (let i = 0; i < 10; i++) {
+      c.writeRecord(makeRecord({ verb: "finding", payload: { text: `open finding ${i}`, status: "open", source_record: "manual", source_verb: "manual", trigger: "human" }, meta: { time: `2026-07-0${(i % 9) + 1}T00:00:00Z` }, state: "ready" }));
+    }
+    const html = join(dir, "b.html");
+    const [rec] = await briefVerb.run(ctx(c, undefined, { export: html, theme: "csi" }));
+    const out = readFileSync(html, "utf8");
+    // the accepted finding is present (ranked to the top), and the panel is capped
+    assert.match(out, /ACCEPTED_LEAD/);
+    assert.match(out, /\[accepted\]/);
+    // exactly 8 finding rows in the Key-findings panel (cap), not all 11
+    const panel = out.split('class="findings"')[1]?.split("</ul>")[0] ?? "";
+    assert.equal((panel.match(/<li>/g) || []).length, 8, "CSI Key-findings panel capped at 8");
+    // markdown (same record payload) also caps at 8 + floats accepted first
+    const md = (rec.payload as Record<string, unknown>).report as string;
+    assert.ok(md.indexOf("ACCEPTED_LEAD") < md.indexOf("open finding"), "accepted floats above open in md too");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief coverage shows sub-hour freshness via shared fmtAge (not '0h')", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-briefage-"));
   try {
