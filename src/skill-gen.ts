@@ -952,9 +952,9 @@ export function generateSceneLocateSkill(): string {
   return `---
 name: overcast-scene-locate
 description: >-
-  Work out where a photo or clip was taken — pull signage, landmarks, and terrain
-  clues, reverse-image-search the strongest ones, and corroborate to a location
-  with cited evidence.
+  Work out where a photo or clip was taken — check embedded EXIF/GPS first, then
+  pull signage, landmarks, and terrain clues, reverse-image-search the strongest
+  ones, and corroborate to a location with cited evidence.
 ---
 
 # overcast-scene-locate
@@ -967,12 +967,16 @@ on the strongest clues.
 
 ## Workflow
 
-1. Ingest and read the scene for clues (free tier). For a video, \`watch\` it and
-   pull the clearest frames; for a photo, \`see\` it directly:
+1. Check embedded metadata FIRST, then read the scene for clues (both free). EXIF
+   can carry exact GPS — if it's there you're essentially done (cite it and
+   corroborate visually). Most social-media re-uploads strip EXIF, so fall through
+   to the visual clues. For a video, \`watch\` it and pull the clearest frames; for a
+   photo, \`see\` it directly:
 
 \`\`\`bash
 overcast doctor --json
 overcast case init --json
+overcast exif ./photo.jpg --json          # ExifTool: exact GPS lat/lng, capture time, device — needs exiftool
 # A still PHOTO — read it directly with see (watch requires video, so don't watch a photo):
 overcast see ./photo.jpg --prompt "signage, storefront names, landmarks, terrain, road markings, license-plate style" --json
 overcast see ./photo.jpg --ocr --json                             # street signs, storefronts, plates, notices
@@ -1240,12 +1244,18 @@ for rips — and reuses its geometry-gating and verdict conventions. Use the bro
 
 ## Workflow
 
-1. Fingerprint the suspect clip — distinctive frames survive re-encodes, crops, and
-   watermarks that defeat exact hashes:
+1. Check embedded provenance FIRST, then fingerprint the suspect clip. C2PA
+   Content Credentials (\`verify\`) and EXIF capture metadata (\`exif\`) are the most
+   direct origin evidence when present — a signed manifest names the creator + edit
+   history. They're often stripped on re-upload, so also fingerprint distinctive
+   frames (which survive the re-encodes, crops, and watermarks that defeat exact
+   hashes AND that strip metadata):
 
 \`\`\`bash
 overcast doctor --sources --json
 overcast case init --json
+overcast verify ./suspect.mp4 --json         # C2PA / Content Credentials: signer + edit manifest (needs c2patool)
+overcast exif ./suspect.mp4 --json           # capture device/time, editing software, GPS (needs exiftool)
 overcast watch ./suspect.mp4 --json          # content + transcript into memory
 overcast index create origin --type image-ransac --local --json
 overcast image add ./distinctive-frame.png --index <index-id> --json

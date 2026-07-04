@@ -762,10 +762,10 @@ numbered `## Workflow` funnel each agent can follow. They ship generated from
 |---|---|
 | `overcast-lineup` | `cluster` face DB → gallery → held-out `identify` → cited finding |
 | `overcast-stakeout` | `case setup` review-target → `monitor` → findings review → `wall` |
-| `overcast-scene-locate` | `see --ocr/--prompt/--detect` clues → `lens` reverse-image + `web` |
+| `overcast-scene-locate` | `exif` GPS → `see --ocr/--prompt/--detect` clues → `lens` reverse-image + `web` |
 | `overcast-enhance-and-resolve` | `enhance` → re-read the enhanced frame (`see`) → `crop` |
 | `overcast-wiretap` | `listen --diarize/--describe` + `view --spectrogram` + `enhance --ops voice-isolate/separate` |
-| `overcast-provenance` | fingerprint → sweep (no recency floor) → geometry-gated verdict |
+| `overcast-provenance` | `verify`/`exif` + fingerprint → sweep (no recency floor) → geometry-gated verdict |
 | `overcast-timeline` | multi-clip `watch`/`listen` → span-note anchors → chronological `brief` |
 | `overcast-crime-board` | `crop` cards + `cluster` links + `similar` themes → CSI `brief` + `wall` |
 

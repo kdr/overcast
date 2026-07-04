@@ -16,12 +16,18 @@ for rips — and reuses its geometry-gating and verdict conventions. Use the bro
 
 ## Workflow
 
-1. Fingerprint the suspect clip — distinctive frames survive re-encodes, crops, and
-   watermarks that defeat exact hashes:
+1. Check embedded provenance FIRST, then fingerprint the suspect clip. C2PA
+   Content Credentials (`verify`) and EXIF capture metadata (`exif`) are the most
+   direct origin evidence when present — a signed manifest names the creator + edit
+   history. They're often stripped on re-upload, so also fingerprint distinctive
+   frames (which survive the re-encodes, crops, and watermarks that defeat exact
+   hashes AND that strip metadata):
 
 ```bash
 overcast doctor --sources --json
 overcast case init --json
+overcast verify ./suspect.mp4 --json         # C2PA / Content Credentials: signer + edit manifest (needs c2patool)
+overcast exif ./suspect.mp4 --json           # capture device/time, editing software, GPS (needs exiftool)
 overcast watch ./suspect.mp4 --json          # content + transcript into memory
 overcast index create origin --type image-ransac --local --json
 overcast image add ./distinctive-frame.png --index <index-id> --json

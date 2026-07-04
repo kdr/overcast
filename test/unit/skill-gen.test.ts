@@ -93,7 +93,7 @@ const generatedSkills = [
   {
     name: "overcast-scene-locate",
     body: generateSceneLocateSkill,
-    verbs: ["doctor", "case init", "watch", "see", "crop", "scan", "note", "finding", "brief"],
+    verbs: ["doctor", "case init", "exif", "watch", "see", "crop", "scan", "note", "finding", "brief"],
   },
   {
     name: "overcast-enhance-and-resolve",
@@ -108,7 +108,7 @@ const generatedSkills = [
   {
     name: "overcast-provenance",
     body: generateProvenanceSkill,
-    verbs: ["doctor", "case init", "watch", "index", "image", "scan", "capture", "listen", "finding", "note", "brief"],
+    verbs: ["doctor", "case init", "verify", "exif", "watch", "index", "image", "scan", "capture", "listen", "finding", "note", "brief"],
   },
   {
     name: "overcast-timeline",
