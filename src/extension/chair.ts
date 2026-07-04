@@ -131,6 +131,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   // fresh each call so a running bridge never reports a stale case.
   const caseCwd = (): string => process.env.OVERCAST_CASE || ctx?.cwd || process.cwd();
 
+  // The single busy signal: an active agent loop (runs true through tool
+  // execution, when ctx.isIdle() alone would read idle) OR active streaming.
+  // Every busy/isIdle report goes through this so they never disagree.
+  const chairBusy = (): boolean => agentRunning || !(ctx?.isIdle() ?? true);
+
   // Classify a user message as desk- or chair-originated. `live` (message_start)
   // matches the exact text against the pending-injection queue and consumes it,
   // so only a message we actually injected is labeled chair — a desk message
@@ -150,9 +155,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   };
 
   const buildAgent = (): ChairAgent => ({
-    // idle only when no agent loop is active AND not streaming — so a running
-    // tool (ctx.isIdle() true, agentRunning true) still reads as busy
-    isIdle: () => !agentRunning && (ctx?.isIdle() ?? true),
+    isIdle: () => !chairBusy(), // active loop (incl. tool runs) or streaming = busy
     hasPending: () => ctx?.hasPendingMessages() ?? false,
     abort: () => ctx?.abort(),
     sendUserMessage: (text, opts) => {
@@ -218,6 +221,12 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     // session (and rebinds to its — possibly changed — case) instead of staying
     // offline until a manual /chair on.
     autostarted = false;
+    // this session's run is abandoned — clear run state so a reload's autostarted
+    // bridge doesn't report ghost busy / runningTools while the new session is idle
+    // (agent_end may never fire on a mid-run reload). NOT done in stopChair: a bare
+    // /chair off must keep a genuinely-in-progress run's state for a later /chair on.
+    agentRunning = false;
+    runningTools.clear();
   });
 
   pi.on("agent_start", (_e, c) => {
@@ -246,7 +255,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   });
   pi.on("model_select", (e, c) => {
     capture(c);
-    bridge?.publish({ type: "state", busy: !(ctx?.isIdle() ?? true), pending: ctx?.hasPendingMessages() ?? false, model: e.model.id });
+    bridge?.publish({ type: "state", busy: chairBusy(), pending: ctx?.hasPendingMessages() ?? false, model: e.model.id });
   });
 
   pi.on("message_start", (e, c) => {

@@ -306,7 +306,14 @@ test("busy + running tools reflect an active loop even when ctx.isIdle() is true
     const handle = registerChair(pi as never);
     const { ctx } = fakeCtx(dir); // fakeCtx.isIdle() always returns true
     await commands.get("chair")?.("on --port 0", ctx);
-    const agent = handle.bridge()!["agent"];
+    const bridge = handle.bridge()!;
+    const agent = bridge["agent"];
+    const published: Record<string, unknown>[] = [];
+    const orig = bridge.publish.bind(bridge);
+    (bridge as unknown as { publish: typeof bridge.publish }).publish = (evt) => {
+      published.push(evt as Record<string, unknown>);
+      orig(evt);
+    };
 
     // truly idle
     assert.equal(agent.isIdle(), true);
@@ -316,6 +323,11 @@ test("busy + running tools reflect an active loop even when ctx.isIdle() is true
     await emit("tool_execution_start", { toolCallId: "t1", toolName: "watch", args: { clip: "n.mp4" } }, ctx);
     assert.equal(agent.isIdle(), false, "an active loop reads as busy");
     assert.deepEqual(agent.runningTools?.(), [{ toolCallId: "t1", name: "watch", argsSummary: "clip=n.mp4" }]);
+
+    // a model change mid-run must publish busy=true (not raw ctx.isIdle())
+    await emit("model_select", { model: { id: "claude-x" } }, ctx);
+    const stateEvt = published.filter((e) => e.type === "state").at(-1);
+    assert.equal(stateEvt?.busy, true, "model_select busy reflects the active loop");
 
     // a remote auto prompt during the run must steer, not start a fresh turn
     const res = await fetch(`${handle.bridge()!.url}api/prompt`, {
@@ -335,6 +347,50 @@ test("busy + running tools reflect an active loop even when ctx.isIdle() is true
   } finally {
     if (prevCase === undefined) delete process.env.OVERCAST_CASE;
     else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a mid-run reload does not carry ghost busy/runningTools into the next session", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-midreload-"));
+  const prev = { chair: process.env.OVERCAST_CHAIR, port: process.env.OVERCAST_CHAIR_PORT, kase: process.env.OVERCAST_CASE };
+  try {
+    process.env.OVERCAST_CASE = dir;
+    process.env.OVERCAST_CHAIR = "1";
+    process.env.OVERCAST_CHAIR_PORT = "0";
+    const { pi, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    // a run is in progress with a tool executing…
+    await emit("agent_start", { messages: [] }, ctx);
+    await emit("tool_execution_start", { toolCallId: "t9", toolName: "scan", args: {} }, ctx);
+    assert.equal(handle.bridge()!["agent"].isIdle(), false);
+
+    // …then the session reloads mid-run (agent_end / tool end never fire)
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+
+    // the new autostarted bridge must report a clean, idle session
+    const agent = handle.bridge()!["agent"];
+    assert.equal(agent.isIdle(), true, "no ghost busy after mid-run reload");
+    assert.deepEqual(agent.runningTools?.(), [], "no ghost running tools after reload");
+
+    // and a remote auto prompt now correctly starts a fresh turn, not a steer
+    const res = await fetch(`${handle.bridge()!.url}api/prompt`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${handle.bridge()!.pairingUrl.split("#t=")[1]}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "start fresh" }),
+    });
+    assert.deepEqual(await res.json(), { delivered: "turn" });
+
+    await emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+  } finally {
+    for (const [k, v] of [["OVERCAST_CHAIR", prev.chair], ["OVERCAST_CHAIR_PORT", prev.port], ["OVERCAST_CASE", prev.kase]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 });
