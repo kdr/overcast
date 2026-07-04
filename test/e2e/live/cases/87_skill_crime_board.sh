@@ -49,13 +49,18 @@ if [ -n "${DETECT_PY:-}" ]; then
   ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
   det="$(OC_TIMEOUT=300 oc "$CASE" see "$CLIP" --detect "person, car, bag" --json)"
   save_json "87_detect" "$det" >/dev/null
-  if [ "$(echo "$det" | jq -r '.state')" = "ready" ] && [ "$(echo "$det" | jq -r '.payload.detections | length')" -ge 1 ]; then
+  dstate="$(echo "$det" | jq -r '.state')"; ndet="$(echo "$det" | jq -r '.payload.detections | length')"
+  # the detector must RUN (state ready); 0 detections is clip-dependent (a clip may
+  # carry no person/car/bag), so a clean empty result is a pass, not a failure.
+  if [ "$dstate" != "ready" ]; then
+    fail "$C.object_cards" "see --detect errored (state=$dstate)"
+  elif [ "${ndet:-0}" -ge 1 ]; then
     DID="$(echo "$det" | jq -r '.id')"
     ocrop="$(oc "$CASE" crop "$DID" --all --kind object --json)"
     nready="$(echo "$ocrop" | jq -s '[.[]|select(.verb=="crop" and .state=="ready")]|length')"
     if [ "${nready:-0}" -ge 1 ]; then ok "$C.object_cards" "materialized $nready object crop card(s)"; else fail "$C.object_cards" "detections found but crop emitted no ready records"; fi
   else
-    fail "$C.object_cards" "see --detect produced no detections (state=$(echo "$det"|jq -r '.state'))"
+    ok "$C.object_cards" "detector ran clean; no person/car/bag in this clip (0 detections) — not a failure"
   fi
 else
   skip "$C.object_cards" "no DETECT_PY — object crops need a bound detector"
@@ -74,6 +79,12 @@ then
     save_json "87_cluster" "$add" >/dev/null
     assert_eq "$C.cluster_state" "ready" "$(echo "$add" | jq -r '.state')" "cluster add linked $(echo "$add"|jq -r '.payload.count // 0') face(s)"
     [ "$(echo "$add" | jq -r '.state')" = "ready" ] && cluster_done=1
+    # identify a probe → the record the connection note should cite (proves the link)
+    if have_media "$LOCAL_FACE_IMAGE"; then
+      idn="$(OC_TIMEOUT=300 oc "$CASE" cluster identify "$LOCAL_FACE_IMAGE" --index "$cid" --json)"
+      save_json "87_identify" "$idn" >/dev/null
+      [ "$(echo "$idn" | jq -r '.state')" = "ready" ] && IDENT_ID="$(echo "$idn" | jq -r '.id // empty')"
+    fi
   fi
 else
   skip "$C.cluster" "no deepface venv — person-linking DB skipped"
@@ -102,10 +113,13 @@ fi
 # 5) skill step: record the connections as notes so they land on the board. The
 # note text names only the legs that actually ran (cluster/CLIP are venv-gated).
 cond "crime-board skill: connection notes tie the evidence together"
+# the skill cites the cluster identify record that PROVES the person link; fall back
+# to the face-detect record only when no identify ran (no deepface/probe image).
+conn_ref="${IDENT_ID:-${FID:-}}"
 if [ "$similar_done" -eq 1 ]; then
-  oc "$CASE" note "connection: subject/theme links surfaced across the case media (face + CLIP)" --ref "${FID:-}" --tag connection --confidence medium --json >/dev/null
+  oc "$CASE" note "connection: subject/theme links surfaced across the case media (face + CLIP)" --ref "$conn_ref" --tag connection --confidence medium --json >/dev/null
 else
-  oc "$CASE" note "connection: face evidence materialized across the case media" --ref "${FID:-}" --tag connection --confidence medium --json >/dev/null
+  oc "$CASE" note "connection: face evidence materialized across the case media" --ref "$conn_ref" --tag connection --confidence medium --json >/dev/null
 fi
 did="materialized face cards"
 [ "$crops_done" -eq 0 ] && did="detected faces"

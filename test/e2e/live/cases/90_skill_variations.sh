@@ -48,7 +48,8 @@ if [ -n "${REC:-}" ] && [ -f "$REC" ]; then
     lz="$(OC_TIMEOUT=240 oc "$CASE" listen "$REC" --diarize --json)"; save_json "90_listen_diarize" "$lz" >/dev/null
     nsp="$(echo "$lz" | jq -r '[.payload.segments[]?.speaker | select(. != null)] | unique | length')"
     if [ "${nsp:-0}" -ge 1 ]; then ok "$C.diarize_speakers" "--diarize labeled $nsp distinct speaker(s) — plain listen labels none"; else fail "$C.diarize_speakers" "--diarize produced no speaker labels"; fi
-    ocrun "$CASE" setup provider listen "" --json >/dev/null 2>&1 || true
+    # (no listen call follows, so no need to restore the default listen provider —
+    # `setup provider listen ""` errors on an empty spec anyway.)
   fi
 else
   skip "$C.listen" "no OC_AUDIO or OC_VIDEO_SPEECH"

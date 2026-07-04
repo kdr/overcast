@@ -1278,11 +1278,13 @@ overcast note "wall clock reads 21:14 as the door opens" --ref <cam1-record-id> 
 overcast note "same doorbell chime as cam1@13 — clips overlap here" --ref <phone-record-id> --at 3-6 --tag anchor --json
 \`\`\`
 
-3. Corroborate and contradict across clips, then turn disagreements into
-   low-confidence findings for review:
+3. Corroborate and contradict across clips. File a conflict finding ONLY when the
+   answer actually reports a disagreement — don't invent one every run; if the
+   accounts agree, record that and skip the finding:
 
 \`\`\`bash
 overcast ask "order the events across all clips with timestamps; where do accounts agree or conflict? cite record.id + media.at" --json
+# only if the answer reports a real conflict:
 overcast finding create "conflict: cam1 shows the car arriving BEFORE the shout; phone-clip audio has the shout first" --ref <cam1-record-id> --at 12-15 --confidence low --json
 \`\`\`
 
