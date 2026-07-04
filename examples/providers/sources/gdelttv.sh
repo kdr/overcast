@@ -56,16 +56,17 @@ case "$op" in
         *[0-9]w) cutepoch=$(( now - ${since%w} * 604800 )) ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
           cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')" ;;
+        # an unparseable --since is a hard error (fail closed): don't silently
+        # widen to the full corpus, returning far older content than requested.
+        *) echo "gdelttv: could not parse --since '$since' (use Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
       esac
-      if [ -n "$cutepoch" ]; then
-        stamp="$(date -u -r "$cutepoch" +%Y%m%d%H%M%S 2>/dev/null || date -u -d "@$cutepoch" +%Y%m%d%H%M%S 2>/dev/null || echo '')"
-        endstamp="$(date -u +%Y%m%d%H%M%S)"
-        # NOTE: GDELT's TV clipgallery corpus lags real time by weeks — a very
-        # recent window (e.g. --since 7d) can legitimately return zero clips.
-        [ -n "$stamp" ] && startparam="&STARTDATETIME=$stamp&ENDDATETIME=$endstamp"
-      fi
-      # an unparseable --since must not silently widen to the full corpus
-      [ -z "$startparam" ] && echo "gdelttv: could not parse --since '$since'; no date window applied" >&2
+      # a recognized format whose date conversion failed is also unparseable
+      [ -n "$cutepoch" ] || { echo "gdelttv: could not parse --since '$since'" >&2; exit 1; }
+      stamp="$(date -u -r "$cutepoch" +%Y%m%d%H%M%S 2>/dev/null || date -u -d "@$cutepoch" +%Y%m%d%H%M%S 2>/dev/null || echo '')"
+      endstamp="$(date -u +%Y%m%d%H%M%S)"
+      # NOTE: GDELT's TV clipgallery corpus lags real time by weeks — a very
+      # recent window (e.g. --since 7d) can legitimately return zero clips.
+      [ -n "$stamp" ] && startparam="&STARTDATETIME=$stamp&ENDDATETIME=$endstamp"
     fi
 
     q="$(jq -rn --arg q "$query" '$q|@uri')"

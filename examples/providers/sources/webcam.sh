@@ -92,7 +92,10 @@ case "$op" in
               city: (.location.city // null),
               country: (.location.country // null),
               player: (.player.day // .player.live // null),
-              media: { ref: (.images.current.preview // .images.current.thumbnail // .images.current.icon // .urls.detail // null) }
+              # the still ONLY — never the HTML cam page: a cam with no current
+              # image yields a null ref and is dropped below (a page capture is
+              # not a still and would be skipped by image-only auto_sense anyway).
+              media: { ref: (.images.current.preview // .images.current.thumbnail // .images.current.icon // null) }
             }
           | select(.media.ref != null) ] | .[0:$n]'
     ;;

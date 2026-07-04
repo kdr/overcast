@@ -38,16 +38,17 @@ case "$op" in
     # than parsing ISO timestamps client-side across timezones and format variants.
     newer=""
     if [ -n "$since" ]; then
+      # relative windows floor at 1 (so `0d`/`0w` don't forward a 0-length window)
       case "$since" in
-        *[0-9]m) newer="${since%m} minutes" ;;
-        *[0-9]h) newer="${since%h} hours" ;;
-        *[0-9]d) newer="${since%d} days" ;;
-        *[0-9]w) newer="${since%w} weeks" ;;
+        *[0-9]m) n="${since%m}"; [ "$n" -lt 1 ] 2>/dev/null && n=1; newer="${n} minutes" ;;
+        *[0-9]h) n="${since%h}"; [ "$n" -lt 1 ] 2>/dev/null && n=1; newer="${n} hours" ;;
+        *[0-9]d) n="${since%d}"; [ "$n" -lt 1 ] 2>/dev/null && n=1; newer="${n} days" ;;
+        *[0-9]w) n="${since%w}"; [ "$n" -lt 1 ] 2>/dev/null && n=1; newer="${n} weeks" ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) newer="$since" ;;
-        *) newer="" ;;
+        # an unparseable --since is a hard error (fail closed): don't silently
+        # return a broader/older range than the user asked for.
+        *) echo "instagram: could not parse --since '$since' (use Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
       esac
-      # an unrecognized --since must not silently disable the window
-      [ -z "$newer" ] && echo "instagram: could not parse --since '$since'; no date filter applied" >&2
     fi
     # translate the ref into a directUrls target for the actor
     case "$query" in
