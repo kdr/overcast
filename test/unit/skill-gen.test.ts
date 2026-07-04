@@ -9,6 +9,19 @@ import {
   generateReconBriefSkill,
   generateVisualTargetSearchSkill,
   generateCopycatSweepSkill,
+  generateLineupSkill,
+  generateStakeoutSkill,
+  generateSceneLocateSkill,
+  generateEnhanceAndResolveSkill,
+  generateWiretapSkill,
+  generateProvenanceSkill,
+  generateTimelineSkill,
+  generateCrimeBoardSkill,
+  generatePinpointSkill,
+  generateFrameGridSkill,
+  generateEventBisectSkill,
+  generateWhereSkill,
+  generatePresenceWindowSkill,
 } from "../../src/skill-gen.ts";
 import { VERBS } from "../../src/registry/verbs.ts";
 
@@ -66,6 +79,71 @@ const generatedSkills = [
     name: "overcast-copycat-sweep",
     body: generateCopycatSweepSkill,
     verbs: ["doctor", "case init", "case setup", "watch", "index", "image", "scan", "capture", "face", "listen", "finding", "note", "ask", "brief", "monitor"],
+  },
+  {
+    name: "overcast-lineup",
+    body: generateLineupSkill,
+    verbs: ["doctor", "case init", "index", "cluster", "finding", "note", "brief"],
+  },
+  {
+    name: "overcast-stakeout",
+    body: generateStakeoutSkill,
+    verbs: ["doctor", "case init", "case setup", "monitor", "finding", "wall", "brief"],
+  },
+  {
+    name: "overcast-scene-locate",
+    body: generateSceneLocateSkill,
+    verbs: ["doctor", "case init", "exif", "watch", "see", "crop", "scan", "note", "finding", "brief"],
+  },
+  {
+    name: "overcast-enhance-and-resolve",
+    body: generateEnhanceAndResolveSkill,
+    verbs: ["doctor", "case init", "watch", "note", "enhance", "see", "crop", "finding", "brief"],
+  },
+  {
+    name: "overcast-wiretap",
+    body: generateWiretapSkill,
+    verbs: ["doctor", "case init", "listen", "view", "enhance", "note", "ask", "finding", "brief"],
+  },
+  {
+    name: "overcast-provenance",
+    body: generateProvenanceSkill,
+    verbs: ["doctor", "case init", "verify", "exif", "watch", "index", "image", "scan", "capture", "listen", "finding", "note", "brief"],
+  },
+  {
+    name: "overcast-timeline",
+    body: generateTimelineSkill,
+    verbs: ["doctor", "case init", "watch", "listen", "note", "ask", "finding", "brief"],
+  },
+  {
+    name: "overcast-crime-board",
+    body: generateCrimeBoardSkill,
+    verbs: ["doctor", "face", "crop", "see", "index", "cluster", "similar", "note", "brief", "wall"],
+  },
+  {
+    name: "overcast-pinpoint",
+    body: generatePinpointSkill,
+    verbs: ["doctor", "case init", "watch", "grid", "see", "similar", "ask", "note", "view", "brief"],
+  },
+  {
+    name: "overcast-frame-grid",
+    body: generateFrameGridSkill,
+    verbs: ["doctor", "case init", "grid", "see", "note", "brief"],
+  },
+  {
+    name: "overcast-event-bisect",
+    body: generateEventBisectSkill,
+    verbs: ["doctor", "case init", "watch", "see", "note", "view", "brief"],
+  },
+  {
+    name: "overcast-where",
+    body: generateWhereSkill,
+    verbs: ["see", "crop", "enhance", "finding", "face", "brief"],
+  },
+  {
+    name: "overcast-presence-window",
+    body: generatePresenceWindowSkill,
+    verbs: ["doctor", "case init", "watch", "face", "grid", "see", "note", "view", "brief"],
   },
 ];
 

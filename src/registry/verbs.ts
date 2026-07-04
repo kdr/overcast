@@ -8,12 +8,14 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { listenVerb, seeVerb, enhanceVerb, viewVerb } from "../verbs/senses.js";
+import { exifVerb, verifyVerb } from "../verbs/forensics.js";
 import { faceVerb } from "../verbs/face.js";
 import { imageVerb } from "../verbs/image.js";
 import { audioVerb } from "../verbs/audio.js";
 import { clusterVerb } from "../verbs/cluster.js";
 import { similarVerb } from "../verbs/similar.js";
 import { cropVerb } from "../verbs/crop.js";
+import { gridVerb } from "../verbs/grid.js";
 import { wallVerb } from "../verbs/wall.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
 import {
@@ -96,9 +98,12 @@ export const VERBS: VerbSpec[] = [
   audioVerb,
   clusterVerb,
   similarVerb,
+  exifVerb,
+  verifyVerb,
   enhanceVerb,
   viewVerb,
   cropVerb,
+  gridVerb,
   wallVerb,
   scanVerb,
   captureVerb,

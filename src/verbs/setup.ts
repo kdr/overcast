@@ -316,7 +316,7 @@ export const providerVerb: VerbSpec = {
     { name: "profile", summary: "Profile name to write/read (default: active/default)", type: "string" },
     { name: "verb", summary: "provider setup: verb to configure", type: "string" },
     { name: "choice", summary: "provider setup: catalog choice id", type: "string" },
-    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|deepface-local|basic-clip|audio-fp|basic-clap)", type: "string" },
+    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap)", type: "string" },
     { name: "yes", summary: "provider setup apply: confirm profile changes", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -530,6 +530,42 @@ export const doctorVerb: VerbSpec = {
         ? `fingerprint deps OK via ${localPy}${localClap.code === 0 ? "; clap deps OK" : "; clap deps missing (run scripts/visual-db-uv.sh --clap)"}`
         : `fingerprint deps missing via ${localPy} — run \`scripts/visual-db-uv.sh --audio\` (scipy) and set OC_VISUAL_DB_PY if needed`,
     });
+    // enhance --ops separate/segment (local-models provider): report which stacks
+    // are installed. Informational (ok) — these are opt-in and don't gate core.
+    const localSegment = await execCapture(localPy, ["-c", "import transformers, torch; print('seg-ok')"], { timeoutMs: 30_000 })
+      .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    const localVoice = await execCapture(localPy, ["-c", "import pyannote.audio; print('voice-ok')"], { timeoutMs: 30_000 })
+      .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    const segPart = localSegment.code === 0 ? "segment deps OK" : "segment deps missing (scripts/visual-db-uv.sh --segment)";
+    const voicePart = localVoice.code === 0
+      ? `voice deps OK${envPresent("HF_TOKEN") || envPresent("HUGGING_FACE_HUB_TOKEN") ? "" : " (set HF_TOKEN + accept pyannote license)"}`
+      : "voice deps missing (scripts/visual-db-uv.sh --voice)";
+    checks.push({
+      name: "enhance-local",
+      ok: true,
+      detail: `${segPart}; ${voicePart}`,
+    });
+
+    // exiftool — optional system CLI backing the `exif` metadata/GPS sense.
+    const exiftool = await execCapture("exiftool", ["-ver"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    checks.push({
+      name: "exiftool",
+      ok: exiftool.code === 0,
+      detail: exiftool.code === 0
+        ? `optional metadata/GPS sense (exif) available (v${exiftool.stdout.trim()})`
+        : "optional — install exiftool for the `exif` sense (`brew install exiftool` / `apt install libimage-exiftool-perl`)",
+    });
+
+    // c2patool — optional system CLI backing the `verify` C2PA provenance sense.
+    const c2patool = await execCapture("c2patool", ["--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    checks.push({
+      name: "c2patool",
+      ok: c2patool.code === 0,
+      detail: c2patool.code === 0
+        ? `optional C2PA provenance sense (verify) available (${c2patool.stdout.trim()})`
+        : "optional — install c2patool for the `verify` sense (`brew install c2patool` / `cargo install c2patool`)",
+    });
+
 
     const configuredSources = listSources(ctx.case);
     const sourceTypes = new Set(configuredSources.map((s) => s.type));
@@ -567,6 +603,47 @@ export const doctorVerb: VerbSpec = {
         detail: envPresent("APIFY_TOKEN")
           ? "APIFY_TOKEN present"
           : "APIFY_TOKEN missing for lens (Google Lens reverse image) scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("instagram")) {
+      checks.push({
+        name: "source:instagram",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN") ? "APIFY_TOKEN present" : "APIFY_TOKEN missing for instagram scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("telegram")) {
+      checks.push({
+        name: "source:telegram",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN") ? "APIFY_TOKEN present" : "APIFY_TOKEN missing for telegram scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("facesearch")) {
+      checks.push({
+        name: "source:facesearch",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present (opt-in face search — mind ToS/privacy)"
+          : "APIFY_TOKEN missing for facesearch scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("gdelttv")) {
+      // GDELT TV needs no key; note the corpus lag so an empty recent scan reads
+      // as expected rather than broken.
+      checks.push({
+        name: "source:gdelttv",
+        ok: true,
+        detail: "public GDELT TV API — no key needed (clipgallery corpus lags real time by weeks)",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("webcam")) {
+      checks.push({
+        name: "source:webcam",
+        ok: envPresent("WINDY_API_KEY"),
+        detail: envPresent("WINDY_API_KEY")
+          ? "WINDY_API_KEY present"
+          : "WINDY_API_KEY missing for webcam (Windy Webcams) scans (https://api.windy.com/webcams)",
       });
     }
 

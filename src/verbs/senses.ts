@@ -20,14 +20,18 @@ import {
   defaultOps,
   extractFrame,
   parseFrameRef,
+  parseTimecode,
   modalityFromExt,
   spectrogram as ffSpectrogram,
+  ENHANCE_OPS,
   type EnhanceOp,
   type Modality,
 } from "../media/ffmpeg.js";
 import { openHtmlPlayer, osOpen } from "../media/view.js";
+import { renderEnhanceGallery, type EnhanceGalleryItem, type EnhanceGalleryReport } from "../report/html.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
+import { fanOutEnhance, hasFanOut } from "./enhance-fanout.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -36,6 +40,44 @@ function hfToken(): string | undefined {
 }
 
 // ---- listen ----------------------------------------------------------------
+
+export interface ListenDispatchOpts {
+  describe?: boolean;
+  diarize?: boolean;
+  lang?: string;
+}
+
+/** Resolve the bound listen provider and run it (custom exec provider vs the
+ *  tinycloud default), forwarding the declared flags. Shared by `listen` and by
+ *  `enhance --summarize` (which transcribes each separated track). */
+export async function dispatchListen(
+  ctx: VerbContext,
+  input: string,
+  opts: ListenDispatchOpts = {},
+): Promise<OvercastRecord> {
+  const describe = opts.describe === true;
+  const binding = providerBinding(ctx, "listen");
+  // forward the declared listen flags to a custom provider, and give it the
+  // same generous timeout the tinycloud mapper uses (long media).
+  const extraArgs: string[] = [];
+  if (describe) extraArgs.push("--describe");
+  if (opts.diarize === true) extraArgs.push("--diarize");
+  if (opts.lang) extraArgs.push("--lang", String(opts.lang));
+  return isCustomBinding(binding)
+    ? runBoundProvider("listen", binding!, input, {
+        env: providerEnv(ctx.case.mediaDir),
+        extraArgs,
+        timeoutMs: 15 * 60_000,
+        signal: ctx.signal,
+      })
+    : runListen(input, {
+        run: binding?.run,
+        describe,
+        signal: ctx.signal,
+        diarize: opts.diarize === true,
+        lang: opts.lang ? String(opts.lang) : undefined,
+      });
+}
 
 export const listenVerb: VerbSpec = {
   name: "listen",
@@ -62,28 +104,11 @@ export const listenVerb: VerbSpec = {
     const resolved = resolveVideoArg(ctx.case, ctx.input, "listen input", { requireReady: false });
     if (resolved.error) return [errorRecord("listen", resolved.error)];
     const input = resolved.ref ?? ctx.input;
-    const describe = ctx.opts.describe === true;
-    const binding = providerBinding(ctx, "listen");
-    // forward the declared listen flags to a custom provider, and give it the
-    // same generous timeout the tinycloud mapper uses (long media).
-    const extraArgs: string[] = [];
-    if (describe) extraArgs.push("--describe");
-    if (ctx.opts.diarize === true) extraArgs.push("--diarize");
-    if (ctx.opts.lang) extraArgs.push("--lang", String(ctx.opts.lang));
-    const rec = isCustomBinding(binding)
-      ? await runBoundProvider("listen", binding!, input, {
-          env: providerEnv(ctx.case.mediaDir),
-          extraArgs,
-          timeoutMs: 15 * 60_000,
-          signal: ctx.signal,
-        })
-      : await runListen(input, {
-          run: binding?.run,
-          describe,
-          signal: ctx.signal,
-          diarize: ctx.opts.diarize === true,
-          lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
-        });
+    const rec = await dispatchListen(ctx, input, {
+      describe: ctx.opts.describe === true,
+      diarize: ctx.opts.diarize === true,
+      lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
+    });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     // trace a transcript of a captured clip back to the post it came from
     stampProvenance(rec, provenanceFromCapture(ctx.case, input));
@@ -322,20 +347,74 @@ export const seeVerb: VerbSpec = {
   },
 };
 
-// ---- enhance (internal ffmpeg) ---------------------------------------------
+// ---- enhance (internal ffmpeg + bound split providers) ---------------------
+
+// Ops that CANNOT run on the internal ffmpeg toolkit — they split media into
+// many artifacts and require a bound model provider (local-models or fal).
+const PROVIDER_ONLY_OPS: ReadonlySet<string> = new Set(["separate", "segment"]);
+
+/** For each separated-voice track record, transcribe it via the bound listen
+ *  provider and fold the transcript + a short spoken-summary onto the track
+ *  record itself (self-contained evidence). Non-fatal per track: a failed
+ *  transcription just attaches `transcript_error`. No brain-LLM call (invariant
+ *  #2) — the "summary" is the provider's own summary field or a truncation. */
+async function summarizeTracks(ctx: VerbContext, recs: OvercastRecord[]): Promise<void> {
+  for (const r of recs) {
+    if (typeof r.payload !== "object" || r.payload == null) continue;
+    const p = r.payload as Record<string, unknown>;
+    if (p.kind !== "track") continue;
+    const ref = r.media?.ref;
+    if (!ref) continue;
+    try {
+      const listenRec = await dispatchListen(ctx, ref, {});
+      if (listenRec.state && listenRec.state !== "ready") {
+        p.transcript_error = listenRec.error ?? `listen ${listenRec.state}`;
+        continue;
+      }
+      const lp =
+        typeof listenRec.payload === "object" && listenRec.payload != null
+          ? (listenRec.payload as Record<string, unknown>)
+          : {};
+      const transcript = typeof lp.transcript === "string" ? lp.transcript : undefined;
+      if (transcript) p.transcript = transcript;
+      const spoken =
+        typeof lp.summary === "string" && lp.summary
+          ? lp.summary
+          : transcript
+            ? transcript.slice(0, 300) + (transcript.length > 300 ? "…" : "")
+            : undefined;
+      if (spoken) {
+        const base = typeof p.summary === "string" && p.summary ? `${p.summary} — ` : "";
+        p.summary = base + spoken;
+      }
+      if (listenRec.meta?.provider) p.listen_provider = listenRec.meta.provider;
+    } catch (e) {
+      p.transcript_error = (e as Error).message;
+    }
+  }
+}
 
 export const enhanceVerb: VerbSpec = {
   name: "enhance",
   group: "sense",
-  summary: "Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.",
+  summary: "Produce better media (denoise/normalize/upscale) or split it (separate voices / segment objects) via ffmpeg or a bound model provider.",
   description:
     "Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/" +
-    "voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI upscaling/restoration " +
-    "via `setup provider enhance <spec>` (samples: fal esrgan/deepfilternet3, HF, ElevenLabs voice " +
-    "isolation). Emits a media.enhanced record whose media.ref is the output path — chain it into watch/listen/see.",
+    "voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI restoration or the " +
+    "SPLIT ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices " +
+    "into per-speaker tracks (add --summarize to transcribe each), `--ops segment --prompt \"<thing>\"` " +
+    "cuts requested objects out of an image as mask + cutout evidence. separate/segment need a bound " +
+    "provider (local-models = pyannote + GroundingDINO/SAM2, or fal = sam-audio + sam-3); image " +
+    "segmentation of a video is out of scope (segment a frame:// still). Emits a media.enhanced record " +
+    "per output — for the split ops, one child record per track/mask whose media.ref chains into " +
+    "watch/listen/see/view/crop.",
   args: [{ name: "input", summary: "Media file path", required: true }],
   flags: [
-    { name: "ops", summary: "Comma list of ops (denoise,normalize,upscale,...)", type: "string" },
+    { name: "ops", summary: "Comma list of ops (denoise,normalize,upscale,separate,segment,...)", type: "string" },
+    { name: "prompt", summary: "What to segment (--ops segment) or the target voice to extract", type: "string" },
+    { name: "speakers", summary: "Speaker-count hint for --ops separate", type: "string" },
+    { name: "summarize", summary: "Transcribe/summarize each separated track via the bound listen provider", type: "boolean" },
+    { name: "masks-only", summary: "For --ops segment, emit binary masks instead of RGBA cutouts", type: "boolean" },
     { name: "out", summary: "Output path (default .overcast/media/)", type: "string" },
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
@@ -344,56 +423,181 @@ export const enhanceVerb: VerbSpec = {
   providerKey: "enhance",
   run: async (ctx) => {
     if (!ctx.input) return [errorRecord("enhance", "enhance requires a media input")];
-    if (!existsSync(ctx.input)) {
-      return [errorRecord("enhance", `input not found: ${ctx.input}`)];
+    // resolve a frame:// reference to an extracted still first — so the documented
+    // "segment a video frame" path (enhance frame://rec@sec --ops segment) works,
+    // mirroring `see`. Never hand a literal frame://… string to a provider.
+    let input = ctx.input;
+    // provenance is traced from the ORIGINAL media, not the extracted still: a
+    // frame:// still is not itself a capture, so provenanceFromCapture must look up
+    // the source clip the frame came from (else the video-frame path loses it).
+    let provenanceSource = ctx.input;
+    const fr = parseFrameRef(ctx.input);
+    if (fr) {
+      const src = ctx.case.recordById(fr.recordId)?.media?.ref;
+      if (!src || !existsSync(src)) {
+        return [errorRecord("enhance", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`)];
+      }
+      provenanceSource = src;
+      try {
+        input = await extractFrame(src, fr.second, ctx.case.mediaDir);
+      } catch (e) {
+        return [errorRecord("enhance", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`)];
+      }
     }
-    // A bound enhance provider (e.g. the HF model-ops provider) takes over for
-    // model-based ops; the DEFAULT stays the internal ffmpeg toolkit (invariant
-    // #7). Bind via `overcast setup provider enhance "exec:bash …/hf/enhance.sh"`.
+    if (!existsSync(input)) {
+      return [errorRecord("enhance", `input not found: ${input}`)];
+    }
+    // parse ops loosely first: the split ops (separate/segment) are NOT ffmpeg
+    // ops — they REQUIRE a bound provider. Gate them before the ffmpeg cast so a
+    // helpful error fires instead of ffmpeg choking on an unknown filter. Ops are
+    // normalized to lowercase so `Separate`/`SEGMENT` still hit the split guards
+    // (and the ffmpeg op set is lowercase too).
+    const opsStr = ctx.opts.ops ? String(ctx.opts.ops) : "";
+    const rawOps = opsStr.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     const enhBinding = providerBinding(ctx, "enhance");
+    const providerOps = rawOps.filter((o) => PROVIDER_ONLY_OPS.has(o));
+
+    // Reject unrecognized ops up front (known = ffmpeg ops + split ops). Without
+    // this a typo like `--ops segement` slips past the split-op checks and gets
+    // forwarded to a bound toolbox, which falls through to its DEFAULT enhance —
+    // a failed split op that looks like success. Fail loudly at the chokepoint.
+    const KNOWN_OPS = new Set<string>([...ENHANCE_OPS, ...PROVIDER_ONLY_OPS]);
+    const unknownOps = rawOps.filter((o) => !KNOWN_OPS.has(o));
+    if (unknownOps.length) {
+      return [
+        errorRecord(
+          "enhance",
+          `unknown --ops: ${unknownOps.join(", ")}. Valid ops: ${[...ENHANCE_OPS, ...PROVIDER_ONLY_OPS].join(", ")}.`,
+        ),
+      ];
+    }
+
+    // A split op (separate/segment) can't compose with any other op: the toolbox
+    // providers dispatch to exactly ONE handler, so `--ops segment,separate` or
+    // `--ops separate,denoise` would silently drop the rest. Require it solo.
+    if (providerOps.length && rawOps.length !== 1) {
+      return [
+        errorRecord(
+          "enhance",
+          `a split op (${providerOps.join(", ")}) must be the only --ops value (got: ${rawOps.join(",")}). Run separate/segment one at a time.`,
+        ),
+      ];
+    }
+
+    // A bound enhance provider (e.g. the HF model-ops provider, or the local /
+    // fal split providers) takes over; the DEFAULT stays the internal ffmpeg
+    // toolkit (invariant #7). Bind via `setup provider enhance <spec>`.
     if (isCustomBinding(enhBinding)) {
+      // forward the declared flags to the provider ONLY when set, so existing
+      // single-output bindings (hf/fal/elevenlabs) still get byte-identical argv.
+      const extraArgs: string[] = [];
+      // forward the NORMALIZED ops (lowercased) so a bound toolbox matches
+      // `separate`/`segment` even if the user typed `Separate`.
+      if (rawOps.length) extraArgs.push("--ops", rawOps.join(","));
+      if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
+      if (ctx.opts.speakers) extraArgs.push("--speakers", String(ctx.opts.speakers));
+      if (ctx.opts["masks-only"] === true) extraArgs.push("--masks-only");
       // dispatch by transport (exec runs it; http/inproc return an explicit
-      // error) rather than silently falling back to ffmpeg when a non-exec
-      // enhance provider is bound.
-      const rec = await runBoundProvider("enhance", enhBinding!, ctx.input, {
+      // error) rather than silently falling back to ffmpeg. Local CPU models
+      // (pyannote / SAM2) blow the 5-min default, so allow 15 min.
+      const rec = await runBoundProvider("enhance", enhBinding!, input, {
         env: providerEnv(ctx.case.mediaDir),
+        extraArgs: extraArgs.length ? extraArgs : undefined,
+        timeoutMs: 15 * 60_000,
         signal: ctx.signal,
       });
-      rec.meta = { ...rec.meta, case: ctx.case.dir };
-      return [rec];
+      // Guard split-op results. A ready record that does NOT fan out is one of
+      // three cases, only one of which is valid:
+      //   1. declared a non-empty outputs[] that fails validation (item missing
+      //      kind/ref) — MALFORMED: fanOutEnhance would silently drop it to just
+      //      the parent, losing the artifacts. Fail loudly.
+      //   2. no outputs[] and payload.op doesn't echo the requested op — a
+      //      single-output provider (hf/esrgan/voice-isolator) ignored --ops.
+      //   3. empty/absent outputs[] and payload.op matches — a legit "nothing
+      //      produced" (e.g. a segment prompt that matched nothing). Allowed.
+      const recPayload =
+        typeof rec.payload === "object" && rec.payload ? (rec.payload as Record<string, unknown>) : {};
+      const recOp = recPayload.op;
+      const declaredOutputs = Array.isArray(recPayload.outputs) ? recPayload.outputs : undefined;
+      if (providerOps.length && rec.state === "ready" && !hasFanOut(rec)) {
+        if (declaredOutputs && declaredOutputs.length > 0) {
+          return [
+            errorRecord(
+              "enhance",
+              `the '${providerOps[0]}' provider returned malformed outputs[] (each item needs a string 'ref' and 'kind'); no artifacts were expanded.`,
+            ),
+          ];
+        }
+        if (recOp !== providerOps[0]) {
+          return [
+            errorRecord(
+              "enhance",
+              `the bound enhance provider did not perform '--ops ${providerOps[0]}' (it returned a single output). ` +
+                `Bind a split-capable provider: \`overcast provider setup plan --preset local-models\` (or --preset fal).`,
+            ),
+          ];
+        }
+        // else: op matches + no outputs → a valid empty result, fall through.
+      }
+      // expand a multi-output envelope (per-speaker tracks / per-instance masks)
+      // into [parent, ...children]; single-output providers pass through.
+      const recs = fanOutEnhance(rec, { caseDir: ctx.case.dir });
+      const prov = provenanceFromCapture(ctx.case, provenanceSource);
+      for (const r of recs) {
+        r.meta = { ...r.meta, case: ctx.case.dir };
+        stampProvenance(r, prov);
+      }
+      // --summarize: transcribe each separated track through the bound listen
+      // provider, embedding transcript+summary on the track record itself.
+      if (ctx.opts.summarize === true) {
+        await summarizeTracks(ctx, recs);
+      }
+      return recs;
     }
-    const opsStr = ctx.opts.ops ? String(ctx.opts.ops) : "";
-    const requested = opsStr
-      ? (opsStr.split(",").map((s) => s.trim()).filter(Boolean) as EnhanceOp[])
-      : undefined;
+
+    // no custom binding: the split ops can't run on ffmpeg.
+    if (providerOps.length) {
+      return [
+        errorRecord(
+          "enhance",
+          `--ops ${providerOps.join(",")} needs a bound enhance provider. ` +
+            `Run \`overcast provider setup plan --preset local-models\` (or --preset fal), ` +
+            `then \`--yes\` to apply; local-models needs \`scripts/visual-db-uv.sh --enhance\`.`,
+        ),
+      ];
+    }
+
+    const requested = rawOps.length ? (rawOps as EnhanceOp[]) : undefined;
     const outDir = ctx.case.mediaDir;
     try {
-      const p = await probe(ctx.input).catch(() => ({ modality: modalityFromExt(ctx.input!) }) as Awaited<ReturnType<typeof probe>>);
+      const p = await probe(input).catch(() => ({ modality: modalityFromExt(input) }) as Awaited<ReturnType<typeof probe>>);
       const ops = requested ?? defaultOps(p.modality);
       if (ops.length === 0) {
         return [errorRecord("enhance", `no enhance ops apply to modality '${p.modality}'`)];
       }
       const result = await ffEnhance(
-        ctx.input,
+        input,
         ops,
         outDir,
         ctx.opts.out ? String(ctx.opts.out) : undefined,
       );
-      return [
-        makeRecord({
-          verb: "enhance",
-          format: "json",
-          payload: {
-            ops: result.ops,
-            skipped: result.skipped,
-            modality: result.modality,
-            output: result.output,
-          },
-          media: { ref: result.output },
-          meta: { provider: "ffmpeg", case: ctx.case.dir },
-          state: "ready",
-        }),
-      ];
+      const ffRec = makeRecord({
+        verb: "enhance",
+        format: "json",
+        payload: {
+          ops: result.ops,
+          skipped: result.skipped,
+          modality: result.modality,
+          output: result.output,
+        },
+        media: { ref: result.output },
+        meta: { provider: "ffmpeg", case: ctx.case.dir },
+        state: "ready",
+      });
+      // trace back to the originating post — same as the bound-provider path, and
+      // for the frame:// path use the ORIGINAL clip (provenanceSource), not the still.
+      stampProvenance(ffRec, provenanceFromCapture(ctx.case, provenanceSource));
+      return [ffRec];
     } catch (e) {
       return [errorRecord("enhance", `ffmpeg enhance failed: ${(e as Error).message}`)];
     }
@@ -408,8 +612,10 @@ export const viewVerb: VerbSpec = {
   summary: "Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.",
   description:
     "For video/audio, generates a self-contained HTML player (timeline + markers for a referenced " +
-    "record's media.at) and opens it. For other files, uses the OS open command. --no-open writes " +
-    "the viewer and emits a view record with its path instead of launching.",
+    "record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` " +
+    "split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children " +
+    "instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or " +
+    "cutout/mask images for segment. --no-open writes the viewer and emits a view record with its path.",
   args: [{ name: "ref", summary: "Media path, capture-id, or record-id", required: true }],
   flags: [
     { name: "at", summary: "Start at SS or seek a START-END span", type: "string" },
@@ -457,6 +663,14 @@ export const viewVerb: VerbSpec = {
           if (!at) at = String(markers[0]);
         }
       }
+    }
+
+    // An enhance split-op PARENT record → render a gallery of its fanned-out
+    // children (per-track audio + spectrograms, or cutout/mask images) instead of
+    // the parent's single source media. Falls through when it isn't such a parent.
+    if (rec) {
+      const gallery = await maybeEnhanceGallery(ctx, rec);
+      if (gallery) return [gallery];
     }
 
     // watch/listen accept and persist http(s) URLs; view must too (don't treat
@@ -542,6 +756,75 @@ function errorRecord(verb: string, message: string): OvercastRecord {
   });
 }
 
+/** If `rec` is an enhance split-op PARENT (payload.op separate|segment), render an
+ *  HTML gallery of its fanned-out children and return the view record; else null
+ *  (so `view` falls through to its single-media player). A parent is identified by
+ *  op + the ABSENCE of a top-level `kind` — a fanned-out CHILD carries `kind`
+ *  (track/cutout/mask). This (not an outputs[] check) is used so a valid EMPTY
+ *  result — op matches with outputs empty OR absent (handler guard case 3) — still
+ *  renders the gallery, while children play/show normally. `source_record` isn't a
+ *  discriminator: a parent can carry it too (capture provenance). */
+async function maybeEnhanceGallery(ctx: VerbContext, rec: OvercastRecord): Promise<OvercastRecord | null> {
+  if (rec.verb !== "enhance" || typeof rec.payload !== "object" || !rec.payload) return null;
+  const p = rec.payload as Record<string, unknown>;
+  const op = p.op;
+  if ((op !== "separate" && op !== "segment") || typeof p.kind === "string") return null;
+  const children = ctx.case.records().filter(
+    (r) => r.verb === "enhance" && (r.payload as Record<string, unknown> | undefined)?.source_record === rec.id,
+  );
+
+  const items: EnhanceGalleryItem[] = [];
+  for (const child of children) {
+    const cp = (typeof child.payload === "object" && child.payload ? child.payload : {}) as Record<string, unknown>;
+    const ref = child.media?.ref;
+    if (typeof ref !== "string") continue;
+    const item: EnhanceGalleryItem = {
+      kind: typeof cp.kind === "string" ? cp.kind : "output",
+      ref,
+      label: typeof cp.speaker === "string" ? cp.speaker : typeof cp.label === "string" ? cp.label : undefined,
+      score: typeof cp.score === "number" ? cp.score : undefined,
+      speechSeconds: typeof cp.speech_seconds === "number" ? cp.speech_seconds : undefined,
+      segments: Array.isArray(cp.segments) ? cp.segments.length : undefined,
+      transcript: typeof cp.transcript === "string" ? cp.transcript : undefined,
+    };
+    // a spectrogram makes the separation legible — best-effort (needs local audio).
+    if (op === "separate" && existsSync(ref)) {
+      item.spectrogram = await ffSpectrogram(ref, ctx.case.mediaDir).catch(() => undefined);
+    }
+    items.push(item);
+  }
+  // no early return on empty items — a valid count-0 parent still renders the
+  // gallery (renderEnhanceGallery shows an explicit empty state).
+
+  const overlaps = Array.isArray(p.overlap)
+    ? (p.overlap as Array<Record<string, unknown>>)
+        .map((o) => ({ at: o?.at, speakers: o?.speakers }))
+        .filter((o): o is { at: [number, number]; speakers: string[] } =>
+          Array.isArray(o.at) && o.at.length === 2 && o.at.every((n) => typeof n === "number") && Array.isArray(o.speakers))
+    : undefined;
+
+  const report: EnhanceGalleryReport = {
+    op,
+    title: `enhance ${op}`,
+    subtitle: typeof p.input === "string" ? (p.input.split("/").pop() ?? rec.id) : rec.id,
+    sourceRef: rec.media?.ref,
+    model: typeof p.model === "string" ? p.model : typeof p.detect_model === "string" ? p.detect_model : undefined,
+    overlaps,
+    items,
+  };
+  const htmlPath = join(ctx.case.mediaDir, `enhance-gallery-${rec.id}.html`);
+  writeFileSync(htmlPath, renderEnhanceGallery(report), "utf8");
+  if (ctx.opts["no-open"] !== true) openHtmlPlayer(htmlPath);
+  return makeRecord({
+    verb: "view",
+    format: "json",
+    payload: { mode: op === "separate" ? "separation" : "segmentation", op, viewer: htmlPath, items: items.length, source_record: rec.id },
+    media: { ref: htmlPath },
+    meta: { case: ctx.case.dir },
+    state: "ready",
+  });
+}
+
 function buildPlayerHtml(
   src: string,
   modality: "video" | "audio",
@@ -550,7 +833,7 @@ function buildPlayerHtml(
   spectrogramPath: string | undefined,
   isRemote = false,
 ): string {
-  const startAt = at ? parseTimecode(String(at).split("-")[0]) : 0;
+  const startAt = at ? parseTimecode(String(at).split("-")[0]) ?? 0 : 0;
   const tag = modality === "video" ? "video" : "audio";
   const markerPins = markers
     .map((m) => `<button class="pin" onclick="seek(${Number(m)})">⏱ ${Number(m)}s</button>`)
@@ -587,20 +870,6 @@ ${spectrogramPath ? `<img src="${htmlAttr(pathToFileURL(spectrogramPath).href)}"
 
 function basenameOf(p: string): string {
   return p.split("/").pop() ?? p;
-}
-
-/** Parse a seek value: plain seconds ("134", "134.5") or a timecode ("02:14",
- *  "1:02:14"). Returns 0 for anything unparseable. */
-function parseTimecode(s: string): number {
-  const str = s.trim();
-  if (str === "") return 0;
-  if (str.includes(":")) {
-    const parts = str.split(":").map((p) => Number(p));
-    if (parts.some((n) => !Number.isFinite(n))) return 0;
-    return parts.reduce((acc, p) => acc * 60 + p, 0);
-  }
-  const n = Number(str);
-  return Number.isFinite(n) ? n : 0;
 }
 
 /** Escape for HTML text content. */

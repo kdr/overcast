@@ -597,8 +597,10 @@ overcast ask "where does the reference person appear, with timestamps and confid
 overcast brief --export ./visual-search.md --json      # short by default; --full for the per-match timeline
 \`\`\`
 
-For an object or open-vocabulary target (\`--detect\` needs a bound detection
-provider first, e.g. \`overcast setup provider see "exec:python3 examples/providers/detect/detect.py"\`):
+For an object or open-vocabulary target (\`--detect\` needs a bound OWLv2 detector —
+build it once with \`scripts/visual-db-uv.sh --detect\`, then bind the venv python it
+prints: \`overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"\`,
+NOT system \`python3\` which lacks torch/transformers):
 
 \`\`\`bash
 overcast see ./clip.mp4 --detect "red backpack" --json
@@ -755,5 +757,1068 @@ homography is the main false positive. \`image match\` gates on planar-projectio
 validity by default (\`--draw\` writes the overlay so you can eyeball coherent
 correspondences vs lines collapsing to a point). Call a video a confirmed rip
 only when the gated match survives AND the transcript/face agree.
+`;
+}
+
+/** Crime-lab skill: build a local face lineup DB and identify probes against it. */
+export function generateLineupSkill(): string {
+  return `---
+name: overcast-lineup
+description: >-
+  Build a persistent local face database out of case media — the mugshot book —
+  then run a suspect photo through it to identify who they are and where else
+  they appear, with cited similarity scores.
+---
+
+# overcast-lineup
+
+Use this skill when the task is "run this person through the database": accumulate
+every face across the case's clips and images into a local, browsable lineup, then
+identify a probe photo against it. Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags. The whole DB is local — no media
+leaves the case.
+
+## Prerequisites
+
+The lineup is deepface-only (clustering needs face embeddings the tinycloud face
+path doesn't expose). \`cluster\` runs the uv-managed visual-DB Python directly
+(via \`OC_VISUAL_DB_PY\`), so you do NOT need to bind the \`face\` provider — leave
+your profile's \`face\` binding untouched. Just prepare the Python once and stand up
+a \`face-cluster\` index:
+
+\`\`\`bash
+overcast doctor --json                 # confirm uv + visual-db are ready
+scripts/visual-db-uv.sh --face         # install OpenCV/DeepFace (once per machine)
+overcast case init --json
+overcast index create people --type face-cluster --local --json
+\`\`\`
+
+## Workflow
+
+1. Book every case video/image into the lineup — \`cluster add\` detects, embeds,
+   and assign-or-creates each face into a person (nearest existing person above
+   \`--min-similarity\`, else a new one):
+
+\`\`\`bash
+overcast cluster add ./interview.mp4 --index <index-id> --json
+overcast cluster add ./cctv-lobby.mp4 --index <index-id> --json
+overcast cluster add ./mugshot.jpg --index <index-id> --json
+\`\`\`
+
+2. Open the lineup — a self-contained HTML contact sheet, one row per person:
+
+\`\`\`bash
+overcast cluster view --index <index-id> --json     # add --no-open to only write the gallery
+overcast cluster list --index <index-id> --json      # people + member counts
+\`\`\`
+
+3. Run a suspect photo through the database. \`cluster identify\` reports the most
+   similar person (similarity 0–100) or flags the probe as a likely NEW person,
+   and never writes to the DB:
+
+\`\`\`bash
+overcast cluster identify ./suspect.jpg --index <index-id> --json
+overcast cluster show <person-id> --index <index-id> --json   # inspect that person's member faces
+\`\`\`
+
+4. Name known people and record the identification. Labels survive a
+   \`recluster\`; point the finding's \`--ref\` at the \`cluster identify\` record so
+   its match rides into the brief, and ALWAYS leave a \`tldr\` note — even a
+   no-match sweep — so the brief can say so:
+
+\`\`\`bash
+overcast cluster label <person-id> "Jane Doe" --index <index-id> --json
+overcast finding create "identified suspect.jpg as person <person-id> (Jane Doe) — 91/100, appears in 3 clips" --ref <identify-record-id> --confidence high --json
+overcast note "booked <n> clips into the lineup; <p> distinct people; suspect.jpg matched <person-id> at 91/100" --tag tldr --json
+# Wait for the note result before exporting, so the TL;DR is included.
+overcast brief --export ./lineup.html --json
+\`\`\`
+
+After a large batch of \`cluster add\`s, run \`overcast cluster recluster --index
+<index-id> --json\` to re-group every stored face; human labels carry forward.
+
+## Output
+
+For each identification return: the probe photo, the matched \`person-id\` (and
+label if named), the similarity score (0–100), the member clips/images the person
+appears in with their \`record.id\` + \`media.at\`, and the exported lineup path. A
+probe with no confident match is reported as a likely new person, not forced onto
+the nearest face.
+
+## Caveats
+
+Similarity is 0–100 (percent), not 0–1 — set \`--min-similarity\` on that scale.
+The assign-or-create threshold controls how eagerly faces merge: too low over-merges
+distinct people, too high splits one person across rows — tune it, then
+\`recluster\`. Detection is per sampled frame, so one person yields many member
+faces; that is expected, not duplicate people. Poor lighting, small faces, and
+heavy angles lower embedding quality — treat a single borderline match as a lead
+and corroborate with \`face --match\` or a second clip before calling it.
+`;
+}
+
+/** Surveillance skill: standing watch on sources + a live control-room wall. */
+export function generateStakeoutSkill(): string {
+  return `---
+name: overcast-stakeout
+description: >-
+  Run a standing surveillance watch on public sources for a target — auto-sense
+  new media, auto-suggest matches into a triage queue, and keep a live control-room
+  wall — so new evidence surfaces itself over time.
+---
+
+# overcast-stakeout
+
+Use this skill when the task is to sit on a target and catch new media as it is
+published (a "stakeout"), rather than a one-shot recon pass. Use the broad
+\`overcast\` skill and \`overcast/reference/verbs.md\` for exact flags. Only start a
+continuous loop when the user asks for ongoing monitoring.
+
+## Workflow
+
+1. Set the standing scope. As new media arrives, matches auto-**suggest** leads —
+   score/text triggers (a \`face\` ≥75 match, an \`image\` RANSAC hit, \`similar\`
+   ≥85, \`cluster\` ≥70, or a **text** target the \`watch\`/\`listen\` text mentions)
+   emit \`status:"suggested"\` findings that queue for triage (out of ask/brief
+   until reviewed). \`--findings suggest\` is the default; pair it with
+   \`--auto-sense watch\`:
+
+\`\`\`bash
+overcast doctor --sources --json
+overcast case init --json
+overcast case setup --name stakeout --target "<name / plate / phrase>" --source "x:@handle,youtube:@channel" --auto-sense watch --findings suggest --yes --json
+\`\`\`
+
+2. Sanity pass — one diff cycle, scheduler-friendly, to confirm sources resolve
+   before you leave a loop running:
+
+\`\`\`bash
+overcast monitor --once --pipe watch --json
+\`\`\`
+
+3. Stand the watch up. Run the continuous loop under tmux; \`--alert\` mirrors new
+   records to a sink and \`--brief\` summarizes each batch:
+
+\`\`\`bash
+overcast monitor --every 15m --limit 5 --pipe watch --alert ./stakeout.jsonl --brief --json
+\`\`\`
+
+4. Work the triage queue as leads accrue — \`finding list --state triage\` shows the
+   suggested leads awaiting review; \`accept\` promotes a lead to evidence (it enters
+   ask/brief), \`dismiss\` blocks it (never re-suggested for that match, but still
+   auditable):
+
+\`\`\`bash
+overcast finding list --state triage --json
+overcast finding accept <finding-id> --json
+overcast finding dismiss <finding-id> --json
+\`\`\`
+
+5. Keep the control-room wall up as the visual surface — every case video muted
+   and looping at its best evidence moment, freshest first, auto-restarting:
+
+\`\`\`bash
+overcast wall --refresh 60 --theme csi --json
+overcast wall --source x --since 24h --theme csi --json    # scope to one feed / window
+overcast brief --export ./stakeout.html --json             # periodic cited report
+\`\`\`
+
+**Face-forward stakeout.** A face/image suspect is an image target, which is
+excluded from text auto-findings. Pipe detection instead (\`monitor --pipe face\`)
+to surface faces in new media, then escalate the flagged clips manually with
+\`overcast face <clip> --match ./suspect.jpg --json\`, or keep a face-analysis index
+and search it (\`face --match ./suspect.jpg --index <id>\`).
+
+## Output
+
+A standing case that accrues cited findings over time: accepted matches with their
+source URL, \`record.id\`, and \`media.at\`; the alert-sink JSONL of new records; the
+freshness-overlaid wall; and periodic \`brief\` exports. State the cadence and which
+sources are live.
+
+## Caveats
+
+Hard processing failures are marked seen (no infinite retry); credential/pending
+gaps stay retryable — run \`doctor --sources\` when a feed goes quiet. Apify-backed
+sources (\`x\`, \`tiktok\`, \`lens\`) bill per result, so keep \`--limit\` low on a
+frequent loop. The wall decodes real video — ~25 tiles is a practical ceiling
+(\`--limit\`); use \`--source\`/\`--since\` to scope it. Auto-findings are keyword
+matches on sensed text, so they shortlist — confirm before acting.
+`;
+}
+
+/** Geolocation skill: extract location clues and reverse-search them to a place. */
+export function generateSceneLocateSkill(): string {
+  return `---
+name: overcast-scene-locate
+description: >-
+  Work out where a photo or clip was taken — check embedded EXIF/GPS first, then
+  pull signage, landmarks, and terrain clues, reverse-image-search the strongest
+  ones, and corroborate to a location with cited evidence.
+---
+
+# overcast-scene-locate
+
+Use this skill when the task is "where was this taken?": geolocate an image or
+video from what is visible in it. Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags. Escalate cheap-before-billed —
+description and OCR are free; reverse image search bills per result, so run it only
+on the strongest clues.
+
+## Workflow
+
+1. Check embedded metadata FIRST, then read the scene for clues (both free). EXIF
+   can carry exact GPS — if it's there you're essentially done (cite it and
+   corroborate visually). Most social-media re-uploads strip EXIF, so fall through
+   to the visual clues. For a video, \`watch\` it and pull the clearest frames; for a
+   photo, \`see\` it directly:
+
+\`\`\`bash
+overcast doctor --json
+overcast case init --json
+overcast exif ./photo.jpg --json          # ExifTool: exact GPS lat/lng, capture time, device — needs exiftool
+# A still PHOTO — read it directly with see (watch requires video, so don't watch a photo):
+overcast see ./photo.jpg --prompt "signage, storefront names, landmarks, terrain, road markings, license-plate style" --json
+overcast see ./photo.jpg --ocr --json                             # street signs, storefronts, plates, notices
+# A VIDEO — watch it, then read the clearest frames via frame://:
+overcast watch ./clip.mp4 --json
+overcast see frame://<watch-record-id>@<seconds> --prompt "signage, storefront names, landmarks, terrain, vegetation, road markings, side of road traffic drives on" --json
+overcast see frame://<watch-record-id>@<seconds> --ocr --json     # street signs, storefronts, plates, notices
+\`\`\`
+
+2. Materialize the strongest clue regions as crops. \`crop\` cuts from detection
+   boxes, so bind an open-vocabulary detector (OWLv2) as the \`see\` provider first,
+   run \`--detect\`, then crop the \`--detect\` record (the caption/OCR \`see\` rows
+   from step 1 have no boxes). Crops become the reverse-search queries:
+
+\`\`\`bash
+scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
+# detect on the SAME still from step 1 (a photo, or frame://<watch-record-id>@<seconds> for video):
+overcast see ./photo.jpg --detect "sign, storefront, logo, landmark" --json   # -> <detect-record-id>
+overcast crop <detect-record-id> --all --class sign --pad 0.2 --json          # crop the --detect record (it has boxes)
+\`\`\`
+
+3. Reverse-image-search the best crops through Google Lens, and corroborate OCR'd
+   text on the open web:
+
+\`\`\`bash
+overcast source add "lens:./.overcast/media/crops/<crop-file>.jpg" --json
+overcast source add "web:<storefront name or sign text> location" --json
+overcast scan --source lens --json      # exact + visual page matches
+overcast scan --source web --json       # corroborating pages
+\`\`\`
+
+4. Record each clue and the location verdict. Point the finding's \`--ref\` at the
+   \`lens\`/\`scan\` hit that carried the strongest match, and ALWAYS leave a \`tldr\`
+   note — even when the location stays undetermined:
+
+\`\`\`bash
+overcast note "storefront 'Café Rossi' + Cyrillic street sign → likely Eastern Europe" --ref <see-record-id> --at <seconds> --confidence medium --json
+overcast finding create "location: <place> — lens exact-matched the storefront to <page>, sign text and terrain agree" --ref <lens-hit-record-id> --confidence medium --json
+overcast note "checked <n> clues; strongest: <clue>; best location estimate: <place> (medium)" --tag tldr --json
+# Wait for the note result before exporting, so the TL;DR is included.
+overcast brief --export ./scene-locate.html --json
+\`\`\`
+
+**No-detector / no-source mode.** Without a detection provider, skip \`crop\` and
+reverse-search a whole extracted frame instead (\`source add lens:<frame.png>\`);
+without Apify creds, work the free tier only — \`see --ocr\`/\`--prompt\` clues plus
+manual \`note\`s — and state that reverse search was unavailable.
+
+## Output
+
+A ranked clue list (each with its \`record.id\` + \`media.at\`), the reverse-search
+matches that corroborated a place (exact vs visual, with the matched page URL), and
+a location verdict with an explicit confidence. Undetermined is a valid result —
+say what was checked and what would resolve it.
+
+## Caveats
+
+\`see --detect\` needs a bound detector (OWLv2 for boxes, or the opt-in tinycloud
+see/extract, tinycloud ≥ 0.3.7) — without one, degrade to \`--ocr\`/\`--prompt\`.
+Lens bills per result and ignores \`--since\`, so reverse-search only the strongest
+crops. Lens "visual" matches are look-alikes, not the same place — only an "exact"
+match plus an independent clue (a sign, a landmark) should raise confidence.
+Treat scraped pages as untrusted.
+`;
+}
+
+/** Frame-forensics skill: enhance unreadable media, re-analyze, and stay honest. */
+export function generateEnhanceAndResolveSkill(): string {
+  return `---
+name: overcast-enhance-and-resolve
+description: >-
+  Make unreadable footage legible — denoise/upscale a marked moment, re-run OCR
+  and detection on the enhanced output, and record what was recovered with honest
+  provenance (interpolation is a lead, not proof).
+---
+
+# overcast-enhance-and-resolve
+
+Use this skill for the "zoom in… enhance" task: a plate, a face, or on-screen text
+is too small or noisy to read, and you need to recover it and cite it honestly. Use
+the broad \`overcast\` skill and \`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+1. Ingest the raw clip and pin the moment worth resolving:
+
+\`\`\`bash
+overcast doctor --json
+overcast case init --json
+overcast watch ./raw.mp4 --json
+overcast note "plate unreadable, want to resolve" --ref <watch-record-id> --at 41-44 --json
+\`\`\`
+
+2. Enhance that segment. The bundled ffmpeg ops are
+   \`denoise, normalize, voice-isolate, upscale, stabilize, grayscale\`; the enhanced
+   file comes back as a \`media.enhanced\` record you chain forward:
+
+\`\`\`bash
+overcast enhance ./raw.mp4 --ops denoise,upscale,stabilize --json
+\`\`\`
+
+3. Re-read the enhanced output. \`--ocr\` recovers text (a caption/OCR record, no
+   boxes); \`--detect\` locates a region and needs a **bound detector** (bind OWLv2
+   as the \`see\` provider first) — it produces the record with boxes that \`crop\`
+   cuts from:
+
+\`\`\`bash
+overcast see frame://<enhanced-record-id>@<seconds> --ocr --json                 # -> <ocr-record-id> (text, no boxes)
+scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
+overcast see frame://<enhanced-record-id>@<seconds> --detect "license plate, text" --json  # -> <detect-record-id> (boxes)
+\`\`\`
+
+4. Materialize the resolved region as durable cropped evidence — crop the
+   \`--detect\` record (the \`--ocr\` record has no boxes to crop):
+
+\`\`\`bash
+overcast crop <detect-record-id> --all --class "license plate" --pad 0.15 --square --json
+\`\`\`
+
+5. Record what was recovered with its provenance. State the ops applied and the
+   source record in the finding, keep a before/after note pair, and cite both the
+   raw and enhanced \`record.id\`:
+
+\`\`\`bash
+overcast note "before: plate illegible at 41-44 on <watch-record-id>" --ref <watch-record-id> --at 41-44 --json
+overcast note "after denoise+upscale+stabilize: reads '7ABC123' (2 chars uncertain)" --ref <enhanced-record-id> --json
+overcast finding create "plate resolved to '7ABC123' via enhance denoise,upscale,stabilize on <watch-record-id> — 2 chars low-confidence" --ref <detect-record-id> --confidence low --json
+overcast brief --export ./enhance-resolve.html --json
+\`\`\`
+
+## Output
+
+The recovered text/object with an explicit confidence, the exact enhancement ops
+applied, the before/after \`record.id\` pair, and the cropped evidence path. Frame
+whatever you recover as a lead to corroborate, not a settled fact.
+
+## Caveats
+
+**ffmpeg upscale is interpolation — it cannot invent detail that was never
+captured.** Recovered characters are a lead, not proof; mark them low-confidence and
+corroborate (a second angle, a second frame, context). For genuine AI restoration
+bind a model provider (\`overcast provider setup apply --preset fal --yes\`, ESRGAN /
+DeepFilterNet) and re-run \`see\` on the restored output — then still corroborate.
+\`stabilize\` and \`upscale\` change geometry, so re-derive any box/measurement on the
+enhanced record, not the raw one.
+`;
+}
+
+/** Audio-forensics skill: diarize, describe the scene, isolate voices, correlate. */
+export function generateWiretapSkill(): string {
+  return `---
+name: overcast-wiretap
+description: >-
+  Work a recorded call or audio clip already in the case — separate the speakers,
+  read the background scene for location clues, isolate and re-transcribe voices,
+  and correlate content across recordings.
+---
+
+# overcast-wiretap
+
+Use this skill to analyze audio recordings you already hold (a call, a voicemail, a
+field recording): how many people speak, what the background reveals about where it
+was recorded, and whether two clips share a voice or a phrase. Use the broad
+\`overcast\` skill and \`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+1. Transcribe the recording and read its background scene on the **default
+   backend**. \`--describe\` surfaces the whole audio scene (traffic, trains, a PA
+   announcement, church bells) — the "enhance the background noise" move that
+   places a recording — and is a tinycloud/Cloudglue multimodal feature, so do all
+   the transcript/describe work FIRST, before binding any speech-only provider:
+
+\`\`\`bash
+overcast doctor --json
+overcast case init --json
+overcast listen ./call.wav --json                 # speech transcript + time-anchored segments
+overcast listen ./call.wav --describe --json       # background audio scene (tinycloud describe)
+overcast view ./call.wav --spectrogram --json      # visual inspection artifact (tones, hums, edits)
+\`\`\`
+
+2. Isolate voices from noise and re-transcribe the cleaned track — a second pass
+   often recovers words the first missed:
+
+\`\`\`bash
+overcast enhance ./call.wav --ops voice-isolate,denoise --json   # bundled-ffmpeg filter (fast, lossy)
+overcast enhance ./call.wav --ops separate --json                # true source separation → a track per speaker
+                                                                 # (local pyannote: scripts/visual-db-uv.sh --voice + HF_TOKEN, or fal)
+overcast listen <enhanced-record-id> --json
+\`\`\`
+
+3. Separate the speakers. \`--diarize\` needs a **diarize-capable listen provider**
+   (the default tinycloud/Cloudglue \`listen\` is speech-transcript only and rejects
+   \`--diarize\`). Bind ElevenLabs for this — but do it LAST, after the describe /
+   multimodal steps above, because ElevenLabs Scribe is speech-only and drops the
+   audio-scene describe:
+
+\`\`\`bash
+overcast provider setup apply --verb listen --choice elevenlabs --yes --json
+overcast listen ./call.wav --diarize --json        # -> <diarize-record-id> (speaker-labeled)
+\`\`\`
+
+4. Record per-speaker and per-clue observations, then correlate across recordings.
+   Cite the speaker-labeled \`<diarize-record-id>\` for who-said-what claims (not the
+   step-1 transcript record):
+
+\`\`\`bash
+overcast note "Speaker 2: PA announces 'platform 4' at 00:38 → rail station" --ref <diarize-record-id> --at 38 --confidence medium --json
+overcast ask "which recordings share a speaker, phrase, or background cue? cite record.id + time" --verb listen --json
+\`\`\`
+
+5. Turn confirmed clues into findings and export; always leave a \`tldr\` note:
+
+\`\`\`bash
+overcast finding create "call.wav and voicemail.m4a share Speaker 2's phrasing + station PA — likely same caller/location" --ref <diarize-record-id> --confidence medium --json
+overcast note "3 recordings; 2 speakers on call.wav; background = rail station; cross-clip voice overlap on 2 of 3" --tag tldr --json
+# Wait for the note result before exporting, so the TL;DR is included.
+overcast brief --export ./wiretap.html --json
+\`\`\`
+
+## Output
+
+A per-recording speaker breakdown with timestamps, the background-scene clues that
+locate or date it, any cross-clip voice/phrase overlaps, and the spectrogram
+artifacts — each cited by \`record.id\` + \`media.at\`.
+
+## Caveats
+
+\`--diarize\` needs a diarize-capable listen provider: the default tinycloud/Cloudglue
+\`listen\` transcribes speech only and errors on \`--diarize\` — bind ElevenLabs
+(\`provider setup apply --verb listen --choice elevenlabs --yes\`) for speaker
+separation. Bind it LAST: ElevenLabs Scribe is speech-only and drops the audio-scene
+\`--describe\`, so run all transcript/describe/multimodal work on the default backend
+first, then rebind for the diarize pass. Diarization LABELS speakers ("Speaker
+1/2"), it does not IDENTIFY them —
+a name is a corroborated inference, never a diarizer output. \`voice-isolate\` on the
+bundled ffmpeg is a filter, not source separation — for a real per-speaker split use
+\`enhance --ops separate\` (local pyannote via \`scripts/visual-db-uv.sh --voice\` +
+\`HF_TOKEN\` and the accepted pyannote license, or fal), or bind ElevenLabs
+(\`--verb enhance --choice elevenlabs\`) for stronger isolation; either way re-listen
+to confirm the cleaned transcript rather than trusting it blind. Background-cue
+geolocation is suggestive, not definitive.
+`;
+}
+
+/** Provenance skill: trace a suspect clip back to its earliest appearance. */
+export function generateProvenanceSkill(): string {
+  return `---
+name: overcast-provenance
+description: >-
+  Trace a suspicious or viral clip back to its earliest appearance and originator —
+  reverse-image-search distinctive frames, sweep sources with no recency floor, and
+  return a cited origin verdict.
+---
+
+# overcast-provenance
+
+Use this skill to answer "is this clip real / where did it come from?": given a
+suspect video, find the oldest copy and who posted it first. It is the inverse of
+\`overcast-copycat-sweep\` — searching backward toward the origin rather than forward
+for rips — and reuses its geometry-gating and verdict conventions. Use the broad
+\`overcast\` skill and \`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+1. Check embedded provenance FIRST, then fingerprint the suspect clip. C2PA
+   Content Credentials (\`verify\`) and EXIF capture metadata (\`exif\`) are the most
+   direct origin evidence when present — a signed manifest names the creator + edit
+   history. They're often stripped on re-upload, so also fingerprint distinctive
+   frames (which survive the re-encodes, crops, and watermarks that defeat exact
+   hashes AND that strip metadata):
+
+\`\`\`bash
+overcast doctor --sources --json
+overcast case init --json
+overcast verify ./suspect.mp4 --json         # C2PA / Content Credentials: signer + edit manifest (needs c2patool)
+overcast exif ./suspect.mp4 --json           # capture device/time, editing software, GPS (needs exiftool)
+overcast watch ./suspect.mp4 --json          # content + transcript into memory
+overcast index create origin --type image-ransac --local --json
+overcast image add ./distinctive-frame.png --index <index-id> --json
+\`\`\`
+
+2. Reverse-image-search the frames and sweep sources with topic keywords — crucially
+   with NO \`--since\` floor, since older results sit closer to the origin:
+
+\`\`\`bash
+overcast source add "lens:./distinctive-frame.png" --json
+overcast source add "x:video:<topic keywords>" --json
+overcast source add "youtube:search:<topic keywords>" --json
+overcast source add "web:<topic keywords>" --json
+overcast scan --limit 20 --json
+\`\`\`
+
+3. Triage on metadata alone: sort candidate hits by \`published\` ASC — the earliest
+   dates are your origin candidates; carry \`author\` + URL forward.
+
+4. Capture the oldest few and confirm they are the SAME content (not a look-alike) —
+   frame match plus transcript:
+
+\`\`\`bash
+overcast capture <earliest-scan-hit-id> --json
+overcast image match <captured-file> --index <index-id> --draw --json   # --draw writes the RANSAC overlay proof
+overcast listen <captured-file> --json
+\`\`\`
+
+5. Record the origin verdict. \`--ref\` the \`image match\` record so its overlay rides
+   into the brief; ALWAYS leave a \`tldr\` note with the date chain — even
+   "undetermined":
+
+\`\`\`bash
+overcast finding create "origin: earliest confirmed copy is @<author> <date> (frame match 88 inliers, transcript identical); the viral <date2> post is a re-upload" --ref <image-match-record-id> --confidence high --json
+overcast note "swept lens + x + youtube + web (no recency floor); <n> candidates; earliest confirmed <date> by @<author>; verdict: re-upload" --tag tldr --json
+# Wait for the note result before exporting, so the TL;DR is included.
+overcast brief --export ./provenance.html --json
+\`\`\`
+
+## Output
+
+An origin verdict — original / re-upload-of-<earliest> / undetermined — with the
+date chain, the earliest confirmed poster and URL, which layers agreed (frame +
+transcript), and the strongest \`record.id\` + \`media.at\` citations. "Undetermined"
+is honest when the earliest copy can't be confirmed as the same content.
+
+## Caveats
+
+The earliest date you FIND is a floor, not proof of origin — deleted posts and
+platforms you didn't search may predate it; say so. Confirm same-content with the
+gated \`image match\` (a high inlier count on a degenerate homography is the main
+false positive — eyeball the \`--draw\` overlay) plus transcript; a shared topic or a
+look-alike frame is not the same clip. Face similarity is 0–100; \`image match\` is
+an inlier count + a 0–1 ratio, never a 0–100 score. Apify sources bill per result.
+\`lens\` ignores \`--since\`.
+`;
+}
+
+/** Reconstruction skill: stitch multiple clips into one cited chronology. */
+export function generateTimelineSkill(): string {
+  return `---
+name: overcast-timeline
+description: >-
+  Reconstruct a single event from multiple clips — sense each one, cross-anchor
+  shared moments, surface corroborations and contradictions, and produce one cited
+  chronological brief.
+---
+
+# overcast-timeline
+
+Use this skill to "walk through what happened" across several recordings of one
+event (bystander videos, multiple cameras, a sequence of clips): build one ordered,
+cited timeline and flag where accounts disagree. Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+1. Sense every clip — \`watch\` for the visual timeline, \`listen\` where audio carries
+   the account:
+
+\`\`\`bash
+overcast doctor --json
+overcast case init --json
+overcast watch ./cam1.mp4 --json
+overcast watch ./phone-clip.mp4 --json
+overcast listen ./phone-clip.mp4 --json
+\`\`\`
+
+2. Cross-anchor shared moments with span notes — a visible clock, a shared sound, a
+   lighting change lets you line clips up on one timeline:
+
+\`\`\`bash
+overcast note "wall clock reads 21:14 as the door opens" --ref <cam1-record-id> --at 12-15 --tag anchor --json
+overcast note "same doorbell chime as cam1@13 — clips overlap here" --ref <phone-record-id> --at 3-6 --tag anchor --json
+\`\`\`
+
+3. Corroborate and contradict across clips. File a conflict finding ONLY when the
+   answer actually reports a disagreement — don't invent one every run; if the
+   accounts agree, record that and skip the finding:
+
+\`\`\`bash
+overcast ask "order the events across all clips with timestamps; where do accounts agree or conflict? cite record.id + media.at" --json
+# only if the answer reports a real conflict:
+overcast finding create "conflict: cam1 shows the car arriving BEFORE the shout; phone-clip audio has the shout first" --ref <cam1-record-id> --at 12-15 --confidence low --json
+\`\`\`
+
+4. Produce the chronological deliverable, and always leave a \`tldr\` note first:
+
+\`\`\`bash
+overcast note "reconstructed <n> clips into one timeline; <k> firm anchors; <c> unresolved conflicts" --tag tldr --json
+# Wait for the note result before exporting, so the TL;DR is included.
+overcast brief --export ./timeline.html --json
+\`\`\`
+
+## Output
+
+One ordered chronology of the event, each entry cited to a \`record.id\` + \`media.at\`,
+the anchor moments that let clips be aligned, and an explicit list of unresolved
+contradictions. Where clips can't be ordered relative to each other, say so rather
+than guessing.
+
+## Caveats
+
+Device clocks and upload times drift — prefer content anchors (a shared sound, a
+visible clock, a synchronized event) over file timestamps when aligning clips.
+Absence of a moment in one clip is not evidence it didn't happen — it may be
+off-frame. Keep observed facts (in \`note\`) separate from inferred ordering; a
+contradiction is a finding to review, not a settled conclusion.
+`;
+}
+
+/** Evidence-board skill: materialize crops, link people/themes, render the board. */
+export function generateCrimeBoardSkill(): string {
+  return `---
+name: overcast-crime-board
+description: >-
+  Turn a case into a visual evidence board — materialize face and object crops,
+  link the same person across clips, connect themes, and render the corkboard as a
+  CSI brief plus a live monitor wall.
+---
+
+# overcast-crime-board
+
+Use this skill when the case has accumulated media and you want the "red-string
+corkboard": the people, objects, and connections laid out visually. It composes
+existing evidence into two shareable surfaces. Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+1. Materialize the evidence cards — faces and objects as durable crops (run
+   \`face --thumbnails\` first so \`crop\` has frame images to cut from). Object cards
+   need a bound open-vocabulary detector (OWLv2): \`crop\` cuts from detection boxes,
+   so bind a detector as the \`see\` provider before \`--detect\`, then crop the
+   \`--detect\` record (a caption/OCR \`see\` record has no boxes to crop):
+
+\`\`\`bash
+overcast doctor --json
+overcast face ./clip.mp4 --thumbnails --json
+overcast crop <face-record-id> --all --class face --square --pad 0.1 --json
+scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
+overcast see ./clip.mp4 --detect "car, bag, weapon, phone" --json
+overcast crop <detect-record-id> --all --kind object --json   # crop the --detect record (it has boxes)
+\`\`\`
+
+2. Draw the strings — link the same person across clips with the local face DB, and
+   connect visual themes with CLIP semantic search:
+
+\`\`\`bash
+overcast index create people --type face-cluster --local --json
+overcast cluster add ./clip.mp4 --index <cluster-index-id> --json
+overcast cluster identify ./person-of-interest.jpg --index <cluster-index-id> --json
+overcast index create scenes --type basic-clip --local --json
+overcast similar add ./clip.mp4 --index <clip-index-id> --json
+overcast similar search "red backpack on a bicycle" --index <clip-index-id> --json
+\`\`\`
+
+3. Record the connections as notes so they land on the board:
+
+\`\`\`bash
+overcast note "same man (cluster <person-id>) appears in clip.mp4 and cctv.mp4 carrying the red backpack" --ref <identify-record-id> --tag connection --confidence medium --json
+\`\`\`
+
+4. Render the two visual surfaces — the CSI brief is the corkboard, the wall is the
+   live monitor bank:
+
+\`\`\`bash
+overcast brief --theme csi --export ./crime-board.html --json
+overcast wall --theme csi --json                # add --infinite for an endless bank
+\`\`\`
+
+## Output
+
+Two artifacts: a CSI-themed brief that lays out the crops, cited findings, and
+connection notes as an evidence board; and a control-room wall of the case videos
+looping at their evidence moments. Each connection is cited to the \`record.id\` it
+was drawn from.
+
+## Caveats
+
+Crops need detections first — run \`face --thumbnails\` before cropping faces, and a
+bound detector for \`see --detect\` object crops. \`cluster\`/\`similar\` are local,
+deepface/CLIP-backed indexes (\`scripts/visual-db-uv.sh\`); \`doctor\` flags missing
+deps. A CLIP or cluster link is a suggestion to verify, not a proven connection —
+label its confidence and corroborate before drawing the string. Face similarity and
+CLIP scores are both 0–100; keep them distinct from an \`image match\` inlier count.
+`;
+}
+
+/** Skill: pinpoint WHEN something happens — coarse→fine temporal search. */
+export function generatePinpointSkill(): string {
+  return `---
+name: overcast-pinpoint
+description: >-
+  Pinpoint WHEN a specific thing happens in a video — funnel from cheap
+  coarse candidates (shots / CLIP / grid) to a frame-verified time window.
+---
+
+# overcast-pinpoint
+
+Use this skill to answer "exactly when does X happen?" in a clip and back it
+with evidence the model actually looked at. It mirrors the temporal-search
+pattern from the VLM video literature (T\\* / VideoAgent): score cheaply over the
+whole clip, then spend expensive VLM calls only on a few candidate frames and
+zoom in. Use the broad \`overcast\` skill and \`overcast/reference/verbs.md\` for
+exact flags.
+
+Two rules that make the answer trustworthy:
+
+- **Report a window, not a frame.** Frame-exact localization is unreliable; emit
+  \`[t1-t2]\` plus one verified keyframe.
+- **Every timestamp must trace to a frame you \`see\`-verified.** Never emit a
+  time the model merely guessed — models answer correctly while grounding on the
+  wrong moment, so confirm by looking at the frame.
+
+## Workflow
+
+1. Make the clip local and get a record id (\`see frame://\` needs media on disk —
+   capture a remote clip first). \`watch\` also gives per-shot timestamped content
+   to search:
+
+\\\`\\\`\\\`bash
+overcast doctor --json
+overcast case init --json
+overcast watch ./clip.mp4 --json         # -> video.analysis record id (REC)
+\\\`\\\`\\\`
+
+2. Get COARSE candidates cheaply (pick what's available):
+
+\\\`\\\`\\\`bash
+overcast ask "moments where <X> happens, with timestamps" --json      # over watch shots/notes
+overcast grid ./clip.mp4 --count 16 --json                            # one contact sheet ...
+overcast see <montage-path> --prompt "which numbered cells show <X>? give cell numbers" --json
+overcast similar search "<X>" --index <basic-clip-id> --json          # if a local CLIP index exists
+overcast ask "moments <X> happens" --index <media-descriptions-id> --probe --json  # remote index
+\\\`\\\`\\\`
+
+   For \`grid\`, translate the chosen cell number to a time via the grid record's
+   \`payload.cells[n].at\` (don't trust a model-guessed time). CLIP/shots only
+   SHORTLIST — CLIP is weak on actions/order — so verify next.
+
+3. VERIFY + zoom on each candidate time T (expensive, precise):
+
+\\\`\\\`\\\`bash
+overcast see frame://REC@T --prompt "Is <X> happening here? answer yes/no and what you see" --json
+# refine: sample T-d and T+d, halve d each round until adjacent frames flip yes<->no
+overcast see frame://REC@<T-2> --prompt "Is <X> happening?" --json
+overcast see frame://REC@<T+2> --prompt "Is <X> happening?" --json
+\\\`\\\`\\\`
+
+4. Record the verified window and eyeball it:
+
+\\\`\\\`\\\`bash
+overcast note "<X> occurs" --ref REC --at <t1-t2> --confidence medium --json
+overcast view REC --at <t1-t2> --json
+overcast brief --export ./pinpoint.md --json
+\\\`\\\`\\\`
+
+## Output
+
+The tightest \`[t1-t2]\` window, the single \`see\` keyframe that confirms it (its
+\`record.id\`), and how it was found (shots / grid / CLIP / probe). Cite
+\`record.id\` + \`media.at\` for every claim; state the window, not a false-precise
+single frame.
+
+## Caveats
+
+Needs the video local (a URL-only \`watch\` record can't extract frames). CLIP and
+shot text shortlist but don't decide — the \`see\` frame check does. If \`X\` recurs,
+pinpoint each occurrence separately; don't collapse them into one window.
+`;
+}
+
+/** Skill: one-call contact-sheet triage over a clip (the grid trick). */
+export function generateFrameGridSkill(): string {
+  return `---
+name: overcast-frame-grid
+description: >-
+  Triage a whole clip in one VLM call — tile sampled frames into a labeled
+  contact sheet, ask which cells show the target, then zoom in.
+---
+
+# overcast-frame-grid
+
+Use this skill to find roughly WHERE in a clip something appears with a single
+vision call, before spending per-frame calls. It's the "grid trick" from
+temporal-search research (frames tiled into one image; Set-of-Mark numbering over
+time). Pairs with \`overcast-pinpoint\` for the frame-precise follow-up. Use the
+broad \`overcast\` skill and \`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+\\\`\\\`\\\`bash
+overcast doctor --json
+overcast case init --json
+overcast grid ./clip.mp4 --count 16 --json     # -> media.grid: payload.montage + payload.cells + payload.cols
+overcast see <montage-path> --prompt "Which numbered cells show <X>? Reply with cell numbers and why." --json
+\\\`\\\`\\\`
+
+- If the grid record's \`payload.labeled\` is \`false\` (this ffmpeg build has no
+  \`drawtext\`), tell \`see\` it's a \`<cols>\`-column grid numbered left-to-right,
+  top-to-bottom (\`cols\` is in the record), so it can reference cells by position.
+- Only the first \`count\` cells hold frames; the last row may be blank padding
+  (those \`payload.cells[].at\` are \`null\`), so have \`see\` pick from 1..\`count\`
+  and ignore blank tiles.
+- Always map the chosen cell number back through \`payload.cells[n].at\` to get the
+  real timestamp — never use a time the model typed out.
+
+Zoom in on the winning region (narrow the window, or hand the timestamp to
+\`overcast-pinpoint\`):
+
+\\\`\\\`\\\`bash
+overcast grid ./clip.mp4 --start <a> --end <b> --count 16 --json   # finer sheet around the hit
+overcast see frame://<watch-record>@<t> --prompt "Is <X> here? yes/no + detail" --json
+overcast note "<X> first visible" --ref <record> --at <t1-t2> --json
+overcast brief --export ./grid-triage.md --json
+\\\`\\\`\\\`
+
+Use \`--at "s1,s2,s3"\` instead of \`--count\` when you already have candidate
+timestamps to compare side by side; \`--start/--end\` to focus a window; \`--cols\`
+/ \`--width\` to shape the sheet. Add \`--view\` (\`--no-open\` in a headless run) to
+also write a clickable HTML board — numbered, timestamped cells that seek the
+source clip — for eyeballing the sheet by hand; the montage PNG stays the input
+you hand to \`see\`.
+
+## Output
+
+The cell(s) that matched, the timestamp each maps to (via \`payload.cells\`), and
+the grid \`record.id\`. Treat grid hits as coarse (one frame per cell) — confirm
+the exact moment by \`see\`-ing that frame before citing it as evidence.
+
+## Caveats
+
+One contact sheet samples sparsely, so a brief event between cells can be missed —
+raise \`--count\` or re-grid a tighter \`--start/--end\`. The montage is a still, so
+motion/audio cues are gone; use \`watch\`/\`listen\` when those matter. Video can be
+local or a URL, but the \`see frame://\` zoom-in step needs it local.
+`;
+}
+
+/** Skill: bisect the exact instant of a monotone state change. */
+export function generateEventBisectSkill(): string {
+  return `---
+name: overcast-event-bisect
+description: >-
+  Localize the exact instant of a one-way state change (light on, door opens,
+  poster removed) by binary-searching frames — ~log2(N) VLM calls.
+---
+
+# overcast-event-bisect
+
+Use this skill when a video contains a single MONOTONE transition — a condition
+that is false before some instant and true after it (or vice versa), and does not
+flip back. Binary search finds it in about log2(window/precision) vision calls
+(~12 calls localizes to ~1s inside an hour). Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+1. Local clip + record id (\`see frame://\` needs media on disk):
+
+\\\`\\\`\\\`bash
+overcast doctor --json
+overcast case init --json
+overcast watch ./clip.mp4 --json        # -> record id REC (also gives shot context)
+\\\`\\\`\\\`
+
+2. Confirm the transition is bracketed AND monotone — the two endpoints must
+   disagree on the predicate:
+
+\\\`\\\`\\\`bash
+overcast see frame://REC@<lo> --prompt "Is <predicate> true? answer only yes or no" --json
+overcast see frame://REC@<hi> --prompt "Is <predicate> true? answer only yes or no" --json
+\\\`\\\`\\\`
+
+   If both give the same answer, the flip isn't in \`[lo,hi]\`. If the predicate
+   toggles more than once, it isn't monotone — use \`overcast-pinpoint\` instead.
+
+3. Bisect: test the midpoint, keep the half that still straddles the flip, repeat
+   until \`hi - lo\` is within your precision:
+
+\\\`\\\`\\\`bash
+overcast see frame://REC@<mid> --prompt "Is <predicate> true? answer only yes or no" --json
+# keep the straddling half: if mid's answer == lo's answer, set lo=mid; else hi=mid
+# (correct whichever way it flips — false->true OR true->false)
+\\\`\\\`\\\`
+
+4. Report the transition window and show it:
+
+\\\`\\\`\\\`bash
+overcast note "<predicate> flips" --ref REC --at <lo-hi> --confidence high --json
+overcast view REC --at <lo-hi> --json
+overcast brief --export ./transition.md --json
+\\\`\\\`\\\`
+
+## Output
+
+The converged \`[lo, hi]\` bracket — the two adjacent \`see\` frames that straddle
+the flip (their \`record.id\`s + \`media.at\`) — and the call count. That bracket IS
+the answer window — don't over-claim a single frame.
+
+## Caveats
+
+Bisection is only valid for a one-way change; a light that blinks or a person who
+comes and goes will mislead it — verify monotonicity at step 2, and fall back to
+\`overcast-pinpoint\` (peak search) or \`overcast-presence-window\` for recurring or
+interval events. Needs the video local.
+`;
+}
+
+/** Skill: locate WHERE in the frame — detector-propose, VLM-verify. */
+export function generateWhereSkill(): string {
+  return `---
+name: overcast-where
+description: >-
+  Locate WHERE in a frame a target is — open-vocab detect, crop the box, then
+  VLM-verify the crop so hallucinated boxes don't survive.
+---
+
+# overcast-where
+
+Use this skill to turn a moment into spatial evidence: a bounding box on the
+target plus a verified crop. It follows the detector-proposes / VLM-verifies
+pattern (open-vocab detection like OWLv2, then confirm the crop) — because chat
+VLMs are unreliable at emitting raw coordinates, so a real detector draws the box
+and the VLM only judges the crop. Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags.
+
+## Setup
+
+\`see --detect\` needs a detection provider bound (boxes come from OWLv2, not the
+brain LLM):
+
+\\\`\\\`\\\`bash
+overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json
+# or the catalog: overcast provider setup apply --preset owl-local --yes --json
+\\\`\\\`\\\`
+
+## Workflow
+
+1. Have the moment (use \`overcast-pinpoint\` / \`overcast-frame-grid\`): timestamp
+   T on record REC.
+
+2. Detect the target in that frame, then materialize + verify the box:
+
+\\\`\\\`\\\`bash
+overcast see frame://REC@T --detect "<target phrase>" --json      # -> see record with detections[]
+overcast crop <see-record-id> --all --class "<target phrase>" --pad 0.15 --json
+overcast see <crop-path> --prompt "Does this crop show <target>? yes/no + describe" --json
+\\\`\\\`\\\`
+
+   The re-\`see\` of each crop is what kills false positives — open-vocab detectors
+   emit confident boxes for almost any phrase at low thresholds.
+
+3. Optionally sharpen the exhibit and record the finding:
+
+\\\`\\\`\\\`bash
+overcast enhance <crop-path> --ops upscale,denoise --json
+overcast finding create "<target> located at T" --ref <see-record-id> --confidence medium --json
+overcast brief --export ./where.md --json
+\\\`\\\`\\\`
+
+## Output
+
+Per confirmed target: the timestamp, the box (from the \`see --detect\` record),
+the crop path, and the verification verdict. Cite the \`see\` detection
+\`record.id\` + \`media.at\`; note the crop is the durable, memory-friendly evidence
+artifact.
+
+## Caveats
+
+Never ask the brain LLM for coordinates directly — bind a detector and verify
+crops. Detector confidence is not calibrated across free-form phrases: a high
+score on a rare phrase can still be wrong, so the crop re-check decides. For a
+specific PERSON, use \`face --match\` instead of \`--detect\`. Boxes are per sampled
+frame, not tracks.
+`;
+}
+
+/** Skill: first/last appearance interval by sweeping outward from an anchor. */
+export function generatePresenceWindowSkill(): string {
+  return `---
+name: overcast-presence-window
+description: >-
+  Find the interval a person or object is present — anchor one appearance, then
+  sweep outward with face-match / detect until it drops off both sides.
+---
+
+# overcast-presence-window
+
+Use this skill to answer "from when to when is <target> on screen?" — a first/last
+appearance interval, not a single instant. It anchors one confirmed appearance and
+expands until the target stops appearing, the presence-tracking analog of a
+temporal search. Use the broad \`overcast\` skill and
+\`overcast/reference/verbs.md\` for exact flags.
+
+## Workflow
+
+1. Local clip + record id:
+
+\\\`\\\`\\\`bash
+overcast doctor --json
+overcast case init --json
+overcast watch ./clip.mp4 --json        # -> record id REC
+\\\`\\\`\\\`
+
+2. Anchor one appearance (whichever fits the target):
+
+\\\`\\\`\\\`bash
+overcast face ./clip.mp4 --match ./person.jpg --json          # a specific person (similarity 0-100)
+overcast grid ./clip.mp4 --count 16 --json                    # then see the montage for an object
+\\\`\\\`\\\`
+
+3. Sweep outward from the anchor until K consecutive misses on each side:
+
+\\\`\\\`\\\`bash
+# person: widen the window; --fps controls sample density (precision vs cost)
+overcast face ./clip.mp4 --match ./person.jpg --start <a> --end <b> --fps 1 --min-similarity 55 --json
+# object: step frames outward and check presence
+overcast see frame://REC@<t> --prompt "Is <target> present? answer only yes or no" --json
+\\\`\\\`\\\`
+
+4. Emit the presence interval(s) and show them:
+
+\\\`\\\`\\\`bash
+overcast note "<target> present" --ref REC --at <first-last> --confidence medium --json
+overcast view REC --at <first-last> --json
+overcast brief --export ./presence.md --json
+\\\`\\\`\\\`
+
+## Output
+
+One or more \`[first-last]\` intervals with the per-hit citations (\`record.id\` +
+\`media.at\`) that bound them, and the sample density used. If the target leaves
+and returns, report each interval separately rather than one span covering the
+gap.
+
+## Caveats
+
+Sampled detections are per-frame, not continuous — presence between samples is
+inferred; raise \`--fps\` to tighten boundaries at higher cost. Occlusion or an
+off-camera moment splits one presence into several intervals — that's a real
+result, not noise. Face similarity is 0-100. Needs the video local.
 `;
 }

@@ -12,15 +12,39 @@ import { makeRecord, type OvercastRecord } from "./record.js";
 import { persistRecords } from "./registry/persist.js";
 import { renderForFormat } from "./render.js";
 import { loadDotEnv } from "./env.js";
+import { writeSync } from "node:fs";
 
 export interface CliIO {
   out: (s: string) => void;
   err: (s: string) => void;
 }
 
+/**
+ * Write a whole string to a fd synchronously. The CLI dumps records and
+ * `commands --json` to stdout and then the process exits immediately —
+ * `process.stdout.write()` is async when stdout is a pipe, so a payload larger
+ * than the ~64KB pipe buffer is truncated when the process exits before it
+ * drains (identically under Node and a bun-compiled binary). A synchronous fd
+ * write flushes in full before we move on. EAGAIN (non-blocking pipe) is retried;
+ * EPIPE (reader closed) is swallowed like a normal `write` would.
+ */
+function writeAllSync(fd: number, s: string): void {
+  let buf = Buffer.from(s, "utf8");
+  while (buf.length > 0) {
+    try {
+      buf = buf.subarray(writeSync(fd, buf));
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "EAGAIN") continue;
+      if (code === "EPIPE") return;
+      throw e;
+    }
+  }
+}
+
 const defaultIO: CliIO = {
-  out: (s) => process.stdout.write(s),
-  err: (s) => process.stderr.write(s),
+  out: (s) => writeAllSync(1, s),
+  err: (s) => writeAllSync(2, s),
 };
 
 /** Extract global flags (--case/--home/--profile) and return the remainder. */

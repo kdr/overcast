@@ -44,8 +44,14 @@ another backend or your own script with no code changes.
 - **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
   `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
   `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.
-- **yt-dlp** on `PATH` — only for the `youtube` / `tiktok` / `x` capture sources
-  (x post-page URLs; direct twimg.com media downloads with curl).
+- **yt-dlp** on `PATH` — for the `youtube` and generic `dl` sources, and for
+  fetching post pages on `tiktok` / `x` / `instagram` / `telegram` (direct-CDN
+  media still downloads with curl). `dl` handles any yt-dlp-supported host
+  (Rumble, BitChute, Odysee, Vimeo, Reddit, …).
+- **ExifTool** / **c2patool** — optional, only for the forensic senses:
+  `exif` (metadata + GPS) needs `exiftool`; `verify` (C2PA / Content Credentials)
+  needs `c2patool`. `brew install exiftool c2patool` · `apt install libimage-exiftool-perl`.
+  Both report `needs_credentials` (exit 13) when absent, so the rest of overcast is unaffected.
 
 `overcast doctor` verifies core prerequisites and reports qmd when installed or
 configured.
@@ -87,6 +93,35 @@ overcast skills install                        # copies the shipped skills into 
 overcast skills install --harness claude-code  # explicit harness (claude-code is the only target today)
 npx skills add kdr/overcast                    # vercel-labs/skills; pulls skills from this repo
 ```
+
+Shipped skills — `overcast` (the broad driver + `reference/verbs.md` man pages),
+`overcast-init` (one-time setup), `overcast-skill-creator` (author your own), and
+focused workflows:
+
+| Skill | Trope / job |
+|---|---|
+| `overcast-recon-brief` | scan/monitor public sources → cited brief |
+| `overcast-visual-target-search` | find a person/logo/object across clips |
+| `overcast-media-bug-triage` | screen recordings/audio → cited bug reports |
+| `overcast-copycat-sweep` | hunt re-uploads/reskins of original video |
+| `overcast-lineup` | build a face DB, run a probe through it ("the lineup") |
+| `overcast-stakeout` | standing monitor + findings review + control-room wall |
+| `overcast-scene-locate` | "where was this taken?" — clues → reverse-image search |
+| `overcast-enhance-and-resolve` | "zoom in… enhance" — upscale, re-read, honestly |
+| `overcast-wiretap` | diarize + audio-scene + spectrogram + voice-isolate/separate |
+| `overcast-provenance` | "is this clip real?" — trace to the earliest source |
+| `overcast-timeline` | reconstruct one event across multiple clips |
+| `overcast-crime-board` | crops + person links + CLIP themes → CSI board + wall |
+| `overcast-pinpoint` | pinpoint WHEN something happens — coarse→fine temporal search |
+| `overcast-frame-grid` | triage a clip in one VLM call via a labeled frame contact sheet |
+| `overcast-event-bisect` | binary-search the exact instant of a one-way state change |
+| `overcast-where` | locate WHERE in a frame — detect box + VLM-verify the crop |
+| `overcast-presence-window` | find the interval a person/object is on screen |
+
+Each is generated from `src/skill-gen.ts` (one source of truth). The CSI/crime-trope
+skills (`lineup`…`crime-board`) are exercised end-to-end against real media in
+`test/e2e/live/cases/80`–`90`; the visual-CoT localization skills
+(`pinpoint`…`presence-window`) in `test/e2e/live/cases/18_grid`.
 
 **Claude Code plugin** (slash commands + skills as one package):
 
@@ -143,10 +178,17 @@ overcast face ./clip.mp4 --thumbnails --json          # who is in this video + f
 overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/PNG query image), ranked by similarity
 overcast crop <face-record-id> --all --class face --json # write cropped face images as evidence
 
-# 6) objects: bind a detector, find boxes, and crop them
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py"
+# 6) objects: bind the OWLv2 detector, find boxes, and crop them
+scripts/visual-db-uv.sh --detect     # uv-installs torch + transformers + scipy (sets DETECT_PY)
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"
 overcast see ./clip.mp4 --detect "person, car, license plate" --json
 overcast crop <see-record-id> --all --class person --json
+
+# 6b) when did X happen? tile the clip, ask a VLM which cell, then verify the frame
+overcast grid ./clip.mp4 --count 16 --json               # one contact sheet + cell→timestamp map
+overcast see <montage-path> --prompt "which numbered cells show X?" --json
+overcast see frame://<watch-record>@<seconds> --prompt "is X happening here?" --json  # verify at the frame
+overcast grid ./clip.mp4 --view                          # clickable numbered board that seeks the clip
 
 # 7) index the target's videos, then search across ALL of them
 overcast index create faces --type face --json
@@ -205,7 +247,7 @@ appears, and the chair console opens in your phone browser — live assistant
 stream, steer / follow-up prompts, ABORT, and a read-only case glance. The
 bridge is a token-authed localhost/tailnet HTTP+SSE server (no TLS in v1 —
 pair it with Tailscale or an SSH tunnel; the pairing token rides in the QR
-URL's `#fragment` and rotates on `/chair off`). See flow 20 in
+URL's `#fragment` and rotates on `/chair off`). See flow 23 in
 [`docs/flows.md`](docs/flows.md).
 
 Use the three report surfaces for different jobs:
@@ -259,13 +301,14 @@ surface + env vars.)
 | `audio` | Shazam-style exact audio matching against a local `audio-fp` index (time-offset alignment), or clip-to-clip `audio match <query> <reference>`; `--min-margin` rejects sped re-uploads, `--draw` renders an SVG alignment plot for briefs |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
-| `enhance` | denoise / normalize / upscale via bundled ffmpeg, or a bound model provider |
+| `enhance` | denoise / normalize / upscale via bundled ffmpeg, a bound restore model, or the split ops — `--ops separate` (per-speaker tracks, `--summarize` to transcribe each) and `--ops segment --prompt` (text-prompted masks + cutouts), bound local or fal, one evidence record per artifact |
 
 **Inspect** — look at the evidence
 | verb | does |
 |---|---|
-| `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram) |
+| `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram); on an `enhance` split-op parent, a gallery of the tracks (audio + spectrograms) or cutouts |
 | `crop` | materialize face/object detections as cropped image records with provenance |
+| `grid` | tile timestamped frames into one contact sheet for single-call VLM triage (cell → timestamp map); `--view` for a clickable, numbered HTML board that seeks the clip |
 | `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
 
 **OSINT** — search / capture / monitor
@@ -434,8 +477,8 @@ for cadence, and add `--max-frames` when you want a hard cap.
 
 | class | verbs | shipped providers |
 |---|---|---|
-| **sense** | watch / listen / see / face / similar / enhance | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg |
-| **source** | scan / capture / monitor | youtube (yt-dlp), tiktok (Apify), x (Apify), web (Tavily/Brave), lens (Apify Google Lens reverse image) |
+| **sense** | watch / listen / see / face / image / audio / similar / cluster / enhance / exif / verify | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`) |
+| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / facesearch (Apify), web (Tavily/Brave), gdelttv (GDELT TV, no key), webcam (Windy Webcams) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
@@ -450,6 +493,12 @@ Built-in source refs:
 - `x:video:<query>` / `x:image:<query>` — only X posts with native video / images (media targeting).
 - `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
 - `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
+- `dl:<url>` — capture-only generic fetcher: any yt-dlp-supported host (Rumble, BitChute, Odysee, VK, Bilibili, Vimeo, Dailymotion, Reddit, Facebook, …). `scan`/`monitor` enumerate returns nothing; it exists to route ad-hoc `capture <url>`.
+- `instagram:@handle` / `instagram:#tag` / `instagram:<post URL>` — Instagram posts & reels (Apify); `--since` honored server-side.
+- `telegram:<channel>` / `telegram:<t.me URL>` — public Telegram channel posts (Apify, no login); stable `t.me/<channel>/<id>` per-post URL for clean monitor dedup.
+- `gdelttv:"<query>"` — GDELT 2.0 TV API broadcast-news clips (**no key**) → bounded Internet-Archive `.mp4?start=…&end=…` segments; `--since` maps to the GDELT date window.
+- `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` / `webcam:category:<slug>` / `webcam:<id>` — live public webcams (Windy Webcams API); each hit's `media.ref` is the current still, re-captured every `monitor` pass (`recapture`).
+- `facesearch:<image url or local path>` — **opt-in** reverse **face** search (Apify); ToS/privacy-gated, never a default source.
 
 ### Profiles
 
@@ -492,15 +541,19 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; install with `npm install -g @tobilu/qmd`, then rebuild before querying qmd)
 
 **Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
-- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead.
-- `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`
+- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead. Also gates the **local** `enhance --ops separate` (pyannote diarization): its model is a **gated** HF repo — set `HF_TOKEN` **and** accept the license at <https://huggingface.co/pyannote/speaker-diarization-community-1> ("Agree and access repository") once before first use.
+- `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3), plus the split ops `enhance --ops separate` (sam-audio) / `--ops segment` (sam-3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`, `FAL_SEPARATE_MODEL`, `FAL_SEGMENT_MODEL`
+- `OC_VISUAL_DB_PY` — the **local-models** `enhance` toolbox: on-device `--ops separate` (pyannote, gated — see `HF_TOKEN`) and `--ops segment` (GroundingDINO + SAM 2.1, ungated); set up with `scripts/visual-db-uv.sh --enhance`
 - `ELEVENLABS_API_KEY` (or `XI_API_KEY`) — `listen` (Scribe STT) + `enhance` audio (voice isolation); `ELEVENLABS_STT_MODEL` (default `scribe_v1`)
 
 **OSINT sources**
 - `TAVILY_API_KEY` (preferred) / `BRAVE_API_KEY` — the `web` search source
-- `APIFY_TOKEN` — the `tiktok` and `x` sources (enumerate; fetch uses yt-dlp / direct CDN)
-- youtube needs `yt-dlp` on `PATH` (no key)
+- `APIFY_TOKEN` — the `tiktok`, `x`, `instagram`, `telegram`, `lens`, and `facesearch` sources (enumerate; fetch uses yt-dlp / direct CDN). Actor overrides: `OVERCAST_INSTAGRAM_ACTOR`, `OVERCAST_TELEGRAM_ACTOR`, `OVERCAST_LENS_ACTOR`, `OVERCAST_FACE_SEARCH_ACTOR`
+- `WINDY_API_KEY` — the `webcam` source (Windy Webcams API; free tier covers scan + still capture + monitor). Base override: `OVERCAST_WEBCAM_API`
+- `gdelttv` needs **no key** (GDELT 2.0 TV API is open)
+- `youtube` and `dl` need `yt-dlp` on `PATH` (no key)
 - `OVERCAST_SOURCE_<TYPE>_CMD` — override/add a source provider command
+- `APIFY_RUN_SYNC_TIMEOUT_MS` — Apify run-sync budget for the Apify-backed sources
 
 **Runtime / session** — `OVERCAST_HOME` (profiles, default `~/.overcast`),
 `OVERCAST_CASE` / `OVERCAST_PROFILE` (set by the launcher from `--case` / `--profile`),

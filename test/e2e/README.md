@@ -97,6 +97,33 @@ FND chip, CSI markers, plus the `--infinite` endless wall from the same case) ·
 (binary as artifact) · `70_headless` (agent `--mode json` event stream + `-p`
 tool use + watch/persist).
 
+**Skill workflow cases (`80`–`89`)** — one per shipped CSI/crime-trope skill,
+each driving the skill's documented `overcast … --json` command chain against real
+media and asserting on the emitted records + saving the skill's artifact (brief /
+gallery / wall HTML) into the run dir:
+`80_skill_lineup` (face-cluster DB → gallery → held-out `identify` → cited finding)
+· `81_skill_stakeout` (standing scope + real feed + CSI monitor wall + Apify
+`monitor --once` source tier) · `82_skill_scene_locate` (`see --ocr/--prompt`
+clues → lens reverse-image + web corroboration) · `83_skill_enhance_resolve`
+(ffmpeg enhance → re-read the enhanced frame with `see --ocr` → provenance finding,
++ optional fal restoration leg) · `84_skill_wiretap` (`listen --diarize/--describe`
++ `view --spectrogram` + `enhance voice-isolate` → re-listen → cross-clip `ask`) ·
+`85_skill_provenance` (fingerprint a mark → lens/web sweep with no recency floor →
+CONFIRM a synthesized suspect through the geometry gate, REJECT an unrelated clip)
+· `86_skill_timeline` (multi-clip `watch`/`listen` → span-note anchors → ordering
+`ask` → chronological brief) · `87_skill_crime_board` (`face --thumbnails` → `crop`
+cards → `cluster` person links → `similar` CLIP theme links → CSI brief + wall).
+Then the **agentic** cases: `88_skill_agent` (a real headless pi agent —
+`overcast --mode json` — LOADS a vended skill from its `SKILL.md` and executes a
+bounded slice against real media; asserts on the persisted records + the JSONL
+tool-call trace) and `89_skill_claude` (loads a skill into the real `claude` CLI
+headless and lets Claude drive the overcast binary; **opt-in** behind
+`OC_E2E_CLAUDE=1`). `90_skill_variations` runs the same real input through
+different modes/flags and asserts the outputs actually DIFFER — `listen` plain vs
+`--describe` (adds an audio-scene field, or an audio-only fallback warning) vs
+`--diarize` (speaker labels); `see --ocr` vs `--prompt`; `brief --theme plain` vs
+`csi` — saving every raw output for inspection.
+
 The offline suite also covers setup management (`phase4_setup`): `case setup
 plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
 and exclusion of setup history records from memory — plus the control-room wall
@@ -113,7 +140,9 @@ non-zero if any case fails.
 ### Runner knobs
 
 `OVERCAST_USE_NODE=1` (node instead of bun) · `SKIP_BUILD=1` (reuse `dist/`) ·
-`OC_TIMEOUT=<secs>` (per-command timeout, default 300).
+`OC_TIMEOUT=<secs>` (per-command timeout, default 300) · `OC_E2E_CLAUDE=1` (opt in
+to `89_skill_claude`, which drives the real `claude` CLI headless — spends Claude
+credit + uses the machine's Claude auth + runs Bash headless).
 
 ## Man in the chair (`/chair`) — manual smoke
 

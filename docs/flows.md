@@ -79,7 +79,8 @@ Provider classes:
   matching, the `cluster` face DB, and CLIP semantic search, selected by the
   `image-ransac` / `deepface-local` / `face-cluster` / `basic-clip` index types.
 - **source providers** — external discovery and URL fetching (youtube / tiktok /
-  x / web / lens reverse-image).
+  x / web / lens reverse-image / dl generic-yt-dlp / instagram / telegram /
+  gdelttv broadcast-TV / webcam live-cams / facesearch opt-in reverse-face).
 - **case memory** over primary evidence for `ask` / `brief` / `case memory` —
   `local-grep` by default, or qmd for lifecycle-managed semantic local search.
 
@@ -101,7 +102,7 @@ invoked.
   transient/pending and `--export` does not write a misleading empty artifact.
 - The TUI/CLI loads `.env` from the active case directory unless
   `OVERCAST_NO_DOTENV=1`; secret-like values are redacted in rendered output.
-- `/chair` (man in the chair, flow 20) is operational: it emits no case records,
+- `/chair` (man in the chair, flow 23) is operational: it emits no case records,
   its pairing token appears only in the QR widget (never in session history), and
   remote input is injected as plain `[chair]`-prefixed user messages — pi never
   expands slash commands or prompt templates for extension-sent messages, so the
@@ -121,13 +122,14 @@ The quick answer to "where did this output go, and can `ask` find it later?"
 
 The durable local store under `.overcast/records`, plus media/state/index files.
 
-- **Primary evidence records:** `watch`, `listen`, `see`, `scan`, `capture`,
-  `enhance`, `crop`, `note`, and root `finding`s.
+- **Primary evidence records:** `watch`, `listen`, `see`, `exif`, `verify`,
+  `scan`, `capture`, `enhance`, `crop`, `note`, and root `finding`s.
 - **Typed evidence/tool records:** `face` (detect/match/search/list) and `see`
   object-detection records.
 - **Read/meta records:** `ask`, `brief`, `case`.
 - **Operational/setup records:** `setup`, `doctor`, `provider`, `skills`,
-  `index`, `target`, `source`, `prebrief`, and finding review-rows.
+  `index`, `target`, `source`, `prebrief`, `wall`, `grid`, and finding
+  review-rows. (`grid`/`wall` are triage/viewing artifacts — not evidence.)
 - **Media files:** captured/copied/enhanced media and crops under
   `.overcast/media`.
 - **State files:** targets, sources, index mirrors, seen sets, and memory-index
@@ -161,14 +163,14 @@ Eligible fields when allowed by the signal filter:
 | `note` | title, text, tags, confidence, ref | — |
 | `scan` | title, snippet, url, source, published | — |
 | `capture` | title, snippet, text, path, source, kind | — |
-| `enhance` | summary, path, ops, output | — |
+| `enhance` | summary, path, ops, op, kind, output, speaker/label, prompt, transcript, count, score | mask/track binaries, raw boxes, segment arrays |
 | `finding` | root findings with `text` + `status` | review-rows, suggested, dismissed, list envelopes |
 
 Excluded from memory and briefs: prior read/meta output (`ask`, `brief`,
 `case`); setup/operational output (`setup`, `doctor`, `provider`, `skills`,
-`index`, `target`, `source`, `prebrief`); finding review-rows, finding-command
-errors, `finding list` envelopes, and `suggested` (excluded until accepted) or
-dismissed root findings (still auditable in records/logs).
+`index`, `target`, `source`, `prebrief`, `wall`, `grid`); finding review-rows,
+finding-command errors, `finding list` envelopes, and `suggested` (excluded until
+accepted) or dismissed root findings (still auditable in records/logs).
 
 Raw detection payloads are intentionally not searchable. Use exact record reads
 (`case memory get <id>`) or `crop <record-id>` for boxes/images.
@@ -223,7 +225,8 @@ local case memory.
 
 Local `image-ransac` and `deepface-local` indexes are also explicit and case-owned.
 They do not upload media and do not change the tinycloud defaults; run
-`scripts/visual-db-uv.sh --face` once per checkout/machine, then use
+`scripts/visual-db-uv.sh --face` (or `--clip`/`--detect`/`--all`) once per
+checkout/machine, then use
 `overcast doctor` to confirm `uv` and `visual-db` are ready. DeepFace face
 detection/matching is available as a profile choice (`face:deepface-local`), but the
 local searchable DB remains a case-owned `deepface-local` index. Current case setup
@@ -323,7 +326,7 @@ overcast brief --export report.md        # short verdict-led brief; add --full f
 When you need a local, inspectable visual match DB instead of a remote index.
 
 ```bash
-scripts/visual-db-uv.sh --face   # or --clip for CLIP, --all for both
+scripts/visual-db-uv.sh --face   # or --clip for CLIP, --detect for OWLv2, --all for every stack
 overcast doctor --json
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
 
@@ -549,6 +552,35 @@ overcast watch <enhance-output-path>
 overcast ask "What is visible or said after enhancement?"
 ```
 
+### 13b. Split ops — separate voices / segment objects
+
+Bind a split provider once (on-device or fal), then `enhance --ops separate|segment`
+fans out one evidence record per track / masked instance.
+
+```bash
+scripts/visual-db-uv.sh --enhance                       # on-device stacks (or use --preset fal)
+overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
+
+overcast enhance ./interview.mp4 --ops separate --summarize   # per-speaker tracks, each transcribed
+overcast view <separate-parent-id>                             # gallery: audition each track + spectrograms + cross-talk
+overcast ask "Summarize what each separated speaker said"
+
+overcast enhance ./scene.jpg --ops segment --prompt "the red car"   # mask + RGBA cutout per instance
+overcast view <segment-parent-id>                              # gallery: every cutout/mask in one page
+overcast crop <segment-parent-id> --all                        # same boxes as durable crops
+```
+
+Each separated track is a first-class audio evidence record (a `.wav` under
+`.overcast/media/separate/`), so it chains into the audio senses — fingerprint-match
+an isolated voice against a reference recording, or embed it for CLAP search — to
+identify or compare a single speaker pulled out of a mix:
+
+```bash
+overcast audio match <track-record-id> ./known-speaker.wav       # exact-recording fingerprint match (clip-to-clip)
+overcast similar add <track-record-id> --to voices               # embed the isolated voice into a CLAP index
+overcast similar search "calm female narrator" --index voices    # then CLAP-search across the separated voices
+```
+
 ### 14. Detection crop evidence
 
 Turn face/object boxes into durable, citable, searchable images.
@@ -574,6 +606,29 @@ overcast watch ./clip.mp4
 overcast see frame://<watch-record-id>@42 --prompt "Describe signage and visible objects"
 overcast ask "What signage appears around 42 seconds?"
 ```
+
+### 15b. Temporal localization — *when* did X happen (coarse → fine)
+
+Triage the whole clip in one vision call, then verify the exact moment at the
+frame. Every timestamp traces back to a frame the model actually looked at — a
+low-res tile invites a plausible-but-wrong read, so the frame check decides.
+
+```bash
+overcast watch ./clip.mp4                                   # -> record REC (media on disk)
+overcast grid ./clip.mp4 --count 16 --json                  # one contact sheet; payload.cells maps cell -> timestamp
+overcast see <montage-path> --prompt "which numbered cells show X? give cell numbers"
+# map the chosen cell number through payload.cells[n].at (never a time the model typed)
+overcast see frame://REC@<that-second> --prompt "is X happening here?"   # verify at full resolution
+overcast grid ./clip.mp4 --start <a> --end <b> --json       # re-grid tighter to zoom in
+overcast note "X occurs" --ref REC --at <t1-t2> --confidence medium
+```
+
+`grid` is a triage artifact (operational — excluded from case memory), not
+evidence; cite the verified `see` frame, and report a window, not a false-precise
+frame. `overcast grid ./clip.mp4 --view` opens a clickable HTML board (numbered,
+timestamped cells that seek the clip) for eyeballing the same sheet by hand. The
+`overcast-pinpoint`, `overcast-frame-grid`, `overcast-event-bisect`,
+`overcast-where`, and `overcast-presence-window` skills wrap these loops.
 
 ### 16. Human observation / analyst flagging
 
@@ -663,7 +718,68 @@ seeding scans), and `target reopen` revives it. The `/debrief` prompt automates
 this whole loop — triage leads, write `thread:<tgt_id>` narrative notes, close
 resolved lines, refresh the `tldr` note, and `brief --export`.
 
-### 20. Man in the chair: drive the desk from the field
+### 20. New OSINT sources: broadcast, social, live cams, reverse-image
+
+Broadcast TV, more social platforms, live webcams, and reverse-image lookups —
+same `scan` / `capture` / `monitor` verbs, one loose record shape. All discover
+via `enumerate`; add `--pull` to capture + sense each hit.
+
+```bash
+overcast scan --source gdelttv --query "climate summit" --since 14d       # GDELT TV → bounded Internet-Archive clips (no key)
+overcast scan --source instagram --query @nasa --since 7d --pull           # Instagram posts/reels (Apify)
+overcast scan --source telegram --query durov --since 30d                  # public Telegram channel (Apify)
+overcast monitor --source webcam --query "48.8584,2.2945,25" --every 30m   # live Paris cams, re-captures each pass
+overcast capture "https://rumble.com/v123.html" --source dl                # any yt-dlp host, capture-only
+overcast scan --source facesearch --query ./person.jpg --pull              # opt-in reverse FACE search (ToS-gated)
+```
+
+`webcam` hits carry `recapture: true` so `monitor` re-captures the CURRENT still
+each pass without bloating the seen-set (a permanently broken cam is given up
+after repeated failures). An unparseable `--since` fails closed on the
+recency-aware sources rather than silently widening the window. `facesearch` is
+never a default — you must bind it explicitly.
+
+### 21. Media forensics: metadata, GPS & provenance
+
+Establish where a file came from and whether it carries signed credentials —
+evidence records like any other sense, cited by `ask` / `brief`.
+
+```bash
+overcast exif ./photo.jpg --json      # ExifTool: GPS lat/lng, capture time, device, editing software
+overcast verify ./clip.mp4 --json     # C2PA / Content Credentials: manifest, signer, validation state
+overcast exif <capture-record-id>     # or run over a captured scan hit (remote media is fetched first)
+overcast ask "what GPS coordinates or camera devices appear?"
+```
+
+`exif` needs `exiftool`, `verify` needs `c2patool` (both report
+`needs_credentials`, exit 13, when absent). Media with no credentials is a clean
+`ready` `verify` record (`has_manifest: false`), not an error — and distinct from
+source-post provenance (where a record was scraped from).
+
+### 22. CSI / crime-trope skills (packaged flows)
+
+Several of the flows above are packaged as installable agent **skills** — a
+numbered `## Workflow` funnel each agent can follow. They ship generated from
+`src/skill-gen.ts` and are exercised end-to-end against real media in
+`test/e2e/live/cases/80`–`90`:
+
+| Skill | Flow it packages |
+|---|---|
+| `overcast-lineup` | `cluster` face DB → gallery → held-out `identify` → cited finding |
+| `overcast-stakeout` | `case setup` review-target → `monitor` → findings review → `wall` |
+| `overcast-scene-locate` | `exif` GPS → `see --ocr/--prompt/--detect` clues → `lens` reverse-image + `web` |
+| `overcast-enhance-and-resolve` | `enhance` → re-read the enhanced frame (`see`) → `crop` |
+| `overcast-wiretap` | `listen --diarize/--describe` + `view --spectrogram` + `enhance --ops voice-isolate/separate` |
+| `overcast-provenance` | `verify`/`exif` + fingerprint → sweep (no recency floor) → geometry-gated verdict |
+| `overcast-timeline` | multi-clip `watch`/`listen` → span-note anchors → chronological `brief` |
+| `overcast-crime-board` | `crop` cards + `cluster` links + `similar` themes → CSI `brief` + `wall` |
+
+Speaker separation (`listen --diarize`) needs a diarize-capable provider — the
+default tinycloud path is speech-transcript only; bind ElevenLabs. Object crops
+(`see --detect` → `crop`) need a bound OWLv2 detector (`scripts/visual-db-uv.sh
+--detect`, then `setup provider see "exec:$DETECT_PY …/detect.py"`).
+
+### 23. Man in the chair: drive the desk from the field
 
 Remote-control the live interactive session from your phone. The desk session is
 your man in the chair; you check in from the field over your tailnet.
@@ -703,8 +819,11 @@ no case records. Env knobs: `OVERCAST_CHAIR`, `OVERCAST_CHAIR_BIND`,
 | `face` | sense | `face.analysis` | tinycloud | custom exec / pinned tinycloud | Face detect/match/index search |
 | `image` | sense | `image.match` | local OpenCV RANSAC (`image-ransac` index) | `OC_VISUAL_DB_PY` | Image/frame geometric matching |
 | `cluster` | sense | `cluster` | local DeepFace (`face-cluster` index) | `OC_VISUAL_DB_PY` | Persistent local face DB |
-| `similar` | sense | `similar.match` | local CLIP (`basic-clip` index) | `OC_VISUAL_DB_PY` | Cross-modal semantic search |
-| `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve media |
+| `similar` | sense | `similar.match` | local CLIP (`basic-clip`) / CLAP (`basic-clap`) | `OC_VISUAL_DB_PY` | Cross-modal semantic search |
+| `audio` | sense | `audio.match` | local fingerprint (`audio-fp` index) | `OC_VISUAL_DB_PY` | Shazam-style exact audio matching |
+| `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve / split media |
+| `exif` | sense | `media.metadata` | ExifTool (shipped) | `setup provider exif "exec:…"` | Embedded metadata + GPS |
+| `verify` | sense | `media.provenance` | c2patool (shipped) | `setup provider verify "exec:…"` | C2PA / Content Credentials |
 | `view` | inspect | `view` | local HTML viewer / OS open | none | Inspect media/anchors |
 | `crop` | inspect | `media.crop` | local ffmpeg | none | Materialize detection crops |
 | `wall` | inspect | `wall` | local HTML wall (file:// refs) | none | Control-room monitor wall |

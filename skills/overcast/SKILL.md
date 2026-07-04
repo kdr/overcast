@@ -26,9 +26,12 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `audio` — Shazam-style exact audio matching: fingerprint clips into a local audio-fp index, or match clip-to-clip with time-offset alignment.
 - `cluster` — Build and browse a local face-cluster DB: group faces into people, identify, label, and view.
 - `similar` — Find images/video moments or audio by visual, audio, or text similarity in a local CLIP (basic-clip) or CLAP (basic-clap) index.
-- `enhance` — Produce better media (denoise/normalize/upscale/...) via ffmpeg or a bound model provider.
+- `exif` — Extract embedded metadata — GPS, capture time, device — from an image or video (ExifTool).
+- `verify` — Check a media file's C2PA / Content Credentials provenance manifest (c2patool).
+- `enhance` — Produce better media (denoise/normalize/upscale) or split it (separate voices / segment objects) via ffmpeg or a bound model provider.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.
+- `grid` — Tile timestamped video frames into a labeled contact sheet for one-shot VLM triage.
 - `wall` — Open a control-room monitor wall: case videos looping at their evidence moments.
 - `scan` — Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.

@@ -27,10 +27,10 @@ casedir="$SMOKE_DIR/case_senses"; mkdir -p "$casedir"
 # phases append more verbs, so assert presence, not the exact set).
 verbs="$($OVERCAST commands --json | jq -r '.verbs[].name')"
 missing=""
-for v in watch listen see enhance view crop; do
+for v in watch listen see enhance view crop grid; do
   echo "$verbs" | grep -qx "$v" || missing="$missing $v"
 done
-if [ -z "$missing" ]; then ok "senses.verb_surface" "commands --json lists watch/listen/see/enhance/view/crop"; else fail "senses.verb_surface" "missing verbs:$missing"; fi
+if [ -z "$missing" ]; then ok "senses.verb_surface" "commands --json lists watch/listen/see/enhance/view/crop/grid"; else fail "senses.verb_surface" "missing verbs:$missing"; fi
 
 # enhance: ffmpeg op -> media.enhanced with output media.ref
 eout="$($OVERCAST enhance "$clip" --ops grayscale --json --case "$casedir" 2>/dev/null)"
@@ -60,6 +60,23 @@ assert_eq "crop.verb" "crop" "$(jq -r '.verb' <<<"$cout")" "crop emits crop reco
 assert_eq "crop.state" "ready" "$(jq -r '.state' <<<"$cout")" "crop ready"
 crop_path="$(jq -r '.media.ref' <<<"$cout")"
 if [ -f "$crop_path" ]; then ok "crop.output_exists" "crop image written"; else fail "crop.output_exists" "no crop at $crop_path"; fi
+
+# grid: tile timestamped frames into ONE contact sheet via the internal ffmpeg
+# toolkit — emits media.grid with a cell-number->timestamp map and a montage on disk.
+gout="$($OVERCAST grid "$clip" --count 4 --cols 2 --json --case "$casedir" 2>/dev/null)"
+save_json "phase2_grid" "$gout" >/dev/null
+assert_eq "grid.verb" "grid" "$(jq -r '.verb' <<<"$gout")" "grid emits grid record"
+assert_eq "grid.state" "ready" "$(jq -r '.state' <<<"$gout")" "grid ready"
+assert_eq "grid.cells" "4" "$(jq -r '.payload.cells | length' <<<"$gout")" "grid maps 4 cells"
+grid_path="$(jq -r '.media.ref' <<<"$gout")"
+if [ -f "$grid_path" ]; then ok "grid.output_exists" "contact sheet written"; else fail "grid.output_exists" "no montage at $grid_path"; fi
+
+# grid --view: render the clickable HTML board (numbered, seekable cells)
+gvout="$($OVERCAST grid "$clip" --count 4 --cols 2 --view --no-open --json --case "$casedir" 2>/dev/null)"
+save_json "phase2_grid_view" "$gvout" >/dev/null
+assert_eq "grid.view_not_opened" "false" "$(jq -r '.payload.opened' <<<"$gvout")" "--no-open respected"
+grid_html="$(jq -r '.payload.view' <<<"$gvout")"
+if [ -f "$grid_html" ] && grep -q 'onclick="seek(' "$grid_html"; then ok "grid.view_html" "board HTML has seekable cells"; else fail "grid.view_html" "no clickable board at $grid_html"; fi
 
 # see: with NO brain, NO HF token, and no binding, it's the placeholder.
 # (A brain / HF_TOKEN / a binding routes see to that backend instead.) Both the

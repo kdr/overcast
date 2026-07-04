@@ -73,6 +73,7 @@ Catalog presets:
 | `fal` | `see:fal`, `enhance:fal` |
 | `elevenlabs` | `listen:elevenlabs`, `enhance:elevenlabs` |
 | `owl-local` | `see:owl-local` |
+| `local-models` | `enhance:local-models` (on-device separate + segment) |
 | `deepface-local` | `face:deepface-local` |
 | `basic-clip` | `similar:basic-clip` |
 | `audio-fp` | `audio:audio-fp` |
@@ -213,8 +214,45 @@ overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input
 overcast setup provider enhance "exec:bash examples/providers/fal/enhance.sh {{input}}"  # image: esrgan · audio: deepfilternet3
 ```
 - **see** → `fal-ai/florence-2-large` (detailed caption; `--ocr` for text).
-- **enhance image** → `fal-ai/esrgan` (faithful Real-ESRGAN super-resolution — better for forensic use than diffusion editors).
-- **enhance audio** → `fal-ai/deepfilternet3` (speech denoise + 48 kHz). Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL`.
+- **enhance** is a **toolbox** dispatched by `--ops`: image → `fal-ai/esrgan`, audio → `fal-ai/deepfilternet3`; `--ops separate` → `fal-ai/sam-audio/separate`, `--ops segment` → `fal-ai/sam-3/image`. Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL` / `FAL_SEPARATE_MODEL` / `FAL_SEGMENT_MODEL`. See **Enhance split ops** below.
+
+## Forensic senses — `exif` (metadata + GPS, no key)
+
+`exif` runs the system **ExifTool** over an image or video and emits a
+`media.metadata` record: a searchable `summary` plus signed-decimal `gps`
+(`{lat,lng[,altitude]}`), capture time, camera `make`/`model`, editing
+`software`, MIME/dimensions/duration, and a total tag count. Highest-leverage
+"where/when/what device" evidence, before any AI.
+
+```bash
+brew install exiftool   # or: apt install libimage-exiftool-perl
+overcast exif ./photo.jpg          # -> media.metadata record (GPS, device, capture time)
+overcast exif <capture-id|record>  # a captured clip's metadata (video GPS tracks too)
+```
+
+Default backend: the shipped [`examples/providers/exif/exif.sh`](../examples/providers/exif/exif.sh)
+(system `exiftool`; `exit 13` → `needs_credentials` when absent). Bind your own
+with `setup provider exif <spec>`. Only the compact `summary`/`gps`/device fields
+are indexed into case memory — the full raw tag dump stays in the record for
+exact reads. `overcast doctor` reports whether `exiftool` is on PATH.
+
+`verify` checks a media file's embedded **C2PA / Content Credentials** manifest
+via **c2patool** and emits a `media.provenance` record: `has_manifest`, the claim
+generator, the signer/certificate issuer, `validation_state`, and assertion/
+ingredient counts. Media with no credentials is a clean `ready` record
+(`has_manifest: false`), not an error. This is distinct from source-post
+provenance (which records where a record *came from*) — it checks the media's own
+signed credentials.
+
+```bash
+brew install c2patool   # or: cargo install c2patool
+overcast verify ./photo.jpg        # -> media.provenance record (signer, validation state)
+```
+
+Default backend: the shipped [`examples/providers/verify/verify.sh`](../examples/providers/verify/verify.sh)
+(system `c2patool`; `exit 13` when absent). Bind your own with
+`setup provider verify <spec>`. `overcast doctor` reports whether `c2patool` is on
+PATH.
 
 ## ElevenLabs providers (`ELEVENLABS_API_KEY`)
 
@@ -225,6 +263,62 @@ overcast setup provider enhance "exec:bash examples/providers/elevenlabs/enhance
 - **listen** → ElevenLabs Speech-to-Text (Scribe) → transcript + word-level `segments[]` with `media.at` anchors + language.
 - **enhance** → ElevenLabs Voice Isolator (strips background noise/music → clean speech).
 
+## Enhance split ops — `separate` (voices) + `segment` (objects)
+
+Two `enhance` ops **split** media into many artifacts instead of returning one
+improved file: `--ops separate` isolates each speaker in an audio/video as its own
+track, and `--ops segment --prompt "<thing>"` cuts requested objects out of an
+image as mask + cutout evidence. Both need a **bound provider** (they are not
+ffmpeg ops); pick **local-models** (on-device) or **fal** (hosted) — one binding
+exposes both ops:
+
+> **One-time gate for local voice separation:** pyannote
+> `speaker-diarization-community-1` is a **gated** Hugging Face model. Before the
+> first `--ops separate` run you must (1) set `HF_TOKEN`, and (2) **accept the
+> license** — open <https://huggingface.co/pyannote/speaker-diarization-community-1>
+> while logged in and click **"Agree and access repository"**. Until then the
+> provider returns a clean `needs_credentials` record (not a crash). Local
+> `--ops segment` (GroundingDINO + SAM 2.1) is ungated and needs no token.
+
+```bash
+# on-device: pyannote diarization + GroundingDINO/SAM 2.1 (Apache-2.0, CPU-ok)
+scripts/visual-db-uv.sh --enhance          # installs both stacks into the uv venv
+overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
+#   ...or hosted on fal (FAL_KEY): sam-audio + sam-3
+overcast provider setup plan --preset fal && overcast provider setup apply --preset fal --yes
+
+overcast enhance interview.mp4 --ops separate --summarize          # per-speaker tracks, each transcribed
+overcast enhance photo.jpg     --ops segment  --prompt "the red car"   # mask + RGBA cutout per instance
+overcast view <split-op-parent-id>                                 # gallery: audition tracks (audio + spectrograms) or view cutouts
+overcast crop <segment-parent-id> --all                            # materialize the same boxes as crops
+```
+
+- **Multi-output contract.** A split provider still emits ONE record (the exec wire
+  contract), carrying its artifacts in `payload.outputs[] = [{ kind, ref, ... }]`
+  (`kind` = `track` | `cutout` | `mask`). The `enhance` verb **fans this out** into
+  `[parent, ...children]`: the parent is the audit summary (and, for `segment`,
+  mirrors `payload.detections[]` so `crop` works), each child is a first-class
+  `enhance` record whose `media.ref` is the artifact and payload carries a compact
+  `summary` + provenance (`source_record`, `op`, `kind`, `speaker`/`label`, `box`,
+  `segments`). Single-output providers (esrgan, voice-isolator, hf) have no
+  `outputs[]` and pass through unchanged. Only the compact summary/label/transcript
+  fields are indexed into case memory — mask PNGs, WAV tracks, and raw boxes stay in
+  the record.
+- **separate** — *local* uses pyannote `speaker-diarization-community-1` (a **GATED**
+  model: set `HF_TOKEN` and accept the license) → timeline-preserving per-speaker
+  tracks (other speakers muted; `segments[].at` stay valid; overlap regions flagged).
+  `--speakers N` hints the speaker count. *fal* uses text-prompted `sam-audio`
+  (`--prompt "the man speaking"` → target + residual tracks; loop on the residual for
+  N-way). `--summarize` transcribes each track through the bound `listen` provider and
+  folds the transcript + a short summary onto the track record (off by default — it's
+  N× the listen cost).
+- **segment** — *local* runs GroundingDINO-tiny (`--prompt` → boxes) + SAM 2.1-tiny
+  (boxes → masks); *fal* runs `sam-3` (up to `SEGMENT_MAX_INSTANCES` masks). Each
+  instance writes a binary mask PNG + an RGBA cutout (only those pixels); `--masks-only`
+  emits masks instead of cutouts. Image-only — segment a `frame://rec@sec` still of a
+  video, not the video. Boxes are crop-compatible (`{xmin,ymin,xmax,ymax}`, with
+  `box_normalized` when the model returns normalized coordinates).
+
 ## Object detection (`see` — open-vocabulary, local)
 
 A zero-shot **object detector** that takes a list of target objects (`--detect`)
@@ -233,8 +327,8 @@ returns bounding boxes. It runs **locally** via `transformers` — no fixed COCO
 vocabulary, no remote API:
 
 ```bash
-pip install torch transformers pillow scipy     # Grounding DINO also needs `timm`
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py"
+scripts/visual-db-uv.sh --detect                 # uv-installs torch + transformers + scipy + pillow (Grounding DINO also needs `timm`)
+overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"   # $DETECT_PY = the venv python printed above
 
 overcast see ./scene.jpg --detect "car, person, license plate" --json
 overcast see ./clip.mp4  --detect "weapon, hard hat" --json      # video → frames sampled, each box carries `at`
@@ -264,9 +358,10 @@ below). They use shipped Python providers under
 scripts/visual-db-uv.sh          # image matching: opencv-python + numpy
 scripts/visual-db-uv.sh --face   # face matching too: deepface + tf-keras
 scripts/visual-db-uv.sh --clip   # CLIP semantic search: open_clip + torch + pillow
+scripts/visual-db-uv.sh --detect # OWLv2 object detector for see --detect: torch + transformers + scipy
 scripts/visual-db-uv.sh --audio  # audio fingerprinting: scipy (see Audio DBs below)
 scripts/visual-db-uv.sh --clap   # CLAP audio embeddings: transformers + torch
-scripts/visual-db-uv.sh --all    # everything (one shared torch for CLIP + CLAP)
+scripts/visual-db-uv.sh --all    # everything (face + CLIP + detector + audio-fp + CLAP; one shared torch)
 overcast doctor --json              # reports uv + visual-db + audio-db readiness
 
 overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
@@ -462,12 +557,14 @@ sample 8 frames.
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec/in-proc).
 - [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
-- [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN image enhance, and DeepFilterNet3 audio enhance.
+- [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance, plus `--ops separate` (sam-audio) and `--ops segment` (sam-3).
+- [`examples/providers/local/enhance.sh`](../examples/providers/local/enhance.sh) + [`examples/providers/visual-db/enhance_{voice,segment}.py`](../examples/providers/visual-db/) — on-device `enhance --ops separate` (pyannote) and `--ops segment` (GroundingDINO + SAM 2.1).
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
 - [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
 - [`examples/providers/audio-db/{audio_match,clap_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp) and LAION CLAP audio embeddings (basic-clap) for audio DB indexes.
-- [`examples/providers/sources/{youtube,tiktok,x,web,lens}.sh`](../examples/providers/sources/) — yt-dlp + Apify (tiktok/x/lens) + web-search (Tavily/Brave) + Google Lens reverse-image source providers.
+- [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch) + web-search (Tavily/Brave) + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams source providers.
+- [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
 
 ## Source providers (built-in types)
 
@@ -477,6 +574,12 @@ sample 8 frames.
 - **`x`** (alias `twitter`) — Apify (`APIFY_TOKEN`). Default actor: kaitoeasyapi's pay-per-result tweet scraper, which works on any Apify plan against platform credit; override with `OVERCAST_X_ACTOR` (e.g. `apidojo~tweet-scraper` — same schema and faster, but **rental**: an unrented/free account gets only placeholder items, which map to zero hits). Supported refs: `x:@handle` for a profile's posts (translated to a `from:` search); `x:<query>` / `x:#tag` for X advanced search (`from:`, `filter:native_video`, `min_faves:`, `-filter:retweets`, …); `x:video:<query>` / `x:image:<query>` to return only posts carrying native video / images (applied as `filter:` operators so they hold across actors); `x:<full X URL>` for a post/profile/search/list URL. Hits point `media.ref` at the direct CDN asset (highest-bitrate mp4, else first photo) so `capture` downloads without X auth, and carry `author`/`views`/`thumb` triage metadata. Actors bill per result with a small per-query minimum — prefer fewer, broader queries.
 - **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). Supported ref: `web:<query>` for web search hits.
 - **`lens`** — Google Lens reverse image search via Apify (`APIFY_TOKEN`; actor override `OVERCAST_LENS_ACTOR`, default `borderline~google-lens`). Supported ref: `lens:<image url>` or `lens:<local image path>` (relative paths resolve against the cwd, then the case media dir, then the case root; local files are uploaded to the account's `overcast-lens` key-value store so the actor can fetch them). Hits carry the matched page (`payload.url`), `match: "exact" | "visual"`, the matching site, and for exact matches the match thumbnail materialized into the case media dir (`media.ref`); `--limit` applies per match type; `--since` is ignored (Lens has no recency filter).
+- **`dl`** — generic yt-dlp downloader (no key), **capture-only**: `enumerate` returns no hits, `fetch` downloads any of yt-dlp's ~1800 supported hosts. You rarely bind it directly — `overcast capture <url>` auto-routes video hosts without a dedicated source (Rumble/BitChute/Odysee/VK/Bilibili/Vimeo/Dailymotion/Reddit/Twitch/Kick/Facebook/…) to `dl` instead of the `web` page fetcher, and a scan.hit stamped `source:dl` captures back through it. Bindable as `dl:<url>` (the ref is carried but ignored by `enumerate`).
+- **`gdelttv`** — GDELT 2.0 TV API: broadcast-news video search over the Internet Archive TV News Archive (**no key**). Supported ref/query: `gdelttv:<phrase>`, optionally with GDELT operators (`station:CNN`, `market:"National"`); a query naming neither a station nor a market gets `market:"National"` appended (the API requires one). Hits carry the station/show/air-date title, the archive.org page (`payload.url`), snippet, thumbnail, and a **bounded clip** `media.ref` (`…/<show>.mp4?start=S&end=E`, ~30s) that `capture` downloads directly (full-show download is copyright-restricted; the clip service and thumbnails are public). `--since` maps to `STARTDATETIME`/`ENDDATETIME`, but the clipgallery corpus lags real time by weeks — a very recent window can return zero clips. Strong `monitor` fit (each clip has a stable page URL for dedup).
+- **`instagram`** — Instagram profiles/hashtags via Apify (`APIFY_TOKEN`; actor override `OVERCAST_INSTAGRAM_ACTOR`, default `apify~instagram-scraper`). Public data only, no login. Supported refs: `instagram:@handle` (profile posts/reels), `instagram:#tag` (hashtag posts), `instagram:<url>`. Hits carry the post page (`payload.url`), caption, owner, and a direct-CDN `media.ref` (video asset for videos, else the image) so `capture` downloads without login — CDN URLs are short-lived, so `scan --pull` is ideal.
+- **`telegram`** — public Telegram channels via Apify (`APIFY_TOKEN`; actor override `OVERCAST_TELEGRAM_ACTOR`, default `webfinity~telegram-channel-content-media-scraper-v2`). No login/phone. Supported refs: `telegram:<channel>`, `telegram:@channel`, `telegram:<t.me url>`. Each post's `payload.url` is a stable `t.me/<channel>/<id>` (great for `monitor` dedup); `media.ref` is the post's first media asset (text-only posts fall back to the post URL). `--since` maps to the actor's `daysRange` (capped at 30 days).
+- **`webcam`** — live public webcams via the Windy Webcams API (`WINDY_API_KEY`; ~70k geolocated cams; base override `OVERCAST_WEBCAM_API`). Supported refs: `webcam:<lat>,<lng>[,<radiusKm>]`, `webcam:country:<ISO2>`, `webcam:category:<slug>`, `webcam:<webcamId>`. Hits carry the cam title, location (`lat`/`lng`/`city`/`country`), the detail/player page (`payload.url`/`player`), and the cam's **current still** as `media.ref` (the free tier serves stills/timelapse, not a raw stream; tokened image URLs expire, so `scan --pull`/`monitor` are ideal). For a live clip, capture the player page with the `dl` source / yt-dlp. Strong `monitor` fit for watching a location on a schedule.
+- **`facesearch`** — **opt-in, sensitive** reverse FACE search via Apify (`APIFY_TOKEN`; actor override `OVERCAST_FACE_SEARCH_ACTOR`, default `nkactors~face-search`). Finds where a person's face appears online (complements `lens`, which matches whole images). Ref/query is a face image (`facesearch:<image url|local path>`; local files upload to the shared `overcast-lens` KV store). **Never a default binding** — face search raises real privacy / ToS / legal considerations; use only with authorization. Set `OVERCAST_FACE_SEARCH_DEMO=1` for the actor's cheap debug mode when wiring-testing.
 - Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
 For local-media-only cases, `scan` falls back to local case media/indexes instead

@@ -43,6 +43,11 @@ const FIELD_POLICY: Record<string, string[]> = {
     "detailed.summary",
   ],
   see: ["caption", "ocr", "text", "summary", "counts", "categories", "objects", "labels"],
+  // media-forensics senses index only their compact summary + the actionable
+  // geo/provenance facts; the full ExifTool/C2PA dumps stay in the record for
+  // exact reads, never in searchable case memory.
+  exif: ["summary", "gps", "created", "make", "model", "software"],
+  verify: ["summary", "claim_generator", "signer", "validation_state", "title"],
   face: ["summary", "op", "moments", "reference", "index"],
   // visual-DB verbs index compact summaries only — raw match internals
   // (homographies, boxes, embeddings, vectors, artifact paths) stay in the
@@ -55,7 +60,10 @@ const FIELD_POLICY: Record<string, string[]> = {
   note: ["title", "text", "tags", "confidence", "ref"],
   scan: ["title", "snippet", "url", "source", "published"],
   capture: ["title", "snippet", "text", "path", "source", "kind"],
-  enhance: ["summary", "path", "ops", "output"],
+  // enhance now also fans out separate/segment child records — index the compact
+  // signal (op, kind, speaker/label, prompt, transcript) but keep binaries
+  // (mask/track paths), raw boxes, and segment arrays out of case memory.
+  enhance: ["summary", "path", "ops", "op", "kind", "output", "speaker", "label", "prompt", "transcript", "count", "score"],
   finding: ["text", "target", "source_record", "source_verb", "trigger", "confidence", "status"],
 };
 
