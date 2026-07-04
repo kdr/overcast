@@ -59,20 +59,24 @@ assert_nonempty "$C.ask_answer" "$ans" "ask returned a cited chronological answe
 # 4) skill step: turn a REAL cross-clip contradiction into a finding — only when the
 # answer actually reports one (the skill says flag real conflicts, not invent one
 # every run); the chronological brief is the deliverable regardless.
-# a NEGATED / agreement phrase means the model denied a conflict — check that FIRST
-# so a denial can't trip the positive keyword match below. The negation net allows
-# words between "no" and the keyword ("no clear conflict", "no evidence of a
-# mismatch") and covers agreement/consistency phrasings.
-if echo "$ans" | grep -qiE "no ([a-z]+ ){0,3}(conflict|contradiction|disagree|discrepanc|mismatch|inconsisten)|without (a )?(conflict|contradiction|discrepanc)|(accounts?|clips?|they) (broadly |largely |all )?(agree|are consistent|align|match)|do(es)? not (conflict|disagree|contradict)|no evidence of"; then
-  ok "$C.conflict" "answer denied a conflict / reported agreement → no invented finding"
-  conflict_summary="no ordering conflicts reported"
-elif echo "$ans" | grep -qiE 'conflict|contradict|disagree|discrepanc|inconsist|mismatch|out of order'; then
+# STRIP the negation/agreement phrases first, THEN look for a conflict keyword in
+# what's left. This way an answer that reports BOTH alignment AND a real conflict
+# ("the clips align on the arrival but conflict on the shout order") still trips the
+# finding — a plain negation-first check would have suppressed it.
+low="$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')"
+stripped="$(printf '%s' "$low" | sed -E \
+  -e 's/no ([a-z]+ ){0,3}(conflict|contradiction|disagree|discrepanc|mismatch|inconsisten)//g' \
+  -e 's/without (a )?(conflict|contradiction|discrepanc)//g' \
+  -e 's/(accounts?|clips?|they) (broadly |largely |all )?(agree|are consistent|align|match)//g' \
+  -e 's/does? not (conflict|disagree|contradict)//g' \
+  -e 's/no evidence of [a-z ]*//g')"
+if printf '%s' "$stripped" | grep -qE 'conflict|contradict|disagree|discrepanc|inconsist|mismatch|out of order'; then
   cond "timeline skill: a reported cross-clip conflict becomes a low-confidence finding"
   oc "$CASE" finding create "timeline: cross-clip answer reports an ordering conflict — flagged for review" --ref "$W1" --at 1-4 --confidence low --json >/dev/null
-  ok "$C.conflict" "answer reported a conflict → finding created"
+  ok "$C.conflict" "answer reported a real conflict (survived negation strip) → finding created"
   conflict_summary="flagged an ordering conflict"
 else
-  ok "$C.conflict" "no cross-clip conflict reported → no invented finding"
+  ok "$C.conflict" "answer reported agreement / denied a conflict → no invented finding"
   conflict_summary="no ordering conflicts reported"
 fi
 nclips=1; [ -n "$W2" ] && nclips=2
