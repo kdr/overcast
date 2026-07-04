@@ -543,10 +543,13 @@ export function hostSourceType(url: string): string {
   if (/(^|\.)(x\.com|twitter\.com|twimg\.com)$/.test(host)) return "x";
   // platforms with a dedicated source provider — route to it (CDN download or
   // yt-dlp) instead of the generic `web` HTML fetcher, like the hosts above.
-  // Include the Meta CDN hosts (cdninstagram/fbcdn) that scan hits point
+  // Include the Instagram-only CDN host (cdninstagram) that scan hits point
   // media.ref at, so an ad-hoc capture of one downloads the asset via
-  // instagram.sh's curl path instead of storing an HTML page.
-  if (/(^|\.)(instagram\.com|cdninstagram\.com|fbcdn\.net)$/.test(host)) return "instagram";
+  // instagram.sh's curl path. fbcdn.net is deliberately NOT routed here — it's a
+  // SHARED Meta CDN (Instagram AND Facebook), so a bare fbcdn URL would mislabel
+  // Facebook assets as source:instagram; the IG scan→capture flow routes by the
+  // hit's meta.provider (hitSourceType), not by host, so it's unaffected.
+  if (/(^|\.)(instagram\.com|cdninstagram\.com)$/.test(host)) return "instagram";
   if (/(^|\.)t\.me$/.test(host)) return "telegram";
   // A direct Internet Archive media DOWNLOAD (a gdelttv clip's media.ref, e.g.
   // /download/<id>/<id>.mp4?start=…) → gdelttv.sh's curl+content-type fetch. Other

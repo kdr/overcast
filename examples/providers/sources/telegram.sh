@@ -64,7 +64,10 @@ case "$op" in
           if [ -n "$d" ]; then days=$(( (now - d) / 86400 )); [ "$days" -lt 1 ] && days=1; fi ;;
         *) days="" ;;
       esac
+      # clamp to the actor's 1–30 day range: a 0-day window (--since 0d/0w) must
+      # not forward daysRange:0.
       [ -n "$days" ] && [ "$days" -gt 30 ] 2>/dev/null && days=30
+      [ -n "$days" ] && [ "$days" -lt 1 ] 2>/dev/null && days=1
     fi
     input="$(jq -nc --arg c "$channel" --argjson n "$limit" --arg d "$days" \
       '{channels:$c, maxPosts:$n, includeText:true}

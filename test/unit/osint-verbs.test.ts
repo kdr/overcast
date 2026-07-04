@@ -1515,9 +1515,10 @@ test("hostSourceType routes apex and subdomain hosts (x.com regression)", () => 
 test("hostSourceType routes instagram/telegram to their dedicated sources", () => {
   assert.equal(hostSourceType("https://www.instagram.com/p/ABC/"), "instagram");
   assert.equal(hostSourceType("https://instagram.com/reel/XYZ/"), "instagram");
-  // Meta CDN hosts that scan hits put media.ref at → instagram (curl asset path)
+  // the Instagram-only CDN host that scan hits put media.ref at → instagram
   assert.equal(hostSourceType("https://scontent-sea5-1.cdninstagram.com/v/t51/x.jpg"), "instagram");
-  assert.equal(hostSourceType("https://video.fbcdn.net/v/x.mp4"), "instagram");
+  // fbcdn.net is a SHARED Meta CDN (IG + Facebook) — not routed to instagram
+  assert.equal(hostSourceType("https://video.fbcdn.net/v/x.mp4"), "web");
   assert.equal(hostSourceType("https://t.me/durov/530"), "telegram");
   // a direct IA media download (gdelttv clip media.ref) → gdelttv fetch, but other
   // archive.org URLs (detail pages, books) stay on web so provenance isn't mislabeled
