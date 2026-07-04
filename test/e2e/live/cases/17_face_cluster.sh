@@ -72,7 +72,9 @@ if [ "$have_fixtures" -eq 1 ]; then
   # HELD-OUT identify: the reference must match a Will Smith cluster, and beat the
   # other person by a wide margin (the real proof clustering separates identities).
   cond "held-out identify matches the Will Smith reference to a Will Smith cluster, far above the other person"
-  idout="$(oc "$CASE" cluster identify "$FIXDIR/willsmith_ref.jpg" --index "$ID" --json)"; save_json "identify" "$idout" >/dev/null
+  idout="$(oc "$CASE" cluster identify "$FIXDIR/willsmith_ref.jpg" --index "$ID" --json)"
+  idout="$(echo "$idout" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
+  save_json "identify" "$idout" >/dev/null
   best_cid="$(echo "$idout" | jq -r '.payload.matches[0].candidates[0].cluster_id')"
   best_sim="$(echo "$idout" | jq -r '.payload.matches[0].candidates[0].similarity')"
   second_sim="$(echo "$idout" | jq -r '.payload.matches[0].candidates[1].similarity // 0')"
@@ -111,6 +113,7 @@ else
   [ -f "$viewer" ] && cp "$viewer" "$SMOKE_DIR/cluster_gallery.html"
   if have_media "$LOCAL_FACE_IMAGE"; then
     idout="$(oc "$CASE" cluster identify "$LOCAL_FACE_IMAGE" --index "$ID" --json)"
+    idout="$(echo "$idout" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
     assert_eq "$C.identify_state" "ready" "$(echo "$idout" | jq -r '.state')" "identify ready"
   fi
 fi

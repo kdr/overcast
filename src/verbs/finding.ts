@@ -23,6 +23,14 @@ export function makeFinding(input: {
   sourceRecord: OvercastRecord;
   trigger: string;
   confidence?: number | string;
+  /** root finding status; "suggested" = quarantined lead awaiting review */
+  status?: string;
+  /** stable target link (payload.target stays the value string for back-compat) */
+  targetId?: string;
+  /** score-trigger evidence: {kind, score, threshold, unit, at?, matched?} */
+  signal?: Record<string, unknown>;
+  /** best-scoring moment override for media.at (defaults to the source's anchor) */
+  at?: number | [number, number];
 }): OvercastRecord {
   const payload: Record<string, unknown> = {
     text: input.text,
@@ -30,10 +38,13 @@ export function makeFinding(input: {
     source_record: input.sourceRecord.id,
     source_verb: input.sourceRecord.verb,
     trigger: input.trigger,
-    status: "open",
+    status: input.status ?? "open",
   };
   if (input.confidence != null) payload.confidence = input.confidence;
-  const media: MediaRef | undefined = input.sourceRecord.media ? { ...input.sourceRecord.media } : undefined;
+  if (input.targetId) payload.target_id = input.targetId;
+  if (input.signal) payload.signal = input.signal;
+  let media: MediaRef | undefined = input.sourceRecord.media ? { ...input.sourceRecord.media } : undefined;
+  if (input.at != null && media?.ref) media = { ref: media.ref, at: input.at };
   return makeRecord({
     verb: "finding",
     format: "json",
@@ -81,14 +92,15 @@ export const findingVerb: VerbSpec = {
   group: "state",
   summary: "Create and review findings (create|list|accept|dismiss).",
   description:
-    "Creates manual findings and lists/reviews automated finding records emitted by setup automation. " +
-    "`accept` and `dismiss` append review records that reference the original finding; dismissed findings remain auditable but are excluded from memory/brief evidence.",
+    "Creates manual findings and lists/reviews automated findings. Score/text triggers emit `suggested` findings (leads) that stay OUT of memory/brief evidence until reviewed — " +
+    "`finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). " +
+    "Review records reference the original finding; dismissed findings remain auditable.",
   args: [
     { name: "action", summary: "create | list | accept | dismiss (default: list)" },
     { name: "id", summary: "finding id for accept/dismiss, or text for create" },
   ],
   flags: [
-    { name: "state", summary: "list: open | accepted | dismissed | all", type: "string" },
+    { name: "state", summary: "list: open | suggested | accepted | dismissed | all | triage (open+suggested), or a comma-list", type: "string" },
     { name: "target", summary: "create: target/scope this finding supports", type: "string" },
     { name: "ref", summary: "create: source record id, capture id, media path, or URL", type: "string" },
     { name: "at", summary: "create: evidence timestamp seconds, hh:mm:ss, or start-end", type: "string" },
@@ -144,10 +156,27 @@ export const findingVerb: VerbSpec = {
       return [makeRecord({ verb: "finding", format: "json", payload, media, meta: { case: ctx.case.dir, provider: "human" }, state: "ready" })];
     }
     if (action === "list") {
-      const filter = ctx.opts.state ? String(ctx.opts.state) : "open";
+      const filter = (ctx.opts.state ? String(ctx.opts.state) : "open").trim().toLowerCase();
+      const wanted = new Set(
+        filter === "triage" ? ["open", "suggested"] : filter.split(",").map((s) => s.trim()).filter(Boolean),
+      );
       const roots = ctx.case.records().filter(isRootFindingRecord);
-      const findings = roots.map((r) => ({ ...r, review_status: latestFindingStatus(ctx, r.id) }));
-      const filtered = filter === "all" ? findings : findings.filter((r) => r.review_status === filter);
+      const byId = new Map(ctx.case.records().map((r) => [r.id, r]));
+      const findings = roots.map((r) => {
+        const row: Record<string, unknown> = { ...r, review_status: latestFindingStatus(ctx, r.id) };
+        // triage context: the cited record's provenance, so a lead is judgeable
+        // from the queue without a second lookup.
+        const p = r.payload as Record<string, unknown>;
+        const src = typeof p.source_record === "string" ? byId.get(p.source_record) : undefined;
+        const sp = src?.payload && typeof src.payload === "object" ? (src.payload as Record<string, unknown>) : undefined;
+        if (typeof sp?.source_url === "string") row.source_url = sp.source_url;
+        else if (typeof sp?.url === "string") row.source_url = sp.url;
+        if (typeof sp?.source_text === "string") row.source_excerpt = String(sp.source_text).slice(0, 200);
+        return row;
+      });
+      // newest first so fresh suggestions triage from the top
+      findings.sort((a, b) => String((b as { meta?: { time?: string } }).meta?.time ?? "").localeCompare(String((a as { meta?: { time?: string } }).meta?.time ?? "")));
+      const filtered = filter === "all" ? findings : findings.filter((r) => wanted.has(String(r.review_status)));
       return [makeRecord({ verb: "finding", format: "json", payload: { state: filter, findings: filtered }, meta: { transient: true }, state: "ready" })];
     }
     if (action !== "accept" && action !== "dismiss") return [err("usage: finding create|list|accept|dismiss [id]")];

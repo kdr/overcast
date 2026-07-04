@@ -42,6 +42,7 @@ assert_eq "$C.add_noise" "ready" "$(echo "$b" | jq -r '.state')" "embedded the n
 
 cond "audio->audio: a segment of the tonal clip ranks the tonal member above the noise member"
 m="$(OC_TIMEOUT=600 oc "$CASE" similar match "$WORK/tone_q.m4a" --index "$IDX" --json)"
+m="$(echo "$m" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 save_json "29_match" "$m" >/dev/null
 assert_eq "$C.match_state" "ready" "$(echo "$m" | jq -r '.state')" "audio match ran"
 top="$(echo "$m" | jq -r '.payload.matches[0].ref // empty')"

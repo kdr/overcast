@@ -129,7 +129,8 @@ test("note records are searchable and included in briefs", async () => {
 
     const [brief] = await briefVerb.run(ctx(dir, ""));
     const report = (brief.payload as Record<string, unknown>).report as string;
+    // the note surfaces in the (short-mode) record trail as a note-verb row
     assert.match(report, /Human observation: driver switches jackets/);
-    assert.match(report, /`note`/);
+    assert.match(report, /\*\*note\*\*/);
   });
 });

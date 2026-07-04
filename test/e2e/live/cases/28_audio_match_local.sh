@@ -51,6 +51,7 @@ cond "a transcoded/noised/volume-shifted copy of the 12s segment is CONFIRMED at
   -c:a aac "$WORK/copy.m4a" 2>/dev/null
 if [ ! -s "$WORK/copy.m4a" ]; then fail "$C.copy_build" "ffmpeg could not build the copy clip"; exit 0; fi
 mr="$(oc "$CASE" audio match "$WORK/copy.m4a" --index "$IDX" --json)"
+mr="$(echo "$mr" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 save_json "28_match_copy" "$mr" >/dev/null
 assert_eq "$C.copy_state" "ready" "$(echo "$mr" | jq -r '.state')" "copy match ran"
 rc="$(echo "$mr" | jq -r '.payload.count // 0')"
@@ -72,6 +73,7 @@ fi
 cond "an unrelated chirp is REJECTED (0 confident matches — no false positive)"
 "$FFMPEG" -y -v error -f lavfi -i "aevalsrc=${UNREL_EXPR}:s=44100:d=10" -c:a aac "$WORK/unrelated.m4a" 2>/dev/null
 mu="$(oc "$CASE" audio match "$WORK/unrelated.m4a" --index "$IDX" --json)"
+mu="$(echo "$mu" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 save_json "28_match_unrelated" "$mu" >/dev/null
 uc="$(echo "$mu" | jq -r '.payload.count // 0')"
 [ "${uc:-0}" -eq 0 ] && ok "$C.unrelated_rejected" "unrelated clip correctly rejected (0 matches)" || fail "$C.unrelated_rejected" "unrelated clip false-matched $uc time(s)"
@@ -79,10 +81,12 @@ uc="$(echo "$mu" | jq -r '.payload.count // 0')"
 # --- clip-to-clip (pairwise) — confirm the copy, reject the unrelated ----------
 cond "clip-to-clip (pairwise) confirms the copy and rejects the unrelated clip (no index)"
 pw="$(oc "$CASE" audio match "$WORK/copy.m4a" "$WORK/original.mp4" --json)"
+pw="$(echo "$pw" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 save_json "28_pairwise_copy" "$pw" >/dev/null
 pwc="$(echo "$pw" | jq -r '.payload.count // 0')"
 [ "${pwc:-0}" -ge 1 ] && ok "$C.pairwise_confirm" "pairwise CONFIRMED the copy vs the original" || fail "$C.pairwise_confirm" "pairwise found 0 matches (expected >=1)"
 pu="$(oc "$CASE" audio match "$WORK/unrelated.m4a" "$WORK/original.mp4" --json)"
+pu="$(echo "$pu" | primary_rec)"  # drop any auto-suggested finding the persist hook appended
 puc="$(echo "$pu" | jq -r '.payload.count // 0')"
 [ "${puc:-0}" -eq 0 ] && ok "$C.pairwise_reject" "pairwise correctly rejected the unrelated clip" || fail "$C.pairwise_reject" "pairwise false-matched $puc time(s)"
 
