@@ -79,6 +79,15 @@ test("seen-set round-trips and hitKey prefers url then media.ref", () => {
     // shift the dedup key
     const rec = makeRecord({ verb: "scan", payload: { url: "http://x/1", title: "t" }, media: { ref: "m" } });
     assert.equal(hitKey(rec), "url:http://x/1");
+
+    // an explicit dedup_key wins over url — a source (webcam) that re-polls the
+    // same page but must be re-captured each pass keeps a stable url for
+    // provenance while varying dedup_key per poll.
+    const poll1 = makeRecord({ verb: "scan", payload: { url: "http://cam/9", dedup_key: "http://cam/9#t=100" } });
+    const poll2 = makeRecord({ verb: "scan", payload: { url: "http://cam/9", dedup_key: "http://cam/9#t=200" } });
+    assert.equal(hitKey(poll1), "k:http://cam/9#t=100");
+    assert.notEqual(hitKey(poll1), hitKey(poll2)); // re-captured each pass
+    assert.equal((poll1.payload as Record<string, unknown>).url, (poll2.payload as Record<string, unknown>).url); // stable provenance
     // …falling back to media.ref when there's no url (path-ref fixture hits)
     const refOnly = makeRecord({ verb: "scan", payload: { title: "t" }, media: { ref: "m" } });
     assert.equal(hitKey(refOnly), "url:m");

@@ -305,9 +305,15 @@ function hitProcessKey(hit: OvercastRecord): string {
   return `${hitKey(hit)}\u001f${hitFetchRef(hit) ?? ""}`;
 }
 
+/** Perception + forensic senses whose records are the PRIMARY result of pulling a
+ *  hit. One source of truth so the pull/monitor plumbing — outcome classification,
+ *  provenance stamping, index-retry, auto_sense dispatch — never drifts when a new
+ *  sense verb is added. (Visual-DB ops image/similar/cluster stay auxiliary.) */
+const PRIMARY_SENSE_VERBS = ["watch", "listen", "see", "face", "enhance", "exif", "verify"];
+
 function classifyHitRecords(records: OvercastRecord[]): HitProcessOutcome {
   if (records.length === 0) return "failed";
-  const primary = records.filter((r) => ["capture", "watch", "listen", "see", "face", "enhance"].includes(r.verb));
+  const primary = records.filter((r) => r.verb === "capture" || PRIMARY_SENSE_VERBS.includes(r.verb));
   const senses = primary.filter((r) => r.verb !== "capture");
   const hasReadySense = senses.some((r) => r.state !== "error" && r.state !== "needs_credentials" && r.state !== "pending");
   const auxiliary = primary.length ? records.filter((r) => !primary.includes(r)) : [];
@@ -350,7 +356,7 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
   const prov = scanHitProvenance(hit);
   const finish = (): ProcessHitResult => {
     for (const r of records) {
-      if (["capture", "watch", "listen", "see", "face", "image", "enhance", "exif", "verify"].includes(r.verb)) stampProvenance(r, prov);
+      if (r.verb === "capture" || r.verb === "image" || PRIMARY_SENSE_VERBS.includes(r.verb)) stampProvenance(r, prov);
     }
     return { ref, records, outcome: classifyHitRecords(records), submittedRemote };
   };
@@ -665,9 +671,13 @@ async function pipeSense(
     const [rec] = await faceVerb.run({ ...ctx, input: ref, rest: [], opts: {} });
     return rec;
   }
+  if (verb === "exif" || verb === "verify") {
+    const [rec] = await (verb === "exif" ? exifVerb : verifyVerb).run({ ...ctx, input: ref, rest: [], opts: {} });
+    return rec;
+  }
   // an unknown --pipe value (typo, or see/enhance) must surface, not silently
   // produce nothing — labelled with the ACTIVE command (monitor/scan).
-  return err(caller, `unknown --pipe '${verb}' (expected watch | listen | face)`);
+  return err(caller, `unknown --pipe '${verb}' (expected watch | listen | face | exif | verify)`);
 }
 
 async function runAutomationSense(ctx: VerbContext, caller: string, verb: string, ref: string): Promise<OvercastRecord> {
@@ -805,7 +815,7 @@ function priorSuccessfulSenseRefs(ctx: VerbContext, hit: OvercastRecord): string
   );
   const mediaRef = cap?.media?.ref ?? ref;
   const sensed = records.find((r) =>
-    ["watch", "listen", "see", "face", "enhance"].includes(r.verb) &&
+    PRIMARY_SENSE_VERBS.includes(r.verb) &&
     r.state !== "error" &&
     r.state !== "needs_credentials" &&
     r.state !== "pending" &&

@@ -75,10 +75,11 @@ case "$op" in
           | (.urls.detail // .url // ("https://www.windy.com/webcams/" + ((.webcamId // .id) | tostring))) as $detail
           | {
               title: (.title // ("webcam " + ((.webcamId // .id) | tostring))),
-              # per-poll timestamp fragment → a fresh hitKey each monitor pass, so
-              # the current still is re-captured (the server ignores the #fragment).
-              url: ($detail + "#t=" + $now),
-              detail_url: $detail,
+              url: $detail,
+              # a per-poll dedup key → a fresh hitKey each monitor pass, so the
+              # current still is re-captured; url stays the clean cam page so
+              # provenance (source_url) is stable across polls.
+              dedup_key: ($detail + "#t=" + $now),
               snapshot_at: ($now | tonumber),
               source: "webcam",
               published: (.lastUpdatedOn // null),
