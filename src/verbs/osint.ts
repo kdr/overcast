@@ -1036,10 +1036,12 @@ async function monitorPass(ctx: VerbContext, seen: Set<string>, ephemeralFails: 
     // ref) only gates WITHIN-pass fan-out, where finer granularity is safe.
     const key = hitKey(hit);
     const processKey = hitProcessKey(hit);
-    // an ephemeral hit (a webcam's current still) is re-captured every pass and
-    // never persisted to `seen`, so it neither dedups nor grows the store.
+    // A hit in `seen` is done — skip it. An ephemeral hit (a webcam's current
+    // still) is NOT added to `seen` on success, so it re-captures every pass; it
+    // only lands in `seen` once monitor GIVES UP on it (too many consecutive hard
+    // failures, below), and from then on this check must stop it like any other.
     const ephemeral = isEphemeralHit(hit);
-    if (!ephemeral && seen.has(key)) {
+    if (seen.has(key)) {
       const retry = await retryAuxiliaryForSeenHit(ctx, hit);
       out.push(...retry);
       if (retry.some((r) => r.state === "error")) procErrors++;

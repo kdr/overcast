@@ -1434,6 +1434,11 @@ test("monitor gives up on a permanently-failing ephemeral hit after the retry ca
     // pass 5 hits the cap (EPHEMERAL_MAX_FAILS) → the hit is marked seen (given up)
     await monitorVerb.run(mkCtx());
     assert.equal(loadSeen(openCase(d)).size, 1, "pass 5: permanently-broken cam is marked seen and stops retrying");
+    // pass 6: the given-up hit must actually be SKIPPED now (not re-processed with
+    // a reset counter) — no fresh capture attempt, no new item.
+    const p6 = await monitorVerb.run(mkCtx());
+    assert.ok(!p6.some((r) => r.verb === "capture"), "pass 6: given-up cam is skipped, not re-fetched");
+    assert.equal((p6.find((r) => r.verb === "monitor")!.payload as Record<string, unknown>).new_items, 0);
   } finally {
     if (prev === undefined) delete process.env.OVERCAST_SOURCE_WEBCAM_CMD;
     else process.env.OVERCAST_SOURCE_WEBCAM_CMD = prev;
