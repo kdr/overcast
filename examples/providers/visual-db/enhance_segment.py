@@ -30,7 +30,12 @@ def _envnum(name, default, cast):
 
 DET_MODEL = os.environ.get("SEGMENT_DETECT_MODEL", "IDEA-Research/grounding-dino-tiny")
 SAM_MODEL = os.environ.get("SEGMENT_SAM_MODEL", "facebook/sam2.1-hiera-tiny")
-BOX_THRESHOLD = _envnum("SEGMENT_THRESHOLD", "0.3", float)
+# GroundingDINO-tiny grounds a text prompt onto *some* salient region even when
+# the object is absent, emitting confident-looking false positives (~0.3-0.45).
+# Default to a precision-favoring 0.5 box gate so an absent-object prompt yields
+# no match instead of bogus cutouts; lower SEGMENT_THRESHOLD to trade precision
+# for recall on faint/small objects.
+BOX_THRESHOLD = _envnum("SEGMENT_THRESHOLD", "0.5", float)
 TEXT_THRESHOLD = _envnum("SEGMENT_TEXT_THRESHOLD", "0.25", float)
 MAX_INSTANCES = _envnum("SEGMENT_MAX_INSTANCES", "8", int)
 OUTDIR = os.environ.get("OVERCAST_MEDIA_DIR", ".")
