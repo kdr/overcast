@@ -265,6 +265,38 @@ test("OVERCAST_CHAIR=1 auto-starts the bridge on session_start", async () => {
   }
 });
 
+test("text streamed while the bridge is off is captured, so /chair on isn't frozen", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-offlinelive-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+    await commands.get("chair")?.("on --port 0", ctx);
+
+    await emit("agent_start", { messages: [] }, ctx);
+    await emit("message_start", { message: { role: "assistant", content: [] } }, ctx);
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "online " } }, ctx);
+    await new Promise((r) => setTimeout(r, 80)); // flush
+    assert.equal(handle.bridge()!["agent"].livePartial?.(), "online ");
+
+    // operator drops the bridge, but the SAME assistant reply keeps streaming
+    await commands.get("chair")?.("off", ctx);
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "and offline text" } }, ctx);
+
+    // reconnecting must show the CURRENT full partial, not the frozen pre-off text
+    await commands.get("chair")?.("on --port 0", ctx);
+    assert.equal(handle.bridge()!["agent"].livePartial?.(), "online and offline text", "captures text streamed during the outage");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a mid-stream rebind keeps the partial (only a run-end / session-shutdown clears it)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-rebindlive-"));
   const prevCase = process.env.OVERCAST_CASE;

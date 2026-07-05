@@ -101,15 +101,18 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   // their rows (they aren't in the finalized snapshot transcript).
   const runningTools = new Map<string, { name: string; argsSummary?: string }>();
 
-  // delta coalescing — message_update fires per token; batch to ≤1 flush/40ms
+  // delta coalescing — message_update fires per token; batch to ≤1 flush/40ms.
+  // textBuf/thinkBuf are the coalesce buffers PUBLISHED to live SSE clients; they
+  // only accumulate while a bridge is up (no consumer otherwise).
   let textBuf = "";
   let thinkBuf = "";
-  // The in-flight assistant text ALREADY PUBLISHED as delta events, surfaced in
-  // the snapshot so a mid-stream resync rebuilds the live line (getBranch only
-  // holds finalized messages). It's advanced in flush(), in lockstep with the
-  // deltas + lastSeq — so a resync seeds `live` and then resumes from that seq
-  // with no overlap: the unflushed textBuf arrives as a *later* delta, never
-  // double-counted (Bugbot round 4).
+  // The FULL in-flight assistant text — accumulated on every delta whether or not
+  // a bridge is up, so `/chair on` after a mid-reply `/chair off` still serves the
+  // current text (not a frozen one, Bugbot round 27). Surfaced as the snapshot's
+  // `live` so a resync rebuilds the live line (getBranch holds only finalized
+  // messages). The snapshot flushes textBuf first, so `live`'s published tail is
+  // covered by the seq the console resumes from — future deltas append, never
+  // double-count (Bugbot rounds 4/25).
   let livePartial = "";
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   const flush = (): void => {
@@ -118,7 +121,6 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       flushTimer = undefined;
     }
     if (textBuf) {
-      livePartial += textBuf; // published now → part of the snapshot baseline
       bridge?.publish({ type: "delta", kind: "text", text: textBuf });
       textBuf = "";
     }
@@ -315,12 +317,14 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   });
   pi.on("message_update", (e, c) => {
     capture(c);
-    if (!bridge) return; // no consumer — don't accumulate deltas while offline
     const ev = e.assistantMessageEvent;
-    if (ev.type === "text_delta") textBuf += ev.delta; // livePartial advances on flush
-    else if (ev.type === "thinking_delta") thinkBuf += ev.delta;
-    else return;
-    scheduleFlush();
+    if (ev.type === "text_delta") {
+      livePartial += ev.delta; // full partial — tracked even offline (round 27)
+      if (bridge) textBuf += ev.delta; // publish buffer — only while a client is listening
+    } else if (ev.type === "thinking_delta") {
+      if (bridge) thinkBuf += ev.delta; // thinking isn't part of the snapshot `live`
+    } else return;
+    if (bridge) scheduleFlush();
   });
   pi.on("message_end", (e, c) => {
     capture(c);
