@@ -212,8 +212,11 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
 Slash commands (TUI): `/target /source /index /case /prebrief /view /wall /setup
-/provider /finding` (extension commands) and `/ask /brief /debrief` (prompt
-templates in `prompts/`), plus pi built-ins (`/model /tree /session /resume`).
+/provider /finding` (extension commands), `/chair` (man in the chair: token-authed
+localhost/tailnet bridge + phone web console that remote-drives the live session —
+steer/follow-up/abort/case glance; extension-only, no agent tool, emits no case
+records), and `/ask /brief /debrief` (prompt templates in `prompts/`), plus pi
+built-ins (`/model /tree /session /resume`).
 
 ## Case model & memory
 

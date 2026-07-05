@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .dev/
+assets/chair-console/
 *.log
 .DS_Store
 .overcast/

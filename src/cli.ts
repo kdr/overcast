@@ -158,6 +158,9 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["OVERCAST_PI_ONLINE", "Set 1 to re-enable pi's startup update-check"],
       ["OVERCAST_MONITOR_MAX_PASSES", "cap on monitor --every passes (testing/scheduling)"],
       ["OVERCAST_E2E_LIVE", "Set 1 to run the gated live-Cloudglue e2e cases"],
+      ["OVERCAST_CHAIR", "Set 1 to auto-start the man-in-the-chair bridge on TUI launch (same as --chair)"],
+      ["OVERCAST_CHAIR_BIND / OVERCAST_CHAIR_PORT", "chair bridge bind address (default 127.0.0.1 — keep it off public ifaces) + port (default 7373)"],
+      ["OVERCAST_CHAIR_TOKEN", "pin the chair pairing token (default: fresh random token per /chair on)"],
     ],
   },
   {

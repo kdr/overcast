@@ -37,6 +37,7 @@
     "assets/banner.txt",
     "assets/branding/logo.png",
     "assets/branding/sting.m4a",
+    "assets/chair-console",
     "skills",
     "prompts",
     "examples",
@@ -49,12 +50,14 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
-    "typecheck": "tsc --noEmit",
+    "build": "tsup && npm run build:web",
+    "build:web": "vite build --config web/chair/vite.config.ts",
+    "dev:web": "vite --config web/chair/vite.config.ts",
+    "typecheck": "tsc --noEmit && tsc -p web/chair --noEmit",
     "test": "node --test --import tsx test/unit/*.test.ts",
     "test:e2e": "bash test/e2e/run.sh",
     "test:e2e:live": "bash test/e2e/live/run.sh",
-    "build:bun": "bun build --compile bin/overcast.ts --outfile dist/bin/overcast && node scripts/bun-sidecar.mjs",
+    "build:bun": "npm run build:web && bun build --compile bin/overcast.ts --outfile dist/bin/overcast && node scripts/bun-sidecar.mjs",
     "dev": "tsx bin/overcast.ts",
     "sync-version": "node scripts/sync-version.mjs",
     "version": "node scripts/sync-version.mjs && git add -A src/version.ts .claude-plugin/plugin.json .claude-plugin/marketplace.json",
@@ -73,7 +76,8 @@
     "@types/node": "^22.10.2",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vite": "^8.1.3"
   },
   "optionalDependencies": {
     "playwright": "^1.61.1"

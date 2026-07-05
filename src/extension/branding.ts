@@ -448,6 +448,8 @@ export interface FooterData {
   ctxPercent: number | null;
   model: string;
   thinking: string;
+  /** "<addr>:<port> ·<clients>" while the chair bridge is online, else undefined. */
+  chair?: string;
 }
 
 function fmtTokens(n: number | null): string {
@@ -470,9 +472,10 @@ export class OvercastFooter implements Component {
   invalidate(): void {}
   render(width: number): string[] {
     const d = this.get();
+    const chair = d.chair ? `${MAGENTA}◉chair ${d.chair} ${RESET}` : "";
     const left = `${RED}●${GREEN_DIM} case://${PALE}${d.caseName}${RESET}`;
     const right =
-      `${CYAN}▸${GREEN_DIM}${fmtTokens(d.tokens)} tok ${CYAN}▸${GREEN_DIM}ctx ${PALE}${fmtPercent(d.ctxPercent)}% ` +
+      `${chair}${CYAN}▸${GREEN_DIM}${fmtTokens(d.tokens)} tok ${CYAN}▸${GREEN_DIM}ctx ${PALE}${fmtPercent(d.ctxPercent)}% ` +
       `${CYAN}▸${GREEN}${d.model} ${CYAN}▸${AMBER}think:${d.thinking}${RESET}`;
     const pad = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
     return [fitWidth(left + " ".repeat(pad) + right, width)];

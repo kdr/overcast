@@ -241,6 +241,15 @@ overcast
 A **case is just a directory** with a `.overcast/` store — switch cases with
 `cd` or `--case <dir>`. pi's per-directory sessions are the case history.
 
+**Man in the chair** — remote-drive the live TUI session from your phone: run
+`/chair on tailnet` (or launch with `overcast --chair`), scan the QR that
+appears, and the chair console opens in your phone browser — live assistant
+stream, steer / follow-up prompts, ABORT, and a read-only case glance. The
+bridge is a token-authed localhost/tailnet HTTP+SSE server (no TLS in v1 —
+pair it with Tailscale or an SSH tunnel; the pairing token rides in the QR
+URL's `#fragment` and rotates on `/chair off`). See flow 23 in
+[`docs/flows.md`](docs/flows.md).
+
 Use the three report surfaces for different jobs:
 
 - `brief` answers "what does the evidence say?" **Short by default**: it leads
@@ -549,6 +558,12 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 **Runtime / session** — `OVERCAST_HOME` (profiles, default `~/.overcast`),
 `OVERCAST_CASE` / `OVERCAST_PROFILE` (set by the launcher from `--case` / `--profile`),
 `OVERCAST_MEDIA_DIR` (set by overcast for exec providers), `OVERCAST_PI_ONLINE`.
+
+**Man in the chair** — `OVERCAST_CHAIR=1` auto-starts the remote bridge on TUI
+launch (same as `--chair`); `OVERCAST_CHAIR_BIND` (default `127.0.0.1` — keep it
+off public interfaces; `/chair on tailnet` binds your Tailscale address) /
+`OVERCAST_CHAIR_PORT` (default `7373`); `OVERCAST_CHAIR_TOKEN` pins the pairing
+token (default: a fresh random token every `/chair on`).
 
 **Visual DBs** — `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`
 override the Python used by local `image-ransac` and `deepface-local` indexes. If

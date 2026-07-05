@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "noEmit": true,
+    "declaration": false,
+    "rootDir": "../.."
+  },
+  "include": ["src", "vite.config.ts", "../../src/chair/wire.ts"]
+}

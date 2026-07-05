@@ -102,6 +102,11 @@ invoked.
   transient/pending and `--export` does not write a misleading empty artifact.
 - The TUI/CLI loads `.env` from the active case directory unless
   `OVERCAST_NO_DOTENV=1`; secret-like values are redacted in rendered output.
+- `/chair` (man in the chair, flow 23) is operational: it emits no case records,
+  its pairing token appears only in the QR widget (never in session history), and
+  remote input is injected as plain `[chair]`-prefixed user messages — pi never
+  expands slash commands or prompt templates for extension-sent messages, so the
+  phone cannot trigger `/...` commands.
 - `scan --pull` and `monitor` share one per-hit processing model: resolve
   `media.ref` / `payload.url`, capture when needed, run an explicit `--pipe` or
   setup automation / default watch, then classify each hit as completed, pending,
@@ -773,6 +778,36 @@ Speaker separation (`listen --diarize`) needs a diarize-capable provider — the
 default tinycloud path is speech-transcript only; bind ElevenLabs. Object crops
 (`see --detect` → `crop`) need a bound OWLv2 detector (`scripts/visual-db-uv.sh
 --detect`, then `setup provider see "exec:$DETECT_PY …/detect.py"`).
+
+### 23. Man in the chair: drive the desk from the field
+
+Remote-control the live interactive session from your phone. The desk session is
+your man in the chair; you check in from the field over your tailnet.
+
+```text
+# at the desk, inside the TUI (or launch with `overcast --chair`)
+/chair on tailnet        # bind your Tailscale address (100.64.0.0/10); bare
+                         # `/chair on` binds 127.0.0.1 for SSH-tunnel use
+# → a QR widget appears; the pairing URL carries the token in its #fragment
+
+# on the phone (same tailnet): scan the QR → the chair console opens
+#   watch the live stream (assistant text, tool activity, turn state)
+#   send prompts — auto mode steers a running agent, or queue a follow-up
+#   ABORT stops the current run; the case drawer shows scope/findings/evidence
+
+/chair status            # bind, port, connected clients
+/chair qr                # re-show the pairing QR
+/chair off               # stop + rotate the token (re-pair to reconnect)
+```
+
+Notes: the bridge is a token-authed (256-bit bearer, constant-time compare)
+`node:http` + SSE server bound to localhost by default — no TLS in v1, so reach
+it over Tailscale/WireGuard or an SSH tunnel, never a public interface. Remote
+prompts land as `[chair]`-prefixed user messages (visible attribution at the
+desk + in context) and cannot expand slash commands or templates. `/chair` emits
+no case records. Env knobs: `OVERCAST_CHAIR`, `OVERCAST_CHAIR_BIND`,
+`OVERCAST_CHAIR_PORT`, `OVERCAST_CHAIR_TOKEN`. The console dev loop is
+`npm run dev:web` (vite, proxies to a running chair on 7373).
 
 ## Command matrix
 
