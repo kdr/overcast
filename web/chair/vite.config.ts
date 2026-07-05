@@ -20,8 +20,19 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": CHAIR,
-      "/events": CHAIR,
+      // changeOrigin rewrites Host to the chair; we also rewrite Origin to match
+      // so the bridge's Origin==Host CSRF check passes for proxied POSTs (send /
+      // abort). Without this, dev POSTs 403 while SSE GETs (no Origin check)
+      // still work (Bugbot round 30). Production is unaffected — the built
+      // console is served same-origin BY the bridge, so Origin==Host naturally.
+      "/api": {
+        target: CHAIR,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => proxyReq.setHeader("origin", CHAIR));
+        },
+      },
+      "/events": { target: CHAIR, changeOrigin: true },
     },
   },
 });

@@ -506,11 +506,12 @@ const FALLBACK_PAGE = `<!doctype html>
   poll();
   document.getElementById("f").addEventListener("submit", (ev) => {
     ev.preventDefault();
+    if (!alive) return; // after a 401 teardown, don't POST with the revoked token
     const text = document.getElementById("text").value.trim();
     if (!text) return;
     api("/api/prompt", { text, mode: document.getElementById("mode").value }).then(r => { if (r.ok) poll(); }).catch(() => {});
     document.getElementById("text").value = "";
   });
   // abort must be a POST — the bridge only runs agent.abort() on POST /api/abort
-  document.getElementById("abort").addEventListener("click", () => api("/api/abort", {}).then(poll).catch(() => {}));
+  document.getElementById("abort").addEventListener("click", () => { if (alive) api("/api/abort", {}).then(poll).catch(() => {}); });
 </script>`;
