@@ -265,6 +265,44 @@ test("OVERCAST_CHAIR=1 auto-starts the bridge on session_start", async () => {
   }
 });
 
+test("a mid-stream rebind keeps the partial (only a run-end / session-shutdown clears it)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-rebindlive-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+    await commands.get("chair")?.("on --port 0", ctx);
+
+    // desk is mid-reply
+    await emit("agent_start", { messages: [] }, ctx);
+    await emit("message_start", { message: { role: "assistant", content: [] } }, ctx);
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "still " } }, ctx);
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "streaming" } }, ctx);
+    await new Promise((r) => setTimeout(r, 80)); // flush
+    assert.equal(handle.bridge()!["agent"].livePartial?.(), "still streaming");
+
+    // a rebind (explicit --port) stops+restarts the bridge WHILE the desk streams —
+    // the partial must survive so the reconnecting phone still sees it
+    await commands.get("chair")?.("on --port 0", ctx);
+    assert.equal(handle.bridge()!["agent"].livePartial?.(), "still streaming", "partial survives a mid-stream rebind");
+
+    // but a session reload abandons the run → the new session starts clean
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    // (no autostart env here, so no bridge — check the closure state via a fresh start)
+    await commands.get("chair")?.("on --port 0", ctx);
+    assert.equal(handle.bridge()!["agent"].livePartial?.(), "", "a reload clears the partial (session abandoned)");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("snapshot livePartial flushes unflushed deltas (resync mid-stream misses nothing)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-flush-"));
   const prevCase = process.env.OVERCAST_CASE;

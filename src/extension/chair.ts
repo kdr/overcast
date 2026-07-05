@@ -263,11 +263,13 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     // bridge but DON'T touch chairDesired / sessionToken — the next session_start
     // restarts it with the SAME token so the phone stays paired.
     await stopChair(); // flushes coalesced deltas before the sockets close
-    // this session's run is abandoned — clear run state so a reload's restarted
-    // bridge doesn't report ghost busy / runningTools while the new session is idle
-    // (agent_end may never fire on a mid-run reload).
+    // this session's run is abandoned — clear run + stream state so a reload's
+    // restarted bridge doesn't report ghost busy / runningTools / live while the
+    // new session is idle (agent_end may never fire on a mid-run reload). This is
+    // the "session genuinely ends" clear that stopChair deliberately skips.
     agentRunning = false;
     runningTools.clear();
+    resetStream();
   });
 
   pi.on("agent_start", (_e, c) => {
@@ -417,7 +419,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   async function stopChair(): Promise<void> {
     if (!bridge) return;
     flush(); // deliver any coalesced assistant text before the sockets close
-    resetStream(); // drop live/partial state so a later bridge can't expose a ghost `live`
+    // Do NOT clear livePartial here: a rebind or a mid-run /chair off keeps the
+    // desk streaming, so the partial must survive for the next bridge's snapshot
+    // (Bugbot round 26). A run that has ENDED already cleared it via
+    // agent_end/message_end; session_shutdown clears it when the session is
+    // genuinely abandoned. So a stale/ghost `live` can't linger either way.
     pendingChair.length = 0; // a pending injection can't attribute across a restart
     const b = bridge;
     bridge = undefined;
