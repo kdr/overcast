@@ -265,6 +265,72 @@ test("OVERCAST_CHAIR=1 auto-starts the bridge on session_start", async () => {
   }
 });
 
+test("snapshot livePartial flushes unflushed deltas (resync mid-stream misses nothing)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-flush-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+    await commands.get("chair")?.("on --port 0", ctx);
+    const agent = handle.bridge()!["agent"];
+
+    await emit("message_start", { message: { role: "assistant", content: [] } }, ctx);
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "the van " } }, ctx);
+    await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "is blue" } }, ctx);
+    // NO wait — textBuf holds "the van is blue" but the 40ms flush hasn't fired.
+    // Taking a snapshot must flush so `live` carries the latest characters.
+    assert.equal(agent.livePartial?.(), "the van is blue", "snapshot flushes pending deltas");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("history replay classifies chair vs desk by confirmed injections, not the raw prefix", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-history-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    const { pi, commands, emit } = fakePi();
+    const handle = registerChair(pi as never);
+    // a session branch the snapshot will read back
+    const branch: unknown[] = [];
+    const { ctx } = fakeCtx(dir, { sessionManager: { getSessionName: () => undefined, getBranch: () => branch } });
+    await commands.get("chair")?.("on --port 0", ctx);
+    const agent = handle.bridge()!["agent"];
+
+    // a genuine chair injection, confirmed live (records it in chairMsgs)
+    agent.sendUserMessage("scan the gate");
+    await emit("message_start", { message: { role: "user", content: "[chair] scan the gate" } }, ctx);
+
+    // now history contains BOTH the real chair message AND a desk message that
+    // merely starts with the marker
+    branch.push(
+      { type: "message", timestamp: "t1", message: { role: "user", content: "[chair] scan the gate" } },
+      { type: "message", timestamp: "t2", message: { role: "user", content: "[chair] i typed this at the desk" } },
+    );
+    const items = agent.transcript(50).filter((i) => i.role === "user");
+    assert.deepEqual(
+      items.map((i) => [i.source, i.text]),
+      [
+        ["chair", "scan the gate"], // confirmed injection → chair, prefix stripped
+        ["desk", "[chair] i typed this at the desk"], // never injected → desk, prefix kept
+      ],
+    );
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("remote injection is prefixed so it can never be a slash command", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-slashguard-"));
   const prevCase = process.env.OVERCAST_CASE;

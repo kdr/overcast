@@ -86,6 +86,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   // than a blind counter — means a desk message that merely starts with the
   // marker can't consume a remote slot or get relabeled chair (Bugbot round 10).
   const pendingChair: string[] = [];
+  // full "[chair] …" strings CONFIRMED chair-originated live (a pendingChair
+  // match). Snapshot/history replay classifies against this instead of the raw
+  // prefix, so a desk-typed "[chair] …" isn't mislabeled "from the chair" after
+  // a resync/late-join (Bugbot round 25). Grows with chair prompts only.
+  const chairMsgs = new Set<string>();
 
   // true between agent_start and agent_end — the authoritative "run active"
   // signal. ctx.isIdle() only means "not streaming" and is true between LLM
@@ -155,18 +160,22 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   // Classify a user message as desk- or chair-originated. `live` (message_start)
   // matches the exact text against the pending-injection queue and consumes it,
-  // so only a message we actually injected is labeled chair — a desk message
-  // that merely starts with the marker (even one identical in prefix) stays desk
-  // unless its full text matches a real pending injection. Replayed history has
-  // no such signal, so it falls back to the marker heuristic (best-effort).
+  // recording confirmed chair messages in chairMsgs. `history` (snapshot replay)
+  // then classifies against chairMsgs — NOT the raw prefix — so a desk-typed
+  // "[chair] …" message is never mislabeled "from the chair" after a resync
+  // (Bugbot round 25). A genuine chair message from a prior process/session
+  // that isn't in chairMsgs degrades to desk (shows the literal prefix).
   const classifyUser = (raw: string, live: boolean): { source: "desk" | "chair"; text: string } => {
     let chair: boolean;
     if (live) {
       const i = pendingChair.indexOf(raw);
       chair = i >= 0;
-      if (chair) pendingChair.splice(i, 1);
+      if (chair) {
+        pendingChair.splice(i, 1);
+        chairMsgs.add(raw);
+      }
     } else {
-      chair = raw.startsWith(CHAIR_PREFIX);
+      chair = chairMsgs.has(raw);
     }
     return chair ? { source: "chair", text: raw.slice(CHAIR_PREFIX.length) } : { source: "desk", text: raw };
   };
@@ -223,7 +232,15 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       return items.slice(-limit);
     },
     caseGlance: () => buildCaseGlance(openCase(caseCwd())),
-    livePartial: () => livePartial,
+    // flush any coalesced textBuf FIRST so the snapshot's `live` includes the
+    // latest deltas — and, because flush() publishes them (advancing the bridge
+    // seq), `live` and the snapshot seq stay in lockstep, so a resync seeds the
+    // full text and resumes past it with no miss AND no double-count (Bugbot r25,
+    // preserving the r4 no-dup invariant).
+    livePartial: () => {
+      flush();
+      return livePartial;
+    },
     runningTools: () => [...runningTools.entries()].map(([toolCallId, t]) => ({ toolCallId, name: t.name, ...(t.argsSummary ? { argsSummary: t.argsSummary } : {}) })),
     onRemotePrompt: (info) => ctx?.ui.notify(`chair: remote prompt (${info.mode})`, "info"),
   });

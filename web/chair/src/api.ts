@@ -7,20 +7,35 @@ import type { CaseGlance, ChairPromptMode, ChairPromptResult, ChairSnapshot } fr
 
 const TOKEN_KEY = "chair-token";
 
+// sessionStorage can throw (private browsing, storage disabled) — never let that
+// abort boot; the URL #fragment is the source of truth, storage is just a
+// same-tab reload convenience (matches the inline fallback's guarded access).
+function store(op: (s: Storage) => void): void {
+  try {
+    op(sessionStorage);
+  } catch {
+    /* storage unavailable — carry on with the hash token */
+  }
+}
+
 export function pairToken(): string {
   const fromHash = new URLSearchParams(location.hash.slice(1)).get("t");
   if (fromHash) {
-    sessionStorage.setItem(TOKEN_KEY, fromHash);
+    store((s) => s.setItem(TOKEN_KEY, fromHash));
     return fromHash;
   }
-  return sessionStorage.getItem(TOKEN_KEY) ?? "";
+  try {
+    return sessionStorage.getItem(TOKEN_KEY) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 /** Drop the stored token — called when the bridge rejects it (401, i.e. the
  *  token was rotated by /chair off) so a reload doesn't keep sending the
  *  revoked bearer; re-pairing then needs a fresh QR scan. */
 export function clearToken(): void {
-  sessionStorage.removeItem(TOKEN_KEY);
+  store((s) => s.removeItem(TOKEN_KEY));
 }
 
 async function call<T>(path: string, body?: unknown): Promise<T> {
