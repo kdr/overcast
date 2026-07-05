@@ -192,6 +192,7 @@ async function boot(): Promise<void> {
     try {
       const snap = await getState();
       if (token !== resyncToken) return; // superseded by a newer resync
+      if (gated) return; // a teardown (auth failure) landed while getState was in-flight — stay down
       // getState succeeded but the SSE isn't up yet — leave "connected" to the
       // stream's onopen (still "reconnecting…" until then), don't claim it here
       statusbar.set({ caseName: snap.caseName, model: snap.model ?? "", busy: snap.busy, connected: false });
@@ -205,6 +206,7 @@ async function boot(): Promise<void> {
       openStream(snap.seq); // resume exactly where the snapshot left off — onopen flips connected true
     } catch (e) {
       if (token !== resyncToken) return; // superseded — let the newer run own the outcome
+      if (gated) return; // torn down mid-flight — don't retry or re-gate
       const message = (e as Error).message;
       if (message === "unauthorized") {
         // token rotated (/chair off) or a bad QR → tear down + re-pair.
