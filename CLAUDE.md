@@ -19,12 +19,12 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 ## Stack (pinned)
 
 - `@earendil-works/pi-ai`, `pi-agent-core`, `pi-tui`, `pi-coding-agent` —
-  **exactly `0.80.1`**. Don't float these; treat upgrades as reviewed changes.
+  **exactly `0.80.3`**. Don't float these; treat upgrades as reviewed changes.
 - `@cloudglue/cloudglue-js` — the default sense backend (via the tinycloud CLI,
   `exec`). Cloudglue is **also** a pickable *brain* LLM provider (anthropic-messages
   API) so it appears in `/model` — never forced. The tinycloud CLI is a runtime
   prerequisite (like ffmpeg), not an npm dep; `face` + `index` need **≥ 0.3.4**,
-  and current docs recommend tinycloud **0.3.7** (image `see`/`extract` — the
+  and current docs recommend tinycloud **0.3.8** (image `see`/`extract` — the
   opt-in `see:tinycloud` provider — need ≥ 0.3.7).
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.

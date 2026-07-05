@@ -1,6 +1,6 @@
 {
   "name": "@kdrrr/overcast",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "overcast — senses (video/audio/image) + OSINT reach for any agent, built on pi",
   "license": "Apache-2.0",
   "author": "kdr",
@@ -66,17 +66,17 @@
     "brand": "node scripts/brand-pi.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.80.1",
-    "@earendil-works/pi-ai": "0.80.1",
-    "@earendil-works/pi-coding-agent": "0.80.1",
-    "@earendil-works/pi-tui": "0.80.1",
-    "zod": "^3.24.1"
+    "@earendil-works/pi-agent-core": "0.80.3",
+    "@earendil-works/pi-ai": "0.80.3",
+    "@earendil-works/pi-coding-agent": "0.80.3",
+    "@earendil-works/pi-tui": "0.80.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
+    "typescript": "^6.0.3",
     "vite": "^8.1.3"
   },
   "optionalDependencies": {
