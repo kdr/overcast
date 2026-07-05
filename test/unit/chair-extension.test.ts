@@ -97,7 +97,7 @@ test("/chair on|status|off lifecycle: real listener, no token leak, no case reco
     });
     assert.equal(res.status, 202);
     assert.equal(sent.length, 1);
-    assert.equal(sent[0].text, "[chair] run the plate again");
+    assert.match(sent[0].text, /^\[chair:[0-9a-f]+\] run the plate again$/); // id'd, unforgeable
     assert.match(notices.join("\n"), /remote prompt/);
 
     // /chair qr toggles: hide on the first call, re-show on the second
@@ -149,7 +149,7 @@ test("event translation: user attribution + coalesced deltas reach the wire", as
   const prevCase = process.env.OVERCAST_CASE;
   try {
     process.env.OVERCAST_CASE = dir;
-    const { pi, commands, emit } = fakePi();
+    const { pi, commands, emit, sent } = fakePi();
     const handle = registerChair(pi as never);
     const { ctx } = fakeCtx(dir);
     await commands.get("chair")?.("on --port 0", ctx);
@@ -162,12 +162,14 @@ test("event translation: user attribution + coalesced deltas reach the wire", as
       orig(evt);
     };
 
-    // a real chair injection goes through the agent (increments the pending
-    // count); its message_start then classifies as chair and strips the marker
+    // a real chair injection goes through the agent (queues an id'd string); its
+    // message_start (with that exact string) then classifies as chair, stripped
     bridge["agent"].sendUserMessage("check the alley cam");
-    await emit("message_start", { message: { role: "user", content: "[chair] check the alley cam" } }, ctx);
+    const injected = sent.at(-1)!.text; // e.g. "[chair:a3f1] check the alley cam"
+    assert.match(injected, /^\[chair:[0-9a-f]+\] check the alley cam$/);
+    await emit("message_start", { message: { role: "user", content: injected } }, ctx);
     // a desk message that merely *starts with* the marker must NOT be faked as
-    // chair (no pending injection) — it stays desk, marker intact
+    // chair (no matching injection) — it stays desk, marker intact
     await emit("message_start", { message: { role: "user", content: "[chair] i typed this at the desk" } }, ctx);
     await emit("message_start", { message: { role: "user", content: "typed at the desk" } }, ctx);
     await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "the van " } }, ctx);
@@ -366,7 +368,7 @@ test("history replay classifies chair vs desk by confirmed injections, not the r
   const prevCase = process.env.OVERCAST_CASE;
   try {
     process.env.OVERCAST_CASE = dir;
-    const { pi, commands, emit } = fakePi();
+    const { pi, commands, emit, sent } = fakePi();
     const handle = registerChair(pi as never);
     // a session branch the snapshot will read back
     const branch: unknown[] = [];
@@ -374,14 +376,15 @@ test("history replay classifies chair vs desk by confirmed injections, not the r
     await commands.get("chair")?.("on --port 0", ctx);
     const agent = handle.bridge()!["agent"];
 
-    // a genuine chair injection, confirmed live (records it in chairMsgs)
+    // a genuine chair injection, confirmed live (records the id'd string in chairMsgs)
     agent.sendUserMessage("scan the gate");
-    await emit("message_start", { message: { role: "user", content: "[chair] scan the gate" } }, ctx);
+    const injected = sent.at(-1)!.text; // the id'd string that lands in the session
+    await emit("message_start", { message: { role: "user", content: injected } }, ctx);
 
-    // now history contains BOTH the real chair message AND a desk message that
-    // merely starts with the marker
+    // now history contains BOTH the real chair message (the id'd string, as it was
+    // persisted) AND a desk message that merely starts with the plain marker
     branch.push(
-      { type: "message", timestamp: "t1", message: { role: "user", content: "[chair] scan the gate" } },
+      { type: "message", timestamp: "t1", message: { role: "user", content: injected } },
       { type: "message", timestamp: "t2", message: { role: "user", content: "[chair] i typed this at the desk" } },
     );
     const items = agent.transcript(50).filter((i) => i.role === "user");
@@ -414,12 +417,10 @@ test("remote injection is prefixed so it can never be a slash command", async ()
     // even a phone prompt that looks exactly like a slash command…
     handle.bridge()!["agent"].sendUserMessage("/brief --export x.html");
     handle.bridge()!["agent"].sendUserMessage("/model opus");
-    // …is prefixed, so the text handed to pi never starts with "/" (and pi's
-    // sendUserMessage forces expandPromptTemplates:false regardless)
-    assert.deepEqual(
-      sent.map((s) => s.text),
-      ["[chair] /brief --export x.html", "[chair] /model opus"],
-    );
+    // …is prefixed with the id'd marker, so the text handed to pi never starts
+    // with "/" (and pi's sendUserMessage forces expandPromptTemplates:false anyway)
+    assert.match(sent[0].text, /^\[chair:[0-9a-f]+\] \/brief --export x\.html$/);
+    assert.match(sent[1].text, /^\[chair:[0-9a-f]+\] \/model opus$/);
     for (const s of sent) assert.ok(!s.text.startsWith("/"), "injected text must not start with /");
 
     await commands.get("chair")?.("off", ctx);
@@ -769,12 +770,12 @@ test("a mid-run reload does not carry ghost busy/runningTools into the next sess
   }
 });
 
-test("desk [chair] message interleaved with a pending injection stays desk", async () => {
+test("desk text identical to a pending injection can't steal the chair slot (id'd)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-interleave-"));
   const prevCase = process.env.OVERCAST_CASE;
   try {
     process.env.OVERCAST_CASE = dir;
-    const { pi, commands, emit } = fakePi();
+    const { pi, commands, emit, sent } = fakePi();
     const handle = registerChair(pi as never);
     const { ctx } = fakeCtx(dir);
     await commands.get("chair")?.("on --port 0", ctx);
@@ -788,18 +789,19 @@ test("desk [chair] message interleaved with a pending injection stays desk", asy
 
     // a real chair injection is pending its message_start…
     bridge["agent"].sendUserMessage("scan the north gate");
-    // …but a desk message that also starts with the marker arrives FIRST. With a
-    // blind counter it would steal the slot; content-matching keeps it desk.
-    await emit("message_start", { message: { role: "user", content: "[chair] not from the phone" } }, ctx);
-    // then the actual injected message arrives and matches exactly → chair
+    const injected = sent.at(-1)!.text; // "[chair:<id>] scan the north gate"
+    // …and the desk types the SAME visible text with a plain `[chair] ` prefix,
+    // arriving FIRST. It lacks the injection's id, so it can't match the pending
+    // entry — it stays desk, and the real injection still classifies chair (r29).
     await emit("message_start", { message: { role: "user", content: "[chair] scan the north gate" } }, ctx);
+    await emit("message_start", { message: { role: "user", content: injected } }, ctx);
 
     const users = published.filter((e) => e.type === "message" && e.role === "user");
     assert.deepEqual(
       users.map((u) => [u.source, u.text]),
       [
-        ["desk", "[chair] not from the phone"],
-        ["chair", "scan the north gate"],
+        ["desk", "[chair] scan the north gate"], // identical visible text, but no id → desk
+        ["chair", "scan the north gate"], // the real injection → chair
       ],
     );
     await commands.get("chair")?.("off", ctx);

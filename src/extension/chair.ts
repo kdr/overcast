@@ -22,7 +22,12 @@ import { qrLines } from "../chair/qr.js";
 import type { TranscriptItem } from "../chair/wire.js";
 import { emitResult } from "./slash.js";
 
-const CHAIR_PREFIX = "[chair] ";
+// Each injection carries a short random correlation id: `[chair:a3f1] …`. It's
+// what makes the pending-injection match UNFORGEABLE — a desk message that types
+// a literal `[chair] …` (or even copies a phone prompt verbatim) can't reproduce
+// the id, so it can't steal a pending chair slot (Bugbot round 29). CHAIR_MARK
+// strips the id'd form AND the legacy plain `[chair] ` (older history entries).
+const CHAIR_MARK = /^\[chair(?::[0-9a-f]+)?\] /;
 const QR_WIDGET_KEY = "chair-qr";
 const DELTA_FLUSH_MS = 40;
 
@@ -179,7 +184,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     } else {
       chair = chairMsgs.has(raw);
     }
-    return chair ? { source: "chair", text: raw.slice(CHAIR_PREFIX.length) } : { source: "desk", text: raw };
+    return chair ? { source: "chair", text: raw.replace(CHAIR_MARK, "") } : { source: "desk", text: raw };
   };
 
   const buildAgent = (): ChairAgent => ({
@@ -193,13 +198,15 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       //     (agent-session.js sendUserMessage → prompt({expandPromptTemplates:
       //     false, source:"extension"})); the public ExtensionAPI has no option
       //     to re-enable it, so this can't be bypassed from here.
-      //  2. we prefix CHAIR_PREFIX ("[chair] "), so the text never starts with
-      //     "/" — pi's command detection (`text.startsWith("/")`) can't match
-      //     even hypothetically.
-      // queue the exact injected string up front (message_start may fire
-      // synchronously), rolling it back if the dispatch throws so a failed send
-      // can't leave a phantom entry that mislabels a later message (Bugbot r5/r10)
-      const full = CHAIR_PREFIX + text;
+      //  2. we prefix `[chair:<id>] `, so the text never starts with "/" — pi's
+      //     command detection (`text.startsWith("/")`) can't match even
+      //     hypothetically.
+      // The random correlation id makes the queued string unforgeable, so no desk
+      // message can steal this pending slot by matching its content (Bugbot r29).
+      // Queue it up front (message_start may fire synchronously), rolling it back
+      // if the dispatch throws so a failed send can't leave a phantom entry that
+      // mislabels a later message (Bugbot r5/r10).
+      const full = `[chair:${randomBytes(3).toString("hex")}] ${text}`;
       pendingChair.push(full);
       try {
         pi.sendUserMessage(full, opts);
