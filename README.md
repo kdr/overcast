@@ -38,8 +38,8 @@ another backend or your own script with no code changes.
 - **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
   default `watch` / `listen` / `face` / `index` backend (Cloudglue); set
   `CLOUDGLUE_API_KEY`. The `face` + `index` verbs need **tinycloud ≥ 0.3.4**
-  and overcast currently recommends **0.3.7** (`npm i -g @cloudglue/tinycloud@0.3.7`
-  or `tinycloud update`), which adds the image `see`/`extract` verbs behind the
+  and overcast currently recommends **0.3.8** (`npm i -g @cloudglue/tinycloud@0.3.8`
+  or `tinycloud update`); the image `see`/`extract` verbs (≥ 0.3.7) sit behind the
   opt-in `see` provider; override the invocation with `OVERCAST_TINYCLOUD_CMD`.
 - **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
   `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
