@@ -493,7 +493,14 @@ const FALLBACK_PAGE = `<!doctype html>
   const poll = () => api("/api/state").then(r => r.ok ? r.json() : Promise.reject(r.status)).then(render).catch((err) => {
     // 401 = the token was rotated (e.g. /chair off→on) — re-pairing needs a new
     // QR scan; other failures are transient (desk offline / network).
-    if (err === 401) { try { sessionStorage.removeItem("chair-token"); } catch (e) {} document.getElementById("state").textContent = "· unauthorized — re-scan the QR to re-pair"; }
+    if (err === 401) {
+      // stop the poll loop + strip the revoked token from the URL so we don't
+      // keep hitting the bridge with a dead bearer (Bugbot round 28)
+      alive = false;
+      try { sessionStorage.removeItem("chair-token"); } catch (e) {}
+      try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+      document.getElementById("state").textContent = "· unauthorized — re-scan the QR to re-pair";
+    }
     else document.getElementById("state").textContent = "· disconnected";
   }).finally(() => { if (alive) setTimeout(poll, 1500); });
   poll();

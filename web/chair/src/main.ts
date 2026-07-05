@@ -33,9 +33,30 @@ async function boot(): Promise<void> {
   // Any 401 from an action (not just resync) means the token was rotated —
   // clear it and re-pair, per api.ts's contract (Bugbot round 24).
   const isAuthError = (e: unknown): boolean => (e as Error)?.message === "unauthorized";
-  const onAuthFailure = (): void => {
+  // Once we've gated on auth failure, ALL background activity must stop — the
+  // SSE stream, the retry/error timers, and the visibilitychange resync — and
+  // the revoked token must leave the URL, so nothing keeps hitting the bridge
+  // with the dead bearer after the UI says "re-pair" (Bugbot round 28).
+  let gated = false;
+  const teardownSession = (): void => {
+    gated = true;
+    disconnect?.(); // close the EventSource (stops its auto-reconnect)
+    disconnect = undefined;
+    streamConnected = false;
+    if (retryTimer) clearTimeout(retryTimer);
+    if (errorTimer) clearTimeout(errorTimer);
+    retryTimer = errorTimer = undefined;
+    // strip the revoked #t= so pairToken() can't re-read it; a new QR re-pairs
+    try {
+      history.replaceState(null, "", location.pathname + location.search);
+    } catch {
+      /* history API unavailable — the teardown above already stopped traffic */
+    }
+  };
+  const onAuthFailure = (msg = "unauthorized — the pairing token was rotated"): void => {
+    teardownSession();
     clearToken();
-    gate("unauthorized — the pairing token was rotated. Re-scan the QR from the desk (/chair qr).");
+    gate(`${msg}. Re-scan the QR from the desk (/chair qr).`);
   };
   const statusbar = createStatusBar(() => {
     void getCase()
@@ -152,6 +173,7 @@ async function boot(): Promise<void> {
   };
 
   const resync = async (): Promise<void> => {
+    if (gated) return; // session torn down after auth failure — no more traffic
     // in-flight guard: visibilitychange, gap, and the retry timer can all fire
     // resync concurrently; only the newest run may touch the UI/stream so their
     // getState/reset/openStream can't interleave.
@@ -185,10 +207,8 @@ async function boot(): Promise<void> {
       if (token !== resyncToken) return; // superseded — let the newer run own the outcome
       const message = (e as Error).message;
       if (message === "unauthorized") {
-        // token rotated (/chair off) or a bad QR → drop it and re-pair. Matches
-        // the fallback console's 401 handling.
-        clearToken();
-        gate(`connection failed: ${message} — re-scan the pairing QR from the desk (/chair qr).`);
+        // token rotated (/chair off) or a bad QR → tear down + re-pair.
+        onAuthFailure("connection failed: unauthorized");
         return;
       }
       // transient (network blip, desk still starting, laptop asleep) — pre- OR
@@ -203,7 +223,7 @@ async function boot(): Promise<void> {
 
   document.addEventListener("visibilitychange", () => {
     // Safari suspends EventSource in background tabs; rebuild on return
-    if (document.visibilityState === "visible") void resync();
+    if (!gated && document.visibilityState === "visible") void resync();
   });
 
   app.replaceChildren(statusbar.el, transcript.el, composer.el);
