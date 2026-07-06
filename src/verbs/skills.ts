@@ -236,7 +236,8 @@ export const skillsVerb: VerbSpec = {
       }
       const explicitDest = rawDest != null ? expandHome(rawDest) : undefined;
       const hasExplicitDest = explicitDest != null;
-      const suppliedHarness = ctx.opts.harness != null ? String(ctx.opts.harness) : undefined;
+      const rawHarness = ctx.opts.harness != null ? String(ctx.opts.harness) : undefined;
+      const suppliedHarness = rawHarness != null && rawHarness.trim() !== "" ? rawHarness.trim() : undefined;
       const harness = suppliedHarness ?? "claude-code";
       const installDest = hasExplicitDest ? explicitDest : HARNESS_DESTS[harness];
       // an unknown harness must not be silently redirected to a default dir

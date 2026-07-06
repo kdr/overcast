@@ -107,6 +107,26 @@ test("similar add embeds via the local provider and registers the member", async
   });
 });
 
+test("similar add/match reject multiple media inputs instead of dropping extras", async () => {
+  await withStub(async (dir) => {
+      const one = join(dir, "one.jpg");
+      const two = join(dir, "two.jpg");
+      writeFileSync(one, "x");
+      writeFileSync(two, "x");
+      const [created] = await indexVerb.run(mk(dir, "create", ["scenes"], { type: "basic-clip", local: true }));
+      const id = String((created.payload as Record<string, unknown>).index);
+
+      const [add] = await similarVerb.run(mk(dir, "add", [one, two], { index: id }));
+      assert.equal(add.state, "error");
+      assert.match(add.error ?? "", /similar add: expected exactly one input; got 2/);
+      assert.equal(findIndex(openCase(dir), id)?.members.length, 0);
+
+      const [match] = await similarVerb.run(mk(dir, "match", [one, two], { index: id }));
+      assert.equal(match.state, "error");
+      assert.match(match.error ?? "", /similar match: expected exactly one input; got 2/);
+  });
+});
+
 test("similar search forwards the text query as the positional input", async () => {
   await withStub(async (dir) => {
       const img = join(dir, "photo.jpg");

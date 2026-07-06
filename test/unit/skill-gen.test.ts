@@ -221,6 +221,7 @@ test("skills verb: --dest installs shipped skills into an explicit directory", a
   const dir = mkdtempSync(join(tmpdir(), "oc-sk-case-"));
   const dest = mkdtempSync(join(tmpdir(), "oc-sk-dest-"));
   const otherDest = mkdtempSync(join(tmpdir(), "oc-sk-dest-harness-"));
+  const emptyHarnessDest = mkdtempSync(join(tmpdir(), "oc-sk-dest-empty-harness-"));
   try {
     const c = openCase(dir); c.ensure();
     const mk = (input: string, opts = {}) => ({ input, rest: [], opts, case: c, profile: defaultProfile() });
@@ -238,6 +239,13 @@ test("skills verb: --dest installs shipped skills into an explicit directory", a
     assert.equal(withHarness.state, "ready");
     assert.equal((withHarness.payload as { harness?: string }).harness, "unknown-agent");
 
+    const [emptyHarness] = await skillsVerb.run(mk("install", { dest: emptyHarnessDest, harness: "" }));
+    assert.equal(emptyHarness.state, "ready");
+    const emptyHarnessPayload = emptyHarness.payload as { dest?: string; harness?: string; installed?: string[] };
+    assert.equal(emptyHarnessPayload.dest, emptyHarnessDest);
+    assert.equal(emptyHarnessPayload.harness, undefined);
+    assert.ok((emptyHarnessPayload.installed?.length ?? 0) >= 20);
+
     const [badHarness] = await skillsVerb.run(mk("install", { harness: "unknown-agent" }));
     assert.equal(badHarness.state, "error");
     assert.match(badHarness.error ?? "", /unknown harness/);
@@ -252,5 +260,6 @@ test("skills verb: --dest installs shipped skills into an explicit directory", a
     rmSync(dir, { recursive: true, force: true });
     rmSync(dest, { recursive: true, force: true });
     rmSync(otherDest, { recursive: true, force: true });
+    rmSync(emptyHarnessDest, { recursive: true, force: true });
   }
 });
