@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
-import { toAgentTool, verbCallLine } from "../../src/registry/to-agent-tool.ts";
+import { toAgentTool, verbCallLine, verbParams } from "../../src/registry/to-agent-tool.ts";
 import type { VerbSpec } from "../../src/registry/types.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
 
@@ -21,6 +21,64 @@ test("verbCallLine: class-colored ⟦ TAG ⟧ ▸ arg (semantic split + primary 
   assert.match(s, /⟦ SCAN ⟧/);
   assert.ok(s.includes("\x1b[38;2;255;46;151m"), "osint verb → magenta tag");
   assert.ok(!s.includes("▸"), "no separator when no primary arg");
+});
+
+test("agent variadic args prefer string[] schema, accept legacy strings, and reconstruct ctx.input/rest", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-agent-var-"));
+  try {
+    type JsonSchema = { type?: string; items?: JsonSchema; anyOf?: JsonSchema[]; oneOf?: JsonSchema[] };
+    const variants = (s: JsonSchema) => s.anyOf ?? s.oneOf ?? [s];
+    const hasStringArray = (s: JsonSchema) => variants(s).some((v) => v.type === "array" && v.items?.type === "string");
+    const hasString = (s: JsonSchema) => variants(s).some((v) => v.type === "string");
+
+    const schema = verbParams({
+      name: "var",
+      args: [
+        { name: "action", summary: "action", required: true },
+        { name: "items", summary: "items", required: false, variadic: true },
+        { name: "required_items", summary: "required items", required: true, variadic: true },
+      ],
+      flags: [],
+    } as VerbSpec) as {
+      properties: Record<string, JsonSchema>;
+      required?: string[];
+    };
+    assert.ok(hasStringArray(schema.properties.items));
+    assert.ok(hasString(schema.properties.items));
+    assert.ok(hasStringArray(schema.properties.required_items));
+    assert.ok(hasString(schema.properties.required_items));
+    assert.ok(schema.required?.includes("action"));
+    assert.ok(schema.required?.includes("required_items"));
+    assert.ok(!schema.required?.includes("items"));
+
+    const seen: Array<{ input?: string; rest: string[] }> = [];
+    const spec: VerbSpec = {
+      name: "similar",
+      group: "sense",
+      summary: "similar",
+      args: [
+        { name: "action", summary: "action", required: true },
+        { name: "input", summary: "input", required: false, variadic: true },
+      ],
+      flags: [],
+      outputKind: "similar",
+      run: async (ctx) => {
+        seen.push({ input: ctx.input, rest: ctx.rest });
+        return [makeRecord({ verb: "similar", payload: { input: ctx.input, rest: ctx.rest } })];
+      },
+    };
+    const c = openCase(dir); c.ensure();
+    const tool = toAgentTool(spec, { getCase: () => c, getProfile: () => defaultProfile() });
+
+    await tool.execute("call_1", { action: "search", input: ["white", "van"] }, undefined as never);
+    await tool.execute("call_2", { action: "search", input: "white van" }, undefined as never);
+
+    assert.deepEqual(seen[0], { input: "search", rest: ["white", "van"] });
+    assert.deepEqual(seen[1], { input: "search", rest: ["white van"] });
+    assert.match(verbCallLine(spec, { action: ["search", "white", "van"] }), /search white van/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("renderResult: collapses long output to a preview + expand hint (full when expanded)", () => {

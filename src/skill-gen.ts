@@ -45,7 +45,7 @@ export function generateVerbReference(): string {
       lines.push(`### \`overcast ${v.name}\``, "");
       lines.push(v.description ?? v.summary, "");
       lines.push("```");
-      lines.push(renderVerbHelp(v).trimEnd());
+      lines.push(renderVerbHelp(v, { includeDescription: false }).trimEnd());
       lines.push("```", "");
       lines.push(`Emits \`${v.outputKind}\` records.`, "");
     }
@@ -316,18 +316,27 @@ One-time setup for overcast.
 
 1. **Install the CLI** — \`pi install npm:@kdrrr/overcast\` (inside pi) or
    \`npm i -g @kdrrr/overcast\` for the standalone binary.
-2. **Install/update tinycloud** — the default perception backend. Get the latest
+2. **Install bundled skills for this agent** — for Codex, Cursor, and other
+   non-Claude harnesses, copy the shipped skills into the agent's skills
+   directory explicitly:
+   \`\`\`bash
+   overcast skills install --dest ~/.codex/skills
+   \`\`\`
+   Bare \`overcast skills install\` remains the Claude Code default
+   (\`~/.claude/skills\`), and \`--harness claude-code\` is the explicit Claude
+   target.
+3. **Install/update tinycloud** — the default perception backend. Get the latest
    (\`npm i -g @cloudglue/tinycloud@0.3.8\` then \`tinycloud install --latest\`, or
    \`tinycloud update\`). The \`face\` + \`index\` verbs need **tinycloud ≥ 0.3.4**,
    and overcast currently recommends **0.3.8** (the image \`see\`/\`extract\`
    verbs behind the opt-in \`see:tinycloud\` provider need ≥ 0.3.7);
    override the invocation with \`OVERCAST_TINYCLOUD_CMD\` if it isn't on \`PATH\`.
-3. **Verify** — \`overcast doctor --json\` (pi pinned, ffmpeg/ffprobe runnable,
+4. **Verify** — \`overcast doctor --json\` (pi pinned, ffmpeg/ffprobe runnable,
    Cloudglue key, tinycloud CLI + version, optional uv/visual-db readiness).
-4. **Cloudglue key** — the default \`watch\`/\`listen\`/\`face\`/\`index\` providers
+5. **Cloudglue key** — the default \`watch\`/\`listen\`/\`face\`/\`index\` providers
    reach Cloudglue via the tinycloud CLI; configure it (\`tinycloud setup cloudglue\`)
    or export \`CLOUDGLUE_API_KEY\`.
-5. **Provider profile setup** — choose reusable providers once per profile, not
+6. **Provider profile setup** — choose reusable providers once per profile, not
    once per case. Always preview before applying:
    \`\`\`bash
    overcast provider setup show --profile default --json
@@ -345,7 +354,7 @@ One-time setup for overcast.
      file-level image analysis via \`tinycloud see\`/\`extract\` (needs tinycloud
      ≥ 0.3.7; \`--detect\` facts are boxless — no \`crop\`).
    - \`deepface-local\` for local face detect/match through DeepFace.
-6. **Optional visual DB setup** — prepare visual DB Python once per
+7. **Optional visual DB setup** — prepare visual DB Python once per
    checkout/machine. DeepFace can be selected as a profile provider for the
    \`face\` verb, while image/face DBs are still case-owned local indexes:
    \`\`\`bash
@@ -355,7 +364,7 @@ One-time setup for overcast.
    overcast index create logos --type image-ransac --local --json
    overcast index create localfaces --type deepface-local --local --json
    \`\`\`
-7. **Case setup later** — use the main \`overcast\` skill per investigation to run
+8. **Case setup later** — use the main \`overcast\` skill per investigation to run
    \`case setup\`, select targets/sources/indexes, and optionally set case-level
    automation such as \`--auto-sense\`, \`--auto-index-new\`, and \`--findings\`
    (defaults to \`suggest\` — score/text triggers auto-suggest leads; \`review\` is

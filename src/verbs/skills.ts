@@ -1,12 +1,13 @@
 // `skills` verb: generate the flagship skill + reference from the registry, and
-// install skills into a harness (Claude Code). Keeps the skill docs in sync with
-// the verb surface (invariant #5).
+// install skills into a harness (Claude Code) or explicit skills directory. Keeps
+// the skill docs in sync with the verb surface (invariant #5).
 
 import { writeFileSync, mkdirSync, existsSync, cpSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { makeRecord } from "../record.js";
+import { expandHome } from "../fs-path.js";
 import {
   generateVerbReference,
   generateFlagshipSkill,
@@ -189,13 +190,15 @@ function installSkills(
 export const skillsVerb: VerbSpec = {
   name: "skills",
   group: "config",
-  summary: "Generate shipped overcast skills + reference from the registry, or install into a harness.",
+  summary: "Generate shipped overcast skills + reference from the registry, or install into a harness/directory.",
   description:
     "`skills generate` (re)writes shipped skills including skills/overcast/{SKILL.md,reference/verbs.md}, skills/overcast-init, and focused workflow examples " +
-    "from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.",
+    "from the verb registry. `skills install [--harness claude-code]` copies them into the Claude Code skills dir by default; " +
+    "`skills install --dest <dir>` is the explicit path for Codex, Cursor, and other agents.",
   args: [{ name: "action", summary: "generate | install", required: true }],
   flags: [
     { name: "harness", summary: "Target harness for install (claude-code)", type: "string" },
+    { name: "dest", summary: "Install shipped skills into this directory (recommended for Codex/Cursor/other agents)", type: "string" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
@@ -227,19 +230,33 @@ export const skillsVerb: VerbSpec = {
       if (!SKILLS_DIR || !existsSync(join(SKILLS_DIR, "overcast", "SKILL.md"))) {
         return fail("no shipped skills/ in this distribution (install the npm package, or run from source)");
       }
-      const harness = ctx.opts.harness ? String(ctx.opts.harness) : "claude-code";
-      const harnessDest = HARNESS_DESTS[harness];
+      const rawDest = ctx.opts.dest != null ? String(ctx.opts.dest) : undefined;
+      if (rawDest != null && rawDest.trim() === "") {
+        return fail("skills install: --dest requires a non-empty directory");
+      }
+      const explicitDest = rawDest != null ? expandHome(rawDest) : undefined;
+      const hasExplicitDest = explicitDest != null;
+      const rawHarness = ctx.opts.harness != null ? String(ctx.opts.harness) : undefined;
+      const suppliedHarness = rawHarness != null && rawHarness.trim() !== "" ? rawHarness.trim() : undefined;
+      const harness = suppliedHarness ?? "claude-code";
+      const installDest = hasExplicitDest ? explicitDest : HARNESS_DESTS[harness];
       // an unknown harness must not be silently redirected to a default dir
-      if (!harnessDest) {
+      // unless the caller supplied an explicit destination.
+      if (!installDest) {
         return fail(`unknown harness '${harness}' (supported: ${Object.keys(HARNESS_DESTS).join(", ")})`);
       }
       try {
-        const { dest, copied, missing } = installSkills(SKILLS_DIR, harnessDest);
+        const { dest, copied, missing } = installSkills(SKILLS_DIR, installDest);
+        const payload = hasExplicitDest
+          ? suppliedHarness != null
+            ? { harness: suppliedHarness, dest, installed: copied }
+            : { dest, installed: copied }
+          : { harness, dest, installed: copied };
         // a partial install (e.g. overcast-init missing) is not a success
         if (missing.length) {
-          return [makeRecord({ verb: "skills", format: "json", payload: { harness, dest, installed: copied, missing }, error: `partial install — missing skill(s): ${missing.join(", ")}`, state: "error" })];
+          return [makeRecord({ verb: "skills", format: "json", payload: { ...payload, missing }, error: `partial install — missing skill(s): ${missing.join(", ")}`, state: "error" })];
         }
-        return [makeRecord({ verb: "skills", format: "json", payload: { harness, dest, installed: copied }, state: "ready" })];
+        return [makeRecord({ verb: "skills", format: "json", payload, state: "ready" })];
       } catch (e) {
         return fail(`skills install failed: ${(e as Error).message}`);
       }

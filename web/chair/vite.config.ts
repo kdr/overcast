@@ -6,10 +6,13 @@
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, type ProxyOptions } from "vite";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CHAIR = "http://127.0.0.1:7373";
+const configureChairProxy: NonNullable<ProxyOptions["configure"]> = (proxy) => {
+  proxy.on("proxyReq", (proxyReq) => proxyReq.setHeader("origin", CHAIR));
+};
 
 export default defineConfig({
   root: here,
@@ -28,9 +31,7 @@ export default defineConfig({
       "/api": {
         target: CHAIR,
         changeOrigin: true,
-        configure: (proxy) => {
-          proxy.on("proxyReq", (proxyReq) => proxyReq.setHeader("origin", CHAIR));
-        },
+        configure: configureChairProxy,
       },
       "/events": { target: CHAIR, changeOrigin: true },
     },

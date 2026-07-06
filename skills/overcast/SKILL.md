@@ -48,7 +48,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `setup` — Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|memory|show).
 - `provider` — Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).
 - `doctor` — Preflight: check pi version, ffmpeg/ffprobe, Cloudglue creds, tinycloud, provider bindings.
-- `skills` — Generate shipped overcast skills + reference from the registry, or install into a harness.
+- `skills` — Generate shipped overcast skills + reference from the registry, or install into a harness/directory.
 
 ## How to drive it
 

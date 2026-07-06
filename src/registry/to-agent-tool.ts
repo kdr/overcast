@@ -8,7 +8,7 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { VerbSpec, VerbContext, FlagSpec } from "./types.js";
+import type { VerbSpec, VerbContext, FlagSpec, ArgSpec } from "./types.js";
 import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
 import { persistRecords } from "./persist.js";
 import { expandHome, expandHomeArg } from "../fs-path.js";
@@ -50,13 +50,22 @@ function flagSchema(f: FlagSpec): TSchema {
   return Type.Optional(Type.String(desc));
 }
 
+function argSchema(arg: ArgSpec): TSchema {
+  const desc = { description: arg.summary };
+  if (arg.variadic) {
+    const array = Type.Array(Type.String(desc), desc);
+    const legacyString = Type.String(desc);
+    const schema = Type.Union([array, legacyString], desc);
+    return arg.required ? schema : Type.Optional(schema);
+  }
+  const string = Type.String(desc);
+  return arg.required ? string : Type.Optional(string);
+}
+
 /** Build the TypeBox params object for a verb (all positional args + flags). */
 export function verbParams(spec: VerbSpec): TSchema {
   const props: Record<string, TSchema> = {};
-  for (const arg of spec.args) {
-    const s = Type.String({ description: arg.summary });
-    props[arg.name] = arg.required ? s : Type.Optional(s);
-  }
+  for (const arg of spec.args) props[arg.name] = argSchema(arg);
   for (const f of spec.flags) props[f.name] = flagSchema(f);
   return Type.Object(props);
 }
@@ -167,7 +176,7 @@ export function verbCallLine(spec: VerbSpec, args: Record<string, unknown>): str
   const primaryName = spec.args[0]?.name;
   const raw = primaryName ? args?.[primaryName] : undefined;
   if (raw === undefined || raw === null || raw === "") return tag;
-  let v = String(raw);
+  let v = Array.isArray(raw) ? raw.map((x) => String(x)).join(" ") : String(raw);
   if (v.length > 80) v = v.slice(0, 79) + "…";
   return `${tag} ${HUD_DIM}▸${HUD_RESET} ${HUD_PALE}${v}${HUD_RESET}`;
 }
@@ -238,7 +247,13 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
       // reconstruct positional input + rest from the declared args
       const positionals: string[] = [];
       for (const arg of spec.args) {
-        if (params[arg.name] !== undefined) positionals.push(expandHome(String(params[arg.name])));
+        const raw = params[arg.name];
+        if (raw === undefined) continue;
+        const values = arg.variadic && Array.isArray(raw) ? raw : [raw];
+        for (const value of values) {
+          if (value === undefined || value === null) continue;
+          positionals.push(expandHome(String(value)));
+        }
       }
       const input = positionals[0];
 

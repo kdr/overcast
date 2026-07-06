@@ -16,8 +16,6 @@ overcast watch <input> [options]
 
   Analyze a video into a reusable, time-anchored record (content/transcript/detailed).
 
-  Runs the bound sense provider (default: tinycloud, exec) over a video file or URL and emits a video.analysis record with markdown content, a transcript (when speech is present), and the full structured describe in `detailed`.
-
 Arguments:
   input            Video file path or URL
 
@@ -36,8 +34,6 @@ Default provider: tinycloud. Speech-only transcript by default; --describe runs 
 overcast listen <input> [options]
 
   Transcribe and analyze audio (or a video's audio track) into an audio.analysis record.
-
-  Default provider: tinycloud. Speech-only transcript by default; --describe runs the full multimodal describe to surface the AUDIO-SCENE description (sounds, music, events, ambience), not just speech. Emits transcript, speaker-tagged segments[] with media.at anchors, language.
 
 Arguments:
   input            Audio/video file path or URL
@@ -61,8 +57,6 @@ overcast see <input> [options]
 
   Understand an image or a single video frame (caption, OCR, detections).
 
-  Defaults to the BRAIN LLM when it supports images: a direct 'describe this image in detail' call (turnkey with the Cloudglue brain, or any image-capable `setup llm`). Falls back to a Hugging Face captioner when HF_TOKEN is set (override with HF_SEE_MODEL), else a placeholder until a VLM is bound. Switch backends via `setup provider see builtin:hf` (classic HF) or `builtin:brain`; disable the brain default with OVERCAST_SEE_BRAIN=off. Forwards --ocr/--prompt; --detect needs a detection provider (OWLv2 for boxes, or the opt-in Cloudglue tinycloud see/extract provider for boxless facts, tinycloud >= 0.3.7). Accepts frame://rec@sec (resolved via the internal ffmpeg toolkit) and http(s) image URLs, fetched into the case media dir first (meta.source_url keeps the origin).
-
 Arguments:
   input            Image path, http(s) image URL, video frame, or frame://rec@sec
 
@@ -84,8 +78,6 @@ Default provider: tinycloud. `face <video>` detects faces — one box per sample
 overcast face [input] [options]
 
   Detect, match, or search faces in video (and across face-analysis indexes).
-
-  Default provider: tinycloud. `face <video>` detects faces — one box per sampled frame, so the count is detections, NOT unique people (detect doesn't cluster). To find or count a PERSON, use `face <video> --match ref.jpg` (locates that person in the clip, ranked by similarity), or `face --match ref.jpg --index <id>` to search a registered face-analysis index (case-wide); `face <video> --index <id>` lists that video's stored detections. The video/reference may be a path, URL, or a case record id; the reference image for --match must be JPEG/PNG. Emits a face.analysis record whose `summary` is the headline, plus faces[] (at, box, similarity, thumbnail?) and the full provider data in `detailed`.
 
 Arguments:
   input            Video to analyze (path/URL/record-id); omit with --match + --index to search the index
@@ -118,8 +110,6 @@ overcast image <action> [input] [options]
 
   Match images or video frames against a local RANSAC image index.
 
-  `image add <image|record-id> --index <local-image-index>` stores a reference image in a local image-ransac index. `image match <image|video|record-id> --index <local-image-index>` searches that DB using OpenCV SIFT/ORB + RANSAC.
-
 Arguments:
   action           add | match
   input            image/video path, URL, or record id
@@ -148,8 +138,6 @@ overcast audio <action> [input] [reference] [options]
 
   Shazam-style exact audio matching: fingerprint clips into a local audio-fp index, or match clip-to-clip with time-offset alignment.
 
-  `audio add <audio|video|record-id> --index <local-audio-fp-index>` fingerprints a recording (Wang 2003 constellation hashes) and caches it in a local audio-fp index. `audio match <query> --index <id>` finds which indexed recording contains the query and WHERE (offset-histogram alignment: 'query audio appears at 01:23 in recording Y'). `audio match <query> <reference>` compares two clips directly, no index needed. Videos are accepted — their audio track is extracted. Robust to transcode/noise/clipping; NOT robust to pitch/speed change.
-
 Arguments:
   action           add | match
   input            audio/video path, URL, or record id (the query for match)
@@ -176,8 +164,6 @@ A persistent LOCAL face database backed by the deepface provider (clustering nee
 overcast cluster <action> [arg] [arg2] [options]
 
   Build and browse a local face-cluster DB: group faces into people, identify, label, and view.
-
-  A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); `cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new person) without writing; `cluster recluster` re-groups every stored face and carries human labels forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the case's sole one when --index is omitted. Emits a `cluster` record.
 
 Arguments:
   action           add | ingest | identify | list | show | label | recluster | view
@@ -212,8 +198,6 @@ overcast similar <action> [input]... [options]
 
   Find images/video moments or audio by visual, audio, or text similarity in a local CLIP (basic-clip) or CLAP (basic-clap) index.
 
-  `similar add <image|video> --index <basic-clip-index>` embeds and caches a reference in a local CLIP DB (videos are frame-sampled and pooled); a `basic-clap` index instead embeds audio (or a video's audio track) with CLAP. `similar match <image|video|audio> --index <id>` ranks members by image→image (CLIP) or audio→audio (CLAP) similarity; `similar search "<text>" --index <id>` ranks members by text→image (CLIP) or text→audio (CLAP) similarity. Runs OpenAI CLIP / LAION CLAP locally; scores are cosine×100 (0–100).
-
 Arguments:
   action           add | match | search
   input            image/video/audio path, URL, record id (add/match) — or a text query (search)
@@ -245,8 +229,6 @@ overcast exif <input> [options]
 
   Extract embedded metadata — GPS, capture time, device — from an image or video (ExifTool).
 
-  Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus GPS coordinates (signed decimals), capture time, camera make/model, editing software, MIME/dimensions/duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with `setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed.
-
 Arguments:
   input            Image/video/file path, case record id, or http(s) URL
 
@@ -266,8 +248,6 @@ overcast verify <input> [options]
 
   Check a media file's C2PA / Content Credentials provenance manifest (c2patool).
 
-  Reads the embedded C2PA / Content Credentials manifest of an image or video and emits a media.provenance record: whether a signed manifest is present, the claim generator, the signer/certificate issuer, the signature algorithm, the validation state + codes, and assertion/ingredient counts. Media with no credentials is a clean `ready` record (`has_manifest: false`), not an error. The default backend is the shipped c2patool provider (system `c2patool` on PATH; install with `brew install c2patool`); bind your own with `setup provider verify <spec>`. Accepts a path, a case record/capture id, or an http(s) URL. Distinct from source-post provenance (where a record came from) — this checks the media's own embedded credentials.
-
 Arguments:
   input            Image/video/file path, case record id, or http(s) URL
 
@@ -286,8 +266,6 @@ Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/n
 overcast enhance <input> [options]
 
   Produce better media (denoise/normalize/upscale) or split it (separate voices / segment objects) via ffmpeg or a bound model provider.
-
-  Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI restoration or the SPLIT ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices into per-speaker tracks (add --summarize to transcribe each), `--ops segment --prompt "<thing>"` cuts requested objects out of an image as mask + cutout evidence. separate/segment need a bound provider (local-models = pyannote + GroundingDINO/SAM2, or fal = sam-audio + sam-3); image segmentation of a video is out of scope (segment a frame:// still). Emits a media.enhanced record per output — for the split ops, one child record per track/mask whose media.ref chains into watch/listen/see/view/crop.
 
 Arguments:
   input            Media file path
@@ -316,8 +294,6 @@ overcast view <ref> [options]
 
   Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 
-  For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or cutout/mask images for segment. --no-open writes the viewer and emits a view record with its path.
-
 Arguments:
   ref              Media path, capture-id, or record-id
 
@@ -339,8 +315,6 @@ Takes a face or see detection record and writes cropped still images under .over
 overcast crop <input> [options]
 
   Materialize face/object detections as cropped image records with provenance.
-
-  Takes a face or see detection record and writes cropped still images under .overcast/media/crops/. For detections with frame thumbnails, crop uses the supplied frame image as the crop source. Each crop record preserves the source record, source media, crop source media, timestamp/frame, class/id, confidence, and box. Use --all, --id, --class, or --kind to select detections; crops are memory-friendly evidence artifacts.
 
 Arguments:
   input            Detection record id (face/see)
@@ -368,8 +342,6 @@ Samples frames from a video — uniformly across a --start/--end window (default
 overcast grid <input> [options]
 
   Tile timestamped video frames into a labeled contact sheet for one-shot VLM triage.
-
-  Samples frames from a video — uniformly across a --start/--end window (default the whole clip, --count frames) or at an explicit --at timestamp list — and tiles them into ONE contact-sheet image via the internal ffmpeg toolkit, burning each cell's number + timestamp when the ffmpeg build has drawtext (else the sheet is unlabeled and cells are numbered left-to-right, top-to-bottom). Emits a media.grid record whose media.ref is the montage and whose payload.cells maps cell number → exact timestamp. Chain it: `overcast see <montage-path> --prompt "which numbered cell best shows X? give the cell number"` then read payload.cells to recover the source time — one VLM call triages a long clip before a frame-precise zoom-in (see frame://<record>@<sec>). Add --view for a clickable HTML contact sheet (cells labeled with their timestamp even when ffmpeg can't burn labels, each seeking the source video on click); --no-open writes it without launching.
 
 Arguments:
   input            Video file path or case record id
@@ -399,8 +371,6 @@ overcast wall  [options]
 
   Open a control-room monitor wall: case videos looping at their evidence moments.
 
-  Generates a self-contained HTML wall of muted, looping video tiles — each anchored to its best evidence moment (open finding > face hit > record anchor) — overlaid with case state: sense-coverage badges, findings, per-source scan / monitor / brief freshness. Local media is referenced by file:// URL (not embedded); missing or browser-hostile media renders a NO SIGNAL / STILL tile (with an ffmpeg poster frame when extractable). Click a tile to open the media at its anchor; hover for the intel card. --infinite repeats the real feeds to fill the screen and keeps extending the grid as it scrolls — an endless monitor bank even from a handful of feeds. --no-open writes the wall and emits a record with its path instead of launching.
-
 Options:
   --limit <number>       Max tiles, most evidentiary/recent first (~25 is a practical decode ceiling) (default: 12)
   --source <string>      Only media from this source type (youtube | tiktok | x | web | lens | local)
@@ -427,8 +397,6 @@ overcast scan  [options]
 
   Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 
-  Enumerates each enabled source by its bound ref (channel/handle/hashtag/keyword); an explicit --query overrides, and the active target is the fallback when a source has no ref. With --pull, each hit uses the same media.ref/payload.url, capture, sense, and failure semantics as monitor. If the case has no enabled external sources, scan falls back to local case media/indexes and can run a face-index search when an image target and face-analysis index are available.
-
 Options:
   --query <string>       Ad-hoc keyword search across sources
   --source <string>      Restrict to source ids/types (comma list)
@@ -453,8 +421,6 @@ overcast capture <ref> [options]
 
   Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 
-  Acquires media/content into .overcast/media/: a local path is copied in; a URL is downloaded via the matching source provider. Emits a capture record with a capture_id usable by the senses.
-
 Arguments:
   ref              URL, scan.hit id, local path, or - for stdin
 
@@ -475,8 +441,6 @@ Enumerates sources, diffs against .overcast/seen.json, and for each NEW item use
 overcast monitor  [options]
 
   scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
-
-  Enumerates sources, diffs against .overcast/seen.json, and for each NEW item uses the shared scan --pull processor: resolve media.ref/payload.url, capture when needed, then run explicit --pipe or setup automation/default watch. Hard processing failures are surfaced and marked seen; pending/credential gaps remain retryable. --once = single diff pass (scheduler-friendly). --every <15m|6h|…> = continuous blocking loop (run under tmux; Ctrl-C to stop); each pass streams its records. --brief summarizes the new batch; --alert <stdout|file> mirrors new records to a sink.
 
 Options:
   --source <string>      Restrict to source ids/types
@@ -503,8 +467,6 @@ An index is a Cloudglue-backed searchable corpus of videos, searched one way per
 overcast index <action> [arg] [arg2] [options]
 
   Manage tinycloud indexes that index a target's videos (create/attach/add/list/show/delete/remove/entities).
-
-  An index is a Cloudglue-backed searchable corpus of videos, searched one way per TYPE: media-descriptions (ask/probe), entities (same-schema extraction), face-analysis (detect + find a person). `create <name> --type <media|entities|face>` (entities needs --prompt/--schema); `attach <remote-id-or-name>` mirrors an existing remote index into this case; `add <video> --to <id>` registers a video (a path, URL, or a case record id) — `--all` registers every video the case has captured or sensed (watch/listen/face) for the target; `list`/`show <id>` inspect; `delete <id>`/`remove <video> --from <id>` prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index <id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).
 
 Arguments:
   action           create | attach | add | list | show | delete | remove | entities
@@ -546,8 +508,6 @@ overcast ask <question> [options]
 
   Natural-language query over the case memory; answers with record.id + media.at citations.
 
-  Retrieves over bound case-search memory providers (local-grep always on; optional qmd) and answers with citations to record.id and media.at. Plain ask uses local-grep; use --deep or --memory qmd after `setup memory qmd` for qmd-backed local semantic search.
-
 Arguments:
   question         The question to answer
 
@@ -575,8 +535,6 @@ overcast brief  [options]
 
   Synthesize the case records into a report (timeline + findings); --export to md/html.
 
-  Produces a structured report from accumulated records. --export writes a shareable md/html artifact (format inferred from the file extension).
-
 Options:
   --scope <string>       Filter, e.g. since:24h or verb:watch
   --full                 Include the full verbatim record timeline (audit dump) instead of the compact appendix
@@ -598,8 +556,6 @@ A target is a line of investigation. `add --question` records what would resolve
 overcast target <action> [value] [options]
 
   Define/refine the standing scope, a.k.a. a line of investigation (add|list|rm|show|close|reopen). Persisted to .overcast/target.json.
-
-  A target is a line of investigation. `add --question` records what would resolve it; `close <id> --as answered|dead-end --note` marks the line done (closed lines stop seeding scan/monitor); `reopen <id>` reactivates it. Status feeds the brief/status thread cards.
 
 Arguments:
   action           add | list | rm | show | close | reopen
@@ -646,8 +602,6 @@ overcast note <text> [options]
 
   Add a human observation/finding to the case, optionally anchored to evidence.
 
-  Creates a primary human-authored `note` record. Notes are searchable by `ask`, included in `brief`, visible in `case records`, and can cite media via `--ref <record-id|capture-id|path|url>` plus `--at <seconds|start-end|timecode>`. Use `--tag` for comma-separated labels and `--confidence` for the analyst's confidence marker.
-
 Arguments:
   text             Observation/finding text
 
@@ -671,8 +625,6 @@ Creates manual findings and lists/reviews automated findings. Score/text trigger
 overcast finding [action] [id] [options]
 
   Create and review findings (create|list|accept|dismiss).
-
-  Creates manual findings and lists/reviews automated findings. Score/text triggers emit `suggested` findings (leads) that stay OUT of memory/brief evidence until reviewed — `finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). Review records reference the original finding; dismissed findings remain auditable.
 
 Arguments:
   action           create | list | accept | dismiss (default: list)
@@ -698,8 +650,6 @@ A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands
 overcast case <action> [sub] [arg] [options]
 
   Inspect/manage the current case: init | setup | status | info | records | memory | clear.
-
-  A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case status` reports setup/store/memory health; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 Arguments:
   action           init | setup | status | info | records | memory | clear
@@ -756,8 +706,6 @@ overcast prebrief [name] [options]
 
   Stand up a case: name + target + source in one shot (non-interactive via flags).
 
-  A lightweight case kickoff. Initializes the .overcast/ store, sets the case name, and optionally seeds a target (--target) and a source (--source <type>:<ref>).
-
 Arguments:
   name             Case name
 
@@ -778,8 +726,6 @@ Configure and persist profiles under ~/.overcast/profiles/. `setup provider <ver
 overcast setup [action] [a] [b] [options]
 
   Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|memory|show).
-
-  Configure and persist profiles under ~/.overcast/profiles/. `setup provider <verb> <spec>` binds a verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.
 
 Arguments:
   action           provider | llm | memory | show (default: show)
@@ -802,8 +748,6 @@ Emits `setup` records.
 overcast provider [action] [verb] [options]
 
   Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).
-
-  `provider setup plan|apply|show` configures catalog-backed provider choices for a profile. `provider init <verb>` runs the bound provider's init step — a command, or guidance for a skill-based init (not wired yet). `provider list` shows the active bindings.
 
 Arguments:
   action           setup | init | list | describe (default: list)
@@ -840,20 +784,19 @@ Emits `doctor` records.
 
 ### `overcast skills`
 
-`skills generate` (re)writes shipped skills including skills/overcast/{SKILL.md,reference/verbs.md}, skills/overcast-init, and focused workflow examples from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.
+`skills generate` (re)writes shipped skills including skills/overcast/{SKILL.md,reference/verbs.md}, skills/overcast-init, and focused workflow examples from the verb registry. `skills install [--harness claude-code]` copies them into the Claude Code skills dir by default; `skills install --dest <dir>` is the explicit path for Codex, Cursor, and other agents.
 
 ```
 overcast skills <action> [options]
 
-  Generate shipped overcast skills + reference from the registry, or install into a harness.
-
-  `skills generate` (re)writes shipped skills including skills/overcast/{SKILL.md,reference/verbs.md}, skills/overcast-init, and focused workflow examples from the verb registry. `skills install [--harness claude-code]` copies them into the harness skills dir.
+  Generate shipped overcast skills + reference from the registry, or install into a harness/directory.
 
 Arguments:
   action           generate | install
 
 Options:
   --harness <string>     Target harness for install (claude-code)
+  --dest <string>        Install shipped skills into this directory (recommended for Codex/Cursor/other agents)
   --json                 JSON output
   --format <string>      json | md | txt
 ```

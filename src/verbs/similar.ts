@@ -149,6 +149,9 @@ export const similarVerb: VerbSpec = {
     if (action !== "add" && action !== "match" && action !== "search") {
       return [err("usage: similar <add|match|search> <image|video|audio|text> --index <local-basic-clip|basic-clap-index>")];
     }
+    if ((action === "add" || action === "match") && ctx.rest.length > 1) {
+      return [err(`similar ${action}: expected exactly one input; got ${ctx.rest.length}`)];
+    }
     const indexValue = ctx.opts.index ?? ctx.opts.to;
     const idx = localClipIndex(ctx.case, indexValue);
     if (idx.error) return [err(`similar ${action}: ${idx.error}`)];
