@@ -222,13 +222,12 @@ export interface FetchMediaOpts {
 
 /** Read a fetch Response body into a Buffer, aborting once `maxBytes` is exceeded
  *  (so a missing/lying content-length can't OOM us). Holds at most maxBytes + one
- *  chunk in memory before rejecting. */
-async function readBodyCapped(res: Response, maxBytes: number, url: string): Promise<Buffer> {
-  if (!res.body) {
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength > maxBytes) throw new Error(`remote media exceeds cap ${maxBytes} bytes: ${url}`);
-    return buf;
-  }
+ *  chunk in memory before rejecting. Exported for testing. */
+export async function readBodyCapped(res: Response, maxBytes: number, url: string): Promise<Buffer> {
+  // A null body = a bodyless response (204/304/HEAD per the Fetch spec) — there's
+  // nothing to stream. Return empty rather than res.arrayBuffer(), which would
+  // allocate a hostile payload in FULL before any size check (defeating the cap).
+  if (!res.body) return Buffer.alloc(0);
   const reader = res.body.getReader();
   const chunks: Buffer[] = [];
   let total = 0;

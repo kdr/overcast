@@ -7,11 +7,13 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { cropStill, modalityFromExt, probe, type CropBox } from "../media/ffmpeg.js";
+import { readBodyCapped } from "../media/fetch.js";
 import { badNumber } from "./validate.js";
 import type { VerbSpec } from "../registry/types.js";
 
 type CropKind = "face" | "object";
 const THUMBNAIL_FETCH_TIMEOUT_MS = 15_000;
+const THUMBNAIL_MAX_BYTES = 64 * 1024 * 1024; // cap the (untrusted) thumbnail body
 
 interface Candidate {
   sourceRecord: OvercastRecord;
@@ -290,7 +292,9 @@ async function materializeThumbnail(url: string, outDir: string, id: string): Pr
   try {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) throw new Error(`download failed ${res.status} ${res.statusText}`);
-    writeFileSync(out, Buffer.from(await res.arrayBuffer()));
+    // streaming cap (like fetchMediaToCase) so a hostile/oversized thumbnail can't
+    // be buffered in full via arrayBuffer before any size check
+    writeFileSync(out, await readBodyCapped(res, THUMBNAIL_MAX_BYTES, url));
   } catch (e) {
     if ((e as Error).name === "AbortError") throw new Error(`download timed out after ${THUMBNAIL_FETCH_TIMEOUT_MS}ms`);
     throw e;

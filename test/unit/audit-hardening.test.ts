@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readRecordsJSONL, newRecordId, makeRecord } from "../../src/record.ts";
 import { execCapture } from "../../src/providers/exec.ts";
-import { assertFetchHostAllowed } from "../../src/media/fetch.ts";
+import { assertFetchHostAllowed, readBodyCapped } from "../../src/media/fetch.ts";
 import { writeFileAtomic } from "../../src/fs-atomic.ts";
 
 // --- C1: a torn JSONL line must not brick the whole store read ---------------
@@ -119,6 +119,31 @@ test("OVERCAST_ALLOW_PRIVATE_FETCH: only affirmative values opt out (0/false kee
   } finally {
     delete process.env.OVERCAST_ALLOW_PRIVATE_FETCH;
   }
+});
+
+test("readBodyCapped: a null-body response returns empty WITHOUT calling arrayBuffer", async () => {
+  let arrayBufferCalled = false;
+  const fakeRes = {
+    body: null,
+    arrayBuffer: async () => {
+      arrayBufferCalled = true;
+      return new ArrayBuffer(100 * 1024 * 1024); // a hostile full-body allocation
+    },
+  } as unknown as Response;
+  const buf = await readBodyCapped(fakeRes, 1024, "http://x/y");
+  assert.equal(buf.byteLength, 0);
+  assert.equal(arrayBufferCalled, false, "must not buffer the whole body");
+});
+
+test("readBodyCapped: a streamed body over the cap rejects (bounded memory)", async () => {
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(new Uint8Array(2048));
+      c.close();
+    },
+  });
+  const res = { body } as unknown as Response;
+  await assert.rejects(readBodyCapped(res, 1024, "http://x/y"), /exceeds cap/);
 });
 
 test("assertFetchHostAllowed refuses non-http(s) schemes (redirect-to-file SSRF)", async () => {
