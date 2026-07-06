@@ -60,7 +60,9 @@
     "build:bun": "npm run build:web && bun build --compile bin/overcast.ts --outfile dist/bin/overcast && node scripts/bun-sidecar.mjs",
     "dev": "tsx bin/overcast.ts",
     "sync-version": "node scripts/sync-version.mjs",
+    "pack:check": "node scripts/sync-version.mjs --check && node scripts/check-dist-fresh.mjs",
     "version": "node scripts/sync-version.mjs && git add -A src/version.ts .claude-plugin/plugin.json .claude-plugin/marketplace.json",
+    "prepack": "npm run pack:check",
     "prepublishOnly": "npm run build",
     "postinstall": "node scripts/brand-pi.mjs",
     "brand": "node scripts/brand-pi.mjs"

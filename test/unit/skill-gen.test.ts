@@ -187,10 +187,18 @@ test("reference stays in sync with commands --json (same verb set)", () => {
   assert.equal(headings.length, names.length);
 });
 
+test("verb reference does not duplicate long verb descriptions inside help blocks", () => {
+  const ref = generateVerbReference();
+  const skills = VERBS.find((v) => v.name === "skills");
+  assert.ok(skills?.description);
+  const occurrences = ref.split(skills.description).length - 1;
+  assert.equal(occurrences, 1);
+});
+
 import { skillsVerb } from "../../src/verbs/skills.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -206,5 +214,36 @@ test("skills verb: generate/install succeed in the source repo, unknown action e
     assert.match(bad.error ?? "", /usage: skills/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("skills verb: --dest installs shipped skills into an explicit directory", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-sk-case-"));
+  const dest = mkdtempSync(join(tmpdir(), "oc-sk-dest-"));
+  const otherDest = mkdtempSync(join(tmpdir(), "oc-sk-dest-harness-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    const mk = (input: string, opts = {}) => ({ input, rest: [], opts, case: c, profile: defaultProfile() });
+    const [rec] = await skillsVerb.run(mk("install", { dest }));
+    assert.equal(rec.state, "ready");
+    const payload = rec.payload as { dest?: string; harness?: string; installed?: string[] };
+    assert.equal(payload.dest, dest);
+    assert.equal(payload.harness, undefined);
+    assert.ok((payload.installed?.length ?? 0) >= 20);
+    assert.ok(existsSync(join(dest, "overcast", "SKILL.md")));
+    assert.ok(existsSync(join(dest, "overcast-init", "SKILL.md")));
+    assert.equal(readdirSync(dest).filter((name) => name.startsWith("overcast")).length, payload.installed?.length);
+
+    const [withHarness] = await skillsVerb.run(mk("install", { dest: otherDest, harness: "unknown-agent" }));
+    assert.equal(withHarness.state, "ready");
+    assert.equal((withHarness.payload as { harness?: string }).harness, "unknown-agent");
+
+    const [badHarness] = await skillsVerb.run(mk("install", { harness: "unknown-agent" }));
+    assert.equal(badHarness.state, "error");
+    assert.match(badHarness.error ?? "", /unknown harness/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(dest, { recursive: true, force: true });
+    rmSync(otherDest, { recursive: true, force: true });
   }
 });

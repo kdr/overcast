@@ -106,8 +106,13 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
   };
 }
 
+export interface RenderVerbHelpOptions {
+  includeDescription?: boolean;
+}
+
 /** Render `--help` text for a verb from its spec. */
-export function renderVerbHelp(spec: VerbSpec): string {
+export function renderVerbHelp(spec: VerbSpec, opts: RenderVerbHelpOptions = {}): string {
+  const includeDescription = opts.includeDescription ?? true;
   const lines: string[] = [];
   const argSig = spec.args
     .map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`) + (a.variadic ? "..." : ""))
@@ -115,7 +120,7 @@ export function renderVerbHelp(spec: VerbSpec): string {
   lines.push(`overcast ${spec.name} ${argSig} [options]`);
   lines.push("");
   lines.push(`  ${spec.summary}`);
-  if (spec.description) {
+  if (includeDescription && spec.description) {
     lines.push("");
     lines.push(`  ${spec.description}`);
   }

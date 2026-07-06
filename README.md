@@ -89,8 +89,9 @@ the CLI, or pull them straight from this repo with the harness-agnostic
 [`skills`](https://github.com/vercel-labs/skills) installer:
 
 ```bash
-overcast skills install                        # copies the shipped skills into ~/.claude/skills
-overcast skills install --harness claude-code  # explicit harness (claude-code is the only target today)
+overcast skills install --dest ~/.codex/skills # recommended for Codex/Cursor/other agents
+overcast skills install                        # Claude Code default: copies into ~/.claude/skills
+overcast skills install --harness claude-code  # explicit Claude Code target
 npx skills add kdr/overcast                    # vercel-labs/skills; pulls skills from this repo
 ```
 
@@ -582,7 +583,7 @@ Three surfaces from one source of truth (`src/registry/verbs.ts`):
 
 - **pi package** (`@kdrrr/overcast`) — `tsup` bundles `dist/{bin,index,extension}.js`; pi + ffmpeg/ffprobe stay external (pinned / runtime-resolved). A `postinstall` brands the pinned pi host as "overcast" without moving `~/.pi`.
 - **standalone binary** — `bun build --compile` → a single executable (+ a sidecar `package.json` for branding).
-- **agent skills + Claude Code plugin** — `skills generate` renders `skills/overcast/{SKILL.md, reference/verbs.md}` from the registry; `skills install` copies them into a harness.
+- **agent skills + Claude Code plugin** — `skills generate` renders `skills/overcast/{SKILL.md, reference/verbs.md}` from the registry; `skills install --dest <dir>` copies them into any agent skills directory, while bare `skills install` targets Claude Code.
 
 ---
 
@@ -596,6 +597,11 @@ npm run test:e2e    # offline e2e (fixture providers, no creds)
 npm run test:e2e:live  # live real-data e2e (builds the bun binary, sources .env)
 E2E_VERBOSE=1 npm run test:e2e  # include exact commands + output snippets in report.md
 npm run build:bun   # bun build --compile → dist/bin/overcast
+npm run pack:check  # verify synced versions + fresh dist/bin/overcast.js before npm pack
 overcast commands --json   # the authoritative verb registry
 overcast doctor            # preflight
 ```
+
+`npm pack` runs `npm run pack:check` first. Build with `npm run build` before
+packing; if the ignored `dist/` tree is missing or stale, the pack fails with a
+message showing the version or command-registry drift.
