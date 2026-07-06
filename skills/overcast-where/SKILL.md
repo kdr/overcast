@@ -20,8 +20,8 @@ and the VLM only judges the crop. Use the broad `overcast` skill and
 brain LLM):
 
 \`\`\`bash
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py" --json
-# or the catalog: overcast provider setup apply --preset owl-local --yes --json
+scripts/visual-db-uv.sh --detect     # once: prints DETECT_PY (the venv python)
+export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # resolves detect.py's absolute path + venv python
 \`\`\`
 
 ## Workflow

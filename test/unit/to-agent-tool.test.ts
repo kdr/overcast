@@ -9,6 +9,7 @@ import { makeRecord, type OvercastRecord } from "../../src/record.ts";
 import { toAgentTool, verbCallLine, verbParams } from "../../src/registry/to-agent-tool.ts";
 import type { VerbSpec } from "../../src/registry/types.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
+import { findingVerb } from "../../src/verbs/finding.ts";
 
 test("verbCallLine: class-colored ⟦ TAG ⟧ ▸ arg (semantic split + primary arg)", () => {
   const watch = { name: "watch", args: [{ name: "url" }] } as unknown as VerbSpec;
@@ -79,6 +80,13 @@ test("agent variadic args prefer string[] schema, accept legacy strings, and rec
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("verbParams: an action arg with choices becomes a literal union (agent enum)", () => {
+  type Lit = { const?: string };
+  const schema = verbParams(findingVerb) as { properties: Record<string, { anyOf?: Lit[] }> };
+  const consts = (schema.properties.action.anyOf ?? []).map((v) => v.const).filter((v): v is string => typeof v === "string");
+  assert.deepEqual([...consts].sort(), ["accept", "create", "dismiss", "list"]);
 });
 
 test("renderResult: collapses long output to a preview + expand hint (full when expanded)", () => {

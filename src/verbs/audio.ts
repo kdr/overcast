@@ -47,7 +47,7 @@ export const audioVerb: VerbSpec = {
     "Videos are accepted — their audio track is extracted. Robust to transcode/noise/clipping; " +
     "NOT robust to pitch/speed change.",
   args: [
-    { name: "action", summary: "add | match", required: true },
+    { name: "action", summary: "add | match", required: true, choices: ["add", "match"] },
     { name: "input", summary: "audio/video path, URL, or record id (the query for match)", required: false },
     // declared so the pi AgentTool reconstructs it as a positional (see the
     // `index` verb's arg2 note) — the second clip for direct clip-to-clip match.

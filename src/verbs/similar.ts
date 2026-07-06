@@ -124,7 +124,7 @@ export const similarVerb: VerbSpec = {
     "`similar search \"<text>\" --index <id>` ranks members by text→image (CLIP) or text→audio (CLAP) similarity. " +
     "Runs OpenAI CLIP / LAION CLAP locally; scores are cosine×100 (0–100).",
   args: [
-    { name: "action", summary: "add | match | search", required: true },
+    { name: "action", summary: "add | match | search", required: true, choices: ["add", "match", "search"] },
     { name: "input", summary: "image/video/audio path, URL, record id (add/match) — or a text query (search)", required: false, variadic: true },
   ],
   flags: [

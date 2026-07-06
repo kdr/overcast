@@ -53,14 +53,17 @@ function flagSchema(f: FlagSpec): TSchema {
 
 function argSchema(arg: ArgSpec): TSchema {
   const desc = { description: arg.summary };
+  // enum-like positional (e.g. a router `action`) → a literal union, like flags;
+  // otherwise a free string.
+  const base: TSchema =
+    arg.choices && arg.choices.length
+      ? Type.Union(arg.choices.map((c) => Type.Literal(c)), desc)
+      : Type.String(desc);
   if (arg.variadic) {
-    const array = Type.Array(Type.String(desc), desc);
-    const legacyString = Type.String(desc);
-    const schema = Type.Union([array, legacyString], desc);
+    const schema = Type.Union([Type.Array(base, desc), base], desc);
     return arg.required ? schema : Type.Optional(schema);
   }
-  const string = Type.String(desc);
-  return arg.required ? string : Type.Optional(string);
+  return arg.required ? base : Type.Optional(base);
 }
 
 /** Build the TypeBox params object for a verb (all positional args + flags). */

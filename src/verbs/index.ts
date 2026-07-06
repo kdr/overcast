@@ -323,7 +323,7 @@ export const indexVerb: VerbSpec = {
     "prune; `entities <id> <video>` fetches a video's extracted entities. Then read with `ask --index " +
     "<id>`, `face --match … --index <id>`, or `index entities`. Backed by tinycloud (≥ 0.3.4).",
   args: [
-    { name: "action", summary: VALID_ACTIONS.join(" | "), required: true },
+    { name: "action", summary: VALID_ACTIONS.join(" | "), required: true, choices: VALID_ACTIONS },
     { name: "arg", summary: "name (create) · remote id/name (attach) · video/record-id (add/remove) · index id (show/delete/entities)", required: false },
     // `entities <id> <video>` needs a SECOND positional — declared so the pi
     // AgentTool surface (which rebuilds positionals strictly from spec.args) can

@@ -114,3 +114,70 @@ test("clear removes records/media/index/state while preserving case.json", () =>
     assert.equal(existsSync(c.legacyCollectionsFile), false);
   });
 });
+
+test("records() cache: a write on the same instance is visible to reads (read-after-write)", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    assert.equal(c.records().length, 0);
+    const r1 = makeRecord({ verb: "watch", payload: { content: "a" } });
+    c.writeRecord(r1);
+    // records() populated the (empty) cache first; the write must still show
+    assert.equal(c.records().length, 1);
+    assert.equal(c.recordById(r1.id)?.id, r1.id);
+    const r2 = makeRecord({ verb: "listen", payload: { transcript: "b" } });
+    c.writeRecord(r2);
+    assert.equal(c.records().length, 2);
+    assert.equal(c.recordById(r2.id)?.verb, "listen");
+  });
+});
+
+test("records() cache: a fresh Case instance reads what another wrote to disk", () => {
+  withTmp((dir) => {
+    const a = openCase(dir);
+    a.ensure();
+    a.writeRecord(makeRecord({ id: "rec_x1", verb: "note", payload: { text: "hi" } }));
+    // a different instance (a new command) must NOT be hidden by a's cache
+    const b = openCase(dir);
+    assert.equal(b.records().length, 1);
+    assert.equal(b.recordById("rec_x1")?.verb, "note");
+  });
+});
+
+test("records() cache: returns a fresh array (in-place mutation can't corrupt the cache)", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: {} }));
+    c.writeRecord(makeRecord({ verb: "listen", payload: {} }));
+    const first = c.records();
+    first.length = 0; // mutate the returned array
+    assert.equal(c.records().length, 2, "cache is unaffected by mutating a returned array");
+  });
+});
+
+test("records() cache: clear() drops the cache", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: {} }));
+    assert.equal(c.records().length, 1);
+    c.clear();
+    assert.equal(c.records().length, 0);
+  });
+});
+
+test("records() cache: an external in-place jsonl change is picked up (disk-coherent)", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ id: "rec_ext", verb: "watch", payload: { content: "before" } }));
+    const before = c.recordById("rec_ext")?.payload as { content: string };
+    assert.equal(before.content, "before");
+    // rewrite the file in place, bypassing writeRecord (what qmd staleness detects)
+    const f = join(c.recordsDir, "watch.jsonl");
+    writeFileSync(f, JSON.stringify(makeRecord({ id: "rec_ext", verb: "watch", payload: { content: "AFTER-EXTERNAL" } })) + "\n", "utf8");
+    const after = c.recordById("rec_ext")?.payload as { content: string };
+    assert.equal(after.content, "AFTER-EXTERNAL", "cache reloaded on external mtime/size change");
+  });
+});

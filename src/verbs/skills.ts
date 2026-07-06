@@ -195,7 +195,7 @@ export const skillsVerb: VerbSpec = {
     "`skills generate` (re)writes shipped skills including skills/overcast/{SKILL.md,reference/verbs.md}, skills/overcast-init, and focused workflow examples " +
     "from the verb registry. `skills install [--harness claude-code]` copies them into the Claude Code skills dir by default; " +
     "`skills install --dest <dir>` is the explicit path for Codex, Cursor, and other agents.",
-  args: [{ name: "action", summary: "generate | install", required: true }],
+  args: [{ name: "action", summary: "generate | install", required: true, choices: ["generate", "install"] }],
   flags: [
     { name: "harness", summary: "Target harness for install (claude-code)", type: "string" },
     { name: "dest", summary: "Install shipped skills into this directory (recommended for Codex/Cursor/other agents)", type: "string" },

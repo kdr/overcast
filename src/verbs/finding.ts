@@ -97,7 +97,7 @@ export const findingVerb: VerbSpec = {
     "`finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). " +
     "Review records reference the original finding; dismissed findings remain auditable.",
   args: [
-    { name: "action", summary: "create | list | accept | dismiss (default: list)" },
+    { name: "action", summary: "create | list | accept | dismiss (default: list)", choices: ["create", "list", "accept", "dismiss"] },
     { name: "id", summary: "finding id for accept/dismiss, or text for create" },
   ],
   flags: [

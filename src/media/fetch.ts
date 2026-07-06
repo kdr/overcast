@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { lookup } from "node:dns/promises";
 import { OVERCAST_VERSION } from "../version.js";
 import { envEnabled } from "../env.js";
 
@@ -78,16 +79,28 @@ function isBlockedFetchHost(host: string): boolean {
   return false;
 }
 
+/** Is this host an IP literal (any IPv4 encoding, or an IPv6 literal)? Such a
+ *  host is fully decided by isBlockedFetchHost — no DNS resolution is needed. */
+function isIpLiteralHost(host: string): boolean {
+  const h = host.replace(/^\[/, "").replace(/\]$/, "");
+  return parseLooseIPv4(h) !== null || h.includes(":");
+}
+
+export type HostLookup = (host: string, opts: { all: true }) => Promise<Array<{ address: string }>>;
+
 /** SSRF guard: overcast fetches media from URLs that can originate in SCRAPED
  *  OSINT hits (invariant #10, untrusted), and the fetched body is described by the
  *  brain LLM and written into evidence — so a request to a private/loopback/
  *  link-local address is an internal-data / cloud-metadata (169.254.169.254) exfil
- *  vector. Blocks localhost + private IP literals in every inet_aton encoding
- *  (dotted/decimal/hex/octal/short) by default; opt out with an affirmative
- *  OVERCAST_ALLOW_PRIVATE_FETCH for a trusted LAN media server. (Residual: this
- *  checks the literal host only — not a public HOSTNAME that resolves to, or a 302
- *  that redirects to, a private IP; those need DNS resolution + per-hop re-checks.) */
-export function assertFetchHostAllowed(url: string): void {
+ *  vector. Blocks, by default (opt out with an affirmative OVERCAST_ALLOW_PRIVATE_FETCH):
+ *   1. localhost + private IP literals in every inet_aton encoding (dotted/decimal/
+ *      hex/octal/short), synchronously; and
+ *   2. a public HOSTNAME that RESOLVES to a private address (DNS rebinding) — via a
+ *      DNS lookup of all A/AAAA records.
+ *  `fetchMediaToCase` additionally re-runs this per redirect hop. (Residual: a
+ *  narrow TOCTOU window between this resolve and the socket connect — closing it
+ *  fully needs connection pinning via a custom undici dispatcher.) */
+export async function assertFetchHostAllowed(url: string, opts: { lookup?: HostLookup } = {}): Promise<void> {
   // Affirmative-only opt-out: `=0`/`=false` must NOT disable the guard (they're
   // truthy strings) — an operator setting `=0` expects the guard to stay ON.
   if (envEnabled("OVERCAST_ALLOW_PRIVATE_FETCH")) return;
@@ -97,10 +110,20 @@ export function assertFetchHostAllowed(url: string): void {
   } catch {
     return; // malformed URL is caught (and reported) by the caller's own parse
   }
-  if (isBlockedFetchHost(host)) {
-    throw new Error(
-      `refusing to fetch a private/loopback address (${host}); set OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow: ${url}`,
-    );
+  const blocked = (what: string) =>
+    new Error(`refusing to fetch a private/loopback address (${what}); set OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow: ${url}`);
+  if (isBlockedFetchHost(host)) throw blocked(host);
+  if (isIpLiteralHost(host)) return; // a public IP literal — already vetted above
+  // Real hostname: resolve and reject if ANY resolved address is private.
+  const resolve = opts.lookup ?? (lookup as unknown as HostLookup);
+  let addrs: Array<{ address: string }>;
+  try {
+    addrs = await resolve(host, { all: true });
+  } catch {
+    return; // DNS failure → let the real fetch surface it
+  }
+  for (const { address } of addrs) {
+    if (isBlockedFetchHost(address)) throw blocked(`${host} → ${address}`);
   }
 }
 
@@ -226,7 +249,6 @@ export async function fetchMediaToCase(
   opts: FetchMediaOpts = {},
 ): Promise<FetchedMedia> {
   const { timeoutMs = 60_000, maxBytes = 64 * 1024 * 1024 } = opts;
-  assertFetchHostAllowed(url); // SSRF guard before any network/fs work
   mkdirSync(mediaDir, { recursive: true });
   const hash = createHash("sha256").update(url).digest("hex").slice(0, 12);
 
@@ -249,14 +271,33 @@ export async function fetchMediaToCase(
 
   const timeout = AbortSignal.timeout(timeoutMs);
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
+  // Follow redirects MANUALLY so the SSRF guard re-validates every hop's host —
+  // otherwise a public URL could 302 to a private/metadata address after the
+  // initial check. Node's `redirect:"manual"` exposes the real 3xx + Location.
+  const MAX_REDIRECTS = 5;
+  let currentUrl = url;
   let res: Response;
-  try {
-    // Node's fetch sends no User-Agent; several CDNs (e.g. Wikimedia) reject
-    // UA-less clients outright, so identify ourselves.
-    res = await fetch(url, { signal, headers: { "user-agent": `overcast/${OVERCAST_VERSION}` } });
-  } catch (e) {
-    if (timeout.aborted) throw new Error(`download timed out after ${timeoutMs}ms: ${url}`);
-    throw new Error(`download failed: ${(e as Error).message}`);
+  for (let hop = 0; ; hop++) {
+    await assertFetchHostAllowed(currentUrl);
+    try {
+      // Node's fetch sends no User-Agent; several CDNs (e.g. Wikimedia) reject
+      // UA-less clients outright, so identify ourselves.
+      res = await fetch(currentUrl, {
+        signal,
+        redirect: "manual",
+        headers: { "user-agent": `overcast/${OVERCAST_VERSION}` },
+      });
+    } catch (e) {
+      if (timeout.aborted) throw new Error(`download timed out after ${timeoutMs}ms: ${url}`);
+      throw new Error(`download failed: ${(e as Error).message}`);
+    }
+    const location = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && location) {
+      if (hop >= MAX_REDIRECTS) throw new Error(`too many redirects (>${MAX_REDIRECTS}): ${url}`);
+      currentUrl = new URL(location, currentUrl).href; // resolve relative Location
+      continue;
+    }
+    break;
   }
   if (!res.ok) throw new Error(`download failed ${res.status} ${res.statusText}: ${url}`);
   const len = Number(res.headers.get("content-length") ?? 0);

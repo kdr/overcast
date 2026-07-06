@@ -61,7 +61,12 @@ test("execCapture decodes multibyte utf-8 without mangling (C7)", async () => {
 
 // --- C5: media-fetch SSRF guard ---------------------------------------------
 
-test("assertFetchHostAllowed blocks private/loopback/link-local hosts (C5)", () => {
+// a resolver that must never be consulted (literals skip DNS)
+const noLookup = async () => {
+  throw new Error("literal host must not trigger DNS");
+};
+
+test("assertFetchHostAllowed blocks private/loopback/link-local host literals (C5)", async () => {
   const blocked = [
     "http://169.254.169.254/latest/meta-data/", // cloud metadata
     "http://localhost/x.jpg",
@@ -81,30 +86,35 @@ test("assertFetchHostAllowed blocks private/loopback/link-local hosts (C5)", () 
     "http://0/x", // 0 → 0.0.0.0
     "http://[::ffff:169.254.169.254]/x", // IPv4-mapped IPv6 metadata
   ];
-  for (const u of blocked) assert.throws(() => assertFetchHostAllowed(u), /private\/loopback/, u);
+  for (const u of blocked) await assert.rejects(assertFetchHostAllowed(u, { lookup: noLookup }), /private\/loopback/, u);
 });
 
-test("assertFetchHostAllowed allows public hosts", () => {
-  const ok = [
-    "https://example.com/x.jpg",
-    "https://8.8.8.8/x",
-    "https://172.32.0.1/x", // just outside 172.16/12
-    "https://11.0.0.1/x", // just outside 10/8
-  ];
-  for (const u of ok) assert.doesNotThrow(() => assertFetchHostAllowed(u), u);
+test("assertFetchHostAllowed allows public IP literals (no DNS)", async () => {
+  const ok = ["https://8.8.8.8/x", "https://1.1.1.1/x", "https://172.32.0.1/x", "https://11.0.0.1/x"];
+  for (const u of ok) await assert.doesNotReject(assertFetchHostAllowed(u, { lookup: noLookup }), u);
 });
 
-test("OVERCAST_ALLOW_PRIVATE_FETCH: only affirmative values opt out (0/false keep the guard on)", () => {
+test("assertFetchHostAllowed resolves a hostname and blocks a private DNS answer (rebinding)", async () => {
+  await assert.rejects(
+    assertFetchHostAllowed("http://rebind.example/x", { lookup: async () => [{ address: "10.0.0.7" }] }),
+    /rebind\.example → 10\.0\.0\.7/,
+  );
+  await assert.doesNotReject(
+    assertFetchHostAllowed("http://cdn.example/x", { lookup: async () => [{ address: "93.184.216.34" }] }),
+  );
+});
+
+test("OVERCAST_ALLOW_PRIVATE_FETCH: only affirmative values opt out (0/false keep the guard on)", async () => {
   try {
     for (const v of ["1", "true", "yes", "on", "TRUE"]) {
       process.env.OVERCAST_ALLOW_PRIVATE_FETCH = v;
-      assert.doesNotThrow(() => assertFetchHostAllowed("http://169.254.169.254/"), `${v} should opt out`);
+      await assert.doesNotReject(assertFetchHostAllowed("http://169.254.169.254/"), `${v} should opt out`);
     }
     // 0/false/no/empty must NOT disable the guard — they're truthy strings, so a
     // bare `if (process.env.X)` check would wrongly open the SSRF hole.
     for (const v of ["0", "false", "no", "off", ""]) {
       process.env.OVERCAST_ALLOW_PRIVATE_FETCH = v;
-      assert.throws(() => assertFetchHostAllowed("http://169.254.169.254/"), /private\/loopback/, `${v} must keep guard on`);
+      await assert.rejects(assertFetchHostAllowed("http://169.254.169.254/", { lookup: noLookup }), /private\/loopback/, `${v} must keep guard on`);
     }
   } finally {
     delete process.env.OVERCAST_ALLOW_PRIVATE_FETCH;

@@ -1269,7 +1269,7 @@ export const targetVerb: VerbSpec = {
     "A target is a line of investigation. `add --question` records what would resolve it; `close <id> --as answered|dead-end --note` " +
     "marks the line done (closed lines stop seeding scan/monitor); `reopen <id>` reactivates it. Status feeds the brief/status thread cards.",
   args: [
-    { name: "action", summary: "add | list | rm | show | close | reopen", required: true },
+    { name: "action", summary: "add | list | rm | show | close | reopen", required: true, choices: ["add", "list", "rm", "show", "close", "reopen"] },
     { name: "value", summary: "target value (for add) or id (for rm/close/reopen)" },
   ],
   flags: [
@@ -1335,7 +1335,7 @@ export const sourceVerb: VerbSpec = {
   group: "state",
   summary: "Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).",
   args: [
-    { name: "action", summary: "add | list | enable | disable | rm", required: true },
+    { name: "action", summary: "add | list | enable | disable | rm", required: true, choices: ["add", "list", "enable", "disable", "rm"] },
     { name: "value", summary: "<type>:<ref> (add) or source id" },
   ],
   flags: [

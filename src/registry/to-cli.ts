@@ -92,6 +92,17 @@ export function parseVerbArgs(spec: VerbSpec, argv: string[]): ParsedInvocation 
     }
   }
 
+  // validate enum-like positional args (mirrors the flag checkChoice) so an
+  // invalid `action` is rejected up front, like the agent tool's literal union.
+  for (let i = 0; i < spec.args.length; i++) {
+    const a = spec.args[i];
+    if (!a.choices || !a.choices.length) continue;
+    const vals = a.variadic ? positionals.slice(i) : positionals[i] !== undefined ? [positionals[i]] : [];
+    for (const v of vals) {
+      if (!a.choices.includes(v)) errors.push(`${a.name} must be one of: ${a.choices.join(", ")} (got '${v}')`);
+    }
+  }
+
   // expand a leading `~`/`~/` in every path-bearing value (positionals + string
   // flags) at this one boundary — the TUI/slash/CLI hand us args literally, with
   // no shell to do it. A value starting with `~/` is unambiguously a path.

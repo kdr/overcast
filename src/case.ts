@@ -5,6 +5,7 @@
 import {
   existsSync,
   lstatSync,
+  statSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
@@ -50,6 +51,36 @@ export interface CaseClearSummary {
 export class Case {
   readonly dir: string;
   readonly storeDir: string;
+
+  // Record cache: caching the parsed store avoids re-reading + re-JSON.parsing
+  // every *.jsonl on each records()/recordById() call (the persist seam runs
+  // triggers after every write; scan --pull / monitor --every otherwise go
+  // ~O(hits × senses × N)). Kept COHERENT WITH DISK via a cheap max-mtime stamp:
+  // an external write (another process, or an in-place edit that qmd staleness
+  // detection looks for) changes a *.jsonl mtime → the cache reloads. This
+  // instance's own writeRecord() appends + re-stamps, so no reload on self-write.
+  private _recordsCache?: OvercastRecord[];
+  private _idIndex?: Map<string, OvercastRecord>;
+  private _cacheStamp?: string;
+
+  /** A `maxMtime:totalSize` fingerprint of the store's *.jsonl files — changes on
+   *  any append (size grows), in-place edit (mtime and usually size), or new verb
+   *  file. Combining size with mtime is robust to coarse mtime granularity. */
+  private storeStamp(): string {
+    let maxMtime = 0;
+    let totalSize = 0;
+    try {
+      for (const name of readdirSync(this.recordsDir)) {
+        if (!name.endsWith(".jsonl")) continue;
+        const st = statSync(join(this.recordsDir, name));
+        if (st.mtimeMs > maxMtime) maxMtime = st.mtimeMs;
+        totalSize += st.size;
+      }
+    } catch {
+      /* no records dir yet */
+    }
+    return `${maxMtime}:${totalSize}`;
+  }
 
   constructor(dir: string) {
     this.dir = resolve(dir);
@@ -137,19 +168,41 @@ export class Case {
     rec.meta = { ...rec.meta, case: this.dir };
     const file = join(this.recordsDir, `${rec.verb}.jsonl`);
     appendRecordJSONL(file, rec);
+    // keep the per-instance cache live so a read after this write sees it
+    // (writeRecord is the single write path, so the cache can't drift).
+    if (this._recordsCache) {
+      this._recordsCache.push(rec);
+      if (!this._idIndex!.has(rec.id)) this._idIndex!.set(rec.id, rec);
+      this._cacheStamp = this.storeStamp(); // our own append advanced a *.jsonl mtime
+    }
     return file;
   }
 
-  /** All records across the store (input to ask/brief/recall). */
+  /** Load (once) + memoize the owned records for this instance, with an id index. */
+  private loadRecords(): OvercastRecord[] {
+    const stamp = this.storeStamp();
+    if (!this._recordsCache || this._cacheStamp !== stamp) {
+      this._recordsCache = readAllRecords(this.recordsDir).filter((rec) => {
+        const owner = rec.meta?.case;
+        return typeof owner !== "string" || resolve(owner) === this.dir;
+      });
+      const idx = new Map<string, OvercastRecord>();
+      for (const r of this._recordsCache) if (!idx.has(r.id)) idx.set(r.id, r); // first-match, like the old find()
+      this._idIndex = idx;
+      this._cacheStamp = stamp;
+    }
+    return this._recordsCache;
+  }
+
+  /** All records across the store (input to ask/brief/recall). Returns a fresh
+   *  array each call (callers may sort/filter in place) over the cached parse. */
   records(): OvercastRecord[] {
-    return readAllRecords(this.recordsDir).filter((rec) => {
-      const owner = rec.meta?.case;
-      return typeof owner !== "string" || resolve(owner) === this.dir;
-    });
+    return [...this.loadRecords()];
   }
 
   recordById(id: string): OvercastRecord | undefined {
-    return this.records().find((r) => r.id === id);
+    this.loadRecords();
+    return this._idIndex!.get(id);
   }
 
   /** Summarize resettable case contents without mutating the store. */
@@ -192,6 +245,9 @@ export class Case {
     for (const artifact of summary.artifacts) rmSync(join(this.dir, artifact), { force: true });
     mkdirSync(this.recordsDir, { recursive: true });
     mkdirSync(this.mediaDir, { recursive: true });
+    this._recordsCache = undefined; // the store was wiped — drop the cache
+    this._idIndex = undefined;
+    this._cacheStamp = undefined;
     return summary;
   }
 }

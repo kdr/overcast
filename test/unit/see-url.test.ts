@@ -58,6 +58,10 @@ before(async () => {
       // lying Content-Type: claims image/jpeg, body is an HTML login page
       res.writeHead(200, { "content-type": "image/jpeg" });
       res.end("<!DOCTYPE html><html>please log in</html>");
+    } else if (path === "/redir") {
+      // relative redirect → exercises the manual redirect-following loop
+      res.writeHead(302, { location: "/img.png" });
+      res.end();
     } else {
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("nope");
@@ -116,6 +120,12 @@ test("fetchMediaToCase: no ext + no content-type → magic-byte sniff", async ()
 
 test("fetchMediaToCase: HTTP error status throws with the status line", async () => {
   await assert.rejects(fetchMediaToCase(`${base}/missing.png`, join(dir, "media")), /404/);
+});
+
+test("fetchMediaToCase: follows a redirect (manual loop) to the final media", async () => {
+  const got = await fetchMediaToCase(`${base}/redir`, join(dir, "media"));
+  assert.equal(got.ext, ".png"); // followed 302 → /img.png
+  assert.ok((hits["/img.png"] ?? 0) > 0, "the redirect target was fetched");
 });
 
 test("see with an image URL: provider receives a LOCAL path; meta.source_url keeps the origin", async () => {

@@ -14,6 +14,9 @@ export interface ArgSpec {
   summary: string;
   required?: boolean;
   variadic?: boolean;
+  /** allowed values for an enum-like positional (e.g. a router `action`); surfaced
+   *  as a union in the agent tool schema and validated by the CLI parser. */
+  choices?: string[];
 }
 
 export interface FlagSpec {
