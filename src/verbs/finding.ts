@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { makeRecord, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef } from "./media-ref.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -132,6 +133,17 @@ export const findingVerb: VerbSpec = {
           if (rec.media?.ref) media = { ...rec.media };
         } else {
           const resolved = resolveMediaRef(ctx.case, rawRef);
+          // Reject a --ref that resolves to nothing real (mirrors `note`): a
+          // finding is evidence, so it must not cite a path/id that never existed.
+          if (resolved.recordId == null) {
+            const isUrl = /^https?:\/\//i.test(rawRef);
+            const isExistingPath = !isUrl && existsSync(rawRef);
+            if (!isUrl && !isExistingPath) {
+              if (/^rec_/i.test(rawRef)) return [err(`--ref record not found in this case: ${rawRef}`)];
+              if (/^cap_/i.test(rawRef)) return [err(`--ref capture id not found in this case: ${rawRef}`)];
+              return [err(`--ref does not resolve to a record, capture id, existing path, or URL: ${rawRef}`)];
+            }
+          }
           sourceRecord = resolved.recordId;
           evidenceRef = resolved.ref;
           media = { ref: resolved.ref };

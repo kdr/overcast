@@ -345,11 +345,17 @@ export const cropVerb: VerbSpec = {
       const wanted = String(ctx.opts.id);
       candidates = candidates.filter((c) => c.id === wanted);
     }
-    if (!ctx.opts.all && !ctx.opts.id && candidates.length > 1) {
-      return [err(`crop matched ${candidates.length} detections; pass --all, --id <id>, or narrow with --class/--kind`)];
-    }
     const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined;
+    if (limit !== undefined && (!Number.isFinite(limit) || limit <= 0)) {
+      return [err(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
+    }
+    // Apply --limit BEFORE the ambiguity guard: an explicit bound is a valid way
+    // to resolve a multi-detection match, so `crop <rec> --limit 3` writes 3
+    // rather than erroring out (the flag's only stated purpose).
     if (limit !== undefined) candidates = candidates.slice(0, limit);
+    if (!ctx.opts.all && !ctx.opts.id && limit === undefined && candidates.length > 1) {
+      return [err(`crop matched ${candidates.length} detections; pass --all, --id <id>, --limit <n>, or narrow with --class/--kind`)];
+    }
     if (!candidates.length) return [err("no detections matched the crop filters")];
 
     const outDir = ctx.opts.out ? String(ctx.opts.out) : join(ctx.case.mediaDir, "crops");

@@ -14,6 +14,50 @@ import { OVERCAST_VERSION } from "../version.js";
 
 export const isHttpUrl = (ref: string): boolean => /^https?:\/\//i.test(ref);
 
+/** SSRF guard: overcast fetches media from URLs that can originate in SCRAPED
+ *  OSINT hits (invariant #10, untrusted), and the fetched body is described by
+ *  the brain LLM and written into evidence — so a request to a private/loopback/
+ *  link-local address is an internal-data / cloud-metadata (169.254.169.254) exfil
+ *  vector. Block literal-IP + localhost hosts by default; opt out with
+ *  OVERCAST_ALLOW_PRIVATE_FETCH=1 for a trusted LAN media server. (Residual: this
+ *  validates the initial host only, not a public host that resolves to — or 302s
+ *  to — a private IP; full defense needs per-hop re-resolution.) */
+function isBlockedFetchHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[/, "").replace(/\]$/, ""); // strip IPv6 brackets
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  // IPv4 literal (also handles IPv4-mapped IPv6 like ::ffff:169.254.169.254)
+  const v4 = h.match(/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 127 || a === 10 || a === 0) return true; // loopback / private / this-host
+    if (a === 169 && b === 254) return true; // link-local incl. cloud metadata
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    return false;
+  }
+  // IPv6 literals: loopback, unique-local (fc00::/7), link-local (fe80::/10)
+  if (h === "::1" || h === "::") return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h)) return true;
+  return false;
+}
+
+/** Throw if a URL's host is a blocked private/loopback address (unless opted out). */
+export function assertFetchHostAllowed(url: string): void {
+  if (process.env.OVERCAST_ALLOW_PRIVATE_FETCH) return;
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return; // malformed URL is caught (and reported) by the caller's own parse
+  }
+  if (isBlockedFetchHost(host)) {
+    throw new Error(
+      `refusing to fetch a private/loopback address (${host}); set OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow: ${url}`,
+    );
+  }
+}
+
 const CT_EXT: Record<string, string> = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -99,6 +143,31 @@ export interface FetchMediaOpts {
   signal?: AbortSignal;
 }
 
+/** Read a fetch Response body into a Buffer, aborting once `maxBytes` is exceeded
+ *  (so a missing/lying content-length can't OOM us). Holds at most maxBytes + one
+ *  chunk in memory before rejecting. */
+async function readBodyCapped(res: Response, maxBytes: number, url: string): Promise<Buffer> {
+  if (!res.body) {
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength > maxBytes) throw new Error(`remote media exceeds cap ${maxBytes} bytes: ${url}`);
+    return buf;
+  }
+  const reader = res.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`remote media exceeds cap ${maxBytes} bytes: ${url}`);
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
+}
+
 /**
  * Download an http(s) media URL into `mediaDir` and return the local artifact.
  * Throws with a clear message on HTTP errors, timeout, abort, or size overrun.
@@ -111,6 +180,7 @@ export async function fetchMediaToCase(
   opts: FetchMediaOpts = {},
 ): Promise<FetchedMedia> {
   const { timeoutMs = 60_000, maxBytes = 64 * 1024 * 1024 } = opts;
+  assertFetchHostAllowed(url); // SSRF guard before any network/fs work
   mkdirSync(mediaDir, { recursive: true });
   const hash = createHash("sha256").update(url).digest("hex").slice(0, 12);
 
@@ -145,8 +215,10 @@ export async function fetchMediaToCase(
   if (!res.ok) throw new Error(`download failed ${res.status} ${res.statusText}: ${url}`);
   const len = Number(res.headers.get("content-length") ?? 0);
   if (len > maxBytes) throw new Error(`remote media is ${len} bytes (cap ${maxBytes}): ${url}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.byteLength > maxBytes) throw new Error(`remote media is ${buf.byteLength} bytes (cap ${maxBytes}): ${url}`);
+  // Stream the body and STOP at maxBytes — a missing/lying content-length would
+  // otherwise let `res.arrayBuffer()` buffer the entire (untrusted) body into
+  // memory before any size check, so the "cap" wasn't actually a cap.
+  const buf = await readBodyCapped(res, maxBytes, url);
 
   const contentType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase() || undefined;
   // Response truth wins over the URL's claimed extension: an expired signed URL

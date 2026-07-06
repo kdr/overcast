@@ -188,7 +188,8 @@ test("budget cap: beyond the locator cap, the remainder is summarized", async ()
   );
   const text = await renderViaTool(records);
   assert.match(text, /more record\(s\) not shown/); // > MAX_LOCATORS → tail summary
-  assert.ok(Buffer.byteLength(text, "utf8") < 16_000);
+  // bounded: a fraction of the ~48KB of raw payloads (120 × 400-char snippets)
+  assert.ok(Buffer.byteLength(text, "utf8") < 18_000, `text was ${Buffer.byteLength(text, "utf8")}B`);
 });
 
 test("a single record whose preview exceeds budget still gets an id + pointer (no silent drop)", async () => {
@@ -237,10 +238,10 @@ test("agent tool defaults HTML exports to CSI when the verb supports themes", as
     await tool.execute("call_3", { export: join(dir, "plain.html"), theme: "plain" }, undefined as never);
     await tool.execute("call_4", { export: join(dir, "report.htm") }, undefined as never);
 
-    assert.equal(seen[0].theme, "csi");
-    assert.equal(seen[1].theme, undefined);
-    assert.equal(seen[2].theme, "plain");
-    assert.equal(seen[3].theme, undefined);
+    assert.equal(seen[0].theme, "csi"); // .html export → csi
+    assert.equal(seen[1].theme, "plain"); // .md export → not csi; theme FlagSpec default applied (CLI/agent parity)
+    assert.equal(seen[2].theme, "plain"); // explicit plain wins
+    assert.equal(seen[3].theme, "plain"); // .htm is not html → default plain
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -250,9 +251,9 @@ test("agent tool defaults to CSI via a declared .html export default (no export 
   const dir = mkdtempSync(join(tmpdir(), "oc-agent-theme-default-"));
   try {
     const seen: Array<Record<string, unknown>> = [];
-    // wall-shaped spec: the export flag itself defaults to an .html path, and
-    // the agent path never applies FlagSpec defaults — the theme default must
-    // fall back to the declared export default.
+    // wall-shaped spec: the export flag itself defaults to an .html path. The
+    // agent path applies FlagSpec defaults AFTER the html-theme inference, so the
+    // declared .html export default still drives csi (not the "plain" theme default).
     const spec: VerbSpec = {
       name: "wall",
       group: "inspect",
@@ -276,7 +277,7 @@ test("agent tool defaults to CSI via a declared .html export default (no export 
     await tool.execute("call_3", { theme: "plain" }, undefined as never); // explicit theme wins
 
     assert.equal(seen[0].theme, "csi");
-    assert.equal(seen[1].theme, undefined);
+    assert.equal(seen[1].theme, "plain"); // non-html export → theme FlagSpec default ("plain") applied
     assert.equal(seen[2].theme, "plain");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -301,4 +302,43 @@ test("case memory get tool schema forwards subcommand and record id", async () =
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("agent path applies a FlagSpec default the caller omitted (CLI parity)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-agent-def-"));
+  try {
+    const seen: Array<Record<string, unknown>> = [];
+    const spec: VerbSpec = {
+      name: "audio",
+      group: "sense",
+      summary: "audio",
+      args: [{ name: "action", summary: "action", required: true }],
+      flags: [{ name: "min-votes", summary: "votes", type: "number", default: 6 }],
+      outputKind: "audio",
+      run: async (ctx) => {
+        seen.push({ ...ctx.opts });
+        return [makeRecord({ verb: "audio", payload: {} })];
+      },
+    };
+    const c = openCase(dir); c.ensure();
+    const tool = toAgentTool(spec, { getCase: () => c, getProfile: () => defaultProfile() });
+    await tool.execute("c1", { action: "match" }, undefined as never); // omit → default 6 (was undefined before)
+    await tool.execute("c2", { action: "match", "min-votes": 9 }, undefined as never); // explicit wins
+    assert.equal(seen[0]["min-votes"], 6);
+    assert.equal(seen[1]["min-votes"], 9);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("over-budget error record keeps its error message in the locator", async () => {
+  const records = [
+    ...Array.from({ length: 30 }, (_, i) =>
+      makeRecord({ id: `rec_big${i}`, verb: "scan", payload: { title: `hit ${i}`, snippet: "x".repeat(500) } }),
+    ),
+    makeRecord({ id: "rec_err9", verb: "capture", payload: {}, error: "boom-download-failed", state: "error" }),
+  ];
+  const text = await renderViaTool(records);
+  // the error record is pushed past budget → a locator, but the reason survives
+  assert.match(text, /rec_err9 \[capture\] state=error error=boom-download-failed — not shown \(budget\)/);
 });

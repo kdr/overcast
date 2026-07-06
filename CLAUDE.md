@@ -70,7 +70,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    (`watch/listen/see/face/image/audio/similar/enhance/exif/verify`), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
    gdelttv, webcam, facesearch), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
-   transports are `exec` (default), `http`, `in-proc`. Default sense binding =
+   the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
+   shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
    tinycloud (exec) — except `see`, whose default is the in-proc brain-vision
    backend (invariant #2), falling back to the HF exec captioner;
    `face:deepface-local` is the local DeepFace profile provider for face

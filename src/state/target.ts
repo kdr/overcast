@@ -2,9 +2,9 @@
 // .overcast/target.json. A target is a name, a free-text prompt, or a reference
 // image/clip (image targets are matched via `face --match` / local visual indexes).
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
+import { writeFileAtomic } from "../fs-atomic.js";
 import type { Case } from "../case.js";
 
 export interface TargetEntry {
@@ -45,8 +45,7 @@ function load(c: Case): TargetStore {
 }
 
 function save(c: Case, store: TargetStore): void {
-  mkdirSync(join(c.targetFile, ".."), { recursive: true });
-  writeFileSync(c.targetFile, JSON.stringify(store, null, 2) + "\n", "utf8");
+  writeFileAtomic(c.targetFile, JSON.stringify(store, null, 2) + "\n");
 }
 
 export function listTargets(c: Case): TargetEntry[] {

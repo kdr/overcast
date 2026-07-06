@@ -25,6 +25,9 @@ let base: string;
 let hits: Record<string, number>;
 
 before(async () => {
+  // the fixture server binds 127.0.0.1, which the media-fetch SSRF guard blocks
+  // by default — opt out for this offline test of the fetch/sniff pipeline.
+  process.env.OVERCAST_ALLOW_PRIVATE_FETCH = "1";
   dir = mkdtempSync(join(tmpdir(), "oc-seeurl-"));
   hits = {};
   server = createServer((req, res) => {
@@ -67,6 +70,7 @@ before(async () => {
 after(async () => {
   await new Promise((r) => server.close(r));
   rmSync(dir, { recursive: true, force: true });
+  delete process.env.OVERCAST_ALLOW_PRIVATE_FETCH;
 });
 
 function ctx(input: string, profile = defaultProfile()): VerbContext {

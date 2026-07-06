@@ -9,8 +9,9 @@
 // LOCAL mirror so the case knows which indexes + members it owns, the OSINT
 // twin of the source/target registries.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeFileAtomic } from "../fs-atomic.js";
 import type { Case } from "../case.js";
 
 /** The canonical tinycloud index types. */
@@ -141,8 +142,7 @@ function load(c: Case): IndexStore {
 }
 
 function save(c: Case, store: IndexStore): void {
-  mkdirSync(dirname(c.indexesFile), { recursive: true });
-  writeFileSync(c.indexesFile, JSON.stringify(store, null, 2) + "\n", "utf8");
+  writeFileAtomic(c.indexesFile, JSON.stringify(store, null, 2) + "\n");
 }
 
 export function listIndexes(c: Case): IndexEntry[] {

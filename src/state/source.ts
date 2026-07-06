@@ -3,9 +3,9 @@
 // provider). `scan`/`monitor` enumerate sources; `capture` fetches. There is no
 // separate `scrape` verb — binding a source IS the scraper.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
+import { writeFileAtomic } from "../fs-atomic.js";
 import type { Case } from "../case.js";
 
 export interface SourceEntry {
@@ -33,8 +33,7 @@ function load(c: Case): SourceStore {
 }
 
 function save(c: Case, store: SourceStore): void {
-  mkdirSync(join(c.sourcesFile, ".."), { recursive: true });
-  writeFileSync(c.sourcesFile, JSON.stringify(store, null, 2) + "\n", "utf8");
+  writeFileAtomic(c.sourcesFile, JSON.stringify(store, null, 2) + "\n");
 }
 
 /** Parse a `<type>:<ref>` source spec (ref may itself contain ':'). */

@@ -318,7 +318,7 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `basic-clip`, `audio-fp`, and `basic-clap` DBs |
+| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`, `audio-fp`, and `basic-clap` DBs |
 | `target` | a **line of investigation**: `add --question`, `list`, `close <id> --as answered\|dead-end --note`, `reopen` — closed lines stop seeding scans |
 | `source` / `note` | where to look, and human-authored observations |
 | `finding` | manual + **auto-suggested** findings (`create` / `list` / `accept` / `dismiss`). Score triggers (face / image / similar / cluster / audio match) + target text hits auto-emit `suggested` leads via a hook on every verb; `finding list --state triage` queues them, `accept` promotes a lead to evidence, `dismiss` blocks re-suggestion. Leads are quarantined from ask/brief until accepted |
@@ -373,13 +373,13 @@ after adding external sources.
 ## Providers
 
 overcast binds verbs to backends through **providers** over one wire contract
-(the loose **record**) and three transports — `exec` (default), `http`,
-`in-proc`. Rebind a verb with **no code changes**:
+(the loose **record**). The `exec` transport (a command) is what ships today;
+`http` and `in-proc` are reserved in the binding shape but not yet wired. Rebind
+a verb with **no code changes**:
 
 ```bash
 overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input}}"
 overcast setup provider listen  "exec:bash examples/providers/elevenlabs/listen.sh {{input}}"
-overcast setup provider enhance "http://localhost:9000"
 overcast setup memory qmd       # optional local semantic case search
 overcast case memory index rebuild --memory qmd --json
 overcast ask "where did we see the white van?" --deep --json
@@ -443,10 +443,10 @@ errors in both commands. `monitor` marks hard failures seen after surfacing the
 error, while pending/credential gaps remain retryable.
 
 Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`,
-`deepface-local`, and `basic-clip`.
-Single choices use `--verb <watch|listen|see|face|similar|enhance> --choice <id>`,
+`local-models`, `deepface-local`, `basic-clip`, `audio-fp`, and `basic-clap`.
+Single choices use `--verb <watch|listen|see|face|similar|audio|enhance> --choice <id>`,
 such as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
-`face:deepface-local`, `similar:basic-clip`, or `enhance:ffmpeg`.
+`face:deepface-local`, `similar:basic-clip`, `audio:audio-fp`, or `enhance:ffmpeg`.
 
 The local image DB is selected by local index type. Local face detection/matching
 can be selected as a profile provider with `face:deepface-local`, while the searchable
