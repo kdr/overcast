@@ -85,10 +85,18 @@ test("assertFetchHostAllowed allows public hosts", () => {
   for (const u of ok) assert.doesNotThrow(() => assertFetchHostAllowed(u), u);
 });
 
-test("OVERCAST_ALLOW_PRIVATE_FETCH opts out of the SSRF guard", () => {
-  process.env.OVERCAST_ALLOW_PRIVATE_FETCH = "1";
+test("OVERCAST_ALLOW_PRIVATE_FETCH: only affirmative values opt out (0/false keep the guard on)", () => {
   try {
-    assert.doesNotThrow(() => assertFetchHostAllowed("http://169.254.169.254/"));
+    for (const v of ["1", "true", "yes", "on", "TRUE"]) {
+      process.env.OVERCAST_ALLOW_PRIVATE_FETCH = v;
+      assert.doesNotThrow(() => assertFetchHostAllowed("http://169.254.169.254/"), `${v} should opt out`);
+    }
+    // 0/false/no/empty must NOT disable the guard — they're truthy strings, so a
+    // bare `if (process.env.X)` check would wrongly open the SSRF hole.
+    for (const v of ["0", "false", "no", "off", ""]) {
+      process.env.OVERCAST_ALLOW_PRIVATE_FETCH = v;
+      assert.throws(() => assertFetchHostAllowed("http://169.254.169.254/"), /private\/loopback/, `${v} must keep guard on`);
+    }
   } finally {
     delete process.env.OVERCAST_ALLOW_PRIVATE_FETCH;
   }

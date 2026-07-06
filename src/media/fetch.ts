@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OVERCAST_VERSION } from "../version.js";
+import { envEnabled } from "../env.js";
 
 export const isHttpUrl = (ref: string): boolean => /^https?:\/\//i.test(ref);
 
@@ -44,7 +45,9 @@ function isBlockedFetchHost(host: string): boolean {
 
 /** Throw if a URL's host is a blocked private/loopback address (unless opted out). */
 export function assertFetchHostAllowed(url: string): void {
-  if (process.env.OVERCAST_ALLOW_PRIVATE_FETCH) return;
+  // Affirmative-only opt-out: `=0`/`=false` must NOT disable the guard (they're
+  // truthy strings) — an operator setting `=0` expects the guard to stay ON.
+  if (envEnabled("OVERCAST_ALLOW_PRIVATE_FETCH")) return;
   let host: string;
   try {
     host = new URL(url).hostname;
