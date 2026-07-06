@@ -62,6 +62,10 @@ before(async () => {
       // relative redirect → exercises the manual redirect-following loop
       res.writeHead(302, { location: "/img.png" });
       res.end();
+    } else if (path === "/redir-file") {
+      // hostile redirect to a non-http(s) scheme (local file read) — must be refused
+      res.writeHead(302, { location: "file:///etc/passwd" });
+      res.end();
     } else {
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("nope");
@@ -126,6 +130,11 @@ test("fetchMediaToCase: follows a redirect (manual loop) to the final media", as
   const got = await fetchMediaToCase(`${base}/redir`, join(dir, "media"));
   assert.equal(got.ext, ".png"); // followed 302 → /img.png
   assert.ok((hits["/img.png"] ?? 0) > 0, "the redirect target was fetched");
+});
+
+test("fetchMediaToCase: refuses a redirect to a non-http(s) scheme (file://)", async () => {
+  // opt-out is ON in this suite (127.0.0.1 fixture), but scheme guard still applies
+  await assert.rejects(fetchMediaToCase(`${base}/redir-file`, join(dir, "media")), /non-http\(s\)/);
 });
 
 test("see with an image URL: provider receives a LOCAL path; meta.source_url keeps the origin", async () => {

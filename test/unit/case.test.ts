@@ -181,3 +181,21 @@ test("records() cache: an external in-place jsonl change is picked up (disk-cohe
     assert.equal(after.content, "AFTER-EXTERNAL", "cache reloaded on external mtime/size change");
   });
 });
+
+test("records() cache: an external write between cache-build and a local write is not dropped", () => {
+  withTmp((dir) => {
+    const a = openCase(dir);
+    a.ensure();
+    a.writeRecord(makeRecord({ id: "rec_a1", verb: "watch", payload: {} }));
+    assert.equal(a.records().length, 1); // warms a's cache + stamp
+
+    // a DIFFERENT Case on the same dir appends (simulates another process)
+    openCase(dir).writeRecord(makeRecord({ id: "rec_b1", verb: "listen", payload: {} }));
+
+    // a writes again — it must NOT re-bless its stale cache (which lacks rec_b1)
+    a.writeRecord(makeRecord({ id: "rec_a2", verb: "watch", payload: {} }));
+
+    assert.deepEqual(a.records().map((r) => r.id).sort(), ["rec_a1", "rec_a2", "rec_b1"]);
+    assert.ok(a.recordById("rec_b1"), "recordById sees the external write too");
+  });
+});

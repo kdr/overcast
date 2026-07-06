@@ -121,6 +121,19 @@ test("OVERCAST_ALLOW_PRIVATE_FETCH: only affirmative values opt out (0/false kee
   }
 });
 
+test("assertFetchHostAllowed refuses non-http(s) schemes (redirect-to-file SSRF)", async () => {
+  for (const u of ["file:///etc/passwd", "gopher://127.0.0.1/", "data:text/plain,hi"]) {
+    await assert.rejects(assertFetchHostAllowed(u, { lookup: noLookup }), /non-http\(s\)/, u);
+  }
+  // the scheme check applies even under the private-host opt-out
+  process.env.OVERCAST_ALLOW_PRIVATE_FETCH = "1";
+  try {
+    await assert.rejects(assertFetchHostAllowed("file:///etc/passwd"), /non-http\(s\)/);
+  } finally {
+    delete process.env.OVERCAST_ALLOW_PRIVATE_FETCH;
+  }
+});
+
 // --- C2: atomic write leaves no partial/temp file ----------------------------
 
 test("writeFileAtomic writes content and leaves no temp file (C2)", () => {

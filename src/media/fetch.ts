@@ -101,15 +101,23 @@ export type HostLookup = (host: string, opts: { all: true }) => Promise<Array<{ 
  *  narrow TOCTOU window between this resolve and the socket connect — closing it
  *  fully needs connection pinning via a custom undici dispatcher.) */
 export async function assertFetchHostAllowed(url: string, opts: { lookup?: HostLookup } = {}): Promise<void> {
-  // Affirmative-only opt-out: `=0`/`=false` must NOT disable the guard (they're
-  // truthy strings) — an operator setting `=0` expects the guard to stay ON.
-  if (envEnabled("OVERCAST_ALLOW_PRIVATE_FETCH")) return;
-  let host: string;
+  let parsed: URL;
   try {
-    host = new URL(url).hostname;
+    parsed = new URL(url);
   } catch {
     return; // malformed URL is caught (and reported) by the caller's own parse
   }
+  // Only http(s) is ever fetched. A redirect to file:/gopher:/data:/… has an empty
+  // (or otherwise untrusted) host that would slip past the host checks below and let
+  // `fetch` read local resources — refuse it outright. Runs even under the
+  // private-fetch opt-out (that's for LAN HOSTS, not for enabling other schemes).
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`refusing to fetch a non-http(s) URL (${parsed.protocol}): ${url}`);
+  }
+  // Affirmative-only opt-out: `=0`/`=false` must NOT disable the guard (they're
+  // truthy strings) — an operator setting `=0` expects the guard to stay ON.
+  if (envEnabled("OVERCAST_ALLOW_PRIVATE_FETCH")) return;
+  const host = parsed.hostname;
   const blocked = (what: string) =>
     new Error(`refusing to fetch a private/loopback address (${what}); set OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow: ${url}`);
   if (isBlockedFetchHost(host)) throw blocked(host);

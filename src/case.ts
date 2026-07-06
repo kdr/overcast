@@ -167,13 +167,24 @@ export class Case {
     // common agent footgun: cd elsewhere, then `case memory get` finds nothing).
     rec.meta = { ...rec.meta, case: this.dir };
     const file = join(this.recordsDir, `${rec.verb}.jsonl`);
+    // Did another process / another Case on this dir write since our cache was
+    // built? Check BEFORE our own append changes the stamp. If so, the cache is
+    // missing their rows and must NOT be re-blessed as current (else records()/
+    // ask/triggers/recordById would silently omit that evidence).
+    const externallyChanged = this._recordsCache !== undefined && this.storeStamp() !== this._cacheStamp;
     appendRecordJSONL(file, rec);
-    // keep the per-instance cache live so a read after this write sees it
-    // (writeRecord is the single write path, so the cache can't drift).
     if (this._recordsCache) {
-      this._recordsCache.push(rec);
-      if (!this._idIndex!.has(rec.id)) this._idIndex!.set(rec.id, rec);
-      this._cacheStamp = this.storeStamp(); // our own append advanced a *.jsonl mtime
+      if (externallyChanged) {
+        // drop the cache — the next read reloads the external rows + our append.
+        this._recordsCache = undefined;
+        this._idIndex = undefined;
+        this._cacheStamp = undefined;
+      } else {
+        // no external writer → safe to keep the cache live incrementally.
+        this._recordsCache.push(rec);
+        if (!this._idIndex!.has(rec.id)) this._idIndex!.set(rec.id, rec);
+        this._cacheStamp = this.storeStamp(); // now reflects only our own append
+      }
     }
     return file;
   }
