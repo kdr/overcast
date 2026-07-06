@@ -230,10 +230,15 @@ export const skillsVerb: VerbSpec = {
       if (!SKILLS_DIR || !existsSync(join(SKILLS_DIR, "overcast", "SKILL.md"))) {
         return fail("no shipped skills/ in this distribution (install the npm package, or run from source)");
       }
-      const explicitDest = ctx.opts.dest != null ? expandHome(String(ctx.opts.dest)) : undefined;
+      const rawDest = ctx.opts.dest != null ? String(ctx.opts.dest) : undefined;
+      if (rawDest != null && rawDest.trim() === "") {
+        return fail("skills install: --dest requires a non-empty directory");
+      }
+      const explicitDest = rawDest != null ? expandHome(rawDest) : undefined;
+      const hasExplicitDest = explicitDest != null;
       const suppliedHarness = ctx.opts.harness != null ? String(ctx.opts.harness) : undefined;
       const harness = suppliedHarness ?? "claude-code";
-      const installDest = explicitDest ?? HARNESS_DESTS[harness];
+      const installDest = hasExplicitDest ? explicitDest : HARNESS_DESTS[harness];
       // an unknown harness must not be silently redirected to a default dir
       // unless the caller supplied an explicit destination.
       if (!installDest) {
@@ -241,7 +246,7 @@ export const skillsVerb: VerbSpec = {
       }
       try {
         const { dest, copied, missing } = installSkills(SKILLS_DIR, installDest);
-        const payload = explicitDest
+        const payload = hasExplicitDest
           ? suppliedHarness != null
             ? { harness: suppliedHarness, dest, installed: copied }
             : { dest, installed: copied }

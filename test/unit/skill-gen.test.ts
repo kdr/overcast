@@ -241,6 +241,13 @@ test("skills verb: --dest installs shipped skills into an explicit directory", a
     const [badHarness] = await skillsVerb.run(mk("install", { harness: "unknown-agent" }));
     assert.equal(badHarness.state, "error");
     assert.match(badHarness.error ?? "", /unknown harness/);
+
+    for (const emptyDest of ["", "   "]) {
+      const [badDest] = await skillsVerb.run(mk("install", { dest: emptyDest }));
+      assert.equal(badDest.state, "error");
+      assert.match(badDest.error ?? "", /--dest requires a non-empty directory/);
+      assert.doesNotMatch(badDest.error ?? "", /unknown harness/);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(dest, { recursive: true, force: true });
