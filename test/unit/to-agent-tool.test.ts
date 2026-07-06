@@ -23,9 +23,14 @@ test("verbCallLine: class-colored ⟦ TAG ⟧ ▸ arg (semantic split + primary 
   assert.ok(!s.includes("▸"), "no separator when no primary arg");
 });
 
-test("agent variadic args use string[] schema and reconstruct ctx.input/rest", async () => {
+test("agent variadic args prefer string[] schema, accept legacy strings, and reconstruct ctx.input/rest", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-agent-var-"));
   try {
+    type JsonSchema = { type?: string; items?: JsonSchema; anyOf?: JsonSchema[]; oneOf?: JsonSchema[] };
+    const variants = (s: JsonSchema) => s.anyOf ?? s.oneOf ?? [s];
+    const hasStringArray = (s: JsonSchema) => variants(s).some((v) => v.type === "array" && v.items?.type === "string");
+    const hasString = (s: JsonSchema) => variants(s).some((v) => v.type === "string");
+
     const schema = verbParams({
       name: "var",
       args: [
@@ -35,13 +40,13 @@ test("agent variadic args use string[] schema and reconstruct ctx.input/rest", a
       ],
       flags: [],
     } as VerbSpec) as {
-      properties: Record<string, { type?: string; items?: { type?: string } }>;
+      properties: Record<string, JsonSchema>;
       required?: string[];
     };
-    assert.equal(schema.properties.items.type, "array");
-    assert.equal(schema.properties.items.items?.type, "string");
-    assert.equal(schema.properties.required_items.type, "array");
-    assert.equal(schema.properties.required_items.items?.type, "string");
+    assert.ok(hasStringArray(schema.properties.items));
+    assert.ok(hasString(schema.properties.items));
+    assert.ok(hasStringArray(schema.properties.required_items));
+    assert.ok(hasString(schema.properties.required_items));
     assert.ok(schema.required?.includes("action"));
     assert.ok(schema.required?.includes("required_items"));
     assert.ok(!schema.required?.includes("items"));

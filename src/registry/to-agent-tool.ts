@@ -54,7 +54,9 @@ function argSchema(arg: ArgSpec): TSchema {
   const desc = { description: arg.summary };
   if (arg.variadic) {
     const array = Type.Array(Type.String(desc), desc);
-    return arg.required ? array : Type.Optional(array);
+    const legacyString = Type.String(desc);
+    const schema = Type.Union([array, legacyString], desc);
+    return arg.required ? schema : Type.Optional(schema);
   }
   const string = Type.String(desc);
   return arg.required ? string : Type.Optional(string);
