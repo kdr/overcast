@@ -71,6 +71,15 @@ test("assertFetchHostAllowed blocks private/loopback/link-local hosts (C5)", () 
     "http://172.16.0.1/x", // 172.16/12 lower bound
     "http://172.31.255.1/x", // 172.16/12 upper bound
     "http://[::1]/x",
+    // shorthand / alternate IP encodings that resolve to loopback/private (Bugbot)
+    "http://127.1/x", // 2-part short form → 127.0.0.1
+    "http://2130706433/x", // decimal integer → 127.0.0.1
+    "http://0x7f.0.0.1/x", // hex octet
+    "http://017700000001/x", // octal integer → 127.0.0.1
+    "http://0177.0.0.1/x", // octal first octet
+    "http://127.0.0.1./x", // trailing dot
+    "http://0/x", // 0 → 0.0.0.0
+    "http://[::ffff:169.254.169.254]/x", // IPv4-mapped IPv6 metadata
   ];
   for (const u of blocked) assert.throws(() => assertFetchHostAllowed(u), /private\/loopback/, u);
 });

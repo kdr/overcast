@@ -15,35 +15,78 @@ import { envEnabled } from "../env.js";
 
 export const isHttpUrl = (ref: string): boolean => /^https?:\/\//i.test(ref);
 
-/** SSRF guard: overcast fetches media from URLs that can originate in SCRAPED
- *  OSINT hits (invariant #10, untrusted), and the fetched body is described by
- *  the brain LLM and written into evidence — so a request to a private/loopback/
- *  link-local address is an internal-data / cloud-metadata (169.254.169.254) exfil
- *  vector. Block literal-IP + localhost hosts by default; opt out with
- *  OVERCAST_ALLOW_PRIVATE_FETCH=1 for a trusted LAN media server. (Residual: this
- *  validates the initial host only, not a public host that resolves to — or 302s
- *  to — a private IP; full defense needs per-hop re-resolution.) */
+/** Parse an IPv4 host in ANY inet_aton form — dotted/decimal/hex/octal and 1–4
+ *  parts — into a 32-bit int, or null if it isn't a valid IPv4 literal. The OS
+ *  resolver accepts these shorthands (`127.1`, `2130706433`, `0x7f.1`, octal),
+ *  so a string-shaped dotted-quad check alone lets them slip past the guard. */
+function parseLooseIPv4(host: string): number | null {
+  let h = host;
+  if (h.endsWith(".")) h = h.slice(0, -1); // tolerate a trailing dot
+  if (h === "") return null;
+  const parts = h.split(".");
+  if (parts.length > 4) return null;
+  const nums: number[] = [];
+  for (const p of parts) {
+    let n: number;
+    if (/^0x[0-9a-f]+$/i.test(p)) n = parseInt(p.slice(2), 16);
+    else if (/^0[0-7]+$/.test(p)) n = parseInt(p, 8);
+    else if (/^[0-9]+$/.test(p)) n = parseInt(p, 10);
+    else return null; // any non-numeric part → not an IPv4 literal (a real hostname)
+    if (!Number.isInteger(n)) return null;
+    nums.push(n);
+  }
+  // inet_aton: the last part fills the remaining low bytes; each leading part is
+  // one byte. Enforce the per-part width so 256.0.0.1 etc. aren't valid.
+  const maxLast = [0, 0xffffffff, 0xffffff, 0xffff, 0xff][nums.length];
+  if (nums[nums.length - 1] > maxLast) return null;
+  for (let i = 0; i < nums.length - 1; i++) if (nums[i] > 0xff) return null;
+  let ip = 0;
+  for (let i = 0; i < nums.length - 1; i++) ip = (ip | (nums[i] << (8 * (3 - i)))) >>> 0;
+  return (ip | nums[nums.length - 1]) >>> 0;
+}
+
+/** Is a 32-bit IPv4 int in a loopback/private/link-local/CGNAT range? */
+function isBlockedIPv4(ip: number): boolean {
+  const a = (ip >>> 24) & 0xff;
+  const b = (ip >>> 16) & 0xff;
+  if (a === 127 || a === 10 || a === 0) return true; // loopback / private / this-host
+  if (a === 169 && b === 254) return true; // link-local incl. cloud metadata 169.254.169.254
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  return false;
+}
+
 function isBlockedFetchHost(host: string): boolean {
   const h = host.toLowerCase().replace(/^\[/, "").replace(/\]$/, ""); // strip IPv6 brackets
   if (h === "localhost" || h.endsWith(".localhost")) return true;
-  // IPv4 literal (also handles IPv4-mapped IPv6 like ::ffff:169.254.169.254)
-  const v4 = h.match(/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 127 || a === 10 || a === 0) return true; // loopback / private / this-host
-    if (a === 169 && b === 254) return true; // link-local incl. cloud metadata
-    if (a === 192 && b === 168) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-    return false;
+  // IPv4-mapped IPv6: the embedded v4 may be dotted (::ffff:127.0.0.1) or, once
+  // the URL parser canonicalizes it, two hex groups (::ffff:7f00:1). Extract + check.
+  if (h.startsWith("::ffff:")) {
+    const tail = h.slice(7);
+    const dotted = parseLooseIPv4(tail);
+    if (dotted !== null) return isBlockedIPv4(dotted);
+    const hex = tail.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hex) return isBlockedIPv4((((parseInt(hex[1], 16) << 16) | parseInt(hex[2], 16)) >>> 0));
   }
+  // IPv4 in any encoding: catches 127.1 / 2130706433 / 0x.. / octal / trailing dot.
+  const ip = parseLooseIPv4(h);
+  if (ip !== null) return isBlockedIPv4(ip);
   // IPv6 literals: loopback, unique-local (fc00::/7), link-local (fe80::/10)
   if (h === "::1" || h === "::") return true;
   if (/^f[cd][0-9a-f]{2}:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h)) return true;
   return false;
 }
 
-/** Throw if a URL's host is a blocked private/loopback address (unless opted out). */
+/** SSRF guard: overcast fetches media from URLs that can originate in SCRAPED
+ *  OSINT hits (invariant #10, untrusted), and the fetched body is described by the
+ *  brain LLM and written into evidence — so a request to a private/loopback/
+ *  link-local address is an internal-data / cloud-metadata (169.254.169.254) exfil
+ *  vector. Blocks localhost + private IP literals in every inet_aton encoding
+ *  (dotted/decimal/hex/octal/short) by default; opt out with an affirmative
+ *  OVERCAST_ALLOW_PRIVATE_FETCH for a trusted LAN media server. (Residual: this
+ *  checks the literal host only — not a public HOSTNAME that resolves to, or a 302
+ *  that redirects to, a private IP; those need DNS resolution + per-hop re-checks.) */
 export function assertFetchHostAllowed(url: string): void {
   // Affirmative-only opt-out: `=0`/`=false` must NOT disable the guard (they're
   // truthy strings) — an operator setting `=0` expects the guard to stay ON.
