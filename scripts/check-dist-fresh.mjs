@@ -68,6 +68,26 @@ function verbNames(value, label) {
     .sort((a, b) => a.localeCompare(b));
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return value.map(stableJson);
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = stableJson(value[key]);
+    return out;
+  }
+  return value;
+}
+
+function normalizedCommands(value, label) {
+  if (!value || !Array.isArray(value.verbs)) fail(`${label} commands output is missing .verbs[]`);
+  return JSON.stringify(
+    stableJson({
+      ...value,
+      verbs: [...value.verbs].sort((a, b) => String(a?.name ?? "").localeCompare(String(b?.name ?? ""))),
+    }),
+  );
+}
+
 function diffNames(source, dist) {
   const sourceSet = new Set(source);
   const distSet = new Set(dist);
@@ -114,6 +134,8 @@ const sourceNames = verbNames(sourceCommands, "source CLI");
 const distNames = verbNames(distCommands, "dist CLI");
 if (sourceNames.join("\0") !== distNames.join("\0")) {
   drift.push(`commands --json verb names differ (${diffNames(sourceNames, distNames).join("; ") || "same names in different order"})`);
+} else if (normalizedCommands(sourceCommands, "source CLI") !== normalizedCommands(distCommands, "dist CLI")) {
+  drift.push("commands --json registry differs beyond verb names (args, flags, descriptions, groups, output kinds, or provider keys)");
 }
 
 if (drift.length) {
