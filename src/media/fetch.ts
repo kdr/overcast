@@ -311,6 +311,7 @@ export async function fetchMediaToCase(
     const location = res.headers.get("location");
     if (res.status >= 300 && res.status < 400 && location) {
       if (hop >= MAX_REDIRECTS) throw new Error(`too many redirects (>${MAX_REDIRECTS}): ${url}`);
+      await res.body?.cancel().catch(() => {}); // release the 3xx body before the next hop (no leak/hang)
       currentUrl = new URL(location, currentUrl).href; // resolve relative Location
       await assertFetchHostAllowed(currentUrl); // re-validate EACH redirect target
       continue;

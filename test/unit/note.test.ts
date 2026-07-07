@@ -41,6 +41,17 @@ test("note --ref accepts a path relative to the CASE dir (not just cwd)", async 
     const [bad] = await noteVerb.run(ctx(dir, "x", [], { ref: "note-nope-missing.jpg" }));
     assert.equal(bad.state, "error");
     assert.match(bad.error ?? "", /does not resolve/);
+
+    // a ../ traversal that ESCAPES the case dir is rejected even if the file exists
+    const outside = join(dir, "..", `oc-note-outside-${Date.now()}.txt`);
+    writeFileSync(outside, "secret");
+    try {
+      const [esc] = await noteVerb.run(ctx(dir, "x", [], { ref: `../${outside.split("/").pop()}` }));
+      assert.equal(esc.state, "error");
+      assert.match(esc.error ?? "", /does not resolve/);
+    } finally {
+      rmSync(outside, { force: true });
+    }
   });
 });
 

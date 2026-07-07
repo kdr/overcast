@@ -6,8 +6,21 @@
 // rule can't drift between verbs (the root cause of the review cascade).
 
 import { existsSync } from "node:fs";
+import { resolve, sep, isAbsolute } from "node:path";
 import { isReady, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
+
+/** Whether a `--ref` string points at a real LOCAL file, for the finding/note
+ *  evidence-ref guard. An absolute path is taken as-is (an explicit operator
+ *  choice); a relative path resolves against the CASE dir (so `--case <dir>` from
+ *  another cwd finds .overcast/media/… ) but MUST stay inside it — a `../` escape
+ *  that would validate/anchor files outside the case store is rejected. */
+export function refPathExists(caseDir: string, rawRef: string): boolean {
+  if (isAbsolute(rawRef)) return existsSync(rawRef);
+  const p = resolve(caseDir, rawRef);
+  if (p !== caseDir && !p.startsWith(caseDir + sep)) return false; // outside the case dir
+  return existsSync(p);
+}
 
 /** Record verbs whose media.ref is registerable/analyzable case media. Excludes
  *  `scan` — its media.ref is a page/listing URL that still passes isAv for any

@@ -55,6 +55,17 @@ test("finding create --ref accepts a path relative to the CASE dir (not just cwd
     const [bad] = await findingVerb.run(ctx(dir, "create", ["x"], { ref: "nope-does-not-exist.jpg" }));
     assert.equal(bad.state, "error");
     assert.match(bad.error ?? "", /does not resolve/);
+
+    // a ../ traversal that ESCAPES the case dir is rejected even if the file exists
+    const outside = join(dir, "..", `oc-outside-${Date.now()}.txt`);
+    writeFileSync(outside, "secret");
+    try {
+      const [esc] = await findingVerb.run(ctx(dir, "create", ["x"], { ref: `../${outside.split("/").pop()}` }));
+      assert.equal(esc.state, "error");
+      assert.match(esc.error ?? "", /does not resolve/);
+    } finally {
+      rmSync(outside, { force: true });
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
