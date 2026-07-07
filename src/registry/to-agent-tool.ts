@@ -13,6 +13,7 @@ import { makeRecord, type OvercastRecord, type JsonMap } from "../record.js";
 import { persistRecords } from "./persist.js";
 import { expandHome, expandHomeArg } from "../fs-path.js";
 import { renderRecord, pageCommand } from "../render.js";
+import { redactSecrets } from "../env.js";
 import { isHtmlExportPath } from "../report/html.js";
 import type { Case } from "../case.js";
 import type { Profile } from "../profile.js";
@@ -52,14 +53,17 @@ function flagSchema(f: FlagSpec): TSchema {
 
 function argSchema(arg: ArgSpec): TSchema {
   const desc = { description: arg.summary };
+  // enum-like positional (e.g. a router `action`) → a literal union, like flags;
+  // otherwise a free string.
+  const base: TSchema =
+    arg.choices && arg.choices.length
+      ? Type.Union(arg.choices.map((c) => Type.Literal(c)), desc)
+      : Type.String(desc);
   if (arg.variadic) {
-    const array = Type.Array(Type.String(desc), desc);
-    const legacyString = Type.String(desc);
-    const schema = Type.Union([array, legacyString], desc);
+    const schema = Type.Union([Type.Array(base, desc), base], desc);
     return arg.required ? schema : Type.Optional(schema);
   }
-  const string = Type.String(desc);
-  return arg.required ? string : Type.Optional(string);
+  return arg.required ? base : Type.Optional(base);
 }
 
 /** Build the TypeBox params object for a verb (all positional args + flags). */
@@ -119,7 +123,11 @@ function renderRecords(records: OvercastRecord[]): string {
         // has the id + how to read it (never a silent drop), up to a cap.
         if (locators < MAX_LOCATORS) {
           locators++;
-          const loc = `${rec.id} [${rec.verb}] state=${rec.state ?? "ready"} — not shown (budget); read it with \`${pageCommand(rec)}\``;
+          // keep the error message on an over-budget error record — otherwise a
+          // large multi-failure result (e.g. `scan --pull`) shows "state=error"
+          // with no reason the agent can act on.
+          const errPart = rec.error ? ` error=${redactSecrets(rec.error)}` : "";
+          const loc = `${rec.id} [${rec.verb}] state=${rec.state ?? "ready"}${errPart} — not shown (budget); read it with \`${pageCommand(rec)}\``;
           spent += Buffer.byteLength(loc, "utf8");
           parts.push(loc);
         } else {
@@ -137,8 +145,9 @@ function renderRecords(records: OvercastRecord[]): string {
 function applyAgentHtmlDefaults(spec: VerbSpec, opts: VerbContext["opts"]): void {
   const hasThemeFlag = spec.flags.some((f) => f.name === "theme");
   if (!hasThemeFlag || opts.theme != null) return;
-  // The agent path never applies FlagSpec defaults (only the CLI parser does),
-  // so also honor a declared .html export default — e.g. `wall {}` renders csi.
+  // Runs BEFORE flag defaults are applied, so honor a declared .html export
+  // default here — e.g. `wall {}` infers an html export and renders csi, rather
+  // than the theme default "plain" that the CLI (plain by design) would use.
   const exportPath = opts.export ?? spec.flags.find((f) => f.name === "export")?.default;
   if (typeof exportPath === "string" && isHtmlExportPath(exportPath.trim())) {
     opts.theme = "csi";
@@ -243,7 +252,14 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         if (params[f.name] !== undefined)
           opts[f.name] = expandHomeArg(params[f.name]) as string | number | boolean;
       }
+      // csi-for-html theme inference first (so a declared theme default doesn't
+      // pre-empt it), THEN apply any FlagSpec defaults the agent didn't pass —
+      // parity with the CLI parser (to-cli.ts), so an agent call and the same CLI
+      // command behave identically instead of the handler seeing `undefined`.
       applyAgentHtmlDefaults(spec, opts);
+      for (const f of spec.flags) {
+        if (opts[f.name] === undefined && f.default !== undefined) opts[f.name] = f.default;
+      }
       // reconstruct positional input + rest from the declared args
       const positionals: string[] = [];
       for (const arg of spec.args) {

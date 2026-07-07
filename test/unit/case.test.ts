@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, readFileSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase, recordFiles } from "../../src/case.ts";
@@ -112,5 +112,111 @@ test("clear removes records/media/index/state while preserving case.json", () =>
     assert.equal(existsSync(join(dir, "brief.md")), false);
     assert.equal(existsSync(c.targetFile), false);
     assert.equal(existsSync(c.legacyCollectionsFile), false);
+  });
+});
+
+test("records() cache: a write on the same instance is visible to reads (read-after-write)", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    assert.equal(c.records().length, 0);
+    const r1 = makeRecord({ verb: "watch", payload: { content: "a" } });
+    c.writeRecord(r1);
+    // records() populated the (empty) cache first; the write must still show
+    assert.equal(c.records().length, 1);
+    assert.equal(c.recordById(r1.id)?.id, r1.id);
+    const r2 = makeRecord({ verb: "listen", payload: { transcript: "b" } });
+    c.writeRecord(r2);
+    assert.equal(c.records().length, 2);
+    assert.equal(c.recordById(r2.id)?.verb, "listen");
+  });
+});
+
+test("records() cache: a fresh Case instance reads what another wrote to disk", () => {
+  withTmp((dir) => {
+    const a = openCase(dir);
+    a.ensure();
+    a.writeRecord(makeRecord({ id: "rec_x1", verb: "note", payload: { text: "hi" } }));
+    // a different instance (a new command) must NOT be hidden by a's cache
+    const b = openCase(dir);
+    assert.equal(b.records().length, 1);
+    assert.equal(b.recordById("rec_x1")?.verb, "note");
+  });
+});
+
+test("records() cache: returns a fresh array (in-place mutation can't corrupt the cache)", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: {} }));
+    c.writeRecord(makeRecord({ verb: "listen", payload: {} }));
+    const first = c.records();
+    first.length = 0; // mutate the returned array
+    assert.equal(c.records().length, 2, "cache is unaffected by mutating a returned array");
+  });
+});
+
+test("records() cache: clear() drops the cache", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: {} }));
+    assert.equal(c.records().length, 1);
+    c.clear();
+    assert.equal(c.records().length, 0);
+  });
+});
+
+test("records() cache: an external in-place jsonl change is picked up (disk-coherent)", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ id: "rec_ext", verb: "watch", payload: { content: "before" } }));
+    const before = c.recordById("rec_ext")?.payload as { content: string };
+    assert.equal(before.content, "before");
+    // rewrite the file in place, bypassing writeRecord (what qmd staleness detects)
+    const f = join(c.recordsDir, "watch.jsonl");
+    writeFileSync(f, JSON.stringify(makeRecord({ id: "rec_ext", verb: "watch", payload: { content: "AFTER-EXTERNAL" } })) + "\n", "utf8");
+    const after = c.recordById("rec_ext")?.payload as { content: string };
+    assert.equal(after.content, "AFTER-EXTERNAL", "cache reloaded on external mtime/size change");
+  });
+});
+
+test("records() cache: an external write between cache-build and a local write is not dropped", () => {
+  withTmp((dir) => {
+    const a = openCase(dir);
+    a.ensure();
+    a.writeRecord(makeRecord({ id: "rec_a1", verb: "watch", payload: {} }));
+    assert.equal(a.records().length, 1); // warms a's cache + stamp
+
+    // a DIFFERENT Case on the same dir appends (simulates another process)
+    openCase(dir).writeRecord(makeRecord({ id: "rec_b1", verb: "listen", payload: {} }));
+
+    // a writes again — it must NOT re-bless its stale cache (which lacks rec_b1)
+    a.writeRecord(makeRecord({ id: "rec_a2", verb: "watch", payload: {} }));
+
+    assert.deepEqual(a.records().map((r) => r.id).sort(), ["rec_a1", "rec_a2", "rec_b1"]);
+    assert.ok(a.recordById("rec_b1"), "recordById sees the external write too");
+  });
+});
+
+test("records() cache: a same-size in-place edit is detected even if mtime is forged back (ctime)", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ id: "rec_ss", verb: "watch", payload: { content: "AAAA" } }));
+    assert.equal((c.recordById("rec_ss")?.payload as { content: string }).content, "AAAA");
+
+    const f = join(c.recordsDir, "watch.jsonl");
+    const beforeMtime = statSync(f).mtime;
+    const raw = readFileSync(f, "utf8");
+    const edited = raw.replace('"AAAA"', '"BBBB"'); // same byte length
+    assert.equal(edited.length, raw.length, "edit must be the exact same size");
+    writeFileSync(f, edited, "utf8");
+    // forge the mtime back to before the edit — the old maxMtime:totalSize stamp
+    // would collide (size unchanged, mtime reset); only ctime advances now.
+    utimesSync(f, beforeMtime, beforeMtime);
+
+    assert.equal((c.recordById("rec_ss")?.payload as { content: string }).content, "BBBB");
   });
 });

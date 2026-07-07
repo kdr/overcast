@@ -1,5 +1,5 @@
 import { makeRecord, type MediaRef, type OvercastRecord } from "../record.js";
-import { resolveMediaRef } from "./media-ref.js";
+import { resolveMediaRef, refPathExists } from "./media-ref.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -96,7 +96,7 @@ export const findingVerb: VerbSpec = {
     "`finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). " +
     "Review records reference the original finding; dismissed findings remain auditable.",
   args: [
-    { name: "action", summary: "create | list | accept | dismiss (default: list)" },
+    { name: "action", summary: "create | list | accept | dismiss (default: list)", choices: ["create", "list", "accept", "dismiss"] },
     { name: "id", summary: "finding id for accept/dismiss, or text for create" },
   ],
   flags: [
@@ -132,6 +132,19 @@ export const findingVerb: VerbSpec = {
           if (rec.media?.ref) media = { ...rec.media };
         } else {
           const resolved = resolveMediaRef(ctx.case, rawRef);
+          // Reject a --ref that resolves to nothing real (mirrors `note`): a
+          // finding is evidence, so it must not cite a path/id that never existed.
+          if (resolved.recordId == null) {
+            const isUrl = /^https?:\/\//i.test(rawRef);
+            // absolute path, or a case-relative path CONTAINED in the case dir (a
+            // `../` escape outside the case store is rejected — no arbitrary files).
+            const isExistingPath = !isUrl && refPathExists(ctx.case.dir, rawRef);
+            if (!isUrl && !isExistingPath) {
+              if (/^rec_/i.test(rawRef)) return [err(`--ref record not found in this case: ${rawRef}`)];
+              if (/^cap_/i.test(rawRef)) return [err(`--ref capture id not found in this case: ${rawRef}`)];
+              return [err(`--ref does not resolve to a record, capture id, existing path, or URL: ${rawRef}`)];
+            }
+          }
           sourceRecord = resolved.recordId;
           evidenceRef = resolved.ref;
           media = { ref: resolved.ref };

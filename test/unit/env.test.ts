@@ -3,7 +3,25 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadDotEnv, redactSecrets } from "../../src/env.ts";
+import { loadDotEnv, redactSecrets, envEnabled } from "../../src/env.ts";
+
+test("envEnabled: affirmative only (1/true/yes/on), not 0/false/empty", () => {
+  const K = `OC_TEST_ENABLED_${Date.now()}`;
+  try {
+    for (const v of ["1", "true", "TRUE", "yes", "on", "  On  "]) {
+      process.env[K] = v;
+      assert.equal(envEnabled(K), true, `${JSON.stringify(v)} → enabled`);
+    }
+    for (const v of ["0", "false", "no", "off", "", "nope"]) {
+      process.env[K] = v;
+      assert.equal(envEnabled(K), false, `${JSON.stringify(v)} → disabled`);
+    }
+    delete process.env[K];
+    assert.equal(envEnabled(K), false, "unset → disabled");
+  } finally {
+    delete process.env[K];
+  }
+});
 
 test("case dotenv override only replaces values loaded from an earlier dotenv", () => {
   const cwd = mkdtempSync(join(tmpdir(), "oc-env-cwd-"));

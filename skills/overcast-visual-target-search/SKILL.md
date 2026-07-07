@@ -27,8 +27,9 @@ overcast brief --export ./visual-search.md --json      # short by default; --ful
 ```
 
 For an object or open-vocabulary target (`--detect` needs a bound OWLv2 detector —
-build it once with `scripts/visual-db-uv.sh --detect`, then bind the venv python it
-prints: `overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"`,
+build it once with `scripts/visual-db-uv.sh --detect` (it prints `DETECT_PY`), then
+`export DETECT_PY=…` and bind via the preset: `overcast provider setup apply --preset
+owl-local --yes`, which resolves detect.py's ABSOLUTE path and uses the venv python,
 NOT system `python3` which lacks torch/transformers):
 
 ```bash

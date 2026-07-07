@@ -32,6 +32,10 @@ export function providerChoices(): ProviderChoice[] {
   const elListen = sidecar("examples", "providers", "elevenlabs", "listen.sh");
   const elEnhance = sidecar("examples", "providers", "elevenlabs", "enhance.sh");
   const detect = sidecar("examples", "providers", "detect", "detect.py");
+  // The OWLv2 detector needs the uv venv python (torch/transformers), not system
+  // python3. Honor $DETECT_PY (printed by `scripts/visual-db-uv.sh --detect`) if
+  // it's exported when the binding is applied; the resolved command is persisted.
+  const detectPy = process.env.DETECT_PY || "python3";
   const localEnhance = sidecar("examples", "providers", "local", "enhance.sh");
   const localVisionSetup = sidecar("scripts", "visual-db-uv.sh");
   return [
@@ -210,7 +214,7 @@ export function providerChoices(): ProviderChoice[] {
       verb: "see",
       label: "OWLv2 open-vocabulary detection",
       summary: "Local OWLv2/Grounding DINO object detection provider.",
-      descriptor: exec(`python3 ${detect}`, `python3 ${detect} init`, `python3 ${detect} describe`),
+      descriptor: exec(`${detectPy} ${detect}`, `${detectPy} ${detect} init`, `${detectPy} ${detect} describe`),
       env: ["DETECT_MODEL"],
       indexableDefault: true,
     },

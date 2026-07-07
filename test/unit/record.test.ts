@@ -17,7 +17,7 @@ import {
 test("newRecordId is prefixed + unique", () => {
   const a = newRecordId();
   const b = newRecordId();
-  assert.match(a, /^rec_[0-9a-f]{8}$/);
+  assert.match(a, /^rec_[0-9a-f]{16}$/); // 8 random bytes (collision-resistant)
   assert.notEqual(a, b);
 });
 

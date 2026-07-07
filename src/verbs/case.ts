@@ -951,7 +951,7 @@ export const caseVerb: VerbSpec = {
     "`case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] " +
     "[--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.",
   args: [
-    { name: "action", summary: "init | setup | status | info | records | memory | clear", required: true },
+    { name: "action", summary: "init | setup | status | info | records | memory | clear", required: true, choices: ["init", "setup", "status", "info", "records", "memory", "clear"] },
     { name: "sub", summary: "setup/memory subcommand, or dir for init" },
     { name: "arg", summary: "record id (memory get), query (memory search), or index action" },
   ],

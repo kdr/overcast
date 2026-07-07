@@ -6,8 +6,25 @@
 // rule can't drift between verbs (the root cause of the review cascade).
 
 import { existsSync } from "node:fs";
+import { resolve, sep, isAbsolute } from "node:path";
+import { realpathContained } from "../fs-path.js";
 import { isReady, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
+
+/** Whether a `--ref` string points at a real LOCAL file, for the finding/note
+ *  evidence-ref guard. An absolute path is taken as-is (an explicit operator
+ *  choice); a relative path resolves against the CASE dir (so `--case <dir>` from
+ *  another cwd finds .overcast/media/… ) but MUST stay inside it — a `../` escape,
+ *  OR a case-local SYMLINK pointing outside, that would validate/anchor files
+ *  beyond the case store is rejected (containment is re-checked on the real path). */
+export function refPathExists(caseDir: string, rawRef: string): boolean {
+  if (isAbsolute(rawRef)) return existsSync(rawRef);
+  const p = resolve(caseDir, rawRef);
+  if (p !== caseDir && !p.startsWith(caseDir + sep)) return false; // lexical ../ escape
+  // existsSync/resolve are lexical + follow symlinks: re-check containment on the
+  // REAL path so a case-local symlink can't point outside the store.
+  return existsSync(p) && realpathContained(caseDir, p);
+}
 
 /** Record verbs whose media.ref is registerable/analyzable case media. Excludes
  *  `scan` — its media.ref is a page/listing URL that still passes isAv for any

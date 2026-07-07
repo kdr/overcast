@@ -5,6 +5,7 @@
 import {
   existsSync,
   lstatSync,
+  statSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
@@ -50,6 +51,39 @@ export interface CaseClearSummary {
 export class Case {
   readonly dir: string;
   readonly storeDir: string;
+
+  // Record cache: caching the parsed store avoids re-reading + re-JSON.parsing
+  // every *.jsonl on each records()/recordById() call (the persist seam runs
+  // triggers after every write; scan --pull / monitor --every otherwise go
+  // ~O(hits × senses × N)). Kept COHERENT WITH DISK via a cheap per-file
+  // mtime/ctime/size fingerprint (storeStamp): any external write (another
+  // process/Case, or an in-place edit that qmd staleness detection looks for)
+  // changes a *.jsonl → the cache reloads on the next read. writeRecord()
+  // INVALIDATES the cache (rather than racily patching it), so repeated reads
+  // with no writes are cached but every write reloads fresh.
+  private _recordsCache?: OvercastRecord[];
+  private _idIndex?: Map<string, OvercastRecord>;
+  private _cacheStamp?: string;
+
+  /** A PER-FILE fingerprint of the store's *.jsonl files (one `name:mtime:ctime:size`
+   *  entry each). Changes on any append (size), write/touch (mtime), same-size
+   *  in-place edit (ctime — the kernel bumps it on any inode change, and a `utimes`
+   *  mtime-forge can't reset it), or a new/removed file. Per-file rather than a
+   *  global maxMtime+totalSize so an edit to a non-newest file (or one that keeps
+   *  the summed size) can't leave the fingerprint unchanged. */
+  private storeStamp(): string {
+    const parts: string[] = [];
+    try {
+      for (const name of readdirSync(this.recordsDir).sort()) {
+        if (!name.endsWith(".jsonl")) continue;
+        const st = statSync(join(this.recordsDir, name));
+        parts.push(`${name}:${st.mtimeMs}:${st.ctimeMs}:${st.size}`);
+      }
+    } catch {
+      /* no records dir yet */
+    }
+    return parts.join("|");
+  }
 
   constructor(dir: string) {
     this.dir = resolve(dir);
@@ -137,19 +171,44 @@ export class Case {
     rec.meta = { ...rec.meta, case: this.dir };
     const file = join(this.recordsDir, `${rec.verb}.jsonl`);
     appendRecordJSONL(file, rec);
+    // INVALIDATE rather than patch the cache. An incremental push + re-stamp is
+    // unavoidably racy without a lock: a concurrent external append (another
+    // process / Case on this dir) landing between the stamp check and our own
+    // append would be "blessed away" (we'd re-stamp to disk while missing its
+    // row). Dropping the cache is race-free — the next read reloads disk truth
+    // (mtime-validated), so read-after-write stays correct, and read-heavy paths
+    // with no intervening writes (recordById loops, brief/ask) are still cached.
+    this._recordsCache = undefined;
+    this._idIndex = undefined;
+    this._cacheStamp = undefined;
     return file;
   }
 
-  /** All records across the store (input to ask/brief/recall). */
+  /** Load (once) + memoize the owned records for this instance, with an id index. */
+  private loadRecords(): OvercastRecord[] {
+    const stamp = this.storeStamp();
+    if (!this._recordsCache || this._cacheStamp !== stamp) {
+      this._recordsCache = readAllRecords(this.recordsDir).filter((rec) => {
+        const owner = rec.meta?.case;
+        return typeof owner !== "string" || resolve(owner) === this.dir;
+      });
+      const idx = new Map<string, OvercastRecord>();
+      for (const r of this._recordsCache) if (!idx.has(r.id)) idx.set(r.id, r); // first-match, like the old find()
+      this._idIndex = idx;
+      this._cacheStamp = stamp;
+    }
+    return this._recordsCache;
+  }
+
+  /** All records across the store (input to ask/brief/recall). Returns a fresh
+   *  array each call (callers may sort/filter in place) over the cached parse. */
   records(): OvercastRecord[] {
-    return readAllRecords(this.recordsDir).filter((rec) => {
-      const owner = rec.meta?.case;
-      return typeof owner !== "string" || resolve(owner) === this.dir;
-    });
+    return [...this.loadRecords()];
   }
 
   recordById(id: string): OvercastRecord | undefined {
-    return this.records().find((r) => r.id === id);
+    this.loadRecords();
+    return this._idIndex!.get(id);
   }
 
   /** Summarize resettable case contents without mutating the store. */
@@ -192,6 +251,9 @@ export class Case {
     for (const artifact of summary.artifacts) rmSync(join(this.dir, artifact), { force: true });
     mkdirSync(this.recordsDir, { recursive: true });
     mkdirSync(this.mediaDir, { recursive: true });
+    this._recordsCache = undefined; // the store was wiped — drop the cache
+    this._idIndex = undefined;
+    this._cacheStamp = undefined;
     return summary;
   }
 }

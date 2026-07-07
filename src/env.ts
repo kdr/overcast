@@ -71,3 +71,12 @@ export function redactSecrets(input: string): string {
 export function envPresent(name: string): boolean {
   return typeof process.env[name] === "string" && process.env[name] !== "";
 }
+
+/** True only for an AFFIRMATIVE env value (1/true/yes/on, case-insensitive). A
+ *  bare `if (process.env.X)` truthy check treats `X=0` / `X=false` as enabled
+ *  (they're non-empty strings) — use this for opt-in/opt-out toggles so an
+ *  operator setting `=0` isn't silently read as "on". */
+export function envEnabled(name: string): boolean {
+  const v = (process.env[name] ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}

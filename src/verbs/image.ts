@@ -37,7 +37,7 @@ export const imageVerb: VerbSpec = {
     "`image add <image|record-id> --index <local-image-index>` stores a reference image in a local image-ransac index. " +
     "`image match <image|video|record-id> --index <local-image-index>` searches that DB using OpenCV SIFT/ORB + RANSAC.",
   args: [
-    { name: "action", summary: "add | match", required: true },
+    { name: "action", summary: "add | match", required: true, choices: ["add", "match"] },
     { name: "input", summary: "image/video path, URL, or record id", required: false },
   ],
   flags: [

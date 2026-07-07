@@ -13,6 +13,13 @@ import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
 
+// Bound internal ffmpeg/ffprobe ops so a crafted/stalled media file can't hang a
+// verb forever (captured/scraped media is untrusted — invariant #10). The
+// exec-provider path always sets a timeout; these internal calls previously only
+// capped maxBuffer. Generous vs. legitimately slow media.
+const FFMPEG_MEDIA_TIMEOUT_MS = 5 * 60_000; // probe / frame / still / sheet / spectrogram
+const FFMPEG_ENHANCE_TIMEOUT_MS = 20 * 60_000; // enhance filtergraph (can be long)
+
 /** Recommended minimum ffmpeg/ffprobe version (major.minor). */
 export const MIN_FFMPEG = "4.4";
 
@@ -98,7 +105,7 @@ export async function probe(path: string): Promise<ProbeResult> {
   const { stdout } = await execFileP(
     FFPROBE_PATH,
     ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
-    { maxBuffer: 16 * 1024 * 1024 },
+    { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
   );
   const parsed = JSON.parse(stdout) as {
     format?: { duration?: string };
@@ -154,7 +161,7 @@ export async function extractFrame(
   await execFileP(
     FFMPEG_PATH,
     ["-y", "-ss", String(second), "-i", input, "-frames:v", "1", "-q:v", "2", out],
-    { maxBuffer: 16 * 1024 * 1024 },
+    { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
   );
   return out;
 }
@@ -172,7 +179,7 @@ export async function posterFrame(input: string, outDir: string, second = 0.5): 
     await execFileP(
       FFMPEG_PATH,
       ["-y", "-ss", String(second), "-i", input, "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-q:v", "6", out],
-      { maxBuffer: 16 * 1024 * 1024 },
+      { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
     );
     return existsSync(out) ? out : undefined;
   } catch {
@@ -213,7 +220,7 @@ export async function cropStill(
     "2",
     out,
   );
-  await execFileP(FFMPEG_PATH, args, { maxBuffer: 32 * 1024 * 1024 });
+  await execFileP(FFMPEG_PATH, args, { maxBuffer: 32 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS });
   return out;
 }
 
@@ -346,7 +353,7 @@ export async function contactSheet(
       await execFileP(
         FFMPEG_PATH,
         ["-y", "-ss", String(seconds[i]), "-i", input, "-frames:v", "1", "-q:v", "3", "-vf", vf, cell],
-        { maxBuffer: 16 * 1024 * 1024 },
+        { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
       );
     }
     // pad the last row so `tile` receives an exact cols×rows sequence — the
@@ -357,7 +364,7 @@ export async function contactSheet(
       await execFileP(
         FFMPEG_PATH,
         ["-y", "-f", "lavfi", "-i", `color=c=0x101418:s=${cellWidth}x${cellHeight}`, "-frames:v", "1", filler],
-        { maxBuffer: 8 * 1024 * 1024 },
+        { maxBuffer: 8 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
       );
       for (let i = n; i < slots; i++) {
         copyFileSync(filler, join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`));
@@ -369,7 +376,7 @@ export async function contactSheet(
         "-y", "-framerate", "1", "-i", join(work, "cell_%03d.jpg"),
         "-frames:v", "1", "-vf", `tile=${cols}x${rows}:padding=6:margin=6:color=0x101418`, out,
       ],
-      { maxBuffer: 64 * 1024 * 1024 },
+      { maxBuffer: 64 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
     );
   } finally {
     rmSync(work, { recursive: true, force: true });
@@ -417,7 +424,7 @@ export async function spectrogram(input: string, outDir: string): Promise<string
   await execFileP(
     FFMPEG_PATH,
     ["-y", "-i", input, "-lavfi", "showspectrumpic=s=1024x512:legend=1", out],
-    { maxBuffer: 16 * 1024 * 1024 },
+    { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
   );
   return out;
 }
@@ -514,7 +521,7 @@ export async function enhance(
   if (aFilters.length && modality !== "image") args.push("-af", aFilters.join(","));
   args.push(out);
 
-  await execFileP(FFMPEG_PATH, args, { maxBuffer: 32 * 1024 * 1024 });
+  await execFileP(FFMPEG_PATH, args, { maxBuffer: 32 * 1024 * 1024, timeout: FFMPEG_ENHANCE_TIMEOUT_MS });
   return { output: out, ops: applied, modality, skipped };
 }
 

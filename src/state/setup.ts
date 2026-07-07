@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { writeFileAtomic } from "../fs-atomic.js";
 import type { Case } from "../case.js";
 import type { IndexType } from "./index.js";
 
@@ -129,8 +129,7 @@ export function loadSetup(c: Case): CaseSetup | undefined {
 }
 
 export function saveSetup(c: Case, setup: CaseSetup): void {
-  mkdirSync(dirname(c.setupFile), { recursive: true });
-  writeFileSync(c.setupFile, JSON.stringify(setup, null, 2) + "\n", "utf8");
+  writeFileAtomic(c.setupFile, JSON.stringify(setup, null, 2) + "\n");
 }
 
 export function setupSummary(setup: CaseSetup | undefined): Record<string, unknown> {

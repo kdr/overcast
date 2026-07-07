@@ -80,7 +80,7 @@ export const clusterVerb: VerbSpec = {
     "sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the " +
     "case's sole one when --index is omitted. Emits a `cluster` record.",
   args: [
-    { name: "action", summary: VALID_ACTIONS.join(" | "), required: true },
+    { name: "action", summary: VALID_ACTIONS.join(" | "), required: true, choices: VALID_ACTIONS },
     { name: "arg", summary: "add/identify: media (path/URL/record-id) · show/label: person id", required: false },
     { name: "arg2", summary: "label: the name to assign (cluster label <person-id> <name>)", required: false },
   ],

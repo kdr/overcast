@@ -7,11 +7,13 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { cropStill, modalityFromExt, probe, type CropBox } from "../media/ffmpeg.js";
+import { fetchMediaToCase } from "../media/fetch.js";
 import { badNumber } from "./validate.js";
 import type { VerbSpec } from "../registry/types.js";
 
 type CropKind = "face" | "object";
 const THUMBNAIL_FETCH_TIMEOUT_MS = 15_000;
+const THUMBNAIL_MAX_BYTES = 64 * 1024 * 1024; // cap the (untrusted) thumbnail body
 
 interface Candidate {
   sourceRecord: OvercastRecord;
@@ -272,32 +274,33 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
   mkdirSync(frameDir, { recursive: true });
   const out = join(frameDir, `${safePart(id)}${extFromMime(mime)}`);
   if (existsSync(out)) return out;
-  const buf = params.toLowerCase().includes(";base64")
-    ? Buffer.from(data, "base64")
-    : Buffer.from(decodeURIComponent(data));
+  // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
+  // a huge inline data URL from an untrusted provider must not OOM the process.
+  const isBase64 = params.toLowerCase().includes(";base64");
+  // For base64, decoded ≈ 3/4 of the ASCII char count. For percent/plain, use the
+  // UTF-8 BYTE length (data.length is UTF-16 units and underestimates multibyte) —
+  // an upper bound on the decoded buffer, so a Unicode-crafted URL can't slip past.
+  const estBytes = isBase64 ? Math.floor((data.length * 3) / 4) : Buffer.byteLength(data, "utf8");
+  if (estBytes > THUMBNAIL_MAX_BYTES) {
+    throw new Error(`inline data URL too large (~${estBytes} bytes, cap ${THUMBNAIL_MAX_BYTES})`);
+  }
+  const buf = isBase64 ? Buffer.from(data, "base64") : Buffer.from(decodeURIComponent(data));
   writeFileSync(out, buf);
   return out;
 }
 
 async function materializeThumbnail(url: string, outDir: string, id: string): Promise<string> {
   if (/^data:/i.test(url)) return materializeDataUrl(url, outDir, id);
+  // http(s): a thumbnail_url is untrusted (it comes from a detection provider), so
+  // route it through THE hardened download path rather than a bare fetch — that
+  // gets the SSRF host guard + per-hop redirect re-validation + streaming size cap
+  // + timeout all at once (a thumbnail must not be able to reach internal hosts).
   const frameDir = join(outDir, ".frames");
-  mkdirSync(frameDir, { recursive: true });
-  const out = join(frameDir, `${safePart(id)}${extFromUrl(url)}`);
-  if (existsSync(out)) return out;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), THUMBNAIL_FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`download failed ${res.status} ${res.statusText}`);
-    writeFileSync(out, Buffer.from(await res.arrayBuffer()));
-  } catch (e) {
-    if ((e as Error).name === "AbortError") throw new Error(`download timed out after ${THUMBNAIL_FETCH_TIMEOUT_MS}ms`);
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
-  return out;
+  const fetched = await fetchMediaToCase(url, frameDir, {
+    timeoutMs: THUMBNAIL_FETCH_TIMEOUT_MS,
+    maxBytes: THUMBNAIL_MAX_BYTES,
+  });
+  return fetched.path;
 }
 
 export const cropVerb: VerbSpec = {
@@ -345,11 +348,17 @@ export const cropVerb: VerbSpec = {
       const wanted = String(ctx.opts.id);
       candidates = candidates.filter((c) => c.id === wanted);
     }
-    if (!ctx.opts.all && !ctx.opts.id && candidates.length > 1) {
-      return [err(`crop matched ${candidates.length} detections; pass --all, --id <id>, or narrow with --class/--kind`)];
-    }
     const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined;
+    if (limit !== undefined && (!Number.isFinite(limit) || limit <= 0)) {
+      return [err(`invalid --limit: ${ctx.opts.limit} (expected a positive number)`)];
+    }
+    // Apply --limit BEFORE the ambiguity guard: an explicit bound is a valid way
+    // to resolve a multi-detection match, so `crop <rec> --limit 3` writes 3
+    // rather than erroring out (the flag's only stated purpose).
     if (limit !== undefined) candidates = candidates.slice(0, limit);
+    if (!ctx.opts.all && !ctx.opts.id && limit === undefined && candidates.length > 1) {
+      return [err(`crop matched ${candidates.length} detections; pass --all, --id <id>, --limit <n>, or narrow with --class/--kind`)];
+    }
     if (!candidates.length) return [err("no detections matched the crop filters")];
 
     const outDir = ctx.opts.out ? String(ctx.opts.out) : join(ctx.case.mediaDir, "crops");

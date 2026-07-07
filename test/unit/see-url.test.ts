@@ -25,6 +25,9 @@ let base: string;
 let hits: Record<string, number>;
 
 before(async () => {
+  // the fixture server binds 127.0.0.1, which the media-fetch SSRF guard blocks
+  // by default — opt out for this offline test of the fetch/sniff pipeline.
+  process.env.OVERCAST_ALLOW_PRIVATE_FETCH = "1";
   dir = mkdtempSync(join(tmpdir(), "oc-seeurl-"));
   hits = {};
   server = createServer((req, res) => {
@@ -55,6 +58,14 @@ before(async () => {
       // lying Content-Type: claims image/jpeg, body is an HTML login page
       res.writeHead(200, { "content-type": "image/jpeg" });
       res.end("<!DOCTYPE html><html>please log in</html>");
+    } else if (path === "/redir") {
+      // relative redirect → exercises the manual redirect-following loop
+      res.writeHead(302, { location: "/img.png" });
+      res.end();
+    } else if (path === "/redir-file") {
+      // hostile redirect to a non-http(s) scheme (local file read) — must be refused
+      res.writeHead(302, { location: "file:///etc/passwd" });
+      res.end();
     } else {
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("nope");
@@ -67,6 +78,7 @@ before(async () => {
 after(async () => {
   await new Promise((r) => server.close(r));
   rmSync(dir, { recursive: true, force: true });
+  delete process.env.OVERCAST_ALLOW_PRIVATE_FETCH;
 });
 
 function ctx(input: string, profile = defaultProfile()): VerbContext {
@@ -112,6 +124,17 @@ test("fetchMediaToCase: no ext + no content-type → magic-byte sniff", async ()
 
 test("fetchMediaToCase: HTTP error status throws with the status line", async () => {
   await assert.rejects(fetchMediaToCase(`${base}/missing.png`, join(dir, "media")), /404/);
+});
+
+test("fetchMediaToCase: follows a redirect (manual loop) to the final media", async () => {
+  const got = await fetchMediaToCase(`${base}/redir`, join(dir, "media"));
+  assert.equal(got.ext, ".png"); // followed 302 → /img.png
+  assert.ok((hits["/img.png"] ?? 0) > 0, "the redirect target was fetched");
+});
+
+test("fetchMediaToCase: refuses a redirect to a non-http(s) scheme (file://)", async () => {
+  // opt-out is ON in this suite (127.0.0.1 fixture), but scheme guard still applies
+  await assert.rejects(fetchMediaToCase(`${base}/redir-file`, join(dir, "media")), /non-http\(s\)/);
 });
 
 test("see with an image URL: provider receives a LOCAL path; meta.source_url keeps the origin", async () => {

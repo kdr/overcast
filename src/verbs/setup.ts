@@ -232,7 +232,7 @@ export const setupVerb: VerbSpec = {
     "verb to a provider (exec:<cmd> | http(s)://… | inproc:<module>). `setup llm <provider> <model>` sets " +
     "the brain. `setup memory <local-grep|qmd>` configures case search. `setup show` prints the active profile.",
   args: [
-    { name: "action", summary: "provider | llm | memory | show (default: show)" },
+    { name: "action", summary: "provider | llm | memory | show (default: show)", choices: ["provider", "llm", "memory", "show"] },
     { name: "a", summary: "verb (provider), provider id (llm), or backend (memory)" },
     { name: "b", summary: "spec (provider), model (llm), or command (memory)" },
   ],
@@ -309,7 +309,7 @@ export const providerVerb: VerbSpec = {
     "`provider init <verb>` runs the bound provider's init step — a command, or guidance for a " +
     "skill-based init (not wired yet). `provider list` shows the active bindings.",
   args: [
-    { name: "action", summary: "setup | init | list | describe (default: list)" },
+    { name: "action", summary: "setup | init | list | describe (default: list)", choices: ["setup", "init", "list", "describe"] },
     { name: "verb", summary: "setup subcommand, or verb whose provider to init/describe" },
   ],
   flags: [

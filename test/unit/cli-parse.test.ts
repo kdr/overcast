@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { parseVerbArgs } from "../../src/registry/to-cli.ts";
 import { runCli, exitCodeForRecords, type CliIO } from "../../src/cli.ts";
 import { watchVerb } from "../../src/registry/verbs.ts";
+import { findingVerb } from "../../src/verbs/finding.ts";
 import { openCase } from "../../src/case.ts";
 import { makeRecord } from "../../src/record.ts";
 
@@ -27,6 +28,16 @@ test("parseVerbArgs: invalid choice is rejected", () => {
   const okp = parseVerbArgs(watchVerb, ["v.mp4", "--format=md"]);
   assert.equal(okp.errors.length, 0);
   assert.equal(okp.opts.format, "md");
+});
+
+test("parseVerbArgs: invalid positional action choice is rejected; valid + omitted pass", () => {
+  const bad = parseVerbArgs(findingVerb, ["frobnicate"]);
+  assert.ok(bad.errors.some((e) => /action must be one of/.test(e)), bad.errors.join("; "));
+  const good = parseVerbArgs(findingVerb, ["list"]);
+  assert.equal(good.errors.length, 0);
+  assert.equal(good.input, "list");
+  const omitted = parseVerbArgs(findingVerb, []); // optional action → verb defaults it, no error
+  assert.equal(omitted.errors.length, 0);
 });
 
 test("runCli: invalid --format exits 2 and prints an error (no silent fallback)", async () => {

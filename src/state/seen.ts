@@ -2,9 +2,10 @@
 // identities (url, else a content composite) so a monitor loop only acts on
 // genuinely new items across runs.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { writeFileAtomic } from "../fs-atomic.js";
 import type { Case } from "../case.js";
 import type { OvercastRecord } from "../record.js";
 
@@ -23,8 +24,7 @@ export function loadSeen(c: Case): Set<string> {
 }
 
 export function saveSeen(c: Case, keys: Set<string>): void {
-  mkdirSync(join(c.seenFile, ".."), { recursive: true });
-  writeFileSync(c.seenFile, JSON.stringify({ keys: [...keys] }, null, 2) + "\n", "utf8");
+  writeFileAtomic(c.seenFile, JSON.stringify({ keys: [...keys] }, null, 2) + "\n");
 }
 
 // Consecutive-failure counts for EPHEMERAL monitor hits (a webcam's current
@@ -48,9 +48,7 @@ export function loadEphemeralFails(c: Case): Map<string, number> {
 }
 
 export function saveEphemeralFails(c: Case, fails: Map<string, number>): void {
-  const f = ephemeralFailsFile(c);
-  mkdirSync(join(f, ".."), { recursive: true });
-  writeFileSync(f, JSON.stringify(Object.fromEntries(fails), null, 2) + "\n", "utf8");
+  writeFileAtomic(ephemeralFailsFile(c), JSON.stringify(Object.fromEntries(fails), null, 2) + "\n");
 }
 
 // Field separator for composite keys: ASCII unit separator, which won't appear

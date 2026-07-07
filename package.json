@@ -41,7 +41,8 @@
     "skills",
     "prompts",
     "examples",
-    "scripts/brand-pi.mjs"
+    "scripts/brand-pi.mjs",
+    "scripts/visual-db-uv.sh"
   ],
   "engines": {
     "node": ">=22"

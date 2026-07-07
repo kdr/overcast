@@ -127,9 +127,12 @@ export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
 
 const ID_PREFIX = "rec_";
 
-/** Stable-ish unique id; this IS the record's memory address. */
+/** Stable-ish unique id; this IS the record's memory address. 8 random bytes
+ *  (2^64) so a large case (`scan --pull` can write 10k+ records) doesn't hit a
+ *  birthday collision — `recordById` returns the FIRST match, so a duplicate id
+ *  would silently misroute `view`/`crop`/`case memory get`/`finding` review. */
 export function newRecordId(): string {
-  return ID_PREFIX + randomBytes(4).toString("hex");
+  return ID_PREFIX + randomBytes(8).toString("hex");
 }
 
 export interface NewRecordInput {
@@ -208,7 +211,13 @@ export function appendRecordJSONL(file: string, rec: OvercastRecord): void {
   appendFileSync(file, JSON.stringify(rec) + "\n", "utf8");
 }
 
-/** Read all records from a JSONL file (skips blank lines; tolerates trailing newline). */
+/** Read all records from a JSONL file (skips blank lines; tolerates trailing newline).
+ *  A malformed line is SKIPPED, not thrown — the record store is the case memory
+ *  and appends are non-atomic (a line > PIPE_BUF can interleave under concurrent
+ *  `monitor --every` / `scan --pull` writers, or be truncated by a crash / full
+ *  disk). Without this, one torn line would brick EVERY reader — ask/brief/wall/
+ *  finding and even `case clear` (which reads before it deletes). This mirrors how
+ *  every sibling JSON store (setup/seen/source/target/index) already self-heals. */
 export function readRecordsJSONL(file: string): OvercastRecord[] {
   if (!existsSync(file)) return [];
   const text = readFileSync(file, "utf8");
@@ -216,7 +225,11 @@ export function readRecordsJSONL(file: string): OvercastRecord[] {
   for (const line of text.split("\n")) {
     const t = line.trim();
     if (!t) continue;
-    out.push(JSON.parse(t) as OvercastRecord);
+    try {
+      out.push(JSON.parse(t) as OvercastRecord);
+    } catch {
+      // torn/partial line — skip it rather than fail the whole store read.
+    }
   }
   return out;
 }

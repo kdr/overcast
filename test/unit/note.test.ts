@@ -30,6 +30,31 @@ async function withCase(fn: (dir: string) => Promise<void>) {
   }
 }
 
+test("note --ref accepts a path relative to the CASE dir (not just cwd)", async () => {
+  await withCase(async (dir) => {
+    // exists relative to the CASE dir, but NOT the process cwd
+    writeFileSync(join(dir, "note-case-rel.jpg"), "img");
+    const [ok] = await noteVerb.run(ctx(dir, "plate visible", [], { ref: "note-case-rel.jpg" }));
+    assert.ok(!ok.error, `unexpected error: ${ok.error}`);
+    assert.equal(ok.verb, "note");
+    // a genuinely bogus relative path is still rejected
+    const [bad] = await noteVerb.run(ctx(dir, "x", [], { ref: "note-nope-missing.jpg" }));
+    assert.equal(bad.state, "error");
+    assert.match(bad.error ?? "", /does not resolve/);
+
+    // a ../ traversal that ESCAPES the case dir is rejected even if the file exists
+    const outside = join(dir, "..", `oc-note-outside-${Date.now()}.txt`);
+    writeFileSync(outside, "secret");
+    try {
+      const [esc] = await noteVerb.run(ctx(dir, "x", [], { ref: `../${outside.split("/").pop()}` }));
+      assert.equal(esc.state, "error");
+      assert.match(esc.error ?? "", /does not resolve/);
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
+});
+
 test("note creates a human-authored primary record with tags and evidence anchor", async () => {
   await withCase(async (dir) => {
     const source = openCase(dir).records().find((r) => r.verb === "watch")!;

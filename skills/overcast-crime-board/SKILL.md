@@ -26,7 +26,7 @@ overcast doctor --json
 overcast face ./clip.mp4 --thumbnails --json
 overcast crop <face-record-id> --all --class face --square --pad 0.1 --json
 scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
-overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py" --json  # $DETECT_PY = that venv python (system python3 lacks the deps)
+export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local resolves detect.py's ABSOLUTE path (a relative one fails from a case dir) + uses $DETECT_PY (the venv python; system python3 lacks the deps)
 overcast see ./clip.mp4 --detect "car, bag, weapon, phone" --json
 overcast crop <detect-record-id> --all --kind object --json   # crop the --detect record (it has boxes)
 ```
