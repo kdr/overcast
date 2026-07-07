@@ -55,32 +55,34 @@ export class Case {
   // Record cache: caching the parsed store avoids re-reading + re-JSON.parsing
   // every *.jsonl on each records()/recordById() call (the persist seam runs
   // triggers after every write; scan --pull / monitor --every otherwise go
-  // ~O(hits × senses × N)). Kept COHERENT WITH DISK via a cheap maxMtime:totalSize
-  // stamp: any external write (another process/Case, or an in-place edit that qmd
-  // staleness detection looks for) changes a *.jsonl → the cache reloads on the
-  // next read. writeRecord() INVALIDATES the cache (rather than racily patching
-  // it), so repeated reads with no writes are cached but every write reloads fresh.
+  // ~O(hits × senses × N)). Kept COHERENT WITH DISK via a cheap per-file
+  // mtime/ctime/size fingerprint (storeStamp): any external write (another
+  // process/Case, or an in-place edit that qmd staleness detection looks for)
+  // changes a *.jsonl → the cache reloads on the next read. writeRecord()
+  // INVALIDATES the cache (rather than racily patching it), so repeated reads
+  // with no writes are cached but every write reloads fresh.
   private _recordsCache?: OvercastRecord[];
   private _idIndex?: Map<string, OvercastRecord>;
   private _cacheStamp?: string;
 
-  /** A `maxMtime:totalSize` fingerprint of the store's *.jsonl files — changes on
-   *  any append (size grows), in-place edit (mtime and usually size), or new verb
-   *  file. Combining size with mtime is robust to coarse mtime granularity. */
+  /** A PER-FILE fingerprint of the store's *.jsonl files (one `name:mtime:ctime:size`
+   *  entry each). Changes on any append (size), write/touch (mtime), same-size
+   *  in-place edit (ctime — the kernel bumps it on any inode change, and a `utimes`
+   *  mtime-forge can't reset it), or a new/removed file. Per-file rather than a
+   *  global maxMtime+totalSize so an edit to a non-newest file (or one that keeps
+   *  the summed size) can't leave the fingerprint unchanged. */
   private storeStamp(): string {
-    let maxMtime = 0;
-    let totalSize = 0;
+    const parts: string[] = [];
     try {
-      for (const name of readdirSync(this.recordsDir)) {
+      for (const name of readdirSync(this.recordsDir).sort()) {
         if (!name.endsWith(".jsonl")) continue;
         const st = statSync(join(this.recordsDir, name));
-        if (st.mtimeMs > maxMtime) maxMtime = st.mtimeMs;
-        totalSize += st.size;
+        parts.push(`${name}:${st.mtimeMs}:${st.ctimeMs}:${st.size}`);
       }
     } catch {
       /* no records dir yet */
     }
-    return `${maxMtime}:${totalSize}`;
+    return parts.join("|");
   }
 
   constructor(dir: string) {

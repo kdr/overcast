@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, readFileSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase, recordFiles } from "../../src/case.ts";
@@ -197,5 +197,26 @@ test("records() cache: an external write between cache-build and a local write i
 
     assert.deepEqual(a.records().map((r) => r.id).sort(), ["rec_a1", "rec_a2", "rec_b1"]);
     assert.ok(a.recordById("rec_b1"), "recordById sees the external write too");
+  });
+});
+
+test("records() cache: a same-size in-place edit is detected even if mtime is forged back (ctime)", () => {
+  withTmp((dir) => {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ id: "rec_ss", verb: "watch", payload: { content: "AAAA" } }));
+    assert.equal((c.recordById("rec_ss")?.payload as { content: string }).content, "AAAA");
+
+    const f = join(c.recordsDir, "watch.jsonl");
+    const beforeMtime = statSync(f).mtime;
+    const raw = readFileSync(f, "utf8");
+    const edited = raw.replace('"AAAA"', '"BBBB"'); // same byte length
+    assert.equal(edited.length, raw.length, "edit must be the exact same size");
+    writeFileSync(f, edited, "utf8");
+    // forge the mtime back to before the edit — the old maxMtime:totalSize stamp
+    // would collide (size unchanged, mtime reset); only ctime advances now.
+    utimesSync(f, beforeMtime, beforeMtime);
+
+    assert.equal((c.recordById("rec_ss")?.payload as { content: string }).content, "BBBB");
   });
 });
