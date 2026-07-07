@@ -55,10 +55,11 @@ export class Case {
   // Record cache: caching the parsed store avoids re-reading + re-JSON.parsing
   // every *.jsonl on each records()/recordById() call (the persist seam runs
   // triggers after every write; scan --pull / monitor --every otherwise go
-  // ~O(hits × senses × N)). Kept COHERENT WITH DISK via a cheap max-mtime stamp:
-  // an external write (another process, or an in-place edit that qmd staleness
-  // detection looks for) changes a *.jsonl mtime → the cache reloads. This
-  // instance's own writeRecord() appends + re-stamps, so no reload on self-write.
+  // ~O(hits × senses × N)). Kept COHERENT WITH DISK via a cheap maxMtime:totalSize
+  // stamp: any external write (another process/Case, or an in-place edit that qmd
+  // staleness detection looks for) changes a *.jsonl → the cache reloads on the
+  // next read. writeRecord() INVALIDATES the cache (rather than racily patching
+  // it), so repeated reads with no writes are cached but every write reloads fresh.
   private _recordsCache?: OvercastRecord[];
   private _idIndex?: Map<string, OvercastRecord>;
   private _cacheStamp?: string;
@@ -167,25 +168,17 @@ export class Case {
     // common agent footgun: cd elsewhere, then `case memory get` finds nothing).
     rec.meta = { ...rec.meta, case: this.dir };
     const file = join(this.recordsDir, `${rec.verb}.jsonl`);
-    // Did another process / another Case on this dir write since our cache was
-    // built? Check BEFORE our own append changes the stamp. If so, the cache is
-    // missing their rows and must NOT be re-blessed as current (else records()/
-    // ask/triggers/recordById would silently omit that evidence).
-    const externallyChanged = this._recordsCache !== undefined && this.storeStamp() !== this._cacheStamp;
     appendRecordJSONL(file, rec);
-    if (this._recordsCache) {
-      if (externallyChanged) {
-        // drop the cache — the next read reloads the external rows + our append.
-        this._recordsCache = undefined;
-        this._idIndex = undefined;
-        this._cacheStamp = undefined;
-      } else {
-        // no external writer → safe to keep the cache live incrementally.
-        this._recordsCache.push(rec);
-        if (!this._idIndex!.has(rec.id)) this._idIndex!.set(rec.id, rec);
-        this._cacheStamp = this.storeStamp(); // now reflects only our own append
-      }
-    }
+    // INVALIDATE rather than patch the cache. An incremental push + re-stamp is
+    // unavoidably racy without a lock: a concurrent external append (another
+    // process / Case on this dir) landing between the stamp check and our own
+    // append would be "blessed away" (we'd re-stamp to disk while missing its
+    // row). Dropping the cache is race-free — the next read reloads disk truth
+    // (mtime-validated), so read-after-write stays correct, and read-heavy paths
+    // with no intervening writes (recordById loops, brief/ask) are still cached.
+    this._recordsCache = undefined;
+    this._idIndex = undefined;
+    this._cacheStamp = undefined;
     return file;
   }
 
