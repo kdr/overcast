@@ -63,7 +63,7 @@ function isBlockedIPv4(ip: number): boolean {
  *  isn't a valid IPv6 literal. Hand-parsed so EVERY spelling normalizes (the old
  *  code only special-cased `::1` / `::` / `::ffff:`). */
 function ipv6ToBytes(host: string): Uint8Array | null {
-  let s = host;
+  let s = host.toLowerCase().replace(/%.*$/, ""); // normalize case + drop a %zone id (fe80::1%eth0)
   const v4m = s.match(/^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/); // embedded IPv4 tail
   if (v4m) {
     const v4 = parseLooseIPv4(v4m[2]);
@@ -131,11 +131,14 @@ function isBlockedFetchHost(host: string): boolean {
   return false;
 }
 
-/** Is this host an IP literal (any IPv4 encoding, or an IPv6 literal)? Such a
- *  host is fully decided by isBlockedFetchHost — no DNS resolution is needed. */
+/** Is this host an IP literal we FULLY decided in isBlockedFetchHost (so no DNS is
+ *  needed)? Only a host that actually PARSES as IPv4 or IPv6 — NOT merely "contains
+ *  a colon". A colon-bearing string that ipv6ToBytes can't parse (e.g. a malformed
+ *  or zone-suffixed literal) is treated as unvetted and falls through to DNS /
+ *  fail-closed, instead of being waved past the guard. */
 function isIpLiteralHost(host: string): boolean {
   const h = host.replace(/^\[/, "").replace(/\]$/, "");
-  return parseLooseIPv4(h) !== null || h.includes(":");
+  return parseLooseIPv4(h) !== null || ipv6ToBytes(h) !== null;
 }
 
 export type HostLookup = (host: string, opts: { all: true }) => Promise<Array<{ address: string }>>;
