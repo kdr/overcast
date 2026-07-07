@@ -58,24 +58,76 @@ function isBlockedIPv4(ip: number): boolean {
   return false;
 }
 
+/** Expand an IPv6 literal — compressed `::`, full 8-group, or with an embedded
+ *  dotted-IPv4 tail (::ffff:1.2.3.4 / ::1.2.3.4) — to its 16 bytes, or null if it
+ *  isn't a valid IPv6 literal. Hand-parsed so EVERY spelling normalizes (the old
+ *  code only special-cased `::1` / `::` / `::ffff:`). */
+function ipv6ToBytes(host: string): Uint8Array | null {
+  let s = host;
+  const v4m = s.match(/^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/); // embedded IPv4 tail
+  if (v4m) {
+    const v4 = parseLooseIPv4(v4m[2]);
+    if (v4 === null) return null;
+    s = `${v4m[1]}${((v4 >>> 16) & 0xffff).toString(16)}:${(v4 & 0xffff).toString(16)}`;
+  }
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+  const toGroups = (part: string): number[] | null => {
+    if (part === "") return [];
+    const out: number[] = [];
+    for (const g of part.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+      out.push(parseInt(g, 16));
+    }
+    return out;
+  };
+  const head = toGroups(halves[0]);
+  if (head === null) return null;
+  let groups: number[];
+  if (halves.length === 2) {
+    const tail = toGroups(halves[1]);
+    if (tail === null) return null;
+    const fill = 8 - head.length - tail.length;
+    if (fill < 0) return null;
+    groups = [...head, ...(Array(fill).fill(0) as number[]), ...tail];
+  } else {
+    groups = head;
+  }
+  if (groups.length !== 8) return null;
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 8; i++) {
+    bytes[i * 2] = (groups[i] >>> 8) & 0xff;
+    bytes[i * 2 + 1] = groups[i] & 0xff;
+  }
+  return bytes;
+}
+
+/** Is an IPv6 address (16 bytes) loopback / unspecified / unique-local / link-local,
+ *  or an embedded IPv4 (mapped ::ffff:v4 or compatible ::v4) in a blocked v4 range? */
+function isBlockedIPv6(b: Uint8Array): boolean {
+  let allZero = true;
+  for (let i = 0; i < 15; i++) if (b[i] !== 0) { allZero = false; break; }
+  if (allZero && (b[15] === 1 || b[15] === 0)) return true; // ::1 loopback / :: unspecified
+  if ((b[0] & 0xfe) === 0xfc) return true; // fc00::/7 unique-local
+  if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true; // fe80::/10 link-local
+  let first10Zero = true;
+  for (let i = 0; i < 10; i++) if (b[i] !== 0) { first10Zero = false; break; }
+  if (first10Zero && ((b[10] === 0xff && b[11] === 0xff) || (b[10] === 0 && b[11] === 0))) {
+    const v4 = ((b[12] << 24) | (b[13] << 16) | (b[14] << 8) | b[15]) >>> 0;
+    if (v4 !== 0 && isBlockedIPv4(v4)) return true; // embedded IPv4 in a blocked range
+  }
+  return false;
+}
+
 function isBlockedFetchHost(host: string): boolean {
   const h = host.toLowerCase().replace(/^\[/, "").replace(/\]$/, ""); // strip IPv6 brackets
   if (h === "localhost" || h.endsWith(".localhost")) return true;
-  // IPv4-mapped IPv6: the embedded v4 may be dotted (::ffff:127.0.0.1) or, once
-  // the URL parser canonicalizes it, two hex groups (::ffff:7f00:1). Extract + check.
-  if (h.startsWith("::ffff:")) {
-    const tail = h.slice(7);
-    const dotted = parseLooseIPv4(tail);
-    if (dotted !== null) return isBlockedIPv4(dotted);
-    const hex = tail.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-    if (hex) return isBlockedIPv4((((parseInt(hex[1], 16) << 16) | parseInt(hex[2], 16)) >>> 0));
-  }
   // IPv4 in any encoding: catches 127.1 / 2130706433 / 0x.. / octal / trailing dot.
   const ip = parseLooseIPv4(h);
   if (ip !== null) return isBlockedIPv4(ip);
-  // IPv6 literals: loopback, unique-local (fc00::/7), link-local (fe80::/10)
-  if (h === "::1" || h === "::") return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(h) || /^fe[89ab][0-9a-f]:/.test(h)) return true;
+  // IPv6 in any spelling (compressed/expanded, embedded IPv4).
+  const v6 = ipv6ToBytes(h);
+  if (v6) return isBlockedIPv6(v6);
   return false;
 }
 

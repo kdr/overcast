@@ -86,12 +86,16 @@ test("assertFetchHostAllowed blocks private/loopback/link-local host literals (C
     "http://127.0.0.1./x", // trailing dot
     "http://0/x", // 0 → 0.0.0.0
     "http://[::ffff:169.254.169.254]/x", // IPv4-mapped IPv6 metadata
+    "http://[::127.0.0.1]/x", // IPv4-compatible IPv6 (normalizes to ::7f00:1) — Bugbot
+    "http://[0:0:0:0:0:0:0:1]/x", // fully-expanded loopback
+    "http://[fe80::1]/x", // link-local
+    "http://[fc00::1]/x", // unique-local
   ];
   for (const u of blocked) await assert.rejects(assertFetchHostAllowed(u, { lookup: noLookup }), /private\/loopback/, u);
 });
 
 test("assertFetchHostAllowed allows public IP literals (no DNS)", async () => {
-  const ok = ["https://8.8.8.8/x", "https://1.1.1.1/x", "https://172.32.0.1/x", "https://11.0.0.1/x"];
+  const ok = ["https://8.8.8.8/x", "https://1.1.1.1/x", "https://172.32.0.1/x", "https://11.0.0.1/x", "https://[2001:db8::1]/x"];
   for (const u of ok) await assert.doesNotReject(assertFetchHostAllowed(u, { lookup: noLookup }), u);
 });
 

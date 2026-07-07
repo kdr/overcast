@@ -277,7 +277,10 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
   // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
   // a huge inline data URL from an untrusted provider must not OOM the process.
   const isBase64 = params.toLowerCase().includes(";base64");
-  const estBytes = isBase64 ? Math.floor((data.length * 3) / 4) : data.length;
+  // For base64, decoded ≈ 3/4 of the ASCII char count. For percent/plain, use the
+  // UTF-8 BYTE length (data.length is UTF-16 units and underestimates multibyte) —
+  // an upper bound on the decoded buffer, so a Unicode-crafted URL can't slip past.
+  const estBytes = isBase64 ? Math.floor((data.length * 3) / 4) : Buffer.byteLength(data, "utf8");
   if (estBytes > THUMBNAIL_MAX_BYTES) {
     throw new Error(`inline data URL too large (~${estBytes} bytes, cap ${THUMBNAIL_MAX_BYTES})`);
   }
