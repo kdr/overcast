@@ -5,8 +5,9 @@
 // not a face-search query image; the ref must be audio/video. Centralized so the
 // rule can't drift between verbs (the root cause of the review cascade).
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve, sep, isAbsolute } from "node:path";
+import { realpathContained } from "../fs-path.js";
 import { isReady, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
 
@@ -20,16 +21,9 @@ export function refPathExists(caseDir: string, rawRef: string): boolean {
   if (isAbsolute(rawRef)) return existsSync(rawRef);
   const p = resolve(caseDir, rawRef);
   if (p !== caseDir && !p.startsWith(caseDir + sep)) return false; // lexical ../ escape
-  if (!existsSync(p)) return false;
-  // resolve/existsSync are lexical + follow symlinks: re-check containment on the
-  // REAL paths so a case-local symlink can't point outside the store.
-  try {
-    const realCase = realpathSync(caseDir);
-    const real = realpathSync(p);
-    return real === realCase || real.startsWith(realCase + sep);
-  } catch {
-    return false;
-  }
+  // existsSync/resolve are lexical + follow symlinks: re-check containment on the
+  // REAL path so a case-local symlink can't point outside the store.
+  return existsSync(p) && realpathContained(caseDir, p);
 }
 
 /** Record verbs whose media.ref is registerable/analyzable case media. Excludes

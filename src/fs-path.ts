@@ -1,7 +1,23 @@
 // Path helpers shared across the arg-construction boundaries.
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
+import { realpathSync } from "node:fs";
+
+/** True if `target` (which must already exist) resolves — THROUGH symlinks — to a
+ *  path inside `root` (or root itself). Callers do the lexical + existence checks;
+ *  this closes the symlink-escape hole a lexical `startsWith(root + sep)` misses
+ *  (a symlink inside root pointing outside). Shared by the finding/note `--ref`
+ *  guard and the chair static-file server so the two can't drift. */
+export function realpathContained(root: string, target: string): boolean {
+  try {
+    const realRoot = realpathSync(root);
+    const real = realpathSync(target);
+    return real === realRoot || real.startsWith(realRoot + sep);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Expand a leading `~` / `~/` to the user's home directory. A shell normally does
