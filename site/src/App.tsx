@@ -171,6 +171,14 @@ function InstallTabs() {
 export default function App() {
   const tagline = useGlitchedTagline()
 
+  useEffect(() => {
+    captureEvent('landing_page_viewed', {
+      page: 'home',
+      feature_point_count: FEATURE_POINTS.length,
+      install_method_count: INSTALL_COMMANDS.length,
+    })
+  }, [])
+
   return (
     <main className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-cream px-5 py-10 text-center font-mono text-ink sm:px-6 sm:py-16">
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
