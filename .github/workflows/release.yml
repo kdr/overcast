@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "22" # match ci.yml — test and publish on the same Node major
           # npm-recommended trusted-publishing config. With no NODE_AUTH_TOKEN set,
           # npm >= 11.5.1 ignores setup-node's .npmrc token placeholder and auths via
           # OIDC. Ref: https://docs.npmjs.com/trusted-publishers/
@@ -75,7 +75,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "22" # match ci.yml — test and publish on the same Node major
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest

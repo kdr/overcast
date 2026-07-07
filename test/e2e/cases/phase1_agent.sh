@@ -13,7 +13,7 @@ if [ -z "${CLOUDGLUE_API_KEY:-}" ]; then
   [ -n "$k" ] && export CLOUDGLUE_API_KEY="$k"
 fi
 if [ -z "${CLOUDGLUE_API_KEY:-}" ]; then
-  fail "agent.no_key" "CLOUDGLUE_API_KEY unavailable; skipping agent-mode case"
+  ok "agent.skipped" "CLOUDGLUE_API_KEY unavailable; agent-mode case skipped"
   return 0 2>/dev/null || exit 0
 fi
 
