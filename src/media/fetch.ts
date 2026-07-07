@@ -97,9 +97,14 @@ export type HostLookup = (host: string, opts: { all: true }) => Promise<Array<{ 
  *      hex/octal/short), synchronously; and
  *   2. a public HOSTNAME that RESOLVES to a private address (DNS rebinding) — via a
  *      DNS lookup of all A/AAAA records.
- *  `fetchMediaToCase` additionally re-runs this per redirect hop. (Residual: a
- *  narrow TOCTOU window between this resolve and the socket connect — closing it
- *  fully needs connection pinning via a custom undici dispatcher.) */
+ *  `fetchMediaToCase` additionally re-runs this per redirect hop, and gates the
+ *  URL before the cache-hit return. ACCEPTED RESIDUAL: a narrow TOCTOU window
+ *  between this resolve and the socket's own resolve (a same-millisecond DNS
+ *  rebind). Closing it needs connect-time IP pinning via a custom undici
+ *  dispatcher — but overcast ships primarily as a `bun build --compile` binary,
+ *  and bun's fetch ignores an undici dispatcher, so that would protect only the
+ *  Node path and leave the binary unchanged. This JS guard runs identically in
+ *  both runtimes; the residual is equal in both and deliberately left. */
 export async function assertFetchHostAllowed(url: string, opts: { lookup?: HostLookup } = {}): Promise<void> {
   let parsed: URL;
   try {
