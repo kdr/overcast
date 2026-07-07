@@ -274,9 +274,14 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
   mkdirSync(frameDir, { recursive: true });
   const out = join(frameDir, `${safePart(id)}${extFromMime(mime)}`);
   if (existsSync(out)) return out;
-  const buf = params.toLowerCase().includes(";base64")
-    ? Buffer.from(data, "base64")
-    : Buffer.from(decodeURIComponent(data));
+  // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
+  // a huge inline data URL from an untrusted provider must not OOM the process.
+  const isBase64 = params.toLowerCase().includes(";base64");
+  const estBytes = isBase64 ? Math.floor((data.length * 3) / 4) : data.length;
+  if (estBytes > THUMBNAIL_MAX_BYTES) {
+    throw new Error(`inline data URL too large (~${estBytes} bytes, cap ${THUMBNAIL_MAX_BYTES})`);
+  }
+  const buf = isBase64 ? Buffer.from(data, "base64") : Buffer.from(decodeURIComponent(data));
   writeFileSync(out, buf);
   return out;
 }

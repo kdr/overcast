@@ -5,7 +5,7 @@
 // not a face-search query image; the ref must be audio/video. Centralized so the
 // rule can't drift between verbs (the root cause of the review cascade).
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { resolve, sep, isAbsolute } from "node:path";
 import { isReady, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
@@ -13,13 +13,23 @@ import type { Case } from "../case.js";
 /** Whether a `--ref` string points at a real LOCAL file, for the finding/note
  *  evidence-ref guard. An absolute path is taken as-is (an explicit operator
  *  choice); a relative path resolves against the CASE dir (so `--case <dir>` from
- *  another cwd finds .overcast/media/… ) but MUST stay inside it — a `../` escape
- *  that would validate/anchor files outside the case store is rejected. */
+ *  another cwd finds .overcast/media/… ) but MUST stay inside it — a `../` escape,
+ *  OR a case-local SYMLINK pointing outside, that would validate/anchor files
+ *  beyond the case store is rejected (containment is re-checked on the real path). */
 export function refPathExists(caseDir: string, rawRef: string): boolean {
   if (isAbsolute(rawRef)) return existsSync(rawRef);
   const p = resolve(caseDir, rawRef);
-  if (p !== caseDir && !p.startsWith(caseDir + sep)) return false; // outside the case dir
-  return existsSync(p);
+  if (p !== caseDir && !p.startsWith(caseDir + sep)) return false; // lexical ../ escape
+  if (!existsSync(p)) return false;
+  // resolve/existsSync are lexical + follow symlinks: re-check containment on the
+  // REAL paths so a case-local symlink can't point outside the store.
+  try {
+    const realCase = realpathSync(caseDir);
+    const real = realpathSync(p);
+    return real === realCase || real.startsWith(realCase + sep);
+  } catch {
+    return false;
+  }
 }
 
 /** Record verbs whose media.ref is registerable/analyzable case media. Excludes
