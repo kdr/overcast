@@ -7,9 +7,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { readRecordsJSONL, newRecordId, makeRecord } from "../../src/record.ts";
 import { execCapture } from "../../src/providers/exec.ts";
-import { assertFetchHostAllowed, readBodyCapped } from "../../src/media/fetch.ts";
+import { assertFetchHostAllowed, readBodyCapped, fetchMediaToCase } from "../../src/media/fetch.ts";
 import { writeFileAtomic } from "../../src/fs-atomic.ts";
 
 // --- C1: a torn JSONL line must not brick the whole store read ---------------
@@ -144,6 +145,29 @@ test("readBodyCapped: a streamed body over the cap rejects (bounded memory)", as
   });
   const res = { body } as unknown as Response;
   await assert.rejects(readBodyCapped(res, 1024, "http://x/y"), /exceeds cap/);
+});
+
+test("assertFetchHostAllowed fails CLOSED when DNS lookup throws (no rebinding bypass)", async () => {
+  const throwingLookup = async () => {
+    throw new Error("DNS down");
+  };
+  await assert.rejects(
+    assertFetchHostAllowed("http://cdn.example/x", { lookup: throwingLookup }),
+    /could not resolve host/,
+  );
+});
+
+test("fetchMediaToCase runs the SSRF guard even on a cache hit (planted artifact)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-fetch-cache-"));
+  try {
+    // plant a cache artifact at the deterministic url-<hash> path for a blocked URL
+    const url = "http://169.254.169.254/evil.jpg"; // literal metadata IP → blocked, no DNS
+    const hash = createHash("sha256").update(url).digest("hex").slice(0, 12);
+    writeFileSync(join(dir, `url-${hash}.jpg`), "planted-bytes");
+    await assert.rejects(fetchMediaToCase(url, dir), /private\/loopback/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("assertFetchHostAllowed refuses non-http(s) schemes (redirect-to-file SSRF)", async () => {

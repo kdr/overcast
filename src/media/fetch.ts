@@ -128,7 +128,9 @@ export async function assertFetchHostAllowed(url: string, opts: { lookup?: HostL
   try {
     addrs = await resolve(host, { all: true });
   } catch {
-    return; // DNS failure → let the real fetch surface it
+    // Fail CLOSED: if we can't resolve the host to verify it, don't fetch it —
+    // `fetch` resolves independently and could still reach a private address.
+    throw new Error(`could not resolve host to verify it is not private (${host}): ${url}`);
   }
   for (const { address } of addrs) {
     if (isBlockedFetchHost(address)) throw blocked(`${host} → ${address}`);
@@ -256,6 +258,10 @@ export async function fetchMediaToCase(
   opts: FetchMediaOpts = {},
 ): Promise<FetchedMedia> {
   const { timeoutMs = 60_000, maxBytes = 64 * 1024 * 1024 } = opts;
+  // Gate the URL BEFORE the cache-hit return below — otherwise a repeat fetch (or
+  // a planted url-<hash> artifact) would serve bytes with the guard never run.
+  // The redirect loop re-checks each hop; this covers the initial URL + cache path.
+  await assertFetchHostAllowed(url);
   mkdirSync(mediaDir, { recursive: true });
   const hash = createHash("sha256").update(url).digest("hex").slice(0, 12);
 
@@ -282,10 +288,9 @@ export async function fetchMediaToCase(
   // otherwise a public URL could 302 to a private/metadata address after the
   // initial check. Node's `redirect:"manual"` exposes the real 3xx + Location.
   const MAX_REDIRECTS = 5;
-  let currentUrl = url;
+  let currentUrl = url; // already guarded above; each redirect target is guarded below
   let res: Response;
   for (let hop = 0; ; hop++) {
-    await assertFetchHostAllowed(currentUrl);
     try {
       // Node's fetch sends no User-Agent; several CDNs (e.g. Wikimedia) reject
       // UA-less clients outright, so identify ourselves.
@@ -302,6 +307,7 @@ export async function fetchMediaToCase(
     if (res.status >= 300 && res.status < 400 && location) {
       if (hop >= MAX_REDIRECTS) throw new Error(`too many redirects (>${MAX_REDIRECTS}): ${url}`);
       currentUrl = new URL(location, currentUrl).href; // resolve relative Location
+      await assertFetchHostAllowed(currentUrl); // re-validate EACH redirect target
       continue;
     }
     break;
