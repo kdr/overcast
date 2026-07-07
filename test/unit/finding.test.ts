@@ -40,6 +40,26 @@ test("finding create makes a root finding anchored to evidence", async () => {
   }
 });
 
+test("finding create --ref accepts a path relative to the CASE dir (not just cwd)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-finding-caserel-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    // exists relative to the CASE dir, but NOT the process cwd (the repo)
+    writeFileSync(join(dir, "case-rel-evidence.jpg"), "img");
+    const [ok] = await findingVerb.run(ctx(dir, "create", ["rear plate visible"], { ref: "case-rel-evidence.jpg" }));
+    assert.equal(ok.state, "ready", ok.error ?? "");
+    assert.equal((ok.media as { ref: string }).ref, "case-rel-evidence.jpg");
+
+    // a genuinely bogus relative path is still rejected
+    const [bad] = await findingVerb.run(ctx(dir, "create", ["x"], { ref: "nope-does-not-exist.jpg" }));
+    assert.equal(bad.state, "error");
+    assert.match(bad.error ?? "", /does not resolve/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("bare finding defaults to listing open findings", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-finding-list-"));
   try {

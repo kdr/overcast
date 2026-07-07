@@ -3,6 +3,7 @@
 // sensed/captured evidence. They can optionally anchor to a media ref or record.
 
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { makeRecord, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef } from "./media-ref.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -102,7 +103,9 @@ export const noteVerb: VerbSpec = {
         const resolved = resolveMediaRef(ctx.case, rawRef);
         if (resolved.recordId == null) {
           const isUrl = /^https?:\/\//i.test(rawRef);
-          const isExistingPath = !isUrl && existsSync(rawRef);
+          // check cwd AND the open case dir — `--case <dir>` from a different cwd
+          // must not treat a valid case-relative path (.overcast/media/…) as missing.
+          const isExistingPath = !isUrl && (existsSync(rawRef) || existsSync(resolve(ctx.case.dir, rawRef)));
           if (!isUrl && !isExistingPath) {
             if (/^rec_/i.test(rawRef)) return [err(`--ref record not found in this case: ${rawRef}`)];
             if (/^cap_/i.test(rawRef)) return [err(`--ref capture id not found in this case: ${rawRef}`)];

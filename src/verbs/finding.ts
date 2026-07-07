@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { makeRecord, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef } from "./media-ref.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -137,7 +138,9 @@ export const findingVerb: VerbSpec = {
           // finding is evidence, so it must not cite a path/id that never existed.
           if (resolved.recordId == null) {
             const isUrl = /^https?:\/\//i.test(rawRef);
-            const isExistingPath = !isUrl && existsSync(rawRef);
+            // check cwd AND the open case dir — with `--case <dir>` from a different
+            // cwd, a case-relative path (e.g. .overcast/media/…) must not read as missing.
+            const isExistingPath = !isUrl && (existsSync(rawRef) || existsSync(resolve(ctx.case.dir, rawRef)));
             if (!isUrl && !isExistingPath) {
               if (/^rec_/i.test(rawRef)) return [err(`--ref record not found in this case: ${rawRef}`)];
               if (/^cap_/i.test(rawRef)) return [err(`--ref capture id not found in this case: ${rawRef}`)];

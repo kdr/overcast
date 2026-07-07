@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { cropStill, modalityFromExt, probe, type CropBox } from "../media/ffmpeg.js";
-import { readBodyCapped } from "../media/fetch.js";
+import { fetchMediaToCase } from "../media/fetch.js";
 import { badNumber } from "./validate.js";
 import type { VerbSpec } from "../registry/types.js";
 
@@ -283,25 +283,16 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
 
 async function materializeThumbnail(url: string, outDir: string, id: string): Promise<string> {
   if (/^data:/i.test(url)) return materializeDataUrl(url, outDir, id);
+  // http(s): a thumbnail_url is untrusted (it comes from a detection provider), so
+  // route it through THE hardened download path rather than a bare fetch — that
+  // gets the SSRF host guard + per-hop redirect re-validation + streaming size cap
+  // + timeout all at once (a thumbnail must not be able to reach internal hosts).
   const frameDir = join(outDir, ".frames");
-  mkdirSync(frameDir, { recursive: true });
-  const out = join(frameDir, `${safePart(id)}${extFromUrl(url)}`);
-  if (existsSync(out)) return out;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), THUMBNAIL_FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`download failed ${res.status} ${res.statusText}`);
-    // streaming cap (like fetchMediaToCase) so a hostile/oversized thumbnail can't
-    // be buffered in full via arrayBuffer before any size check
-    writeFileSync(out, await readBodyCapped(res, THUMBNAIL_MAX_BYTES, url));
-  } catch (e) {
-    if ((e as Error).name === "AbortError") throw new Error(`download timed out after ${THUMBNAIL_FETCH_TIMEOUT_MS}ms`);
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
-  return out;
+  const fetched = await fetchMediaToCase(url, frameDir, {
+    timeoutMs: THUMBNAIL_FETCH_TIMEOUT_MS,
+    maxBytes: THUMBNAIL_MAX_BYTES,
+  });
+  return fetched.path;
 }
 
 export const cropVerb: VerbSpec = {
