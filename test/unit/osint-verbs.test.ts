@@ -1585,6 +1585,78 @@ test("monitor --every loops with seen-set diff across passes (capped)", async ()
   }
 });
 
+test("monitor persists two hits sharing a 100-char payload prefix but differing later", async () => {
+  // Regression for the truncated dedup key: the cross-pass `emitted` set keyed on
+  // only the first 100 chars of payload JSON, so two genuinely different records
+  // that shared a long prefix (and had no url/media.ref) collided and the second
+  // was silently never persisted/streamed. The full-payload hash keeps both.
+  const d = mkdtempSync(join(tmpdir(), "oc-mondedup-"));
+  const sourceScript = join(d, "dedup-source.sh");
+  const prevSource = process.env.OVERCAST_SOURCE_DEDUPFIX_CMD;
+  process.env.OVERCAST_MONITOR_MAX_PASSES = "1";
+  try {
+    // >100-char shared title, NO url/media (so media.ref is absent), differing
+    // snippet — identical for the first 100 payload chars, distinct afterward.
+    const prefix = "x".repeat(120);
+    writeFileSync(sourceScript, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${1:-}" = "enumerate" ]; then
+  echo '[{"title":"${prefix}","source":"dedupfix","snippet":"alpha-tail-one"},{"title":"${prefix}","source":"dedupfix","snippet":"bravo-tail-two"}]'
+else
+  echo '{}'
+fi
+`);
+    process.env.OVERCAST_SOURCE_DEDUPFIX_CMD = `bash ${sourceScript}`;
+    const c = openCase(d); c.ensure();
+    addSource(c, "dedupfix:any");
+    // --every path (not --once) so the loop's `emitted` dedup + writeRecord runs.
+    await monitorVerb.run({ input: undefined, rest: [], opts: { every: "1s" }, case: openCase(d), profile: defaultProfile() });
+    const hits = openCase(d).records().filter(
+      (r) => r.verb === "scan" && (r.payload as Record<string, unknown>).source === "dedupfix",
+    );
+    assert.equal(hits.length, 2, "both distinct hits persist despite a shared 100-char payload prefix");
+    const snippets = hits.map((r) => (r.payload as Record<string, unknown>).snippet).sort();
+    assert.deepEqual(snippets, ["alpha-tail-one", "bravo-tail-two"]);
+  } finally {
+    if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_DEDUPFIX_CMD;
+    else process.env.OVERCAST_SOURCE_DEDUPFIX_CMD = prevSource;
+    delete process.env.OVERCAST_MONITOR_MAX_PASSES;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("monitor merges the seen-set with disk so a concurrent process's keys survive", async () => {
+  const d = mkdtempSync(join(tmpdir(), "oc-monmerge-"));
+  process.env.OVERCAST_MONITOR_MAX_PASSES = "1";
+  try {
+    const c = openCase(d); c.ensure();
+    addSource(c, "fixture:x");
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `bash ${FAKE_WATCH} {{input}}` } };
+    // pass 1 marks the two fixture hits seen and persists them to seen.json.
+    const p1 = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true, pipe: "watch" }, case: openCase(d), profile });
+    assert.equal((p1.find((r) => r.verb === "monitor")!.payload as Record<string, unknown>).new_items, 2, "pass 1: two new items");
+    const afterPass1 = loadSeen(openCase(d));
+    assert.equal(afterPass1.size, 2, "pass 1 recorded the two fixture hits as seen");
+    // a CONCURRENT process (e.g. `monitor --once` in another terminal) persists a
+    // disjoint key. merge-on-save must UNION it with our two keys, not clobber them.
+    saveSeen(openCase(d), new Set(["url:https://other-process/item"]));
+    const afterInject = loadSeen(openCase(d));
+    assert.equal(afterInject.size, 3, "concurrent save unioned with disk (did not clobber the two fixture keys)");
+    for (const k of afterPass1) assert.ok(afterInject.has(k), "original seen key survived the concurrent save");
+    assert.ok(afterInject.has("url:https://other-process/item"), "concurrent key present after inject");
+    // pass 2 re-loads seen (now all three) → nothing is re-captured, save keeps all.
+    const p2 = await monitorVerb.run({ input: undefined, rest: [], opts: { once: true, pipe: "watch" }, case: openCase(d), profile });
+    assert.equal((p2.find((r) => r.verb === "monitor")!.payload as Record<string, unknown>).new_items, 0, "pass 2: nothing re-captured (seen honored)");
+    const finalSeen = loadSeen(openCase(d));
+    assert.equal(finalSeen.size, 3, "final seen holds both fixture keys and the injected key");
+    assert.ok(finalSeen.has("url:https://other-process/item"), "injected key still present after pass 2");
+  } finally {
+    delete process.env.OVERCAST_MONITOR_MAX_PASSES;
+    rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("monitor --every redacts secrets in streamed stdout and alert files", async () => {
   const d = mkdtempSync(join(tmpdir(), "oc-monredact-"));
   process.env.OVERCAST_MONITOR_MAX_PASSES = "1";

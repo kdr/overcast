@@ -1182,6 +1182,10 @@ export const monitorVerb: VerbSpec = {
       if (intervalMs <= 0) return [makeRecord({ verb: "monitor", format: "json", payload: { error: `bad --every '${everyStr}'` }, error: "bad interval", state: "error" })];
       const seen = loadSeen(ctx.case);
       const ephemeralFails = loadEphemeralFails(ctx.case);
+      // track which ephemeral keys we loaded so a save can tell disk which keys
+      // THIS process deleted (success/give-up) vs. never touched — the merge drops
+      // ours without resurrecting another process's live failing hits.
+      let ephemeralBaseline = new Set(ephemeralFails.keys());
       // cap passes from the env var; a non-numeric/≤0 value is ignored (→ Infinity)
       // rather than becoming NaN, which would make `pass < maxPasses` never run.
       const rawMax = Number(process.env.OVERCAST_MONITOR_MAX_PASSES);
@@ -1192,12 +1196,32 @@ export const monitorVerb: VerbSpec = {
       // de-dupe across passes: a recurring record (e.g. the same source-enumerate
       // error every pass) is persisted / streamed / alerted ONCE — not re-written
       // to the case JSONL with a new id, re-streamed, or re-appended to the sink.
+      // de-dup key: verb + error + media.ref + a FULL-payload hash (not a 100-char
+      // prefix, which conflated two records sharing a long prefix but differing
+      // later — the second was then silently never persisted/streamed/alerted).
+      const EMITTED_CAP = 10_000;
       const emitted = new Set<string>();
       const recKey = (r: OvercastRecord) =>
-        `${r.verb}|${r.error ?? ""}|${(r.media?.ref as string) ?? ""}|${JSON.stringify(r.payload ?? {}).slice(0, 100)}`;
+        `${r.verb}|${r.error ?? ""}|${(r.media?.ref as string) ?? ""}|` +
+        createHash("sha1").update(JSON.stringify(r.payload ?? {})).digest("hex");
       process.stderr.write(`monitor: every ${everyStr}, Ctrl-C to stop\n`);
       while (pass < maxPasses && !ctx.signal?.aborted) {
         pass++;
+        // re-sync disk truth into the in-memory seen-set before each pass so a
+        // concurrent monitor/scan process's newly-seen keys are honored (not
+        // re-captured) — the merge-on-save keeps our additions too.
+        for (const k of loadSeen(ctx.case)) seen.add(k);
+        // same symmetry for the ephemeral-fail counters, but a CLEAR+refill (not a
+        // union) because — unlike the monotone seen-set — this map has keys DELETED
+        // on success/give-up. If a concurrent monitor cleared a key (saveEphemeralFails
+        // with `deleted`), a stale in-memory entry here would be re-added by our own
+        // "our entries win" save, undoing the peer's success/give-up. Reloading disk
+        // truth into the SAME Map (monitorPass holds it by reference — mutate, don't
+        // reassign) drops the peer-deleted key; the merge-on-save still preserves keys
+        // we never touched. Reset the baseline so deletion-tracking matches the reload.
+        ephemeralFails.clear();
+        for (const [k, v] of loadEphemeralFails(ctx.case)) ephemeralFails.set(k, v);
+        ephemeralBaseline = new Set(ephemeralFails.keys());
         let recs: OvercastRecord[];
         try {
           recs = await monitorPass(ctx, seen, ephemeralFails);
@@ -1207,9 +1231,14 @@ export const monitorVerb: VerbSpec = {
           recs = [err("monitor", `monitor pass failed: ${(e as Error).message}`)];
         } finally {
           // persist accumulated seen-set + ephemeral failure counts even if a pass
-          // throws mid-way.
+          // throws mid-way. Both merge with disk so a concurrent writer isn't
+          // clobbered; the ephemeral merge must be told which keys we deleted.
           saveSeen(ctx.case, seen);
-          saveEphemeralFails(ctx.case, ephemeralFails);
+          const deleted = new Set([...ephemeralBaseline].filter((k) => !ephemeralFails.has(k)));
+          saveEphemeralFails(ctx.case, ephemeralFails, deleted);
+          // refresh the baseline so a key deleted this pass isn't re-reported as
+          // deleted forever (which would fight a later process re-adding it).
+          ephemeralBaseline = new Set(ephemeralFails.keys());
         }
         for (const r of recs) {
           // a per-pass monitor SUMMARY is always emitted (consecutive passes can
@@ -1219,6 +1248,10 @@ export const monitorVerb: VerbSpec = {
             const k = recKey(r);
             if (emitted.has(k)) continue;
             emitted.add(k);
+            // bound the set: a monitor left running for weeks would otherwise grow
+            // without limit. A Set iterates in insertion order, so evicting the
+            // oldest is deleting the first value.
+            if (emitted.size > EMITTED_CAP) emitted.delete(emitted.values().next().value!);
           }
           ctx.case.writeRecord(r);
           process.stdout.write(streamRender(r) + "\n");
@@ -1248,12 +1281,16 @@ export const monitorVerb: VerbSpec = {
     // throws mid-way, so accumulated progress isn't lost.
     const seen = loadSeen(ctx.case);
     const ephemeralFails = loadEphemeralFails(ctx.case);
+    const ephemeralBaseline = new Set(ephemeralFails.keys());
     let out: OvercastRecord[] = [];
     try {
       out = await monitorPass(ctx, seen, ephemeralFails);
     } finally {
+      // merge with disk so a concurrent monitor/scan process isn't clobbered;
+      // the ephemeral merge is told which keys we deleted (success/give-up).
       saveSeen(ctx.case, seen);
-      saveEphemeralFails(ctx.case, ephemeralFails);
+      const deleted = new Set([...ephemeralBaseline].filter((k) => !ephemeralFails.has(k)));
+      saveEphemeralFails(ctx.case, ephemeralFails, deleted);
     }
     writeAlert(out.filter((r) => r.verb !== "monitor"));
     return out;
