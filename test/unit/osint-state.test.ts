@@ -14,7 +14,7 @@ import {
   removeSource,
   resolveSources,
 } from "../../src/state/source.ts";
-import { loadSeen, saveSeen, hitKey } from "../../src/state/seen.ts";
+import { loadSeen, saveSeen, hitKey, loadEphemeralFails, saveEphemeralFails } from "../../src/state/seen.ts";
 import { APIFY_RUN_SYNC_TIMEOUT_MS, enumerateSource, fetchSource, tokenizeCommand } from "../../src/providers/sources/index.ts";
 import { makeRecord } from "../../src/record.ts";
 
@@ -96,6 +96,74 @@ test("seen-set round-trips and hitKey prefers url then media.ref", () => {
     const bare = makeRecord({ verb: "scan", payload: {} });
     assert.match(hitKey(bare), /^h:/);
     assert.equal(hitKey(bare), hitKey(makeRecord({ verb: "scan", payload: {} })));
+  });
+});
+
+test("saveSeen unions with disk so a concurrent writer's keys aren't clobbered", () => {
+  withCase((c) => {
+    // one process persists {a}; a second process (its own in-memory snapshot that
+    // never saw `a`) then persists {b}. Merge-on-save keeps both — without it the
+    // second save would overwrite `a` and monitor would re-capture that item.
+    saveSeen(c, new Set(["a"]));
+    saveSeen(c, new Set(["b"]));
+    assert.deepEqual([...loadSeen(c)].sort(), ["a", "b"]);
+    // {merge:false} is the explicit reset escape hatch.
+    saveSeen(c, new Set(["c"]), { merge: false });
+    assert.deepEqual([...loadSeen(c)], ["c"]);
+  });
+});
+
+test("saveEphemeralFails merges with disk but honors this process's deletions", () => {
+  withCase((c) => {
+    // disk truth: two currently-failing hits.
+    saveEphemeralFails(c, new Map([["x", 2], ["y", 1]]));
+    // a process that loaded {x:2, y:1}, then succeeded/gave-up on x (deleted it)
+    // and started tracking a new failing hit z:1.
+    const fails = new Map([["y", 1], ["z", 1]]);
+    saveEphemeralFails(c, fails, new Set(["x"]));
+    // x is dropped (its success beats the stale counter); y survives, z is added.
+    assert.deepEqual(Object.fromEntries(loadEphemeralFails(c)), { y: 1, z: 1 });
+  });
+});
+
+test("monitor --every re-syncs ephemeralFails from disk so a peer's give-up isn't resurrected", () => {
+  // The --every loop reloads seen AND ephemeralFails from disk at the top of each
+  // pass. This proves the ephemeralFails half: a CONCURRENT monitor that cleared an
+  // ephemeral key (marked it success/give-up) must not be undone by our stale
+  // in-memory counter on the next "our entries win" save.
+
+  // WITHOUT the per-pass resync (the pre-fix bug): our process still holds k in
+  // memory, and its deletion-aware save re-adds the peer-cleared key.
+  withCase((c) => {
+    saveEphemeralFails(c, new Map([["k", 3]]));            // disk: k has been failing
+    const ephemeralFails = loadEphemeralFails(c);          // our snapshot: {k:3}
+    const ephemeralBaseline = new Set(ephemeralFails.keys()); // {k}
+    // a concurrent monitor gives up on k (marks it seen) → deletes it from disk.
+    saveEphemeralFails(c, new Map(), new Set(["k"]));      // disk: {}
+    // our pass ends WITHOUT re-syncing (stale k still in memory) and saves:
+    const deleted = new Set([...ephemeralBaseline].filter((x) => !ephemeralFails.has(x)));
+    saveEphemeralFails(c, ephemeralFails, deleted);
+    // bug reproduced: k is back — our merge resurrected the peer's cleared key.
+    assert.deepEqual(Object.fromEntries(loadEphemeralFails(c)), { k: 3 });
+  });
+
+  // WITH the per-pass resync (the fix): reload disk truth into the SAME Map + reset
+  // the baseline before saving, so the peer's deletion is honored end-to-end.
+  withCase((c) => {
+    saveEphemeralFails(c, new Map([["k", 3]]));
+    const ephemeralFails = loadEphemeralFails(c);
+    let ephemeralBaseline = new Set(ephemeralFails.keys());
+    // concurrent give-up deletes k from disk.
+    saveEphemeralFails(c, new Map(), new Set(["k"]));
+    // --- per-pass resync (the fix), mutating the SAME Map monitorPass holds ---
+    ephemeralFails.clear();
+    for (const [key, v] of loadEphemeralFails(c)) ephemeralFails.set(key, v);
+    ephemeralBaseline = new Set(ephemeralFails.keys());
+    // our pass ends and saves:
+    const deleted = new Set([...ephemeralBaseline].filter((x) => !ephemeralFails.has(x)));
+    saveEphemeralFails(c, ephemeralFails, deleted);
+    // fixed: k stays deleted — the peer's success/give-up is not undone.
+    assert.deepEqual(Object.fromEntries(loadEphemeralFails(c)), {});
   });
 });
 

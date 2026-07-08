@@ -23,8 +23,13 @@ export function loadSeen(c: Case): Set<string> {
   }
 }
 
-export function saveSeen(c: Case, keys: Set<string>): void {
-  writeFileAtomic(c.seenFile, JSON.stringify({ keys: [...keys] }, null, 2) + "\n");
+/** Persist the seen-set, UNIONED with what's currently on disk. `seen` is
+ *  monotone (keys are only ever added), so merging prevents a concurrent
+ *  monitor/scan process's additions from being clobbered by our stale snapshot.
+ *  Pass {merge:false} only when intentionally resetting (e.g. case clear). */
+export function saveSeen(c: Case, keys: Set<string>, opts: { merge?: boolean } = {}): void {
+  const merged = opts.merge === false ? keys : new Set([...loadSeen(c), ...keys]);
+  writeFileAtomic(c.seenFile, JSON.stringify({ keys: [...merged] }, null, 2) + "\n");
 }
 
 // Consecutive-failure counts for EPHEMERAL monitor hits (a webcam's current
@@ -47,8 +52,16 @@ export function loadEphemeralFails(c: Case): Map<string, number> {
   }
 }
 
-export function saveEphemeralFails(c: Case, fails: Map<string, number>): void {
-  writeFileAtomic(ephemeralFailsFile(c), JSON.stringify(Object.fromEntries(fails), null, 2) + "\n");
+/** Persist ephemeral-fail counters, merged with disk: our entries win for keys
+ *  we touched, disk entries survive for keys we never saw (another process's
+ *  failing hits), and keys in `deleted` are removed (success/give-up beats a
+ *  stale counter). */
+export function saveEphemeralFails(c: Case, fails: Map<string, number>, deleted: Set<string> = new Set()): void {
+  const disk = loadEphemeralFails(c);
+  const merged = new Map(disk);
+  for (const k of deleted) merged.delete(k);
+  for (const [k, v] of fails) merged.set(k, v);
+  writeFileAtomic(ephemeralFailsFile(c), JSON.stringify(Object.fromEntries(merged), null, 2) + "\n");
 }
 
 // Field separator for composite keys: ASCII unit separator, which won't appear
