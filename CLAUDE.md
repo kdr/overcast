@@ -167,8 +167,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `x:@handle`,
   `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`;
   `lens:<image url|path>` (Google Lens reverse image search via Apify);
-  `dl:<url>` (capture-only: any yt-dlp host — Rumble/BitChute/Odysee/Vimeo/Reddit/…;
-  `enumerate` returns `[]`); `instagram:@handle` / `instagram:#tag` / a post URL
+  `dl:<url>` (any yt-dlp host — Rumble/BitChute/Odysee/Vimeo/Reddit/…; a
+  channel/playlist/user URL `enumerate`s via yt-dlp flat-playlist so `scan`/`monitor`
+  work there, a single-video URL stays capture-only → `[]`); `instagram:@handle` /
+  `instagram:#tag` / a post URL
   (Apify); `telegram:<channel>` or a `t.me` URL (Apify, public channels);
   `gdelttv:"<query>"` (GDELT 2.0 TV broadcast-news clips → bounded Internet-Archive
   `.mp4`, **no key**); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /

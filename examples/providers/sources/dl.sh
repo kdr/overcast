@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # overcast source provider: dl (generic yt-dlp downloader). No API key.
-# A CAPTURE-ONLY source: it can't search/enumerate an open-ended host, so
-# `enumerate` is a no-op that returns zero hits. Its job is `fetch` — download
-# any of yt-dlp's ~1800 supported sites (Rumble/BitChute/Odysee/VK/Bilibili/
-# Vimeo/Dailymotion/Reddit/Facebook/Twitch/Kick/…) that lack a dedicated source.
+# Downloads any of yt-dlp's ~1800 supported sites (Rumble/BitChute/Odysee/VK/
+# Bilibili/Vimeo/Dailymotion/Reddit/Facebook/Twitch/Kick/…) that lack a dedicated
+# source. `enumerate` flat-lists a channel/playlist/user URL (yt-dlp
+# --flat-playlist) so scan/monitor can stake out any yt-dlp host; a single-video
+# URL stays capture-only (returns []). `fetch` does the actual download.
 #
 # You rarely bind `dl` directly: overcast auto-routes an ad-hoc
 # `overcast capture <url>` to `dl` when the host is a known video site
 # (hostSourceType, src/verbs/osint.ts), and a scan.hit stamped source:dl
-# captures back through here. You CAN bind a single URL if you like:
-#   overcast source add dl:https://rumble.com/v123-clip.html   (ref carried, ignored by enumerate)
+# captures back through here. You CAN bind a listing to scan, or a single URL:
+#   overcast source add dl:https://rumble.com/c/Rumble          (channel → enumerable)
+#   overcast source add dl:https://rumble.com/v123-clip.html    (single video → [], capture-only)
 #
 # Implements the exec source contract:
-#   <this> enumerate ...                    -> [] (capture-only)
-#   <this> fetch --url <u> --out <path>     -> capture record JSON on stdout
+#   <this> enumerate --query <url> [--limit N] [--since D]  -> scan.hit JSON array
+#                                                             (channel/playlist URL;
+#                                                              [] for a single video)
+#   <this> fetch --url <u> --out <path>                     -> capture record JSON on stdout
 #   <this> init | describe
 set -uo pipefail
 
@@ -39,11 +43,91 @@ case "$op" in
   describe) echo '{"source":"dl","emits":"capture","capture_only":true,"needs":["yt-dlp"]}'; exit 0 ;;
 
   enumerate)
-    # capture-only: there is nothing to search. Emit a clean empty result (NOT an
-    # error and NOT a non-zero exit) so `scan --source dl` reads as "no hits",
-    # per the exec contract. All real work happens in fetch.
-    echo '[]'
-    exit 0 ;;
+    query=""; limit=10; since=""
+    while [ "$#" -gt 0 ]; do case "$1" in
+      --query) query="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --since) since="${2:-}"; shift 2 2>/dev/null || shift ;;
+      *) shift ;;
+    esac; done
+    # dl refs are raw URLs. yt-dlp flat mode on a SINGLE video URL yields exactly one
+    # entry and wastes a network call, and the settled contract keeps single URLs
+    # capture-only. Best-effort heuristic (host quirks are a long tail — the policy is
+    # generic-or-`[]`, never per-host branches): treat the ref as an enumerable
+    # LISTING only when the URL looks like a channel / playlist / user page; anything
+    # else (a plain video URL, or a host we can't classify) echoes a clean `[]` and
+    # exits 0, preserving today's capture-only behavior. A wrong `[]` is a no-op scan,
+    # never a failure. Classify FIRST, then require yt-dlp only on the listing path so
+    # the `[]` fast-path stays dependency-free (a single-video URL never needs yt-dlp).
+    # The `@handle` case is a listing ONLY when the handle is the LAST path segment
+    # (a channel root, e.g. youtube.com/@handle, /@handle/, /@handle?si=x) or is
+    # followed only by a known channel tab (videos/streams/shorts/playlists/live) —
+    # NOT when an arbitrary video slug follows (Odysee's /@chan:c/video-title:d, which
+    # must stay capture-only).
+    is_listing=""
+    case "$query" in
+      */c/*|*/channel/*|*/user/*|*/playlist*|*'?list='*) is_listing=1 ;;  # enumerable listing
+    esac
+    if [ -z "$is_listing" ] && printf '%s' "$query" | grep -qE '/@[^/]+/?([?].*)?$|/@[^/]+/(videos|streams|shorts|playlists|live)/?([?].*)?$'; then
+      is_listing=1  # @handle channel root or a known channel tab → enumerable listing
+    fi
+    [ -n "$is_listing" ] || { echo '[]'; exit 0; }  # single video / unknown → capture-only
+    need_ytdlp   # only the listing path calls yt-dlp; the `[]` fast-path needs nothing
+    target="$query"   # dl refs are already URLs — no ref translation
+    # --flat-playlist keeps it fast (no per-video extraction); dump one JSON/line.
+    flat="--flat-playlist"; date_args=""
+    if [ -n "$since" ]; then
+      # honor --since: map to yt-dlp --dateafter. Date-granular, so sub-day units
+      # (minutes/hours) collapse to today/yesterday. Drop --flat-playlist so
+      # upload_date is extracted and the filter actually applies (slower — non-flat
+      # extraction is the only way --dateafter sees dates; inherited from youtube.sh).
+      case "$since" in
+        *[0-9]m)                     da="today" ;;       # minutes → today's uploads
+        *[0-9]h)                     hrs="${since%h}"; days=$(( 10#$hrs / 24 ));  # 10# forces base-10 (a leading-zero token like 08 is NOT octal)
+                                     [ "$days" -le 0 ] && da="today" || da="today-${days}days" ;;
+        *[0-9]d)                     da="today-${since%d}days" ;;
+        *[0-9]w)                     da="today-$(( 10#${since%w} * 7 ))days" ;;  # 10# forces base-10 (08w must not parse as octal)
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) da="$(printf '%s' "$since" | tr -d -)" ;;
+        *)                           da="$since" ;;
+      esac
+      flat=""; date_args="--dateafter $da"
+    fi
+    # capture yt-dlp explicitly so a failure (network, extractor, unsupported host)
+    # surfaces as an enumerate ERROR (exit 1 → scan error record), not an empty hit
+    # list that reads like a clean zero-result scan. Keep stderr SEPARATE from the
+    # --dump-json stdout so routine yt-dlp warnings don't corrupt the JSON.
+    errf="$(mktemp)"
+    # shellcheck disable=SC2086
+    raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>"$errf")"; code=$?
+    # ANY non-zero yt-dlp exit is a failure (network, auth, unavailable, partial),
+    # even with no "ERROR" line or some JSON already printed — surface it as an
+    # enumerate error rather than a clean/partial scan. A successful run that simply
+    # found nothing exits 0 with empty stdout (handled below).
+    if [ "$code" -ne 0 ]; then
+      echo "dl enumerate failed (yt-dlp exit $code): $(tail -3 "$errf" | tr '\n' ' ')" >&2
+      rm -f "$errf"; exit 1
+    fi
+    rm -f "$errf"
+    # exit 0 + empty stdout = legitimate ZERO-result listing.
+    [ -z "$raw" ] && { echo '[]'; exit 0; }
+    # Map flat entries to scan hits. Unlike youtube.sh we can't synthesize a URL from
+    # an id (host id schemes vary), so the url falls back only url→webpage_url, and
+    # entries with NEITHER are DROPPED — a hit without a stable url would break
+    # seen-set identity in scan/monitor.
+    printf '%s\n' "$raw" \
+      | jq -sc '[ .[] | {
+          title: (.title // .id),
+          url: (.url // .webpage_url // ""),
+          source: "dl",
+          published: (.upload_date // null),
+          snippet: (.description // (.uploader // "") ),
+          author: (.uploader // .channel // null),
+          views: (.view_count // null),
+          duration: (.duration // null),
+          thumb: (((.thumbnails // []) | last | .url?) // .thumbnail // null),
+          media: { ref: (.url // .webpage_url // "") }
+        } ] | map(select(.url != ""))'
+    ;;
 
   fetch)
     need_ytdlp
