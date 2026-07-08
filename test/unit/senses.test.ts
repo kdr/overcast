@@ -293,6 +293,79 @@ test("crop materializes a data URL thumbnail before cropping", async () => {
   assert.ok(existsSync(rec.media!.ref));
 });
 
+test("crop output name is idempotent for identical params", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const face = makeRecord({
+    verb: "face",
+    payload: {
+      op: "detect",
+      summary: "one face for idempotency",
+      faces: [{ face_id: "f_idem", at: 0.2, box: { left: 0.25, top: 0.25, width: 0.5, height: 0.5 } }],
+    },
+    media: { ref: clip, at: 0.2 },
+  });
+  c.writeRecord(face);
+  const [first] = await cropVerb.run({ input: face.id, rest: [], opts: { all: true }, case: c, profile: defaultProfile() });
+  const [second] = await cropVerb.run({ input: face.id, rest: [], opts: { all: true }, case: c, profile: defaultProfile() });
+  assert.equal(first.state, "ready");
+  assert.equal(second.state, "ready");
+  // Same box/pad/square/source → same output path (no spurious churn).
+  assert.equal(second.media!.ref, first.media!.ref);
+  assert.equal(
+    (second.payload as Record<string, unknown>).crop,
+    (first.payload as Record<string, unknown>).crop,
+  );
+  assert.ok(existsSync(first.media!.ref));
+});
+
+test("crop with --pad writes a different file than the un-padded crop (no overwrite)", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const face = makeRecord({
+    verb: "face",
+    payload: {
+      op: "detect",
+      summary: "one face for pad divergence",
+      faces: [{ face_id: "f_pad", at: 0.2, box: { left: 0.25, top: 0.25, width: 0.5, height: 0.5 } }],
+    },
+    media: { ref: clip, at: 0.2 },
+  });
+  c.writeRecord(face);
+  const [plain] = await cropVerb.run({ input: face.id, rest: [], opts: { all: true }, case: c, profile: defaultProfile() });
+  const [padded] = await cropVerb.run({ input: face.id, rest: [], opts: { all: true, pad: 0.3 }, case: c, profile: defaultProfile() });
+  assert.equal(plain.state, "ready");
+  assert.equal(padded.state, "ready");
+  // Different padding → different pixels → different path, so the re-crop cannot
+  // silently overwrite the first crop's evidence.
+  assert.notEqual(padded.media!.ref, plain.media!.ref);
+  assert.ok(existsSync(plain.media!.ref));
+  assert.ok(existsSync(padded.media!.ref));
+});
+
+test("crop names disambiguate by source record id, not just class/id/at", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const payload = {
+    op: "detect",
+    summary: "same face_id/box across two records",
+    faces: [{ face_id: "f_dup", at: 0.2, box: { left: 0.25, top: 0.25, width: 0.5, height: 0.5 } }],
+  };
+  const a = makeRecord({ verb: "face", payload, media: { ref: clip, at: 0.2 } });
+  const b = makeRecord({ verb: "face", payload, media: { ref: clip, at: 0.2 } });
+  c.writeRecord(a);
+  c.writeRecord(b);
+  const [ra] = await cropVerb.run({ input: a.id, rest: [], opts: { all: true }, case: c, profile: defaultProfile() });
+  const [rb] = await cropVerb.run({ input: b.id, rest: [], opts: { all: true }, case: c, profile: defaultProfile() });
+  assert.equal(ra.state, "ready");
+  assert.equal(rb.state, "ready");
+  // Identical detection over identical media from two different source records
+  // must not collide (source.id is folded into the crop signature).
+  assert.notEqual(rb.media!.ref, ra.media!.ref);
+  assert.ok(existsSync(ra.media!.ref));
+  assert.ok(existsSync(rb.media!.ref));
+});
+
 test("crop keeps tiny pixel boxes in pixel space unless explicitly normalized", async () => {
   assert.deepEqual(
     normalizeBox({ xmin: 0, ymin: 0, xmax: 1, ymax: 1 }, { width: 128, height: 96 }, 0, false),

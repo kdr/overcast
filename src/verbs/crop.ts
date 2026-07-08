@@ -3,6 +3,7 @@
 // and bounding box. The crop record is the memory-friendly evidence artifact;
 // the source detection record remains the full audit trail.
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../record.js";
@@ -33,6 +34,14 @@ interface Candidate {
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "crop", format: "json", payload: { error: message }, error: message, state: "error" });
+}
+
+/** Collision-free default crop name: same box/pad/square/source → same name
+ *  (idempotent), different params → different name — a re-crop with new padding
+ *  must not overwrite the first crop's pixels out from under its record
+ *  (mirrors shortHash in src/media/ffmpeg.ts). */
+function cropSig(parts: unknown): string {
+  return createHash("sha1").update(JSON.stringify(parts)).digest("hex").slice(0, 10);
 }
 
 function num(v: unknown): number | undefined {
@@ -406,7 +415,8 @@ export const cropVerb: VerbSpec = {
       }
       const base = basename(sourceMedia ?? media, extname(sourceMedia ?? media));
       const atPart = cand.at != null ? `_t${String(cand.at).replace(".", "p")}` : "";
-      const out = join(outDir, `${safePart(base)}_${safePart(cand.className)}_${safePart(cand.id)}${atPart}.jpg`);
+      const sig = cropSig({ box, pad, square, source: source.id });
+      const out = join(outDir, `${safePart(base)}_${safePart(cand.className)}_${safePart(cand.id)}${atPart}_${sig}.jpg`);
       try {
         const seek = usingThumbnail
           ? undefined
