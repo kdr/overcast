@@ -22,11 +22,9 @@ function tokenize(s: string): string[] {
     .filter((t) => t.length > 1);
 }
 
-/** TF-style keyword score of a query against a document's tokens. */
-function score(queryTokens: string[], docTokens: string[]): number {
+/** TF-style keyword score of a query against a document's precomputed token counts. */
+function score(queryTokens: string[], counts: Map<string, number>): number {
   if (queryTokens.length === 0) return 0;
-  const counts = new Map<string, number>();
-  for (const t of docTokens) counts.set(t, (counts.get(t) ?? 0) + 1);
   let s = 0;
   for (const qt of queryTokens) {
     const c = counts.get(qt) ?? 0;
@@ -46,6 +44,41 @@ function snippet(text: string, queryTokens: string[], width = 200): string {
   if (idx < 0) return text.slice(0, width).replace(/\s+/g, " ").trim();
   const start = Math.max(0, idx - width / 4);
   return text.slice(start, start + width).replace(/\s+/g, " ").trim();
+}
+
+interface FieldEntry {
+  path: string;
+  text: string; // the exact string previously built inline in query()
+  counts: Map<string, number>; // precomputed token counts for score()
+}
+interface DocEntry {
+  fields: FieldEntry[];
+}
+
+// Records are immutable after persist (append-only store; ids are unique per
+// write), so extraction+tokenization is memoizable by record id. Bounded so a
+// months-long TUI session over many cases can't grow without limit; eviction is
+// insertion-order (Map preserves it) — effectively FIFO, fine for this shape.
+const DOC_CACHE_MAX = 20_000;
+const docCache = new Map<string, DocEntry | null>();
+
+function docEntry(rec: OvercastRecord): DocEntry | null {
+  const hit = docCache.get(rec.id);
+  if (hit !== undefined) return hit;
+  const doc = indexableDocument(rec);
+  const entry: DocEntry | null = doc
+    ? {
+        fields: doc.fields.map((f) => {
+          const text = `${rec.verb} ${f.path}\n${f.text}\n${rec.media?.ref ?? ""}`;
+          const counts = new Map<string, number>();
+          for (const t of tokenize(text)) counts.set(t, (counts.get(t) ?? 0) + 1);
+          return { path: f.path, text, counts };
+        }),
+      }
+    : null;
+  docCache.set(rec.id, entry);
+  if (docCache.size > DOC_CACHE_MAX) docCache.delete(docCache.keys().next().value!);
+  return entry;
 }
 
 export class LocalMemoryProvider implements MemoryProvider {
@@ -89,16 +122,15 @@ export class LocalMemoryProvider implements MemoryProvider {
     }
     const scored: Passage[] = [];
     for (const rec of records) {
-      const doc = indexableDocument(rec);
-      if (!doc) continue;
-      for (const field of doc.fields) {
-        const text = `${rec.verb} ${field.path}\n${field.text}\n${rec.media?.ref ?? ""}`;
-        const s = score(qTokens, tokenize(text));
+      const entry = docEntry(rec);
+      if (!entry) continue;
+      for (const field of entry.fields) {
+        const s = score(qTokens, field.counts);
         if (s <= 0) continue;
         scored.push({
           recordId: rec.id,
           at: rec.media?.at,
-          text: snippet(text, qTokens),
+          text: snippet(field.text, qTokens),
           score: s,
           verb: rec.verb,
           field: field.path,

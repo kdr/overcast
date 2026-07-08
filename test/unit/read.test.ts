@@ -44,6 +44,42 @@ test("indexable field policy prefers verb-specific fields, including notes", () 
   assert.match(fields.map((f) => f.text).join("\n"), /white van/);
 });
 
+test("local memory memo: repeated identical queries return byte-identical passages (cache-hit path)", async () => {
+  await withCase((c) => {
+    const mem = new LocalMemoryProvider(c);
+    const first = mem.query("white van docks", { limit: 10 });
+    const second = mem.query("white van docks", { limit: 10 });
+    // determinism through the id-keyed document memo: same scores, snippets, order.
+    assert.ok(first.length > 0);
+    assert.deepEqual(second, first);
+    // a fresh provider instance (real call site constructs one per resolveMemory)
+    // must see the SAME result off the module-level memo.
+    const third = new LocalMemoryProvider(c).query("white van docks", { limit: 10 });
+    assert.deepEqual(third, first);
+  });
+});
+
+test("local memory memo: a newly written record is visible on the next query (no stale set)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-memo-fresh-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "a quiet street corner" }, media: { ref: "s.mp4" } }));
+    const mem = new LocalMemoryProvider(c);
+    // prime the memo; the marker is absent so far.
+    assert.deepEqual(mem.query("HELICOPTER_MARKER", { limit: 10 }), []);
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "HELICOPTER_MARKER overhead at dusk" }, media: { ref: "h.mp4" } }));
+    // record LIST comes from case_.records() (uncached here), so the new record
+    // is picked up and freshly memoized by its own id.
+    const hits = mem.query("HELICOPTER_MARKER", { limit: 10 });
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].verb, "watch");
+    assert.match(hits[0].text, /HELICOPTER_MARKER/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("case memory excludes operational/read/error records but indexes compact face summaries and crop evidence", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-memory-filter-"));
   try {
