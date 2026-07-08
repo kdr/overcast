@@ -63,7 +63,8 @@ case "$op" in
       # local image → upload to the account's `overcast-lens` key-value store
       # (get-or-create) under a content-hash key, so repeat scans of the same
       # image reuse one record. The actor fetches it by the public record URL.
-      if ! store="$(curl -fsS -m 30 -X POST "https://api.apify.com/v2/key-value-stores?token=$APIFY_TOKEN&name=overcast-lens")"; then
+      if ! store="$(curl -fsS -m 30 -X POST -H "Authorization: Bearer $APIFY_TOKEN" \
+        "https://api.apify.com/v2/key-value-stores?name=overcast-lens")"; then
         echo "lens: could not open the overcast-lens key-value store on Apify" >&2; exit 1
       fi
       sid="$(printf '%s' "$store" | jq -r '.data.id // empty')"
@@ -77,7 +78,8 @@ case "$op" in
         *) echo "lens: unsupported image type '.$ext' (jpg|jpeg|png|webp|gif)" >&2; exit 1 ;;
       esac
       key="img_$(h8 <"$query").$ext"
-      if ! curl -fsS -m 60 -X PUT "https://api.apify.com/v2/key-value-stores/$sid/records/$key?token=$APIFY_TOKEN" \
+      if ! curl -fsS -m 60 -X PUT -H "Authorization: Bearer $APIFY_TOKEN" \
+        "https://api.apify.com/v2/key-value-stores/$sid/records/$key" \
         -H "content-type: $ct" --data-binary @"$query" >/dev/null; then
         echo "lens: image upload to Apify failed for $query" >&2; exit 1
       fi
@@ -87,7 +89,8 @@ case "$op" in
     input="$(jq -nc --arg u "$query" '{searchTypes:["exact-match","visual-match"],imageUrls:[{url:$u}]}')"
     # -f fails the request on HTTP errors so Apify error JSON isn't parsed as hits
     if ! run="$(curl -fsS -m 240 -X POST \
-      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items?token=$APIFY_TOKEN" \
+      -H "Authorization: Bearer $APIFY_TOKEN" \
+      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items" \
       -H 'content-type: application/json' -d "$input")"; then
       echo "lens enumerate request failed for '$query'" >&2; exit 1
     fi

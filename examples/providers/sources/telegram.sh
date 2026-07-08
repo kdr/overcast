@@ -73,7 +73,8 @@ case "$op" in
       '{channels:$c, maxPosts:$n, includeText:true}
        + (if $d != "" then {daysRange:($d|tonumber)} else {} end)')"
     if ! run=$(curl -fsS -m 280 -X POST \
-      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items?token=$APIFY_TOKEN" \
+      -H "Authorization: Bearer $APIFY_TOKEN" \
+      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items" \
       -H 'content-type: application/json' -d "$input"); then
       echo "telegram enumerate request failed for '$channel'" >&2; exit 1
     fi
