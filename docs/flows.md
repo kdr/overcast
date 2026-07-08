@@ -212,9 +212,10 @@ Raw detection payloads are intentionally not searchable. Use exact record reads
 - **Detection crops:** `crop <face-or-see-record-id> --all [--class person]`
   writes crop images and searchable crop records.
 
-When you add a raw local video to a remote index (`index add ./video.mp4 --to
-<id>`), overcast first creates missing `watch` evidence if the video hasn't been
-watched — so local-grep can search it immediately (qmd on the next rebuild). It
+When you add a raw local video to a remote index
+(`index add ./video.mp4 --to <id>`), overcast first creates missing
+`watch` evidence if the video hasn't been watched — so local-grep can
+search it immediately (qmd on the next rebuild). It
 does **not** create a `face` detect record just to populate memory; run `face` or
 `see --detect` when you actually need detections, then `crop` for cropped images.
 

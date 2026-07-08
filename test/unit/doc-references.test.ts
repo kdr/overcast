@@ -21,6 +21,8 @@ const DOC_FILES = [
   "README.md",
   "CLAUDE.md",
   "docs/providers.md",
+  "docs/flows.md",
+  "RELEASING.md",
   "prompts/ask.md",
   "prompts/brief.md",
   "prompts/debrief.md",
