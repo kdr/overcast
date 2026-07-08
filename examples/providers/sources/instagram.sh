@@ -61,7 +61,8 @@ case "$op" in
       '{directUrls:[$u], resultsType:"posts", resultsLimit:$n, addParentData:false}
        + (if $newer != "" then {onlyPostsNewerThan:$newer} else {} end)')"
     if ! run=$(curl -fsS -m 280 -X POST \
-      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items?token=$APIFY_TOKEN" \
+      -H "Authorization: Bearer $APIFY_TOKEN" \
+      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items" \
       -H 'content-type: application/json' -d "$input"); then
       echo "instagram enumerate request failed for '$query'" >&2; exit 1
     fi

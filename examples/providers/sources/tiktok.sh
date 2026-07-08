@@ -50,7 +50,8 @@ case "$op" in
     # hits; -m stays under the harness's Apify run-sync budget (the endpoint
     # holds up to 300s) so a slow run fails here with a clear message.
     if ! run=$(curl -fsS -m 280 -X POST \
-      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items?token=$APIFY_TOKEN" \
+      -H "Authorization: Bearer $APIFY_TOKEN" \
+      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items" \
       -H 'content-type: application/json' -d "$input"); then
       echo "tiktok enumerate request failed for '$query'" >&2; exit 1
     fi

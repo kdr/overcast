@@ -93,7 +93,8 @@ case "$op" in
          else {} end)')"
     # -f fails the request on HTTP errors so Apify error JSON isn't parsed as hits
     if ! run=$(curl -fsS -X POST \
-      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items?token=$APIFY_TOKEN" \
+      -H "Authorization: Bearer $APIFY_TOKEN" \
+      "https://api.apify.com/v2/acts/$ACTOR/run-sync-get-dataset-items" \
       -H 'content-type: application/json' -d "$input"); then
       echo "x enumerate request failed for '$query'" >&2; exit 1
     fi
