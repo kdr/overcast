@@ -369,3 +369,77 @@ test("chair bridge: stop closes the port and start rejects a busy port", async (
   assert.equal(bridge.running, false);
   await assert.rejects(fetch(url), /fetch failed/);
 });
+
+test("chair bridge: a throwing onRemotePrompt hook can't crash the process (202, no unhandled rejection)", async () => {
+  // The extension's hook calls ctx.ui.notify(...) on the live pi TUI, which can
+  // throw. It runs AFTER sendUserMessage, so delivery already succeeded — the
+  // throw must be swallowed (still a 202) and must never escape as an unhandled
+  // rejection (which would terminate the live desk process on Node >=15).
+  const { agent, calls } = fakeAgent({
+    onRemotePrompt: () => {
+      throw new Error("ui notify blew up");
+    },
+  });
+  const bridge = makeBridge(agent);
+  const { url, pairingUrl } = await bridge.start();
+  const token = pairingUrl.split("#t=")[1];
+  const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  // Registering a listener both DETECTS the rejection and prevents a crash, so
+  // the assertion is that it never captured anything.
+  const rejections: unknown[] = [];
+  const onRejection = (reason: unknown) => rejections.push(reason);
+  process.on("unhandledRejection", onRejection);
+  try {
+    const res = await fetch(`${url}api/prompt`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ text: "look into the van" }),
+    });
+    assert.equal(res.status, 202);
+    assert.deepEqual(await res.json(), { delivered: "turn" });
+    // the message WAS delivered before the hook blew up
+    assert.deepEqual(calls.sent[0], { text: "look into the van", opts: undefined });
+    // give any escaped rejection a tick to surface as an unhandledRejection
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(rejections, [], "a throwing UI hook must not produce an unhandled rejection");
+  } finally {
+    process.removeListener("unhandledRejection", onRejection);
+    await bridge.stop();
+  }
+});
+
+test("chair bridge: a pre-delivery throw (isIdle) becomes a 500, not a hang/crash", async () => {
+  // isIdle() is reached at the routing step (auto mode), BEFORE sendUserMessage
+  // and outside the send try/catch. If it throws, handlePrompt's discarded
+  // promise rejects — the route-seam .catch must answer the phone with a 500
+  // instead of leaking an unhandled rejection or hanging the request.
+  const { agent, calls } = fakeAgent({
+    isIdle: () => {
+      throw new Error("isIdle blew up");
+    },
+  });
+  const bridge = makeBridge(agent);
+  const { url, pairingUrl } = await bridge.start();
+  const token = pairingUrl.split("#t=")[1];
+  const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  const rejections: unknown[] = [];
+  const onRejection = (reason: unknown) => rejections.push(reason);
+  process.on("unhandledRejection", onRejection);
+  try {
+    const res = await fetch(`${url}api/prompt`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ text: "look into the van" }),
+    });
+    assert.equal(res.status, 500);
+    // nothing was ever delivered (the throw happened before sendUserMessage)
+    assert.equal(calls.sent.length, 0);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(rejections, [], "the route-seam catch must handle the reject, not leak it");
+  } finally {
+    process.removeListener("unhandledRejection", onRejection);
+    await bridge.stop();
+  }
+});

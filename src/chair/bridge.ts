@@ -235,7 +235,15 @@ export class ChairBridge {
           this.agent.abort();
           return this.json(res, 200, { ok: true });
         }
-        if (path === "/api/prompt") return void this.handlePrompt(req, res);
+        if (path === "/api/prompt") {
+          return void this.handlePrompt(req, res).catch(() => {
+            try {
+              this.json(res, 500, { error: "internal error" });
+            } catch {
+              /* headers already sent — nothing to salvage */
+            }
+          });
+        }
       }
       return this.json(res, 404, { error: "not found" });
     }
@@ -317,7 +325,11 @@ export class ChairBridge {
     } catch (e) {
       return this.json(res, 500, { error: (e as Error).message || "send failed" });
     }
-    this.agent.onRemotePrompt?.({ mode: delivered, chars: text.length });
+    try {
+      this.agent.onRemotePrompt?.({ mode: delivered, chars: text.length });
+    } catch {
+      /* a UI-notify failure must not fail the (already delivered) prompt */
+    }
     // 202: sendUserMessage is fire-and-forget; the console observes the outcome
     // (or an error notice) on the event stream, so this only means "queued".
     this.json(res, 202, { delivered } satisfies ChairPromptResult);

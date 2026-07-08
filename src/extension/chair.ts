@@ -11,6 +11,7 @@
 import { randomBytes } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { openCase } from "../case.js";
 import { loadProfile } from "../profile.js";
 import { OVERCAST_VERSION } from "../version.js";
@@ -454,7 +455,16 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       "",
       `  ${bridge.url}   ·   /chair qr to hide`,
     ];
-    ctx.ui.setWidget(QR_WIDGET_KEY, lines);
+    // Render via a component FACTORY, not a string[]: pi caps array widgets at
+    // MAX_WIDGET_LINES (10) and appends "... (widget truncated)", which chops a
+    // scannable QR (~13–21 rows) mid-code and drops the pairing URL. The factory
+    // path is exempt from that cap, so the whole QR + pair line stay pinned.
+    // Mirrors pi's own array rendering (Text(line, 1, 0)) so appearance is identical.
+    ctx.ui.setWidget(QR_WIDGET_KEY, () => {
+      const box = new Container();
+      for (const line of lines) box.addChild(new Text(line, 1, 0));
+      return box;
+    });
     qrVisible = true;
   }
 
