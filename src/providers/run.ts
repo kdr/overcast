@@ -5,6 +5,7 @@
 // (providers/tinycloud/*) because they emit tinycloud envelopes, not records.
 
 import { makeRecord, type OvercastRecord } from "../record.js";
+import { redactSecrets } from "../env.js";
 import { execCapture, renderCommand, parseFirstJson } from "./exec.js";
 import type { ProviderDescriptor } from "../profile.js";
 
@@ -110,7 +111,7 @@ export async function runExecProvider(
       error:
         res.code === 0
           ? `provider produced no JSON record`
-          : `provider exited ${res.code}: ${res.stderr.trim().slice(0, 400)}`,
+          : `provider exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 400))}`,
       state: res.code === 13 ? "needs_credentials" : "error",
     });
   }

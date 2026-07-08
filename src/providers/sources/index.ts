@@ -13,6 +13,7 @@ import { dirname, extname, join } from "node:path";
 import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, statSync } from "node:fs";
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
+import { redactSecrets } from "../../env.js";
 import { shippedPath } from "../../pkg.js";
 
 /** Path to a shipped source-provider script — resolves the package root (dev) or
@@ -218,7 +219,7 @@ export async function enumerateSource(
         verb: "scan",
         format: "json",
         payload: { source: desc.type },
-        error: `source ${desc.type} enumerate failed (exit ${res.code}): ${res.stderr.trim().slice(0, 300)}`,
+        error: `source ${desc.type} enumerate failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 300))}`,
         state: res.code === 13 ? "needs_credentials" : "error",
       }),
     ];
@@ -315,7 +316,7 @@ export async function fetchSource(
       verb: "capture",
       format: "json",
       payload: { url: opts.url, source: desc.type },
-      error: `source ${desc.type} fetch failed (exit ${res.code}): ${res.stderr.trim().slice(0, 300)}`,
+      error: `source ${desc.type} fetch failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 300))}`,
       state: res.code === 13 ? "needs_credentials" : "error",
     });
   }

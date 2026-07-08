@@ -6,8 +6,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runExecProvider } from "../../src/providers/run.ts";
+import { enumerateSource } from "../../src/providers/sources/index.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const P = (rel: string) => join(ROOT, "examples/providers", rel);
@@ -76,5 +80,35 @@ test("no provider crashes the interpreter on a value-less trailing flag (set -u 
     if (r.out.trim() && !missingDeps(r.err)) {
       assert.doesNotThrow(() => JSON.parse(r.out.trim()), `${p.file}: stdout on a bad flag must be valid JSON (got: ${r.out.slice(0, 120)})`);
     }
+  }
+});
+
+// Security (plan 011): provider stderr flows into the persisted record `error`
+// field, and the at-rest store (.overcast/records/*.jsonl) is written verbatim.
+// A provider that echoes a credentialed URL / token to stderr must NOT land it on
+// disk — the exec boundary redacts the stderr slice before it reaches the record.
+test("provider stderr carrying a secret is redacted before it reaches the persisted error field", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-stderr-redact-"));
+  try {
+    // A fixture provider that leaks an Apify-shaped token to stderr, then fails
+    // with no JSON on stdout (→ an error record via runExecProvider/enumerateSource).
+    const SECRET = "apify_api_0123456789abcdefghij"; // matches SECRET_VALUE_RE in src/env.ts
+    const script = join(dir, "leak.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\necho "auth error: token=${SECRET} rejected" 1>&2\nexit 1\n`);
+
+    // runExecProvider — generic exec sense provider (src/providers/run.ts)
+    const rec = await runExecProvider("see", `bash ${script}`, "evidence.jpg");
+    assert.equal(rec.state, "error", "non-zero exit with no JSON record → error state");
+    assert.match(rec.error ?? "", /^provider exited 1:/, "error prefix unchanged (characterization)");
+    assert.ok(rec.error?.includes("[REDACTED]"), `error must be redacted (got: ${rec.error})`);
+    assert.ok(!rec.error?.includes(SECRET), `raw secret must not persist (got: ${rec.error})`);
+
+    // enumerateSource — source provider (src/providers/sources/index.ts)
+    const [scanRec] = await enumerateSource({ type: "test", base: ["bash", script] }, {});
+    assert.equal(scanRec.state, "error");
+    assert.ok(scanRec.error?.includes("[REDACTED]"), `enumerate error must be redacted (got: ${scanRec.error})`);
+    assert.ok(!scanRec.error?.includes(SECRET), `enumerate must not persist raw secret (got: ${scanRec.error})`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

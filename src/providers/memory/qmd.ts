@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import type { Case } from "../../case.js";
 import { memoryRecords, type OvercastRecord } from "../../record.js";
 import { execCapture } from "../exec.js";
+import { redactSecrets } from "../../env.js";
 import { tokenizeCommand } from "../sources/index.js";
 import { indexableDocument, type IndexableDocument } from "./fields.js";
 import { parseSince } from "./local.js";
@@ -276,7 +277,7 @@ export class QmdMemoryProvider implements MemoryProvider {
         stderr: (e as Error).message,
       }));
       if (res.code !== 0) {
-        const error = res.stderr || res.stdout || `qmd exited ${res.code}`;
+        const error = redactSecrets(res.stderr || res.stdout || `qmd exited ${res.code}`);
         this.writeManifest({ ...manifest, state: "error", error, updated: new Date().toISOString() });
         return { ...(await this.status()), state: "error", error };
       }
@@ -290,7 +291,7 @@ export class QmdMemoryProvider implements MemoryProvider {
         stderr: (e as Error).message,
       }));
       if (res.code !== 0) {
-        const error = res.stderr || res.stdout || `qmd embed exited ${res.code}`;
+        const error = redactSecrets(res.stderr || res.stdout || `qmd embed exited ${res.code}`);
         this.writeManifest({ ...manifest, state: "error", error, updated: new Date().toISOString() });
         return { ...(await this.status()), state: "error", error };
       }

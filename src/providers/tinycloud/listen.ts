@@ -3,6 +3,7 @@
 // the exec boundary. Swap to a local whisper via http/in-proc for offline use.
 
 import { makeRecord, type OvercastRecord } from "../../record.js";
+import { redactSecrets } from "../../env.js";
 import { execCapture, renderCommand, parseFirstJson } from "../exec.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --speech-only --json";
@@ -164,7 +165,7 @@ export async function runListen(
           ? "tinycloud listen produced no JSON output"
           : res.code === 13
             ? "tinycloud listen needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
-            : `tinycloud listen exited ${res.code}: ${res.stderr.trim().slice(0, 500)}`,
+            : `tinycloud listen exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
       // exit 13 = missing creds, matching runExecProvider + the source providers
       state: res.code === 13 ? "needs_credentials" : "error",
     });
@@ -221,7 +222,7 @@ export async function runListen(
         envError ||
         (res.code === 13
           ? "tinycloud listen needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
-          : `tinycloud listen failed (exit ${res.code}): ${res.stderr.trim().slice(0, 500)}`),
+          : `tinycloud listen failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`),
       state: res.code === 13 ? "needs_credentials" : "error",
     });
   }
