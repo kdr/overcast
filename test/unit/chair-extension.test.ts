@@ -41,7 +41,7 @@ function fakePi(opts: { throwOnSend?: boolean } = {}) {
 }
 
 function fakeCtx(dir: string, overrides: Record<string, unknown> = {}) {
-  const widgets = new Map<string, string[] | undefined>();
+  const widgets = new Map<string, unknown[] | undefined>();
   const notices: string[] = [];
   const ctx = {
     mode: "tui",
@@ -58,8 +58,18 @@ function fakeCtx(dir: string, overrides: Record<string, unknown> = {}) {
       notify: (text: string) => {
         notices.push(text);
       },
-      setWidget: (key: string, lines: string[] | undefined) => {
-        widgets.set(key, lines);
+      // Mirror pi's InteractiveMode: a string[] is kept as-is; a component
+      // FACTORY (used for content that must exceed pi's 10-line array cap — e.g.
+      // the pairing QR) is rendered and we keep its `children` array, so the
+      // line-count assertions below still measure the number of rendered lines.
+      // undefined clears the widget.
+      setWidget: (key: string, content: unknown) => {
+        widgets.set(
+          key,
+          typeof content === "function"
+            ? (content as (t: unknown, th: unknown) => { children: unknown[] })(undefined, undefined).children
+            : (content as unknown[] | undefined),
+        );
       },
     },
     ...overrides,
