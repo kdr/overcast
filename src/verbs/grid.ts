@@ -9,16 +9,15 @@
 import { basename, join } from "node:path";
 import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { contactSheet, probe, parseTimecode, type GridCell } from "../media/ffmpeg.js";
+import { escapeHtml } from "../report/html.js";
 import { openHtmlPlayer } from "../media/view.js";
 import { resolveVideoArg } from "./media-ref.js";
 import { badNumber } from "./validate.js";
 import type { VerbSpec } from "../registry/types.js";
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "grid", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("grid", message);
 
 const MAX_CELLS = 64;
 
@@ -214,14 +213,6 @@ interface GridHtmlOpts {
   title: string;
 }
 
-/** Escape for HTML text content. */
-function htmlText(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-/** Escape for a double-quoted HTML attribute. */
-function htmlAttr(s: string): string {
-  return htmlText(s).replace(/"/g, "&quot;");
-}
 /** Whole seconds → M:SS (labels); the exact seconds ride the seek + the record. */
 function mmss(sec: number): string {
   const s = Math.max(0, Math.round(sec));
@@ -255,14 +246,14 @@ function buildGridHtml(o: GridHtmlOpts): string {
       return (
         `<button class="cell" style="${style}" onclick="seek(${cell.at})" ` +
         `title="cell ${cell.n} · ${cell.at}s">` +
-        `<span class="badge">${cell.n}</span><span class="tc">${htmlText(mmss(cell.at))}</span></button>`
+        `<span class="badge">${cell.n}</span><span class="tc">${escapeHtml(mmss(cell.at))}</span></button>`
       );
     })
     .join("");
 
-  const videoUrl = htmlAttr(o.videoIsRemote ? o.video : pathToFileURL(o.video).href);
-  const montageUrl = htmlAttr(pathToFileURL(o.montage).href);
-  const nameEsc = htmlText(o.title);
+  const videoUrl = escapeHtml(o.videoIsRemote ? o.video : pathToFileURL(o.video).href);
+  const montageUrl = escapeHtml(pathToFileURL(o.montage).href);
+  const nameEsc = escapeHtml(o.title);
 
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

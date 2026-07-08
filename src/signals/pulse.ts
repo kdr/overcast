@@ -5,7 +5,7 @@
  * are the single source of truth for scan/monitor/brief recency — wall imports
  * them so its HUD can't drift from status.
  */
-import { findingStatusMap, isMemoryRecord, isReady, type OvercastRecord } from "../record.js";
+import { findingStatusMap, isMemoryRecord, isReady, recordTimeMs, type OvercastRecord } from "../record.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
 import { buildThreads, threadsHeadline, type TargetThread } from "./threads.js";
 import type { TargetEntry } from "../state/target.js";
@@ -17,7 +17,7 @@ function payloadOf(r: OvercastRecord): Record<string, unknown> {
 }
 
 function timeMs(r: OvercastRecord): number {
-  const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+  const t = recordTimeMs(r);
   return Number.isNaN(t) ? NaN : t;
 }
 

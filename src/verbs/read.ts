@@ -4,7 +4,7 @@
 
 import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { makeRecord, memoryRecords, type OvercastRecord } from "../record.js";
+import { makeRecord, memoryRecords, recordTimeMs, type OvercastRecord } from "../record.js";
 import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord, type TimelineSynthesis } from "../report/html.js";
 import { sparkline, fmtAge } from "../report/components.js";
 import { casePulse, type CasePulse } from "../signals/pulse.js";
@@ -438,7 +438,7 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
   // their original insertion order (decorate-sort-undecorate for stability).
   const sorted = records
     .map((r, i) => {
-      const parsed = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+      const parsed = recordTimeMs(r);
       return { r, i, t: Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed };
     })
     .sort((a, b) => a.t - b.t || a.i - b.i)
@@ -632,7 +632,7 @@ export const briefVerb: VerbSpec = {
         // keep records at/after the cutoff (undated records are kept, since we
         // can't prove they're stale).
         records = records.filter((r) => {
-          const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+          const t = recordTimeMs(r);
           return Number.isNaN(t) || t >= cutoff;
         });
       }

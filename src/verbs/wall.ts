@@ -7,7 +7,7 @@
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { extractFrame } from "../media/ffmpeg.js";
 import { openHtmlPlayer } from "../media/view.js";
 import { normalizeHtmlTheme } from "../report/html.js";
@@ -20,9 +20,7 @@ import type { VerbSpec } from "../registry/types.js";
 // wall.html into whatever directory the command ran from.
 const WALL_DEFAULT_EXPORT = ".overcast/media/wall.html";
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "wall", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("wall", message);
 
 export const wallVerb: VerbSpec = {
   name: "wall",

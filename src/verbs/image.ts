@@ -3,7 +3,7 @@
 // `index`/`ask`/`face`.
 
 import { existsSync } from "node:fs";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { addMember, findIndex, resolveIndexRef } from "../state/index.js";
 import { localIndexDir, runLocalImage } from "../providers/local/vision.js";
 import { resolveImageArg, resolveVisualArg } from "./media-ref.js";
@@ -13,9 +13,7 @@ import { mkdirSync } from "node:fs";
 import type { Case } from "../case.js";
 import type { VerbSpec } from "../registry/types.js";
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "image", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("image", message);
 
 function localImageIndex(ctxCase: Case, value: unknown): { id?: string; error?: string } {
   const raw = value != null ? String(value).trim() : "";

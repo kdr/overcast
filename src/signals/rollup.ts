@@ -14,7 +14,7 @@
  * wins, so a whole sweep collapses to one "sweep" group. Records without it fall
  * through to the media-chain rules — so this works today without stamping runs.
  */
-import type { OvercastRecord } from "../record.js";
+import { recordTimeMs, type OvercastRecord } from "../record.js";
 
 export interface TimelineGroup {
   key: string;
@@ -33,7 +33,7 @@ function payloadOf(r: OvercastRecord): Record<string, unknown> {
 }
 
 function timeMs(r: OvercastRecord): number {
-  const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+  const t = recordTimeMs(r);
   return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
 }
 

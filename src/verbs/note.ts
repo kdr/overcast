@@ -2,14 +2,12 @@
 // outputs), so they flow through local memory, ask, brief, and case records like
 // sensed/captured evidence. They can optionally anchor to a media ref or record.
 
-import { makeRecord, type MediaRef, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef, refPathExists } from "./media-ref.js";
 import { parseAtSpan } from "../media/ffmpeg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "note", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("note", message);
 
 function splitTags(v: unknown): string[] | undefined {
   if (v == null) return undefined;

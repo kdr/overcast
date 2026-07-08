@@ -5,7 +5,7 @@
 import { join, basename, dirname } from "node:path";
 import { copyFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { sniffExt } from "../media/fetch.js";
 import {
   builtinDescriptor,
@@ -41,9 +41,7 @@ import { scanHitProvenance, stampProvenance } from "./provenance.js";
 import { redactSecrets } from "../env.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
-function err(verb: string, message: string): OvercastRecord {
-  return makeRecord({ verb, format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = errRecord;
 
 function scanFlagError(ctx: VerbContext, verb = "scan"): OvercastRecord | undefined {
   if (ctx.opts.limit != null) {

@@ -3,7 +3,7 @@
 // record's payload text. No external deps; per-case.
 
 import type { Case } from "../../case.js";
-import { memoryRecords, type OvercastRecord } from "../../record.js";
+import { memoryRecords, recordTimeMs, type OvercastRecord } from "../../record.js";
 import type { MemoryProvider, Passage, QueryOpts, Answer } from "./types.js";
 import { indexableDocument } from "./fields.js";
 
@@ -116,7 +116,7 @@ export class LocalMemoryProvider implements MemoryProvider {
         throw new Error(`invalid since value: ${opts.since}`);
       }
       records = records.filter((r) => {
-        const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+        const t = recordTimeMs(r);
         return Number.isNaN(t) || t >= cutoff;
       });
     }

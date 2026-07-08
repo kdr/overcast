@@ -28,7 +28,7 @@ import {
   type Modality,
 } from "../media/ffmpeg.js";
 import { openHtmlPlayer, osOpen } from "../media/view.js";
-import { renderEnhanceGallery, type EnhanceGalleryItem, type EnhanceGalleryReport } from "../report/html.js";
+import { escapeHtml, renderEnhanceGallery, type EnhanceGalleryItem, type EnhanceGalleryReport } from "../report/html.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { fanOutEnhance, hasFanOut } from "./enhance-fanout.js";
@@ -843,9 +843,9 @@ function buildPlayerHtml(
   // remote http(s) URL is used as-is. Either way HTML-escape every interpolated
   // path so a filename with quotes/`<`/`&` can't break the attribute or inject
   // script into the generated page.
-  const fileUrl = htmlAttr(isRemote ? src : pathToFileURL(src).href);
-  const nameEsc = htmlText(basenameOf(src));
-  const srcEsc = htmlText(src);
+  const fileUrl = escapeHtml(isRemote ? src : pathToFileURL(src).href);
+  const nameEsc = escapeHtml(basenameOf(src));
+  const srcEsc = escapeHtml(src);
   return `<!doctype html><html><head><meta charset="utf-8">
 <title>overcast view — ${nameEsc}</title>
 <style>
@@ -859,7 +859,7 @@ function buildPlayerHtml(
 <h1>▶ OVERCAST VIEW — ${nameEsc}</h1>
 <${tag} id="m" src="${fileUrl}" controls></${tag}>
 <div class="pins">${markerPins || '<span class="note">no markers</span>'}</div>
-${spectrogramPath ? `<img src="${htmlAttr(pathToFileURL(spectrogramPath).href)}" alt="spectrogram" style="width:100%;max-width:1024px;border:1px solid #1f9d57;margin-top:12px"/>` : ""}
+${spectrogramPath ? `<img src="${escapeHtml(pathToFileURL(spectrogramPath).href)}" alt="spectrogram" style="width:100%;max-width:1024px;border:1px solid #1f9d57;margin-top:12px"/>` : ""}
 <p class="note">${srcEsc}</p>
 <script>
   const m=document.getElementById('m');
@@ -871,17 +871,4 @@ ${spectrogramPath ? `<img src="${htmlAttr(pathToFileURL(spectrogramPath).href)}"
 
 function basenameOf(p: string): string {
   return p.split("/").pop() ?? p;
-}
-
-/** Escape for HTML text content. */
-function htmlText(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-/** Escape for a double-quoted HTML attribute value. */
-function htmlAttr(s: string): string {
-  return htmlText(s).replace(/"/g, "&quot;");
 }

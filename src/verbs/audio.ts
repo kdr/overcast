@@ -7,7 +7,7 @@
 // transcode/noise/clipping; NOT robust to pitch/speed change (classic Wang).
 
 import { existsSync, mkdirSync } from "node:fs";
-import { makeRecord, isReady, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, isReady, type OvercastRecord } from "../record.js";
 import { addMember, findIndex, resolveIndexRef } from "../state/index.js";
 import { localIndexDir } from "../providers/local/vision.js";
 import { runLocalAudio } from "../providers/local/audio.js";
@@ -17,9 +17,7 @@ import { badNumber } from "./validate.js";
 import type { Case } from "../case.js";
 import type { VerbSpec } from "../registry/types.js";
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "audio", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("audio", message);
 
 /** Resolve + validate a local audio-fp index the query/add targets. */
 function localAudioIndex(ctxCase: Case, value: unknown): { id?: string; error?: string } {

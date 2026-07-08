@@ -6,7 +6,7 @@ import { writeFileSync, mkdirSync, existsSync, cpSync, readFileSync } from "node
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { makeRecord } from "../record.js";
+import { makeRecord, errRecord } from "../record.js";
 import { expandHome } from "../fs-path.js";
 import {
   generateVerbReference,
@@ -206,8 +206,7 @@ export const skillsVerb: VerbSpec = {
   providerKey: "skills",
   run: async (ctx) => {
     const action = ctx.input;
-    const fail = (msg: string) =>
-      [makeRecord({ verb: "skills", format: "json", payload: { error: msg }, error: msg, state: "error" })];
+    const fail = (msg: string) => [errRecord("skills", msg)];
 
     if (action === "generate") {
       // a source-repo command: it rewrites the committed skills/ from the
