@@ -101,7 +101,7 @@ jobs:
           ls -lh dist/release/*.tar.gz
       - name: Attach binaries to the GitHub Release
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/release/*.tar.gz
           fail_on_unmatched_files: true
