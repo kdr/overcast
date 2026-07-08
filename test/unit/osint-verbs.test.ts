@@ -1543,13 +1543,24 @@ test("capture rejects an unresolved ref instead of shipping it to yt-dlp", async
 });
 
 import { parseInterval } from "../../src/verbs/osint.ts";
+import { parseSince } from "../../src/providers/memory/local.ts";
 
-test("parseInterval parses s/m/h/d cadences", () => {
+test("parseInterval parses s/m/h/d/w cadences", () => {
   assert.equal(parseInterval("30s"), 30_000);
   assert.equal(parseInterval("15m"), 900_000);
   assert.equal(parseInterval("6h"), 21_600_000);
   assert.equal(parseInterval("1d"), 86_400_000);
+  assert.equal(parseInterval("2w"), 1_209_600_000);
   assert.equal(parseInterval("nope"), undefined);
+});
+
+test("parseSince shares the s/m/h/d/w grammar with parseInterval", () => {
+  const now = Date.now();
+  const thirtyS = parseSince("30s");
+  assert.notEqual(thirtyS, null);
+  assert.ok(Math.abs((now - 30_000) - (thirtyS as number)) < 2_000);
+  assert.notEqual(parseSince("2w"), null);
+  assert.equal(parseSince("not-a-date"), null);
 });
 
 test("monitor --every loops with seen-set diff across passes (capped)", async () => {

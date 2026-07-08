@@ -12,6 +12,8 @@ import {
   defaultOps,
   modalityFromExt,
   parseFrameRef,
+  parseTimecode,
+  parseAtSpan,
 } from "../../src/media/ffmpeg.ts";
 
 let dir: string;
@@ -110,6 +112,25 @@ test("enhance throws (no silent no-op) when no op applies to the modality", asyn
   // a video op DOES apply to the image → ok, and reports it under ops
   const r = await enhance(png, ["grayscale"], join(dir, "e3"));
   assert.deepEqual(r.ops, ["grayscale"]);
+});
+
+test("parseTimecode accepts seconds + 2–3 segment timecodes, rejects garbage", () => {
+  assert.equal(parseTimecode("90"), 90);
+  assert.equal(parseTimecode("42.5"), 42.5);
+  assert.equal(parseTimecode("1:02"), 62);
+  assert.equal(parseTimecode("1:02:03"), 3723);
+  assert.equal(parseTimecode(""), undefined);
+  assert.equal(parseTimecode("1:2:3:4"), undefined);
+  assert.equal(parseTimecode(":30"), undefined);
+  assert.equal(parseTimecode("a:b"), undefined);
+  assert.equal(parseTimecode("-5"), undefined);
+});
+
+test("parseAtSpan parses points and spans, rejects end < start", () => {
+  assert.deepEqual(parseAtSpan("80-95"), [80, 95]);
+  assert.deepEqual(parseAtSpan("1:20-1:35"), [80, 95]);
+  assert.equal(parseAtSpan("95-80"), undefined);
+  assert.equal(parseAtSpan("90"), 90);
 });
 
 test("parseFrameRef parses frame://rec@sec and rejects others", () => {

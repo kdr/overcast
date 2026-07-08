@@ -20,7 +20,7 @@ import {
   defaultOps,
   extractFrame,
   parseFrameRef,
-  parseTimecode,
+  parseAtSpan,
   modalityFromExt,
   spectrogram as ffSpectrogram,
   ENHANCE_OPS,
@@ -833,7 +833,8 @@ function buildPlayerHtml(
   spectrogramPath: string | undefined,
   isRemote = false,
 ): string {
-  const startAt = at ? parseTimecode(String(at).split("-")[0]) ?? 0 : 0;
+  const parsed = at ? parseAtSpan(String(at)) : undefined;
+  const startAt = parsed == null ? 0 : Array.isArray(parsed) ? parsed[0] : parsed;
   const tag = modality === "video" ? "video" : "audio";
   const markerPins = markers
     .map((m) => `<button class="pin" onclick="seek(${Number(m)})">⏱ ${Number(m)}s</button>`)
