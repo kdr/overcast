@@ -13,10 +13,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "npm"
       # ffmpeg/ffprobe are a system prerequisite (used by enhance/view/frame
       # extraction); the unit suite exercises them.
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm ci
+      # Advisory surface only — non-blocking at first (|| true).
+      - run: npm audit --omit=dev --audit-level=high || true
       # version is single-sourced from package.json; fail if any surface drifted.
       - run: node scripts/sync-version.mjs --check
       - run: npm run typecheck
@@ -24,6 +27,9 @@ jobs:
       # Phase 0 acceptance check: the built entrypoint must actually run.
       - run: node dist/bin/overcast.js --version --json
       - run: npm test
+      # Offline e2e: fixture providers, no network/creds (test/e2e/README.md).
+      # SKIP_BUILD=1 reuses the dist built two steps up.
+      - run: SKIP_BUILD=1 bash test/e2e/run.sh
 
   shellcheck:
     runs-on: ubuntu-latest

@@ -31,6 +31,14 @@ cat >"$ochome/profiles/fixture.json" <<JSON
 JSON
 
 clip="${OC_VIDEO_VISUAL:-$(smoke_clip)}"
+# Self-skip on a media-less runner (offline CI has no real clip): even the
+# fixture provider needs a real input file to exist for overcast's media
+# resolution to reach it. Runs the full pipeline (below) when the clip IS
+# present. Mirrors phase1_watchlive.sh's skip idiom.
+if [ ! -f "$clip" ]; then
+  ok "watch.skipped" "real clip missing: $clip (offline CI); fixture-backed watch case skipped"
+  return 0 2>/dev/null || exit 0
+fi
 out="$($OVERCAST watch "$clip" --json --case "$casedir" --home "$ochome" --profile fixture 2>"$SMOKE_DIR/phase1_watch.err")"
 rc=$?
 save_json "phase1_watch" "$out" >/dev/null
