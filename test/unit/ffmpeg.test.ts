@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -131,6 +131,50 @@ test("parseAtSpan parses points and spans, rejects end < start", () => {
   assert.deepEqual(parseAtSpan("1:20-1:35"), [80, 95]);
   assert.equal(parseAtSpan("95-80"), undefined);
   assert.equal(parseAtSpan("90"), 90);
+});
+
+test("contactSheet nulls a cell whose frame ffmpeg drops (exit 0, no output) — no later-cell shift", async () => {
+  // Some ffmpeg builds/containers exit 0 with NO frame written when a seek lands
+  // at/past the last decodable frame. That gap truncates the image2 sequence in
+  // the tile pass and shifts every LATER cell off its mapped timestamp while the
+  // returned map still claims the original one — the grid then silently lies.
+  // This machine's ffmpeg errors (non-zero) on such a seek, so we reproduce the
+  // exit-0-no-output case deterministically with a wrapper that answers one
+  // sentinel seek with exit 0 + no file and delegates everything else to the real
+  // ffmpeg (FFMPEG_PATH is captured here before the override).
+  const realFfmpeg = FFMPEG_PATH;
+  const POISON = 123.456; // a seek this 1s clip has no frame for; the stub drops it
+  const stub = join(dir, "ffmpeg-drop-stub.sh");
+  writeFileSync(
+    stub,
+    `#!/bin/sh\nfor a in "$@"; do\n  if [ "$a" = "${POISON}" ]; then exit 0; fi\ndone\nexec "${realFfmpeg}" "$@"\n`,
+    { mode: 0o755 },
+  );
+
+  const prev = process.env.OVERCAST_FFMPEG;
+  process.env.OVERCAST_FFMPEG = stub;
+  try {
+    // fresh module instance so FFMPEG_PATH resolves to the stub (it's read at load)
+    const { contactSheet } = await import("../../src/media/ffmpeg.ts?dropstub");
+    const seconds = [0, 0.2, POISON, 0.6];
+    const r = await contactSheet(clip, seconds, join(dir, "drop-sheet"));
+
+    // resolves + still produces a montage (no throw, no half-built grid)
+    assert.ok(existsSync(r.output), "montage still produced despite a dropped frame");
+    // the dropped cell maps to null — never a shifted/wrong source timestamp
+    assert.equal(r.cells[2].at, null, "the cell whose frame was dropped maps to null");
+    // every OTHER cell keeps its EXACT original timestamp (no shift into the gap)
+    assert.equal(r.cells[0].at, 0);
+    assert.equal(r.cells[1].at, 0.2);
+    assert.equal(r.cells[3].at, 0.6);
+    // invariant: any cell that claims a timestamp maps to its OWN sample, in place
+    for (const c of r.cells) {
+      if (c.at != null) assert.equal(c.at, seconds[c.n - 1], `cell ${c.n} maps to its own sample`);
+    }
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_FFMPEG;
+    else process.env.OVERCAST_FFMPEG = prev;
+  }
 });
 
 test("parseFrameRef parses frame://rec@sec and rejects others", () => {
