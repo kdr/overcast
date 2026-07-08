@@ -1,5 +1,6 @@
 import { makeRecord, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef, refPathExists } from "./media-ref.js";
+import { parseAtSpan } from "../media/ffmpeg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
@@ -57,27 +58,6 @@ export function makeFinding(input: {
 
 function textFromArgs(ctx: VerbContext): string {
   return [ctx.rest[0], ...ctx.rest.slice(1)].filter(Boolean).join(" ").trim();
-}
-
-function parseStamp(s: string): number | undefined {
-  const raw = s.trim();
-  if (!raw) return undefined;
-  if (/^\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
-  const parts = raw.split(":");
-  if (parts.length < 2 || parts.length > 3 || !parts.every((p) => /^\d+(?:\.\d+)?$/.test(p))) return undefined;
-  const nums = parts.map(Number);
-  return nums.length === 2 ? nums[0] * 60 + nums[1] : nums[0] * 3600 + nums[1] * 60 + nums[2];
-}
-
-function parseAt(s: string): number | [number, number] | undefined {
-  const span = s.trim().match(/^(.+)-(.+)$/);
-  if (span) {
-    const start = parseStamp(span[1]);
-    const end = parseStamp(span[2]);
-    if (start == null || end == null || end < start) return undefined;
-    return [start, end];
-  }
-  return parseStamp(s);
 }
 
 export function isRootFindingRecord(rec: OvercastRecord): boolean {
@@ -152,7 +132,7 @@ export const findingVerb: VerbSpec = {
       }
       if (ctx.opts.at != null) {
         if (!media?.ref) return [err("--at requires --ref to resolve to media")];
-        const at = parseAt(String(ctx.opts.at));
+        const at = parseAtSpan(String(ctx.opts.at));
         if (at == null) return [err(`invalid --at '${ctx.opts.at}' (expected seconds, hh:mm:ss, or start-end)`)];
         media = { ref: media.ref, at };
       }

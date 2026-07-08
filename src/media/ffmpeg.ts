@@ -530,20 +530,37 @@ export interface FrameRef {
   second: number;
 }
 
-/** Parse a seek/timestamp value: plain seconds ("42", "42.5") or a timecode
- *  ("1:02", "1:02:14"). Returns undefined for anything unparseable or negative —
- *  the single implementation shared by `grid` window flags and `view --at` so the
- *  two can't disagree on a malformed string. */
+/** Parse a seek/timestamp: plain seconds ("42", "42.5") or a timecode with 2–3
+ *  segments ("1:02", "1:02:14"; decimals allowed in any segment). Returns
+ *  undefined for negatives, >3 segments, or non-numeric segments. THE single
+ *  implementation for every --at/--start/--end across verbs. */
 export function parseTimecode(s: string): number | undefined {
   const str = s.trim();
   if (!str) return undefined;
   if (str.includes(":")) {
-    const parts = str.split(":").map((p) => Number(p));
-    if (parts.some((p) => !Number.isFinite(p) || p < 0)) return undefined;
-    return parts.reduce((acc, p) => acc * 60 + p, 0);
+    const parts = str.split(":");
+    if (parts.length < 2 || parts.length > 3) return undefined;
+    if (!parts.every((p) => /^\d+(?:\.\d+)?$/.test(p))) return undefined;
+    const nums = parts.map(Number);
+    return nums.length === 2 ? nums[0] * 60 + nums[1] : nums[0] * 3600 + nums[1] * 60 + nums[2];
   }
   const n = Number(str);
   return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+/** Parse a point ("90", "1:30") or span ("80-95", "1:20-1:35") --at value.
+ *  A span with end < start is invalid. */
+export function parseAtSpan(s: string): number | [number, number] | undefined {
+  const raw = s.trim();
+  if (!raw) return undefined;
+  const span = raw.match(/^(.+)-(.+)$/);
+  if (span) {
+    const start = parseTimecode(span[1]);
+    const end = parseTimecode(span[2]);
+    if (start == null || end == null || end < start) return undefined;
+    return [start, end];
+  }
+  return parseTimecode(raw);
 }
 
 /** Parse a `frame://rec_xxx@134` reference. Returns null if not a frame ref. */

@@ -969,13 +969,14 @@ export const captureVerb: VerbSpec = {
 
 // ---- monitor (--once) ------------------------------------------------------
 
-/** Parse a cadence like "15m"/"6h"/"30s"/"1d" into milliseconds. */
+/** Parse a cadence like "15m"/"6h"/"30s"/"1d"/"2w" into milliseconds. Units
+ *  match the shared s/m/h/d/w duration grammar (parseSince). */
 export function parseInterval(s: string): number | undefined {
-  const m = s.match(/^(\d+)\s*([smhd])$/);
+  const m = s.match(/^(\d+)\s*([smhdw])$/);
   if (!m) return undefined;
   const n = Number(m[1]);
   const u = m[2];
-  return n * (u === "s" ? 1e3 : u === "m" ? 60e3 : u === "h" ? 3600e3 : 86400e3);
+  return n * (u === "s" ? 1e3 : u === "m" ? 60e3 : u === "h" ? 3600e3 : u === "d" ? 86400e3 : 7 * 86400e3);
 }
 
 const sleep = (ms: number, signal?: AbortSignal) =>

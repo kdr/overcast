@@ -4,37 +4,11 @@
 
 import { makeRecord, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef, refPathExists } from "./media-ref.js";
+import { parseAtSpan } from "../media/ffmpeg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function err(message: string): OvercastRecord {
   return makeRecord({ verb: "note", format: "json", payload: { error: message }, error: message, state: "error" });
-}
-
-function parseStamp(s: string): number | undefined {
-  const raw = s.trim();
-  if (!raw) return undefined;
-  if (/^\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
-  const parts = raw.split(":");
-  if (parts.length < 2 || parts.length > 3) return undefined;
-  if (!parts.every((p) => /^\d+(?:\.\d+)?$/.test(p))) return undefined;
-  const nums = parts.map(Number);
-  if (nums.some((n) => !Number.isFinite(n))) return undefined;
-  return nums.length === 2
-    ? nums[0] * 60 + nums[1]
-    : nums[0] * 3600 + nums[1] * 60 + nums[2];
-}
-
-function parseAt(s: string): number | [number, number] | undefined {
-  const raw = s.trim();
-  if (!raw) return undefined;
-  const span = raw.match(/^(.+)-(.+)$/);
-  if (span) {
-    const start = parseStamp(span[1]);
-    const end = parseStamp(span[2]);
-    if (start == null || end == null || end < start) return undefined;
-    return [start, end];
-  }
-  return parseStamp(raw);
 }
 
 function splitTags(v: unknown): string[] | undefined {
@@ -119,7 +93,7 @@ export const noteVerb: VerbSpec = {
     if (ctx.opts.at != null) {
       if (!ctx.opts.ref) return [err("--at requires --ref so the timestamp has evidence to anchor")];
       if (!media?.ref) return [err("--at requires --ref to resolve to media (the referenced record has no media.ref)")];
-      const at = parseAt(String(ctx.opts.at));
+      const at = parseAtSpan(String(ctx.opts.at));
       if (at == null) return [err(`invalid --at '${ctx.opts.at}' (expected seconds, hh:mm:ss, or start-end)`)];
       media = { ref: media.ref, at };
     }
