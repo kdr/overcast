@@ -13,7 +13,7 @@ import { isRegisterableMediaRecord } from "../verbs/media-ref.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
 import { sourceScanFreshness, latestTimed, triageCounts } from "../signals/pulse.js";
 import { fmtAge, fmtTime } from "./components.js";
-import { escapeHtml, summarizePayload, type HtmlTheme } from "./html.js";
+import { escapeHtml, summarizePayload, reportCsp, reportRemoteMediaEnabled, type HtmlTheme } from "./html.js";
 
 export interface WallAnchor {
   /** the evidence second the tile is anchored to */
@@ -488,7 +488,7 @@ export function renderWallHtml(model: WallModel, theme: HtmlTheme): string {
   // feeds should read as a bank of monitors, not a pair of billboards.
   const sqrtCols = Math.ceil(Math.sqrt(model.tiles.length || 1));
   const cols = Math.max(1, Math.min(6, model.hud.infinite ? Math.max(3, sqrtCols) : sqrtCols));
-  return `<!doctype html><html><head><meta charset="utf-8">${refreshTag}<title>${escapeHtml(title)}</title>
+  return `<!doctype html><html><head><meta charset="utf-8">${reportCsp({ script: true })}${refreshTag}<title>${escapeHtml(title)}</title>
 <style>${WALL_BASE_CSS}
 ${csi ? CSI_SKIN : PLAIN_SKIN}</style></head><body${csi ? ' data-overcast-theme="csi"' : ""}>
 ${renderHud(model.hud)}
@@ -523,14 +523,27 @@ function renderHud(hud: WallHud): string {
 const LIVE_LABEL: Record<WallTile["mode"], string> = { video: "● LIVE", still: "● STILL", down: "● DOWN" };
 const COVER_LABEL: Record<"still" | "down", string> = { still: "STILL", down: "NO SIGNAL" };
 
+function isRemoteUrl(url: string | null | undefined): boolean {
+  return !!url && /^https?:\/\//i.test(url);
+}
+
 function renderTile(tile: WallTile, index: number): string {
   const cam = `CAM ${String(index + 1).padStart(2, "0")}`;
   const openUrl = tile.fileUrl ? `${tile.fileUrl}#t=${tile.anchor.start}` : "";
-  const media =
-    tile.mode === "video"
+  // Local tiles are file:// URLs (captured media). A remote data-src/poster
+  // would fire a live request to the investigated host the moment the wall opens
+  // — a deanonymization beacon — so remote tiles render as an inert cover unless
+  // OVERCAST_REPORT_REMOTE_MEDIA=1 (the CSP enforces the same boundary).
+  const remoteMediaOk = reportRemoteMediaEnabled();
+  const remoteBlocked = !remoteMediaOk && isRemoteUrl(tile.fileUrl);
+  const showPoster = !!tile.poster && (remoteMediaOk || !isRemoteUrl(tile.poster));
+  const media = remoteBlocked
+    ? `<div class="static"></div>
+  <div class="cover"><span class="nosig-label">REMOTE OFF</span></div>`
+    : tile.mode === "video"
       ? `<video muted playsinline loop preload="metadata" data-src="${escapeHtml(tile.fileUrl)}" data-start="${tile.anchor.start}" data-end="${tile.anchor.end}"></video>
   <div class="cover errcover"><span class="nosig-label">NO SIGNAL</span></div>`
-      : `${tile.poster ? `<img class="poster" alt="${escapeHtml(tile.title)}" src="${escapeHtml(tile.poster)}">` : `<div class="static"></div>`}
+      : `${showPoster ? `<img class="poster" alt="${escapeHtml(tile.title)}" src="${escapeHtml(tile.poster)}">` : `<div class="static"></div>`}
   <div class="cover"><span class="nosig-label">${COVER_LABEL[tile.mode]}</span></div>`;
   const badges = (["watch", "listen", "see", "face"] as const)
     .map((k) => `<b class="${tile.coverage[k] ? "on" : ""}" title="${k}">${k[0].toUpperCase()}</b>`)

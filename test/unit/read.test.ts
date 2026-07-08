@@ -826,16 +826,43 @@ test("brief synthesis: TL;DR note, sources-checked rollup, and findings surface 
     assert.match(out, /data-csi-synthesis/);
     assert.match(out, /Sources checked/);
     assert.match(out, /Matches &amp; findings/);
-    // a video media.ref embeds a player, with the scan thumb as its poster;
-    // preload="none" so the browser never opens the video until play
-    assert.match(out, /<video class="embed" controls preload="none" poster="https:\/\/pbs\.twimg\.com\/t\.jpg" src="https:\/\/video\.twimg\.com\/hi\.mp4"/);
-    // a remote video without a thumb (the image-match record) still stays
-    // preload="none" (no metadata stall); local videos get an extracted poster
-    assert.match(out, /<video class="embed" controls preload="none" src="https:\/\/video\.twimg\.com\/rip\.mp4"/);
-    // the finding card embeds the RANSAC overlay (local png → inlined data URI)
+    // opsec default: a CSP blocks every remote load so an auto-opened report can't
+    // beacon the analyst's IP to the investigated host (default-deny — no https:)
+    assert.match(out, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: file:; media-src data: file:; style-src 'unsafe-inline'; font-src data:">/);
+    // remote scan-hit media is NOT auto-embedded: no remote src=/poster= attribute
+    // (the ref survives only as placeholder text) — the browser fires no request
+    assert.doesNotMatch(out, /src="https:\/\/video\.twimg\.com\/hi\.mp4"/);
+    assert.doesNotMatch(out, /poster="https:\/\/pbs\.twimg\.com\/t\.jpg"/);
+    assert.doesNotMatch(out, /src="https:\/\/video\.twimg\.com\/rip\.mp4"/);
+    assert.match(out, /remote media not loaded \(set OVERCAST_REPORT_REMOTE_MEDIA=1 to embed\)/);
+    // local evidence is unaffected: the finding card still inlines the RANSAC
+    // overlay (local png → data URI), which the CSP's img-src data: permits
     assert.match(out, /data-csi-overlays="true"/);
     assert.match(out, /<img[^>]*src="data:image\/png;base64,/);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("OVERCAST_REPORT_REMOTE_MEDIA=1 opts back into remote embeds and relaxes the CSP", async () => {
+  const prev = process.env.OVERCAST_REPORT_REMOTE_MEDIA;
+  process.env.OVERCAST_REPORT_REMOTE_MEDIA = "1";
+  const dir = mkdtempSync(join(tmpdir(), "oc-brief-remote-optin-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "scan", payload: { title: "rip A", url: "https://x.com/a/1", source: "x", thumb: "https://pbs.twimg.com/t.jpg" }, media: { ref: "https://video.twimg.com/hi.mp4" }, state: "ready" }));
+    const html = join(dir, "brief.html");
+    await briefVerb.run({ input: undefined, rest: [], opts: { export: html, theme: "csi" }, case: c, profile: defaultProfile() });
+    const out = readFileSync(html, "utf8");
+    // the opt-in relaxes the CSP to allow remote http/https media...
+    assert.match(out, /img-src data: file: https: http:; media-src data: file: https: http:/);
+    // ...and the remote video (with its remote thumb poster) embeds live again
+    assert.match(out, /<video class="embed" controls preload="none" poster="https:\/\/pbs\.twimg\.com\/t\.jpg" src="https:\/\/video\.twimg\.com\/hi\.mp4"/);
+    assert.doesNotMatch(out, /remote media not loaded/);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_REPORT_REMOTE_MEDIA;
+    else process.env.OVERCAST_REPORT_REMOTE_MEDIA = prev;
     rmSync(dir, { recursive: true, force: true });
   }
 });

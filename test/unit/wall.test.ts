@@ -264,6 +264,33 @@ test("remote browser-hostile media is STILL (exists, unplayable), not DOWN", () 
   assert.equal(tile.fileUrl, "https://cdn.example.com/feed.mkv");
 });
 
+test("remote wall tiles don't beacon: no data-src by default, embedded with the opt-in", () => {
+  // an un-captured remote video ref classifies as a playable tile (fileUrl=remote)
+  const remote = makeRecord({ verb: "capture", payload: { capture_id: "cap_r", source: "tiktok" }, media: { ref: "https://cdn.example.com/d.mp4" }, meta: { time: T(5) } });
+  const model = buildWallModel([remote], opts());
+  assert.equal(model.tiles[0].mode, "video");
+  assert.equal(model.tiles[0].fileUrl, "https://cdn.example.com/d.mp4");
+
+  // default: the remote video is NOT auto-loaded — no data-src to the host, an
+  // inert REMOTE OFF cover instead, and a default-deny CSP for good measure
+  const html = renderWallHtml(model, "csi");
+  assert.ok(!html.includes("data-src="), "remote tile must not carry a data-src by default");
+  assert.match(html, /REMOTE OFF/);
+  assert.match(html, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: file:; media-src data: file:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:">/);
+
+  // opt-in: the remote data-src embeds and the CSP relaxes to http/https
+  const prev = process.env.OVERCAST_REPORT_REMOTE_MEDIA;
+  process.env.OVERCAST_REPORT_REMOTE_MEDIA = "1";
+  try {
+    const on = renderWallHtml(buildWallModel([remote], opts()), "csi");
+    assert.match(on, /data-src="https:\/\/cdn\.example\.com\/d\.mp4"/);
+    assert.match(on, /img-src data: file: https: http:/);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_REPORT_REMOTE_MEDIA;
+    else process.env.OVERCAST_REPORT_REMOTE_MEDIA = prev;
+  }
+});
+
 // ---- rendering ----------------------------------------------------------------
 
 test("csi render: theme markers, tiles with loop windows, NO SIGNAL, refresh meta, escaping", () => {
@@ -286,7 +313,8 @@ test("csi render: theme markers, tiles with loop windows, NO SIGNAL, refresh met
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt; cam/);
 
   const noRefresh = renderWallHtml(buildWallModel(records, opts({ fileExists: () => true })), "csi");
-  assert.ok(!noRefresh.includes("http-equiv"), "refresh meta present without --refresh");
+  // (the CSP meta is always an http-equiv; check for the refresh one specifically)
+  assert.ok(!noRefresh.includes('http-equiv="refresh"'), "refresh meta present without --refresh");
 });
 
 test("--infinite: hud flag, data-infinite marker, and the 3-col floor for tiny walls", () => {

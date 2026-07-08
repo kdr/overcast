@@ -1,9 +1,42 @@
 import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
+import { envEnabled } from "../env.js";
 import type { OvercastRecord } from "../record.js";
 
 export type HtmlTheme = "plain" | "csi";
+
+/** Remote media in exported reports is OFF by default: an auto-opened report
+ *  that fetches scraped thumbnails/videos beacons the analyst's IP to the
+ *  investigated host. OVERCAST_REPORT_REMOTE_MEDIA=1 re-enables remote embeds. */
+export function reportRemoteMediaEnabled(): boolean {
+  return envEnabled("OVERCAST_REPORT_REMOTE_MEDIA");
+}
+
+/** CSP meta for the report HTML shells. `default-src 'none'` blocks every
+ *  outbound load so an auto-opened report can't beacon the analyst to an
+ *  investigated host; only inlined `data:` + local `file:` media (and, with the
+ *  opt-in, remote http/https) are allowed. `style-src`/`script-src` cover the
+ *  shells' inline `<style>`/`<script>` — `script` is passed only by the wall
+ *  shell (the report shells run no scripts). One line guards every embed site. */
+export function reportCsp(opts: { script?: boolean } = {}): string {
+  const remote = reportRemoteMediaEnabled() ? " https: http:" : "";
+  const directives = [
+    "default-src 'none'",
+    `img-src data: file:${remote}`,
+    `media-src data: file:${remote}`,
+    "style-src 'unsafe-inline'",
+    "font-src data:",
+  ];
+  if (opts.script) directives.splice(3, 0, "script-src 'unsafe-inline'");
+  return `<meta http-equiv="Content-Security-Policy" content="${directives.join("; ")}">`;
+}
+
+/** Placeholder shown in place of a remote `<img>`/`<video>` when remote media is
+ *  off — the CSP already blocks the fetch; this says WHY and how to opt in. */
+function remoteBlockedEmbed(ref: string): string {
+  return `<div class="embed remote-blocked" title="${escapeHtml(ref)}">remote media not loaded (set OVERCAST_REPORT_REMOTE_MEDIA=1 to embed) — ${escapeHtml(ref)}</div>`;
+}
 
 export interface TimelineRecord {
   id: string;
@@ -125,7 +158,7 @@ export function mdToPlainHtml(md: string, title: string): string {
     else out.push(`<p>${escapeHtml(line)}</p>`);
   }
   const body = out.join("\n");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+  return `<!doctype html><html><head><meta charset="utf-8">${reportCsp()}<title>${escapeHtml(title)}</title>
 <style>body{background:#08120c;color:#c6f7d5;font-family:ui-monospace,monospace;max-width:840px;margin:2rem auto;padding:1rem}
 h1,h2{color:#ffc400}code{color:#00ff7f}li{margin:2px 0}
 pre{white-space:pre-wrap;word-break:break-word;background:#0d1f14;padding:8px;border-radius:4px}</style></head><body>
@@ -451,7 +484,7 @@ export function renderEnhanceGallery(r: EnhanceGalleryReport): string {
 }
 
 function csiShell(title: string, subtitle: string | undefined, body: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+  return `<!doctype html><html><head><meta charset="utf-8">${reportCsp()}<title>${escapeHtml(title)}</title>
 <style>
 :root{color-scheme:dark;--bg:#050708;--panel:#0b1214;--panel2:#10181b;--line:#1f3a3b;--green:#5cff96;--cyan:#38e8ff;--amber:#ffd166;--magenta:#ff4fd8;--text:#d8ffe4;--muted:#8aa69d;--bad:#ff6b6b}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,#10241b 0,#050708 34rem);color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45}
@@ -582,19 +615,28 @@ function mediaEmbed(record: TimelineRecord): string {
   const payload = typeof record.payload === "object" && record.payload != null ? (record.payload as Record<string, unknown>) : {};
   const ref = record.media?.ref;
   if (typeof ref === "string" && ref.trim()) {
+    // Remote embeds beacon the analyst's IP to the investigated host on open, so
+    // they're OFF unless OVERCAST_REPORT_REMOTE_MEDIA=1 (the CSP enforces this too).
+    const remoteOk = reportRemoteMediaEnabled();
     // poster preference: an extracted local poster frame (record.poster), else a
-    // remote thumb. A poster lets us keep preload="none" — the browser never
-    // opens the (possibly huge) video until the user clicks play, so a page full
-    // of clips loads and plays instantly instead of stalling on metadata.
+    // remote thumb (only when remote media is allowed). A poster lets us keep
+    // preload="none" — the browser never opens the (possibly huge) video until the
+    // user clicks play, so a page full of clips loads and plays instantly.
     const posterSrc = record.poster ? imageSrc(record.poster) : undefined;
-    const poster = posterSrc ?? (typeof payload.thumb === "string" && /^https?:\/\//i.test(payload.thumb) ? payload.thumb : undefined);
+    const remoteThumb = typeof payload.thumb === "string" && /^https?:\/\//i.test(payload.thumb) ? payload.thumb : undefined;
+    const poster = posterSrc ?? (remoteOk ? remoteThumb : undefined);
     if (isVideoMediaRef(ref)) {
-      const src = /^https?:\/\//i.test(ref) ? ref : existsSync(ref) ? pathToFileURL(ref).href : undefined;
-      if (src) {
-        parts.push(`<video class="embed" controls preload="none"${poster ? ` poster="${escapeHtml(poster)}"` : ""} src="${escapeHtml(src)}"></video>`);
+      const remote = /^https?:\/\//i.test(ref);
+      if (remote && !remoteOk) {
+        parts.push(remoteBlockedEmbed(ref));
+      } else {
+        const src = remote ? ref : existsSync(ref) ? pathToFileURL(ref).href : undefined;
+        if (src) {
+          parts.push(`<video class="embed" controls preload="none"${poster ? ` poster="${escapeHtml(poster)}"` : ""} src="${escapeHtml(src)}"></video>`);
+        }
       }
     } else if (/^https?:\/\//i.test(ref) && VISUAL_EXT_RE.test(ref)) {
-      parts.push(`<img class="embed" alt="${escapeHtml(ref)}" src="${escapeHtml(ref)}">`);
+      parts.push(remoteOk ? `<img class="embed" alt="${escapeHtml(ref)}" src="${escapeHtml(ref)}">` : remoteBlockedEmbed(ref));
     } else {
       const t = imageTag(ref);
       if (t) parts.push(`<div class="embed-wrap">${t}</div>`);
