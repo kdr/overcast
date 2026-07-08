@@ -8,8 +8,9 @@
 # ./.dev/smoke/<UTC>/ holding every case's raw JSON plus a generated report.md
 # (timestamp + phase + git SHA, what was tested, per-case results, summary).
 #
-# Cases hit real clips (~/Downloads/test-videos) and the Cloudglue LLM — kept
-# small/few. Only test/e2e/ is committed; .dev/smoke/* stays local.
+# The committed suite is OFFLINE: fixture providers, no network, no creds, no
+# real clips (see test/e2e/README.md). Live-flavored cases self-skip unless
+# OVERCAST_E2E_LIVE=1. Only test/e2e/ is committed; .dev/smoke/* stays local.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
