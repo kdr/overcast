@@ -655,6 +655,35 @@ configured semantic providers such as qmd, and `--memory qmd` forces that
 provider explicitly. `overcast doctor` reports qmd as an optional check when it
 is installed or configured.
 
+### Cloudglue cloud tier (`ask --deep`, opt-in)
+
+`ask --deep` can also fan out to a case-linked Cloudglue **media-descriptions**
+collection — true cross-modal search over the case's actual video at cloud scale.
+This is the `cloudglue` memory provider (alias `tinycloud`), and it is strictly
+**opt-in** because uploading/querying a Cloudglue collection costs money:
+
+```bash
+overcast index create Scenes --type media-descriptions   # a remote collection for the case
+overcast index add clip.mp4 --to <id>                     # (uploads cost money)
+overcast setup memory cloudglue                           # opt in (uses the first attached media-descriptions index)
+overcast setup memory cloudglue <index>                   # …or pin a specific index by id/name
+overcast setup memory cloudglue off                       # opt back out
+overcast ask "where did the buyer object to the price?" --deep --json
+```
+
+The opt-in lives in the case setup (`.overcast/setup.json`, `memory.cloudglue`) —
+it is off by default and never auto-enabled. The provider engages ONLY when all of
+these hold: `--deep` was requested, the case opted in, a media-descriptions
+collection resolves, and a Cloudglue key is present (`CLOUDGLUE_API_KEY`, or
+`~/.tinycloud/config.json`). A plain `ask` (no `--deep`) never touches the cloud —
+the provider's local `query()` returns nothing, so there is no silent spend. It
+only READS the collection; adding captured media to it is a separate, deliberate
+step (`index add`), not something `ask` does. Under the hood it goes through the
+public tinycloud ask verb (the same path as `ask --index`) and maps cited moments
+to `record.id` + `media.at` citations — never the Cloudglue SDK (invariant #9).
+`ask --deep --memory cloudglue` forces just this provider; combine with qmd to
+merge local semantic hits with the cloud answer.
+
 For typed remote retrieval, `ask --index <id>` queries a tinycloud-backed
 **media-descriptions** index directly (see below) — the public-verb realization
 of the portable/remote tier.

@@ -2,14 +2,51 @@
 // and merge. local-grep is always present; profiles can opt into qmd.
 
 import type { Case } from "../../case.js";
-import type { Profile } from "../../profile.js";
+import { resolveCloudglue, type Profile } from "../../profile.js";
 import type { MemoryProvider, Answer, QueryOpts, Citation } from "./types.js";
 import { LocalMemoryProvider } from "./local.js";
 import { QmdMemoryProvider } from "./qmd.js";
+import { CloudglueMemoryProvider } from "./cloudglue.js";
 import { loadSetup } from "../../state/setup.js";
+import { indexesByType, resolveIndexRef } from "../../state/index.js";
+import { tinycloudBaseFromRun } from "../tinycloud/envelope.js";
+import { providerEnv } from "../provider-env.js";
 
-/** Resolve the bound memory providers for a case. local-grep is always present. */
-export function resolveMemory(case_: Case, profile?: Profile): MemoryProvider[] {
+/** Resolve the case's opt-in Cloudglue collection ref, if any. A pinned
+ *  `memory.cloudglue.index` (id / unique name) must be a media-descriptions
+ *  index; otherwise the case's first attached media-descriptions index is used.
+ *  Returns undefined when nothing ask-able is linked. */
+function resolveCloudglueCollection(case_: Case, pinned?: string): { indexId: string; collectionId: string } | undefined {
+  const want = pinned?.trim();
+  if (want) {
+    const ref = resolveIndexRef(case_, want);
+    // Fail CLOSED on an ambiguous pinned name (matches >1 mirror index): treating
+    // it as a raw remote id could silently query the WRONG collection. Return
+    // undefined so cloudglue isn't registered — mirroring how `ask --index`
+    // errors on ambiguity (src/verbs/read.ts). Only a value that is truly not in
+    // the mirror ({} — no entry AND no error) may map to a raw remote id.
+    if (ref.error) return undefined;
+    if (!ref.entry) return { indexId: want, collectionId: want }; // unmirrored → raw remote id
+    // Mirror `ask --index` (src/verbs/read.ts): accept a media-descriptions index
+    // OR an untyped ("unknown") mirror entry — one added by raw id without --type
+    // stays "unknown" yet is still a valid ask/probe target. Only OTHER concrete
+    // types (face-analysis, entities, …) are rejected. Being stricter than
+    // `ask --index` here would make the deep tier unable to use an index that
+    // `ask --index` already answers over.
+    if (ref.entry.type !== "media-descriptions" && ref.entry.type !== "unknown") return undefined;
+    return { indexId: ref.entry.id, collectionId: ref.entry.id };
+  }
+  const attached = indexesByType(case_, "media-descriptions")[0];
+  return attached ? { indexId: attached.id, collectionId: attached.id } : undefined;
+}
+
+/** Resolve the bound memory providers for a case. local-grep is always present.
+ *  `opts.deep` requests the cloud tier (the opt-in Cloudglue collection provider)
+ *  — it is NEVER added for a plain (non-deep) resolution, so a default `ask` can't
+ *  silently spend against the collection. `opts.signal` (the command's AbortSignal)
+ *  is threaded to the cloud provider so a canceled/timed-out `ask --deep` aborts the
+ *  paid tinycloud query instead of leaving it running. */
+export function resolveMemory(case_: Case, profile?: Profile, opts: { deep?: boolean; signal?: AbortSignal } = {}): MemoryProvider[] {
   const setup = loadSetup(case_);
   const setupMemory = setup?.memory;
   const signalSet = new Set(setupMemory?.signals ?? []);
@@ -39,6 +76,44 @@ export function resolveMemory(case_: Case, profile?: Profile): MemoryProvider[] 
     }
   }
   if (setupMemory?.backend === "qmd" && !hasQmd) providers.push(new QmdMemoryProvider(case_, { verbs }));
+
+  // Cloud tier (opt-in, deep-only). Registered ONLY when all hold: `ask --deep`
+  // was requested (opts.deep), the operator opted in (setup.memory.cloudglue), a
+  // media-descriptions collection resolves, AND a Cloudglue key is present — so a
+  // plain `ask` never sees this provider (no silent spend) and it is unreachable
+  // unless explicitly asked for. Invariant #9: it queries via the public tinycloud
+  // ask verb (collection.ts / tcAsk), never the Cloudglue SDK.
+  if (opts.deep && setupMemory?.cloudglue) {
+    const apiKey = resolveCloudglue().apiKey;
+    const ref = apiKey ? resolveCloudglueCollection(case_, setupMemory.cloudglue.index) : undefined;
+    if (apiKey && ref) {
+      providers.push(
+        new CloudglueMemoryProvider(case_, {
+          indexId: ref.indexId,
+          collectionId: ref.collectionId,
+          base: tinycloudBaseFromRun(profile?.providers?.index?.run ?? profile?.providers?.collection?.run),
+          env: providerEnv(case_.mediaDir, case_.dir),
+          // thread the command's AbortSignal so a canceled/timed-out deep ask
+          // aborts the paid tinycloud query (parity with `ask --index`).
+          signal: opts.signal,
+        }),
+      );
+    } else {
+      // The operator opted into the cloud tier and asked for `--deep`, but it
+      // couldn't activate. `resolveMemory` returns a provider list (not records),
+      // so a stderr note is the right channel to say WHY the tier is silent —
+      // otherwise `ask --deep` prints the misleading qmd-only "no semantic memory
+      // provider" message, misstating a cloudglue-only setup. Gated on opts.deep
+      // (this whole block), so non-deep callers stay silent.
+      const pinned = setupMemory.cloudglue.index?.trim();
+      const why = !apiKey
+        ? "no Cloudglue key (set CLOUDGLUE_API_KEY, or `overcast setup memory cloudglue off` to opt out)"
+        : pinned
+          ? `no resolvable media-descriptions collection for pinned index '${pinned}' (missing, not a media-descriptions index, or an ambiguous name)`
+          : "no media-descriptions index attached to this case (attach one, or pin it with `overcast setup memory cloudglue <index>`)";
+      process.stderr.write(`overcast: ask --deep Cloudglue cloud tier inactive — ${why}\n`);
+    }
+  }
   return providers;
 }
 

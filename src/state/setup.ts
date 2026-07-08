@@ -74,6 +74,14 @@ export interface CaseSetup {
   memory: {
     backend: "local-grep" | "qmd" | string;
     signals: string[];
+    /** OPT-IN (off by default — the field is absent unless the operator opts in):
+     *  fan `ask --deep` out to a case-linked Cloudglue **media-descriptions**
+     *  collection at cloud scale. Uploading/querying that collection costs money,
+     *  so it is never auto-enabled (invariant #2 BYO spirit). `index` optionally
+     *  pins a media-descriptions index id/name; otherwise the case's first
+     *  attached media-descriptions index is used. Toggle via
+     *  `overcast setup memory cloudglue [index|off]`. */
+    cloudglue?: { index?: string };
   };
   indexes: SetupIndex[];
   default_signals: Record<string, string[]>;
