@@ -12,6 +12,7 @@ import { exifVerb, verifyVerb } from "../verbs/forensics.js";
 import { faceVerb } from "../verbs/face.js";
 import { imageVerb } from "../verbs/image.js";
 import { audioVerb } from "../verbs/audio.js";
+import { voiceVerb } from "../verbs/voice.js";
 import { clusterVerb } from "../verbs/cluster.js";
 import { similarVerb } from "../verbs/similar.js";
 import { cropVerb } from "../verbs/crop.js";
@@ -96,6 +97,7 @@ export const VERBS: VerbSpec[] = [
   faceVerb,
   imageVerb,
   audioVerb,
+  voiceVerb,
   clusterVerb,
   similarVerb,
   exifVerb,

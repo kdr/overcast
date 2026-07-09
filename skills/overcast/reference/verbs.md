@@ -156,6 +156,38 @@ Options:
 
 Emits `audio.match` records.
 
+### `overcast voice`
+
+`voice add <audio|video|record-id> --index <local-voice-print-index>` embeds a clip's voiced windows (pyannote wespeaker speaker embeddings, run locally) and caches them in a local voice-print index. `voice match <clip> <sample>` ranks where the sample's SPEAKER talks in the clip (windowed cosine scan; `--diarize` upgrades to diarize-then-match against per-speaker centroids — needs HF_TOKEN + the accepted pyannote license like `enhance --ops separate`, and falls back to windowed without it). `voice match <sample> --index <id>` ranks which enrolled members contain the speaker. Videos are accepted — their audio track is extracted. `similarity` is a 0–100 rank score (anchored cosine; 50 ≈ the accept floor, 90 ≈ strong same-speaker), not a probability, and NOT liveness — a cloned/synthetic voice can score high; cross-language or degraded speech scores lower. To list a clip's speakers without a reference, use `enhance --ops separate`.
+
+```
+overcast voice <action> [input] [sample] [options]
+
+  Speaker verification: enroll voices into a local voice-print index, or find/rank a reference voice inside a clip or across members.
+
+Arguments:
+  action           add | match
+  input            audio/video path or record id (add: the clip to enroll; match: the clip to scan, or the sample when searching --index)
+  sample           match: the reference voice sample for pairwise `voice match <clip> <sample>` (instead of --index)
+
+Options:
+  --index <string>       local voice-print index id/name
+  --to <string>          alias for --index when adding
+  --min-similarity <number> score floor 0–100 (default 50 ≈ the accept threshold; suggested findings fire at 80)
+  --min-margin <number>  minimum score-point gap between the best match and the runner-up speaker (diarized) or the clip's median window (windowed/search) — a cheap calibration gate
+  --diarize              pairwise match: diarize-then-match (overlap-aware; needs HF_TOKEN + accepted pyannote license, else falls back to windowed)
+  --speakers <number>    match --diarize: expected speaker count hint
+  --start <string>       pairwise match: scan window start (seconds or HH:MM:SS)
+  --end <string>         pairwise match: scan window end (seconds or HH:MM:SS)
+  --window <number>      pairwise match: seconds per embedding window (default 3; members follow the index config)
+  --limit <number>       match: max results
+  --offset <number>      match --index: result offset
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `voice.match` records.
+
 ### `overcast cluster`
 
 A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); `cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new person) without writing; `cluster recluster` re-groups every stored face and carries human labels forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the case's sole one when --index is omitted. Emits a `cluster` record.
@@ -474,7 +506,7 @@ Arguments:
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip | audio-fp | basic-clap
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip | audio-fp | basic-clap | voice-print
   --local                create a local index instead of a tinycloud-backed index
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
@@ -674,7 +706,7 @@ Options:
   --auto-index-new       setup/edit: automatically add newly analyzed media to configured indexes
   --no-auto-index-new    setup/edit: disable automatic indexing for newly analyzed media
   --findings <string>    setup/edit: automated finding workflow (suggest | review | off; default suggest)
-  --findings-threshold <string> setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,image_inliers=1,audio_margin=1)
+  --findings-threshold <string> setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,voice=80,image_inliers=1,audio_margin=1)
   --video <string>       setup/edit: comma-separated local videos/URLs to route
   --folder <string>      setup/edit: comma-separated local media folders to remember
   --no-index             setup/edit: save setup routes without starting remote collection ingestion
@@ -757,7 +789,7 @@ Options:
   --profile <string>     Profile name to write/read (default: active/default)
   --verb <string>        provider setup: verb to configure
   --choice <string>      provider setup: catalog choice id
-  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap)
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap|voice-print)
   --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt

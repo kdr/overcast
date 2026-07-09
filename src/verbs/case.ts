@@ -24,6 +24,7 @@ import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type Se
 import { indexVerb } from "./index.js";
 import { similarVerb } from "./similar.js";
 import { clusterVerb } from "./cluster.js";
+import { voiceVerb } from "./voice.js";
 import { readClipConfig } from "../providers/local/vision.js";
 import { isAv } from "./media-ref.js";
 import { findProviderChoice } from "../providers/catalog.js";
@@ -38,6 +39,8 @@ const DEFAULT_SIGNAL_BY_INDEX_TYPE: Record<string, string[]> = {
   // local face DB: `cluster add` feeds it (NOT `index add`, which would error) —
   // setup stands the DB up alongside other indexes; clustering stays explicit.
   "face-cluster": ["cluster add"],
+  // local speaker DB: `voice add` enrolls members (index add errors, like cluster)
+  "voice-print": ["voice add"],
 };
 const DEFAULT_LOCAL_MEMORY_SIGNALS = ["note", "watch", "listen", "see", "scan"];
 
@@ -646,6 +649,14 @@ async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, operations
         operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
         continue;
       }
+      if (index.type === "voice-print") {
+        // voice-print enrolls via the `voice` verb (index add errors, like cluster)
+        if (!signals.has("voice add") && !signals.has("voice") && !signals.has("index add")) continue;
+        const recs = await voiceVerb.run({ ...ctx, input: "add", rest: [route.ref], opts: { index: id } });
+        records.push(...recs);
+        operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
+        continue;
+      }
       if (!signals.has("index add")) continue;
       const recs = await indexVerb.run({
         ...ctx,
@@ -897,8 +908,8 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
 }
 
 /** Parse `--findings-threshold face=75,similar=85,...` into a thresholds patch.
- *  face/similar/cluster are 0–100 percent floors; image_inliers is a count ≥ 1;
- *  audio_margin is a fingerprint-alignment margin ≥ 1. */
+ *  face/similar/cluster/voice are 0–100 percent floors; image_inliers is a
+ *  count ≥ 1; audio_margin is a fingerprint-alignment margin ≥ 1. */
 function parseFindingsThresholds(raw: string): { thresholds: Record<string, number>; errors: string[] } {
   const thresholds: Record<string, number> = {};
   const errors: string[] = [];
@@ -911,8 +922,8 @@ function parseFindingsThresholds(raw: string): { thresholds: Record<string, numb
     }
     const key = m[1].toLowerCase();
     const value = Number(m[2]);
-    if (!["face", "similar", "cluster", "image_inliers", "audio_margin"].includes(key)) {
-      errors.push(`unknown key '${key}' (expected face | similar | cluster | image_inliers | audio_margin)`);
+    if (!["face", "similar", "cluster", "voice", "image_inliers", "audio_margin"].includes(key)) {
+      errors.push(`unknown key '${key}' (expected face | similar | cluster | voice | image_inliers | audio_margin)`);
     } else if (countKeys.has(key) ? value < 1 : value < 0 || value > 100) {
       errors.push(`'${part}' out of range (${countKeys.has(key) ? "≥ 1" : "0–100"})`);
     } else {
@@ -975,7 +986,7 @@ export const caseVerb: VerbSpec = {
     { name: "auto-index-new", summary: "setup/edit: automatically add newly analyzed media to configured indexes", type: "boolean" },
     { name: "no-auto-index-new", summary: "setup/edit: disable automatic indexing for newly analyzed media", type: "boolean" },
     { name: "findings", summary: "setup/edit: automated finding workflow (suggest | review | off; default suggest)", type: "string" },
-    { name: "findings-threshold", summary: "setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,image_inliers=1,audio_margin=1)", type: "string" },
+    { name: "findings-threshold", summary: "setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,voice=80,image_inliers=1,audio_margin=1)", type: "string" },
     { name: "video", summary: "setup/edit: comma-separated local videos/URLs to route", type: "string" },
     { name: "folder", summary: "setup/edit: comma-separated local media folders to remember", type: "string" },
     { name: "no-index", summary: "setup/edit: save setup routes without starting remote collection ingestion", type: "boolean" },

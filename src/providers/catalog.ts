@@ -128,6 +128,20 @@ export function providerChoices(): ProviderChoice[] {
       indexableDefault: true,
     },
     {
+      id: "voice-print",
+      verb: "voice",
+      label: "Local voice match (voice-print)",
+      summary: "Local speaker-verification DB (pyannote wespeaker embeddings, ungated); voice-print indexes store speaker-window vectors for `voice` (find a reference voice in clips/members; --diarize needs HF_TOKEN).",
+      descriptor: {
+        type: "inproc",
+        backend: "voice-print",
+        id: "voice-print",
+        init: { command: `bash ${localVisionSetup} --voice` },
+      },
+      env: ["OC_VISUAL_DB_PY", "OVERCAST_VOICE_MODEL", "HF_TOKEN"],
+      indexableDefault: true,
+    },
+    {
       id: "ffmpeg",
       verb: "enhance",
       label: "Local ffmpeg",
@@ -257,6 +271,9 @@ export const PROVIDER_PRESETS: Record<string, Array<{ verb: string; choice: stri
   ],
   "basic-clap": [
     { verb: "similar", choice: "basic-clap" },
+  ],
+  "voice-print": [
+    { verb: "voice", choice: "voice-print" },
   ],
 };
 

@@ -36,11 +36,13 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
   + scipy + pillow) that backs `see --detect` (set `DETECT_PY` to the venv);
   `--audio` adds scipy for the `audio-fp` Shazam-style fingerprint DB; `--clap`
   adds LAION CLAP (transformers + torch) for the `basic-clap` audio-embedding DB;
-  `--voice` adds pyannote.audio (`enhance --ops separate`), `--segment` adds
+  `--voice` adds pyannote.audio (`enhance --ops separate` + the `voice-print`
+  speaker-verification DB for `voice`), `--segment` adds
   transformers + SAM2/GroundingDINO (`enhance --ops segment`), `--enhance` adds both
   enhance stacks, `--all` installs everything. Override with `OC_VISUAL_DB_PY` /
-  `OVERCAST_VISUAL_DB_PY`. Voice separation additionally needs `HF_TOKEN` + accepted
-  pyannote license.
+  `OVERCAST_VISUAL_DB_PY`. Voice separation and `voice match --diarize` additionally
+  need `HF_TOKEN` + accepted pyannote license (the windowed `voice` default is
+  ungated).
 - TypeScript / ESM / Node ≥22; `tsup` (dev build) + `bun build --compile` (binary).
 
 ## Invariants (do not violate)
@@ -67,7 +69,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `src/registry/verbs.ts`; the CLI subcommand, the pi AgentTool, and the skill doc
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
-   (`watch/listen/see/face/image/audio/similar/enhance/exif/verify`), **source**
+   (`watch/listen/see/face/image/audio/voice/similar/enhance/exif/verify`), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
    gdelttv, webcam, facesearch), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
@@ -79,7 +81,9 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `similar` (cross-modal semantic search), `audio-fp` is the local numpy/scipy
    Shazam-style fingerprint DB for `audio` (exact audio matching), and
    `basic-clap` is the local LAION CLAP DB for `similar` audio↔audio + text→audio
-   search.
+   search, and `voice-print` is the local pyannote/wespeaker speaker-verification
+   DB for `voice` (find a reference speaker; ungated windowed default, HF-gated
+   `--diarize` tier).
 7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `crop`, `view`,
    and frame extraction shell out to the **system** `ffmpeg`/`ffprobe` (PATH or
    `OVERCAST_FFMPEG`/`OVERCAST_FFPROBE`); `overcast doctor` checks it's installed.
@@ -118,7 +122,15 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   time-offset alignment, or clip-to-clip `audio match <query> <reference>`;
   numpy/scipy, `--min-margin` rejects sped-up re-uploads, `--draw` renders an SVG
   alignment plot (hash-pair scatter + offset histogram) that embeds in briefs like
-  `image --draw`; robust to transcode/noise, NOT to pitch/speed change), `cluster`
+  `image --draw`; robust to transcode/noise, NOT to pitch/speed change), `voice`
+  (local speaker verification over `voice-print` indexes — pyannote/wespeaker
+  embeddings, ungated: `add` enrolls a clip's voiced windows, `voice match <clip>
+  <sample>` ranks WHERE a reference speaker talks (windowed scan; `--diarize` =
+  overlap-aware diarize-then-match vs pipeline centroids, HF_TOKEN-gated with
+  windowed fallback), `voice match <sample> --index` ranks members containing the
+  speaker; `similarity` is an anchored-cosine 0–100 RANK score + raw `cosine`,
+  `--min-margin` gates best-vs-runner-up; NOT liveness — clones score high, every
+  record carries `payload.caveat`), `cluster`
   (persistent LOCAL face DB: ingest faces out
   of media → assign-or-create people, `identify`, `recluster`, `list/show/label`,
   and an HTML gallery `view`; deepface-only, over a `face-cluster` local index),
@@ -162,7 +174,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `image-ransac` for `image match`, `deepface-local` for local face search,
   `face-cluster` for the `cluster` face DB, `basic-clip` for `similar` CLIP
   semantic search, `audio-fp` for `audio match` fingerprinting, `basic-clap` for
-  `similar` CLAP audio search).
+  `similar` CLAP audio search, `voice-print` for `voice` speaker matching).
   Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `x:@handle`,
   `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`;
@@ -229,15 +241,15 @@ index mirrors). `case setup` saves a *mutable* setup model to
 (`payload.op = startup_setup` / `startup_setup_update`).
 
 Case memory is **evidence-only**. `ask` / `brief` read primary evidence
-(`watch listen see face image audio similar crop note scan capture enhance exif
-verify` + root `finding`s + `cluster` ingest/identify) through
+(`watch listen see face image audio voice similar crop note scan capture enhance
+exif verify` + root `finding`s + `cluster` ingest/identify) through
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
 prebrief wall grid`, finding review-rows, dismissed **and suggested** findings (a
 suggested lead is quarantined until `finding accept` promotes it), cluster DB
 reads/maintenance `list/show/view/label/recluster`) are excluded even when they
-match the query. `face`/`see`/`image`/`audio`/`similar`/`cluster` detections index only
+match the query. `face`/`see`/`image`/`audio`/`voice`/`similar`/`cluster` detections index only
 compact summaries / counts / moments / matched refs / offsets — raw boxes, thumbnails,
 homographies, fingerprint hashes, and vectors stay in the record for exact reads and `crop`.
 Local visual DB artifacts stay in typed local indexes: local-grep/qmd ingest the

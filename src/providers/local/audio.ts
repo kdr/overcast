@@ -18,6 +18,7 @@ import type { Case } from "../../case.js";
 
 export type LocalAudioOp = "add" | "match";
 export type LocalClapOp = "add" | "match" | "search";
+export type LocalVoiceOp = "add" | "match" | "search";
 
 function script(name: string): string | undefined {
   return shippedPath("examples", "providers", "audio-db", name);
@@ -113,6 +114,51 @@ export function writeClapConfig(indexDir: string, config: ClipConfig): void {
   writeFileSync(join(indexDir, "config.json"), JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
+/** Per-index speaker-embedding params for a `voice-print` DB, persisted as
+ *  `<index-dir>/config.json` at create time and hashed into each member's cache
+ *  key. `model` is pinned at create (from OVERCAST_VOICE_MODEL or the wespeaker
+ *  default) — the provider refuses to score cached embeddings with a different
+ *  model, so alternate models need a fresh index. */
+export interface VoicePrintConfig {
+  /** speaker-embedding model (pyannote.audio checkpoint id) */
+  model: string;
+  /** seconds per embedding window */
+  window: number;
+  /** query hop seconds for pairwise scans (members embed hop == window) */
+  step: number;
+  /** reference / diarized-speaker net-speech floor (seconds) */
+  minSpeechSeconds: number;
+  /** mono resample rate before embedding */
+  sampleRate: number;
+}
+
+export function defaultVoicePrintConfig(): VoicePrintConfig {
+  return {
+    model: process.env.OVERCAST_VOICE_MODEL || "pyannote/wespeaker-voxceleb-resnet34-LM",
+    window: 3,
+    step: 0.75,
+    minSpeechSeconds: 3,
+    sampleRate: 16000,
+  };
+}
+
+export function readVoicePrintConfig(indexDir: string): VoicePrintConfig {
+  const file = join(indexDir, "config.json");
+  const base = defaultVoicePrintConfig();
+  try {
+    if (!existsSync(file)) return base;
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<VoicePrintConfig>;
+    return { ...base, ...parsed };
+  } catch {
+    return base;
+  }
+}
+
+export function writeVoicePrintConfig(indexDir: string, config: VoicePrintConfig): void {
+  mkdirSync(indexDir, { recursive: true });
+  writeFileSync(join(indexDir, "config.json"), JSON.stringify(config, null, 2) + "\n", "utf8");
+}
+
 /**
  * Local audio fingerprint DB (`audio-fp`): `add` fingerprints + caches a
  * recording; `match` finds which indexed recording contains a query (and where,
@@ -189,6 +235,66 @@ export async function runLocalClap(
   if (opts.window != null) args.push("--window", String(opts.window));
   const rec = await runExecProvider("similar", localVisionPython(), input, {
     env: { ...providerEnv(c.mediaDir), OVERCAST_INDEX_DIR: localIndexDir(c, opts.indexId) },
+    extraArgs: [path, ...args],
+    timeoutMs: 15 * 60_000,
+    signal: opts.signal,
+  });
+  rec.meta = { ...rec.meta, case: c.dir };
+  return rec;
+}
+
+/**
+ * Local speaker-verification DB (`voice-print`): `add` embeds + caches a
+ * member's voice windows; `match` ranks a reference speaker inside one clip
+ * (windowed, or diarize-then-match with `diarize`); `search` ranks index
+ * members that contain the speaker. Pairwise `match` compares clip vs sample
+ * directly and MUST NOT touch any index — no index id, no OVERCAST_INDEX_DIR
+ * (the runLocalAudio pairwise invariant). Shells out to
+ * examples/providers/audio-db/voice_match.py.
+ */
+export async function runLocalVoice(
+  c: Case,
+  input: string,
+  opts: {
+    op: LocalVoiceOp;
+    /** add/search: the voice-print index */
+    indexId?: string;
+    /** match: the reference voice sample to find in the clip */
+    match?: string;
+    /** match: diarize-then-match (needs HF_TOKEN; falls back to windowed) */
+    diarize?: boolean;
+    /** match --diarize: expected speaker count */
+    speakers?: number;
+    start?: string;
+    end?: string;
+    /** match: query window seconds (members follow the index config) */
+    window?: number;
+    minSimilarity?: number;
+    minMargin?: number;
+    limit?: number;
+    offset?: number;
+    signal?: AbortSignal;
+  },
+): Promise<OvercastRecord> {
+  const path = script("voice_match.py");
+  if (!path) return missingScript("voice", input, "voice_match.py");
+  const args = ["--op", opts.op];
+  if (opts.indexId) {
+    args.push("--index", opts.indexId, "--index-dir", localIndexDir(c, opts.indexId));
+  }
+  if (opts.match) args.push("--match", opts.match);
+  if (opts.diarize) args.push("--diarize");
+  if (opts.speakers != null) args.push("--speakers", String(opts.speakers));
+  if (opts.start != null) args.push("--start", opts.start);
+  if (opts.end != null) args.push("--end", opts.end);
+  if (opts.window != null) args.push("--window", String(opts.window));
+  if (opts.minSimilarity != null) args.push("--min-similarity", String(opts.minSimilarity));
+  if (opts.minMargin != null) args.push("--min-margin", String(opts.minMargin));
+  if (opts.limit != null) args.push("--limit", String(opts.limit));
+  if (opts.offset != null) args.push("--offset", String(opts.offset));
+  const env = { ...providerEnv(c.mediaDir), ...(opts.indexId ? { OVERCAST_INDEX_DIR: localIndexDir(c, opts.indexId) } : {}) };
+  const rec = await runExecProvider("voice", localVisionPython(), input, {
+    env,
     extraArgs: [path, ...args],
     timeoutMs: 15 * 60_000,
     signal: opts.signal,

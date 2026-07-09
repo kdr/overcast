@@ -78,6 +78,7 @@ Catalog presets:
 | `basic-clip` | `similar:basic-clip` |
 | `audio-fp` | `audio:audio-fp` |
 | `basic-clap` | `similar:basic-clap` |
+| `voice-print` | `voice:voice-print` |
 
 Common environment:
 
@@ -91,6 +92,7 @@ Common environment:
 | `deepface-local` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY` |
 | `audio-fp` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY` |
 | `basic-clap` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`, `OC_CLAP_MODEL` |
+| `voice-print` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`, `OVERCAST_VOICE_MODEL`; `HF_TOKEN` for `--diarize` only |
 
 After provider/profile setup, use `case setup` for per-investigation policy:
 
@@ -540,8 +542,75 @@ and `--clap` (transformers) both ride torch. Installing both at once with
 package independently later can bump torch under the other, so prefer `--all` when
 you want the full visual+audio stack.
 
+## Voice match DB (`voice-print`)
+
+Speaker verification — the voice twin of `face --match`: given a **reference voice
+sample**, find/rank that speaker inside a clip or across enrolled members. Lives in
+`examples/providers/audio-db/voice_match.py` on the same uv venv as the other
+audio DBs (`scripts/visual-db-uv.sh --voice` — the pyannote stack `enhance --ops
+separate` already uses; no extra deps). Distinct from its neighbors: `audio`
+(audio-fp) matches the *recording*, `similar` (basic-clap) matches the *content*,
+`voice` matches the *speaker*.
+
+```bash
+overcast index create voices --type voice-print --local --json
+overcast voice add ./interview.mp4 --index voices --json        # enroll (video → audio track)
+overcast voice match ./sample.wav --index voices --json         # which members contain this speaker?
+overcast voice match ./clip.mp4 ./sample.wav --json             # where does the speaker talk in this clip?
+overcast voice match ./clip.mp4 ./sample.wav --diarize --json   # overlap-aware diarize-then-match (HF_TOKEN)
+```
+
+The default embedding model is **`pyannote/wespeaker-voxceleb-resnet34-LM`** —
+**ungated** on Hugging Face (no token), ~26 MB (downloaded on first use), 256-d
+speaker embeddings, weights **CC-BY-4.0** (credit WeSpeaker/pyannote when
+redistributing results). Clips are decoded to 16 kHz mono via the system ffmpeg,
+gated by a lightweight RMS speech detector (windows with under ~1 s of speech are
+skipped and counted in `payload.skipped_windows`), and embedded in 3 s windows
+(hop 0.75 s for pairwise scans; members cache non-overlapping windows under
+`emb/<sha1>.npy`, the shared basic-clip layout).
+
+**Scores are rank scores, not probabilities.** Raw cosine is mapped through fixed
+anchors — cosine 0.25 → **50** (≈ the accept floor), 0.60 → **90** (strong
+same-speaker) — and both `similarity` (0–100) and the raw `cosine` are emitted.
+There is no universal speaker-verification threshold; `--min-similarity` defaults
+to 50, and suggested findings fire at **80** (`voice`) / high-confidence at **90**
+(`voice_high`, tunable via `case setup --findings-threshold voice=…`). `margin` is
+a cheap calibration gate (the AS-norm stand-in): best-vs-runner-up speaker in
+diarized mode, best-vs-median window otherwise — gate it with `--min-margin`.
+
+**`--diarize` (pairwise only)** upgrades to diarize-then-match: the
+`pyannote/speaker-diarization-community-1` pipeline (env `OVERCAST_DIARIZE_MODEL`)
+segments speakers with overlap masking, and the reference is compared against the
+pipeline's per-speaker **centroids** (same wespeaker embedding space). This tier
+is gated exactly like `enhance --ops separate`: it needs `HF_TOKEN` + the
+[accepted pyannote license](https://huggingface.co/pyannote/speaker-diarization-community-1);
+with no token the match **falls back to windowed mode** (record stays `ready`,
+`payload.mode: "windowed"`, with a warning), and a token without the accepted
+license returns `needs_credentials`. Diarized speakers with under ~3 s of net
+speech are excluded and listed in `payload.skipped_speakers`.
+
+**Caveats (also stamped on every record as `payload.caveat`):** speaker similarity
+is **not liveness** — a cloned/synthetic voice can score high (pair with `verify`
+/ provenance checks before treating a match as identification); cross-language or
+heavily degraded/compressed speech scores lower for the same speaker; references
+with under ~3 s of speech get a reliability warning.
+
+The model is **pinned per index** at create time (from `OVERCAST_VOICE_MODEL`,
+else the wespeaker default) and the provider refuses to score cached embeddings
+with a different model — alternate models (e.g. SpeechBrain ECAPA via
+`uv pip install --python "$OC_VISUAL_DB_PY" speechbrain`, or ReDimNet via
+torch.hub) need a fresh voice-print index, and `--diarize` requires the default
+wespeaker model (the centroids must share its space). `OC_VOICE_DEVICE` defaults
+to `cpu` (MPS is experimental for pyannote).
+
+**No hosted default:** Hugging Face serverless inference does not serve
+speaker-embedding models (audio tasks are ASR/audio-classification only). If you
+need a hosted backend, deploy a dedicated HF Inference Endpoint with a custom
+handler and wrap it as an exec provider following the
+[`examples/providers/hf/enhance.sh`](../examples/providers/hf/enhance.sh) pattern.
+
 These emit ordinary Overcast records (`image.match`, `face.analysis`, `audio.match`,
-or `similar.match`) and write
+`voice.match`, or `similar.match`) and write
 local artifacts under the case `.overcast/` store. Local-grep/qmd memory indexes
 should index the records and summaries only; do not ingest raw media, embeddings,
 sampled frames, face boxes, or match visualization images as text. Add `note`,
@@ -562,7 +631,7 @@ sample 8 frames.
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
 - [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
-- [`examples/providers/audio-db/{audio_match,clap_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp) and LAION CLAP audio embeddings (basic-clap) for audio DB indexes.
+- [`examples/providers/audio-db/{audio_match,clap_match,voice_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp), LAION CLAP audio embeddings (basic-clap), and wespeaker speaker verification (voice-print) for audio DB indexes.
 - [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch) + web-search (Tavily/Brave) + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams source providers.
 - [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
 

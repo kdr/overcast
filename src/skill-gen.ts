@@ -127,10 +127,10 @@ records what would resolve it; \`target close <id> --as answered|dead-end --note
 marks it done (closed lines stop seeding scans); \`target reopen <id>\` reactivates.
 
 Findings **auto-suggest** by default: score triggers (face ≥75, image RANSAC,
-similar ≥85, cluster ≥70, audio fingerprint) and non-image target text matches
-emit \`suggested\` leads on every verb — so a standalone \`face --match\` /
-\`image match\` / \`similar match\` / \`cluster identify\` / \`audio match\` surfaces
-a lead. Suggested leads are
+similar ≥85, cluster ≥70, voice ≥80, audio fingerprint) and non-image target text
+matches emit \`suggested\` leads on every verb — so a standalone \`face --match\` /
+\`image match\` / \`similar match\` / \`cluster identify\` / \`audio match\` /
+\`voice match\` surfaces a lead. Suggested leads are
 quarantined from \`ask\`/\`brief\` until accepted. Triage with
 \`finding list --state triage\` (bare \`list\` shows only \`open\`), then
 \`finding accept <id>\` (→ evidence) or \`finding dismiss <id>\` (blocks re-suggestion).
@@ -1197,7 +1197,19 @@ overcast provider setup apply --verb listen --choice elevenlabs --yes --json
 overcast listen ./call.wav --diarize --json        # -> <diarize-record-id> (speaker-labeled)
 \`\`\`
 
-4. Record per-speaker and per-clue observations, then correlate across recordings.
+4. Verify a speaker's identity across recordings with the local voice-print DB
+   (speaker embeddings, not phrase matching — \`scripts/visual-db-uv.sh --voice\`,
+   no token needed). Scores are rank scores, **not liveness**: a cloned/synthetic
+   voice can score high, so corroborate before naming anyone:
+
+\`\`\`bash
+overcast index create voices --type voice-print --local --json
+overcast voice add ./call.wav --index voices --json               # enroll each recording
+overcast voice match ./voicemail.m4a --index voices --json        # which recordings share this voice?
+overcast voice match ./call.wav ./known-sample.wav --diarize --json  # WHICH diarized speaker matches (HF_TOKEN)
+\`\`\`
+
+5. Record per-speaker and per-clue observations, then correlate across recordings.
    Cite the speaker-labeled \`<diarize-record-id>\` for who-said-what claims (not the
    step-1 transcript record):
 
@@ -1206,7 +1218,7 @@ overcast note "Speaker 2: PA announces 'platform 4' at 00:38 → rail station" -
 overcast ask "which recordings share a speaker, phrase, or background cue? cite record.id + time" --verb listen --json
 \`\`\`
 
-5. Turn confirmed clues into findings and export; always leave a \`tldr\` note:
+6. Turn confirmed clues into findings and export; always leave a \`tldr\` note:
 
 \`\`\`bash
 overcast finding create "call.wav and voicemail.m4a share Speaker 2's phrasing + station PA — likely same caller/location" --ref <diarize-record-id> --confidence medium --json
@@ -1230,7 +1242,10 @@ separation. Bind it LAST: ElevenLabs Scribe is speech-only and drops the audio-s
 \`--describe\`, so run all transcript/describe/multimodal work on the default backend
 first, then rebind for the diarize pass. Diarization LABELS speakers ("Speaker
 1/2"), it does not IDENTIFY them —
-a name is a corroborated inference, never a diarizer output. \`voice-isolate\` on the
+a name is a corroborated inference, never a diarizer output. \`voice match\` scores
+speaker similarity, not liveness — a cloned/synthetic voice can score high and the
+same speaker scores lower across languages or heavy compression, so treat a voice
+match as a lead to corroborate, never an identification. \`voice-isolate\` on the
 bundled ffmpeg is a filter, not source separation — for a real per-speaker split use
 \`enhance --ops separate\` (local pyannote via \`scripts/visual-db-uv.sh --voice\` +
 \`HF_TOKEN\` and the accepted pyannote license, or fal), or bind ElevenLabs

@@ -27,10 +27,10 @@ casedir="$SMOKE_DIR/case_senses"; mkdir -p "$casedir"
 # phases append more verbs, so assert presence, not the exact set).
 verbs="$($OVERCAST commands --json | jq -r '.verbs[].name')"
 missing=""
-for v in watch listen see enhance view crop grid; do
+for v in watch listen see enhance view crop grid voice; do
   echo "$verbs" | grep -qx "$v" || missing="$missing $v"
 done
-if [ -z "$missing" ]; then ok "senses.verb_surface" "commands --json lists watch/listen/see/enhance/view/crop/grid"; else fail "senses.verb_surface" "missing verbs:$missing"; fi
+if [ -z "$missing" ]; then ok "senses.verb_surface" "commands --json lists watch/listen/see/enhance/view/crop/grid/voice"; else fail "senses.verb_surface" "missing verbs:$missing"; fi
 
 # enhance: ffmpeg op -> media.enhanced with output media.ref
 eout="$($OVERCAST enhance "$clip" --ops grayscale --json --case "$casedir" 2>/dev/null)"
@@ -77,6 +77,15 @@ save_json "phase2_grid_view" "$gvout" >/dev/null
 assert_eq "grid.view_not_opened" "false" "$(jq -r '.payload.opened' <<<"$gvout")" "--no-open respected"
 grid_html="$(jq -r '.payload.view' <<<"$gvout")"
 if [ -f "$grid_html" ] && grep -q 'onclick="seek(' "$grid_html"; then ok "grid.view_html" "board HTML has seekable cells"; else fail "grid.view_html" "no clickable board at $grid_html"; fi
+
+# voice: argument hygiene only (the local speaker model never runs offline) —
+# pairwise sample XOR --index must be enforced before any audio work.
+vuout="$($OVERCAST voice match "$clip" --json --case "$casedir" 2>/dev/null)"
+save_json "phase2_voice_usage" "$vuout" >/dev/null
+assert_eq "voice.usage_state" "error" "$(jq -r '.state' <<<"$vuout")" "voice match without a sample or --index errors"
+echo "$vuout" | jq -r '.error' | grep -q "reference sample" \
+  && ok "voice.usage_msg" "usage error names the sample/--index choice" \
+  || fail "voice.usage_msg" "error: $(jq -r '.error' <<<"$vuout")"
 
 # see: with NO brain, NO HF token, and no binding, it's the placeholder.
 # (A brain / HF_TOKEN / a binding routes see to that backend instead.) Both the

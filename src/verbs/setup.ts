@@ -333,7 +333,7 @@ export const providerVerb: VerbSpec = {
     { name: "profile", summary: "Profile name to write/read (default: active/default)", type: "string" },
     { name: "verb", summary: "provider setup: verb to configure", type: "string" },
     { name: "choice", summary: "provider setup: catalog choice id", type: "string" },
-    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap)", type: "string" },
+    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap|voice-print)", type: "string" },
     { name: "yes", summary: "provider setup apply: confirm profile changes", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -565,6 +565,16 @@ export const doctorVerb: VerbSpec = {
       name: "enhance-local",
       ok: true,
       detail: `${segPart}; ${voicePart}`,
+    });
+    // voice match (voice-print DB): same pyannote stack as enhance --ops separate.
+    // Informational (ok) — opt-in; the windowed default needs NO token (the
+    // wespeaker embedding model is ungated), only --diarize is HF-gated.
+    checks.push({
+      name: "voice-match",
+      ok: true,
+      detail: localVoice.code === 0
+        ? `speaker-verification deps OK via ${localPy} (wespeaker model ~26MB downloads on first run)${envPresent("HF_TOKEN") || envPresent("HUGGING_FACE_HUB_TOKEN") ? "; --diarize token present" : "; --diarize needs HF_TOKEN + accepted pyannote license"}`
+        : "voice deps missing — run `scripts/visual-db-uv.sh --voice` for `voice add/match`",
     });
 
     // exiftool — optional system CLI backing the `exif` metadata/GPS sense.
