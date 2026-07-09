@@ -91,7 +91,8 @@ operational-only) · `35_archive` (global archive with real media: bucket
 init/add/sha-dedup, `ask --archive` + `capture archive:…` from a SECOND case
 sharing the home, the archive setup wizard standing up a bucket image-ransac
 index + backfill, a cross-case `image match --index archive:<bucket>/<index>`
-RANSAC hit, `watch archive:…` in place via Cloudglue, and two headless-agent
+RANSAC hit, a bucket voice-print enroll + cross-case `voice match --index
+archive:…` (gated on `OC_VOICE_E2E`), `watch archive:…` in place via Cloudglue, and two headless-agent
 legs where the agent drives the archive TOOL — list + a tag-stamped add —
 verified via the CLI afterwards; media legs reuse `OC_VIDEO_SMALL`/`OC_IMAGE`
 or the `OC_ARCHIVE_VIDEO`/`OC_ARCHIVE_IMAGE` overrides) · `30_read`

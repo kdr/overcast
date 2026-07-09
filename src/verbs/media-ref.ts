@@ -66,6 +66,25 @@ export function isRegisterableMediaRecord(r: OvercastRecord): boolean {
   return !!r.media?.ref && isAv(r.media.ref);
 }
 
+/** Verbs whose media.ref is captured/sensed media the ARCHIVE can store —
+ *  MEDIA_VERBS (AV) plus `see` (its media.ref is the analyzed still image). */
+const ARCHIVABLE_MEDIA_VERBS = [...MEDIA_VERBS, "see"];
+
+/** Whether a case RECORD is captured/sensed media for `archive add --all`.
+ *  Like isRegisterableMediaRecord, but the archive stores IMAGES **and** audio/
+ *  video (an index is AV-only), so this accepts an image OR AV media.ref and
+ *  includes the image sense `see` — otherwise `--all` silently skips `.jpg`/
+ *  `.png` captures and `see` records, contrary to "archive every captured/
+ *  sensed media record". Excludes scan page URLs (verb not in the set) and
+ *  face-search query images. */
+export function isArchivableMediaRecord(r: OvercastRecord): boolean {
+  const ref = r.media?.ref;
+  if (!ref) return false;
+  if (!ARCHIVABLE_MEDIA_VERBS.includes(r.verb)) return false;
+  if (r.verb === "face" && (r.payload as Record<string, unknown> | undefined)?.op === "search") return false;
+  return isAv(ref) || isImage(ref);
+}
+
 /** A case record id → its media.ref (+ the record id); otherwise the ref as-is
  *  (path / URL). Also resolves capture payload ids (`cap_...`) because those are
  *  the human-facing handles capture emits. Mirrors view/capture id resolution.

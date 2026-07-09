@@ -29,7 +29,7 @@ import { realpathContained } from "../fs-path.js";
 import { addIndex, listIndexes, removeIndex, LOCAL_INDEX_TYPES } from "../state/index.js";
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup } from "../state/setup.js";
 import { resolveMemory } from "../providers/memory/index.js";
-import { isRegisterableMediaRecord, resolveMediaRef } from "./media-ref.js";
+import { isArchivableMediaRecord, resolveMediaRef } from "./media-ref.js";
 import { captureRef } from "./osint.js";
 import { ensureLocalWatchRecord, indexVerb } from "./index.js";
 import { listenVerb } from "./senses.js";
@@ -297,7 +297,9 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
     const seen = new Set<string>();
     sources = [];
     for (const r of ctx.case.records()) {
-      if (!isRegisterableMediaRecord(r) || !isReady(r) || !r.media?.ref) continue;
+      // archive stores images AND audio/video (unlike an AV-only index), so
+      // --all sweeps still-image captures + `see` records too, not just AV
+      if (!isArchivableMediaRecord(r) || !isReady(r) || !r.media?.ref) continue;
       if (seen.has(r.media.ref)) continue;
       seen.add(r.media.ref);
       sources.push(r.id);

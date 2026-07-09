@@ -269,14 +269,26 @@ test("archive add: record-id source carries origin provenance; --all archives ca
       state: "ready",
     });
     env.c.writeRecord(src);
+    // a still IMAGE capture + a `see` record must ALSO be swept (archive stores
+    // images, not just AV — an index would skip these)
+    const still = seedFile(env, "photo.jpg", "img-bytes");
+    env.c.writeRecord(makeRecord({ verb: "capture", format: "json", payload: { capture_id: "cap_photo.jpg", path: still, kind: "file", source: "local" }, media: { ref: still }, state: "ready" }));
+    const seen = seedFile(env, "frame.png", "frame-bytes");
+    env.c.writeRecord(makeRecord({ verb: "see", format: "json", payload: { caption: "a frame" }, media: { ref: seen }, state: "ready" }));
     // a scan hit must NOT be swept up by --all (its media.ref is a page URL)
     env.c.writeRecord(makeRecord({ verb: "scan", format: "json", payload: { url: "https://x.test/post" }, media: { ref: "https://x.test/post" }, state: "ready" }));
+    // a face SEARCH's query image must NOT be swept
+    env.c.writeRecord(makeRecord({ verb: "face", format: "json", payload: { op: "search" }, media: { ref: seedFile(env, "query.jpg", "q") }, state: "ready" }));
 
     const recs = await runArchive(env, "add", [], { all: true, to: "refs" });
     const summary = recs.find((r) => r.verb === "archive")!;
-    assert.equal((payload(summary).added as unknown[]).length, 1);
-    const cap = recs.find((r) => r.verb === "capture")!;
-    assert.equal((payload(cap).origin as Record<string, unknown>).record, src.id);
+    // clip (AV) + photo (image capture) + frame (see) = 3. AV-only would archive
+    // just the clip (1); 4 would mean the face-search query leaked in. So 3
+    // proves images + `see` are swept and scan/face-search are excluded.
+    assert.equal((payload(summary).added as unknown[]).length, 3, "--all archives AV + image captures + see, not scan/face-search");
+    // the archived items on disk cover all three source basenames
+    const onDisk = (payload(summary).added as Array<Record<string, unknown>>).map((a) => basename(String(a.path)));
+    for (const stem of ["clip", "photo", "frame"]) assert.ok(onDisk.some((f) => f.startsWith(stem)), `--all archived a ${stem} file`);
   } finally {
     env.cleanup();
   }

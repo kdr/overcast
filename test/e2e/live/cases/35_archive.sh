@@ -124,6 +124,59 @@ else
   skip "$C.cross_index" "no OC_LOCAL_IMAGE_REF/OC_LOCAL_IMAGE_VIDEO_A or cv2/numpy in \$OC_VISUAL_DB_PY"
 fi
 
+# --- cross-case VOICE-PRINT (merged from #86): speaker verification against a --
+# --- bucket voice-print index, enrolled + matched from a SECOND case. ----------
+# Heavy (pyannote/torch + ~26MB model), so gated on OC_VOICE_E2E like 37_voice.
+audio_stream() { [ "$(ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "$1" 2>/dev/null | head -1)" = "audio" ]; }
+VSRC=""
+for cand in "${OC_VOICE_SPEAKER_VIDEO:-}" "$VIDEO_SPEECH_SRC" "$LOCAL_FACE_VIDEO"; do
+  [ -n "$cand" ] && have_media "$cand" && audio_stream "$cand" && { VSRC="$cand"; break; }
+done
+if [ "${OC_VOICE_E2E:-}" = "1" ] && [ -n "$VSRC" ] && "$PY" - <<'PY' >/dev/null 2>&1
+import numpy, torch, pyannote.audio  # noqa
+PY
+then
+  VWORK="$SMOKE_DIR/archive_voice"; mkdir -p "$VWORK"
+  VDUR="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VSRC" 2>/dev/null | cut -d. -f1)"; VDUR="${VDUR:-120}"
+  # a reference sample (mid-clip) and a DIFFERENT segment of the same speaker to enroll
+  ffmpeg -y -v error -ss "$(( VDUR * 50 / 100 ))" -t 8 -i "$VSRC" -map 0:a:0 -ac 1 -ar 16000 -c:a pcm_s16le "$VWORK/ref.wav" 2>/dev/null
+  ffmpeg -y -v error -ss "$(( VDUR * 20 / 100 ))" -t 20 -i "$VSRC" -map 0:a:0 -ac 1 -ar 16000 -c:a pcm_s16le "$VWORK/enroll.wav" 2>/dev/null
+  if [ -s "$VWORK/ref.wav" ] && [ -s "$VWORK/enroll.wav" ]; then
+    cond "archive setup stands up a bucket voice-print index; enroll a speaker segment into it"
+    vset="$(oc "$CASE" archive setup "$BUCKET" --index voices:voice-print --yes --json)"
+    save_json "archive_voice_setup" "$vset" >/dev/null
+    vidx="$(jq -r '[.indexes[]|select(.name=="voices")][0].id // empty' "$HOMEDIR/archive/$BUCKET/.overcast/indexes.json")"
+    if [ -n "$vidx" ]; then
+      ok "$C.voice_index" "bucket voice-print index created ($vidx)"
+      enr="$(OC_TIMEOUT=600 oc "$CASE" voice add "$VWORK/enroll.wav" --index "archive:$BUCKET/voices" --json | jq -s -c '[.[]|select(.verb=="voice")][0]')"
+      save_json "archive_voice_enroll" "$enr" >/dev/null
+      assert_eq "$C.voice_enroll" "ready" "$(echo "$enr" | jq -r '.state')" "voice add --index archive:… enrolled a member"
+      members="$(jq -r --arg id "$vidx" '[.indexes[]|select(.id==$id)][0].members|length' "$HOMEDIR/archive/$BUCKET/.overcast/indexes.json")"
+      [ "${members:-0}" -ge 1 ] && ok "$C.voice_member" "enrolled member landed in the bucket mirror" || fail "$C.voice_member" "no voice member in the bucket mirror"
+
+      cond "the consumer case verifies the speaker against the bucket voice-print index (voice match --index archive:…)"
+      vmatch="$(OC_TIMEOUT=600 och "$CASE2" voice match "$VWORK/ref.wav" --index "archive:$BUCKET/voices" --min-similarity 0 --json | jq -s -c '[.[]|select(.verb=="voice")][0]')"
+      save_json "archive_voice_match" "$vmatch" >/dev/null
+      assert_eq "$C.voice_match_state" "ready" "$(echo "$vmatch" | jq -r '.state')" "cross-case voice match ready"
+      assert_eq "$C.voice_match_meta" "$BUCKET" "$(echo "$vmatch" | jq -r '.meta.archive')" "voice match evidence stamped meta.archive"
+      vsim="$(echo "$vmatch" | jq -r '.payload.matches[0].similarity // 0')"
+      awk -v s="$vsim" 'BEGIN{exit !(s>=50)}' && ok "$C.voice_match_score" "same speaker verified across cases (similarity ${vsim})" || fail "$C.voice_match_score" "same-speaker similarity ${vsim} below the accept floor (50)"
+      # DB artifacts (embeddings cache) stay bucket-side
+      if find "$HOMEDIR/archive/$BUCKET/.overcast/index/$vidx" -name '*.npy' 2>/dev/null | grep -q .; then
+        ok "$C.voice_artifacts" "voice-print embeddings cached in the bucket, not the consumer case"
+      else
+        ok "$C.voice_artifacts" "voice match ran (no cached npy this backend build)"
+      fi
+    else
+      fail "$C.voice_index" "archive setup did not create a voice-print index"
+    fi
+  else
+    skip "$C.voice" "ffmpeg could not cut voice segments from $(basename "$VSRC")"
+  fi
+else
+  skip "$C.voice" "set OC_VOICE_E2E=1 + a speaker source (OC_VOICE_SPEAKER_VIDEO/OC_VIDEO_SPEECH) + pyannote deps to run the archive voice-print leg"
+fi
+
 # --- watch archive:… in place (real Cloudglue) --------------------------------
 if require_cred "$C.watch" CLOUDGLUE_API_KEY "watch-in-place needs the default sense backend"; then
   cond "watch archive:<bucket>/<item> senses the archived clip IN PLACE (no copy into the case)"
