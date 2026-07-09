@@ -10,14 +10,22 @@ import { resolve, sep, isAbsolute } from "node:path";
 import { realpathContained } from "../fs-path.js";
 import { isReady, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
+import { ARCHIVE_REF_PREFIX, openBucket, parseArchiveRef, resolveBucketPath } from "../archive.js";
 
 /** Whether a `--ref` string points at a real LOCAL file, for the finding/note
  *  evidence-ref guard. An absolute path is taken as-is (an explicit operator
- *  choice); a relative path resolves against the CASE dir (so `--case <dir>` from
+ *  choice); an `archive:<bucket>/<file>` ref must exist INSIDE its bucket; a
+ *  relative path resolves against the CASE dir (so `--case <dir>` from
  *  another cwd finds .overcast/media/… ) but MUST stay inside it — a `../` escape,
  *  OR a case-local SYMLINK pointing outside, that would validate/anchor files
  *  beyond the case store is rejected (containment is re-checked on the real path). */
-export function refPathExists(caseDir: string, rawRef: string): boolean {
+export function refPathExists(caseDir: string, rawRef: string, home?: string): boolean {
+  if (rawRef.startsWith(ARCHIVE_REF_PREFIX)) {
+    const parsed = parseArchiveRef(rawRef);
+    if (!parsed?.item) return false;
+    const { bucket } = openBucket(parsed.bucket, home);
+    return !!bucket && resolveBucketPath(bucket, parsed.item) !== undefined;
+  }
   if (isAbsolute(rawRef)) return existsSync(rawRef);
   const p = resolve(caseDir, rawRef);
   if (p !== caseDir && !p.startsWith(caseDir + sep)) return false; // lexical ../ escape
@@ -55,8 +63,25 @@ export function isRegisterableMediaRecord(r: OvercastRecord): boolean {
 
 /** A case record id → its media.ref (+ the record id); otherwise the ref as-is
  *  (path / URL). Also resolves capture payload ids (`cap_...`) because those are
- *  the human-facing handles capture emits. Mirrors view/capture id resolution. */
-export function resolveMediaRef(c: Case, ref: string): { ref: string; recordId?: string } {
+ *  the human-facing handles capture emits. Mirrors view/capture id resolution.
+ *  An `archive:<bucket>/<item>` ref resolves against the BUCKET's store instead
+ *  (record id / capture id / bucket-contained media path → absolute path) and
+ *  reports the bucket in `archive`; a bad archive ref sets `error` rather than
+ *  falling through as a literal path. */
+export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: string; recordId?: string; archive?: string; error?: string } {
+  if (ref.startsWith(ARCHIVE_REF_PREFIX)) {
+    const parsed = parseArchiveRef(ref)!;
+    const { bucket, error } = openBucket(parsed.bucket, home);
+    if (!bucket) return { ref, error };
+    if (!parsed.item) {
+      return { ref, error: `archive ref needs an item: archive:${parsed.bucket}/<record id | capture id | media file>` };
+    }
+    const inBucket = resolveMediaRef(bucket.case, parsed.item);
+    if (inBucket.recordId) return { ...inBucket, archive: parsed.bucket };
+    const path = resolveBucketPath(bucket, parsed.item);
+    if (path) return { ref: path, archive: parsed.bucket };
+    return { ref, error: `${ref} not found (no matching record, capture id, or media file in bucket '${parsed.bucket}')` };
+  }
   const rec = c.recordById(ref);
   if (rec?.media?.ref) return { ref: rec.media.ref, recordId: rec.id };
   const byCapture = c.records().find((r) => {
@@ -72,6 +97,8 @@ export interface VideoArgOpts {
   requireReady?: boolean;
   /** reject a missing local file (default true) */
   requireExists?: boolean;
+  /** overcast home override for archive: refs (ctx.home; env/default otherwise) */
+  home?: string;
 }
 
 /**
@@ -87,9 +114,10 @@ export function resolveVideoArg(
   arg: string,
   label: string,
   opts: VideoArgOpts = {},
-): { ref?: string; recordId?: string; error?: string } {
+): { ref?: string; recordId?: string; archive?: string; error?: string } {
   const { requireReady = true, requireExists = true } = opts;
-  const { ref, recordId } = resolveMediaRef(c, arg);
+  const { ref, recordId, archive, error } = resolveMediaRef(c, arg, opts.home);
+  if (error) return { error: `${label}: ${error}` };
   if (recordId) {
     const src = c.recordById(recordId);
     if (src && !MEDIA_VERBS.includes(src.verb)) {
@@ -102,7 +130,7 @@ export function resolveVideoArg(
   }
   if (requireExists && !/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: video not found: ${ref}` };
   if (!isAv(ref)) return { error: `${label}: ${ref} is not a video/audio file` };
-  return { ref, recordId };
+  return { ref, recordId, archive };
 }
 
 /** Resolve + validate a still image arg (path / URL / case-record-id). */
@@ -110,17 +138,18 @@ export function resolveImageArg(
   c: Case,
   arg: string,
   label: string,
-  opts: Pick<VideoArgOpts, "requireExists" | "requireReady"> = {},
-): { ref?: string; recordId?: string; error?: string } {
+  opts: Pick<VideoArgOpts, "requireExists" | "requireReady" | "home"> = {},
+): { ref?: string; recordId?: string; archive?: string; error?: string } {
   const { requireReady = true, requireExists = true } = opts;
-  const { ref, recordId } = resolveMediaRef(c, arg);
+  const { ref, recordId, archive, error } = resolveMediaRef(c, arg, opts.home);
+  if (error) return { error: `${label}: ${error}` };
   if (recordId) {
     const src = c.recordById(recordId);
     if (requireReady && src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
   }
   if (requireExists && !/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: image not found: ${ref}` };
   if (!isImage(ref)) return { error: `${label}: ${ref} is not an image file` };
-  return { ref, recordId };
+  return { ref, recordId, archive };
 }
 
 /** Resolve a local visual query, allowing either a still image or video. */
@@ -129,8 +158,9 @@ export function resolveVisualArg(
   arg: string,
   label: string,
   opts: VideoArgOpts = {},
-): { ref?: string; recordId?: string; kind?: "image" | "video"; error?: string } {
-  const { ref, recordId } = resolveMediaRef(c, arg);
+): { ref?: string; recordId?: string; archive?: string; kind?: "image" | "video"; error?: string } {
+  const { ref, error } = resolveMediaRef(c, arg, opts.home);
+  if (error) return { error: `${label}: ${error}` };
   if (isImage(ref)) {
     const r = resolveImageArg(c, arg, label, opts);
     return r.error ? { error: r.error } : { ...r, kind: "image" };

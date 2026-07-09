@@ -177,7 +177,17 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `webcam:category:<slug>` / `webcam:<id>` (Windy Webcams — current still per poll,
   `recapture` ephemeral monitor fit); `facesearch:<image url|path>` (opt-in,
   ToS/privacy-gated reverse **face** search via Apify — never a default).
-- **State** — `target` / `source` manage standing scope; a target is a *line of
+- **State** — `archive` (GLOBAL cross-case media buckets — case-shaped folders
+  under `<home>/archive/<bucket>`, no registry file: `init | list | show | add |
+  remove | setup`; items are sha256-deduped `capture` records with tags/notes/
+  origin provenance; `archive setup` is the bucket index wizard, plan/`--yes`
+  like case setup, backfilling existing media. From any case:
+  `archive:<bucket>/<item>` resolves as a media arg (watch/capture/note --ref…),
+  `--index archive:<bucket>/<index>` scopes face/similar/image/audio/cluster/ask
+  queries to the bucket — DB artifacts + mirror stay in the bucket, evidence
+  persists to the active case stamped `meta.archive` — and
+  `ask --archive <bucket>` searches the bucket's memory). `target` / `source`
+  manage standing scope; a target is a *line of
   investigation* (`add --question`, `close <id> --as answered|dead-end --note`,
   `reopen`; closed lines stop seeding scans). `note` records human observations
   (anchored via `--ref`/`--at`/`--tag`/`--confidence`; the `thread:<tgt_id>` tag
@@ -226,7 +236,10 @@ built-ins (`/model /tree /session /resume`).
 A case is a directory + its `.overcast/` store (records as JSONL, media, state,
 index mirrors). `case setup` saves a *mutable* setup model to
 `.overcast/setup.json` and emits *immutable* `case` history records
-(`payload.op = startup_setup` / `startup_setup_update`).
+(`payload.op = startup_setup` / `startup_setup_update`). An **archive bucket**
+is a case-shaped folder under `~/.overcast/archive/<bucket>` — the same store,
+reused by the same machinery; `src/archive.ts` owns bucket naming/refs and the
+`resolveIndexScope` seam the typed verbs use for `--index archive:…`.
 
 Case memory is **evidence-only**. `ask` / `brief` read primary evidence
 (`watch listen see face image audio similar crop note scan capture enhance exif

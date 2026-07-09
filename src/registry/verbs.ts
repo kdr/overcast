@@ -27,6 +27,7 @@ import {
   prebriefVerb,
 } from "../verbs/osint.js";
 import { indexVerb } from "../verbs/index.js";
+import { archiveVerb } from "../verbs/archive.js";
 import { askVerb, briefVerb } from "../verbs/read.js";
 import { caseVerb } from "../verbs/case.js";
 import { noteVerb } from "../verbs/note.js";
@@ -62,7 +63,7 @@ export const watchVerb: VerbSpec = {
         }),
       ];
     }
-    const resolved = resolveVideoArg(ctx.case, ctx.input, "watch input", { requireReady: false });
+    const resolved = resolveVideoArg(ctx.case, ctx.input, "watch input", { requireReady: false, home: ctx.home });
     if (resolved.error) {
       return [
         makeRecord({
@@ -109,6 +110,7 @@ export const VERBS: VerbSpec[] = [
   captureVerb,
   monitorVerb,
   indexVerb,
+  archiveVerb,
   targetVerb,
   sourceVerb,
   noteVerb,

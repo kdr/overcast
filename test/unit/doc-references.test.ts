@@ -14,6 +14,7 @@ import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { setupVerb, providerVerb } from "../../src/verbs/setup.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
+import { archiveVerb } from "../../src/verbs/archive.ts";
 import type { VerbContext, OvercastRecord } from "../../src/registry/types.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -59,6 +60,7 @@ test("every `overcast <verb> [<subcommand>]` in the docs exists in the registry"
       setup: await actionsOf(dir, (c) => setupVerb.run(c)),
       provider: await actionsOf(dir, (c) => providerVerb.run(c)),
       case: await actionsOf(dir, (c) => caseVerb.run(c)),
+      archive: await actionsOf(dir, (c) => archiveVerb.run(c)),
     };
     // sanity: the derivation worked
     assert.ok(actions.setup.has("provider"), "could not derive setup actions");

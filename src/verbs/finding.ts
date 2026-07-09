@@ -109,10 +109,11 @@ export const findingVerb: VerbSpec = {
           evidenceRef = rec.media?.ref ?? rec.id;
           if (rec.media?.ref) media = { ...rec.media };
         } else {
-          const resolved = resolveMediaRef(ctx.case, rawRef);
+          const resolved = resolveMediaRef(ctx.case, rawRef, ctx.home);
+          if (resolved.error) return [err(`--ref ${resolved.error}`)];
           // Reject a --ref that resolves to nothing real (mirrors `note`): a
           // finding is evidence, so it must not cite a path/id that never existed.
-          if (resolved.recordId == null) {
+          if (resolved.recordId == null && !resolved.archive) {
             const isUrl = /^https?:\/\//i.test(rawRef);
             // absolute path, or a case-relative path CONTAINED in the case dir (a
             // `../` escape outside the case store is rejected — no arbitrary files).
@@ -124,7 +125,9 @@ export const findingVerb: VerbSpec = {
             }
           }
           sourceRecord = resolved.recordId;
-          evidenceRef = resolved.ref;
+          // keep the archive:<bucket>/<item> trace as the cited ref; media.ref
+          // carries the resolved playable path.
+          evidenceRef = resolved.archive ? rawRef : resolved.ref;
           media = { ref: resolved.ref };
         }
       }

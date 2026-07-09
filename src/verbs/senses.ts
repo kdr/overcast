@@ -101,7 +101,7 @@ export const listenVerb: VerbSpec = {
     if (!ctx.input) {
       return [errorRecord("listen", "listen requires an audio/video input")];
     }
-    const resolved = resolveVideoArg(ctx.case, ctx.input, "listen input", { requireReady: false });
+    const resolved = resolveVideoArg(ctx.case, ctx.input, "listen input", { requireReady: false, home: ctx.home });
     if (resolved.error) return [errorRecord("listen", resolved.error)];
     const input = resolved.ref ?? ctx.input;
     const rec = await dispatchListen(ctx, input, {

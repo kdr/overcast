@@ -70,8 +70,9 @@ export const noteVerb: VerbSpec = {
         // with --at.
         if (rec.media?.ref) media = { ref: rec.media.ref };
       } else {
-        const resolved = resolveMediaRef(ctx.case, rawRef);
-        if (resolved.recordId == null) {
+        const resolved = resolveMediaRef(ctx.case, rawRef, ctx.home);
+        if (resolved.error) return [err(`--ref ${resolved.error}`)];
+        if (resolved.recordId == null && !resolved.archive) {
           const isUrl = /^https?:\/\//i.test(rawRef);
           // absolute path, or a case-relative path CONTAINED in the case dir (a
           // `../` escape outside the case store is rejected — no arbitrary files).
@@ -83,7 +84,9 @@ export const noteVerb: VerbSpec = {
           }
         }
         relatedRecord = resolved.recordId;
-        evidenceRef = resolved.ref;
+        // keep the archive:<bucket>/<item> trace as the cited ref; media.ref
+        // carries the resolved playable path.
+        evidenceRef = resolved.archive ? rawRef : resolved.ref;
         media = { ref: resolved.ref };
       }
     }

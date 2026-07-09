@@ -513,7 +513,8 @@ Arguments:
 
 Options:
   --deep                 Use a provider's semantic/deep search path when available (e.g. qmd)
-  --index <string>       Answer over a media-descriptions index (id/name) via tinycloud, not local memory
+  --archive <string>     Answer over a global archive BUCKET's memory instead of this case (composable with --deep/--memory)
+  --index <string>       Answer over a media-descriptions index (id/name, or archive:<bucket>/<index>) via tinycloud, not local memory
   --probe                With --index: semantic moment search (probe) instead of Q&A (ask)
   --scope <string>       With --index --probe: file | segment
   --memory <string>      Restrict to memory provider/backend ids (local-grep/local, qmd)
@@ -547,6 +548,46 @@ Options:
 Emits `brief` records.
 
 ## State
+
+### `overcast archive`
+
+A bucket is a case-shaped folder reusable from ANY case: `init <bucket>` creates it; `add <ref...> --to <bucket>` saves local files / URLs / case records into it (sha256-deduped capture records with tags/notes/origin provenance; `--all` archives every captured/sensed media record of the active case); `list`/`show <bucket>` inspect; `remove <item> --from <bucket>` retires an item. `setup <bucket>` is the index wizard (plan/--yes): stand up local DBs (deepface-local/basic-clip/image-ransac/audio-fp/basic-clap/face-cluster) and/or remote Cloudglue collections (media-descriptions/face-analysis/entities) plus a memory backend, backfilling existing bucket media. From any case: sense media in place via `watch archive:<bucket>/<item>`, pull a copy via `capture archive:<bucket>/<item>`, query bucket indexes via `--index archive:<bucket>/<index>` (face/similar/image/audio/cluster/ask), and ask over the bucket via `ask --archive <bucket>`.
+
+```
+overcast archive <action> [arg]... [options]
+
+  Global cross-case media archive: save media into named buckets under ~/.overcast/archive (init/list/show/add/remove/setup).
+
+Arguments:
+  action           init | list | show | add | remove | setup
+  arg              bucket (init/show/setup) · media refs/record ids (add) · item + setup subcommand
+
+Options:
+  --to <string>          add: target bucket (default: the sole bucket)
+  --from <string>        remove: bucket holding the item (default: the sole bucket)
+  --all                  add: archive every captured/sensed media record of the active case
+  --tags <string>        add: comma-separated tags stored on the archived item
+  --note <string>        add: note text stored on the archived item
+  --sense <string>       add: comma-separated senses to run in the bucket after adding (watch, listen)
+  --keep-file            remove: keep the media file (retire the record only)
+  --limit <number>       show: max items listed
+  --name <string>        init/setup: bucket display name / purpose
+  --index <string>       setup: comma-separated indexes to stand up (name:type or id:type:name)
+  --remove-index <string> setup: comma-separated index ids/names to remove
+  --signals <string>     setup: comma-separated signals for new indexes/routes
+  --memory <string>      setup: local memory backend for ask --archive (local-grep | qmd)
+  --video <string>       setup: comma-separated extra videos/URLs to route into indexes
+  --folder <string>      setup: comma-separated local media folders to route into indexes
+  --auto-index-new       setup: automatically index newly added media
+  --no-auto-index-new    setup: disable automatic indexing of new adds
+  --no-index             setup: save setup without starting index ingestion
+  --dry-run              setup: preview without saving or applying
+  --yes                  setup: non-interactive apply
+  --json                 JSON output
+  --format <string>      json | md | txt
+```
+
+Emits `archive` records.
 
 ### `overcast target`
 

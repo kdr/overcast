@@ -15,6 +15,7 @@ import {
 } from "../providers/local/vision.js";
 import { runLocalClap, readClapConfig } from "../providers/local/audio.js";
 import { resolveVideoArg, resolveVisualArg } from "./media-ref.js";
+import { resolveIndexScope, stampArchive } from "../archive.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { badNumber } from "./validate.js";
 import { providerBinding } from "../providers/bindings.js";
@@ -151,7 +152,12 @@ export const similarVerb: VerbSpec = {
       return [err(`similar ${action}: expected exactly one input; got ${ctx.rest.length}`)];
     }
     const indexValue = ctx.opts.index ?? ctx.opts.to;
-    const idx = localClipIndex(ctx.case, indexValue);
+    // `--index archive:<bucket>/<index>` targets a BUCKET's semantic index (see
+    // image/audio): DB + members live in the bucket, evidence in the case.
+    const scoped = resolveIndexScope(ctx.case, indexValue != null ? String(indexValue) : "", ctx.home);
+    if (scoped.error) return [err(`similar ${action}: ${scoped.error}`)];
+    const scope = scoped.scope;
+    const idx = localClipIndex(scope, indexValue == null ? indexValue : scoped.value);
     if (idx.error) return [err(`similar ${action}: ${idx.error}`)];
     const type = idx.type!;
     const isClap = type === "basic-clap";
@@ -176,7 +182,7 @@ export const similarVerb: VerbSpec = {
       if (badFlag) return [err(`similar ${action}: --${badFlag} doesn't apply to a basic-clap (audio) index — audio is embedded in --window second chunks`)];
     }
 
-    const indexDir = localIndexDir(ctx.case, idx.id!);
+    const indexDir = localIndexDir(scope, idx.id!);
     // member embeddings follow the PERSISTED index config — a per-add override
     // would persist a config_hash queries (keyed on config.json) never reuse, so
     // reject the flags outright rather than silently ignoring them.
@@ -197,17 +203,17 @@ export const similarVerb: VerbSpec = {
       const text = ctx.rest.join(" ").trim();
       if (!text) return [err("similar search requires a text query")];
       const rec = isClap
-        ? await runLocalClap(ctx.case, text, { indexId: idx.id!, op: "search", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, ...queryOpts, signal: ctx.signal })
-        : await runLocalClip(ctx.case, text, { indexId: idx.id!, op: "search", pooling: cfg.pooling, granularity: cfg.granularity, sampling: cfg.sampling, window: cfg.window, maxFrames: cfg.maxFrames ?? undefined, fps: cfg.fps ?? undefined, ...queryOpts, signal: ctx.signal });
-      return [rec];
+        ? await runLocalClap(scope, text, { indexId: idx.id!, op: "search", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, ...queryOpts, signal: ctx.signal })
+        : await runLocalClip(scope, text, { indexId: idx.id!, op: "search", pooling: cfg.pooling, granularity: cfg.granularity, sampling: cfg.sampling, window: cfg.window, maxFrames: cfg.maxFrames ?? undefined, fps: cfg.fps ?? undefined, ...queryOpts, signal: ctx.signal });
+      return [stampArchive(rec, scoped.bucket)];
     }
 
     // ---- add / match (both take a media arg: image/video for CLIP, audio/video for CLAP) ----
     const arg = ctx.rest[0];
     if (!arg) return [err(`similar ${action} requires an ${isClap ? "audio/video" : "image/video"} input`)];
     const q = isClap
-      ? { ...resolveVideoArg(ctx.case, arg, `similar ${action}`), kind: "video" as const }
-      : resolveVisualArg(ctx.case, arg, `similar ${action}`);
+      ? { ...resolveVideoArg(ctx.case, arg, `similar ${action}`, { home: ctx.home }), kind: "video" as const }
+      : resolveVisualArg(ctx.case, arg, `similar ${action}`, { home: ctx.home });
     if (q.error) return [err(q.error)];
     if (!/^https?:\/\//i.test(q.ref!) && !existsSync(q.ref!)) return [err(`similar ${action}: input not found: ${q.ref}`)];
 
@@ -215,16 +221,16 @@ export const similarVerb: VerbSpec = {
     if (isClap) {
       if (action === "add") {
         mkdirSync(indexDir, { recursive: true });
-        const rec = await runLocalClap(ctx.case, q.ref!, { indexId: idx.id!, op: "add", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, signal: ctx.signal });
+        const rec = await runLocalClap(scope, q.ref!, { indexId: idx.id!, op: "add", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, signal: ctx.signal });
         if (isReady(rec)) {
-          const entry = findIndex(ctx.case, idx.id!);
-          if (!entry?.members.some((m) => m.ref === q.ref)) addMember(ctx.case, idx.id!, { ref: q.ref!, recordId: q.recordId });
+          const entry = findIndex(scope, idx.id!);
+          if (!entry?.members.some((m) => m.ref === q.ref)) addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
         }
-        return [rec];
+        return [stampArchive(rec, scoped.bucket)];
       }
-      const rec = await runLocalClap(ctx.case, q.ref!, { indexId: idx.id!, op: "match", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, ...queryOpts, signal: ctx.signal });
+      const rec = await runLocalClap(scope, q.ref!, { indexId: idx.id!, op: "match", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, ...queryOpts, signal: ctx.signal });
       stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
-      return [rec];
+      return [stampArchive(rec, scoped.bucket)];
     }
 
     // ---- CLIP (image/video) path ----
@@ -253,20 +259,22 @@ export const similarVerb: VerbSpec = {
 
     if (action === "add") {
       mkdirSync(indexDir, { recursive: true });
-      const rec = await runLocalClip(ctx.case, q.ref!, { ...baseOpts, op: "add", framesAt });
+      const rec = await runLocalClip(scope, q.ref!, { ...baseOpts, op: "add", framesAt });
       // register the member only after the embed SUCCEEDED (mirrors index add's
       // accepted() gate) — a failed embed must not leave a vectorless member that
       // match/search would silently skip.
       if (isReady(rec)) {
-        const entry = findIndex(ctx.case, idx.id!);
+        const entry = findIndex(scope, idx.id!);
         if (!entry?.members.some((m) => m.ref === q.ref)) {
-          addMember(ctx.case, idx.id!, { ref: q.ref!, recordId: q.recordId });
+          addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
         }
       }
+      stampArchive(rec, scoped.bucket);
       return watched ? [rec, watched] : [rec];
     }
 
-    const rec = await runLocalClip(ctx.case, q.ref!, { ...baseOpts, ...queryOpts, op: "match", framesAt });
+    const rec = await runLocalClip(scope, q.ref!, { ...baseOpts, ...queryOpts, op: "match", framesAt });
+    stampArchive(rec, scoped.bucket);
     return watched ? [rec, watched] : [rec];
   },
 };

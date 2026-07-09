@@ -72,7 +72,7 @@ export const gridVerb: VerbSpec = {
     if (numErr) return [err(numErr)];
 
     // accept a path / URL / case record id, and validate it's real AV media.
-    const resolved = resolveVideoArg(ctx.case, ctx.input, "grid input", { requireReady: false });
+    const resolved = resolveVideoArg(ctx.case, ctx.input, "grid input", { requireReady: false, home: ctx.home });
     if (resolved.error) return [err(resolved.error)];
     const input = resolved.ref ?? ctx.input;
 

@@ -19,6 +19,7 @@ import { indexesByType, resolveIndexRef } from "../state/index.js";
 import { findIndex } from "../state/index.js";
 import { runLocalFace, type LocalFaceOp } from "../providers/local/vision.js";
 import { isImage, resolveVideoArg } from "./media-ref.js";
+import { resolveIndexScope, stampArchive } from "../archive.js";
 import { badNumber } from "./validate.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import type { Case } from "../case.js";
@@ -148,7 +149,7 @@ export const faceVerb: VerbSpec = {
     // analyzable regardless of whether a prior sense finished.
     let video: string | undefined;
     if (ctx.input) {
-      const v = resolveVideoArg(c, ctx.input, "face video", { requireReady: false });
+      const v = resolveVideoArg(c, ctx.input, "face video", { requireReady: false, home: ctx.home });
       if (v.error) return [err(v.error)];
       video = v.ref;
     }
@@ -158,6 +159,13 @@ export const faceVerb: VerbSpec = {
     if (indexFlag !== undefined && !indexFlag.trim()) {
       return [err("--index requires an index id or name")];
     }
+    // `--index archive:<bucket>/<index>` reads a BUCKET's face index (mirror +
+    // local DB artifacts live in the bucket); auto-pick (no --index) stays
+    // case-local. The result record persists to the ACTIVE case (meta.archive).
+    const scoped = resolveIndexScope(c, indexFlag ?? "", ctx.home);
+    if (scoped.error) return [err(scoped.error)];
+    const scope = scoped.scope;
+    const scopedIndexFlag = indexFlag === undefined ? undefined : scoped.value;
     // a provided-but-blank `--start=`/`--end=` is a user error (it would otherwise
     // be treated as omitted and run the full clip), matching the blank-flag hygiene
     // used for --match/--index/--min-similarity.
@@ -196,10 +204,10 @@ export const faceVerb: VerbSpec = {
       // search/list in tinycloud. A local face index may be provided to choose the
       // local matcher backend while still matching inside this one clip.
       if (indexFlag) {
-        const r = resolveFaceIndexes(c, indexFlag);
+        const r = resolveFaceIndexes(scope, scopedIndexFlag!);
         if (r.error) return [err(r.error)];
         if (!r.ids.length) return [err(`--index '${indexFlag}' has no valid index id`)];
-        const entries = r.ids.map((id) => findIndex(c, id)).filter(Boolean);
+        const entries = r.ids.map((id) => findIndex(scope, id)).filter(Boolean);
         const allLocal = entries.length === r.ids.length && entries.every((e) => e!.backend === "local" && e!.type === "deepface-local");
         if (!allLocal) {
           return [err(`--index can't combine with a video for ${useDeepface ? "deepface-local" : "tinycloud"} --match unless it is a deepface-local index: drop the video to search the index, or drop --index to match within the video`)];
@@ -211,7 +219,7 @@ export const faceVerb: VerbSpec = {
     } else if (image && !video) {
       // search the face across a face-analysis index (case-wide).
       if (indexFlag) {
-        const r = resolveFaceIndexes(c, indexFlag);
+        const r = resolveFaceIndexes(scope, scopedIndexFlag!);
         if (r.error) return [err(r.error)];
         // a flag that resolves to nothing (whitespace/comma-only) must not run an
         // unscoped search — surface it as the user error it is.
@@ -237,7 +245,7 @@ export const faceVerb: VerbSpec = {
       op = "search";
     } else if (video && indexFlag) {
       // list the video's stored detections within the index.
-      const r = resolveFaceIndexes(c, indexFlag);
+      const r = resolveFaceIndexes(scope, scopedIndexFlag!);
       if (r.error) return [err(r.error)];
       if (!r.ids.length) return [err(`--index '${indexFlag}' has no valid index id`)];
       indexes = r.ids;
@@ -269,7 +277,7 @@ export const faceVerb: VerbSpec = {
       }
     }
 
-    const localEntries = (indexes ?? []).map((id) => findIndex(c, id)).filter((x): x is NonNullable<ReturnType<typeof findIndex>> => !!x && x.backend === "local" && x.type === "deepface-local");
+    const localEntries = (indexes ?? []).map((id) => findIndex(scope, id)).filter((x): x is NonNullable<ReturnType<typeof findIndex>> => !!x && x.backend === "local" && x.type === "deepface-local");
     const hasExplicitIndexes = (indexes?.length ?? 0) > 0;
     const shouldUseDeepfaceProvider = useDeepface && !hasExplicitIndexes && (op === "detect" || op === "match");
     if (localEntries.length || shouldUseDeepfaceProvider) {
@@ -291,7 +299,7 @@ export const faceVerb: VerbSpec = {
       }
       const localOp: LocalFaceOp = op === "search" ? "search" : op === "match" ? "match" : "detect";
       const primary = localOp === "search" ? image! : video!;
-      const rec = await runLocalFace(c, primary, {
+      const rec = await runLocalFace(scope, primary, {
         op: localOp,
         indexId: localEntries[0]?.id ?? "deepface-local",
         image,
@@ -307,7 +315,7 @@ export const faceVerb: VerbSpec = {
         signal: ctx.signal,
       });
       stampProvenance(rec, provenanceFromCapture(c, video));
-      return [rec];
+      return [stampArchive(rec, scoped.bucket)];
     }
     if (ctx.opts["max-frames"] != null) {
       return [err("--max-frames only applies to local face indexes")];
@@ -334,7 +342,7 @@ export const faceVerb: VerbSpec = {
       });
       rec.meta = { ...rec.meta, case: c.dir };
       stampProvenance(rec, provenanceFromCapture(c, video));
-      return [rec];
+      return [stampArchive(rec, scoped.bucket)];
     }
 
     if (image) {
@@ -370,6 +378,6 @@ export const faceVerb: VerbSpec = {
     });
     rec.meta = { ...rec.meta, case: c.dir };
     stampProvenance(rec, provenanceFromCapture(c, video));
-    return [rec];
+    return [stampArchive(rec, scoped.bucket)];
   },
 };

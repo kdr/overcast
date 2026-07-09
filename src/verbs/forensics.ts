@@ -52,7 +52,8 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
   //    provenance so a sense run directly on a scan hit stays traceable to the
   //    originating post (capture stamps the same via scanHitProvenance).
   if (!isHttpUrl(ref)) {
-    const resolved = resolveMediaRef(ctx.case, ref);
+    const resolved = resolveMediaRef(ctx.case, ref, ctx.home);
+    if (resolved.error) return [errorRecord(cfg.verb, `${cfg.verb} input: ${resolved.error}`)];
     ref = resolved.ref;
     // carry the source record's provenance, and — when the record has no
     // media.ref (a scan hit whose media is a page URL) — fall back to its

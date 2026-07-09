@@ -810,6 +810,49 @@ no case records. Env knobs: `OVERCAST_CHAIR`, `OVERCAST_CHAIR_BIND`,
 `OVERCAST_CHAIR_PORT`, `OVERCAST_CHAIR_TOKEN`. The console dev loop is
 `npm run dev:web` (vite, proxies to a running chair on 7373).
 
+### 24. Global archive: save once, reuse across cases
+
+Reference media that outlives one case — known faces, recurring locations,
+signature footage/audio — goes into an archive **bucket**: a case-shaped folder
+under `~/.overcast/archive/<bucket>` (no registry file; `archive list` is a
+directory listing). Items are sha256-deduped `capture` records with tags/notes
+and origin provenance; the active case only ever receives one operational
+`archive` summary per add, so buckets never pollute case evidence.
+
+```bash
+overcast archive init ref-footage --name "Reference footage" --json
+overcast archive add rec_ab12cd34 ./face3.png --to ref-footage --tags drone --note "known drone, case 44" --json
+overcast archive add --all --to ref-footage --json     # every captured/sensed media record of this case
+overcast archive show ref-footage --json               # items + indexes + setup health
+
+# the bucket index wizard (agent-driven like case setup; plan → --yes)
+overcast archive setup ref-footage plan --index faces:deepface-local,clip:basic-clip --json
+overcast archive setup ref-footage --index faces:deepface-local,clip:basic-clip --memory local-grep --auto-index-new --yes --json
+overcast archive setup ref-footage status --json       # per-index coverage + memory health
+
+# cross-case checks from INSIDE any case (evidence lands in the case, stamped meta.archive)
+overcast face --match suspect.jpg --index archive:ref-footage/faces --json
+overcast similar search "white van at night" --index archive:ref-footage/clip --json
+overcast audio match query.mp3 --index archive:ref-footage/audio --json
+overcast ask "when does the convoy appear?" --index archive:ref-footage/descriptions --json
+
+# use archived media directly
+overcast watch archive:ref-footage/clip_9f3a.mp4 --json     # in place, no copy
+overcast capture archive:ref-footage/clip_9f3a.mp4 --json   # pull a copy + provenance record
+overcast ask "what do I have on the blue warehouse?" --archive ref-footage --json
+```
+
+Notes: `archive:<bucket>/<item>` accepts a bucket record id, capture id, or
+media filename; containment is enforced inside the bucket (no `../` or symlink
+escapes). `archive remove <item> --from <bucket>` retires an item from the
+manifest (deleting the file unless `--keep-file`); its record stays in bucket
+history. On-apply setup backfills existing bucket media into new indexes;
+`--auto-index-new` keeps future adds indexed. `ask --archive` answers cite
+bucket record ids — page them with `overcast case memory get <id> --case
+<bucket-dir>` (the answer payload carries the dir). Rebuild a bucket's qmd
+index with `overcast case memory index rebuild --case <bucket-dir>`. The
+`overcast-archive` skill packages this flow.
+
 ## Command matrix
 
 | Command | Group | Main output | Default backing | Override | Role |
@@ -832,6 +875,7 @@ no case records. Env knobs: `OVERCAST_CHAIR`, `OVERCAST_CHAIR_BIND`,
 | `capture` | osint | `capture` | local copy/stdin or source fetch | source provider | Acquire media/content |
 | `monitor` | osint | `scan.hit` + capture/sense | scan/capture/sense chain | source + sense overrides | Repeated discovery w/ dedupe |
 | `index` | osint | `index` | tinycloud library collections | pinned tinycloud | Remote typed indexes |
+| `archive` | state | `archive` | global case-shaped buckets (`<home>/archive`) | `OVERCAST_HOME` / `--home` | Cross-case media store + bucket index wizard |
 | `target` | state | `target` | local state | none | Line of investigation (`add --question` / `close --as answered\|dead-end` / `reopen`) |
 | `source` | state | `source` | local state | source provider types | Where to look |
 | `note` | state | `note` | local human record | none | Human observations |
