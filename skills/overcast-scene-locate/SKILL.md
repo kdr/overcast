@@ -26,6 +26,8 @@ on the strongest clues.
 overcast doctor --json
 overcast case init --json
 overcast exif ./photo.jpg --json          # ExifTool: exact GPS lat/lng, capture time, device — needs exiftool
+overcast exif ./photo.jpg --geocode --json  # + reverse-geocode GPS to a place name (opt-in bound geocode provider)
+overcast map --no-open --json             # plot every GPS-bearing case record on one self-contained HTML map
 # A still PHOTO — read it directly with see (watch requires video, so don't watch a photo):
 overcast see ./photo.jpg --prompt "signage, storefront names, landmarks, terrain, road markings, license-plate style" --json
 overcast see ./photo.jpg --ocr --json                             # street signs, storefronts, plates, notices

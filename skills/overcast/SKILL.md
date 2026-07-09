@@ -39,6 +39,8 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `crop` — Materialize face/object detections as cropped image records with provenance.
 - `grid` — Tile timestamped video frames into a labeled contact sheet for one-shot VLM triage.
 - `wall` — Open a control-room monitor wall: case videos looping at their evidence moments.
+- `map` — Plot every case record carrying GPS coordinates on a self-contained HTML map.
+- `devices` — Correlate case media by camera fingerprint (make/model/serial/lens) and report shared-device clusters.
 - `scan` — Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.

@@ -46,7 +46,7 @@ const FIELD_POLICY: Record<string, string[]> = {
   // media-forensics senses index only their compact summary + the actionable
   // geo/provenance facts; the full ExifTool/C2PA dumps stay in the record for
   // exact reads, never in searchable case memory.
-  exif: ["summary", "gps", "created", "make", "model", "software"],
+  exif: ["summary", "gps", "created", "make", "model", "software", "place", "serial", "lens"],
   verify: ["summary", "claim_generator", "signer", "validation_state", "title"],
   face: ["summary", "op", "moments", "reference", "index"],
   // visual-DB verbs index compact summaries only — raw match internals

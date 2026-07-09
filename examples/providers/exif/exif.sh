@@ -4,12 +4,17 @@
 # (MOV/MP4 carry capture time, device make/model, and sometimes GPS).
 # Contract: init | describe | run --input <media>
 # Emits an exif record: { summary, gps:{lat,lng[,altitude]}|null, created, make,
-# model, software, mime, dimensions, duration, tags } — a compact, searchable
-# summary; the full tag dump stays out of case memory by design.
+# model, software, serial, lens, mime, dimensions, duration, tags } — a compact,
+# searchable summary; the full tag dump stays out of case memory by design.
 set -uo pipefail
 
+# Override the exiftool invocation (path or wrapper) for tests / custom installs;
+# mirrors OVERCAST_FFMPEG / OVERCAST_TINYCLOUD_CMD. May carry args (e.g.
+# "bash /path/fake-exiftool.sh"), so read it into an array.
+read -r -a EXIFTOOL_CMD <<< "${OVERCAST_EXIFTOOL_CMD:-exiftool}"
+
 need_exiftool() {
-  command -v exiftool >/dev/null 2>&1 || {
+  command -v "${EXIFTOOL_CMD[0]}" >/dev/null 2>&1 || {
     cat >&2 <<'MSG'
 exif needs `exiftool` (not found on PATH). Install one of:
   • brew install exiftool
@@ -23,7 +28,7 @@ MSG
 op="${1:-run}"
 case "$op" in
   init)     need_exiftool; exit 0 ;;
-  describe) echo '{"verb":"exif","kind":"media.metadata","payload":["summary","gps","created","make","model","software"],"needs":["exiftool"]}'; exit 0 ;;
+  describe) echo '{"verb":"exif","kind":"media.metadata","payload":["summary","gps","created","make","model","software","serial","lens"],"needs":["exiftool"]}'; exit 0 ;;
 esac
 
 input=""; input_set=0
@@ -40,7 +45,7 @@ need_exiftool
 # unreadable file) surfaces as an ERROR record rather than a ready "no metadata"
 # result. A valid file with no interesting tags still exits 0 with a minimal object.
 errf="$(mktemp)"
-raw="$(exiftool -n -json "$input" 2>"$errf")"; code=$?
+raw="$("${EXIFTOOL_CMD[@]}" -n -json "$input" 2>"$errf")"; code=$?
 err="$(cat "$errf")"; rm -f "$errf"
 if [ "$code" -ne 0 ]; then
   jq -nc --arg ref "$input" --arg e "$err" '{verb:"exif",format:"json",payload:{},media:{ref:$ref},error:("exiftool failed: "+($e|.[0:300])),state:"error"}'
@@ -59,34 +64,57 @@ fi
 get() { printf '%s' "$obj" | jq -r --arg k "$1" '.[$k] // empty' 2>/dev/null; }
 lat="$(get GPSLatitude)"; lng="$(get GPSLongitude)"; alt="$(get GPSAltitude)"
 make="$(get Make)"; model="$(get Model)"; soft="$(get Software)"
+serial="$(get SerialNumber)"; [ -n "$serial" ] || serial="$(get InternalSerialNumber)"; [ -n "$serial" ] || serial="$(get BodySerialNumber)"
+lens="$(get LensModel)"; [ -n "$lens" ] || lens="$(get LensID)"; [ -n "$lens" ] || lens="$(get LensType)"
 created="$(get DateTimeOriginal)"; [ -n "$created" ] || created="$(get CreateDate)"
 [ -n "$created" ] || created="$(get MediaCreateDate)"
 w="$(get ImageWidth)"; h="$(get ImageHeight)"
 mime="$(get MIMEType)"; dur="$(get Duration)"
 count="$(printf '%s' "$obj" | jq 'keys | length' 2>/dev/null)"; [ -n "$count" ] || count=0
 
+# Classify the ExifTool lat/lng (obj carries them as numbers under -n), matching
+# geo.ts gpsIssue: valid | range (both numeric, one outside WGS84) | malformed
+# (missing axis / non-numeric) | absent. map + `exif --geocode` drop anything but
+# `valid`, so suppress those here too — a stored payload.gps must be the same one
+# the map would plot, and `ask`/memory must not cite a coordinate that never geolocates.
+gps_state="$(printf '%s' "$obj" | jq -r '
+  .GPSLatitude as $la | .GPSLongitude as $lo
+  | if ($la == null and $lo == null) then "absent"
+    elif (($la|type)=="number" and ($lo|type)=="number")
+      then (if ($la>=-90 and $la<=90 and $lo>=-180 and $lo<=180) then "valid" else "range" end)
+    else "malformed" end' 2>/dev/null)"
+[ -n "$gps_state" ] || gps_state="absent"
+gps_valid=0; [ "$gps_state" = "valid" ] && gps_valid=1
+
 # human, searchable one-liner (indexed into case memory)
 summary=""
 add() { [ -n "$1" ] || return 0; if [ -n "$summary" ]; then summary="$summary · $1"; else summary="$1"; fi; }
-if [ -n "$lat" ] && [ -n "$lng" ]; then add "GPS ${lat},${lng}"; else add "no GPS"; fi
+case "$gps_state" in
+  valid)     add "GPS ${lat},${lng}" ;;
+  range)     add "GPS invalid (out of range)" ;;
+  malformed) add "GPS malformed or incomplete" ;;
+  *)         add "no GPS" ;;
+esac
 dev="$(printf '%s %s' "$make" "$model" | xargs 2>/dev/null || true)"
 add "$dev"
 add "$created"
 [ -n "$soft" ] && add "sw:$soft"
+[ -n "$lens" ] && add "lens:$lens"
 
 jq -nc \
   --arg ref "$input" \
   --arg summary "$summary" \
   --arg lat "$lat" --arg lng "$lng" --arg alt "$alt" \
   --arg created "$created" --arg make "$make" --arg model "$model" \
-  --arg software "$soft" --arg mime "$mime" \
+  --arg software "$soft" --arg serial "$serial" --arg lens "$lens" --arg mime "$mime" \
   --arg w "$w" --arg h "$h" --arg dur "$dur" \
   --argjson count "${count:-0}" \
+  --argjson gps_valid "${gps_valid:-0}" \
   '{
      verb:"exif", format:"json",
      payload:{
        summary: $summary,
-       gps: (if ($lat|length)>0 and ($lng|length)>0
+       gps: (if $gps_valid == 1
              then ({lat:($lat|tonumber), lng:($lng|tonumber)}
                    + (if ($alt|length)>0 then {altitude:($alt|tonumber)} else {} end))
              else null end),
@@ -94,6 +122,8 @@ jq -nc \
        make: (if ($make|length)>0 then $make else null end),
        model: (if ($model|length)>0 then $model else null end),
        software: (if ($software|length)>0 then $software else null end),
+       serial: (if ($serial|length)>0 then $serial else null end),
+       lens: (if ($lens|length)>0 then $lens else null end),
        mime: (if ($mime|length)>0 then $mime else null end),
        dimensions: (if ($w|length)>0 and ($h|length)>0 then ($w+"x"+$h) else null end),
        duration: (if ($dur|length)>0 then ($dur|tonumber) else null end),

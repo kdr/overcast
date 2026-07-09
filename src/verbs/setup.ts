@@ -568,7 +568,13 @@ export const doctorVerb: VerbSpec = {
     });
 
     // exiftool — optional system CLI backing the `exif` metadata/GPS sense.
-    const exiftool = await execCapture("exiftool", ["-ver"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    // Honor OVERCAST_EXIFTOOL_CMD so a custom path/wrapper is the one checked
+    // (same knob the shipped exif.sh reads; lets offline tests point at a fake).
+    // Split on whitespace to MATCH the shipped exif.sh/verify.sh (`read -r -a <<<`),
+    // so a space-containing override path fails here too rather than passing the
+    // check yet breaking when the sense actually runs.
+    const exiftoolCmd = (process.env.OVERCAST_EXIFTOOL_CMD || "exiftool").trim().split(/\s+/);
+    const exiftool = await execCapture(exiftoolCmd[0], [...exiftoolCmd.slice(1), "-ver"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
     checks.push({
       name: "exiftool",
       ok: exiftool.code === 0,
@@ -578,13 +584,26 @@ export const doctorVerb: VerbSpec = {
     });
 
     // c2patool — optional system CLI backing the `verify` C2PA provenance sense.
-    const c2patool = await execCapture("c2patool", ["--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    const c2patoolCmd = (process.env.OVERCAST_C2PATOOL_CMD || "c2patool").trim().split(/\s+/);
+    const c2patool = await execCapture(c2patoolCmd[0], [...c2patoolCmd.slice(1), "--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
     checks.push({
       name: "c2patool",
       ok: c2patool.code === 0,
       detail: c2patool.code === 0
         ? `optional C2PA provenance sense (verify) available (${c2patool.stdout.trim()})`
         : "optional — install c2patool for the `verify` sense (`brew install c2patool` / `cargo install c2patool`)",
+    });
+
+    // geocode — OPT-IN reverse-geocode provider for `exif --geocode`. Report
+    // whether a provider is bound and whether curl is present (its default dep).
+    const geocodeBound = Boolean(ctx.profile.providers?.geocode);
+    const geocodeCurl = await execCapture("curl", ["--version"], { timeoutMs: 10_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    checks.push({
+      name: "geocode",
+      ok: true, // opt-in — never gates
+      detail: geocodeBound
+        ? `bound (exif --geocode enabled)${geocodeCurl.code === 0 ? "" : "; curl missing (the default Nominatim provider needs it)"}`
+        : "optional/off — bind to enable `exif --geocode` (`setup provider geocode \"exec:bash examples/providers/geocode/geocode.sh --input {{input}}\"`)",
     });
 
 

@@ -539,7 +539,10 @@ function imageTag(ref: unknown): string {
   return src ? `<img alt="${escapeHtml(ref)}" src="${escapeHtml(src)}">` : "";
 }
 
-function imageSrc(ref: string): string | undefined {
+/** A local image ref → inline `data:` URI (or a passed-through `data:image/…`),
+ *  or undefined when it isn't a readable local image. Shared by the report shells
+ *  and the `map` verb's marker thumbnails. */
+export function imageSrc(ref: string): string | undefined {
   if (/^data:image\//i.test(ref)) return ref;
   if (!existsSync(ref)) return undefined;
   const mime = imageMime(ref);

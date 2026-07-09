@@ -222,7 +222,7 @@ Emits `similar.match` records.
 
 ### `overcast exif`
 
-Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus GPS coordinates (signed decimals), capture time, camera make/model, editing software, MIME/dimensions/duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with `setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed.
+Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus GPS coordinates (signed decimals), capture time, camera make/model, editing software, MIME/dimensions/duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with `setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed. Pass `--geocode` to reverse-geocode the GPS into a place name via a bound (opt-in) `geocode` provider.
 
 ```
 overcast exif <input> [options]
@@ -233,6 +233,7 @@ Arguments:
   input            Image/video/file path, case record id, or http(s) URL
 
 Options:
+  --geocode              Reverse-geocode GPS to a place via a bound `geocode` provider (opt-in — sends coordinates to that provider)
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -385,6 +386,46 @@ Options:
 ```
 
 Emits `wall` records.
+
+### `overcast map`
+
+Gathers all case records with payload.gps{lat,lng} (primarily `exif`; any record qualifies) and renders a self-contained HTML map — one marker per point with its record id, media thumbnail, geocoded place (when `exif --geocode` set it), and capture time, linking back to the source. Online mode fetches OSM raster tiles in the browser at view time (no CDN dependency; the map JS is inlined); --offline degrades to a coordinate scatter with per-point openstreetmap.org links and no network egress. --no-open writes the map and emits its path instead of launching. Live tiles reveal the viewer's IP + the investigated location to OpenStreetMap.
+
+```
+overcast map  [options]
+
+  Plot every case record carrying GPS coordinates on a self-contained HTML map.
+
+Options:
+  --limit <number>       Max points, most-recent first (default: 500)
+  --since <string>       Only records since (e.g. 24h, 7d, 2026-06-01)
+  --offline              No tile fetch: coordinate scatter + openstreetmap.org links only
+  --export <string>      Map HTML path (default: .overcast/media/map.html)
+  --no-open              Write the map but don't launch it
+  --theme <string>       HTML theme: plain | csi (default: plain)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `media.map` records.
+
+### `overcast devices`
+
+Rolls up all case `exif` records into device clusters keyed by make + model + serial + lens. A serial number is a durable per-device id (a strong link — same serial ≈ same physical camera); when a serial is absent the cluster falls back to make + model + lens (a weaker 'same model' hint). Reports every cluster of ≥2 media shot on the same device — e.g. an anonymous account's photo sharing a camera serial with an identified one. Pure read over records already in memory (no new index; run `exif` on media first so serial/lens are populated). With --findings it also emits `suggested` findings for serial-linked (strong) clusters, deduped by fingerprint.
+
+```
+overcast devices  [options]
+
+  Correlate case media by camera fingerprint (make/model/serial/lens) and report shared-device clusters.
+
+Options:
+  --min <number>         Minimum media per cluster to report (default: 2)
+  --findings             Also emit suggested findings for serial-linked (strong) clusters
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `devices` records.
 
 ## OSINT
 
@@ -675,6 +716,7 @@ Options:
   --no-auto-index-new    setup/edit: disable automatic indexing for newly analyzed media
   --findings <string>    setup/edit: automated finding workflow (suggest | review | off; default suggest)
   --findings-threshold <string> setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,image_inliers=1,audio_margin=1)
+  --findings-forensics <string> setup/edit: forensic flag triggers (on | off; default on) — exif editing-software + verify invalid-provenance leads
   --video <string>       setup/edit: comma-separated local videos/URLs to route
   --folder <string>      setup/edit: comma-separated local media folders to remember
   --no-index             setup/edit: save setup routes without starting remote collection ingestion

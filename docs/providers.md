@@ -221,20 +221,66 @@ overcast setup provider enhance "exec:bash examples/providers/fal/enhance.sh {{i
 `exif` runs the system **ExifTool** over an image or video and emits a
 `media.metadata` record: a searchable `summary` plus signed-decimal `gps`
 (`{lat,lng[,altitude]}`), capture time, camera `make`/`model`, editing
-`software`, MIME/dimensions/duration, and a total tag count. Highest-leverage
+`software`, camera `serial`/`lens` (a device-linking fingerprint),
+MIME/dimensions/duration, and a total tag count. Highest-leverage
 "where/when/what device" evidence, before any AI.
 
 ```bash
 brew install exiftool   # or: apt install libimage-exiftool-perl
 overcast exif ./photo.jpg          # -> media.metadata record (GPS, device, capture time)
 overcast exif <capture-id|record>  # a captured clip's metadata (video GPS tracks too)
+overcast exif ./photo.jpg --geocode  # + reverse-geocode GPS to a place (needs a bound geocode provider)
 ```
 
 Default backend: the shipped [`examples/providers/exif/exif.sh`](../examples/providers/exif/exif.sh)
 (system `exiftool`; `exit 13` → `needs_credentials` when absent). Bind your own
-with `setup provider exif <spec>`. Only the compact `summary`/`gps`/device fields
+with `setup provider exif <spec>`. Only the compact
+`summary`/`gps`/`place`/device (`make`/`model`/`software`/`serial`/`lens`) fields
 are indexed into case memory — the full raw tag dump stays in the record for
-exact reads. `overcast doctor` reports whether `exiftool` is on PATH.
+exact reads. `overcast doctor` reports whether `exiftool` is on PATH; set
+`OVERCAST_EXIFTOOL_CMD` to point the shipped script (and doctor) at a custom
+path/wrapper.
+
+### Geolocation — reverse geocode + evidence map
+
+`exif` extracts raw coordinates; two surfaces turn them into "where":
+
+- **`exif --geocode`** resolves `payload.gps` to a place name via an **opt-in**,
+  ToS-gated `geocode` provider (never bound by default — reverse geocoding
+  egresses the subject's coordinates to a third party, so it needs both the flag
+  AND a bound provider). The shipped
+  [`examples/providers/geocode/geocode.sh`](../examples/providers/geocode/geocode.sh)
+  uses OSM **Nominatim** (no API key; sets a User-Agent and honors ~1 req/s —
+  point `OVERCAST_GEOCODE_URL` at your own Nominatim/Photon for volume, override
+  the agent with `OVERCAST_GEOCODE_UA`). Bind it with:
+
+  ```bash
+  overcast setup provider geocode "exec:bash examples/providers/geocode/geocode.sh --input {{input}}"
+  overcast exif ./photo.jpg --geocode   # -> payload.place = "…, San Francisco, California, …"
+  ```
+
+- **`overcast map`** plots every case record carrying `payload.gps` on one
+  self-contained HTML map (markers link back to each source, with the geocoded
+  place + thumbnail). Online mode fetches OSM raster tiles in the viewer's browser
+  at view time (the map JS is inlined — no CDN dependency); `--offline` degrades
+  to a coordinate scatter with per-point `openstreetmap.org` links and zero
+  network egress. Live tiles reveal the viewer's IP + the investigated location to
+  OpenStreetMap — prefer `--offline` when that matters.
+
+  ```bash
+  overcast map --no-open           # write .overcast/media/map.html (online OSM tiles)
+  overcast map --offline           # no network: scatter + openstreetmap.org deep links
+  ```
+
+### Device-linking — `overcast devices`
+
+`overcast devices` is a case-wide rollup that groups `exif` records by camera
+fingerprint (make + model + `serial` + `lens`) and reports media shot on the same
+device. A serial is a durable per-device id (a strong link); serial-less media
+fall back to a weaker make+model+lens hint. Pure read over case memory (no index).
+With `--findings` it emits `suggested` findings for serial-linked clusters
+(deduped by fingerprint). Both `map` and `devices` are operational (rendering /
+rollup) verbs — their output records stay out of `ask`/`brief` evidence.
 
 `verify` checks a media file's embedded **C2PA / Content Credentials** manifest
 via **c2patool** and emits a `media.provenance` record: `has_manifest`, the claim
@@ -252,7 +298,16 @@ overcast verify ./photo.jpg        # -> media.provenance record (signer, validat
 Default backend: the shipped [`examples/providers/verify/verify.sh`](../examples/providers/verify/verify.sh)
 (system `c2patool`; `exit 13` when absent). Bind your own with
 `setup provider verify <spec>`. `overcast doctor` reports whether `c2patool` is on
-PATH.
+PATH; set `OVERCAST_C2PATOOL_CMD` to point the shipped script (and doctor) at a
+custom path/wrapper.
+
+**Forensic triage.** `exif` and `verify` feed the finding queue like the other
+senses: an editing-software tag from a known image editor (Photoshop, GIMP,
+Lightroom, …) suggests a "possibly edited" lead (medium), and a C2PA manifest
+whose `validation_state` is not valid/trusted suggests a "provenance validation
+failed" lead (high). GPS-present is deliberately *not* a lead (every phone photo
+has it — it feeds the map instead). Toggle these off per case with
+`case setup --findings-forensics off`.
 
 ## ElevenLabs providers (`ELEVENLABS_API_KEY`)
 
@@ -565,6 +620,7 @@ sample 8 frames.
 - [`examples/providers/audio-db/{audio_match,clap_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp) and LAION CLAP audio embeddings (basic-clap) for audio DB indexes.
 - [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch,dork,shodan}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch) + web-search (Tavily/Brave) + Google dorking (Serper.dev) + Shodan host recon + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams source providers.
 - [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
+- [`examples/providers/geocode/geocode.sh`](../examples/providers/geocode/geocode.sh) — opt-in OSM Nominatim reverse geocoder for `exif --geocode` (no key; never bound by default).
 
 ## Source providers (built-in types)
 

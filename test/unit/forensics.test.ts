@@ -24,6 +24,24 @@ const TINY_JPEG = Buffer.from(
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_EXIF = join(HERE, "..", "fixtures", "fake-exif.sh");
 const FAKE_VERIFY = join(HERE, "..", "fixtures", "fake-verify.sh");
+const FAKE_GEOCODE = join(HERE, "..", "fixtures", "fake-geocode.sh");
+const FAKE_GEOCODE_NOPLACE = join(HERE, "..", "fixtures", "fake-geocode-noplace.sh");
+const FAKE_GEOCODE_NEEDS = join(HERE, "..", "fixtures", "fake-geocode-needs.sh");
+const FAKE_EXIF_BADGPS = join(HERE, "..", "fixtures", "fake-exif-badgps.sh");
+const FAKE_EXIF_NOGPS = join(HERE, "..", "fixtures", "fake-exif-nogps.sh");
+
+/** Build a ctx with an exif binding (+ optional geocode binding) and opts. */
+function geocodeCtx(dir: string, img: string, opts: Record<string, unknown>, withGeocode: boolean, geocodeScript: string = FAKE_GEOCODE, exifScript: string = FAKE_EXIF): VerbContext {
+  const c = openCase(dir);
+  c.ensure();
+  const profile = defaultProfile();
+  profile.providers = {
+    ...profile.providers,
+    exif: { type: "exec", run: `bash ${exifScript} --input {{input}}` },
+    ...(withGeocode ? { geocode: { type: "exec", run: `bash ${geocodeScript} --input {{input}}` } } : {}),
+  };
+  return { input: img, rest: [], opts, case: c, profile } as unknown as VerbContext;
+}
 
 function caseCtx(dir: string, input: string | undefined, bind?: { verb: string; script: string }): VerbContext {
   const c = openCase(dir);
@@ -70,6 +88,119 @@ test("exif errors when the local input file is missing", async () => {
     const [rec] = await exifVerb.run(caseCtx(dir, join(dir, "nope.jpg")));
     assert.equal(rec.state, "error");
     assert.match(rec.error as string, /not found/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exif --geocode enriches payload.place when a geocode provider is bound", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-geo-"));
+  try {
+    const img = join(dir, "p.jpg");
+    writeFileSync(img, "exists-but-not-a-real-jpeg");
+    chmodSync(FAKE_EXIF, 0o755);
+    chmodSync(FAKE_GEOCODE, 0o755);
+    const [rec] = await exifVerb.run(geocodeCtx(dir, img, { geocode: true }, true));
+    const p = rec.payload as Record<string, unknown>;
+    assert.deepEqual(p.gps, { lat: 1.5, lng: 2.5 });
+    assert.equal(p.place, "San Francisco, California");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exif --geocode records a status when a bound provider resolves no place", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-geo-"));
+  try {
+    const img = join(dir, "p.jpg");
+    writeFileSync(img, "exists-but-not-a-real-jpeg");
+    chmodSync(FAKE_EXIF, 0o755);
+    chmodSync(FAKE_GEOCODE_NOPLACE, 0o755);
+    const [rec] = await exifVerb.run(geocodeCtx(dir, img, { geocode: true }, true, FAKE_GEOCODE_NOPLACE));
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.place, null);
+    assert.match(String(p.geocode_status), /no place/i); // not silently ambiguous
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exif --geocode reports a dependency gap (needs_credentials) distinctly from a lookup miss", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-geo-"));
+  try {
+    const img = join(dir, "p.jpg");
+    writeFileSync(img, "exists-but-not-a-real-jpeg");
+    chmodSync(FAKE_EXIF, 0o755);
+    chmodSync(FAKE_GEOCODE_NEEDS, 0o755);
+    const [rec] = await exifVerb.run(geocodeCtx(dir, img, { geocode: true }, true, FAKE_GEOCODE_NEEDS));
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.place, null);
+    assert.match(String(p.geocode_status), /unavailable/i); // a setup/dep gap, not "no place"
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exif --geocode does NOT egress an out-of-range GPS to the provider", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-geo-"));
+  try {
+    const img = join(dir, "p.jpg");
+    writeFileSync(img, "exists-but-not-a-real-jpeg");
+    chmodSync(FAKE_EXIF_BADGPS, 0o755);
+    chmodSync(FAKE_GEOCODE, 0o755);
+    // exif emits gps {lat:999,...}; the geocoder would return "San Francisco…" if
+    // called — so an absent place proves the bad coord was rejected before egress.
+    const [rec] = await exifVerb.run(geocodeCtx(dir, img, { geocode: true }, true, FAKE_GEOCODE, FAKE_EXIF_BADGPS));
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.place, null); // NOT the geocoder's "San Francisco…" → never egressed
+    assert.match(String(p.geocode_status), /out of range/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exif --geocode gives 'no GPS' feedback on non-geotagged media (not a silent no-op)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-geo-"));
+  try {
+    const img = join(dir, "p.jpg");
+    writeFileSync(img, "exists-but-not-a-real-jpeg");
+    chmodSync(FAKE_EXIF_NOGPS, 0o755);
+    chmodSync(FAKE_GEOCODE, 0o755);
+    const [rec] = await exifVerb.run(geocodeCtx(dir, img, { geocode: true }, true, FAKE_GEOCODE, FAKE_EXIF_NOGPS));
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.place, null);
+    assert.match(String(p.geocode_status), /no GPS/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exif --geocode with nothing bound records a hint, not a silent no-op", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-geo-"));
+  try {
+    const img = join(dir, "p.jpg");
+    writeFileSync(img, "exists-but-not-a-real-jpeg");
+    chmodSync(FAKE_EXIF, 0o755);
+    const [rec] = await exifVerb.run(geocodeCtx(dir, img, { geocode: true }, false));
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.place, null);
+    assert.match(String(p.geocode_status), /no geocode provider bound/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exif without --geocode never touches a bound geocode provider (no place field)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-geo-"));
+  try {
+    const img = join(dir, "p.jpg");
+    writeFileSync(img, "exists-but-not-a-real-jpeg");
+    chmodSync(FAKE_EXIF, 0o755);
+    chmodSync(FAKE_GEOCODE, 0o755);
+    const [rec] = await exifVerb.run(geocodeCtx(dir, img, {}, true));
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal("place" in p, false);
+    assert.equal("geocode_status" in p, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
