@@ -201,6 +201,18 @@ test("builtinDescriptor resolves built-in source scripts; env override wins", ()
   assert.equal(tt!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
   assert.equal(x!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
   assert.ok(APIFY_RUN_SYNC_TIMEOUT_MS > 5 * 60_000);
+  // dork (Serper.dev Google dorking) + shodan (Shodan host recon) — fast HTTP
+  // sources, so the default (undefined) exec budget, not the Apify run-sync one.
+  const dork = builtinDescriptor("dork");
+  const shodan = builtinDescriptor("shodan");
+  assert.ok(dork, "dork descriptor present in dev");
+  assert.ok(shodan, "shodan descriptor present in dev");
+  assert.match(dork!.base.join(" "), /dork\.sh$/);
+  assert.match(shodan!.base.join(" "), /shodan\.sh$/);
+  assert.equal(dork!.needs, "SERPER_API_KEY");
+  assert.equal(shodan!.needs, "SHODAN_API_KEY");
+  assert.equal(dork!.timeoutMs, undefined);
+  assert.equal(shodan!.timeoutMs, undefined);
   assert.equal(builtinDescriptor("nope"), undefined);
   // env override takes precedence and is quote-aware
   process.env.OVERCAST_SOURCE_YOUTUBE_CMD = 'bash "/x y/z.sh"';
