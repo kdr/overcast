@@ -828,6 +828,18 @@ test("resolveMediaRef/refPathExists: archive refs resolve in-bucket with contain
     const nested = resolveMediaRef(env.c, "archive:refs/archive:nope/x.mp4", env.home);
     assert.match(nested.error ?? "", /bucket 'nope' not found|archive init nope/);
     assert.doesNotMatch(nested.error ?? "", /bucket 'refs'/);
+    // a SUCCESSFUL nested ref carries the INNER bucket's record + archive tag,
+    // not the outer's (round-13: the outer branch must not re-look-up / re-stamp)
+    await runArchive(env, "init", ["inner"]);
+    const innerClip = seedFile(env, "innerclip.mp4", "inner-bytes");
+    const innerAdd = await runArchive(env, "add", [innerClip], { to: "inner" });
+    const innerCap = innerAdd.find((r) => r.verb === "capture")!;
+    const deep = resolveMediaRef(env.c, `archive:refs/archive:inner/${innerCap.id}`, env.home);
+    assert.equal(deep.error, undefined);
+    assert.equal(deep.archive, "inner", "nested ref stamps the INNER bucket, not the outer");
+    assert.equal(deep.recordId, innerCap.id);
+    assert.equal(deep.record?.id, innerCap.id, "the inner bucket record is carried through (not an outer-case miss)");
+    assert.equal(deep.ref, innerCap.media?.ref);
     // ../ escape out of the bucket → not found (containment)
     writeFileSync(join(outside, "secret.mp4"), "s");
     const esc = resolveMediaRef(env.c, `archive:refs/../../${basename(outside)}/secret.mp4`, env.home);

@@ -128,6 +128,12 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
     // recordId) still falls through to basename/path resolution below.
     if (inBucket.error) return { ref, error: inBucket.error };
     if (inBucket.recordId) {
+      // a NESTED archive: item (or a bucket path) already resolved through its
+      // OWN bucket — the inner call applied that bucket's tombstone/readiness
+      // context and set `record` + `archive` correctly. Pass it through
+      // unchanged; a lookup in THIS bucket's case would miss the inner record
+      // and mis-stamp the outer bucket.
+      if (inBucket.archive != null) return inBucket;
       if (items.some((it) => it.removed && it.record.id === inBucket.recordId)) {
         const succ = liveForPath(inBucket.ref);
         if (succ) return { ref: succ.path!, recordId: succ.record.id, record: succ.record, archive: parsed.bucket };
