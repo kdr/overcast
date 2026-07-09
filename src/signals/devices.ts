@@ -7,7 +7,7 @@
  * model + lens is a weaker "same model" hint (a WEAK link — many cameras share it).
  * Reads only `exif` records already in case memory; adds no index.
  */
-import type { OvercastRecord } from "../record.js";
+import { recordTimeMs, type OvercastRecord } from "../record.js";
 
 export interface DeviceMember {
   recordId: string;
@@ -60,7 +60,22 @@ interface FileCand {
   model: string | null;
   serial: string | null;
   lens: string | null;
+  /** record time (epoch ms; NaN when undated) — newer wins on a same-strength tie */
+  t: number;
   member: DeviceMember;
+}
+
+/** Whether candidate `a` should replace `b` as the collapsed entry for a file: a
+ *  serial-bearing row beats a serial-less one; otherwise the NEWER row wins so a
+ *  re-`exif` with a corrected serial supersedes the stale one, regardless of the
+ *  order records were iterated. */
+function betterCandidate(a: FileCand, b: FileCand): boolean {
+  const aHas = !!a.serial;
+  const bHas = !!b.serial;
+  if (aHas !== bHas) return aHas;
+  const at = Number.isNaN(a.t) ? -Infinity : a.t;
+  const bt = Number.isNaN(b.t) ? -Infinity : b.t;
+  return at > bt;
 }
 
 /** Roll all `exif` records up into device clusters. A serial-bearing record keys
@@ -95,10 +110,11 @@ export function buildDeviceClusters(records: OvercastRecord[], opts: { minSize?:
       model,
       serial,
       lens,
+      t: recordTimeMs(rec),
       member: { recordId: rec.id, ref: rec.media?.ref ?? null, created: str(p.created), place: str(p.place) },
     };
     const existing = perFile.get(fileKey);
-    if (!existing || (!existing.serial && serial)) perFile.set(fileKey, cand);
+    if (!existing || betterCandidate(cand, existing)) perFile.set(fileKey, cand);
   }
 
   // 2) cluster the per-file candidates
