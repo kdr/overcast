@@ -256,12 +256,17 @@ export const similarVerb: VerbSpec = {
       // the watch evidence lives with the media so other cases reuse it, and a
       // bucket-owned record would be dropped by the case persist seam anyway.
       const shotCase = q.archive ? openBucket(q.archive, ctx.home).bucket?.case : undefined;
-      const shots = await shotMarkers(shotCase ? { ...ctx, case: shotCase } : ctx, q.ref!);
-      if (shots.markers.length) framesAt = shots.markers;
-      watched = shots.watched;
-      if (watched && shotCase) {
-        shotCase.writeRecord(watched);
-        watched.meta = { ...watched.meta, persisted: true };
+      if (q.archive && !shotCase) {
+        // the bucket vanished mid-command — fall back to uniform sampling
+        // rather than paying for (and mis-filing) watch evidence in the case
+      } else {
+        const shots = await shotMarkers(shotCase ? { ...ctx, case: shotCase } : ctx, q.ref!);
+        if (shots.markers.length) framesAt = shots.markers;
+        watched = shots.watched;
+        if (watched && shotCase) {
+          shotCase.writeRecord(watched);
+          watched.meta = { ...watched.meta, persisted: true };
+        }
       }
     }
 

@@ -523,6 +523,39 @@ test("archive add from another bucket carries the SOURCE bucket record as origin
   }
 });
 
+test("see/view/enhance resolve archive: refs and block retired raw paths like the other senses", async () => {
+  const env = makeEnv();
+  try {
+    const { seeVerb, enhanceVerb, viewVerb } = await import("../../src/verbs/senses.ts");
+    await runArchive(env, "init", ["refs"]);
+    const img = seedFile(env, "still.png", "png-bytes");
+    const added = await runArchive(env, "add", [img], { to: "refs" });
+    const cap = added.find((r) => r.verb === "capture")!;
+    const file = basename(String(cap.media?.ref));
+    const keptPath = String(cap.media?.ref);
+
+    // view resolves the archive ref (os-open for a png) and stamps the bucket
+    const viewed = await viewVerb.run(ctx(env, `archive:refs/${file}`, [], { "no-open": true }));
+    assert.equal(viewed[0].state, "ready");
+    assert.equal(viewed[0].meta?.archive, "refs");
+    assert.equal(payload(viewed[0]).ref, keptPath);
+
+    // missing items error through the resolver (not a literal-path miss)
+    assert.match((await seeVerb.run(ctx(env, "archive:refs/nope.png")))[0].error ?? "", /not found/);
+    assert.match((await enhanceVerb.run(ctx(env, "archive:refs/nope.png")))[0].error ?? "", /not found/);
+    assert.match((await viewVerb.run(ctx(env, "archive:refs/nope.png")))[0].error ?? "", /not found/);
+
+    // a retired --keep-file item is blocked by raw path in all three
+    await runArchive(env, "remove", [cap.id], { from: "refs", "keep-file": true });
+    for (const verb of [seeVerb, enhanceVerb, viewVerb]) {
+      const recs = await verb.run(ctx(env, keptPath));
+      assert.match(recs[0].error ?? "", /retired/, `${verb.name} blocks the retired raw path`);
+    }
+  } finally {
+    env.cleanup();
+  }
+});
+
 // ---- index remove/delete against a bucket index -----------------------------------
 
 test("index remove --from / delete on archive:… manage the BUCKET's index", async () => {
@@ -537,10 +570,15 @@ test("index remove --from / delete on archive:… manage the BUCKET's index", as
 
     const removed = await indexVerb.run(ctx(env, "remove", [img], { from: "archive:refs/stills" }));
     assert.equal(removed[0].state, "ready");
+    assert.equal(removed[0].meta?.archive, "refs", "scoped index ops stamp meta.archive");
     assert.equal(findIndex(bucket.case, "local_image_x")?.members.length, 0, "member removed from the bucket mirror");
+
+    const shown = await indexVerb.run(ctx(env, "show", ["archive:refs/stills"], {}));
+    assert.equal(shown[0].meta?.archive, "refs");
 
     const deleted = await indexVerb.run(ctx(env, "delete", ["archive:refs/stills"], {}));
     assert.equal(deleted[0].state, "ready");
+    assert.equal(deleted[0].meta?.archive, "refs");
     assert.equal(findIndex(bucket.case, "local_image_x"), undefined, "bucket mirror entry deleted");
     assert.match((await indexVerb.run(ctx(env, "delete", ["archive:nope/stills"], {})))[0].error ?? "", /not found/);
   } finally {

@@ -55,7 +55,7 @@ import {
   removeAudioFingerprint,
 } from "../providers/local/audio.js";
 import { resolveVideoArg, resolveImageArg, resolveVisualArg, isRegisterableMediaRecord, isImage } from "./media-ref.js";
-import { openBucket, resolveIndexScope } from "../archive.js";
+import { openBucket, resolveIndexScope, stampArchive } from "../archive.js";
 import { badNumber, numFlag } from "./validate.js";
 import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
 import type { Case } from "../case.js";
@@ -633,13 +633,13 @@ export const indexVerb: VerbSpec = {
           if (!refs.length) return [err("index add --all: no new image records to register in the local index")];
           for (const m of refs) addMember(scope, id, m);
           mkdirSync(localIndexDir(scope, id), { recursive: true });
-          return [makeRecord({
+          return [stampArchive(makeRecord({
             verb: "index",
             format: "json",
             payload: { op: "add", index: id, backend: "local", files: refs.map((r) => r.ref), count: refs.length },
             meta: { provider: "local", case: c.dir },
             state: "ready",
-          })];
+          }), scoped.bucket, c.dir)];
         }
         const arg = ctx.rest[0];
         if (!arg) return [err("usage: index add <image|record-id> --to <local-index>")];
@@ -649,18 +649,18 @@ export const indexVerb: VerbSpec = {
         const img = resolveImageArg(c, arg, "index add", { home: ctx.home });
         if (img.error) return [err(img.error)];
         if (targetEntry.members.some((m) => m.ref === img.ref)) {
-          return [makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: img.ref, backend: "local", already_member: true }, media: { ref: img.ref! }, meta: { case: c.dir }, state: "ready" })];
+          return [stampArchive(makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: img.ref, backend: "local", already_member: true }, media: { ref: img.ref! }, meta: { case: c.dir }, state: "ready" }), scoped.bucket, c.dir)];
         }
         mkdirSync(localIndexDir(scope, id), { recursive: true });
         addMember(scope, id, { ref: img.ref!, recordId: img.recordId });
-        return [makeRecord({
+        return [stampArchive(makeRecord({
           verb: "index",
           format: "json",
           payload: { op: "add", index: id, file: img.ref, backend: "local", summary: `added image to local ${targetEntry.type} index` },
           media: { ref: img.ref! },
           meta: { provider: "local", case: c.dir },
           state: "ready",
-        })];
+        }), scoped.bucket, c.dir)];
       }
       const addOpts = {
         ...tcOpts,
@@ -700,7 +700,7 @@ export const indexVerb: VerbSpec = {
           const { rec } = await tcCollectionAdd(v.ref, id, addOpts);
           if (accepted(rec)) addMember(scope, id, { ref: v.ref, recordId: v.recordId });
           rec.meta = { ...rec.meta, case: c.dir };
-          recs.push(indexRecord(rec));
+          recs.push(stampArchive(indexRecord(rec), scoped.bucket, c.dir));
           if (watched) recs.push(watched);
         }
         return recs;
@@ -714,7 +714,7 @@ export const indexVerb: VerbSpec = {
       // dedupe like `--all` (which filters existing members) — don't re-submit a
       // video already in the index to tinycloud.
       if (findIndex(scope, id)?.members.some((m) => m.ref === ref)) {
-        return [makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" })];
+        return [stampArchive(makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" }), scoped.bucket, c.dir)];
       }
       const watched = v.archive
         ? await ensureArchiveWatchRecord(ctx, v.archive, ref)
@@ -722,7 +722,9 @@ export const indexVerb: VerbSpec = {
       const { rec } = await tcCollectionAdd(ref, id, addOpts);
       if (accepted(rec)) addMember(scope, id, { ref, recordId: v.recordId });
       rec.meta = { ...rec.meta, case: c.dir };
-      return watched ? [indexRecord(rec), watched] : [indexRecord(rec)];
+      // stamp only the add record — a bucket-persisted `watched` side-record
+      // must keep its bucket ownership, not be re-homed to the case
+      return watched ? [stampArchive(indexRecord(rec), scoped.bucket, c.dir), watched] : [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     // ---- list ----
@@ -749,7 +751,7 @@ export const indexVerb: VerbSpec = {
       if (target.error) return [err(`index show: ${target.error}`)];
       const local = findIndex(scope, target.id!);
       if (local && isLocalIndex(local)) {
-        return [makeRecord({
+        return [stampArchive(makeRecord({
           verb: "index",
           format: "json",
           payload: {
@@ -764,11 +766,11 @@ export const indexVerb: VerbSpec = {
           },
           meta: { provider: "local", case: c.dir },
           state: "ready",
-        })];
+        }), scoped.bucket, c.dir)];
       }
       const { rec } = await tcCollectionShow(target.id!, tcOpts);
       rec.meta = { ...rec.meta, case: c.dir };
-      return [indexRecord(rec)];
+      return [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     // ---- delete ----
@@ -791,18 +793,18 @@ export const indexVerb: VerbSpec = {
       if (local && isLocalIndex(local)) {
         removeIndex(scope, target.id!);
         rmSync(localIndexDir(scope, target.id!), { recursive: true, force: true });
-        return [makeRecord({
+        return [stampArchive(makeRecord({
           verb: "index",
           format: "json",
           payload: { op: "delete", index: target.id, backend: "local", deleted: true },
           meta: { provider: "local", case: c.dir },
           state: "ready",
-        })];
+        }), scoped.bucket, c.dir)];
       }
       const { rec } = await tcCollectionDelete(target.id!, tcOpts);
       if (accepted(rec)) removeIndex(scope, target.id!);
       rec.meta = { ...rec.meta, case: c.dir };
-      return [indexRecord(rec)];
+      return [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     // ---- remove ----
@@ -841,14 +843,14 @@ export const indexVerb: VerbSpec = {
           if (local.type === "basic-clip" || local.type === "basic-clap") removeClipEmbedding(dir, resolved.ref!);
           else if (local.type === "audio-fp") removeAudioFingerprint(dir, resolved.ref!);
         }
-        return [makeRecord({
+        return [stampArchive(makeRecord({
           verb: "index",
           format: "json",
           payload: { op: "remove", index: from.id, file: resolved.ref, backend: "local", removed },
           media: { ref: resolved.ref! },
           meta: { provider: "local", case: c.dir },
           state: "ready",
-        })];
+        }), scoped.bucket, c.dir)];
       }
       // same media filters as add/entities (reject scan/face-search/non-AV refs),
       // but allow a gone local file / errored record — you should still be able to
@@ -861,7 +863,7 @@ export const indexVerb: VerbSpec = {
       // matching how `add` tracks membership via accepted().
       if (accepted(rec)) removeMember(scope, from.id!, ref);
       rec.meta = { ...rec.meta, case: c.dir };
-      return [indexRecord(rec)];
+      return [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     // ---- entities ----
@@ -904,7 +906,7 @@ export const indexVerb: VerbSpec = {
       if (v.error) return [err(v.error)];
       const { rec } = await tcCollectionEntities(colId, v.ref!, { ...tcOpts, limit, offset });
       rec.meta = { ...rec.meta, case: c.dir };
-      return [indexRecord(rec)];
+      return [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     return [err(`usage: index <${VALID_ACTIONS.join("|")}>`)];
