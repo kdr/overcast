@@ -226,11 +226,11 @@ export const similarVerb: VerbSpec = {
           const entry = findIndex(scope, idx.id!);
           if (!entry?.members.some((m) => m.ref === q.ref)) addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
         }
-        return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
+        return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
       }
       const rec = await runLocalClap(scope, q.ref!, { indexId: idx.id!, op: "match", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, ...queryOpts, signal: ctx.signal });
       stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
-      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
+      return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
     }
 
     // ---- CLIP (image/video) path ----
@@ -282,7 +282,7 @@ export const similarVerb: VerbSpec = {
           addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
         }
       }
-      stampArchive(rec, scoped.bucket, ctx.case.dir);
+      stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir);
       return watched ? [rec, watched] : [rec];
     }
 
@@ -291,7 +291,7 @@ export const similarVerb: VerbSpec = {
     // match path and image/audio match (the bucket case when the query is an
     // archive ref, else the active case)
     stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
-    stampArchive(rec, scoped.bucket, ctx.case.dir);
+    stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir);
     return watched ? [rec, watched] : [rec];
   },
 };

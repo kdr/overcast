@@ -81,7 +81,7 @@ export const imageVerb: VerbSpec = {
       if (img.error) return [err(img.error)];
       const entry = findIndex(scope, idx.id!);
       if (entry?.members.some((m) => m.ref === img.ref)) {
-        return [stampArchive(makeRecord({ verb: "image", format: "json", payload: { op: "add", index: idx.id, file: img.ref, already_member: true }, media: { ref: img.ref! }, meta: { case: ctx.case.dir }, state: "ready" }), scoped.bucket, ctx.case.dir)];
+        return [stampArchive(makeRecord({ verb: "image", format: "json", payload: { op: "add", index: idx.id, file: img.ref, already_member: true }, media: { ref: img.ref! }, meta: { case: ctx.case.dir }, state: "ready" }), scoped.bucket ?? img.archive, ctx.case.dir)];
       }
       mkdirSync(localIndexDir(scope, idx.id!), { recursive: true });
       addMember(scope, idx.id!, { ref: img.ref!, recordId: img.recordId });
@@ -92,7 +92,7 @@ export const imageVerb: VerbSpec = {
         media: { ref: img.ref! },
         meta: { case: ctx.case.dir, provider: "local:image-ransac" },
         state: "ready",
-      }), scoped.bucket, ctx.case.dir)];
+      }), scoped.bucket ?? img.archive, ctx.case.dir)];
     }
 
     const q = resolveVisualArg(ctx.case, arg, "image match", { home: ctx.home });
@@ -110,6 +110,6 @@ export const imageVerb: VerbSpec = {
     });
     // if the matched video was captured from a post, trace the match back to it
     stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
-    return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
+    return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
   },
 };

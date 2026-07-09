@@ -140,7 +140,7 @@ export const voiceVerb: VerbSpec = {
       if (q.error) return [err(q.error)];
       const entry = findIndex(scope, idx.id!);
       if (entry?.members.some((m) => m.ref === q.ref)) {
-        return [stampArchive(makeRecord({ verb: "voice", format: "json", payload: { op: "add", index: idx.id, file: q.ref, already_member: true }, media: { ref: q.ref! }, meta: { case: ctx.case.dir }, state: "ready" }), scoped.bucket, ctx.case.dir)];
+        return [stampArchive(makeRecord({ verb: "voice", format: "json", payload: { op: "add", index: idx.id, file: q.ref, already_member: true }, media: { ref: q.ref! }, meta: { case: ctx.case.dir }, state: "ready" }), scoped.bucket ?? q.archive, ctx.case.dir)];
       }
       const dir = localIndexDir(scope, idx.id!);
       mkdirSync(dir, { recursive: true });
@@ -153,7 +153,7 @@ export const voiceVerb: VerbSpec = {
       if (isReady(rec) && !entry?.members.some((m) => m.ref === q.ref)) {
         addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
       }
-      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
+      return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
     }
 
     // ---- match: exactly one of pairwise sample XOR --index ----
@@ -201,6 +201,6 @@ export const voiceVerb: VerbSpec = {
     // if the clip was captured from a post, trace the match back to it (the
     // bucket case when the query is an archive ref — parity with audio/similar)
     stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
-    return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
+    return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
   },
 };

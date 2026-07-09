@@ -182,7 +182,7 @@ export const clusterVerb: VerbSpec = {
       // trace the ingested media back to the post it came from (parity with the
       // other match/identify verbs; the bucket case when the media is an archive ref)
       stampProvenance(rec, provenanceFromCapture(provenanceCase(c, media.archive, ctx.home), media.ref));
-      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
+      return [stampArchive(rec, scoped.bucket ?? media.archive, ctx.case.dir)];
     }
 
     if (action === "identify") {
@@ -194,7 +194,7 @@ export const clusterVerb: VerbSpec = {
       if (media.error) return [err(media.error)];
       const rec = await runLocalCluster(scope, media.ref!, { indexId, op: "identify", minSimilarity: sampling.minSimilarity, limit: sampling.limit, fps: sampling.fps, maxFrames: sampling.maxFrames, start: sampling.start, end: sampling.end, signal: ctx.signal });
       stampProvenance(rec, provenanceFromCapture(provenanceCase(c, media.archive, ctx.home), media.ref));
-      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
+      return [stampArchive(rec, scoped.bucket ?? media.archive, ctx.case.dir)];
     }
 
     if (action === "recluster") {

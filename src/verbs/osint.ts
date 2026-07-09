@@ -31,7 +31,7 @@ import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { parseSince } from "../providers/memory/local.js";
 import { isAv, isImage, resolveMediaRef } from "./media-ref.js";
-import { ARCHIVE_REF_PREFIX, sha256File } from "../archive.js";
+import { ARCHIVE_REF_PREFIX, provenanceCase, sha256File } from "../archive.js";
 import { isReady } from "../record.js";
 import { faceVerb } from "./face.js";
 import { imageVerb } from "./image.js";
@@ -39,7 +39,7 @@ import { seeVerb, enhanceVerb } from "./senses.js";
 import { exifVerb, verifyVerb } from "./forensics.js";
 import { indexVerb } from "./index.js";
 import { evaluateTriggers, resolveFindingsPolicy } from "../signals/triggers.js";
-import { scanHitProvenance, stampProvenance } from "./provenance.js";
+import { provenanceFromCapture, scanHitProvenance, stampProvenance } from "./provenance.js";
 import { redactSecrets } from "../env.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -987,6 +987,10 @@ export const captureVerb: VerbSpec = {
         };
       }
       archiveCap.meta = { ...archiveCap.meta, archive: resolved.archive };
+      // carry the bucket item's originating-post provenance (source_url/author/
+      // text) onto the pulled case copy — the owning capture lives in the BUCKET,
+      // so look it up there (same as a sense on the ref via provenanceCase)
+      stampProvenance(archiveCap, provenanceFromCapture(provenanceCase(ctx.case, resolved.archive, ctx.home), resolved.ref));
       return [archiveCap];
     }
     // resolve a scan.hit record id → its media ref (and source provider). Fall

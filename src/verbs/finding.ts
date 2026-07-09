@@ -1,4 +1,4 @@
-import { makeRecord, errRecord, type MediaRef, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, isReady, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef, refPathExists } from "./media-ref.js";
 import { parseAtSpan } from "../media/ffmpeg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -121,6 +121,9 @@ export const findingVerb: VerbSpec = {
         } else {
           const resolved = resolveMediaRef(ctx.case, rawRef, ctx.home);
           if (resolved.error) return [err(`--ref ${resolved.error}`)];
+          // a finding is evidence — don't cite a partial in-flight bucket file
+          // (parity with note/senses/capture/forensics readiness gating)
+          if (resolved.record && !isReady(resolved.record)) return [err(`--ref record ${resolved.record.id} isn't ready (state=${resolved.record.state ?? "?"})`)];
           archiveBucket = resolved.archive;
           // Reject a --ref that resolves to nothing real (mirrors `note`): a
           // finding is evidence, so it must not cite a path/id that never existed.

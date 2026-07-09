@@ -2,7 +2,7 @@
 // outputs), so they flow through local memory, ask, brief, and case records like
 // sensed/captured evidence. They can optionally anchor to a media ref or record.
 
-import { makeRecord, errRecord, type MediaRef, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, isReady, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef, refPathExists } from "./media-ref.js";
 import { parseAtSpan } from "../media/ffmpeg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -77,6 +77,10 @@ export const noteVerb: VerbSpec = {
       } else {
         const resolved = resolveMediaRef(ctx.case, rawRef, ctx.home);
         if (resolved.error) return [err(`--ref ${resolved.error}`)];
+        // don't anchor evidence to a partial in-flight bucket file (senses/
+        // capture/view/forensics reject the same) — the resolver carries the
+        // bucket record so we can gate on its readiness
+        if (resolved.record && !isReady(resolved.record)) return [err(`--ref record ${resolved.record.id} isn't ready (state=${resolved.record.state ?? "?"})`)];
         archiveBucket = resolved.archive;
         if (resolved.recordId == null && !resolved.archive) {
           const isUrl = /^https?:\/\//i.test(rawRef);

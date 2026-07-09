@@ -906,6 +906,55 @@ test("voice --index archive:… scopes to the BUCKET's voice-print DB (merged fr
   }
 });
 
+test("match verbs stamp the QUERY's bucket even when --index is case-local (round 14 pattern A)", async () => {
+  const env = makeEnv();
+  try {
+    // a case-local image index + an archived query image
+    addIndex(env.c, { id: "local_case_img", type: "image-ransac", name: "caseidx", backend: "local" });
+    await runArchive(env, "init", ["refs"]);
+    const img = seedFile(env, "q.png", "png-bytes");
+    const added = await runArchive(env, "add", [img], { to: "refs" });
+    const file = basename(String(added.find((r) => r.verb === "capture")!.media?.ref));
+    // image match <archive query> --index <case index>: index scope is case-local
+    // (no bucket), but the QUERY came from a bucket → the record still traces to
+    // it (stampArchive unions scoped.bucket ?? q.archive). The provider errors
+    // offline, but meta.archive is stamped on the emitted record regardless.
+    const recs = await imageVerb.run(ctx(env, "match", [`archive:refs/${file}`], { index: "caseidx" }));
+    assert.equal(recs[0].meta?.archive, "refs", "query bucket stamped even with a case-local index");
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("note/finding reject a pending bucket ref; capture pull carries bucket-item provenance (round 14 B/C)", async () => {
+  const env = makeEnv();
+  try {
+    const { noteVerb } = await import("../../src/verbs/note.ts");
+    const { findingVerb } = await import("../../src/verbs/finding.ts");
+    await runArchive(env, "init", ["refs"]);
+    const bucket = openBucket("refs", env.home).bucket!;
+
+    // (C) a pending bucket capture — note/finding must not anchor to its partial file
+    const pending = join(bucket.case.mediaDir, "pending.mp4");
+    writeFileSync(pending, "partial");
+    bucket.case.writeRecord(makeRecord({ verb: "capture", format: "json", payload: { capture_id: "cap_pending.mp4", path: pending }, media: { ref: pending }, state: "pending" }));
+    assert.match((await noteVerb.run(ctx(env, "seen it", [], { ref: "archive:refs/cap_pending.mp4" })))[0].error ?? "", /isn't ready/);
+    assert.match((await findingVerb.run(ctx(env, "create", ["lead"], { ref: "archive:refs/cap_pending.mp4", target: "x" })))[0].error ?? "", /isn't ready/);
+
+    // (B) a READY bucket item whose capture carries originating-post provenance
+    const withProv = join(bucket.case.mediaDir, "fromtweet.mp4");
+    writeFileSync(withProv, "vid");
+    bucket.case.writeRecord(makeRecord({ verb: "capture", format: "json", payload: { capture_id: "cap_fromtweet.mp4", path: withProv, source_url: "https://x.test/status/9", source_author: "poster" }, media: { ref: withProv }, state: "ready" }));
+    const pull = await captureVerb.run(ctx(env, "archive:refs/cap_fromtweet.mp4"));
+    const p = payload(pull[0]);
+    assert.equal(p.source_url, "https://x.test/status/9", "pulled copy inherits the bucket item's source_url");
+    assert.equal(p.source_author, "poster");
+    assert.equal(p.source, "archive");
+  } finally {
+    env.cleanup();
+  }
+});
+
 test("stampArchive re-homes provider-stamped records so the case persist seam keeps them", () => {
   const env = makeEnv();
   try {
