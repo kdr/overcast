@@ -94,16 +94,72 @@ export function targetMatchesEvidence(target: string, text: string): boolean {
   return new RegExp(`(^|[^\\p{L}\\p{N}_])${phrase}(?=$|[^\\p{L}\\p{N}_])`, "iu").test(text);
 }
 
-/** A cleared score trigger, ready to ride into the finding payload. */
+/** A cleared score or forensic-flag trigger, ready to ride into the finding
+ *  payload. Score triggers (face/image/similar/cluster/audio) carry a numeric
+ *  `score`; forensic flags (exif/verify) instead set `confidence` directly. */
 export interface TriggerSignal {
-  kind: "face-match" | "image-match" | "similar-match" | "cluster-identify" | "audio-match" | "text-target";
+  kind:
+    | "face-match"
+    | "image-match"
+    | "similar-match"
+    | "cluster-identify"
+    | "audio-match"
+    | "text-target"
+    | "exif-editing-software"
+    | "verify-validation-failed"
+    | "verify-declared-edits";
   score?: number;
   threshold?: number;
-  unit?: "percent" | "inliers" | "margin";
+  unit?: "percent" | "inliers" | "margin" | "count";
+  /** flag (forensic) signals set this directly; score signals leave it undefined
+   *  and derive high/medium from highBandFor. */
+  confidence?: "high" | "medium" | "low";
   /** the best-scoring moment (seconds or span) in the source media, if anchored */
   at?: number | [number, number];
-  /** matched ref / person label — whatever names the other side of the match */
+  /** matched ref / person label / editor name / failing validation state —
+   *  whatever names the other side of the match. */
   matched?: string;
+}
+
+/** Desktop/mobile IMAGE EDITORS whose presence in EXIF `Software` is a "possibly
+ *  edited" lead. An allowlist (lowercased needles): a camera-firmware or phone-OS
+ *  Software string (e.g. "13.4", "HDR+", "Nokia8.3") must NOT match, so ordinary
+ *  capture never fires — only a deliberate desktop/app edit does. */
+export const IMAGE_EDITOR_SOFTWARE: readonly string[] = [
+  "photoshop",
+  "lightroom",
+  "adobe camera raw",
+  "gimp",
+  "affinity",
+  "pixelmator",
+  "luminar",
+  "capture one",
+  "snapseed",
+  "paintshop",
+  "paint.net",
+  "krita",
+  "topaz",
+  "facetune",
+  "photopea",
+  "photoscape",
+];
+
+/** C2PA validation states that are clean; anything else on a present manifest is
+ *  a failed/untrusted result worth flagging. */
+const OK_VALIDATION_STATES = new Set(["valid", "trusted"]);
+
+/** Forensic (flag-shaped) signal kinds — they carry an explicit confidence and
+ *  are gated by the optional per-case `forensics` policy toggle. */
+const FORENSIC_KINDS = new Set<TriggerSignal["kind"]>([
+  "exif-editing-software",
+  "verify-validation-failed",
+  "verify-declared-edits",
+]);
+
+/** The real Software string when it names a known image editor, else undefined. */
+function matchesImageEditor(software: string): string | undefined {
+  const s = software.toLowerCase();
+  return IMAGE_EDITOR_SOFTWARE.some((needle) => s.includes(needle)) ? software.trim() : undefined;
 }
 
 type Obj = Record<string, unknown>;
@@ -202,6 +258,30 @@ export function extractSignal(rec: OvercastRecord, thresholds: TriggerThresholds
     return { kind: "audio-match", score: top.score, threshold: thresholds.audio_margin, unit: "margin", matched: top.matched };
   }
 
+  // forensic flags (exif/verify) — no `op`, so the match guards above skip them.
+  // Deliberately selective: GPS-present feeds the map (pure triage noise here),
+  // a missing manifest is a clean result, and a non-editor Software string is
+  // ordinary capture — none of those fire.
+  if (rec.verb === "exif") {
+    const software = typeof p.software === "string" ? p.software : "";
+    const editor = software ? matchesImageEditor(software) : undefined;
+    if (!editor) return undefined;
+    return { kind: "exif-editing-software", matched: editor, confidence: "medium" };
+  }
+
+  if (rec.verb === "verify") {
+    if (p.has_manifest !== true) return undefined; // no manifest = clean, not a lead
+    const state = typeof p.validation_state === "string" ? p.validation_state : "";
+    if (state && !OK_VALIDATION_STATES.has(state.toLowerCase())) {
+      return { kind: "verify-validation-failed", matched: state, confidence: "high" };
+    }
+    const ingredients = num(p.ingredients) ?? 0; // secondary, noisier: derived media
+    if (ingredients > 0) {
+      return { kind: "verify-declared-edits", score: ingredients, unit: "count", confidence: "medium" };
+    }
+    return undefined;
+  }
+
   return undefined;
 }
 
@@ -244,6 +324,9 @@ function suggestionText(rec: OvercastRecord, sig: TriggerSignal, target?: Target
   if (sig.kind === "similar-match") return `Visual similarity ${sig.score?.toFixed(1)}% to ${sig.matched ? baseName(sig.matched) : "indexed media"}${forTarget} in ${where}`;
   if (sig.kind === "cluster-identify") return `Probe face matches known person${sig.matched ? ` '${sig.matched}'` : ""} at ${sig.score?.toFixed(1)}% in ${where}`;
   if (sig.kind === "audio-match") return `Audio fingerprint${forTarget} matched${sig.matched ? ` ${baseName(sig.matched)}` : ""} (${sig.score?.toFixed(1)}× margin) in ${where}`;
+  if (sig.kind === "exif-editing-software") return `Image metadata shows editing software${sig.matched ? ` (${sig.matched})` : ""}${forTarget} — possibly edited: ${where}`;
+  if (sig.kind === "verify-validation-failed") return `C2PA provenance validation FAILED${sig.matched ? ` (${sig.matched})` : ""}${forTarget} in ${where}`;
+  if (sig.kind === "verify-declared-edits") return `C2PA manifest declares ${sig.score} derived ingredient(s)${forTarget} in ${where}`;
   return `Automated match${forTarget} in ${rec.verb} record ${rec.id}`;
 }
 
@@ -350,16 +433,21 @@ export function evaluateTriggers(opts: EvaluateTriggerOpts): OvercastRecord[] {
       );
     }
 
-    // score triggers: suggest mode only.
+    // score + forensic-flag triggers: suggest mode only.
     if (mode !== "suggest") continue;
     const sig = extractSignal(rec, thresholds);
     if (!sig) continue;
-    const target = linkImageTarget(targets, [
-      obj(rec.payload)?.reference as string | undefined,
-      sig.matched,
-    ]);
+    // optional per-case forensic kill switch (default on / opt-out).
+    if (FORENSIC_KINDS.has(sig.kind) && opts.policy?.forensics === false) continue;
+    // forensic findings are about the analyzed FILE itself — link on its media.ref
+    // (sig.matched is an editor/state string, never a path). Score matches link on
+    // the reference image or the matched ref.
+    const target = FORENSIC_KINDS.has(sig.kind)
+      ? linkImageTarget(targets, [rec.media?.ref])
+      : linkImageTarget(targets, [obj(rec.payload)?.reference as string | undefined, sig.matched]);
     if (hasEquivalentFinding(all, statusMap, { kind: sig.kind, target: target?.value ?? "", sourceRecord: rec, dismissedBlocks: true })) continue;
     const high = highBandFor(sig.kind, thresholds);
+    const confidence = sig.confidence ?? (high !== undefined && (sig.score ?? 0) >= high ? "high" : "medium");
     pushFinding(
       makeFinding({
         text: suggestionText(rec, sig, target),
@@ -369,7 +457,7 @@ export function evaluateTriggers(opts: EvaluateTriggerOpts): OvercastRecord[] {
         trigger: `signal:${sig.kind}`,
         status: "suggested",
         signal: { ...sig, ...(opts.via ? { via: opts.via } : {}) },
-        confidence: high !== undefined && (sig.score ?? 0) >= high ? "high" : "medium",
+        confidence,
         at: sig.at,
       }),
     );

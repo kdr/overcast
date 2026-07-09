@@ -17,6 +17,8 @@ import { similarVerb } from "../verbs/similar.js";
 import { cropVerb } from "../verbs/crop.js";
 import { gridVerb } from "../verbs/grid.js";
 import { wallVerb } from "../verbs/wall.js";
+import { mapVerb } from "../verbs/map.js";
+import { devicesVerb } from "../verbs/devices.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
 import {
   scanVerb,
@@ -105,6 +107,8 @@ export const VERBS: VerbSpec[] = [
   cropVerb,
   gridVerb,
   wallVerb,
+  mapVerb,
+  devicesVerb,
   scanVerb,
   captureVerb,
   monitorVerb,

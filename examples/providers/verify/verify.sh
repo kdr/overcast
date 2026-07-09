@@ -14,8 +14,13 @@
 # embedded C2PA credentials.
 set -uo pipefail
 
+# Override the c2patool invocation (path or wrapper) for tests / custom installs;
+# mirrors OVERCAST_FFMPEG / OVERCAST_TINYCLOUD_CMD. May carry args (e.g.
+# "bash /path/fake-c2patool.sh"), so read it into an array.
+read -r -a C2PATOOL_CMD <<< "${OVERCAST_C2PATOOL_CMD:-c2patool}"
+
 need_c2patool() {
-  command -v c2patool >/dev/null 2>&1 || {
+  command -v "${C2PATOOL_CMD[0]}" >/dev/null 2>&1 || {
     cat >&2 <<'MSG'
 verify needs `c2patool` (not found on PATH). Install one of:
   • brew install c2patool
@@ -42,7 +47,7 @@ need_c2patool
 [ -f "$input" ] || { jq -nc --arg i "$input" '{verb:"verify",format:"json",payload:{error:("file not found: "+$i)},error:"file not found",state:"error"}'; exit 0; }
 
 errf="$(mktemp)"
-out="$(c2patool "$input" 2>"$errf")"; code=$?
+out="$("${C2PATOOL_CMD[@]}" "$input" 2>"$errf")"; code=$?
 err="$(cat "$errf")"; rm -f "$errf"
 
 if [ "$code" -ne 0 ]; then

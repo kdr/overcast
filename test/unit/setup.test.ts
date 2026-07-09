@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { openCase } from "../../src/case.ts";
 import { loadProfile, defaultProfile } from "../../src/profile.ts";
 import { parseProviderSpec, setupVerb, providerVerb, doctorVerb } from "../../src/verbs/setup.ts";
@@ -245,6 +246,59 @@ test("doctor warns when configured qmd is missing", async () => {
     const warnings = (rec.payload as Record<string, unknown>).warnings as string[];
     assert.ok(warnings.some((w) => /qmd memory is configured/.test(w)), `expected qmd warning; got ${JSON.stringify(warnings)}`);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const FAKE_EXIFTOOL = join(HERE, "..", "fixtures", "fake-exiftool.sh");
+const FAKE_C2PATOOL = join(HERE, "..", "fixtures", "fake-c2patool.sh");
+
+test("doctor honors OVERCAST_EXIFTOOL_CMD / OVERCAST_C2PATOOL_CMD overrides (present binaries)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-fx-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-fx-"));
+  const prevX = process.env.OVERCAST_EXIFTOOL_CMD;
+  const prevC = process.env.OVERCAST_C2PATOOL_CMD;
+  process.env.OVERCAST_EXIFTOOL_CMD = `bash ${FAKE_EXIFTOOL}`;
+  process.env.OVERCAST_C2PATOOL_CMD = `bash ${FAKE_C2PATOOL}`;
+  try {
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean }>;
+    const byName = new Map(checks.map((c) => [c.name, c.ok]));
+    assert.equal(byName.get("exiftool"), true);
+    assert.equal(byName.get("c2patool"), true);
+  } finally {
+    if (prevX === undefined) delete process.env.OVERCAST_EXIFTOOL_CMD;
+    else process.env.OVERCAST_EXIFTOOL_CMD = prevX;
+    if (prevC === undefined) delete process.env.OVERCAST_C2PATOOL_CMD;
+    else process.env.OVERCAST_C2PATOOL_CMD = prevC;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor flags a missing exiftool/c2patool (override → nonexistent) with an install hint", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-fx2-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-fx2-"));
+  const prevX = process.env.OVERCAST_EXIFTOOL_CMD;
+  const prevC = process.env.OVERCAST_C2PATOOL_CMD;
+  process.env.OVERCAST_EXIFTOOL_CMD = "oc-no-such-exiftool-binary";
+  process.env.OVERCAST_C2PATOOL_CMD = "oc-no-such-c2patool-binary";
+  try {
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    const exif = checks.find((c) => c.name === "exiftool");
+    const c2pa = checks.find((c) => c.name === "c2patool");
+    assert.equal(exif?.ok, false);
+    assert.match(exif?.detail ?? "", /brew install exiftool/);
+    assert.equal(c2pa?.ok, false);
+    assert.match(c2pa?.detail ?? "", /c2patool/);
+  } finally {
+    if (prevX === undefined) delete process.env.OVERCAST_EXIFTOOL_CMD;
+    else process.env.OVERCAST_EXIFTOOL_CMD = prevX;
+    if (prevC === undefined) delete process.env.OVERCAST_C2PATOOL_CMD;
+    else process.env.OVERCAST_C2PATOOL_CMD = prevC;
     rmSync(dir, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   }
