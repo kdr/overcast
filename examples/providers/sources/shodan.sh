@@ -136,29 +136,39 @@ case "$op" in
       echo "shodan: screenshot/RTSP extraction ENABLED — materializing media from REAL exposed hosts; authorized use only" >&2
       shotdir="${OVERCAST_MEDIA_DIR:-$PWD}/shodan-shots"
       mkdir -p "$shotdir" 2>/dev/null || true
-      # 1) decode screenshots → a JSON map of "<ip>_<port>" → local jpg path. Iterate
-      #    ONLY services that carry screenshot data (@tsv is safe — base64 has no tabs).
+      # Decode screenshots → a JSON map keyed on "<ip>_<port>_<transport>" (the same
+      # per-service identity as the #port-transport hit fragment, so 53/tcp and
+      # 53/udp get distinct files/entries). jq emits one {k,d} object per service (k =
+      # the composite key, computed IDENTICALLY to the enrichment lookup below; d =
+      # the whitespace-stripped base64 — Shodan wraps it in newlines, which would
+      # otherwise break base64 -d). One object per line sidesteps any field-delimiter
+      # pitfalls. Iterate ONLY services that actually carry screenshot data.
       shotmap="{}"
-      while IFS="$(printf '\t')" read -r ip port data; do
+      while IFS= read -r rec; do
+        [ -n "$rec" ] || continue
+        key="$(printf '%s' "$rec" | jq -r '.k' 2>/dev/null)"
+        data="$(printf '%s' "$rec" | jq -r '.d' 2>/dev/null)"
         [ -n "$data" ] || continue
-        safe="$(printf '%s' "${ip}_${port}" | tr -c 'A-Za-z0-9._-' '_')"
+        safe="$(printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '_')"
         f="$shotdir/${safe}.jpg"
         if printf '%s' "$data" | base64 -d > "$f" 2>/dev/null && [ -s "$f" ]; then
-          shotmap="$(jq -cn --argjson m "$shotmap" --arg k "${ip}_${port}" --arg v "$f" '$m + {($k):$v}' 2>/dev/null || printf '%s' "$shotmap")"
+          shotmap="$(jq -cn --argjson m "$shotmap" --arg k "$key" --arg v "$f" '$m + {($k):$v}' 2>/dev/null || printf '%s' "$shotmap")"
         fi
-      done < <(printf '%s' "$arr" | jq -r '.[]
+      done < <(printf '%s' "$arr" | jq -c '.[]
                  | select((.screenshot.data // .opts.screenshot.data) != null)
-                 | [(.ip_str // "host"), ((.port // 0)|tostring),
-                    ((.screenshot.data // .opts.screenshot.data)|gsub("\\s";""))] | @tsv')
-      # 2) ONE jq pass over the FULL list: attach the decoded path (if any), labels,
-      #    and rtsp stream; drop the heavy base64. This never drops an element. If the
-      #    pass somehow fails (empty output), keep the metadata list rather than
-      #    losing hits — screenshots are best-effort, the host intel is not.
+                 | { k: "\(.ip_str // "host")_\(.port // 0)_\(.transport // "")",
+                     d: ((.screenshot.data // .opts.screenshot.data)|gsub("\\s";"")) }')
+      # ONE jq pass over the FULL list: attach the decoded path (if any), labels, and
+      # the rtsp stream (IPv6 host bracketed per RFC 3986); drop the heavy base64.
+      # Never drops an element. If the pass somehow fails (empty output), keep the
+      # metadata list rather than losing hits — screenshots are best-effort, the host
+      # intel is not.
       enriched="$(printf '%s' "$arr" | jq -c --argjson map "$shotmap" '[ .[]
-        | ("\(.ip_str // "host")_\(.port // 0)") as $k
+        | ("\(.ip_str // "host")_\(.port // 0)_\(.transport // "")") as $k
+        | ((.ip_str // "") | if test(":") then "[" + . + "]" else . end) as $sthost
         | .shot_path = ($map[$k] // null)
         | .screenshot_labels = ((.screenshot.labels // .opts.screenshot.labels) // [])
-        | .stream = (if (.port == 554) then ("rtsp://" + (.ip_str // "") + ":554") else null end)
+        | .stream = (if (.port == 554) then ("rtsp://" + $sthost + ":554") else null end)
         | del(.screenshot) | del(.opts.screenshot) ]' 2>/dev/null)"
       if [ -n "$enriched" ]; then
         arr="$enriched"
@@ -167,11 +177,11 @@ case "$op" in
       fi
     fi
 
-    # Map to hits. media.ref/url carry a `#<port>` fragment so every SERVICE on a
-    # host is a distinct record (else all ports on one IP collapse to one dedup key,
-    # and monitor would miss newly exposed ports). The fragment is client-only, so
-    # `fetch` still curls the clean host page. With the opt-in flag, a decoded
-    # screenshot becomes media.ref (image evidence for see/face/crop) and RTSP
+    # Map to hits. media.ref/url carry a `#<port>-<transport>` fragment so every
+    # SERVICE on a host is a distinct record (else all ports on one IP collapse to one
+    # dedup key, and monitor would miss newly exposed ports). The fragment is
+    # client-only, so `fetch` still curls the clean host page. With the opt-in flag, a
+    # decoded screenshot becomes media.ref (image evidence for see/face/crop) and RTSP
     # endpoints surface in payload.stream.
     printf '%s' "$arr" | jq -c --argjson n "$limit" '[ .[]
       | (("https://www.shodan.io/host/" + (.ip_str // ""))) as $page
