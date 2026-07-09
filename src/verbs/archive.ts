@@ -105,8 +105,13 @@ function resolveBucketArg(ctx: VerbContext, explicit: unknown, hint: string): { 
 }
 
 /** Persist a record into the BUCKET's store and mark it so the active case's
- *  persist seam skips it (guard order: meta.persisted first, then meta.case). */
+ *  persist seam skips it (guard order: meta.persisted first, then meta.case).
+ *  Idempotent on meta.persisted: a nested index/sense already writes some
+ *  records bucket-side and stamps them persisted (ensureArchiveWatchRecord,
+ *  similar's shot-watch) then returns them for display — re-writing here would
+ *  duplicate the JSONL row and inflate ask/brief. Skip those; they're stored. */
 function writeToBucket(bucket: BucketHandle, rec: OvercastRecord): OvercastRecord {
+  if (rec.meta?.persisted === true) return rec;
   bucket.case.writeRecord(rec);
   rec.meta = { ...rec.meta, persisted: true };
   return rec;

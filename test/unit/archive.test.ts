@@ -1032,6 +1032,35 @@ test("archive remove finds a live item by its PRE-RESTORE record id (round 15 th
   }
 });
 
+test("bucket-side watch evidence is written ONCE by auto-index/backfill, not twice (round 15 thread 4)", async () => {
+  const env = makeEnv();
+  const prev = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${join(process.cwd(), "test/fixtures/fake-tinycloud.sh")}`;
+    await runArchive(env, "init", ["refs"]);
+    const clip = seedFile(env, "clip.mp4", "vid-bytes");
+    await runArchive(env, "add", [clip], { to: "refs" });
+
+    // a media-descriptions index runs `index add`, which ensures a bucket-side
+    // watch record (ensureArchiveWatchRecord) — WRITTEN to the bucket AND returned
+    // for display, stamped meta.persisted. The setup/add loop's writeToBucket must
+    // treat that as already-stored, not re-append the JSONL row (which would
+    // inflate ask --archive / memory). See the writeToBucket idempotency guard.
+    const totalWatch = () => openBucket("refs", env.home).bucket!.case.records().filter((r) => r.verb === "watch").length;
+    await runArchive(env, "setup", ["refs"], { index: "desc:media-descriptions", "auto-index-new": true, yes: true });
+    assert.equal(totalWatch(), 1, "setup backfill wrote clip.mp4's watch exactly once");
+
+    // the auto_index_new path on the NEXT add is idempotent the same way
+    const clip2 = seedFile(env, "clip2.mp4", "vid2-bytes");
+    await runArchive(env, "add", [clip2], { to: "refs" });
+    assert.equal(totalWatch(), 2, "auto-index-new added clip2's watch exactly once (no duplicate)");
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prev;
+    env.cleanup();
+  }
+});
+
 test("stampArchive re-homes provider-stamped records so the case persist seam keeps them", () => {
   const env = makeEnv();
   try {
