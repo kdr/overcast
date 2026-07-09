@@ -77,14 +77,22 @@ export function buildDeviceClusters(records: OvercastRecord[], opts: { minSize?:
     if (!make && !model && !serial && !lens) continue;
 
     const strength: "serial" | "model" = serial ? "serial" : "model";
-    const fingerprint = serial
-      ? `serial:${norm(make)}|${norm(model)}|${norm(serial)}`
-      : `model:${norm(make)}|${norm(model)}|${norm(lens)}`;
+    // A serial is a near-unique per-device id, so key STRONG clusters on the serial
+    // ALONE — photos that share a body serial but have stripped/inconsistent
+    // make/model still link (the whole point of device-linking). Serial-less media
+    // fall back to the weaker make+model+lens fingerprint.
+    const fingerprint = serial ? `serial:${norm(serial)}` : `model:${norm(make)}|${norm(model)}|${norm(lens)}`;
 
     let g = groups.get(fingerprint);
     if (!g) {
       g = { make, model, serial, lens, strength, members: new Map() };
       groups.set(fingerprint, g);
+    } else {
+      // backfill descriptive fields from any member that carries them (an earlier
+      // member may have had make/model/lens stripped by an editor).
+      g.make ??= make;
+      g.model ??= model;
+      g.lens ??= lens;
     }
     const memberKey = rec.media?.ref ?? rec.id;
     if (!g.members.has(memberKey)) {

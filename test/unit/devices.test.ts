@@ -38,6 +38,18 @@ test("buildDeviceClusters: same serial links distinct media as a strong cluster"
   assert.equal(r.totalExif, 2);
 });
 
+test("buildDeviceClusters: same serial links across stripped/inconsistent make/model", () => {
+  const r = buildDeviceClusters([
+    exif({ ref: "a.jpg", make: "Canon", model: "EOS R5", serial: "SN1" }),
+    exif({ ref: "b.jpg", serial: "SN1" }), // make/model stripped by an editor
+  ]);
+  assert.equal(r.clusters.length, 1);
+  assert.equal(r.clusters[0].strength, "serial");
+  assert.equal(r.clusters[0].count, 2);
+  assert.equal(r.clusters[0].make, "Canon"); // backfilled from the member that carried it
+  assert.equal(r.clusters[0].model, "EOS R5");
+});
+
 test("buildDeviceClusters: serial-less media fall back to a weaker make+model+lens link", () => {
   const r = buildDeviceClusters([
     exif({ ref: "a.jpg", make: "Apple", model: "iPhone 15", lens: "main" }),

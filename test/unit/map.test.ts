@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
 import { buildMapModel, renderMapHtml } from "../../src/report/map.ts";
 
-function geo(opts: { lat?: number; lng?: number; verb?: string; ref?: string; time?: string; place?: string; state?: string; gps?: unknown }): OvercastRecord {
+function geo(opts: { lat?: number; lng?: number; verb?: string; ref?: string; time?: string; place?: string; state?: string; gps?: unknown; created?: string }): OvercastRecord {
   return makeRecord({
     verb: opts.verb ?? "exif",
     format: "json",
@@ -11,6 +11,7 @@ function geo(opts: { lat?: number; lng?: number; verb?: string; ref?: string; ti
       summary: "meta",
       gps: opts.gps !== undefined ? opts.gps : opts.lat != null ? { lat: opts.lat, lng: opts.lng } : null,
       ...(opts.place ? { place: opts.place } : {}),
+      ...(opts.created ? { created: opts.created } : {}),
     },
     media: { ref: opts.ref ?? "a.jpg" },
     meta: opts.time ? { time: opts.time } : undefined,
@@ -92,6 +93,15 @@ test("buildMapModel: --limit pages most-recent first, total reflects the full se
   assert.equal(m.total, 3);
   assert.equal(m.points.length, 1);
   assert.equal(m.points[0].ref, "c.jpg"); // newest
+});
+
+test("buildMapModel: exif capture time (payload.created) drives recency, not ingest meta.time", () => {
+  // an OLD photo INGESTED recently must not read as newest / pass a recent --since
+  const oldPhoto = geo({ lat: 1, lng: 1, ref: "old.jpg", created: "2019:01:01 00:00:00", time: "2026-07-09T00:00:00Z" });
+  const newPhoto = geo({ lat: 2, lng: 2, ref: "new.jpg", created: "2026:06:01 00:00:00", time: "2026-07-09T00:00:00Z" });
+  const m = buildMapModel([oldPhoto, newPhoto], { ...OPTS, sinceCutoff: Date.parse("2020-01-01T00:00:00Z") });
+  assert.deepEqual(m.points.map((p) => p.ref), ["new.jpg"]); // 2019 capture dropped despite recent ingest
+  assert.equal(m.points[0].time, "2026:06:01 00:00:00"); // point shows the capture time
 });
 
 test("renderMapHtml online: self-contained, OSM tile template, per-point markers, tile-scoped CSP", () => {

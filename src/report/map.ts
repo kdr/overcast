@@ -66,6 +66,16 @@ function atOf(v: unknown): number | [number, number] | null {
   return null;
 }
 
+/** Parse an ExifTool capture datetime ("YYYY:MM:DD HH:MM:SS[.sss][±HH:MM]") to
+ *  epoch ms, or undefined when absent/unparseable (the date part uses colons, so
+ *  Date.parse can't read it raw). */
+function captureMs(created: string | null): number | undefined {
+  if (!created) return undefined;
+  const iso = created.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3").replace(" ", "T");
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
 /** Gather every case record carrying numeric `payload.gps{lat,lng}` (primarily
  *  `exif`, but any record qualifies) into map points. Skips error records; keeps
  *  undated records under --since (matching wall); most-recent first under --limit. */
@@ -82,7 +92,12 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
     const lng = validLng(gps.lng);
     if (lat === undefined || lng === undefined) continue;
 
-    const t = recordTimeMs(rec); // NaN when the record is undated
+    // recency for --since / sort / --limit uses the CAPTURE time (exif
+    // payload.created) when present — an old geotagged photo ingested today must
+    // not read as newest — falling back to the record's ingest time (meta.time).
+    // NaN when neither is available (round-1 filter/sort keep undated points).
+    const created = typeof p.created === "string" && p.created.trim() ? p.created.trim() : null;
+    const t = captureMs(created) ?? recordTimeMs(rec);
     const ref = rec.media?.ref ?? null;
     const point: MapPoint = {
       recordId: rec.id,
@@ -95,7 +110,7 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
       ref,
       thumb: ref ? imageSrc(ref) ?? null : null,
       summary: summarizePayload(rec.payload),
-      time: rec.meta?.time ? String(rec.meta.time) : null,
+      time: created ?? (rec.meta?.time ? String(rec.meta.time) : null),
     };
     all.push({ point, t });
   }

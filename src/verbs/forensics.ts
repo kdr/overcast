@@ -119,11 +119,18 @@ async function enrichWithPlace(ctx: VerbContext, records: OvercastRecord[]): Pro
   for (const rec of records) {
     if (rec.state && rec.state !== "ready") continue;
     const p = rec.payload && typeof rec.payload === "object" ? (rec.payload as Record<string, unknown>) : undefined;
+    if (!p) continue;
     // validate the coordinate with the SAME WGS84 check the map applies, so a
     // NaN/Infinity/out-of-range tag the map would drop is never egressed to the
     // third-party geocoder.
-    const coords = validLatLng(p?.gps);
-    if (!p || !coords) continue;
+    const coords = validLatLng(p.gps);
+    if (!coords) {
+      // --geocode was requested but there's nothing usable to geocode — leave
+      // actionable feedback instead of a silent no-op.
+      p.place = null;
+      p.geocode_status = p.gps != null ? "GPS coordinates out of range — not geocoded" : "no GPS coordinates to geocode";
+      continue;
+    }
     if (!bound) {
       p.place = null;
       p.geocode_status =
