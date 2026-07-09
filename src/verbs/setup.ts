@@ -21,7 +21,7 @@ import { loadSetup, saveSetup, emptySetup } from "../state/setup.js";
 import { findProviderChoice, providerChoices, PROVIDER_PRESETS, type ProviderChoice } from "../providers/catalog.js";
 import { localVisionPython } from "../providers/local/vision.js";
 import { PI_VERSION } from "../version.js";
-import { envPresent } from "../env.js";
+import { envPresent, redactSecrets } from "../env.js";
 import { listSources } from "../state/source.js";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -396,7 +396,9 @@ export const providerVerb: VerbSpec = {
         const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
         // exit 13 = needs credentials (the exec contract), like provider init + the exec boundary
         const dstate = res.code === 0 ? "ready" : res.code === 13 ? "needs_credentials" : "error";
-        return [makeRecord({ verb: "provider", format: "json", payload: { verb, describe: res.stdout || res.stderr }, state: dstate })];
+        // a provider's describe command may echo a credentialed URL / token; redact
+        // before it lands on disk in the record (mirrors the exec-boundary redaction).
+        return [makeRecord({ verb: "provider", format: "json", payload: { verb, describe: redactSecrets(res.stdout || res.stderr) }, state: dstate })];
       }
       return [makeRecord({ verb: "provider", format: "json", payload: { verb, descriptor: desc }, state: "ready" })];
     }
@@ -413,7 +415,9 @@ export const providerVerb: VerbSpec = {
     const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 5 * 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
     // exec contract (providers.md): exit 13 = needs credentials, not a hard error.
     const state = res.code === 0 ? "ready" : res.code === 13 ? "needs_credentials" : "error";
-    return [makeRecord({ verb: "provider", format: "json", payload: { verb, init: cmd, stdout: res.stdout.slice(0, 1000), stderr: res.stderr.slice(0, 1000) }, state, error: state === "error" ? `init exited ${res.code}` : undefined })];
+    // redact BEFORE truncating: an init command may echo a token/credentialed URL,
+    // and slicing first could cut a secret mid-token so the pattern no longer matches.
+    return [makeRecord({ verb: "provider", format: "json", payload: { verb, init: cmd, stdout: redactSecrets(res.stdout).slice(0, 1000), stderr: redactSecrets(res.stderr).slice(0, 1000) }, state, error: state === "error" ? `init exited ${res.code}` : undefined })];
   },
 };
 

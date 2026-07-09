@@ -574,7 +574,7 @@ sample 8 frames.
 - **`x`** (alias `twitter`) — Apify (`APIFY_TOKEN`). Default actor: kaitoeasyapi's pay-per-result tweet scraper, which works on any Apify plan against platform credit; override with `OVERCAST_X_ACTOR` (e.g. `apidojo~tweet-scraper` — same schema and faster, but **rental**: an unrented/free account gets only placeholder items, which map to zero hits). Supported refs: `x:@handle` for a profile's posts (translated to a `from:` search); `x:<query>` / `x:#tag` for X advanced search (`from:`, `filter:native_video`, `min_faves:`, `-filter:retweets`, …); `x:video:<query>` / `x:image:<query>` to return only posts carrying native video / images (applied as `filter:` operators so they hold across actors); `x:<full X URL>` for a post/profile/search/list URL. Hits point `media.ref` at the direct CDN asset (highest-bitrate mp4, else first photo) so `capture` downloads without X auth, and carry `author`/`views`/`thumb` triage metadata. Actors bill per result with a small per-query minimum — prefer fewer, broader queries.
 - **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). Supported ref: `web:<query>` for web search hits.
 - **`lens`** — Google Lens reverse image search via Apify (`APIFY_TOKEN`; actor override `OVERCAST_LENS_ACTOR`, default `borderline~google-lens`). Supported ref: `lens:<image url>` or `lens:<local image path>` (relative paths resolve against the cwd, then the case media dir, then the case root; local files are uploaded to the account's `overcast-lens` key-value store so the actor can fetch them). Hits carry the matched page (`payload.url`), `match: "exact" | "visual"`, the matching site, and for exact matches the match thumbnail materialized into the case media dir (`media.ref`); `--limit` applies per match type; `--since` is ignored (Lens has no recency filter).
-- **`dl`** — generic yt-dlp downloader (no key), **capture-only**: `enumerate` returns no hits, `fetch` downloads any of yt-dlp's ~1800 supported hosts. You rarely bind it directly — `overcast capture <url>` auto-routes video hosts without a dedicated source (Rumble/BitChute/Odysee/VK/Bilibili/Vimeo/Dailymotion/Reddit/Twitch/Kick/Facebook/…) to `dl` instead of the `web` page fetcher, and a scan.hit stamped `source:dl` captures back through it. Bindable as `dl:<url>` (the ref is carried but ignored by `enumerate`).
+- **`dl`** — generic yt-dlp source (no key). `fetch` downloads any of yt-dlp's ~1800 supported hosts; `enumerate` flat-lists a **channel / playlist / user** URL (path matching `/c/`, `/channel/`, `/user/`, `/@handle`, `/playlist`, or `?list=`) into `scan.hit` records via `yt-dlp --flat-playlist` (`--limit`→`--playlist-end`, `--since`→`--dateafter`), while a **single-video / unclassifiable** URL returns `[]` (capture-only — a no-op scan, never a failure) and a yt-dlp failure surfaces as an enumerate **error**, not a fake-clean `[]`. `overcast capture <url>` auto-routes video hosts without a dedicated source (Rumble/BitChute/Odysee/VK/Bilibili/Vimeo/Dailymotion/Reddit/Twitch/Kick/Facebook/…) to `dl` instead of the `web` page fetcher, and a scan.hit stamped `source:dl` captures back through it. Bind `dl:<channel url>` to stake out a channel with `scan`/`monitor`, or `dl:<video url>` for capture-only.
 - **`gdelttv`** — GDELT 2.0 TV API: broadcast-news video search over the Internet Archive TV News Archive (**no key**). Supported ref/query: `gdelttv:<phrase>`, optionally with GDELT operators (`station:CNN`, `market:"National"`); a query naming neither a station nor a market gets `market:"National"` appended (the API requires one). Hits carry the station/show/air-date title, the archive.org page (`payload.url`), snippet, thumbnail, and a **bounded clip** `media.ref` (`…/<show>.mp4?start=S&end=E`, ~30s) that `capture` downloads directly (full-show download is copyright-restricted; the clip service and thumbnails are public). `--since` maps to `STARTDATETIME`/`ENDDATETIME`, but the clipgallery corpus lags real time by weeks — a very recent window can return zero clips. Strong `monitor` fit (each clip has a stable page URL for dedup).
 - **`instagram`** — Instagram profiles/hashtags via Apify (`APIFY_TOKEN`; actor override `OVERCAST_INSTAGRAM_ACTOR`, default `apify~instagram-scraper`). Public data only, no login. Supported refs: `instagram:@handle` (profile posts/reels), `instagram:#tag` (hashtag posts), `instagram:<url>`. Hits carry the post page (`payload.url`), caption, owner, and a direct-CDN `media.ref` (video asset for videos, else the image) so `capture` downloads without login — CDN URLs are short-lived, so `scan --pull` is ideal.
 - **`telegram`** — public Telegram channels via Apify (`APIFY_TOKEN`; actor override `OVERCAST_TELEGRAM_ACTOR`, default `webfinity~telegram-channel-content-media-scraper-v2`). No login/phone. Supported refs: `telegram:<channel>`, `telegram:@channel`, `telegram:<t.me url>`. Each post's `payload.url` is a stable `t.me/<channel>/<id>` (great for `monitor` dedup); `media.ref` is the post's first media asset (text-only posts fall back to the post URL). `--since` maps to the actor's `daysRange` (capped at 30 days).
@@ -598,6 +598,33 @@ python3 examples/providers/python/listen.py describe
 node --import tsx examples/providers/ts/see.ts describe
 bash examples/providers/sources/tiktok.sh describe
 ```
+
+### Consume an MCP server as a source (prototype/example)
+
+`examples/providers/sources/mcp-bridge.ts` drives **any stdio [MCP](https://modelcontextprotocol.io) server** as an overcast `mcp` source — no `src/`, dependency, or `package.json` changes. It speaks the MCP stdio JSON-RPC handshake by hand (`initialize` → `tools/list` → `tools/call`), ranks a search-shaped tool, and maps results into `scan.hit` records. Bind it like any custom exec source via `OVERCAST_SOURCE_MCP_CMD`, pointing at a server with `MCP_SERVER_CMD`.
+
+Worked example — the reference **filesystem** server (`@modelcontextprotocol/server-filesystem`) searching a `/data` tree. Its `search_files` tool takes a `path` + a glob `pattern`, so it needs the per-server overrides:
+
+```bash
+export OVERCAST_SOURCE_MCP_CMD='npx tsx examples/providers/sources/mcp-bridge.ts'
+export MCP_SERVER_CMD='npx -y @modelcontextprotocol/server-filesystem /data'
+export MCP_SEARCH_TOOL='search_files'    # force the tool (else ranked by name)
+export MCP_QUERY_ARG='pattern'           # which arg the --query fills (a glob here)
+export MCP_TOOL_ARGS='{"path":"/data"}'  # static args merged into every tools/call
+
+overcast source add "mcp:*.md"
+overcast scan --source mcp --query "*.md" --json
+```
+
+Config knobs (all env — the exec transport ignores the bridge's stdin):
+- `MCP_SERVER_CMD` **(required)** — command that launches the stdio server (quote-aware).
+- `MCP_SEARCH_TOOL` — force a tool name (else ranked `search > find > query > lookup > retriev > list`).
+- `MCP_QUERY_ARG` — force which argument the query fills (else the first required string).
+- `MCP_TOOL_ARGS` — JSON object of static args merged into every `tools/call`.
+
+**Trust caveat:** binding an MCP server means overcast **spawns that server's code locally on every scan** — `npx -y <pkg>` pulls and runs arbitrary code, a supply-chain/RCE surface plain HTTP scrapers don't have. Treat binding an MCP source as *running a program*: prefer pinned/vetted commands over `npx -y`, and only bind servers you trust. Server-returned text enters records as evidence — the same trust class as `web`/`scan` (invariant #10).
+
+Prototype limits: name-based tool selection is a fine default, but query-argument mapping doesn't generalize across servers (hence the per-server `MCP_*` overrides), and the spawn-per-scan exec model suits a one-shot `scan` more than tight `monitor --every` loops. A first-class `profile.mcp[]` binding (named servers with `{ tool, queryArg, staticArgs }` + a `doctor` probe + an explicit "spawn is code execution" consent gate) is the natural next step.
 
 ## Memory providers
 

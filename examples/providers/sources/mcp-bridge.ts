@@ -1,9 +1,10 @@
 #!/usr/bin/env -S npx tsx
-// overcast source provider: MCP consume bridge (SPIKE — plan 017).
+// overcast source provider: MCP consume bridge (prototype / worked example).
 //
 // Drives ANY stdio MCP server as an overcast source, speaking the exec source
-// contract (argv op -> JSON on stdout) with ZERO overcast core changes. Bind it
-// like any custom source:
+// contract (argv op -> JSON on stdout) with ZERO overcast core changes — the
+// canonical example of plugging an MCP feed in without touching `src/`. Bind it
+// like any custom source (see the filesystem-server recipe in docs/providers.md):
 //
 //   export MCP_SERVER_CMD='npx -y @modelcontextprotocol/server-filesystem /data'
 //   export OVERCAST_SOURCE_MCP_CMD='npx tsx examples/providers/sources/mcp-bridge.ts'
@@ -12,7 +13,7 @@
 //
 // The bridge speaks the MCP stdio JSON-RPC handshake DIRECTLY (initialize ->
 // notifications/initialized -> tools/list -> tools/call) — no @modelcontextprotocol/sdk
-// dependency, so the spike doesn't perturb the pinned tree. Node >=22 builtins only.
+// dependency, so this example doesn't perturb the pinned tree. Node >=22 builtins only.
 //
 // Config (all via env, since the exec transport ignores the bridge's stdin):
 //   MCP_SERVER_CMD   REQUIRED. Command line that launches the stdio MCP server
@@ -389,8 +390,15 @@ function wireChildCleanup(): void {
 
 // ---- tool-selection heuristic ----------------------------------------------
 
-const NAME_RANK = [/search/i, /find/i, /query/i, /lookup/i, /retriev/i, /list/i];
+const NAME_RANK = [/^search/, /^find/, /^query/, /^lookup/, /^retriev/, /^list$/];
 const QUERY_KEYS = ["query", "q", "search", "keyword", "keywords", "term", "text", "question", "prompt", "input"];
+
+/** Split a tool name into lowercase word tokens (snake/kebab/space/camelCase) so
+ *  rank words match whole tokens, not substrings — `research` must not rank as a
+ *  `search` tool, nor `listen` as `list`. */
+function nameTokens(name: string): string[] {
+  return name.split(/[_\-\s]+|(?<=[a-z0-9])(?=[A-Z])/).map((s) => s.toLowerCase()).filter(Boolean);
+}
 
 /** Pick a search-shaped tool: explicit override, else the highest-ranked
  *  name match that also exposes a string-typed argument to carry the query. */
@@ -398,7 +406,7 @@ function pickSearchTool(tools: McpTool[], override?: string): McpTool | undefine
   if (override) return tools.find((t) => t.name === override);
   const scored = tools
     .map((t) => {
-      const rank = NAME_RANK.findIndex((rx) => rx.test(t.name));
+      const rank = NAME_RANK.findIndex((rx) => nameTokens(t.name).some((tok) => rx.test(tok)));
       const hasString = Object.values(t.inputSchema?.properties ?? {}).some((p) => p.type === "string" || p.type === undefined);
       return { t, rank, hasString };
     })
@@ -430,7 +438,10 @@ function pickQueryArg(tool: McpTool, override?: string): string {
 interface ScanHit {
   title: string;
   url: string;
-  source: "mcp";
+  // NOTE: no `source` field — the core's hitsToRecords stamps `payload.source`
+  // from the BOUND source type (`source ?? sourceType`). Hardcoding "mcp" would
+  // mislabel a custom binding (e.g. `source add myfs:…`) and collapse every MCP
+  // binding into one `sourceScanFreshness` bucket. Let the binding own its label.
   published: string | null;
   snippet: string;
   media?: { ref: string };
@@ -464,7 +475,6 @@ function objToHit(o: Record<string, unknown>, toolName: string): ScanHit {
   const hit: ScanHit = {
     title: title || snippet.slice(0, 80),
     url: finalUrl,
-    source: "mcp",
     published,
     snippet,
     mcp_tool: toolName,
@@ -681,6 +691,19 @@ function requireValidSearchToolOverride(tools: McpTool[], close: () => void): st
   return override;
 }
 
+/** An explicit MCP_QUERY_ARG that names no argument of the SELECTED tool is a
+ *  config error (typo/stale), mirroring requireValidSearchToolOverride: fail fast
+ *  rather than send the query under an unknown key, which leaves required args
+ *  unset → empty scans / opaque server errors. Returns the validated override. */
+function requireValidQueryArgOverride(tool: McpTool, close: () => void): string | undefined {
+  const override = envOverride("MCP_QUERY_ARG");
+  if (override && !(override in (tool.inputSchema?.properties ?? {}))) {
+    close();
+    fail(`MCP bridge: MCP_QUERY_ARG="${override}" is not an argument of tool "${tool.name}": ${Object.keys(tool.inputSchema?.properties ?? {}).join(", ") || "(none)"}`, 1);
+  }
+  return override;
+}
+
 async function opDescribe(): Promise<void> {
   const base = {
     source: "mcp",
@@ -716,7 +739,7 @@ async function opDescribe(): Promise<void> {
       protocol_version: client.protocolVersion,
       tools: tools.map((t) => ({ name: t.name, description: t.description })),
       selected_tool: selected?.name ?? null,
-      query_arg: selected ? pickQueryArg(selected, envOverride("MCP_QUERY_ARG")) : null,
+      query_arg: selected ? pickQueryArg(selected, requireValidQueryArgOverride(selected, () => client.close())) : null,
     }) + "\n");
   } catch (e) {
     process.stdout.write(JSON.stringify({ ...base, server: cmd, connect_error: (e as Error).message }) + "\n");
@@ -761,7 +784,8 @@ async function opEnumerate(flags: Record<string, string>): Promise<void> {
       client.close();
       fail(`MCP bridge: no search-shaped tool found among [${tools.map((t) => t.name).join(", ")}]; set MCP_SEARCH_TOOL to force one`, 1);
     }
-    const queryArg = pickQueryArg(tool, envOverride("MCP_QUERY_ARG"));
+    const queryArgOverride = requireValidQueryArgOverride(tool, () => client.close());
+    const queryArg = pickQueryArg(tool, queryArgOverride);
     let extraArgs: Record<string, unknown> = {};
     const rawToolArgs = process.env.MCP_TOOL_ARGS?.trim();
     if (rawToolArgs) {
