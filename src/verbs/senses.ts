@@ -681,6 +681,10 @@ export const viewVerb: VerbSpec = {
     let archiveBucket: string | undefined;
     let at = ctx.opts.at ? String(ctx.opts.at) : undefined;
     const rec = ctx.case.recordById(ctx.input);
+    // a pending/errored CASE record's partial media must not be opened — the
+    // recordById fast-path would otherwise skip the readiness gate the archive-ref
+    // branch below (and see/enhance/exif/verify) all apply (thread-2 class).
+    if (rec && !isReady(rec)) return [errorRecord("view", `view input: record ${rec.id} isn't ready (state=${rec.state ?? "?"})`)];
     if (!rec) {
       // capture ids / archive:<bucket>/<item> refs / raw bucket paths go through
       // the SHARED resolver (retired archive files error, like the senses)

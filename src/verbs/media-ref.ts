@@ -163,13 +163,19 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
   // trace the bucket without the caller re-typing the full archive: ref.
   const recArchive = (r: OvercastRecord): string | undefined =>
     typeof r.meta?.archive === "string" ? r.meta.archive : undefined;
+  // Always carry the resolved `record` alongside `recordId` — not just for
+  // archive/bucket refs. A consumer's readiness/verb gate keyed on
+  // `resolved.record` (forensics, see/enhance/view, capture) would otherwise fire
+  // ONLY for archive refs and silently skip a pending/errored CASE record (which
+  // has recordId but, without this, no record) — the class behind the face
+  // `--match` gate miss. One place sets it so no call site has to re-look-up.
   const rec = c.recordById(ref);
-  if (rec?.media?.ref) return { ref: rec.media.ref, recordId: rec.id, ...(recArchive(rec) ? { archive: recArchive(rec) } : {}) };
+  if (rec?.media?.ref) return { ref: rec.media.ref, recordId: rec.id, record: rec, ...(recArchive(rec) ? { archive: recArchive(rec) } : {}) };
   const byCapture = c.records().find((r) => {
     if (r.verb !== "capture" || !r.media?.ref || !r.payload || typeof r.payload !== "object") return false;
     return (r.payload as Record<string, unknown>).capture_id === ref;
   });
-  if (byCapture?.media?.ref) return { ref: byCapture.media.ref, recordId: byCapture.id, ...(recArchive(byCapture) ? { archive: recArchive(byCapture) } : {}) };
+  if (byCapture?.media?.ref) return { ref: byCapture.media.ref, recordId: byCapture.id, record: byCapture, ...(recArchive(byCapture) ? { archive: recArchive(byCapture) } : {}) };
   // a raw ABSOLUTE path into a bucket honors the manifest like its archive: ref
   // would (retired files error; live/in-flight ones carry the bucket + their
   // owning record so meta.archive and the readiness gates apply)

@@ -13,7 +13,7 @@ import { indexVerb } from "./index.js";
 import { similarVerb } from "./similar.js";
 import { clusterVerb } from "./cluster.js";
 import { voiceVerb } from "./voice.js";
-import { isAv } from "./media-ref.js";
+import { isAv, isImage } from "./media-ref.js";
 import { join } from "node:path";
 
 export const DEFAULT_SIGNAL_BY_INDEX_TYPE: Record<string, string[]> = {
@@ -128,19 +128,25 @@ export function addVideoRoute(setup: CaseSetup, ref: string, signals: string[]):
   }
 }
 
-export function folderMediaFiles(folder: string): string[] {
+/** Enumerate media files under a folder for setup routing. `includeImages` picks
+ *  up still images too — an ARCHIVE bucket stores images and routes every item
+ *  (incl. stills, via backfill) into image-capable indexes, so its `--folder`
+ *  must not silently drop a folder of reference photos. Case setup stays AV-only
+ *  (its `--folder` is investigation footage; it never auto-routes images). */
+export function folderMediaFiles(folder: string, opts: { includeImages?: boolean } = {}): string[] {
   if (!existsSync(folder)) return [];
+  const wanted = (path: string) => isAv(path) || (opts.includeImages === true && isImage(path));
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) walk(path);
-      else if (entry.isFile() && isAv(path)) out.push(path);
+      else if (entry.isFile() && wanted(path)) out.push(path);
     }
   };
   try {
     if (statSync(folder).isDirectory()) walk(folder);
-    else if (statSync(folder).isFile() && isAv(folder)) out.push(folder);
+    else if (statSync(folder).isFile() && wanted(folder)) out.push(folder);
   } catch {
     return [];
   }

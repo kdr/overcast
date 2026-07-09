@@ -491,6 +491,32 @@ test("archive refs gate on the BUCKET record's readiness/verb, not an active-cas
   }
 });
 
+test("reading verbs gate a pending CASE record, not just bucket refs (thread-2 class, root fix)", async () => {
+  const env = makeEnv();
+  try {
+    // a pending case capture: resolveMediaRef returns recordId but (pre-fix) no
+    // `record`, so a readiness gate keyed on resolved.record fired ONLY for
+    // archive refs and silently skipped this. resolveMediaRef now always carries
+    // `record`, so every reading verb gates it like it gates a pending bucket ref.
+    const clip = seedFile(env, "pending.mp4", "partial");
+    const pend = makeRecord({ verb: "capture", format: "json", payload: { capture_id: "cap_pending.mp4", path: clip }, media: { ref: clip }, state: "pending" });
+    env.c.writeRecord(pend);
+    const { seeVerb, enhanceVerb, viewVerb } = await import("../../src/verbs/senses.ts");
+    const { exifVerb, verifyVerb } = await import("../../src/verbs/forensics.ts");
+    for (const verb of [seeVerb, enhanceVerb, viewVerb, exifVerb, verifyVerb]) {
+      const out = await verb.run(ctx(env, pend.id));
+      assert.match(out[0].error ?? "", /isn't ready/, `${verb.name} gates a pending case record`);
+    }
+    // and via cap-id addressing (byCapture branch now sets record too)
+    assert.match((await exifVerb.run(ctx(env, "cap_pending.mp4")))[0].error ?? "", /isn't ready/);
+    // resolveMediaRef surfaces the record for both id forms
+    assert.equal(resolveMediaRef(env.c, pend.id).record?.id, pend.id);
+    assert.equal(resolveMediaRef(env.c, "cap_pending.mp4").record?.id, pend.id);
+  } finally {
+    env.cleanup();
+  }
+});
+
 test("a retired --keep-file item is blocked by RAW absolute path too, not just archive: refs", async () => {
   const env = makeEnv();
   try {
@@ -1139,6 +1165,31 @@ test("archive setup: wizard guidance, plan saves nothing, apply mirrors + backfi
     assert.ok((payload(summary).indexed as string[]).length >= 1, "auto-index ran");
     assert.equal(findIndex(bucket.case, entry.id)?.members.length, 2);
   } finally {
+    env.cleanup();
+  }
+});
+
+test("archive setup --folder routes still images too (buckets aren't AV-only)", async () => {
+  const env = makeEnv();
+  const folder = mkdtempSync(join(tmpdir(), "oc-arch-folder-"));
+  try {
+    await runArchive(env, "init", ["refs"]);
+    // a folder of reference photos + one video + an ignored non-media file
+    writeFileSync(join(folder, "a.png"), "png");
+    writeFileSync(join(folder, "b.jpg"), "jpg");
+    writeFileSync(join(folder, "clip.mp4"), "vid");
+    writeFileSync(join(folder, "readme.txt"), "ignore");
+
+    const applied = await runArchive(env, "setup", ["refs"], { index: "stills:image-ransac", folder, yes: true });
+    const setupRec = applied.find((r) => r.verb === "archive" && payload(r).op === "archive_setup")!;
+    // folderMediaFiles picks up the 2 images + the video (not the .txt) — pre-fix
+    // it dropped the images and reported 1 media file
+    assert.match(JSON.stringify(payload(setupRec).applied_operations), /folder select: .*\(3 media files\)/);
+    const saved = loadSetup(openBucket("refs", env.home).bucket!.case)!;
+    const routed = saved.media.routes.map((r) => basename(r.ref)).sort();
+    assert.deepEqual(routed, ["a.png", "b.jpg", "clip.mp4"], "still images route alongside the video");
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
     env.cleanup();
   }
 });

@@ -225,7 +225,9 @@ function buildArchiveSetupChange(ctx: VerbContext, bucket: BucketHandle, base: C
   }
   for (const folder of folders) {
     if (!setup.media.folders.includes(folder)) setup.media.folders.push(folder);
-    const files = folderMediaFiles(folder);
+    // buckets store stills too — a folder of reference photos must route like the
+    // backfill of existing image items does (image-ransac/basic-clip/deepface-local)
+    const files = folderMediaFiles(folder, { includeImages: true });
     for (const file of files) addVideoRoute(setup, file, routeSignals);
     operations.push(`folder select: ${folder}${files.length ? ` (${files.length} media files)` : " (no media files found)"}`);
   }
