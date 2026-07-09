@@ -49,7 +49,13 @@ export function makeFinding(input: {
     format: "json",
     payload,
     media,
-    meta: { case: input.sourceRecord.meta?.case, provider: "automation" },
+    // an auto-suggested lead from an archive-index match (face/image/similar/
+    // audio/cluster --index archive:…) inherits the match record's bucket trace
+    meta: {
+      case: input.sourceRecord.meta?.case,
+      provider: "automation",
+      ...(typeof input.sourceRecord.meta?.archive === "string" ? { archive: input.sourceRecord.meta.archive } : {}),
+    },
     state: "ready",
   });
 }
@@ -100,6 +106,9 @@ export const findingVerb: VerbSpec = {
       let sourceRecord: string | undefined;
       let sourceVerb = "manual";
       let evidenceRef: string | undefined;
+      // a finding anchored to archived evidence traces to the bucket (like note
+      // + the derived sense records)
+      let archiveBucket: string | undefined;
       if (ctx.opts.ref != null) {
         const rawRef = String(ctx.opts.ref).trim();
         const rec = ctx.case.recordById(rawRef);
@@ -107,10 +116,12 @@ export const findingVerb: VerbSpec = {
           sourceRecord = rec.id;
           sourceVerb = rec.verb;
           evidenceRef = rec.media?.ref ?? rec.id;
+          if (typeof rec.meta?.archive === "string") archiveBucket = rec.meta.archive;
           if (rec.media?.ref) media = { ...rec.media };
         } else {
           const resolved = resolveMediaRef(ctx.case, rawRef, ctx.home);
           if (resolved.error) return [err(`--ref ${resolved.error}`)];
+          archiveBucket = resolved.archive;
           // Reject a --ref that resolves to nothing real (mirrors `note`): a
           // finding is evidence, so it must not cite a path/id that never existed.
           if (resolved.recordId == null && !resolved.archive) {
@@ -147,7 +158,7 @@ export const findingVerb: VerbSpec = {
       };
       if (ctx.opts.confidence) payload.confidence = String(ctx.opts.confidence);
       if (evidenceRef) payload.ref = evidenceRef;
-      return [makeRecord({ verb: "finding", format: "json", payload, media, meta: { case: ctx.case.dir, provider: "human" }, state: "ready" })];
+      return [makeRecord({ verb: "finding", format: "json", payload, media, meta: { case: ctx.case.dir, provider: "human", ...(archiveBucket ? { archive: archiveBucket } : {}) }, state: "ready" })];
     }
     if (action === "list") {
       const filter = (ctx.opts.state ? String(ctx.opts.state) : "open").trim().toLowerCase();

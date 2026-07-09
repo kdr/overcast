@@ -665,6 +665,55 @@ test("see/enhance frame:// refs resolve a bucket clip (archive:<bucket>/<item>)"
   }
 });
 
+test("note/finding anchored to archived evidence stamp meta.archive (direct ref + via a stamped record)", async () => {
+  const env = makeEnv();
+  try {
+    const { noteVerb } = await import("../../src/verbs/note.ts");
+    const { findingVerb } = await import("../../src/verbs/finding.ts");
+    await runArchive(env, "init", ["refs"]);
+    const clip = seedFile(env, "clip.mp4", "vid-bytes");
+    const added = await runArchive(env, "add", [clip], { to: "refs" });
+    const file = basename(String(added.find((r) => r.verb === "capture")!.media?.ref));
+
+    // anchoring directly to an archive: ref → the record traces to the bucket,
+    // and payload.ref keeps the archive: string for the citation
+    const note = await noteVerb.run(ctx(env, "known drone", [], { ref: `archive:refs/${file}` }));
+    assert.equal(note[0].meta?.archive, "refs");
+    assert.equal((note[0].payload as Record<string, unknown>).ref, `archive:refs/${file}`);
+    const finding = await findingVerb.run(ctx(env, "create", ["confirmed sighting"], { ref: `archive:refs/${file}`, target: "drone" }));
+    assert.equal(finding[0].meta?.archive, "refs");
+
+    // anchoring to a CASE record that already carries meta.archive (e.g. a
+    // capture archive:… pull) propagates the trace too
+    const pull = await captureVerb.run(ctx(env, `archive:refs/${file}`));
+    persistRecords(env.c, pull);
+    const note2 = await noteVerb.run(ctx(env, "same clip", [], { ref: pull[0].id }));
+    assert.equal(note2[0].meta?.archive, "refs");
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("an auto-suggested finding inherits the archive-index match record's bucket trace", async () => {
+  const env = makeEnv();
+  try {
+    const { makeFinding } = await import("../../src/verbs/finding.ts");
+    // a match record produced against an archive index (stamped meta.archive)
+    const match = makeRecord({
+      verb: "image",
+      format: "json",
+      payload: { op: "match", count: 1 },
+      media: { ref: "/case/query.png" },
+      meta: { case: env.c.dir, archive: "refs" },
+      state: "ready",
+    });
+    const lead = makeFinding({ text: "matched a known logo", target: "logo", sourceRecord: match, trigger: "signal:image-match", status: "suggested" });
+    assert.equal(lead.meta?.archive, "refs", "the suggested lead traces to the bucket the match hit");
+  } finally {
+    env.cleanup();
+  }
+});
+
 // ---- index remove/delete against a bucket index -----------------------------------
 
 test("index remove --from / delete on archive:… manage the BUCKET's index", async () => {

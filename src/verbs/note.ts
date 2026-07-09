@@ -58,6 +58,10 @@ export const noteVerb: VerbSpec = {
     let media: MediaRef | undefined;
     let relatedRecord: string | undefined;
     let evidenceRef: string | undefined;
+    // a note anchored to archived evidence traces to the bucket, like the
+    // derived sense records — from a case record that already carries it, or
+    // from an archive:<bucket>/<item> ref
+    let archiveBucket: string | undefined;
 
     if (ctx.opts.ref != null) {
       const rawRef = String(ctx.opts.ref).trim();
@@ -65,6 +69,7 @@ export const noteVerb: VerbSpec = {
       if (rec) {
         relatedRecord = rec.id;
         evidenceRef = rec.media?.ref ?? rawRef;
+        if (typeof rec.meta?.archive === "string") archiveBucket = rec.meta.archive;
         // Link to the same media, but do NOT inherit the source record's
         // timestamp. A human note is only time-anchored when the analyst says so
         // with --at.
@@ -72,6 +77,7 @@ export const noteVerb: VerbSpec = {
       } else {
         const resolved = resolveMediaRef(ctx.case, rawRef, ctx.home);
         if (resolved.error) return [err(`--ref ${resolved.error}`)];
+        archiveBucket = resolved.archive;
         if (resolved.recordId == null && !resolved.archive) {
           const isUrl = /^https?:\/\//i.test(rawRef);
           // absolute path, or a case-relative path CONTAINED in the case dir (a
@@ -113,7 +119,7 @@ export const noteVerb: VerbSpec = {
         format: "md",
         payload,
         media,
-        meta: { provider: "human", case: ctx.case.dir },
+        meta: { provider: "human", case: ctx.case.dir, ...(archiveBucket ? { archive: archiveBucket } : {}) },
         state: "ready",
       }),
     ];

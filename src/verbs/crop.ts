@@ -10,6 +10,7 @@ import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { cropStill, modalityFromExt, probe, type CropBox } from "../media/ffmpeg.js";
 import { fetchMediaToCase } from "../media/fetch.js";
 import { badNumber } from "./validate.js";
+import { stampArchive } from "../archive.js";
 import type { VerbSpec } from "../registry/types.js";
 
 type CropKind = "face" | "object";
@@ -343,6 +344,9 @@ export const cropVerb: VerbSpec = {
 
     const source = ctx.case.recordById(ctx.input);
     if (!source) return [err(`record not found: ${ctx.input}`)];
+    // a detection produced from archived media (a see/face/image record stamped
+    // meta.archive) → the crop evidence traces to the same bucket, like grid/view
+    const sourceArchive = typeof source.meta?.archive === "string" ? source.meta.archive : undefined;
     let candidates = detectionsFrom(source);
     if (!candidates.length) return [err(`record ${ctx.input} has no face/object detections to crop`)];
 
@@ -426,7 +430,7 @@ export const cropVerb: VerbSpec = {
         recs.push(err(`crop failed for ${cand.id}: ${(e as Error).message}`));
         continue;
       }
-      recs.push(makeRecord({
+      recs.push(stampArchive(makeRecord({
         verb: "crop",
         format: "json",
         payload: {
@@ -452,7 +456,7 @@ export const cropVerb: VerbSpec = {
         media: { ref: out, at: cand.at },
         meta: { provider: "ffmpeg", case: ctx.case.dir },
         state: "ready",
-      }));
+      }), sourceArchive));
     }
     return recs;
   },
