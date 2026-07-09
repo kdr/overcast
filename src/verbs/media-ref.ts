@@ -115,13 +115,19 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
     }
     return { ref, error: `${ref} not found (no matching record, capture id, or media file in bucket '${parsed.bucket}')` };
   }
+  // a resolved case record carries its own bucket trace forward: `capture
+  // archive:…` stamps meta.archive on the case copy, so resolving that copy by
+  // record id / cap_ id keeps `archive` set — downstream stampArchive/refBucket
+  // trace the bucket without the caller re-typing the full archive: ref.
+  const recArchive = (r: OvercastRecord): string | undefined =>
+    typeof r.meta?.archive === "string" ? r.meta.archive : undefined;
   const rec = c.recordById(ref);
-  if (rec?.media?.ref) return { ref: rec.media.ref, recordId: rec.id };
+  if (rec?.media?.ref) return { ref: rec.media.ref, recordId: rec.id, ...(recArchive(rec) ? { archive: recArchive(rec) } : {}) };
   const byCapture = c.records().find((r) => {
     if (r.verb !== "capture" || !r.media?.ref || !r.payload || typeof r.payload !== "object") return false;
     return (r.payload as Record<string, unknown>).capture_id === ref;
   });
-  if (byCapture?.media?.ref) return { ref: byCapture.media.ref, recordId: byCapture.id };
+  if (byCapture?.media?.ref) return { ref: byCapture.media.ref, recordId: byCapture.id, ...(recArchive(byCapture) ? { archive: recArchive(byCapture) } : {}) };
   // a raw ABSOLUTE path into a bucket honors the manifest like its archive: ref
   // would (retired files error; live/in-flight ones carry the bucket + their
   // owning record so meta.archive and the readiness gates apply)

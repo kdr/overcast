@@ -676,6 +676,9 @@ export const viewVerb: VerbSpec = {
     }
     if (rec?.media?.ref) {
       mediaPath = rec.media.ref;
+      // a record already stamped with its bucket (e.g. a `capture archive:…`
+      // copy) carries that trace onto the view record too
+      if (typeof rec.meta?.archive === "string") archiveBucket = rec.meta.archive;
       const a = rec.media.at;
       if (typeof a === "number") {
         markers = [a];

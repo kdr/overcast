@@ -14,6 +14,7 @@ import { contactSheet, probe, parseTimecode, type GridCell } from "../media/ffmp
 import { escapeHtml } from "../report/html.js";
 import { openHtmlPlayer } from "../media/view.js";
 import { resolveVideoArg } from "./media-ref.js";
+import { stampArchive } from "../archive.js";
 import { badNumber } from "./validate.js";
 import type { VerbSpec } from "../registry/types.js";
 
@@ -167,7 +168,9 @@ export const gridVerb: VerbSpec = {
       }
 
       return [
-        makeRecord({
+        // in-place triage of an archived clip traces to its bucket, like the
+        // other senses (grid's own montage still lives in the case media dir)
+        stampArchive(makeRecord({
           verb: "grid",
           format: "json",
           payload: {
@@ -191,7 +194,7 @@ export const gridVerb: VerbSpec = {
           media: { ref: sheet.output },
           meta: { provider: "ffmpeg", case: ctx.case.dir },
           state: "ready",
-        }),
+        }), resolved.archive),
       ];
     } catch (e) {
       return [err(`grid failed: ${(e as Error).message}`)];

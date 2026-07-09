@@ -573,6 +573,46 @@ test("see/view/enhance resolve archive: refs and block retired raw paths like th
   }
 });
 
+test("a case record carrying meta.archive keeps the bucket trace when resolved by id/cap-id", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const clip = seedFile(env, "clip.mp4", "vid-bytes");
+    const added = await runArchive(env, "add", [clip], { to: "refs" });
+    const file = basename(String(added.find((r) => r.verb === "capture")!.media?.ref));
+
+    // pull a copy into the case — the case capture record is stamped meta.archive
+    const pulls = await captureVerb.run(ctx(env, `archive:refs/${file}`));
+    persistRecords(env.c, pulls);
+    const caseCap = pulls[0];
+    assert.equal(caseCap.meta?.archive, "refs");
+    const capId = String(payload(caseCap).capture_id);
+
+    // resolving that CASE copy by record id or capture id keeps archive set,
+    // so downstream senses (watch/listen/see/grid/view) re-stamp the bucket
+    // without the caller re-typing the full archive: ref
+    const byRec = resolveMediaRef(env.c, caseCap.id, env.home);
+    assert.equal(byRec.archive, "refs", "record-id resolution carries the bucket trace");
+    const byCap = resolveMediaRef(env.c, capId, env.home);
+    assert.equal(byCap.archive, "refs", "capture-id resolution carries the bucket trace");
+    // and resolveVideoArg (watch/listen/grid) surfaces it
+    assert.equal(resolveVideoArg(env.c, caseCap.id, "watch input", { requireReady: false, home: env.home }).archive, "refs");
+
+    // view on an archived-origin case record stamps meta.archive (use an image
+    // item so view takes the os-open path — no ffmpeg in the unit env)
+    const png = seedFile(env, "still.png", "png-bytes");
+    const pngAdd = await runArchive(env, "add", [png], { to: "refs" });
+    const pngFile = basename(String(pngAdd.find((r) => r.verb === "capture")!.media?.ref));
+    const pngPull = await captureVerb.run(ctx(env, `archive:refs/${pngFile}`));
+    persistRecords(env.c, pngPull);
+    const { viewVerb } = await import("../../src/verbs/senses.ts");
+    const viewed = await viewVerb.run(ctx(env, pngPull[0].id, [], { "no-open": true }));
+    assert.equal(viewed[0].meta?.archive, "refs");
+  } finally {
+    env.cleanup();
+  }
+});
+
 // ---- index remove/delete against a bucket index -----------------------------------
 
 test("index remove --from / delete on archive:… manage the BUCKET's index", async () => {
