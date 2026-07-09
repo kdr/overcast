@@ -10,6 +10,7 @@ import { caseVerb } from "../../src/verbs/case.ts";
 import { addSource, listSources } from "../../src/state/source.ts";
 import { addTarget, listTargets } from "../../src/state/target.ts";
 import { addIndex, addMember } from "../../src/state/index.ts";
+import { emptySetup, saveSetup, loadSetup } from "../../src/state/setup.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 function withCase(fn: (dir: string) => Promise<void>) {
@@ -22,6 +23,21 @@ function withCase(fn: (dir: string) => Promise<void>) {
 const ctx = (dir: string, input: string, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext =>
   ({ input, rest, opts, case: openCase(dir), profile: defaultProfile() });
 const noIndex = { "no-index": true };
+
+test("case setup --memory preserves a prior cloudglue opt-in (Bugbot #72)", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const setup = emptySetup("cg");
+    setup.completed = true;
+    setup.memory.cloudglue = { index: "col_pinned" }; // opted in via `setup memory cloudglue`
+    saveSetup(c, setup);
+    // switching the memory backend must NOT silently drop the cloud tier opt-in
+    await caseVerb.run(ctx(dir, "setup", ["edit"], { memory: "qmd", yes: true, ...noIndex }));
+    const after = loadSetup(c);
+    assert.equal(after?.memory.backend, "qmd", "backend switched to qmd");
+    assert.deepEqual(after?.memory.cloudglue, { index: "col_pinned" }, "cloudglue opt-in must survive a --memory change");
+  });
+});
 
 test("case info reports record count + per-verb counts", async () => {
   await withCase(async (dir) => {

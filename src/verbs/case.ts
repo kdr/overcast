@@ -746,6 +746,10 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   if (memories.length) {
     const backend = normalizeSetupMemory(memories.at(-1)!)!;
     setup.memory = {
+      // preserve non-backend memory fields (esp. the `cloudglue` opt-in set via
+      // `setup memory cloudglue`) — reconstructing from scratch would silently drop
+      // the cloud tier so `ask --deep` stops using it without warning (Bugbot #72).
+      ...setup.memory,
       backend,
       signals: signals.length ? signals : (setup.memory?.signals ?? DEFAULT_LOCAL_MEMORY_SIGNALS),
     };
