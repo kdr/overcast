@@ -377,4 +377,8 @@ test("voice_match.py: diarize tier is gated + falls back, and handles pyannote A
   assert.match(src, /embedding_source = "recomputed"/);
   // the model guard refuses to mix embedding spaces within an index
   assert.match(src, /unset OVERCAST_VOICE_MODEL or create a new voice-print index/);
+  // the persisted per-index speech floor is honored (index_config returns it,
+  // and op_search threads it into reference_vector — not the hardcoded default)
+  assert.match(src, /"minSpeechSeconds": float\(cfg\.get\("minSpeechSeconds"\)/);
+  assert.match(src, /reference_vector\(args\.input, cfg\["window"\], cfg\["minSpeechSeconds"\]\)/);
 });

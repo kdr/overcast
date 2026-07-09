@@ -126,7 +126,9 @@ export interface VoicePrintConfig {
   window: number;
   /** query hop seconds for pairwise scans (members embed hop == window) */
   step: number;
-  /** reference / diarized-speaker net-speech floor (seconds) */
+  /** reference net-speech reliability floor (seconds) — a `voice match --index`
+   *  search reads this from the index config; pairwise/diarize use the provider
+   *  default (they have no index config) */
   minSpeechSeconds: number;
   /** mono resample rate before embedding */
   sampleRate: number;

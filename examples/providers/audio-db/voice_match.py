@@ -29,7 +29,9 @@ STEP_S = 0.75           # query hop for pairwise scans (members embed hop == win
 FRAME_S = 0.03          # RMS VAD-lite frame
 SPEECH_DBFS = -40.0     # voiced = frame RMS above this dBFS
 MIN_WINDOW_SPEECH_S = 1.0   # skip windows with less voiced audio
-MIN_REF_SPEECH_S = 3.0      # reference / diarized-speaker net-speech floor
+MIN_REF_SPEECH_S = 3.0      # DEFAULT reference / diarized-speaker net-speech floor
+                            # (an index search overrides it with the index's
+                            # persisted VoicePrintConfig.minSpeechSeconds)
 MAX_QUERY_WINDOWS = 2400    # ~30 min at 0.75s hop
 MAX_MEMBER_WINDOWS = 1200   # ~60 min at 3s windows
 CENTROID_MAX_S = 30.0       # recomputed-centroid speech cap per speaker
@@ -275,8 +277,10 @@ def median(values):
     return vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2.0
 
 
-def reference_vector(ref, window):
-    """Pooled reference embedding: (vec (D,), speech_seconds, warnings)."""
+def reference_vector(ref, window, min_speech=MIN_REF_SPEECH_S):
+    """Pooled reference embedding: (vec (D,), speech_seconds, warnings). The
+    reliability floor `min_speech` defaults to MIN_REF_SPEECH_S; an index search
+    passes the index's persisted VoicePrintConfig.minSpeechSeconds instead."""
     if not Path(ref).exists():
         fail("reference sample not found: %s" % ref)
     if not has_audio(ref):
@@ -289,8 +293,8 @@ def reference_vector(ref, window):
     if speech < 1.0:
         fail("reference has under 1s of speech (%.1fs) — provide a longer voice sample" % speech)
     warnings = []
-    if speech < MIN_REF_SPEECH_S:
-        warnings.append("reference has only %.1fs of speech (< %.0fs) — scores are unreliable" % (speech, MIN_REF_SPEECH_S))
+    if speech < min_speech:
+        warnings.append("reference has only %.1fs of speech (< %.1fs) — scores are unreliable" % (speech, min_speech))
     wins, _, _ = plan_windows(samples, mask, frame, window, window, MAX_MEMBER_WINDOWS)
     if not wins:
         wins = [(0, samples.size)]  # short/quiet sample: embed the whole thing
@@ -316,6 +320,7 @@ def index_config(args):
         "window": float(cfg.get("window") or WINDOW_S),
         "step": float(cfg.get("step") or STEP_S),
         "sampleRate": int(cfg.get("sampleRate") or SR),
+        "minSpeechSeconds": float(cfg.get("minSpeechSeconds") or MIN_REF_SPEECH_S),
     }
 
 
@@ -636,7 +641,8 @@ def op_search(args):
     if not members:
         fail("local voice-print index has no members — enroll some with `voice add <clip> --index %s`" % args.index)
     cfg = index_config(args)
-    ref_vec, ref_speech, warnings = reference_vector(args.input, cfg["window"])
+    # honor the index's persisted speech floor (VoicePrintConfig.minSpeechSeconds)
+    ref_vec, ref_speech, warnings = reference_vector(args.input, cfg["window"], cfg["minSpeechSeconds"])
     import numpy as np
     results = []
     unreadable = 0
