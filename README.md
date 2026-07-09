@@ -501,7 +501,7 @@ Built-in source refs:
 - `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` / `webcam:category:<slug>` / `webcam:<id>` — live public webcams (Windy Webcams API); each hit's `media.ref` is the current still, re-captured every `monitor` pass (`recapture`).
 - `facesearch:<image url or local path>` — **opt-in** reverse **face** search (Apify); ToS/privacy-gated, never a default source.
 - `dork:<google dork>` — Google dorking via Serper.dev: real Google SERPs that **honor operators** (`site:`, `filetype:`, `inurl:`, `intitle:`, `ext:`, `-term`, `OR`), unlike `web`. The result page is captured as evidence. **Authorized recon only**, never a default source.
-- `shodan:<search query>` / `shodan:<ip>` — host/service/banner intelligence via Shodan: search filters (`org:`, `net:`, `ssl:`, `product:`, `port:`, …) or a bare IP → full host lookup. Hits carry ip/port/org/product/cpe/vulns/geo; `media.ref` is the `shodan.io/host/<ip>` report page. Strong `monitor` fit. **Authorized recon only**, never a default source.
+- `shodan:<search query>` / `shodan:<ip>` — host/service/banner intelligence via Shodan: search filters (`org:`, `net:`, `ssl:`, `product:`, `port:`, …) or a bare IP → full host lookup. Hits carry ip/port/org/product/cpe/vulns/geo; `media.ref` is the `shodan.io/host/<ip>` report page (`#<port>-<transport>` fragment so each service is distinct). Strong `monitor` fit. **Authorized recon only**, never a default source. **Opt-in (sensitive):** `OVERCAST_SHODAN_SCREENSHOTS=1` also materializes exposed-host screenshots (RDP/VNC/HTTP/camera → `see`/`face`/`crop`) and surfaces RTSP stream endpoints — real unwitting hosts, off by default.
 
 ### Profiles
 

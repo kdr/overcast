@@ -7,21 +7,35 @@
 # vulnerabilities of real hosts. Use only against infrastructure you are permitted
 # to investigate. Never a default binding — you must bind it.
 #
-# Bind with:  overcast source add shodan:'org:"Example Corp" port:22'
-#             overcast source add shodan:8.8.8.8            # single-host lookup
+# ⚠️⚠️  SENSITIVE, OPT-IN media extraction. With OVERCAST_SHODAN_SCREENSHOTS set to
+# an affirmative value (1/true/yes/on), this provider ALSO materializes the
+# SCREENSHOTS Shodan captures from exposed RDP/VNC/X11/HTTP/camera services into the
+# case media dir (so `see`/`face`/`crop` can analyze them) and surfaces RTSP
+# (port 554) stream endpoints in `payload.stream`. These are the live/near-live
+# screens and camera views of REAL, unwitting hosts — pulling them raises serious
+# privacy, ToS, and legal considerations. Enabling the flag is your explicit
+# acknowledgement that you are authorized to do so. It is OFF by default; without
+# it, hits carry only metadata + the shodan.io host page.
+#
+# Bind with:  overcast source add 'shodan:org:"Example Corp" port:22'
+#             overcast source add 'shodan:8.8.8.8'           # single-host lookup
 #             overcast scan --source shodan --pull
-#             overcast monitor --source shodan --every 6h   # standing exposure watch
+#             overcast monitor --source shodan --every 6h    # standing exposure watch
+#             OVERCAST_SHODAN_SCREENSHOTS=1 overcast scan --source shodan \
+#               --query 'has_screenshot:true product:VNC' --pull   # opt-in screenshots
 # Refs / queries:
 #   <search query>   — Shodan search filters (org: net: ssl: hostname: product:
-#                      port: country: …). Bills 1 query credit per 100 results.
+#                      port: has_screenshot: screenshot.label: …). Bills 1 query
+#                      credit per 100 results.
 #   <ip>             — a bare IPv4/IPv6 → full host lookup (one hit per service).
 # Key: SHODAN_API_KEY (https://account.shodan.io).
-# Each hit's media.ref is the shodan.io host report page, so `capture`/--pull
-# stores a real evidence page (host intel itself rides in the loose payload).
+# Each hit's media.ref is the shodan.io host report page (or, with the opt-in flag,
+# a materialized screenshot); the host intel itself rides in the loose payload.
 # Implements: enumerate --query <q> [--limit N] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
 
 SHODAN="${SHODAN_API_KEY:-}"
+API="https://api.shodan.io"
 
 need() {
   if [ -z "$SHODAN" ]; then
@@ -30,10 +44,29 @@ need() {
   fi
 }
 
+# OPT-IN gate for the sensitive screenshot / RTSP media extraction (see header).
+# OFF unless the operator sets an affirmative value — their acknowledgement that
+# they are authorized to pull media from real exposed hosts.
+shots_enabled() {
+  case "$(printf '%s' "${OVERCAST_SHODAN_SCREENSHOTS:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Surface a Shodan error body ({"error":"…"}) that arrives with a 2xx status (e.g.
+# insufficient query credits) — `curl -f` only catches non-2xx, so without this an
+# error JSON would be mapped to zero hits and exit 0 as a fake-clean empty scan.
+check_api_error() { # <response-json>
+  local e
+  e="$(printf '%s' "$1" | jq -r '.error // empty' 2>/dev/null)"
+  [ -z "$e" ] || { echo "shodan API error: $e" >&2; exit 1; }
+}
+
 op="${1:-enumerate}"; shift || true
 case "$op" in
   init)     need; exit 0 ;;
-  describe) echo '{"source":"shodan","emits":"scan.hit","needs":["SHODAN_API_KEY"]}'; exit 0 ;;
+  describe) echo '{"source":"shodan","emits":"scan.hit","needs":["SHODAN_API_KEY"],"optional_env":["OVERCAST_SHODAN_SCREENSHOTS (opt-in: materialize exposed-host screenshots + RTSP endpoints — sensitive)"]}'; exit 0 ;;
 esac
 
 case "$op" in
@@ -59,9 +92,13 @@ case "$op" in
     esac
 
     if [ "$is_ip" -eq 1 ]; then
-      if ! resp="$(curl -fsS -m 30 "https://api.shodan.io/shodan/host/${query}?key=${SHODAN}")"; then
+      # URL-encode the IP for the path segment — an IPv6's colons must not ride raw
+      # into the request path (@uri leaves an IPv4's dots untouched).
+      ipenc="$(jq -rn --arg v "$query" '$v|@uri')"
+      if ! resp="$(curl -fsS -m 30 "$API/shodan/host/${ipenc}?key=${SHODAN}")"; then
         echo "shodan host lookup failed for '$query' (unknown host or bad key)" >&2; exit 1
       fi
+      check_api_error "$resp"
       # host lookup: top-level host fields + a .data[] of services. Fold the
       # host-level context into each service so both paths feed one shared mapper.
       arr="$(printf '%s' "$resp" | jq -c '. as $h
@@ -73,18 +110,58 @@ case "$op" in
                                latitude:$h.latitude, longitude:$h.longitude } } ]' 2>/dev/null)"
     else
       q="$(jq -rn --arg q "$query" '$q|@uri')"
-      if ! resp="$(curl -fsS -m 30 "https://api.shodan.io/shodan/host/search?key=${SHODAN}&query=${q}")"; then
+      if ! resp="$(curl -fsS -m 30 "$API/shodan/host/search?key=${SHODAN}&query=${q}")"; then
         echo "shodan search failed for '$query' (check filters / query credits)" >&2; exit 1
       fi
+      check_api_error "$resp"
       arr="$(printf '%s' "$resp" | jq -c '[ (.matches // [])[] ]' 2>/dev/null)"
     fi
-    # A non-JSON / error body (e.g. {"error":"..."}) leaves arr empty → surface it
-    # rather than a silent zero-result scan.
+    # A non-JSON body leaves arr empty → surface it rather than a silent zero-result
+    # scan. (A genuine empty result is a valid "[]" and maps to zero hits.)
     [ -n "$arr" ] || { echo "shodan: unexpected response: $(printf '%s' "$resp" | head -c 200)" >&2; exit 1; }
 
-    printf '%s' "$arr" | jq -c --argjson n "$limit" '[ .[] | {
+    # OPT-IN, SENSITIVE (see header): decode each service's SCREENSHOT into the case
+    # media dir and tag RTSP stream endpoints. Only runs when the operator has set
+    # OVERCAST_SHODAN_SCREENSHOTS — their acknowledgement that these are real
+    # exposed hosts. The heavy base64 is dropped after decoding so records stay lean.
+    if shots_enabled; then
+      echo "shodan: screenshot/RTSP extraction ENABLED — materializing media from REAL exposed hosts; authorized use only" >&2
+      shotdir="${OVERCAST_MEDIA_DIR:-$PWD}/shodan-shots"
+      mkdir -p "$shotdir" 2>/dev/null || true
+      tmp="$(mktemp 2>/dev/null || echo "${shotdir}/.arr.$$")"
+      : > "$tmp"
+      while IFS= read -r el; do
+        data="$(printf '%s' "$el" | jq -r '(.screenshot.data // .opts.screenshot.data) // empty' 2>/dev/null)"
+        shot=""
+        if [ -n "$data" ]; then
+          ipp="$(printf '%s' "$el" | jq -rj '"\(.ip_str // "host")_\(.port // 0)"' 2>/dev/null | tr -c 'A-Za-z0-9._-' '_')"
+          f="$shotdir/${ipp}.jpg"
+          if printf '%s' "$data" | base64 -d > "$f" 2>/dev/null && [ -s "$f" ]; then shot="$f"; fi
+        fi
+        # inject the local screenshot path + labels + rtsp stream; DROP the heavy
+        # base64 so it never bloats the record (the decoded file is the evidence).
+        printf '%s' "$el" | jq -c --arg shot "$shot" '
+          .shot_path = (if $shot == "" then null else $shot end)
+          | .screenshot_labels = ((.screenshot.labels // .opts.screenshot.labels) // [])
+          | .stream = (if (.port == 554) then ("rtsp://" + (.ip_str // "") + ":554") else null end)
+          | del(.screenshot) | del(.opts.screenshot)' >> "$tmp" 2>/dev/null
+      done < <(printf '%s' "$arr" | jq -c '.[]')
+      arr="$(jq -sc '.' "$tmp" 2>/dev/null)"
+      rm -f "$tmp"
+    fi
+
+    # Map to hits. media.ref/url carry a `#<port>` fragment so every SERVICE on a
+    # host is a distinct record (else all ports on one IP collapse to one dedup key,
+    # and monitor would miss newly exposed ports). The fragment is client-only, so
+    # `fetch` still curls the clean host page. With the opt-in flag, a decoded
+    # screenshot becomes media.ref (image evidence for see/face/crop) and RTSP
+    # endpoints surface in payload.stream.
+    printf '%s' "$arr" | jq -c --argjson n "$limit" '[ .[]
+      | (("https://www.shodan.io/host/" + (.ip_str // ""))) as $page
+      | ($page + (if (.port != null) then ("#" + (.port|tostring) + (if (.transport // "") != "" then "-" + .transport else "" end)) else "" end)) as $ref
+      | {
         title: (((.ip_str // "") + ":" + ((.port // 0)|tostring)) + (if (.org // "") != "" then "  " + .org else "" end)),
-        url: ("https://www.shodan.io/host/" + (.ip_str // "")),
+        url: $ref,
         source: "shodan",
         published: (.timestamp // null),
         snippet: (([(.product // ""), ((.version // "")|tostring), (.transport // "")] | map(select(. != "")) | join(" "))
@@ -105,7 +182,11 @@ case "$op" in
         lat: (.location.latitude // null),
         lng: (.location.longitude // null),
         vulns: ((.vulns // {}) | if type == "object" then keys else . end),
-        media: { ref: ("https://www.shodan.io/host/" + (.ip_str // "")) }
+        screenshot: ((.shot_path // null) != null),
+        screenshot_labels: (.screenshot_labels // []),
+        stream: (.stream // null),
+        host_page: $page,
+        media: { ref: (if (.shot_path // null) != null then .shot_path else $ref end) }
       } | select(.ip != null) ] | .[0:$n]'
     ;;
   fetch)

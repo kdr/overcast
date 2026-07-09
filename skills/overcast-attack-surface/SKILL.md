@@ -43,7 +43,45 @@ overcast scan --source shodan --query '<ip>' --json                             
 
 Useful filters for `--query`: `org:"…"`, `net:<CIDR>`, `ssl:<domain>`,
 `hostname:<domain>`, `product:<name>`, `port:<n>`, `country:<ISO2>`,
-`vuln:<CVE>` (membership).
+`vuln:<CVE>` (membership). Every service on a host is a distinct hit (the
+`media.ref`/`url` carry a `#<port>-<transport>` fragment), so `monitor` catches
+newly exposed ports on an already-seen IP.
+
+## Screenshots & camera feeds — OPT-IN, SENSITIVE
+
+> **⚠️⚠️ Read before enabling.** Shodan captures **screenshots** of exposed
+> RDP / VNC / X11 / HTTP / camera services, and indexes **RTSP camera streams**
+> (port 554). These are the live/near-live screens and camera views of **REAL,
+> unwitting people and organizations**. Materializing them raises serious
+> **privacy, ToS, and legal** considerations, and in some jurisdictions accessing
+> an exposed system — even just viewing it — may itself be unlawful. Only enable
+> this when you have **explicit authorization** for the specific targets, a lawful
+> basis, and a legitimate investigative need. Do **not** connect to, log into, or
+> interact with any host. This is off by default and you must acknowledge the
+> sensitivity by setting the flag yourself.
+
+Set `OVERCAST_SHODAN_SCREENSHOTS=1` (your acknowledgement) to make the `shodan`
+source decode each service's screenshot into the case media store — turning it
+into ordinary image evidence `see`/`face`/`crop` can analyze — and surface RTSP
+endpoints in `payload.stream`. Without the flag, hits carry metadata + the host
+page only.
+
+```bash
+export OVERCAST_SHODAN_SCREENSHOTS=1     # explicit opt-in: real exposed hosts, authorized use only
+
+# Exposed desktops/logins (RDP/VNC): capture the screenshots, then caption/OCR them.
+overcast scan --source shodan --query 'has_screenshot:true product:VNC' --limit 10 --pull --json
+overcast see <screenshot-capture-id> --json          # caption + --ocr the exposed screen (see is not a --pipe target)
+# ...or auto-caption every pulled screenshot by configuring the sense chain first:
+overcast case setup edit --auto-sense see --yes --json
+
+# Network cameras: detect people in the view (face IS a valid --pipe target).
+overcast scan --source shodan --query 'has_screenshot:true screenshot.label:webcam' --limit 10 --pull --pipe face --json
+
+# RTSP live feeds (port 554): the still is captured; the live stream URL is in
+# payload.stream — capture it DELIBERATELY with ffmpeg / the dl source, never blindly.
+overcast scan --source shodan --query 'has_screenshot:true port:554' --limit 5 --json   # inspect payload.stream first
+```
 
 ## Triage → brief
 

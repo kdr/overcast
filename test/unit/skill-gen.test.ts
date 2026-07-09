@@ -80,7 +80,7 @@ const generatedSkills = [
   {
     name: "overcast-attack-surface",
     body: generateAttackSurfaceSkill,
-    verbs: ["doctor", "case init", "case setup", "source add", "scan", "monitor", "note", "finding", "ask", "brief"],
+    verbs: ["doctor", "case init", "case setup", "source add", "scan", "monitor", "see", "face", "note", "finding", "ask", "brief"],
   },
   {
     name: "overcast-visual-target-search",
