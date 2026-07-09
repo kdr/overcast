@@ -168,6 +168,16 @@ test("evaluateTriggers: two senses on the same clip fold to one text lead (share
   assert.equal(evaluateTriggers({ fresh: [listen], existing: first, targets: [nameTarget], policy: SUGGEST }).length, 0);
 });
 
+test("evaluateTriggers: two SAME-PASS senses on one clip fold to a single lead (incremental dedup)", () => {
+  // both records arrive in ONE evaluation batch (a single `fresh` array): the
+  // second candidate must see the first's freshly PUSHED finding via the hoisted
+  // all/statusMap — the invariant the O(F×N)→O(N) hoist depends on. Shared media.ref.
+  const watch = makeRecord({ verb: "watch", format: "json", payload: { content: "acme handle appears" }, media: { ref: "c.mp4" } });
+  const listen = makeRecord({ verb: "listen", format: "json", payload: { transcript: "someone says acme handle" }, media: { ref: "c.mp4" } });
+  const out = evaluateTriggers({ fresh: [watch, listen], existing: [], targets: [nameTarget], policy: SUGGEST });
+  assert.equal(out.length, 1);
+});
+
 test("evaluateTriggers: CLOSED lines accumulate no new suggestions (text + score)", () => {
   const closedName: TargetEntry = { ...nameTarget, status: "dead-end" };
   const closedImg: TargetEntry = { ...imageTarget, status: "answered" };

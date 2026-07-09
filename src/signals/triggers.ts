@@ -308,7 +308,18 @@ export function evaluateTriggers(opts: EvaluateTriggerOpts): OvercastRecord[] {
   // match is intrinsically interesting), it just isn't attributed to a dead line.
   const targets = opts.targets.filter((t) => !isTargetClosed(t));
   const out: OvercastRecord[] = [];
-  const seen = () => [...opts.existing, ...(opts.pending ?? []), ...out];
+  // Hoisted once per evaluation (NOT per candidate): the store copy and the
+  // finding-status map are O(N); rebuilding them per matching record made a
+  // scan --pull pass O(F × N). Freshly pushed findings are appended to `all`
+  // and applied to `statusMap` so dedup still sees same-pass findings.
+  const all: OvercastRecord[] = [...opts.existing, ...(opts.pending ?? [])];
+  const statusMap = findingStatusMap(all);
+  const pushFinding = (rec: OvercastRecord) => {
+    out.push(rec);
+    all.push(rec);
+    const p = rec.payload as Record<string, unknown>;
+    if (typeof p?.status === "string") statusMap.set(rec.id, p.status);
+  };
 
   for (const rec of opts.fresh) {
     // only true evidence records are trigger SOURCES — never operational/meta
@@ -327,10 +338,8 @@ export function evaluateTriggers(opts: EvaluateTriggerOpts): OvercastRecord[] {
     for (const target of TEXT_TARGET_VERBS.has(rec.verb) ? targets : []) {
       if (target.kind === "image") continue;
       if (!targetMatchesEvidence(target.value, haystack)) continue;
-      const all = seen();
-      const statusMap = findingStatusMap(all);
       if (hasEquivalentFinding(all, statusMap, { kind: "text-target", target: target.value, sourceRecord: rec, dismissedBlocks: mode === "suggest" })) continue;
-      out.push(
+      pushFinding(
         makeFinding({
           text: `Automated match for target '${target.value}' in ${rec.verb} record ${rec.id}`,
           target: target.value,
@@ -352,11 +361,9 @@ export function evaluateTriggers(opts: EvaluateTriggerOpts): OvercastRecord[] {
       obj(rec.payload)?.reference as string | undefined,
       sig.matched,
     ]);
-    const all = seen();
-    const statusMap = findingStatusMap(all);
     if (hasEquivalentFinding(all, statusMap, { kind: sig.kind, target: target?.value ?? "", sourceRecord: rec, dismissedBlocks: true })) continue;
     const high = highBandFor(sig.kind, thresholds);
-    out.push(
+    pushFinding(
       makeFinding({
         text: suggestionText(rec, sig, target),
         target: target?.value ?? "",
