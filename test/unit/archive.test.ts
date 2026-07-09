@@ -26,10 +26,12 @@ import {
   listBuckets,
   openBucket,
   parseArchiveRef,
+  provenanceCase,
   resolveIndexScope,
   stampArchive,
   validBucketName,
 } from "../../src/archive.ts";
+import { provenanceFromCapture } from "../../src/verbs/provenance.ts";
 import { refPathExists, resolveMediaRef, resolveVideoArg } from "../../src/verbs/media-ref.ts";
 import { addIndex, addMember, listIndexes, findIndex } from "../../src/state/index.ts";
 import { loadSetup } from "../../src/state/setup.ts";
@@ -608,6 +610,56 @@ test("a case record carrying meta.archive keeps the bucket trace when resolved b
     const { viewVerb } = await import("../../src/verbs/senses.ts");
     const viewed = await viewVerb.run(ctx(env, pngPull[0].id, [], { "no-open": true }));
     assert.equal(viewed[0].meta?.archive, "refs");
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("provenanceCase routes capture-provenance lookup to the bucket for archived media", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const bucket = openBucket("refs", env.home).bucket!;
+    // a bucket capture that itself came from a post (source_url provenance)
+    const file = join(bucket.case.mediaDir, "fromtweet.mp4");
+    writeFileSync(file, "vid");
+    bucket.case.writeRecord(makeRecord({
+      verb: "capture",
+      format: "json",
+      payload: { capture_id: "cap_fromtweet.mp4", path: file, kind: "file", source: "x", source_url: "https://x.test/status/42", source_author: "someone" },
+      media: { ref: file },
+      state: "ready",
+    }));
+
+    // active case can't see the bucket capture — provenance would be lost
+    assert.deepEqual(provenanceFromCapture(env.c, file), {});
+    // ...but provenanceCase routes the lookup to the bucket, recovering it
+    const prov = provenanceFromCapture(provenanceCase(env.c, "refs", env.home), file);
+    assert.equal(prov.source_url, "https://x.test/status/42");
+    assert.equal(prov.source_author, "someone");
+    // no bucket → the active case, unchanged
+    assert.equal(provenanceCase(env.c, undefined, env.home), env.c);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("see/enhance frame:// refs resolve a bucket clip (archive:<bucket>/<item>)", async () => {
+  const env = makeEnv();
+  try {
+    const { seeVerb } = await import("../../src/verbs/senses.ts");
+    await runArchive(env, "init", ["refs"]);
+    const clip = seedFile(env, "clip.mp4", "vid-bytes");
+    const added = await runArchive(env, "add", [clip], { to: "refs" });
+    const file = basename(String(added.find((r) => r.verb === "capture")!.media?.ref));
+
+    // a bucket clip addressed as a frame source resolves PAST the record lookup
+    // (the failure is frame extraction — no ffmpeg here — not "cannot resolve")
+    const ok = await seeVerb.run(ctx(env, `frame://archive:refs/${file}@1`));
+    assert.doesNotMatch(ok[0].error ?? "", /cannot resolve/, "bucket frame source resolved");
+    // a missing bucket item reports the resolver's not-found through the frame path
+    const missing = await seeVerb.run(ctx(env, "frame://archive:refs/nope.mp4@1"));
+    assert.match(missing[0].error ?? "", /cannot resolve .*not found/);
   } finally {
     env.cleanup();
   }

@@ -7,7 +7,7 @@ import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { addMember, findIndex, resolveIndexRef } from "../state/index.js";
 import { localIndexDir, runLocalImage } from "../providers/local/vision.js";
 import { resolveImageArg, resolveVisualArg } from "./media-ref.js";
-import { resolveIndexScope, stampArchive } from "../archive.js";
+import { provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { badNumber } from "./validate.js";
 import { mkdirSync } from "node:fs";
@@ -109,7 +109,7 @@ export const imageVerb: VerbSpec = {
       signal: ctx.signal,
     });
     // if the matched video was captured from a post, trace the match back to it
-    stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
     return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
   },
 };

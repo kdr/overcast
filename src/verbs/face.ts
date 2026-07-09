@@ -19,7 +19,7 @@ import { indexesByType, resolveIndexRef } from "../state/index.js";
 import { findIndex } from "../state/index.js";
 import { runLocalFace, type LocalFaceOp } from "../providers/local/vision.js";
 import { isImage, resolveMediaRef, resolveVideoArg } from "./media-ref.js";
-import { resolveIndexScope, stampArchive } from "../archive.js";
+import { provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { badNumber } from "./validate.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import type { Case } from "../case.js";
@@ -325,7 +325,7 @@ export const faceVerb: VerbSpec = {
         thumbnails: false,
         signal: ctx.signal,
       });
-      stampProvenance(rec, provenanceFromCapture(c, video));
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, videoArchive, ctx.home), video));
       return [stampArchive(rec, refBucket, ctx.case.dir)];
     }
     if (ctx.opts["max-frames"] != null) {
@@ -352,7 +352,7 @@ export const faceVerb: VerbSpec = {
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: c.dir };
-      stampProvenance(rec, provenanceFromCapture(c, video));
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, videoArchive, ctx.home), video));
       return [stampArchive(rec, refBucket, ctx.case.dir)];
     }
 
@@ -388,7 +388,7 @@ export const faceVerb: VerbSpec = {
       signal: ctx.signal,
     });
     rec.meta = { ...rec.meta, case: c.dir };
-    stampProvenance(rec, provenanceFromCapture(c, video));
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(c, videoArchive, ctx.home), video));
     return [stampArchive(rec, refBucket, ctx.case.dir)];
   },
 };

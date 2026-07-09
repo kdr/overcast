@@ -15,7 +15,7 @@ import {
 } from "../providers/local/vision.js";
 import { runLocalClap, readClapConfig } from "../providers/local/audio.js";
 import { resolveVideoArg, resolveVisualArg } from "./media-ref.js";
-import { openBucket, resolveIndexScope, stampArchive } from "../archive.js";
+import { openBucket, provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { badNumber } from "./validate.js";
 import { providerBinding } from "../providers/bindings.js";
@@ -229,7 +229,7 @@ export const similarVerb: VerbSpec = {
         return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
       }
       const rec = await runLocalClap(scope, q.ref!, { indexId: idx.id!, op: "match", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, ...queryOpts, signal: ctx.signal });
-      stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
       return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
 

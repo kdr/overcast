@@ -92,8 +92,10 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
     });
     // record id / capture id — through the bucket STORE (any verb, any state:
     // a pending capture must resolve so the readiness gate can report it),
-    // with the manifest's tombstones layered on top
-    const inBucket = resolveMediaRef(bucket.case, parsed.item);
+    // with the manifest's tombstones layered on top. Pass `home` so a nested
+    // archive: item or an absolute bucket path inside resolves against the SAME
+    // archive root, not the env/default one.
+    const inBucket = resolveMediaRef(bucket.case, parsed.item, home);
     if (inBucket.recordId) {
       if (items.some((it) => it.removed && it.record.id === inBucket.recordId)) return retiredErr();
       return { ref: inBucket.ref, recordId: inBucket.recordId, record: bucket.case.recordById(inBucket.recordId), archive: parsed.bucket };

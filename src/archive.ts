@@ -235,6 +235,15 @@ export function resolveIndexScope(
   return { scope: opened.bucket.case, value: parsed.item, bucket: parsed.bucket };
 }
 
+/** The Case whose capture records own `bucket`'s media, else the active case.
+ *  `provenanceFromCapture` scans a case's captures by file path to inherit an
+ *  archived clip's originating post — but that capture lives in the BUCKET, so
+ *  an archive-scoped sense must look there, not the active case. */
+export function provenanceCase(active: Case, bucket: string | undefined, home?: string): Case {
+  if (!bucket) return active;
+  return openBucket(bucket, home).bucket?.case ?? active;
+}
+
 /** Tag a record produced by an archive-scoped query so the evidence traces to
  *  the bucket it was matched against — and RE-HOME it to the active case: the
  *  local provider runners stamp meta.case from the Case they ran against (the

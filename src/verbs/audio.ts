@@ -12,7 +12,7 @@ import { addMember, findIndex, resolveIndexRef } from "../state/index.js";
 import { localIndexDir } from "../providers/local/vision.js";
 import { runLocalAudio } from "../providers/local/audio.js";
 import { resolveVideoArg } from "./media-ref.js";
-import { resolveIndexScope, stampArchive } from "../archive.js";
+import { provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { badNumber } from "./validate.js";
 import type { Case } from "../case.js";
@@ -132,7 +132,7 @@ export const audioVerb: VerbSpec = {
       rec = await runLocalAudio(scope, q.ref!, { op: "match", indexId: idx.id!, minVotes, minRatio, minMargin, draw: ctx.opts.draw === true, signal: ctx.signal });
     }
     // if the query was captured from a post, trace the match back to it
-    stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
     return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
   },
 };

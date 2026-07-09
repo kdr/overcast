@@ -13,6 +13,7 @@ import { providerEnv } from "../providers/provider-env.js";
 import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
 import { resolveMediaRef } from "./media-ref.js";
 import { provenanceFromCapture, scanHitProvenance, stampProvenance } from "./provenance.js";
+import { provenanceCase } from "../archive.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -43,7 +44,7 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
     // first, then any capture the local file itself came from (stampProvenance
     // never clobbers, so the direct source wins).
     stampProvenance(rec, sourceProv);
-    stampProvenance(rec, provenanceFromCapture(ctx.case, ref));
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, archiveBucket, ctx.home), ref));
     return [rec];
   };
 

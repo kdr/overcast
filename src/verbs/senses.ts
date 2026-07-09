@@ -14,7 +14,7 @@ import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
 import { execCapture, parseFirstJson } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { resolveMediaRef, resolveVideoArg } from "./media-ref.js";
-import { stampArchive } from "../archive.js";
+import { provenanceCase, stampArchive } from "../archive.js";
 import {
   probe,
   enhance as ffEnhance,
@@ -113,7 +113,7 @@ export const listenVerb: VerbSpec = {
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     // trace a transcript of a captured clip back to the post it came from,
     // and in-place archive sensing back to its bucket (like watch)
-    stampProvenance(rec, provenanceFromCapture(ctx.case, input));
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, resolved.archive, ctx.home), input));
     return [stampArchive(rec, resolved.archive)];
   },
 };
@@ -161,13 +161,17 @@ export const seeVerb: VerbSpec = {
     let resolvedRef = ctx.input;
     const fr = parseFrameRef(ctx.input);
     if (fr) {
-      // a frame:// ref that can't be resolved must FAIL clearly — never hand the
-      // literal "frame://…" string to a provider (which reports a confusing
-      // "image not found: frame://…").
-      const src = ctx.case.recordById(fr.recordId)?.media?.ref;
+      // resolve the frame's SOURCE through the shared resolver so the record
+      // part accepts a case record id, a capture id, OR an
+      // archive:<bucket>/<item> ref (a clip cited from `ask --archive` lives in
+      // the bucket, not the active case). A frame:// ref that can't be resolved
+      // must FAIL clearly — never hand the literal "frame://…" to a provider.
+      const fsrc = resolveMediaRef(ctx.case, fr.recordId, ctx.home);
+      const src = fsrc.error ? undefined : fsrc.ref;
       if (!src || !existsSync(src)) {
-        return stamp(errorRecord("see", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`));
+        return stamp(errorRecord("see", `cannot resolve ${ctx.input}: ${fsrc.error ?? `record ${fr.recordId} has no media on disk`}`));
       }
+      archiveBucket = fsrc.archive;
       try {
         resolvedRef = await extractFrame(src, fr.second, ctx.case.mediaDir);
       } catch (e) {
@@ -446,22 +450,26 @@ export const enhanceVerb: VerbSpec = {
     // frame:// still is not itself a capture, so provenanceFromCapture must look up
     // the source clip the frame came from (else the video-frame path loses it).
     let provenanceSource = ctx.input;
+    // record ids / capture ids / archive:<bucket>/<item> refs resolve through
+    // the SHARED resolver (like watch/listen/see); retired archive files error.
+    let archiveBucket: string | undefined;
     const fr = parseFrameRef(ctx.input);
     if (fr) {
-      const src = ctx.case.recordById(fr.recordId)?.media?.ref;
+      // resolve the frame's SOURCE through the shared resolver so a bucket clip
+      // (cited from `ask --archive`, addressed archive:<bucket>/<item>) works too.
+      const fsrc = resolveMediaRef(ctx.case, fr.recordId, ctx.home);
+      const src = fsrc.error ? undefined : fsrc.ref;
       if (!src || !existsSync(src)) {
-        return [errorRecord("enhance", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`)];
+        return [errorRecord("enhance", `cannot resolve ${ctx.input}: ${fsrc.error ?? `record ${fr.recordId} has no media on disk`}`)];
       }
       provenanceSource = src;
+      archiveBucket = fsrc.archive;
       try {
         input = await extractFrame(src, fr.second, ctx.case.mediaDir);
       } catch (e) {
         return [errorRecord("enhance", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`)];
       }
     }
-    // record ids / capture ids / archive:<bucket>/<item> refs resolve through
-    // the SHARED resolver (like watch/listen/see); retired archive files error.
-    let archiveBucket: string | undefined;
     if (!fr) {
       const r = resolveMediaRef(ctx.case, input, ctx.home);
       if (r.error) return [errorRecord("enhance", `enhance input: ${r.error}`)];
@@ -568,7 +576,7 @@ export const enhanceVerb: VerbSpec = {
       // expand a multi-output envelope (per-speaker tracks / per-instance masks)
       // into [parent, ...children]; single-output providers pass through.
       const recs = fanOutEnhance(rec, { caseDir: ctx.case.dir });
-      const prov = provenanceFromCapture(ctx.case, provenanceSource);
+      const prov = provenanceFromCapture(provenanceCase(ctx.case, archiveBucket, ctx.home), provenanceSource);
       for (const r of recs) {
         r.meta = { ...r.meta, case: ctx.case.dir };
         stampProvenance(r, prov);
@@ -623,7 +631,7 @@ export const enhanceVerb: VerbSpec = {
       });
       // trace back to the originating post — same as the bound-provider path, and
       // for the frame:// path use the ORIGINAL clip (provenanceSource), not the still.
-      stampProvenance(ffRec, provenanceFromCapture(ctx.case, provenanceSource));
+      stampProvenance(ffRec, provenanceFromCapture(provenanceCase(ctx.case, archiveBucket, ctx.home), provenanceSource));
       return [stampArchive(ffRec, archiveBucket)];
     } catch (e) {
       return [errorRecord("enhance", `ffmpeg enhance failed: ${(e as Error).message}`)];
