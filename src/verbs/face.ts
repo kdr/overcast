@@ -48,9 +48,11 @@ function resolveImageRef(c: Case, ref: string, home?: string): { ref?: string; a
   if (rec && !rec.media?.ref) return { error: `--match record ${ref} has no media` };
   const r = resolveMediaRef(c, ref, home);
   if (r.error) return { error: `--match: ${r.error}` };
-  // an archive/bucket ref carries its bucket record — gate on readiness so a
-  // pending/errored capture's partial still isn't matched (like exif/capture)
-  if (r.record && !isReady(r.record)) return { error: `--match record ${r.record.id} isn't ready (state=${r.record.state ?? "?"})` };
+  // gate readiness on the resolved record so a pending/errored capture's partial
+  // image isn't matched — an archive ref carries it as r.record; a CASE record id
+  // has r.recordId but no r.record, so look it up (else case refs bypass the gate)
+  const src = r.record ?? (r.recordId ? c.recordById(r.recordId) : undefined);
+  if (src && !isReady(src)) return { error: `--match record ${src.id} isn't ready (state=${src.state ?? "?"})` };
   if (r.recordId && !isImage(r.ref)) return { error: `--match record ${ref} resolves to ${r.ref}; not an image file` };
   return { ref: r.ref, archive: r.archive };
 }
@@ -288,6 +290,12 @@ export const faceVerb: VerbSpec = {
       }
     }
 
+    // the media whose originating post the evidence traces to: a SEARCH has no
+    // video — its query IS the --match image, so provenance comes from there
+    // (video/videoArchive are unset). match/detect/list trace the analyzed video.
+    const queryMedia = op === "search" ? image : video;
+    const queryArchive = op === "search" ? imageArchive : videoArchive;
+
     const localEntries = (indexes ?? []).map((id) => findIndex(scope, id)).filter((x): x is NonNullable<ReturnType<typeof findIndex>> => !!x && x.backend === "local" && x.type === "deepface-local");
     const hasExplicitIndexes = (indexes?.length ?? 0) > 0;
     const shouldUseDeepfaceProvider = useDeepface && !hasExplicitIndexes && (op === "detect" || op === "match");
@@ -325,7 +333,7 @@ export const faceVerb: VerbSpec = {
         thumbnails: false,
         signal: ctx.signal,
       });
-      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, videoArchive, ctx.home), video));
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, queryArchive, ctx.home), queryMedia));
       return [stampArchive(rec, refBucket, ctx.case.dir)];
     }
     if (ctx.opts["max-frames"] != null) {
@@ -352,7 +360,7 @@ export const faceVerb: VerbSpec = {
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: c.dir };
-      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, videoArchive, ctx.home), video));
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, queryArchive, ctx.home), queryMedia));
       return [stampArchive(rec, refBucket, ctx.case.dir)];
     }
 
@@ -388,7 +396,7 @@ export const faceVerb: VerbSpec = {
       signal: ctx.signal,
     });
     rec.meta = { ...rec.meta, case: c.dir };
-    stampProvenance(rec, provenanceFromCapture(provenanceCase(c, videoArchive, ctx.home), video));
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(c, queryArchive, ctx.home), queryMedia));
     return [stampArchive(rec, refBucket, ctx.case.dir)];
   },
 };

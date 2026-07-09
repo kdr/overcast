@@ -955,6 +955,83 @@ test("note/finding reject a pending bucket ref; capture pull carries bucket-item
   }
 });
 
+test("face SEARCH carries the QUERY image's bucket provenance (round 15 thread 1)", async () => {
+  const env = makeEnv();
+  const prev = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${join(process.cwd(), "test/fixtures/fake-tinycloud.sh")}`;
+    await runArchive(env, "init", ["refs"]);
+    const bucket = openBucket("refs", env.home).bucket!;
+    // an archived query face-still whose bucket capture records where it came from
+    const q = join(bucket.case.mediaDir, "suspect.png");
+    writeFileSync(q, "png-bytes");
+    bucket.case.writeRecord(makeRecord({ verb: "capture", format: "json", payload: { capture_id: "cap_suspect.png", path: q, source_url: "https://x.test/status/42", source_author: "tipster" }, media: { ref: q }, state: "ready" }));
+    // a case-local tinycloud face-analysis index to search across
+    addIndex(env.c, { id: "col_faces", type: "face-analysis", name: "faces" });
+
+    // face --match <archived image> --index faces → SEARCH. The query IS the image
+    // (there is no video), so provenance must trace to the query image's bucket
+    // capture. Round 15: search stamped from the unset `video`, dropping source_*.
+    const recs = await faceVerb.run(ctx(env, undefined, [], { match: "archive:refs/cap_suspect.png", index: "faces" }));
+    assert.equal(recs[0].state === "error", false, recs[0].error);
+    const p = payload(recs[0]);
+    assert.equal(p.source_url, "https://x.test/status/42", "search inherits the query image's originating post");
+    assert.equal(p.source_author, "tipster");
+    assert.equal(recs[0].meta?.archive, "refs", "search record traces to the query's bucket");
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prev;
+    env.cleanup();
+  }
+});
+
+test("face --match gates a PENDING case-record query image (round 15 thread 2)", async () => {
+  const env = makeEnv();
+  try {
+    const img = seedFile(env, "q.png", "png-bytes");
+    // a pending case capture whose media is the query still. A case record id
+    // carries recordId but NOT `record` on the resolver result — round 15: only
+    // archive refs (which DO carry `record`) were readiness-gated, so a pending
+    // case record's partial image slipped through as a valid --match query.
+    const pend = makeRecord({ verb: "capture", format: "json", payload: { capture_id: "cap_q.png", path: img }, media: { ref: img }, state: "pending" });
+    env.c.writeRecord(pend);
+    const recs = await faceVerb.run(ctx(env, undefined, [], { match: pend.id, index: "faces" }));
+    assert.match(recs[0].error ?? "", /isn't ready/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("archive remove finds a live item by its PRE-RESTORE record id (round 15 thread 3)", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const clip = seedFile(env, "clip.mp4", "restore-bytes");
+    const added = await runArchive(env, "add", [clip], { to: "refs" });
+    const cap = added.find((r) => r.verb === "capture")!;
+    // retire with --keep-file, then restore the same bytes over the kept file: the
+    // live successor gets a NEW record id, the old id is tombstoned.
+    await runArchive(env, "remove", [cap.id], { from: "refs", "keep-file": true });
+    const again = seedFile(env, "copy.mp4", "restore-bytes");
+    await runArchive(env, "add", [again], { to: "refs" });
+
+    // remove by the OLD (pre-restore) record id must still hit the live successor:
+    // resolveMediaRef maps the stale id → the successor's path (parity with
+    // `watch archive:…/<old id>`). Round 15: remove matched only the live
+    // manifest's ids, so the stale id 404'd even though the media ref resolved.
+    const [tomb] = await runArchive(env, "remove", [cap.id], { from: "refs" });
+    assert.equal(tomb.error, undefined, tomb.error);
+    assert.equal(payload(tomb).op, "remove");
+    const [show] = await runArchive(env, "show", ["refs"]);
+    assert.equal(payload(show).total_items, 0, "the live successor is retired via the stale id");
+
+    // a genuinely-unknown id still 404s (the direct-match fallback is unchanged)
+    assert.match((await runArchive(env, "remove", ["rec_nope"], { from: "refs" }))[0].error ?? "", /no archived item matches/);
+  } finally {
+    env.cleanup();
+  }
+});
+
 test("stampArchive re-homes provider-stamped records so the case persist seam keeps them", () => {
   const env = makeEnv();
   try {

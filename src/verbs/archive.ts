@@ -16,6 +16,7 @@ import { existsSync, rmSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { errRecord, isReady, makeRecord, type OvercastRecord } from "../record.js";
 import {
+  ARCHIVE_REF_PREFIX,
   archiveRoot,
   ensureBucket,
   listBucketItems,
@@ -736,11 +737,21 @@ export const archiveVerb: VerbSpec = {
       const itemArg = ctx.rest[0];
       if (!itemArg) return [err("archive remove requires an item (record id, capture id, media filename, or sha256 prefix)")];
       const items = listBucketItems(bucket);
+      // A pre-restore record/capture id addresses a TOMBSTONED item whose bytes
+      // were re-added (restore) — that old id is dead in the live manifest, but
+      // `resolveMediaRef(archive:<bucket>/<id>)` maps it to the live successor's
+      // path via the same liveForPath logic `watch archive:…` uses. Resolve
+      // through the archive: ref first so removing by a stale id still finds the
+      // live item; then fall back to direct id/basename/sha matching (covers the
+      // sha256 prefix and plain literals resolveMediaRef doesn't address).
+      const viaRef = resolveMediaRef(ctx.case, `${ARCHIVE_REF_PREFIX}${bucket.name}/${itemArg}`, ctx.home);
+      const resolvedPath = !viaRef.error && viaRef.archive === bucket.name ? viaRef.ref : undefined;
       const matches = items.filter((it) =>
         it.record.id === itemArg ||
         it.captureId === itemArg ||
         (it.path && basename(it.path) === itemArg) ||
-        (!!it.sha256 && itemArg.length >= 8 && it.sha256.startsWith(itemArg.toLowerCase())),
+        (!!it.sha256 && itemArg.length >= 8 && it.sha256.startsWith(itemArg.toLowerCase())) ||
+        (!!resolvedPath && !!it.path && it.path === resolvedPath),
       );
       if (!matches.length) return [err(`no archived item matches '${itemArg}' in bucket '${bucket.name}'`)];
       if (matches.length > 1) return [err(`'${itemArg}' matches ${matches.length} archived items; use the record id (${matches.map((m) => m.record.id).join(", ")})`)];
