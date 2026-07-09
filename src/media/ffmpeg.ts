@@ -333,6 +333,7 @@ export async function contactSheet(
   const out = opts.outPath ?? join(outDir, `${safeName(base)}_grid_${n}_${sig}.png`);
   ensureDir(dirname(out)); // a caller-supplied nested --out needs its parent created first
   const work = mkdtempSync(join(tmpdir(), "oc-grid-"));
+  const missing = new Set<number>(); // sample indices whose frame never materialized
   try {
     const scalePad =
       `scale=${cellWidth}:${cellHeight}:force_original_aspect_ratio=decrease,` +
@@ -355,17 +356,28 @@ export async function contactSheet(
         ["-y", "-ss", String(seconds[i]), "-i", input, "-frames:v", "1", "-q:v", "3", "-vf", vf, cell],
         { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
       );
+      // ffmpeg can exit 0 with NO frame written when a seek lands at/past the last
+      // decodable frame (near-EOF on some containers). A gap would truncate the
+      // image2 sequence in the tile pass below and SHIFT every later cell off its
+      // mapped timestamp — substitute the filler and null the mapping (invariant:
+      // reject/blank rather than lie) instead of silently mislabeling cells.
+      if (!existsSync(cell)) missing.add(i);
     }
     // pad the last row so `tile` receives an exact cols×rows sequence — the
     // partial-tile-at-EOF behavior varies across ffmpeg versions; a full grid is
-    // deterministic. Fillers reuse the tile background color.
-    if (n < slots) {
+    // deterministic. Fillers reuse the tile background color. Also backfill any
+    // sampled cell whose frame never materialized (`missing`) so the image2
+    // sequence stays gapless and no later cell shifts into a dropped slot.
+    if (n < slots || missing.size) {
       const filler = join(work, "filler.jpg");
       await execFileP(
         FFMPEG_PATH,
         ["-y", "-f", "lavfi", "-i", `color=c=0x101418:s=${cellWidth}x${cellHeight}`, "-frames:v", "1", filler],
         { maxBuffer: 8 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
       );
+      for (const i of missing) {
+        copyFileSync(filler, join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`));
+      }
       for (let i = n; i < slots; i++) {
         copyFileSync(filler, join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`));
       }
@@ -383,11 +395,12 @@ export async function contactSheet(
   }
 
   // map EVERY tile position (cols×rows), not just the sampled ones — the trailing
-  // blank fillers get at:null, so a cell number read off the montage always
-  // resolves (to a timestamp, or to null = blank) instead of falling off the map.
+  // blank fillers AND any dropped (missing) sample get at:null, so a cell number
+  // read off the montage always resolves (to a timestamp, or to null = blank)
+  // instead of pointing at a shifted/wrong source moment.
   const cells: GridCell[] = Array.from({ length: slots }, (_, i) => ({
     n: i + 1,
-    at: i < n ? seconds[i] : null,
+    at: i < n && !missing.has(i) ? seconds[i] : null,
   }));
   return { output: out, cells, cols, rows, cellWidth, cellHeight, labeled };
 }
