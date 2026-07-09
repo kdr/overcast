@@ -150,6 +150,28 @@ test("answer() returns the grounded answer + mapped citations", async () => {
   });
 });
 
+// ---- Bugbot #72: cloud citations honor --limit like qmd/local-grep -----------
+
+test("deepsearch + answer cap cloud citations at opts.limit (parity with the other memory providers)", async () => {
+  await withCase(async (c, dir) => {
+    await withEnv({ CLOUDGLUE_API_KEY: "test-key" }, async () => {
+      // tcAsk ignores `limit` for a non-probe collection ask, so a fixture that
+      // returns FIVE citations lets us prove the PROVIDER caps its fan-out output —
+      // otherwise cloudglue would over-contribute vs qmd/local-grep for one --limit.
+      const script = join(dir, "multi-cite-tc.sh");
+      const cites = [1, 2, 3, 4, 5].map((n) => `{"file":"v${n}.mp4","timestamp":${n},"text":"m${n}"}`).join(",");
+      writeFileSync(
+        script,
+        ["#!/usr/bin/env bash", `echo '{"tinycloud":"1","kind":"ask","status":"ready","data":{"answer":"multi","citations":[${cites}]}}'`, ""].join("\n"),
+      );
+      const p = new CloudglueMemoryProvider(c, { indexId: "col_x", collectionId: "col_x", base: `bash ${script}` });
+      assert.equal((await p.deepsearch("q")).length, 5, "no limit → all cloud moments");
+      assert.equal((await p.deepsearch("q", { limit: 2 })).length, 2, "--limit caps cloud passages");
+      assert.equal((await p.answer("q", { limit: 3 })).citations.length, 3, "answer citations honor --limit too");
+    });
+  });
+});
+
 // ---- Finding A: deepsearch + answer for one query = ONE paid tcAsk call -------
 
 test("deepsearch + answer for the same query coalesce into ONE tcAsk call (no double cloud spend)", async () => {

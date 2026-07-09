@@ -121,7 +121,7 @@ export class CloudglueMemoryProvider implements MemoryProvider {
    *  the public tinycloud ask verb and map cited moments to passages. */
   async deepsearch(q: string, opts?: QueryOpts): Promise<Passage[]> {
     const rec = await this.run(q, opts);
-    return this.toPassages(rec);
+    return this.toPassages(rec, opts?.limit);
   }
 
   /** Grounded NL answer + citations (used when deepsearch yields no passages, and
@@ -131,7 +131,7 @@ export class CloudglueMemoryProvider implements MemoryProvider {
     const text = str(objOf(rec.payload).text) ?? "";
     if (!text && rec.error) return { text: `cloudglue: ${rec.error}`, citations: [] };
     if (!text) return { text: `No cloud results for "${q}".`, citations: [] };
-    const citations: Citation[] = this.toPassages(rec).map((p) => ({
+    const citations: Citation[] = this.toPassages(rec, opts?.limit).map((p) => ({
       recordId: p.recordId,
       at: p.at,
       verb: p.verb,
@@ -161,7 +161,7 @@ export class CloudglueMemoryProvider implements MemoryProvider {
   /** Map a `tcAsk` record ({ text, citations[], mode }) to Passages: one per cited
    *  moment (snippet or, if none, the overall answer), or a single passage
    *  carrying the answer when the collection returned no moments. */
-  private toPassages(rec: OvercastRecord): Passage[] {
+  private toPassages(rec: OvercastRecord, limit?: number): Passage[] {
     const payload = objOf(rec.payload);
     const answerText = str(payload.text) ?? "";
     const verb = str(payload.mode) ?? "ask";
@@ -183,6 +183,9 @@ export class CloudglueMemoryProvider implements MemoryProvider {
     if (passages.length === 0 && answerText) {
       passages.push({ recordId: this.ref.collectionId, text: answerText, score: 1, verb, provider: this.id });
     }
-    return passages;
+    // Cap to the caller's --limit so the cloud tier matches qmd/local-grep in a deep
+    // fan-out: `tcAsk` ignores `limit` for a non-probe collection ask, so without this
+    // cloudglue could contribute more citations than the user asked for (Bugbot #72).
+    return limit != null && limit >= 0 ? passages.slice(0, limit) : passages;
   }
 }
