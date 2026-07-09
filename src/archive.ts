@@ -17,7 +17,7 @@ import { join, resolve, sep } from "node:path";
 import { openCase, type Case, type CaseInfo } from "./case.js";
 import { resolveHome } from "./profile.js";
 import { realpathContained } from "./fs-path.js";
-import type { OvercastRecord } from "./record.js";
+import { isReady, type OvercastRecord } from "./record.js";
 
 export const ARCHIVE_DIRNAME = "archive";
 export const ARCHIVE_REF_PREFIX = "archive:";
@@ -95,6 +95,46 @@ export function isArchiveBucket(c: Case): boolean {
   } catch {
     return false;
   }
+}
+
+export interface BucketItem {
+  record: OvercastRecord;
+  captureId?: string;
+  path?: string;
+  sha256?: string;
+  /** a later `archive remove` retired this item from the manifest */
+  removed?: boolean;
+}
+
+/** The live bucket manifest: the bucket's READY capture records minus
+ *  tombstoned ones (`archive` op:"remove" records name the capture record id
+ *  they retire). ONE definition — the archive verb, dedup/restore, and
+ *  `archive:` media resolution must all agree on what "in the bucket" means.
+ *  `includeRemoved` keeps retired items (flagged) for restore + retired-ref
+ *  error reporting. */
+export function listBucketItems(bucket: BucketHandle, opts: { includeRemoved?: boolean } = {}): BucketItem[] {
+  const recs = bucket.case.records();
+  const removed = new Set<string>();
+  for (const r of recs) {
+    if (r.verb !== "archive" || !r.payload || typeof r.payload !== "object") continue;
+    const p = r.payload as Record<string, unknown>;
+    if (p.op === "remove" && typeof p.item === "string") removed.add(p.item);
+  }
+  const items: BucketItem[] = [];
+  for (const r of recs) {
+    if (r.verb !== "capture" || !r.media?.ref || !isReady(r)) continue;
+    const isRemoved = removed.has(r.id);
+    if (isRemoved && !opts.includeRemoved) continue;
+    const p = r.payload && typeof r.payload === "object" ? (r.payload as Record<string, unknown>) : {};
+    items.push({
+      record: r,
+      captureId: typeof p.capture_id === "string" ? p.capture_id : undefined,
+      path: typeof p.path === "string" ? p.path : r.media.ref,
+      sha256: typeof p.sha256 === "string" ? p.sha256 : undefined,
+      ...(isRemoved ? { removed: true } : {}),
+    });
+  }
+  return items;
 }
 
 /** Split an `archive:<bucket>/<item>` ref. `item` may be empty ("archive:b") —

@@ -18,10 +18,12 @@ import { errRecord, isReady, makeRecord, type OvercastRecord } from "../record.j
 import {
   archiveRoot,
   ensureBucket,
+  listBucketItems,
   listBuckets,
   openBucket,
   sha256File,
   type BucketHandle,
+  type BucketItem,
 } from "../archive.js";
 import { realpathContained } from "../fs-path.js";
 import { addIndex, listIndexes, removeIndex, LOCAL_INDEX_TYPES } from "../state/index.js";
@@ -68,39 +70,8 @@ const INVESTIGATION_FLAGS = [
   "findings-threshold",
 ];
 
-interface BucketItem {
-  record: OvercastRecord;
-  captureId?: string;
-  path?: string;
-  sha256?: string;
-}
-
 function payloadOf(rec: OvercastRecord): Record<string, unknown> {
   return rec.payload && typeof rec.payload === "object" ? (rec.payload as Record<string, unknown>) : {};
-}
-
-/** The live manifest: the bucket's READY capture records minus tombstoned ones
- *  (`archive` op:"remove" records name the capture record id they retire). */
-function bucketItems(bucket: BucketHandle): BucketItem[] {
-  const recs = bucket.case.records();
-  const removed = new Set<string>();
-  for (const r of recs) {
-    if (r.verb !== "archive") continue;
-    const p = payloadOf(r);
-    if (p.op === "remove" && typeof p.item === "string") removed.add(p.item);
-  }
-  const items: BucketItem[] = [];
-  for (const r of recs) {
-    if (r.verb !== "capture" || !r.media?.ref || !isReady(r) || removed.has(r.id)) continue;
-    const p = payloadOf(r);
-    items.push({
-      record: r,
-      captureId: typeof p.capture_id === "string" ? p.capture_id : undefined,
-      path: typeof p.path === "string" ? p.path : r.media.ref,
-      sha256: typeof p.sha256 === "string" ? p.sha256 : undefined,
-    });
-  }
-  return items;
 }
 
 function itemSummary(it: BucketItem): Record<string, unknown> {
@@ -254,7 +225,7 @@ function buildArchiveSetupChange(ctx: VerbContext, bucket: BucketHandle, base: C
   }
   if (setup.indexes.length) {
     let backfilled = 0;
-    for (const item of bucketItems(bucket)) {
+    for (const item of listBucketItems(bucket)) {
       if (!item.path || !existsSync(item.path)) continue;
       if (!setup.media.videos.includes(item.path)) backfilled++;
       addVideoRoute(setup, item.path, routeSignals);
@@ -336,7 +307,10 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
   if (!sources.length) return [err("archive add requires media refs (paths / URLs / record ids), or --all")];
 
   const out: OvercastRecord[] = [];
-  const items = bucketItems(bucket);
+  // includeRemoved: dedup must see the WHOLE sha history — a live match is
+  // `already_archived`, a tombstoned match is a RESTORE (reuse the kept file,
+  // never a second physical copy of the same bytes).
+  const items = listBucketItems(bucket, { includeRemoved: true });
   const added: Array<Record<string, unknown>> = [];
   const alreadyArchived: Array<Record<string, unknown>> = [];
   let failed = 0;
@@ -357,8 +331,13 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
       continue;
     }
 
+    const retiredMatch = (hash: string | undefined) =>
+      items.find((it) => it.removed && it.sha256 === hash && !!it.path && existsSync(it.path));
+
     // local file → hash BEFORE copying so a duplicate never lands twice
     let sha: string | undefined;
+    let restoredFrom: string | undefined;
+    let cap: OvercastRecord | undefined;
     if (!isUrl) {
       try {
         sha = await sha256File(ref);
@@ -367,15 +346,29 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
         failed++;
         continue;
       }
-      const dup = items.find((it) => it.sha256 === sha);
+      const dup = items.find((it) => !it.removed && it.sha256 === sha);
       if (dup) {
         alreadyArchived.push({ ref: raw, record: dup.record.id, sha256: sha });
         continue;
       }
+      const retired = retiredMatch(sha);
+      if (retired) {
+        // same bytes were retired with --keep-file → restore: fresh manifest
+        // record over the existing on-disk file, no copy
+        restoredFrom = retired.record.id;
+        cap = makeRecord({
+          verb: "capture",
+          format: "json",
+          payload: { capture_id: "cap_" + basename(retired.path!), path: retired.path, kind: "file", source: "local", source_ref: ref },
+          media: { ref: retired.path! },
+          meta: { provider: "capture:local", case: bucket.dir },
+          state: "ready",
+        });
+      }
     }
 
-    const cap = await captureRef({ ...ctx, case: bucket.case }, ref);
-    const dest = cap.media?.ref;
+    cap ??= await captureRef({ ...ctx, case: bucket.case }, ref);
+    let dest = cap.media?.ref;
     if (cap.state === "error" || cap.state === "needs_credentials" || !dest || !existsSync(dest)) {
       failed++;
       out.push(cap);
@@ -383,7 +376,7 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
     }
     if (!sha) {
       sha = await sha256File(dest);
-      const dup = items.find((it) => it.sha256 === sha);
+      const dup = items.find((it) => !it.removed && it.sha256 === sha);
       if (dup) {
         // a URL re-download that matches an archived item — drop the fresh copy
         // (unless the download landed ON the original file)
@@ -391,10 +384,22 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
         alreadyArchived.push({ ref: raw, record: dup.record.id, sha256: sha });
         continue;
       }
+      const retired = retiredMatch(sha);
+      if (retired) {
+        // downloaded bytes match a retired item's kept file → adopt that file
+        restoredFrom = retired.record.id;
+        if (retired.path !== dest) rmSync(dest, { force: true });
+        const p = payloadOf(cap);
+        p.path = retired.path;
+        p.capture_id = "cap_" + basename(retired.path!);
+        cap.media = { ref: retired.path! };
+        dest = retired.path!;
+      }
     }
 
     const p = payloadOf(cap);
     p.sha256 = sha;
+    if (restoredFrom) p.restored_from = restoredFrom;
     try {
       p.bytes = statSync(dest).size;
     } catch {
@@ -414,7 +419,7 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
     stampProvenance(cap, scanHitProvenance(srcRec));
     writeToBucket(bucket, cap);
     items.push({ record: cap, captureId: typeof p.capture_id === "string" ? p.capture_id : undefined, path: dest, sha256: sha });
-    added.push({ ref: raw, record: cap.id, capture_id: p.capture_id, path: dest, sha256: sha });
+    added.push({ ref: raw, record: cap.id, capture_id: p.capture_id, path: dest, sha256: sha, ...(restoredFrom ? { restored_from: restoredFrom } : {}) });
     out.push(cap);
 
     if (senses.length) out.push(...await runSenses(ctx, bucket, senses, dest));
@@ -456,7 +461,7 @@ async function runSetup(ctx: VerbContext): Promise<OvercastRecord[]> {
   const saved = loadSetup(bucket.case);
 
   if (sub === "status") {
-    const items = bucketItems(bucket);
+    const items = listBucketItems(bucket);
     const indexes = listIndexes(bucket.case);
     const mirrored = new Set(indexes.map((i) => i.id));
     const memory: unknown[] = [];
@@ -671,7 +676,7 @@ export const archiveVerb: VerbSpec = {
         return {
           name: b.name,
           dir: b.dir,
-          items: bucketItems(b).length,
+          items: listBucketItems(b).length,
           indexes: listIndexes(b.case).map((i) => ({ id: i.id, type: i.type, backend: i.backend ?? "tinycloud", members: i.members.length })),
           memory_backend: setup?.memory.backend ?? "local-grep",
           setup_completed: setup?.completed ?? false,
@@ -691,7 +696,7 @@ export const archiveVerb: VerbSpec = {
       if (!opened.bucket) return [err(opened.error!)];
       const bucket = opened.bucket;
       const limit = typeof ctx.opts.limit === "number" && ctx.opts.limit > 0 ? ctx.opts.limit : 50;
-      const items = bucketItems(bucket).sort((a, b) => String(b.record.meta?.time ?? "").localeCompare(String(a.record.meta?.time ?? "")));
+      const items = listBucketItems(bucket).sort((a, b) => String(b.record.meta?.time ?? "").localeCompare(String(a.record.meta?.time ?? "")));
       return [makeRecord({
         verb: "archive",
         format: "json",
@@ -718,7 +723,7 @@ export const archiveVerb: VerbSpec = {
       const bucket = from.bucket;
       const itemArg = ctx.rest[0];
       if (!itemArg) return [err("archive remove requires an item (record id, capture id, media filename, or sha256 prefix)")];
-      const items = bucketItems(bucket);
+      const items = listBucketItems(bucket);
       const matches = items.filter((it) =>
         it.record.id === itemArg ||
         it.captureId === itemArg ||

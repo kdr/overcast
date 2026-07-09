@@ -55,7 +55,7 @@ import {
   removeAudioFingerprint,
 } from "../providers/local/audio.js";
 import { resolveVideoArg, resolveImageArg, resolveVisualArg, isRegisterableMediaRecord, isImage } from "./media-ref.js";
-import { resolveIndexScope } from "../archive.js";
+import { openBucket, resolveIndexScope } from "../archive.js";
 import { badNumber, numFlag } from "./validate.js";
 import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
 import type { Case } from "../case.js";
@@ -212,6 +212,23 @@ export async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Pro
       })
     : await runWatch(ref, { run: binding?.run, signal: ctx.signal });
   rec.meta = { ...rec.meta, case: ctx.case.dir, triggered_by: "index add" };
+  return rec;
+}
+
+/** ensure-watch for a video resolved from an ARCHIVE ref: the media lives in
+ *  the bucket, so the watch evidence (dedup lookup + the record itself) belongs
+ *  to the BUCKET's store, not the active case — otherwise every case that
+ *  indexes the same archived clip re-pays the watch, and the record would be
+ *  dropped by the active case's persist seam anyway (other-case guard). Written
+ *  bucket-side directly; still returned so the caller can display it. */
+async function ensureArchiveWatchRecord(ctx: VerbContext, bucketName: string, ref: string): Promise<OvercastRecord | undefined> {
+  const { bucket } = openBucket(bucketName, ctx.home);
+  if (!bucket) return undefined;
+  const rec = await ensureLocalWatchRecord({ ...ctx, case: bucket.case }, ref);
+  if (rec) {
+    bucket.case.writeRecord(rec);
+    rec.meta = { ...rec.meta, persisted: true };
+  }
   return rec;
 }
 
@@ -699,7 +716,9 @@ export const indexVerb: VerbSpec = {
       if (findIndex(scope, id)?.members.some((m) => m.ref === ref)) {
         return [makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" })];
       }
-      const watched = await ensureLocalWatchRecord(ctx, ref);
+      const watched = v.archive
+        ? await ensureArchiveWatchRecord(ctx, v.archive, ref)
+        : await ensureLocalWatchRecord(ctx, ref);
       const { rec } = await tcCollectionAdd(ref, id, addOpts);
       if (accepted(rec)) addMember(scope, id, { ref, recordId: v.recordId });
       rec.meta = { ...rec.meta, case: c.dir };
@@ -761,12 +780,17 @@ export const indexVerb: VerbSpec = {
       // delete requires an EXPLICIT id — unlike show, it must never fall back to the
       // case's sole index (a bare `index delete` would be silent data loss).
       if (!ctx.rest[0]) return [err("usage: index delete <id> (an explicit id is required — delete won't default to your only index)")];
-      const target = resolveTarget(c, ctx.rest[0]);
+      // `index delete archive:<bucket>/<index>` administers a BUCKET's index
+      // (mirror + local artifacts in the bucket), like add/show.
+      const scoped = resolveIndexScope(c, ctx.rest[0], ctx.home);
+      if (scoped.error) return [err(`index delete: ${scoped.error}`)];
+      const scope = scoped.scope;
+      const target = resolveTarget(scope, scoped.value);
       if (target.error) return [err(`index delete: ${target.error}`)];
-      const local = findIndex(c, target.id!);
+      const local = findIndex(scope, target.id!);
       if (local && isLocalIndex(local)) {
-        removeIndex(c, target.id!);
-        rmSync(localIndexDir(c, target.id!), { recursive: true, force: true });
+        removeIndex(scope, target.id!);
+        rmSync(localIndexDir(scope, target.id!), { recursive: true, force: true });
         return [makeRecord({
           verb: "index",
           format: "json",
@@ -776,7 +800,7 @@ export const indexVerb: VerbSpec = {
         })];
       }
       const { rec } = await tcCollectionDelete(target.id!, tcOpts);
-      if (accepted(rec)) removeIndex(c, target.id!);
+      if (accepted(rec)) removeIndex(scope, target.id!);
       rec.meta = { ...rec.meta, case: c.dir };
       return [indexRecord(rec)];
     }
@@ -788,9 +812,15 @@ export const indexVerb: VerbSpec = {
       if (ctx.opts.to != null) return [err("index remove targets with --from, not --to")];
       const arg = ctx.rest[0];
       if (!arg) return [err("usage: index remove <video|record-id> --from <id>")];
-      const from = resolveTarget(c, ctx.opts.from != null ? String(ctx.opts.from) : undefined);
+      // `--from archive:<bucket>/<index>` un-indexes from a BUCKET's index —
+      // the member list + cached embeddings/fingerprints live bucket-side.
+      const fromRaw = ctx.opts.from != null ? String(ctx.opts.from) : undefined;
+      const scoped = resolveIndexScope(c, fromRaw ?? "", ctx.home);
+      if (scoped.error) return [err(`index remove: ${scoped.error}`)];
+      const scope = scoped.scope;
+      const from = resolveTarget(scope, fromRaw === undefined ? undefined : scoped.value);
       if (from.error) return [err(`index remove: ${from.error}`)];
-      const local = findIndex(c, from.id!);
+      const local = findIndex(scope, from.id!);
       if (local?.type === "face-cluster") {
         return [err(`index remove doesn't apply to a face-cluster index — it stores face assignments in faces.jsonl/clusters.json. Create a new face-cluster index or rebuild with \`cluster recluster --index ${from.id}\`.`)];
       }
@@ -805,9 +835,9 @@ export const indexVerb: VerbSpec = {
               : resolveVideoArg(c, arg, "index remove", { requireExists: false, requireReady: false, home: ctx.home }))
           : resolveImageArg(c, arg, "index remove", { requireExists: false, requireReady: false, home: ctx.home });
         if (resolved.error) return [err(resolved.error)];
-        const removed = removeMember(c, from.id!, resolved.ref!);
+        const removed = removeMember(scope, from.id!, resolved.ref!);
         if (removed) {
-          const dir = localIndexDir(c, from.id!);
+          const dir = localIndexDir(scope, from.id!);
           if (local.type === "basic-clip" || local.type === "basic-clap") removeClipEmbedding(dir, resolved.ref!);
           else if (local.type === "audio-fp") removeAudioFingerprint(dir, resolved.ref!);
         }
@@ -829,7 +859,7 @@ export const indexVerb: VerbSpec = {
       const { rec } = await tcCollectionRemove(ref, from.id!, tcOpts);
       // mirror on ready OR pending (an async remove still removed the member),
       // matching how `add` tracks membership via accepted().
-      if (accepted(rec)) removeMember(c, from.id!, ref);
+      if (accepted(rec)) removeMember(scope, from.id!, ref);
       rec.meta = { ...rec.meta, case: c.dir };
       return [indexRecord(rec)];
     }
@@ -857,13 +887,16 @@ export const indexVerb: VerbSpec = {
       // resolve the index id, surfacing an ambiguous-name error (like ask/add)
       // and rejecting a mirrored index whose type isn't entities (entities are
       // only readable from an entities index), consistent with ask/face.
-      const colRef = resolveIndexRef(c, id);
+      // `archive:<bucket>/<index>` resolves through the BUCKET's mirror.
+      const scoped = resolveIndexScope(c, id, ctx.home);
+      if (scoped.error) return [err(`index entities: ${scoped.error}`)];
+      const colRef = resolveIndexRef(scoped.scope, scoped.value);
       if (colRef.error) return [err(`index entities: ${colRef.error}`)];
       const colEntry = colRef.entry;
       if (colEntry && colEntry.type !== "entities" && colEntry.type !== "unknown") {
         return [err(`index ${colEntry.id} is type '${colEntry.type}', not entities — \`index entities\` only reads entities indexes`)];
       }
-      const colId = colEntry?.id ?? id;
+      const colId = colEntry?.id ?? scoped.value;
       // same media filters as `add` (reject scan/face-search/non-AV refs), but
       // requireExists:false — entities reads PRE-EXTRACTED data for a video already
       // indexed remotely, so its local file may be gone (matches `remove`).

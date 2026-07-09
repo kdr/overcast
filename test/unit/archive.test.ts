@@ -12,6 +12,7 @@ import { archiveVerb } from "../../src/verbs/archive.ts";
 import { captureVerb } from "../../src/verbs/osint.ts";
 import { askVerb } from "../../src/verbs/read.ts";
 import { imageVerb } from "../../src/verbs/image.ts";
+import { indexVerb } from "../../src/verbs/index.ts";
 import { openCase, type Case } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
@@ -27,8 +28,8 @@ import {
   stampArchive,
   validBucketName,
 } from "../../src/archive.ts";
-import { refPathExists, resolveMediaRef } from "../../src/verbs/media-ref.ts";
-import { addIndex, listIndexes, findIndex } from "../../src/state/index.ts";
+import { refPathExists, resolveMediaRef, resolveVideoArg } from "../../src/verbs/media-ref.ts";
+import { addIndex, addMember, listIndexes, findIndex } from "../../src/state/index.ts";
 import { loadSetup } from "../../src/state/setup.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
@@ -281,6 +282,114 @@ test("archive remove: tombstone by sha prefix, file deletion, --keep-file", asyn
     assert.equal(existsSync(String(payload(caps[1]).path)), true);
 
     assert.match((await runArchive(env, "remove", ["nope"], { from: "refs" }))[0].error ?? "", /no archived item matches/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("re-adding retired bytes RESTORES the kept file instead of duplicating it", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const clip = seedFile(env, "clip.mp4", "restore-bytes");
+    const added = await runArchive(env, "add", [clip], { to: "refs" });
+    const cap = added.find((r) => r.verb === "capture")!;
+    const keptPath = String(payload(cap).path);
+
+    // retire with --keep-file: manifest drops it, the file stays
+    await runArchive(env, "remove", [cap.id], { from: "refs", "keep-file": true });
+    assert.equal(existsSync(keptPath), true);
+
+    // same bytes, different source name → restore: reuse the kept file, fresh record
+    const again = seedFile(env, "copy-of-clip.mp4", "restore-bytes");
+    const recs = await runArchive(env, "add", [again], { to: "refs" });
+    const summary = payload(recs.find((r) => r.verb === "archive")!);
+    const entry = (summary.added as Array<Record<string, unknown>>)[0];
+    assert.equal(entry.restored_from, cap.id, "restore traces the retired record");
+    assert.equal(entry.path, keptPath, "restore reuses the on-disk file");
+    const bucket = openBucket("refs", env.home).bucket!;
+    const files = bucket.case.records().filter((r) => r.verb === "capture").length;
+    assert.equal(files, 2, "restore is a fresh record, not an edit");
+    const [show] = await runArchive(env, "show", ["refs"]);
+    assert.equal(payload(show).total_items, 1, "one live item after restore");
+
+    // retired WITHOUT --keep-file (file gone) → plain re-add copies fresh
+    const b = seedFile(env, "b.mp4", "other-bytes");
+    const addedB = await runArchive(env, "add", [b], { to: "refs" });
+    const capB = addedB.find((r) => r.verb === "capture")!;
+    await runArchive(env, "remove", [capB.id], { from: "refs" });
+    const recsB = await runArchive(env, "add", [b], { to: "refs" });
+    const entryB = (payload(recsB.find((r) => r.verb === "archive")!).added as Array<Record<string, unknown>>)[0];
+    assert.equal(entryB.restored_from, undefined);
+    assert.ok(existsSync(String(entryB.path)));
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("retired items stop resolving as archive: refs (media args + capture pull)", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const clip = seedFile(env, "clip.mp4", "vid-bytes");
+    const added = await runArchive(env, "add", [clip], { to: "refs" });
+    const cap = added.find((r) => r.verb === "capture")!;
+    const file = basename(String(cap.media?.ref));
+    await runArchive(env, "remove", [cap.id], { from: "refs", "keep-file": true });
+
+    // record id, capture id, AND the kept file's basename all report "retired"
+    for (const item of [cap.id, String(payload(cap).capture_id), file]) {
+      const r = resolveMediaRef(env.c, `archive:refs/${item}`, env.home);
+      assert.match(r.error ?? "", /retired by `archive remove`/, `item ${item}`);
+    }
+    const pulled = await captureVerb.run(ctx(env, `archive:refs/${file}`));
+    assert.match(pulled[0].error ?? "", /retired/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("archive refs gate on the BUCKET record's readiness/verb, not an active-case lookup", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const bucket = openBucket("refs", env.home).bucket!;
+    const clip = join(bucket.case.mediaDir, "pending.mp4");
+    writeFileSync(clip, "vid");
+    bucket.case.writeRecord(makeRecord({
+      verb: "capture",
+      format: "json",
+      payload: { capture_id: "cap_pending.mp4", path: clip, kind: "file", source: "local" },
+      media: { ref: clip },
+      state: "pending",
+    }));
+    const r = resolveVideoArg(env.c, "archive:refs/cap_pending.mp4", "watch input", { home: env.home });
+    assert.match(r.error ?? "", /isn't ready/, "bucket record's pending state gates the ref");
+  } finally {
+    env.cleanup();
+  }
+});
+
+// ---- index remove/delete against a bucket index -----------------------------------
+
+test("index remove --from / delete on archive:… manage the BUCKET's index", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const bucket = openBucket("refs", env.home).bucket!;
+    addIndex(bucket.case, { id: "local_image_x", type: "image-ransac", name: "stills", backend: "local" });
+    const img = seedFile(env, "ref.png", "png-bytes");
+    addMember(bucket.case, "local_image_x", { ref: img });
+    assert.equal(findIndex(bucket.case, "local_image_x")?.members.length, 1);
+
+    const removed = await indexVerb.run(ctx(env, "remove", [img], { from: "archive:refs/stills" }));
+    assert.equal(removed[0].state, "ready");
+    assert.equal(findIndex(bucket.case, "local_image_x")?.members.length, 0, "member removed from the bucket mirror");
+
+    const deleted = await indexVerb.run(ctx(env, "delete", ["archive:refs/stills"], {}));
+    assert.equal(deleted[0].state, "ready");
+    assert.equal(findIndex(bucket.case, "local_image_x"), undefined, "bucket mirror entry deleted");
+    assert.match((await indexVerb.run(ctx(env, "delete", ["archive:nope/stills"], {})))[0].error ?? "", /not found/);
   } finally {
     env.cleanup();
   }

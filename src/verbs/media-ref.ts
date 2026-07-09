@@ -6,11 +6,11 @@
 // rule can't drift between verbs (the root cause of the review cascade).
 
 import { existsSync } from "node:fs";
-import { resolve, sep, isAbsolute } from "node:path";
+import { basename, resolve, sep, isAbsolute } from "node:path";
 import { realpathContained } from "../fs-path.js";
 import { isReady, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
-import { ARCHIVE_REF_PREFIX, openBucket, parseArchiveRef, resolveBucketPath } from "../archive.js";
+import { ARCHIVE_REF_PREFIX, listBucketItems, openBucket, parseArchiveRef, resolveBucketPath } from "../archive.js";
 
 /** Whether a `--ref` string points at a real LOCAL file, for the finding/note
  *  evidence-ref guard. An absolute path is taken as-is (an explicit operator
@@ -65,10 +65,14 @@ export function isRegisterableMediaRecord(r: OvercastRecord): boolean {
  *  (path / URL). Also resolves capture payload ids (`cap_...`) because those are
  *  the human-facing handles capture emits. Mirrors view/capture id resolution.
  *  An `archive:<bucket>/<item>` ref resolves against the BUCKET's store instead
- *  (record id / capture id / bucket-contained media path → absolute path) and
- *  reports the bucket in `archive`; a bad archive ref sets `error` rather than
- *  falling through as a literal path. */
-export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: string; recordId?: string; archive?: string; error?: string } {
+ *  (record id / capture id / bucket-contained media path → absolute path),
+ *  reports the bucket in `archive`, and carries the resolved bucket `record` so
+ *  callers can gate on readiness/verb without an active-case lookup (which
+ *  would find nothing). Resolution honors the MANIFEST: an item retired by
+ *  `archive remove` errors instead of resolving (consistent with `archive
+ *  show`); a bad archive ref sets `error` rather than falling through as a
+ *  literal path. */
+export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: string; recordId?: string; record?: OvercastRecord; archive?: string; error?: string } {
   if (ref.startsWith(ARCHIVE_REF_PREFIX)) {
     const parsed = parseArchiveRef(ref)!;
     const { bucket, error } = openBucket(parsed.bucket, home);
@@ -76,10 +80,28 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
     if (!parsed.item) {
       return { ref, error: `archive ref needs an item: archive:${parsed.bucket}/<record id | capture id | media file>` };
     }
+    const items = listBucketItems(bucket, { includeRemoved: true });
+    const retiredErr = () => ({
+      ref,
+      error: `${ref} was retired by \`archive remove\` — re-add it with \`overcast archive add\` to restore it`,
+    });
+    // record id / capture id — through the bucket STORE (any verb, any state:
+    // a pending capture must resolve so the readiness gate can report it),
+    // with the manifest's tombstones layered on top
     const inBucket = resolveMediaRef(bucket.case, parsed.item);
-    if (inBucket.recordId) return { ...inBucket, archive: parsed.bucket };
+    if (inBucket.recordId) {
+      if (items.some((it) => it.removed && it.record.id === inBucket.recordId)) return retiredErr();
+      return { ref: inBucket.ref, recordId: inBucket.recordId, record: bucket.case.recordById(inBucket.recordId), archive: parsed.bucket };
+    }
+    // media filename — the LIVE manifest item that owns it
+    const live = items.find((it) => !it.removed && !!it.path && basename(it.path) === parsed.item);
+    if (live) return { ref: live.path!, recordId: live.record.id, record: live.record, archive: parsed.bucket };
+    if (items.some((it) => it.removed && !!it.path && basename(it.path) === parsed.item)) return retiredErr();
     const path = resolveBucketPath(bucket, parsed.item);
-    if (path) return { ref: path, archive: parsed.bucket };
+    if (path) {
+      if (items.some((it) => it.removed && it.path === path)) return retiredErr();
+      return { ref: path, archive: parsed.bucket };
+    }
     return { ref, error: `${ref} not found (no matching record, capture id, or media file in bucket '${parsed.bucket}')` };
   }
   const rec = c.recordById(ref);
@@ -116,10 +138,12 @@ export function resolveVideoArg(
   opts: VideoArgOpts = {},
 ): { ref?: string; recordId?: string; archive?: string; error?: string } {
   const { requireReady = true, requireExists = true } = opts;
-  const { ref, recordId, archive, error } = resolveMediaRef(c, arg, opts.home);
+  const { ref, recordId, record, archive, error } = resolveMediaRef(c, arg, opts.home);
   if (error) return { error: `${label}: ${error}` };
   if (recordId) {
-    const src = c.recordById(recordId);
+    // an archive ref carries its BUCKET record — gate on that, not an
+    // active-case lookup that would find nothing and silently skip the checks
+    const src = record ?? c.recordById(recordId);
     if (src && !MEDIA_VERBS.includes(src.verb)) {
       return { error: `${label}: record ${arg} is a ${src.verb} record, not captured/sensed media — capture it first (e.g. \`scan --pull\`) then use the capture, or pass a path/URL` };
     }
@@ -141,10 +165,10 @@ export function resolveImageArg(
   opts: Pick<VideoArgOpts, "requireExists" | "requireReady" | "home"> = {},
 ): { ref?: string; recordId?: string; archive?: string; error?: string } {
   const { requireReady = true, requireExists = true } = opts;
-  const { ref, recordId, archive, error } = resolveMediaRef(c, arg, opts.home);
+  const { ref, recordId, record, archive, error } = resolveMediaRef(c, arg, opts.home);
   if (error) return { error: `${label}: ${error}` };
   if (recordId) {
-    const src = c.recordById(recordId);
+    const src = record ?? c.recordById(recordId);
     if (requireReady && src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
   }
   if (requireExists && !/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: image not found: ${ref}` };

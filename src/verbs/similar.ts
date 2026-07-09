@@ -15,7 +15,7 @@ import {
 } from "../providers/local/vision.js";
 import { runLocalClap, readClapConfig } from "../providers/local/audio.js";
 import { resolveVideoArg, resolveVisualArg } from "./media-ref.js";
-import { resolveIndexScope, stampArchive } from "../archive.js";
+import { openBucket, resolveIndexScope, stampArchive } from "../archive.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { badNumber } from "./validate.js";
 import { providerBinding } from "../providers/bindings.js";
@@ -252,9 +252,17 @@ export const similarVerb: VerbSpec = {
     let framesAt: number[] | undefined;
     let watched: OvercastRecord | undefined;
     if (q.kind === "video" && cfg.sampling === "shots") {
-      const shots = await shotMarkers(ctx, q.ref!);
+      // an archive-ref query's shot markers come from (and file to) the BUCKET:
+      // the watch evidence lives with the media so other cases reuse it, and a
+      // bucket-owned record would be dropped by the case persist seam anyway.
+      const shotCase = q.archive ? openBucket(q.archive, ctx.home).bucket?.case : undefined;
+      const shots = await shotMarkers(shotCase ? { ...ctx, case: shotCase } : ctx, q.ref!);
       if (shots.markers.length) framesAt = shots.markers;
       watched = shots.watched;
+      if (watched && shotCase) {
+        shotCase.writeRecord(watched);
+        watched.meta = { ...watched.meta, persisted: true };
+      }
     }
 
     if (action === "add") {
