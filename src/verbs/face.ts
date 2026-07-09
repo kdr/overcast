@@ -9,7 +9,7 @@
 //   face <video> --index <id>         → list     (stored detections for that video)
 
 import { existsSync } from "node:fs";
-import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
+import { isReady, makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { runFace, type FaceOp, type FaceParams } from "../providers/tinycloud/face.js";
 import { tinycloudBaseFromRun, TC_SUBCOMMANDS, TINYCLOUD_TIMEOUT_MS } from "../providers/tinycloud/envelope.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
@@ -48,6 +48,9 @@ function resolveImageRef(c: Case, ref: string, home?: string): { ref?: string; a
   if (rec && !rec.media?.ref) return { error: `--match record ${ref} has no media` };
   const r = resolveMediaRef(c, ref, home);
   if (r.error) return { error: `--match: ${r.error}` };
+  // an archive/bucket ref carries its bucket record — gate on readiness so a
+  // pending/errored capture's partial still isn't matched (like exif/capture)
+  if (r.record && !isReady(r.record)) return { error: `--match record ${r.record.id} isn't ready (state=${r.record.state ?? "?"})` };
   if (r.recordId && !isImage(r.ref)) return { error: `--match record ${ref} resolves to ${r.ref}; not an image file` };
   return { ref: r.ref, archive: r.archive };
 }

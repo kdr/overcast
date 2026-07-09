@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { existsSync, writeFileSync } from "node:fs";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { isReady, makeRecord, type OvercastRecord } from "../record.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
@@ -182,6 +182,7 @@ export const seeVerb: VerbSpec = {
     if (!fr && !isHttpUrl(resolvedRef)) {
       const r = resolveMediaRef(ctx.case, resolvedRef, ctx.home);
       if (r.error) return stamp(errorRecord("see", `see input: ${r.error}`));
+      if (r.record && !isReady(r.record)) return stamp(errorRecord("see", `see input: record ${r.record.id} isn't ready (state=${r.record.state ?? "?"})`));
       resolvedRef = r.ref;
       archiveBucket = r.archive;
     }
@@ -464,6 +465,7 @@ export const enhanceVerb: VerbSpec = {
     if (!fr) {
       const r = resolveMediaRef(ctx.case, input, ctx.home);
       if (r.error) return [errorRecord("enhance", `enhance input: ${r.error}`)];
+      if (r.record && !isReady(r.record)) return [errorRecord("enhance", `enhance input: record ${r.record.id} isn't ready (state=${r.record.state ?? "?"})`)];
       input = r.ref;
       provenanceSource = r.ref;
       archiveBucket = r.archive;
@@ -668,6 +670,7 @@ export const viewVerb: VerbSpec = {
       // the SHARED resolver (retired archive files error, like the senses)
       const r = resolveMediaRef(ctx.case, ctx.input, ctx.home);
       if (r.error) return [errorRecord("view", `view input: ${r.error}`)];
+      if (r.record && !isReady(r.record)) return [errorRecord("view", `view input: record ${r.record.id} isn't ready (state=${r.record.state ?? "?"})`)];
       mediaPath = r.ref;
       archiveBucket = r.archive;
     }

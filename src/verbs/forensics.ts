@@ -6,7 +6,7 @@
 // senses (src/verbs/senses.ts) so behavior can't drift.
 
 import { existsSync } from "node:fs";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { isReady, makeRecord, type OvercastRecord } from "../record.js";
 import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
@@ -55,6 +55,13 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
   if (!isHttpUrl(ref)) {
     const resolved = resolveMediaRef(ctx.case, ref, ctx.home);
     if (resolved.error) return [errorRecord(cfg.verb, `${cfg.verb} input: ${resolved.error}`)];
+    // an archive/bucket ref carries its bucket record (from the bucket store, not
+    // the active case) — gate on it so forensics never reads a pending/errored
+    // capture's partial file (matches capture/archive add), and use it directly
+    // for provenance (the active-case lookup would find nothing for a bucket id).
+    if (resolved.record && !isReady(resolved.record)) {
+      return [errorRecord(cfg.verb, `${cfg.verb} input: record ${resolved.record.id} isn't ready (state=${resolved.record.state ?? "?"})`)];
+    }
     ref = resolved.ref;
     archiveBucket = resolved.archive; // forensics on an archived file traces to its bucket
     // carry the source record's provenance, and — when the record has no
@@ -62,7 +69,7 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
     // payload.url, matching how capture/hitFetchRef resolve the same hit
     // (resolveMediaRef only follows media.ref, so it would otherwise leave the
     // bare record id and fail the local-file check).
-    const rec = ctx.case.recordById(resolved.recordId ?? ctx.input);
+    const rec = resolved.record ?? ctx.case.recordById(resolved.recordId ?? ctx.input);
     if (rec) {
       sourceProv = scanHitProvenance(rec);
       if (!resolved.recordId) {

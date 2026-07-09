@@ -431,6 +431,23 @@ test("archive refs gate on the BUCKET record's readiness/verb, not an active-cas
     await runArchive(env, "init", ["other"]);
     const recs = await runArchive(env, "add", ["archive:refs/cap_pending.mp4"], { to: "other" });
     assert.match(recs[0].error ?? "", /isn't ready/);
+
+    // the READING verbs gate on it too — a pending bucket capture's partial
+    // file must not produce misleading forensic/face/see results
+    const { seeVerb, enhanceVerb, viewVerb, exifVerb, verifyVerb } = await import("../../src/verbs/senses.ts")
+      .then(async (s) => ({ ...s, ...(await import("../../src/verbs/forensics.ts")) }));
+    for (const [verb, arg] of [
+      [seeVerb, "archive:refs/pending.mp4"],
+      [enhanceVerb, "archive:refs/pending.mp4"],
+      [viewVerb, "archive:refs/pending.mp4"],
+      [exifVerb, "archive:refs/pending.mp4"],
+      [verifyVerb, "archive:refs/pending.mp4"],
+      [faceVerb, undefined],
+    ] as const) {
+      const opts = verb === faceVerb ? { match: "archive:refs/pending.mp4" } : {};
+      const out = await verb.run(ctx(env, arg, [], opts));
+      assert.match(out[0].error ?? "", /isn't ready/, `${verb.name} gates a pending bucket ref`);
+    }
   } finally {
     env.cleanup();
   }

@@ -845,13 +845,19 @@ overcast ask "what do I have on the blue warehouse?" --archive ref-footage --jso
 Notes: `archive:<bucket>/<item>` accepts a bucket record id, capture id, or
 media filename; containment is enforced inside the bucket (no `../` or symlink
 escapes). `archive remove <item> --from <bucket>` retires an item from the
-manifest (deleting the file unless `--keep-file`); its record stays in bucket
-history. On-apply setup backfills existing bucket media into new indexes;
-`--auto-index-new` keeps future adds indexed. `ask --archive` answers cite
-bucket record ids — page them with `overcast case memory get <id> --case
-<bucket-dir>` (the answer payload carries the dir). Rebuild a bucket's qmd
-index with `overcast case memory index rebuild --case <bucket-dir>`. The
-`overcast-archive` skill packages this flow.
+manifest — it un-indexes the item from every bucket index first (dropping the
+mirror member + any cached embedding/fingerprint), then deletes the file
+unless `--keep-file`; the record stays in bucket history. A retired item stops
+resolving as an `archive:` ref (and by raw path) with a re-add hint;
+re-`archive add`-ing the same bytes **restores** it (reusing the kept file, no
+duplicate copy). In-flight/errored bucket captures are gated everywhere — the
+sensing/forensic/match verbs and pulls all refuse a partial file. On-apply
+setup backfills existing bucket media into new indexes; `--auto-index-new`
+keeps future adds indexed. `ask --archive` answers cite bucket record ids —
+page them with `overcast case memory get <id> --case <bucket-dir>` (the answer
+payload carries the dir). Rebuild a bucket's qmd index with `overcast case
+memory index rebuild --case <bucket-dir>`. The `overcast-archive` skill
+packages this flow.
 
 ## Command matrix
 
