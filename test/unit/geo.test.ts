@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { finiteNum, validLat, validLng, validLatLng } from "../../src/geo.ts";
+import { finiteNum, validLat, validLng, validLatLng, gpsIssue } from "../../src/geo.ts";
 
 test("finiteNum: rejects NaN/Infinity/non-numbers", () => {
   assert.equal(finiteNum(1.5), 1.5);
@@ -37,4 +37,18 @@ test("validLatLng: returns a pair only when BOTH coords are valid", () => {
   assert.equal(validLatLng({ lat: 1 }), undefined); // missing lng
   assert.equal(validLatLng(null), undefined);
   assert.equal(validLatLng("37,-122"), undefined);
+});
+
+test("gpsIssue: classifies absent / out-of-range / malformed precisely", () => {
+  assert.equal(gpsIssue({ lat: 37.77, lng: -122.4 }), undefined); // usable
+  assert.equal(gpsIssue(null), "absent");
+  assert.equal(gpsIssue(undefined), "absent");
+  // both axes finite numbers, one outside WGS84 → out-of-range
+  assert.equal(gpsIssue({ lat: 999, lng: 1 }), "out-of-range");
+  assert.equal(gpsIssue({ lat: 1, lng: 999 }), "out-of-range");
+  // missing axis / non-numeric / empty → malformed, NOT "out of range"
+  assert.equal(gpsIssue({ lat: 1 }), "malformed");
+  assert.equal(gpsIssue({}), "malformed");
+  assert.equal(gpsIssue({ lat: "x", lng: "y" }), "malformed");
+  assert.equal(gpsIssue({ lat: NaN, lng: 1 }), "malformed");
 });

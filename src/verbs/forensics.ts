@@ -11,7 +11,7 @@ import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
-import { validLatLng } from "../geo.js";
+import { validLatLng, gpsIssue } from "../geo.js";
 import { resolveMediaRef } from "./media-ref.js";
 import { provenanceFromCapture, scanHitProvenance, stampProvenance } from "./provenance.js";
 import { shippedPath } from "../pkg.js";
@@ -126,9 +126,16 @@ async function enrichWithPlace(ctx: VerbContext, records: OvercastRecord[]): Pro
     const coords = validLatLng(p.gps);
     if (!coords) {
       // --geocode was requested but there's nothing usable to geocode — leave
-      // actionable feedback instead of a silent no-op.
+      // actionable feedback instead of a silent no-op, and label the issue
+      // accurately (absent vs out-of-range vs malformed/incomplete).
       p.place = null;
-      p.geocode_status = p.gps != null ? "GPS coordinates out of range — not geocoded" : "no GPS coordinates to geocode";
+      const issue = gpsIssue(p.gps);
+      p.geocode_status =
+        issue === "absent"
+          ? "no GPS coordinates to geocode"
+          : issue === "out-of-range"
+            ? "GPS coordinates out of range — not geocoded"
+            : "GPS coordinates malformed or incomplete — not geocoded";
       continue;
     }
     if (!bound) {

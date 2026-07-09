@@ -27,3 +27,16 @@ export function validLatLng(gps: unknown): { lat: number; lng: number } | undefi
   const lng = validLng(g.lng);
   return lat !== undefined && lng !== undefined ? { lat, lng } : undefined;
 }
+
+/** Why a gps value isn't usable — for accurate user-facing feedback. `undefined`
+ *  means it IS usable. "out-of-range" is reserved for the case where both axes are
+ *  finite numbers but at least one falls outside WGS84; missing/non-numeric axes
+ *  are "malformed", and a null/absent value is "absent". */
+export type GpsIssue = "absent" | "out-of-range" | "malformed";
+export function gpsIssue(gps: unknown): GpsIssue | undefined {
+  if (gps == null) return "absent";
+  if (validLatLng(gps) !== undefined) return undefined;
+  const g = typeof gps === "object" ? (gps as Record<string, unknown>) : {};
+  const bothNumeric = finiteNum(g.lat) !== undefined && finiteNum(g.lng) !== undefined;
+  return bothNumeric ? "out-of-range" : "malformed";
+}
