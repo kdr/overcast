@@ -13,6 +13,7 @@
 //   needs_download(3) error(1)   — (exit codes in parens).
 
 import { execCapture, parseFirstJson } from "../exec.js";
+import { redactSecrets } from "../../env.js";
 import { tokenizeCommand } from "../sources/index.js";
 import type { RecordState } from "../../record.js";
 
@@ -229,7 +230,7 @@ export async function runTinycloud(
           ? "tinycloud produced no JSON output"
           : credGap
             ? "tinycloud needs credentials (set CLOUDGLUE_API_KEY or run `tinycloud setup cloudglue`)"
-            : `tinycloud exited ${res.code}: ${res.stderr.trim().slice(0, 400)}`,
+            : `tinycloud exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 400))}`,
     };
   }
 
@@ -251,7 +252,7 @@ export async function runTinycloud(
     error =
       envError ||
       (res.code !== 0
-        ? `tinycloud exited ${res.code}: ${res.stderr.trim().slice(0, 400)}`
+        ? `tinycloud exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 400))}`
         : "tinycloud reported a failure");
   } else if (state === "needs_credentials") {
     error =

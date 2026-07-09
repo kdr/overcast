@@ -5,6 +5,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../../record.js";
+import { redactSecrets } from "../../env.js";
 import {
   execCapture,
   renderCommand,
@@ -203,7 +204,7 @@ export async function runWatch(
           ? "tinycloud watch produced no JSON output"
           : res.code === 13
             ? "tinycloud watch needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
-            : `tinycloud watch exited ${res.code}: ${res.stderr.trim().slice(0, 500)}`,
+            : `tinycloud watch exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
       // exit 13 = missing creds, matching runExecProvider + the source providers
       state: res.code === 13 ? "needs_credentials" : "error",
     });
@@ -235,7 +236,7 @@ export async function runWatch(
       meta: { provider: "tinycloud", model: "cloudglue" },
       error:
         envError ||
-        `tinycloud watch failed (exit ${res.code}): ${res.stderr.trim().slice(0, 500)}`,
+        `tinycloud watch failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
       // exit 13 is the cred-gap convention even when JSON parsed — classify it as
       // needs_credentials (not a hard error), matching the no-JSON path + runExecProvider.
       state: res.code === 13 ? "needs_credentials" : "error",
