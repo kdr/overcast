@@ -810,6 +810,11 @@ test("resolveMediaRef/refPathExists: archive refs resolve in-bucket with contain
     assert.match(resolveMediaRef(env.c, "archive:refs/missing.mp4", env.home).error ?? "", /not found/);
     assert.match(resolveMediaRef(env.c, "archive:nope/x.mp4", env.home).error ?? "", /not found/);
     assert.match(resolveMediaRef(env.c, "archive:refs", env.home).error ?? "", /needs an item/);
+    // a nested archive: item's inner failure surfaces the INNER cause (the
+    // missing inner bucket), not a masked "not found in bucket refs"
+    const nested = resolveMediaRef(env.c, "archive:refs/archive:nope/x.mp4", env.home);
+    assert.match(nested.error ?? "", /bucket 'nope' not found|archive init nope/);
+    assert.doesNotMatch(nested.error ?? "", /bucket 'refs'/);
     // ../ escape out of the bucket → not found (containment)
     writeFileSync(join(outside, "secret.mp4"), "s");
     const esc = resolveMediaRef(env.c, `archive:refs/../../${basename(outside)}/secret.mp4`, env.home);

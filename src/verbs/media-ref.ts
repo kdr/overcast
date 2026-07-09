@@ -103,6 +103,11 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
     // archive: item or an absolute bucket path inside resolves against the SAME
     // archive root, not the env/default one.
     const inBucket = resolveMediaRef(bucket.case, parsed.item, home);
+    // surface a real inner failure (a nested archive: item that errored, a
+    // missing inner bucket, a retired absolute path) instead of masking it as
+    // the outer bucket's "not found". A plain unresolved literal (no error, no
+    // recordId) still falls through to basename/path resolution below.
+    if (inBucket.error) return { ref, error: inBucket.error };
     if (inBucket.recordId) {
       if (items.some((it) => it.removed && it.record.id === inBucket.recordId)) {
         const succ = liveForPath(inBucket.ref);
