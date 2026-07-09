@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "//": "Skip the deploy unless the last commit touched this folder (Root Directory = site/, so the ignoreCommand runs from here). Exit 0 = no site/ changes = build canceled (shows as 'Skipped', not a red check). Keeps non-site PRs from burning the daily Vercel deploy quota.",
   "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
   "headers": [
     {
