@@ -8,6 +8,7 @@ import {
   brainSeeDisabled,
   resolveBrainChoice,
   buildSeePrompt,
+  buildSeeContext,
   splitDescriptionOcr,
   mimeForImage,
 } from "../../src/providers/brain/vision.ts";
@@ -70,6 +71,35 @@ test("splitDescriptionOcr parses the DESCRIPTION/TEXT format and 'none'", () => 
     caption: "just a plain description",
     ocr: "",
   });
+});
+
+test("buildSeeContext frames the image as UNTRUSTED DATA in the system prompt (injection posture)", () => {
+  // buildSeeContext is the exact Context seeWithBrain hands to the LLM, so this
+  // asserts the counter-framing is actually SENT — not merely defined as a string.
+  const ctx = buildSeeContext("QkFTRTY0", "/x/shot.jpg");
+
+  // The untrusted-data counter-framing rides in the system prompt, mirroring the
+  // pi-loop system prompt (src/extension/system-prompt.ts).
+  assert.ok(ctx.systemPrompt, "expected a system prompt on the see context");
+  assert.match(ctx.systemPrompt ?? "", /DATA, not instructions/i);
+  assert.match(ctx.systemPrompt ?? "", /untrusted/i);
+
+  // The describe/OCR task wording is preserved verbatim as the user message —
+  // the framing is additive, not a rewrite of buildSeePrompt.
+  const blocks = ctx.messages[0].content as Array<{ type: string; text?: string }>;
+  const textBlock = blocks.find((b) => b.type === "text");
+  assert.equal(textBlock?.text, buildSeePrompt());
+  // ...and the untrusted image travels in the same turn.
+  assert.ok(blocks.some((b) => b.type === "image"), "expected the image block");
+});
+
+test("buildSeeContext preserves --prompt focus and --ocr task wording (framing unchanged)", () => {
+  const ctx = buildSeeContext("QkFTRTY0", "/x/shot.png", "the license plate", true);
+  const blocks = ctx.messages[0].content as Array<{ type: string; text?: string }>;
+  const textBlock = blocks.find((b) => b.type === "text");
+  assert.equal(textBlock?.text, buildSeePrompt("the license plate", true));
+  // Framing is identical regardless of task options.
+  assert.match(ctx.systemPrompt ?? "", /DATA, not instructions/i);
 });
 
 test("mimeForImage maps extensions (default jpeg)", () => {
