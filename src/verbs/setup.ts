@@ -667,6 +667,24 @@ export const doctorVerb: VerbSpec = {
           : "WINDY_API_KEY missing for webcam (Windy Webcams) scans (https://api.windy.com/webcams)",
       });
     }
+    if (ctx.opts.sources === true || sourceTypes.has("dork")) {
+      checks.push({
+        name: "source:dork",
+        ok: envPresent("SERPER_API_KEY"),
+        detail: envPresent("SERPER_API_KEY")
+          ? "SERPER_API_KEY present (Google dorking — authorized recon only)"
+          : "SERPER_API_KEY missing for dork (Google dorking) scans (https://serper.dev)",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("shodan")) {
+      checks.push({
+        name: "source:shodan",
+        ok: envPresent("SHODAN_API_KEY"),
+        detail: envPresent("SHODAN_API_KEY")
+          ? "SHODAN_API_KEY present (host/service recon — authorized recon only)"
+          : "SHODAN_API_KEY missing for shodan scans (https://account.shodan.io)",
+      });
+    }
 
     // home / profiles
     const home = resolveHome({ home: ctx.home });
