@@ -338,11 +338,20 @@ test("re-adding retired bytes RESTORES the kept file instead of duplicating it",
     const [show] = await runArchive(env, "show", ["refs"]);
     assert.equal(payload(show).total_items, 1, "one live item after restore");
 
-    // a restore un-retires the RAW path too (the old tombstone must not keep
-    // blocking a path that has a live successor record)
-    const rawAfterRestore = resolveMediaRef(env.c, keptPath, env.home);
-    assert.equal(rawAfterRestore.error, undefined, "restored path resolves again");
-    assert.equal(rawAfterRestore.archive, "refs");
+    // a restore un-retires EVERY addressing form — not just basename/raw path,
+    // but the OLD record id and OLD cap id too (round-11 inconsistency: id
+    // forms stayed dead while basename/path worked, breaking ask --archive
+    // citations that name a record id)
+    const oldCapId = String(payload(cap).capture_id);
+    const restoredRec = openBucket("refs", env.home).bucket!.case.records()
+      .filter((r) => r.verb === "capture" && String((r.payload as Record<string, unknown>).path) === keptPath).at(-1)!;
+    for (const [form, addr] of [["old record id", cap.id], ["old cap id", oldCapId], ["basename", basename(keptPath)], ["raw path", keptPath]] as const) {
+      const r = resolveMediaRef(env.c, addr === keptPath ? addr : `archive:refs/${addr}`, env.home);
+      assert.equal(r.error, undefined, `restore un-retires by ${form}`);
+      assert.equal(r.archive, "refs");
+      // id/name forms resolve to the LIVE successor record, not the dead one
+      if (addr !== keptPath) assert.equal(r.recordId, restoredRec.id, `${form} resolves to the live successor`);
+    }
 
     // retired WITHOUT --keep-file (file gone) → plain re-add copies fresh
     const b = seedFile(env, "b.mp4", "other-bytes");

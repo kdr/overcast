@@ -90,6 +90,13 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
       ref,
       error: `${ref} was retired by \`archive remove\` — re-add it with \`overcast archive add\` to restore it`,
     });
+    // "retired" means a tombstone with NO live successor for the same FILE. A
+    // restore (`archive add` of the same bytes) re-adds a live capture over the
+    // kept file, so the OLD record id / cap id / basename / path must resolve
+    // AGAIN to that live item — not stay dead. This one predicate keeps every
+    // addressing form consistent (the round-11 inconsistency was id-forms dead
+    // while basename/path worked).
+    const liveForPath = (p: string | undefined) => (p ? items.find((it) => !it.removed && it.path === p) : undefined);
     // record id / capture id — through the bucket STORE (any verb, any state:
     // a pending capture must resolve so the readiness gate can report it),
     // with the manifest's tombstones layered on top. Pass `home` so a nested
@@ -97,17 +104,20 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
     // archive root, not the env/default one.
     const inBucket = resolveMediaRef(bucket.case, parsed.item, home);
     if (inBucket.recordId) {
-      if (items.some((it) => it.removed && it.record.id === inBucket.recordId)) return retiredErr();
+      if (items.some((it) => it.removed && it.record.id === inBucket.recordId)) {
+        const succ = liveForPath(inBucket.ref);
+        if (succ) return { ref: succ.path!, recordId: succ.record.id, record: succ.record, archive: parsed.bucket };
+        return retiredErr();
+      }
       return { ref: inBucket.ref, recordId: inBucket.recordId, record: bucket.case.recordById(inBucket.recordId), archive: parsed.bucket };
     }
-    // media filename — the LIVE manifest item that owns it; retired means a
-    // tombstone with no live successor (a restore un-retires the name)
+    // media filename — the LIVE manifest item that owns it
     const live = items.find((it) => !it.removed && !!it.path && basename(it.path) === parsed.item);
     if (live) return { ref: live.path!, recordId: live.record.id, record: live.record, archive: parsed.bucket };
     if (items.some((it) => it.removed && !!it.path && basename(it.path) === parsed.item)) return retiredErr();
     const path = resolveBucketPath(bucket, parsed.item);
     if (path) {
-      if (items.some((it) => it.removed && it.path === path)) return retiredErr();
+      if (items.some((it) => it.removed && it.path === path) && !liveForPath(path)) return retiredErr();
       // an on-disk file owned by a NON-ready capture (pending/error) must carry
       // its record so the readiness gates fire — a partial download addressed by
       // filename is not fair game just because the bytes exist
