@@ -131,6 +131,14 @@ if [ -f "$frame" ]; then
   echo "$flist" | jq -e '.payload.findings[] | select(.payload.trigger=="signal:exif-editing-software" and .payload.confidence=="medium")' >/dev/null \
     && ok "exif.finding" "editing-software lead suggested" || fail "exif.finding" "no editor lead"
 
+  # exif suppresses an OUT-OF-RANGE GPS tag (gps null + summary flags invalid) so
+  # stored/indexed coords stay consistent with what map + geocode accept.
+  xbad="$(OVERCAST_EXIFTOOL_CMD="bash $REPO/test/fixtures/fake-exiftool-badgps.sh" \
+    $OVERCAST exif "$frame" --json --case "$fcase" 2>/dev/null | jq -c 'select(.verb=="exif")')"
+  assert_eq "exif.badgps_null" "null" "$(jq -r '.payload.gps' <<<"$xbad")" "out-of-range GPS suppressed to null"
+  echo "$xbad" | jq -r '.payload.summary' | grep -qi "invalid" \
+    && ok "exif.badgps_summary" "summary flags invalid GPS (not 'no GPS')" || fail "exif.badgps_summary" "no invalid-GPS note"
+
   vout="$(OVERCAST_C2PATOOL_CMD="bash $REPO/test/fixtures/fake-c2patool.sh" \
     $OVERCAST verify "$frame" --json --case "$fcase" 2>/dev/null | jq -c 'select(.verb=="verify")')"
   save_json "phase2_verify" "$vout" >/dev/null

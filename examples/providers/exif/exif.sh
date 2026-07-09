@@ -72,10 +72,19 @@ w="$(get ImageWidth)"; h="$(get ImageHeight)"
 mime="$(get MIMEType)"; dur="$(get Duration)"
 count="$(printf '%s' "$obj" | jq 'keys | length' 2>/dev/null)"; [ -n "$count" ] || count=0
 
+# WGS84 range check on ExifTool's numeric lat/lng (obj carries them as numbers
+# under -n). map + `exif --geocode` drop out-of-range coordinates, so suppress them
+# here too — a stored payload.gps must be the same one the map would plot, and
+# `ask`/memory must not cite a coordinate that never geolocates.
+gps_valid="$(printf '%s' "$obj" | jq 'if ((.GPSLatitude|type)=="number") and ((.GPSLongitude|type)=="number") and (.GPSLatitude>=-90) and (.GPSLatitude<=90) and (.GPSLongitude>=-180) and (.GPSLongitude<=180) then 1 else 0 end' 2>/dev/null)"
+[ -n "$gps_valid" ] || gps_valid=0
+
 # human, searchable one-liner (indexed into case memory)
 summary=""
 add() { [ -n "$1" ] || return 0; if [ -n "$summary" ]; then summary="$summary · $1"; else summary="$1"; fi; }
-if [ -n "$lat" ] && [ -n "$lng" ]; then add "GPS ${lat},${lng}"; else add "no GPS"; fi
+if [ "$gps_valid" = "1" ]; then add "GPS ${lat},${lng}";
+elif [ -n "$lat" ] && [ -n "$lng" ]; then add "GPS invalid (out of range)";
+else add "no GPS"; fi
 dev="$(printf '%s %s' "$make" "$model" | xargs 2>/dev/null || true)"
 add "$dev"
 add "$created"
@@ -90,11 +99,12 @@ jq -nc \
   --arg software "$soft" --arg serial "$serial" --arg lens "$lens" --arg mime "$mime" \
   --arg w "$w" --arg h "$h" --arg dur "$dur" \
   --argjson count "${count:-0}" \
+  --argjson gps_valid "${gps_valid:-0}" \
   '{
      verb:"exif", format:"json",
      payload:{
        summary: $summary,
-       gps: (if ($lat|length)>0 and ($lng|length)>0
+       gps: (if $gps_valid == 1
              then ({lat:($lat|tonumber), lng:($lng|tonumber)}
                    + (if ($alt|length)>0 then {altitude:($alt|tonumber)} else {} end))
              else null end),
