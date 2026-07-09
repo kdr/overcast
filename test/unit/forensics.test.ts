@@ -26,6 +26,7 @@ const FAKE_EXIF = join(HERE, "..", "fixtures", "fake-exif.sh");
 const FAKE_VERIFY = join(HERE, "..", "fixtures", "fake-verify.sh");
 const FAKE_GEOCODE = join(HERE, "..", "fixtures", "fake-geocode.sh");
 const FAKE_GEOCODE_NOPLACE = join(HERE, "..", "fixtures", "fake-geocode-noplace.sh");
+const FAKE_GEOCODE_NEEDS = join(HERE, "..", "fixtures", "fake-geocode-needs.sh");
 
 /** Build a ctx with an exif binding (+ optional geocode binding) and opts. */
 function geocodeCtx(dir: string, img: string, opts: Record<string, unknown>, withGeocode: boolean, geocodeScript: string = FAKE_GEOCODE): VerbContext {
@@ -117,6 +118,22 @@ test("exif --geocode records a status when a bound provider resolves no place", 
     const p = rec.payload as Record<string, unknown>;
     assert.equal(p.place, null);
     assert.match(String(p.geocode_status), /no place/i); // not silently ambiguous
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exif --geocode reports a dependency gap (needs_credentials) distinctly from a lookup miss", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-geo-"));
+  try {
+    const img = join(dir, "p.jpg");
+    writeFileSync(img, "exists-but-not-a-real-jpeg");
+    chmodSync(FAKE_EXIF, 0o755);
+    chmodSync(FAKE_GEOCODE_NEEDS, 0o755);
+    const [rec] = await exifVerb.run(geocodeCtx(dir, img, { geocode: true }, true, FAKE_GEOCODE_NEEDS));
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.place, null);
+    assert.match(String(p.geocode_status), /unavailable/i); // a setup/dep gap, not "no place"
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -202,6 +202,14 @@ test("extractSignal: verify with no validation_state but a failure code still fl
   const cleanRec = verifyRec({ has_manifest: true });
   (cleanRec.payload as Record<string, unknown>).validation_codes = ["assertion.hashedURI.match"];
   assert.equal(extractSignal(cleanRec, T), undefined);
+  // suffix-precise: a failure word in a NON-terminal segment must NOT fire
+  const trap = verifyRec({ has_manifest: true });
+  (trap.payload as Record<string, unknown>).validation_codes = ["expired.rule.passed", "invalidator.matched"];
+  assert.equal(extractSignal(trap, T), undefined);
+  // a genuine last-segment failure token DOES fire
+  const mm = verifyRec({ has_manifest: true });
+  (mm.payload as Record<string, unknown>).validation_codes = ["assertion.dataHash.mismatch"];
+  assert.equal(extractSignal(mm, T)?.kind, "verify-validation-failed");
 });
 
 test("evaluateTriggers: forensic flags emit suggested leads with the stated confidence + text", () => {

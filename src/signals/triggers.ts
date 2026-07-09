@@ -148,10 +148,32 @@ export const IMAGE_EDITOR_SOFTWARE: readonly string[] = [
  *  a failed/untrusted result worth flagging. */
 const OK_VALIDATION_STATES = new Set(["valid", "trusted"]);
 
-/** c2pa validation status codes that denote a FAILED/untrusted result. Consulted
- *  only when c2patool reports NO explicit validation_state verdict (older builds),
- *  so a present valid/trusted state is never second-guessed by a benign code. */
-const FAILED_VALIDATION_CODE = /untrusted|mismatch|revoked|expired|invalid|\.missing|notvalid|fail/i;
+/** c2pa validation-status RESULT tokens (a code's final dot-segment) that denote a
+ *  FAILED/untrusted result — matched EXACTLY against the last segment, never as a
+ *  loose substring, so benign codes like `claimSignature.validated` or
+ *  `assertion.hashedURI.match` can't false-positive. Consulted only when c2patool
+ *  reports NO explicit validation_state verdict (older builds), so a present valid/
+ *  trusted state is never second-guessed by a code. */
+const FAILED_VALIDATION_RESULTS = new Set([
+  "untrusted",
+  "invalid",
+  "notvalid",
+  "revoked",
+  "expired",
+  "mismatch",
+  "missing",
+  "notcredentialed",
+  "unavailable",
+  "outsidevalidity",
+  "undeclared",
+  "malformed",
+  "failed",
+  "error",
+]);
+function isFailedValidationCode(code: string): boolean {
+  const seg = code.split(".").pop()?.trim().toLowerCase() ?? "";
+  return FAILED_VALIDATION_RESULTS.has(seg);
+}
 
 /** Forensic (flag-shaped) signal kinds — they carry an explicit confidence and
  *  are gated by the optional per-case `forensics` policy toggle. */
@@ -282,7 +304,7 @@ export function extractSignal(rec: OvercastRecord, thresholds: TriggerThresholds
     // No explicit verdict? fall back to the status codes so a manifest that's
     // invalid-by-code (older c2patool) still flags, without second-guessing a
     // present valid/trusted state.
-    const badCode = state === "" ? codes.find((c) => FAILED_VALIDATION_CODE.test(c)) : undefined;
+    const badCode = state === "" ? codes.find(isFailedValidationCode) : undefined;
     if (failedByState || badCode) {
       return { kind: "verify-validation-failed", matched: state || badCode || "invalid manifest", confidence: "high" };
     }

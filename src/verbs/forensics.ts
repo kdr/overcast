@@ -134,12 +134,15 @@ async function enrichWithPlace(ctx: VerbContext, records: OvercastRecord[]): Pro
       const place = geo.payload && typeof geo.payload === "object" ? (geo.payload as Record<string, unknown>).place : undefined;
       if (typeof place === "string" && place) {
         p.place = place;
-      } else if (geo.state === "error") {
-        // a bound-but-failing provider must not look like success — leave a hint,
-        // mirroring the unbound case, so `place: null` is never silently ambiguous.
+      } else if (geo.state && geo.state !== "ready") {
+        // any non-ready state (error, needs_credentials, …) is a provider/setup or
+        // dependency gap — NOT a coordinate lookup miss. Distinguish the two so a
+        // missing `curl` isn't misreported as "no place for these coordinates".
         p.place = null;
-        p.geocode_status = `geocode failed: ${typeof geo.error === "string" && geo.error ? geo.error : "provider error"}`;
+        const detail = typeof geo.error === "string" && geo.error ? geo.error : `provider ${geo.state}`;
+        p.geocode_status = `geocode unavailable (${geo.state}): ${detail}`;
       } else {
+        // the provider ran cleanly but found no match for these coordinates
         p.place = null;
         p.geocode_status = "geocode returned no place for these coordinates";
       }
