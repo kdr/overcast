@@ -165,14 +165,22 @@ test("devicesVerb: emits a report record; --findings creates a deduped serial-li
     assert.equal(again.some((r) => r.verb === "finding"), false);
   }));
 
-test("devicesVerb: --findings honors `findings off` policy (no device-link leads)", () =>
+test("devicesVerb: --findings fires ONLY in suggest mode (off + legacy review suppress it)", () =>
   withCase(async (c) => {
-    const setup = emptySetup("t");
-    setup.findings = { mode: "off" };
-    saveSetup(c, setup);
     c.writeRecord(exif({ ref: "a.jpg", make: "Canon", model: "EOS R5", serial: "SN1" }));
     c.writeRecord(exif({ ref: "b.jpg", make: "Canon", model: "EOS R5", serial: "SN1" }));
-    const out = await devicesVerb.run(ctxFor(c, { findings: true }));
-    assert.equal(out.some((r) => r.verb === "finding"), false); // suppressed, like persistRecords
-    assert.equal((out[0].payload as Record<string, unknown>).mode, "devices"); // report still runs
+    for (const mode of ["off", "review"] as const) {
+      const setup = emptySetup("t");
+      setup.findings = { mode };
+      saveSetup(c, setup);
+      const out = await devicesVerb.run(ctxFor(c, { findings: true }));
+      // like the score-trigger engine, automated `suggested` leads only fire in suggest mode
+      assert.equal(out.some((r) => r.verb === "finding"), false, `mode ${mode} must suppress device-link leads`);
+      assert.equal((out[0].payload as Record<string, unknown>).mode, "devices"); // report still runs
+    }
+    // suggest mode (the default) DOES emit the lead
+    const setup = emptySetup("t");
+    setup.findings = { mode: "suggest" };
+    saveSetup(c, setup);
+    assert.equal((await devicesVerb.run(ctxFor(c, { findings: true }))).some((r) => r.verb === "finding"), true);
   }));

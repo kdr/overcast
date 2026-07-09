@@ -71,11 +71,13 @@ export const devicesVerb: VerbSpec = {
 
     const out: OvercastRecord[] = [report];
 
-    // Respect the case findings policy: `--findings` still honors `findings off`,
-    // matching how persistRecords suppresses trigger-driven suggestions — an
-    // analyst who turned findings off must not get device-link leads either.
-    const findingsOn = resolveFindingsPolicy(loadSetup(ctx.case)).mode !== "off";
-    if (ctx.opts.findings === true && findingsOn) {
+    // Device-link findings carry status `suggested`, so — like every automated
+    // suggestion in the score-trigger engine (triggers.ts) — they fire ONLY in
+    // `suggest` mode: `off` emits nothing, and legacy `review` mode emits only its
+    // open text-target leads. This keeps automated-suggestion gating consistent
+    // across the whole codebase, not just for `findings off`.
+    const findingsMode = resolveFindingsPolicy(loadSetup(ctx.case)).mode;
+    if (ctx.opts.findings === true && findingsMode === "suggest") {
       const seen = seenDeviceFingerprints(records);
       for (const cluster of rollup.clusters) {
         if (cluster.strength !== "serial" || cluster.count < 2) continue; // strong links only
