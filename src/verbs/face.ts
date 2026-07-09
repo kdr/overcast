@@ -315,7 +315,7 @@ export const faceVerb: VerbSpec = {
         signal: ctx.signal,
       });
       stampProvenance(rec, provenanceFromCapture(c, video));
-      return [stampArchive(rec, scoped.bucket)];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
     if (ctx.opts["max-frames"] != null) {
       return [err("--max-frames only applies to local face indexes")];
@@ -342,7 +342,7 @@ export const faceVerb: VerbSpec = {
       });
       rec.meta = { ...rec.meta, case: c.dir };
       stampProvenance(rec, provenanceFromCapture(c, video));
-      return [stampArchive(rec, scoped.bucket)];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
 
     if (image) {
@@ -378,6 +378,6 @@ export const faceVerb: VerbSpec = {
     });
     rec.meta = { ...rec.meta, case: c.dir };
     stampProvenance(rec, provenanceFromCapture(c, video));
-    return [stampArchive(rec, scoped.bucket)];
+    return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
   },
 };

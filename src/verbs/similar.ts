@@ -205,7 +205,7 @@ export const similarVerb: VerbSpec = {
       const rec = isClap
         ? await runLocalClap(scope, text, { indexId: idx.id!, op: "search", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, ...queryOpts, signal: ctx.signal })
         : await runLocalClip(scope, text, { indexId: idx.id!, op: "search", pooling: cfg.pooling, granularity: cfg.granularity, sampling: cfg.sampling, window: cfg.window, maxFrames: cfg.maxFrames ?? undefined, fps: cfg.fps ?? undefined, ...queryOpts, signal: ctx.signal });
-      return [stampArchive(rec, scoped.bucket)];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
 
     // ---- add / match (both take a media arg: image/video for CLIP, audio/video for CLAP) ----
@@ -226,11 +226,11 @@ export const similarVerb: VerbSpec = {
           const entry = findIndex(scope, idx.id!);
           if (!entry?.members.some((m) => m.ref === q.ref)) addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
         }
-        return [stampArchive(rec, scoped.bucket)];
+        return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
       }
       const rec = await runLocalClap(scope, q.ref!, { indexId: idx.id!, op: "match", pooling: cfg.pooling, granularity: cfg.granularity, window: cfg.window, ...queryOpts, signal: ctx.signal });
       stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
-      return [stampArchive(rec, scoped.bucket)];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
 
     // ---- CLIP (image/video) path ----
@@ -269,12 +269,12 @@ export const similarVerb: VerbSpec = {
           addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
         }
       }
-      stampArchive(rec, scoped.bucket);
+      stampArchive(rec, scoped.bucket, ctx.case.dir);
       return watched ? [rec, watched] : [rec];
     }
 
     const rec = await runLocalClip(scope, q.ref!, { ...baseOpts, ...queryOpts, op: "match", framesAt });
-    stampArchive(rec, scoped.bucket);
+    stampArchive(rec, scoped.bucket, ctx.case.dir);
     return watched ? [rec, watched] : [rec];
   },
 };

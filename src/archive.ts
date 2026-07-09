@@ -153,9 +153,12 @@ export function resolveIndexScope(
   return { scope: opened.bucket.case, value: parsed.item, bucket: parsed.bucket };
 }
 
-/** Tag a record produced by an archive-scoped query so the evidence (persisted
- *  to the ACTIVE case) traces to the bucket it was matched against. */
-export function stampArchive(rec: OvercastRecord, bucket?: string): OvercastRecord {
-  if (bucket) rec.meta = { ...rec.meta, archive: bucket };
+/** Tag a record produced by an archive-scoped query so the evidence traces to
+ *  the bucket it was matched against — and RE-HOME it to the active case: the
+ *  local provider runners stamp meta.case from the Case they ran against (the
+ *  bucket), which would make the active case's persist seam skip the record
+ *  (the other-case guard), silently dropping the query evidence. */
+export function stampArchive(rec: OvercastRecord, bucket?: string, caseDir?: string): OvercastRecord {
+  if (bucket) rec.meta = { ...rec.meta, archive: bucket, ...(caseDir ? { case: caseDir } : {}) };
   return rec;
 }

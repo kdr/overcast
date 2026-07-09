@@ -87,7 +87,14 @@ self-contained HTML evidence page `clip_db_evidence.html`) · `17_face_cluster`
 (local face-cluster DB with real media: wizard-provisioned index, `cluster add`
 ingest → assign-or-create, `recluster`, held-out `identify`, gallery `view`) ·
 `25_case_setup` (real-media setup save/edit; setup history stays
-operational-only) · `30_read`
+operational-only) · `35_archive` (global archive with real media: bucket
+init/add/sha-dedup, `ask --archive` + `capture archive:…` from a SECOND case
+sharing the home, the archive setup wizard standing up a bucket image-ransac
+index + backfill, a cross-case `image match --index archive:<bucket>/<index>`
+RANSAC hit, `watch archive:…` in place via Cloudglue, and two headless-agent
+legs where the agent drives the archive TOOL — list + a tag-stamped add —
+verified via the CLI afterwards; media legs reuse `OC_VIDEO_SMALL`/`OC_IMAGE`
+or the `OC_ARCHIVE_VIDEO`/`OC_ARCHIVE_IMAGE` overrides) · `30_read`
 (ask/brief over real records) · `31_visualization` (CSI status/brief/records
 exports with real visual targets and matches) · `32_headless_visualization`
 (headless agent `--mode json` export trace, default CSI HTML theme) · `33_wall`
@@ -128,7 +135,13 @@ The offline suite also covers setup management (`phase4_setup`): `case setup
 plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
 and exclusion of setup history records from memory — plus the control-room wall
 (`phase6_wall`): empty-case pending guidance, then a themed wall over seeded
-case media and the `--infinite` endless-wall record + page marker.
+case media and the `--infinite` endless-wall record + page marker — plus the
+global archive (`phase9_archive`): bucket init/add/dedup/show under an isolated
+`OVERCAST_HOME`, `capture archive:…` pulls, `ask --archive`, the setup wizard
+plan/apply with a local index + backfill, and the doctor bucket check; and
+`phase9_archiveagent` (self-skips without a Cloudglue key, like `phase1_agent`):
+the headless agent drives the archive TOOL — listing buckets and archiving a
+file with a tag — verified deterministically via `archive show` afterwards.
 
 ### Output
 

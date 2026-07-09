@@ -24,6 +24,7 @@ import {
   openBucket,
   parseArchiveRef,
   resolveIndexScope,
+  stampArchive,
   validBucketName,
 } from "../../src/archive.ts";
 import { refPathExists, resolveMediaRef } from "../../src/verbs/media-ref.ts";
@@ -345,6 +346,31 @@ test("image add --index archive:… registers the member in the BUCKET, evidence
     assert.equal(env.c.records().filter((r) => r.verb === "image").length, 1);
 
     assert.match((await imageVerb.run(ctx(env, "add", [img], { index: "archive:nope/stills" })))[0].error ?? "", /not found/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("stampArchive re-homes provider-stamped records so the case persist seam keeps them", () => {
+  const env = makeEnv();
+  try {
+    ensureBucket("refs", env.home);
+    // the local provider runners (runLocalImage/Audio/Clip/Face/Cluster) stamp
+    // meta.case from the Case they ran against — the BUCKET for an archive-scoped
+    // query. Without re-homing, the active case's other-case guard drops the
+    // evidence silently (the live-suite regression this test pins).
+    const rec = makeRecord({
+      verb: "image",
+      format: "json",
+      payload: { op: "match", count: 1 },
+      meta: { case: bucketDir("refs", env.home), provider: "local:image-ransac" },
+      state: "ready",
+    });
+    stampArchive(rec, "refs", env.c.dir);
+    persistRecords(env.c, rec ? [rec] : []);
+    const persisted = env.c.records().find((r) => r.id === rec.id);
+    assert.ok(persisted, "archive-scoped match evidence persists to the ACTIVE case");
+    assert.equal(persisted!.meta?.archive, "refs");
   } finally {
     env.cleanup();
   }

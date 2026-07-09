@@ -57,6 +57,10 @@ CLIP_IMAGE_REF="${OC_CLIP_IMAGE_REF:-}"          # basic-clip DB: image to embed
 CLIP_VIDEO="${OC_CLIP_VIDEO:-}"                  # basic-clip DB: video to embed (frames)
 # shellcheck disable=SC2034
 CLIP_TEXT="${OC_CLIP_TEXT:-a person}"            # basic-clip DB: text query for `similar search`
+# shellcheck disable=SC2034
+ARCHIVE_VIDEO="${OC_ARCHIVE_VIDEO:-${OC_VIDEO_SMALL:-}}"  # archive bucket: clip to archive (falls back to OC_VIDEO_SMALL)
+# shellcheck disable=SC2034
+ARCHIVE_IMAGE="${OC_ARCHIVE_IMAGE:-${OC_IMAGE:-}}"        # archive bucket: image item (falls back to OC_IMAGE)
 
 have_media() { [ -f "$1" ]; }
 

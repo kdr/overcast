@@ -155,7 +155,7 @@ export const askVerb: VerbSpec = {
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: ctx.case.dir };
-      return [stampArchive(rec, scoped.bucket)];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
     // an unparseable --since is a user error, not a silent "no time bound"
     if (ctx.opts.since && parseSince(String(ctx.opts.since)) == null) {

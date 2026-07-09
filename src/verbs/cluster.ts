@@ -160,7 +160,7 @@ export const clusterVerb: VerbSpec = {
 
     const finish = (rec: OvercastRecord, op: string): OvercastRecord[] => {
       if (NON_MEDIA_OPS.has(op) && rec.media?.ref === "-") rec.media = undefined;
-      return [stampArchive(rec, scoped.bucket)];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     };
 
     if (action === "add" || action === "ingest") {
@@ -178,7 +178,7 @@ export const clusterVerb: VerbSpec = {
         sourceRecord = raw;
       }
       const rec = await runLocalCluster(scope, media.ref!, { indexId, op: "ingest", sourceRecord, ...sampling });
-      return [stampArchive(rec, scoped.bucket)];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
 
     if (action === "identify") {
@@ -189,7 +189,7 @@ export const clusterVerb: VerbSpec = {
       const media = resolveVisualArg(c, arg, "cluster identify", { requireReady: false, home: ctx.home });
       if (media.error) return [err(media.error)];
       const rec = await runLocalCluster(scope, media.ref!, { indexId, op: "identify", minSimilarity: sampling.minSimilarity, limit: sampling.limit, fps: sampling.fps, maxFrames: sampling.maxFrames, start: sampling.start, end: sampling.end, signal: ctx.signal });
-      return [stampArchive(rec, scoped.bucket)];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
 
     if (action === "recluster") {

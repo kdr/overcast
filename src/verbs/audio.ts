@@ -99,7 +99,7 @@ export const audioVerb: VerbSpec = {
       if (q.error) return [err(q.error)];
       const entry = findIndex(scope, idx.id!);
       if (entry?.members.some((m) => m.ref === q.ref)) {
-        return [stampArchive(makeRecord({ verb: "audio", format: "json", payload: { op: "add", index: idx.id, file: q.ref, already_member: true }, media: { ref: q.ref! }, meta: { case: ctx.case.dir }, state: "ready" }), scoped.bucket)];
+        return [stampArchive(makeRecord({ verb: "audio", format: "json", payload: { op: "add", index: idx.id, file: q.ref, already_member: true }, media: { ref: q.ref! }, meta: { case: ctx.case.dir }, state: "ready" }), scoped.bucket, ctx.case.dir)];
       }
       mkdirSync(localIndexDir(scope, idx.id!), { recursive: true });
       const rec = await runLocalAudio(scope, q.ref!, { op: "add", indexId: idx.id!, signal: ctx.signal });
@@ -109,7 +109,7 @@ export const audioVerb: VerbSpec = {
       if (isReady(rec) && !entry?.members.some((m) => m.ref === q.ref)) {
         addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
       }
-      return [stampArchive(rec, scoped.bucket)];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
 
     // ---- match: exactly one of pairwise reference XOR --index ----
@@ -133,6 +133,6 @@ export const audioVerb: VerbSpec = {
     }
     // if the query was captured from a post, trace the match back to it
     stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
-    return [stampArchive(rec, scoped.bucket)];
+    return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
   },
 };
