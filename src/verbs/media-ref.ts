@@ -157,6 +157,14 @@ export interface VideoArgOpts {
  * `requireExists` (default true) gate non-ready records and missing local files —
  * `remove` disables both (you should still un-index a video whose sense errored or
  * whose local file is gone). Returns the resolved ref (+ recordId), or an error.
+ *
+ * A BUCKET capture is readiness-gated whenever the caller needs to READ the
+ * file (`requireExists`), independent of `requireReady`: a pending/errored
+ * bucket capture means the FILE is still being materialized (partial on disk),
+ * so in-place `watch`/`listen`/`grid`/… (which pass requireReady:false but need
+ * the file) must not process it, matching capture/archive add/forensics. Pure
+ * mirror ops (`index remove`/`entities`, which pass requireExists:false to
+ * un-index gone/errored media) are unaffected.
  */
 export function resolveVideoArg(
   c: Case,
@@ -174,7 +182,7 @@ export function resolveVideoArg(
     if (src && !MEDIA_VERBS.includes(src.verb)) {
       return { error: `${label}: record ${arg} is a ${src.verb} record, not captured/sensed media — capture it first (e.g. \`scan --pull\`) then use the capture, or pass a path/URL` };
     }
-    if (requireReady && src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
+    if ((requireReady || (archive != null && requireExists)) && src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
     if (src?.verb === "face" && (src.payload as Record<string, unknown> | undefined)?.op === "search") {
       return { error: `${label}: record ${arg} is a face search (its media is the query image, not a video)` };
     }
@@ -196,7 +204,9 @@ export function resolveImageArg(
   if (error) return { error: `${label}: ${error}` };
   if (recordId) {
     const src = record ?? c.recordById(recordId);
-    if (requireReady && src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
+    // a bucket capture is always readiness-gated (partial file), independent of
+    // requireReady — see resolveVideoArg
+    if ((requireReady || (archive != null && requireExists)) && src && !isReady(src)) return { error: `${label}: record ${arg} isn't ready (state=${src.state ?? "?"})` };
   }
   if (requireExists && !/^https?:\/\//i.test(ref) && !existsSync(ref)) return { error: `${label}: image not found: ${ref}` };
   if (!isImage(ref)) return { error: `${label}: ${ref} is not an image file` };

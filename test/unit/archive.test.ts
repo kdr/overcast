@@ -419,12 +419,27 @@ test("archive refs gate on the BUCKET record's readiness/verb, not an active-cas
     const r = resolveVideoArg(env.c, "archive:refs/cap_pending.mp4", "watch input", { home: env.home });
     assert.match(r.error ?? "", /isn't ready/, "bucket record's pending state gates the ref");
 
+    // watch/listen/grid/… pass requireReady:false (a local file is analyzable
+    // regardless of a prior sense) — but a BUCKET capture's pending state means
+    // the FILE is partial, so it's gated regardless of requireReady
+    const notReady = resolveVideoArg(env.c, "archive:refs/cap_pending.mp4", "watch input", { requireReady: false, home: env.home });
+    assert.match(notReady.error ?? "", /isn't ready/, "archive readiness gate ignores requireReady:false");
+    // ...but a pure mirror op (index remove: requireExists:false) may still
+    // un-index a non-ready archived item — the gate keys on requireExists
+    const unindex = resolveVideoArg(env.c, "archive:refs/cap_pending.mp4", "index remove", { requireReady: false, requireExists: false, home: env.home });
+    assert.equal(unindex.error, undefined, "un-indexing a non-ready archived item is not blocked");
+
     // the FILENAME and the RAW path forms carry the owning record too — a
     // partial in-flight file isn't fair game just because the bytes exist
     const byName = resolveVideoArg(env.c, "archive:refs/pending.mp4", "watch input", { home: env.home });
     assert.match(byName.error ?? "", /isn't ready/, "filename form gates the same way");
     const byPath = resolveVideoArg(env.c, clip, "watch input", { home: env.home });
     assert.match(byPath.error ?? "", /isn't ready/, "raw path form gates the same way");
+
+    // frame://archive:<bucket>/<item>@<sec> gates on readiness too (see/enhance)
+    const { seeVerb: seeV } = await import("../../src/verbs/senses.ts");
+    const frameOut = await seeV.run(ctx(env, "frame://archive:refs/cap_pending.mp4@1"));
+    assert.match(frameOut[0].error ?? "", /isn't ready/, "frame source gates on readiness");
 
     // capture pulls and explicit archive adds gate the same way — never copy a
     // partial in-flight file

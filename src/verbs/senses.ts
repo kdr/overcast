@@ -171,6 +171,11 @@ export const seeVerb: VerbSpec = {
       if (!src || !existsSync(src)) {
         return stamp(errorRecord("see", `cannot resolve ${ctx.input}: ${fsrc.error ?? `record ${fr.recordId} has no media on disk`}`));
       }
+      // a bucket source that's still materializing (pending/errored capture) has
+      // a partial file — don't extract a frame from it (matches direct archive refs)
+      if (fsrc.record && !isReady(fsrc.record)) {
+        return stamp(errorRecord("see", `cannot extract ${ctx.input}: record ${fsrc.record.id} isn't ready (state=${fsrc.record.state ?? "?"})`));
+      }
       archiveBucket = fsrc.archive;
       try {
         resolvedRef = await extractFrame(src, fr.second, ctx.case.mediaDir);
@@ -461,6 +466,9 @@ export const enhanceVerb: VerbSpec = {
       const src = fsrc.error ? undefined : fsrc.ref;
       if (!src || !existsSync(src)) {
         return [errorRecord("enhance", `cannot resolve ${ctx.input}: ${fsrc.error ?? `record ${fr.recordId} has no media on disk`}`)];
+      }
+      if (fsrc.record && !isReady(fsrc.record)) {
+        return [errorRecord("enhance", `cannot extract ${ctx.input}: record ${fsrc.record.id} isn't ready (state=${fsrc.record.state ?? "?"})`)];
       }
       provenanceSource = src;
       archiveBucket = fsrc.archive;
