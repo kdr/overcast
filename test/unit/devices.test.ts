@@ -69,6 +69,22 @@ test("buildDeviceClusters: a serial-bearing and serial-less record for the same 
   assert.equal(r.clusters.length, 0);
 });
 
+test("buildDeviceClusters: a file with both serial-less and serial records lands in ONE cluster (no double count)", () => {
+  const r = buildDeviceClusters([
+    exif({ ref: "x.jpg", make: "Canon", model: "EOS R5" }), // x, older run: no serial
+    exif({ ref: "x.jpg", make: "Canon", model: "EOS R5", serial: "SN1" }), // x, newer run: serial
+    exif({ ref: "y.jpg", make: "Canon", model: "EOS R5" }), // y: serial-less R5
+    exif({ ref: "z.jpg", make: "Canon", model: "EOS R5", serial: "SN1" }), // z: serial
+  ]);
+  // x collapses to its serial record → the serial:SN1 cluster {x,z}; the model
+  // cluster {y} is size 1 and dropped. x is counted once, in exactly one cluster.
+  assert.equal(r.clusters.length, 1);
+  assert.equal(r.clusters[0].strength, "serial");
+  assert.equal(r.clusters[0].count, 2);
+  assert.deepEqual(r.clusters[0].members.map((m) => m.ref).sort(), ["x.jpg", "z.jpg"]);
+  assert.equal(r.linkedMedia, 2); // not 4 — x not double-counted
+});
+
 test("buildDeviceClusters: members dedup by media.ref; single-media clusters are dropped", () => {
   const r = buildDeviceClusters([
     exif({ ref: "same.jpg", make: "Canon", model: "EOS R5", serial: "SN1" }),

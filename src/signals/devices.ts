@@ -55,15 +55,28 @@ interface Acc {
   members: Map<string, DeviceMember>;
 }
 
+interface FileCand {
+  make: string | null;
+  model: string | null;
+  serial: string | null;
+  lens: string | null;
+  member: DeviceMember;
+}
+
 /** Roll all `exif` records up into device clusters. A serial-bearing record keys
- *  on its serial (a serial-less record for the same body can't be proven identical,
- *  so it stays separate); serial-less records key on make+model+lens. Members are
- *  deduped by media.ref, and only clusters of `minSize`+ distinct media are kept. */
+ *  on its serial ALONE (a near-unique per-device id, robust to stripped make/model);
+ *  serial-less records key on make+model+lens. Records are first collapsed to ONE
+ *  entry PER FILE — preferring the serial-bearing record — so a file with both a
+ *  serial-less and a serial-bearing exif record lands in a single cluster and is
+ *  counted once. Only clusters of `minSize`+ distinct files are kept. */
 export function buildDeviceClusters(records: OvercastRecord[], opts: { minSize?: number } = {}): DeviceRollup {
   const minSize = opts.minSize ?? 2;
-  const groups = new Map<string, Acc>();
   let totalExif = 0;
 
+  // 1) collapse to one candidate per file (media.ref, else record id). Prefer the
+  //    serial-bearing record so a later run that added a serial wins over an older
+  //    serial-less one — the same file must not appear in two clusters.
+  const perFile = new Map<string, FileCand>();
   for (const rec of records) {
     if (rec.verb !== "exif") continue;
     if (rec.state && rec.state !== "ready") continue;
@@ -76,33 +89,38 @@ export function buildDeviceClusters(records: OvercastRecord[], opts: { minSize?:
     // nothing identifying → can't be linked to a device
     if (!make && !model && !serial && !lens) continue;
 
-    const strength: "serial" | "model" = serial ? "serial" : "model";
-    // A serial is a near-unique per-device id, so key STRONG clusters on the serial
-    // ALONE — photos that share a body serial but have stripped/inconsistent
-    // make/model still link (the whole point of device-linking). Serial-less media
-    // fall back to the weaker make+model+lens fingerprint.
-    const fingerprint = serial ? `serial:${norm(serial)}` : `model:${norm(make)}|${norm(model)}|${norm(lens)}`;
+    const fileKey = rec.media?.ref ?? rec.id;
+    const cand: FileCand = {
+      make,
+      model,
+      serial,
+      lens,
+      member: { recordId: rec.id, ref: rec.media?.ref ?? null, created: str(p.created), place: str(p.place) },
+    };
+    const existing = perFile.get(fileKey);
+    if (!existing || (!existing.serial && serial)) perFile.set(fileKey, cand);
+  }
+
+  // 2) cluster the per-file candidates
+  const groups = new Map<string, Acc>();
+  for (const cand of perFile.values()) {
+    const strength: "serial" | "model" = cand.serial ? "serial" : "model";
+    const fingerprint = cand.serial ? `serial:${norm(cand.serial)}` : `model:${norm(cand.make)}|${norm(cand.model)}|${norm(cand.lens)}`;
 
     let g = groups.get(fingerprint);
     if (!g) {
-      g = { make, model, serial, lens, strength, members: new Map() };
+      g = { make: cand.make, model: cand.model, serial: cand.serial, lens: cand.lens, strength, members: new Map() };
       groups.set(fingerprint, g);
     } else {
       // backfill descriptive fields from any member that carries them (an earlier
       // member may have had make/model/lens stripped by an editor).
-      g.make ??= make;
-      g.model ??= model;
-      g.lens ??= lens;
+      g.make ??= cand.make;
+      g.model ??= cand.model;
+      g.lens ??= cand.lens;
     }
-    const memberKey = rec.media?.ref ?? rec.id;
-    if (!g.members.has(memberKey)) {
-      g.members.set(memberKey, {
-        recordId: rec.id,
-        ref: rec.media?.ref ?? null,
-        created: str(p.created),
-        place: str(p.place),
-      });
-    }
+    // one member per file (perFile already deduped; the Map keeps that invariant).
+    const memberKey = cand.member.ref ?? cand.member.recordId;
+    if (!g.members.has(memberKey)) g.members.set(memberKey, cand.member);
   }
 
   const clusters: DeviceCluster[] = [];
