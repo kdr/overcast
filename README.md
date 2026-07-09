@@ -235,6 +235,14 @@ overcast index create sounds --type basic-clap --local --json         # CLAP aud
 overcast similar add ./clip.wav --index sounds --json                 # embed + cache (10s audio windows)
 overcast similar search "crowd chanting" --index sounds --json        # text → audio moments
 
+# 9c) voice DB: speaker verification (voice-print) — find a reference VOICE, not a recording
+scripts/visual-db-uv.sh --voice           # pyannote stack (same as enhance --ops separate; no token needed)
+overcast index create voices --type voice-print --local --json
+overcast voice add ./interview.mp4 --index voices --json              # enroll (video → audio track)
+overcast voice match ./sample.wav --index voices --json               # which members contain this speaker?
+overcast voice match ./clip.mp4 ./sample.wav --json                   # WHERE the speaker talks in a clip
+overcast voice match ./clip.mp4 ./sample.wav --diarize --json         # overlap-aware tier (HF_TOKEN gated)
+
 # 10) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
@@ -300,6 +308,7 @@ surface + env vars.)
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
 | `audio` | Shazam-style exact audio matching against a local `audio-fp` index (time-offset alignment), or clip-to-clip `audio match <query> <reference>`; `--min-margin` rejects sped re-uploads, `--draw` renders an SVG alignment plot for briefs |
+| `voice` | speaker verification: enroll voices into a local `voice-print` index (`voice add`), rank members containing a reference speaker (`voice match <sample> --index`), or locate WHERE a speaker talks in a clip (`voice match <clip> <sample>`; `--diarize` for the overlap-aware pyannote tier). Rank scores, not liveness — clones can score high |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, a bound restore model, or the split ops — `--ops separate` (per-speaker tracks, `--summarize` to transcribe each) and `--ops segment --prompt` (text-prompted masks + cutouts), bound local or fal, one evidence record per artifact |
@@ -318,7 +327,7 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`, `audio-fp`, and `basic-clap` DBs |
+| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`, `audio-fp`, `basic-clap`, and `voice-print` DBs |
 | `target` | a **line of investigation**: `add --question`, `list`, `close <id> --as answered\|dead-end --note`, `reopen` — closed lines stop seeding scans |
 | `source` / `note` | where to look, and human-authored observations |
 | `finding` | manual + **auto-suggested** findings (`create` / `list` / `accept` / `dismiss`). Score triggers (face / image / similar / cluster / audio match) + target text hits auto-emit `suggested` leads via a hook on every verb; `finding list --state triage` queues them, `accept` promotes a lead to evidence, `dismiss` blocks re-suggestion. Leads are quarantined from ask/brief until accepted |
@@ -443,10 +452,12 @@ errors in both commands. `monitor` marks hard failures seen after surfacing the
 error, while pending/credential gaps remain retryable.
 
 Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`,
-`local-models`, `deepface-local`, `basic-clip`, `audio-fp`, and `basic-clap`.
-Single choices use `--verb <watch|listen|see|face|similar|audio|enhance> --choice <id>`,
+`local-models`, `deepface-local`, `basic-clip`, `audio-fp`, `basic-clap`, and
+`voice-print`.
+Single choices use `--verb <watch|listen|see|face|similar|audio|voice|enhance> --choice <id>`,
 such as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
-`face:deepface-local`, `similar:basic-clip`, `audio:audio-fp`, or `enhance:ffmpeg`.
+`face:deepface-local`, `similar:basic-clip`, `audio:audio-fp`, `voice:voice-print`,
+or `enhance:ffmpeg`.
 
 The local image DB is selected by local index type. Local face detection/matching
 can be selected as a profile provider with `face:deepface-local`, while the searchable
@@ -547,6 +558,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead. Also gates the **local** `enhance --ops separate` (pyannote diarization): its model is a **gated** HF repo — set `HF_TOKEN` **and** accept the license at <https://huggingface.co/pyannote/speaker-diarization-community-1> ("Agree and access repository") once before first use.
 - `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3), plus the split ops `enhance --ops separate` (sam-audio) / `--ops segment` (sam-3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`, `FAL_SEPARATE_MODEL`, `FAL_SEGMENT_MODEL`
 - `OC_VISUAL_DB_PY` — the **local-models** `enhance` toolbox: on-device `--ops separate` (pyannote, gated — see `HF_TOKEN`) and `--ops segment` (GroundingDINO + SAM 2.1, ungated); set up with `scripts/visual-db-uv.sh --enhance`
+- `OVERCAST_VOICE_MODEL` / `OC_VOICE_DEVICE` — the `voice` speaker-verification DB (default `pyannote/wespeaker-voxceleb-resnet34-LM`, **ungated**, CC-BY-4.0; device `cpu`). The model is pinned per voice-print index at create time. Only `voice match --diarize` needs `HF_TOKEN` + the accepted pyannote license (same gate as `enhance --ops separate`); everything else runs token-free. Set up with `scripts/visual-db-uv.sh --voice`
 - `ELEVENLABS_API_KEY` (or `XI_API_KEY`) — `listen` (Scribe STT) + `enhance` audio (voice isolation); `ELEVENLABS_STT_MODEL` (default `scribe_v1`)
 
 **OSINT sources**

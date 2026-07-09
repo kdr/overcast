@@ -40,8 +40,10 @@ export const DEFAULT_FINDINGS_MODE = "suggest";
 export const TEXT_TARGET_VERBS: ReadonlySet<string> = new Set(["watch", "listen", "see"]);
 
 /** Fire floors (score triggers skip matches below these) and "high" confidence
- *  bands. face/similar/cluster are 0–100 percent; image is RANSAC inlier count;
- *  audio is the fingerprint alignment margin (best-offset votes / next-best —
+ *  bands. face/similar/cluster/voice are 0–100 percent (voice is the anchored
+ *  cosine rank score: 80 ≈ raw cosine 0.51, above the EER overlap region; 90 ≈
+ *  0.60, strong same-speaker); image is RANSAC inlier count; audio is the
+ *  fingerprint alignment margin (best-offset votes / next-best —
  *  provider-gated, so any match already cleared min-margin; a clean exact match
  *  scores 100s–1000s×, a sped/pitch-shifted copy ~1.2–1.7×). */
 export interface TriggerThresholds {
@@ -51,6 +53,8 @@ export interface TriggerThresholds {
   similar_high: number;
   cluster: number;
   cluster_high: number;
+  voice: number;
+  voice_high: number;
   image_inliers: number;
   image_inliers_high: number;
   audio_margin: number;
@@ -64,6 +68,8 @@ export const DEFAULT_TRIGGER_THRESHOLDS: TriggerThresholds = {
   similar_high: 90,
   cluster: 70,
   cluster_high: 80,
+  voice: 80,
+  voice_high: 90,
   image_inliers: 1,
   image_inliers_high: 40,
   audio_margin: 1,
@@ -104,6 +110,7 @@ export interface TriggerSignal {
     | "similar-match"
     | "cluster-identify"
     | "audio-match"
+    | "voice-match"
     | "text-target"
     | "exif-editing-software"
     | "verify-validation-failed"
@@ -275,6 +282,15 @@ export function extractSignal(rec: OvercastRecord, thresholds: TriggerThresholds
     return { kind: "cluster-identify", score: top.score, threshold: thresholds.cluster, unit: "percent", at: top.at, matched: top.matched };
   }
 
+  if (rec.verb === "voice" && (op === "match" || op === "search")) {
+    // windowed/diarized/search all emit matches[] with similarity (0–100 rank
+    // score); search fires too — unlike similar's text search, a voice search is
+    // reference-audio-driven over curated members, exactly the lead we want.
+    const top = best(arr(p.matches), "similarity");
+    if (!top || top.score < thresholds.voice) return undefined;
+    return { kind: "voice-match", score: top.score, threshold: thresholds.voice, unit: "percent", at: top.at, matched: typeof p.reference === "string" ? p.reference : top.matched };
+  }
+
   if (rec.verb === "audio" && op === "match") {
     // Shazam-style fingerprint match: the provider already gates on min-votes /
     // -ratio / -margin, so any entry in matches[] is a confident hit (like a
@@ -324,6 +340,7 @@ function highBandFor(kind: TriggerSignal["kind"], thresholds: TriggerThresholds)
   if (kind === "cluster-identify") return thresholds.cluster_high;
   if (kind === "image-match") return thresholds.image_inliers_high;
   if (kind === "audio-match") return thresholds.audio_margin_high;
+  if (kind === "voice-match") return thresholds.voice_high;
   return undefined;
 }
 
@@ -357,6 +374,7 @@ function suggestionText(rec: OvercastRecord, sig: TriggerSignal, target?: Target
   if (sig.kind === "similar-match") return `Visual similarity ${sig.score?.toFixed(1)}% to ${sig.matched ? baseName(sig.matched) : "indexed media"}${forTarget} in ${where}`;
   if (sig.kind === "cluster-identify") return `Probe face matches known person${sig.matched ? ` '${sig.matched}'` : ""} at ${sig.score?.toFixed(1)}% in ${where}`;
   if (sig.kind === "audio-match") return `Audio fingerprint${forTarget} matched${sig.matched ? ` ${baseName(sig.matched)}` : ""} (${sig.score?.toFixed(1)}× margin) in ${where}`;
+  if (sig.kind === "voice-match") return `Reference voice${sig.matched ? ` ${baseName(sig.matched)}` : ""}${forTarget} matched at ${sig.score?.toFixed(1)} similarity in ${where} — corroborate (a cloned/synthetic voice can score high)`;
   if (sig.kind === "exif-editing-software") return `Image metadata shows editing software${sig.matched ? ` (${sig.matched})` : ""}${forTarget} — possibly edited: ${where}`;
   if (sig.kind === "verify-validation-failed") return `C2PA provenance validation FAILED${sig.matched ? ` (${sig.matched})` : ""}${forTarget} in ${where}`;
   if (sig.kind === "verify-declared-edits") return `C2PA manifest declares ${sig.score} derived ingredient(s)${forTarget} in ${where}`;

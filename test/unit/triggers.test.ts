@@ -67,6 +67,21 @@ function audioMatch(margin: number, op = "match"): OvercastRecord {
   });
 }
 
+function voiceMatch(similarity: number, op = "match", opts: { at?: number | [number, number]; speaker?: string } = {}): OvercastRecord {
+  // windowed matches carry {file, at(number)}; diarized ones {speaker, at:[s,e]};
+  // search ones {ref}. All score on `similarity` (0–100 anchored-cosine rank).
+  const entry: Record<string, unknown> = { similarity, cosine: 0.55, at: opts.at ?? 12.75 };
+  if (op === "search") entry.ref = "member.wav";
+  else if (opts.speaker) entry.speaker = opts.speaker;
+  else entry.file = "clip.mp4";
+  return makeRecord({
+    verb: "voice",
+    format: "json",
+    payload: { op, mode: opts.speaker ? "diarized" : "windowed", reference: "sample.wav", matches: similarity > 0 ? [entry] : [], count: similarity > 0 ? 1 : 0 },
+    media: { ref: "clip.mp4" },
+  });
+}
+
 function exifRec(software: string | null, opts: { ref?: string; gps?: { lat: number; lng: number } | null } = {}): OvercastRecord {
   return makeRecord({
     verb: "exif",
@@ -156,6 +171,50 @@ test("evaluateTriggers: audio fingerprint match auto-suggests (margin high band;
   assert.equal(evaluateTriggers({ fresh: [audioMatch(0, "match")], existing: [], targets: [], policy: SUGGEST }).length, 0);
   assert.equal(evaluateTriggers({ fresh: [audioMatch(50, "add")], existing: [], targets: [], policy: SUGGEST }).length, 0);
 });
+
+test("extractSignal: voice match fires on match AND search, spans propagate, floor gates", () => {
+  const sig = extractSignal(voiceMatch(87.2), T);
+  assert.ok(sig);
+  assert.equal(sig.kind, "voice-match");
+  assert.equal(sig.score, 87.2);
+  assert.equal(sig.at, 12.75);
+  assert.equal(sig.matched, "sample.wav"); // the reference names the lead
+  // diarized turn span [start, end] rides into the signal anchor
+  const span = extractSignal(voiceMatch(91, "match", { at: [4.2, 9.8], speaker: "SPEAKER_01" }), T);
+  assert.deepEqual(span?.at, [4.2, 9.8]);
+  // a voice SEARCH is reference-audio-driven over curated members — it fires too
+  // (unlike similar's noisy text search)
+  assert.equal(extractSignal(voiceMatch(85, "search"), T)?.kind, "voice-match");
+  // below the 80 floor / wrong op → silent
+  assert.equal(extractSignal(voiceMatch(79.9), T), undefined);
+  assert.equal(extractSignal(voiceMatch(95, "add"), T), undefined);
+});
+
+test("evaluateTriggers: voice match suggests with 80/90 confidence bands and the clone caveat", () => {
+  const high = evaluateTriggers({ fresh: [voiceMatch(92)], existing: [], targets: [], policy: SUGGEST });
+  assert.equal(high.length, 1);
+  const hp = high[0].payload as Record<string, unknown>;
+  assert.equal(hp.status, "suggested");
+  assert.equal(hp.trigger, "signal:voice-match");
+  assert.equal(hp.confidence, "high");
+  assert.equal((hp.signal as Record<string, unknown>).unit, "percent");
+  assert.match(String(hp.text), /Reference voice/);
+  assert.match(String(hp.text), /cloned\/synthetic voice/);
+  const medium = evaluateTriggers({ fresh: [voiceMatch(83)], existing: [], targets: [], policy: SUGGEST });
+  assert.equal((medium[0].payload as Record<string, unknown>).confidence, "medium");
+  // no matches / below floor → nothing fires
+  assert.equal(evaluateTriggers({ fresh: [voiceMatch(0)], existing: [], targets: [], policy: SUGGEST }).length, 0);
+  assert.equal(evaluateTriggers({ fresh: [voiceMatch(75)], existing: [], targets: [], policy: SUGGEST }).length, 0);
+});
+
+test("persistRecords: setup voice threshold override gates the voice trigger", () =>
+  withCase((c) => {
+    const setup = emptySetup("t");
+    setup.findings = { mode: "suggest", thresholds: { voice: 95 } };
+    saveSetup(c, setup);
+    assert.equal(persistRecords(c, [voiceMatch(90)]).length, 0);
+    assert.equal(persistRecords(c, [voiceMatch(96, "match", { at: 3 })]).length, 1);
+  }));
 
 test("extractSignal: exif editing-software fires only for known editors, never plain capture", () => {
   const ps = extractSignal(exifRec("Adobe Photoshop 24.0"), T);

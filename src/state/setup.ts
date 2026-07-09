@@ -46,13 +46,14 @@ export interface SetupAutomationPolicy {
   auto_index_new: boolean;
 }
 
-/** Score-trigger fire floors (face/similar/cluster: 0–100 percent similarity;
- *  image_inliers: RANSAC inlier count). Missing keys use the built-in defaults
- *  in signals/triggers.ts. */
+/** Score-trigger fire floors (face/similar/cluster/voice: 0–100 percent
+ *  similarity; image_inliers: RANSAC inlier count). Missing keys use the
+ *  built-in defaults in signals/triggers.ts. */
 export interface SetupFindingsThresholds {
   face?: number;
   similar?: number;
   cluster?: number;
+  voice?: number;
   image_inliers?: number;
   audio_margin?: number;
 }
