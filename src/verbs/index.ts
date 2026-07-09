@@ -13,7 +13,7 @@
 
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { makeRecord, isReady, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, isReady, type OvercastRecord } from "../record.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
@@ -64,9 +64,7 @@ const VALID_ACTIONS = ["create", "attach", "add", "list", "show", "delete", "rem
 const LOCAL_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf)$/i;
 const LOCAL_IMAGE_MEDIA_VERBS = new Set(["capture", "image", "face"]);
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "index", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("index", message);
 
 function isLocalIndex(entry: { backend?: string; type: string }): boolean {
   return entry.backend === "local";

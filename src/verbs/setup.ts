@@ -2,7 +2,7 @@
 // profiles), provider (init/list/describe a provider), doctor (readiness checks).
 // Bindings live in the profile so they travel with --profile.
 
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord } from "../record.js";
 import {
   loadProfile,
   saveProfile,
@@ -27,9 +27,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
-function err(verb: string, message: string): OvercastRecord {
-  return makeRecord({ verb, format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = errRecord;
 
 function quoteCommandArg(arg: string): string {
   return /^[A-Za-z0-9_./:=@+-]+$/.test(arg) ? arg : JSON.stringify(arg);

@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { cropStill, modalityFromExt, probe, type CropBox } from "../media/ffmpeg.js";
 import { fetchMediaToCase } from "../media/fetch.js";
 import { badNumber } from "./validate.js";
@@ -32,9 +32,7 @@ interface Candidate {
   rawBox: unknown;
 }
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "crop", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("crop", message);
 
 /** Collision-free default crop name: same box/pad/square/source → same name
  *  (idempotent), different params → different name — a re-crop with new padding

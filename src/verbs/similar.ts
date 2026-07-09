@@ -5,7 +5,7 @@
 // open_clip); remote searchable video indexes stay under `index`/`ask`/`face`.
 
 import { existsSync, mkdirSync } from "node:fs";
-import { makeRecord, isReady, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, isReady, type OvercastRecord } from "../record.js";
 import { addMember, findIndex, resolveIndexRef } from "../state/index.js";
 import {
   localIndexDir,
@@ -24,9 +24,7 @@ import { runWatch } from "../providers/tinycloud/watch.js";
 import type { Case } from "../case.js";
 import type { VerbContext, VerbSpec } from "../registry/types.js";
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "similar", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("similar", message);
 
 /** Resolve + validate a local semantic index (basic-clip = CLIP images/video, or
  *  basic-clap = CLAP audio) the query/add targets. Returns the resolved type so

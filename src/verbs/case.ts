@@ -5,7 +5,7 @@
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, recordTimeMs, type OvercastRecord } from "../record.js";
 import { openCase, recordFiles } from "../case.js";
 import { humanSize } from "../render.js";
 import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
@@ -29,9 +29,7 @@ import { isAv } from "./media-ref.js";
 import { findProviderChoice } from "../providers/catalog.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "case", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("case", message);
 
 const DEFAULT_SIGNAL_BY_INDEX_TYPE: Record<string, string[]> = {
   "media-descriptions": ["watch", "index add"],
@@ -364,7 +362,7 @@ function truncateLine(text: string): string {
 function sortRecordsChronologically(records: OvercastRecord[]): OvercastRecord[] {
   return records
     .map((r, i) => {
-      const parsed = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+      const parsed = recordTimeMs(r);
       return { r, i, t: Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed };
     })
     .sort((a, b) => a.t - b.t || a.i - b.i)
@@ -1280,7 +1278,7 @@ export const caseVerb: VerbSpec = {
           return [err(`invalid --since: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
         }
         recs = recs.filter((r) => {
-          const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+          const t = recordTimeMs(r);
           return Number.isNaN(t) || t >= cutoff;
         });
       }

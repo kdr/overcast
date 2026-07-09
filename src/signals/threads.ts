@@ -17,7 +17,7 @@
  *   collecting           ← ≥1 evidence record linked
  *   cold                 ← nothing linked yet
  */
-import { findingStatusMap, isMemoryRecord, isReady, type OvercastRecord } from "../record.js";
+import { findingStatusMap, isMemoryRecord, isReady, recordTimeMs, type OvercastRecord } from "../record.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
 import { targetMatchesEvidence, payloadText } from "./triggers.js";
 import { targetStatus, type TargetEntry } from "../state/target.js";
@@ -77,7 +77,7 @@ function payloadOf(r: OvercastRecord): Record<string, unknown> {
 }
 
 function timeOf(r: OvercastRecord): number {
-  const t = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+  const t = recordTimeMs(r);
   return Number.isNaN(t) ? 0 : t;
 }
 

@@ -19,6 +19,7 @@
  * - "off": nothing fires.
  */
 import { findingStatusMap, isMemoryRecord, type OvercastRecord } from "../record.js";
+import { escapeRegex } from "../text.js";
 import { makeFinding } from "../verbs/finding.js";
 import { isTargetClosed, type TargetEntry } from "../state/target.js";
 import type { CaseSetup, SetupFindingsPolicy, SetupFindingsThresholds } from "../state/setup.js";
@@ -82,10 +83,6 @@ export function payloadText(rec: OvercastRecord): string {
   } catch {
     return "";
   }
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Whole-phrase, case-insensitive, word-boundaried match of a target value

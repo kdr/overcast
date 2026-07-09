@@ -9,7 +9,7 @@
 //   face <video> --index <id>         → list     (stored detections for that video)
 
 import { existsSync } from "node:fs";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { runFace, type FaceOp, type FaceParams } from "../providers/tinycloud/face.js";
 import { tinycloudBaseFromRun, TC_SUBCOMMANDS, TINYCLOUD_TIMEOUT_MS } from "../providers/tinycloud/envelope.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
@@ -25,9 +25,7 @@ import type { Case } from "../case.js";
 import type { ProviderDescriptor } from "../profile.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "face", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("face", message);
 
 const FACE_QUERY_IMAGE_RE = /\.(jpe?g|png)$/i;
 

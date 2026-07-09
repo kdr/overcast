@@ -166,6 +166,13 @@ export function makeRecord(input: NewRecordInput): OvercastRecord {
   return rec;
 }
 
+/** Standard error record for a verb: state:"error" with the message doubled
+ *  into payload.error (display) and error (control). The one constructor —
+ *  verb files must not re-implement it. */
+export function errRecord(verb: string, message: string): OvercastRecord {
+  return makeRecord({ verb, format: "json", payload: { error: message }, error: message, state: "error" });
+}
+
 export interface ValidationResult {
   ok: boolean;
   errors: string[];
@@ -200,6 +207,12 @@ export function validateRecord(value: unknown): ValidationResult {
 /** Treat unknown/missing state as ready (consumer rule). */
 export function isReady(rec: Pick<OvercastRecord, "state">): boolean {
   return rec.state == null || rec.state === "ready";
+}
+
+/** Epoch ms of a record's meta.time, or NaN when absent/unparseable —
+ *  the single reading of the timestamp convention for sorts and --since. */
+export function recordTimeMs(rec: Pick<OvercastRecord, "meta">): number {
+  return rec.meta?.time ? Date.parse(String(rec.meta.time)) : NaN;
 }
 
 // --- JSONL persistence -------------------------------------------------------

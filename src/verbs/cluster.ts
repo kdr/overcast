@@ -21,7 +21,7 @@
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { runLocalCluster } from "../providers/local/vision.js";
 import { indexesByType, resolveIndexRef } from "../state/index.js";
 import { resolveVisualArg } from "./media-ref.js";
@@ -36,9 +36,7 @@ const VALID_ACTIONS = ["add", "ingest", "identify", "list", "show", "label", "re
 // placeholder media.ref so the record stays clean.
 const NON_MEDIA_OPS = new Set(["list", "show", "label", "recluster", "view"]);
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "cluster", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("cluster", message);
 
 const num = (v: unknown): number | undefined => {
   if (v == null) return undefined;

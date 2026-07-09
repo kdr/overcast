@@ -1,11 +1,9 @@
-import { makeRecord, type MediaRef, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef, refPathExists } from "./media-ref.js";
 import { parseAtSpan } from "../media/ffmpeg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
-function err(message: string): OvercastRecord {
-  return makeRecord({ verb: "finding", format: "json", payload: { error: message }, error: message, state: "error" });
-}
+const err = (message: string): OvercastRecord => errRecord("finding", message);
 
 export function latestFindingStatus(ctx: VerbContext, id: string): string {
   const updates = ctx.case.records().filter((r) => r.verb === "finding" && typeof r.payload === "object");

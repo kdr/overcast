@@ -8,7 +8,8 @@
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
-import { findingStatusMap, isReady, type OvercastRecord } from "../record.js";
+import { findingStatusMap, isReady, recordTimeMs, type OvercastRecord } from "../record.js";
+import { escapeRegex } from "../text.js";
 import { isRegisterableMediaRecord } from "../verbs/media-ref.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
 import { sourceScanFreshness, latestTimed, triageCounts } from "../signals/pulse.js";
@@ -206,7 +207,7 @@ function buildTile(ref: string, group: OvercastRecord[], join: TileJoin): WallTi
   }
 
   const times = group
-    .map((r) => (r.meta?.time ? Date.parse(String(r.meta.time)) : NaN))
+    .map((r) => recordTimeMs(r))
     .filter((t) => !Number.isNaN(t));
   const lastMs = times.length ? Math.max(...times) : null;
 
@@ -427,7 +428,7 @@ function payloadOf(r: OvercastRecord): Record<string, unknown> {
 function sortByTime(records: OvercastRecord[]): OvercastRecord[] {
   return records
     .map((r, i) => {
-      const parsed = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+      const parsed = recordTimeMs(r);
       return { r, i, t: Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed };
     })
     .sort((a, b) => a.t - b.t || a.i - b.i)
@@ -440,7 +441,7 @@ function sortByTime(records: OvercastRecord[]): OvercastRecord[] {
 function newestFirst(records: OvercastRecord[]): OvercastRecord[] {
   return records
     .map((r, i) => {
-      const parsed = r.meta?.time ? Date.parse(String(r.meta.time)) : NaN;
+      const parsed = recordTimeMs(r);
       return { r, i, t: Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed };
     })
     .sort((a, b) => b.t - a.t || a.i - b.i)
@@ -454,11 +455,7 @@ function frameFileRe(ref: string): RegExp {
   const b = basename(ref.replace(/[?#].*$/, ""));
   const dot = b.lastIndexOf(".");
   const stem = dot > 0 ? b.slice(0, dot) : b;
-  return new RegExp(`^${escapeRegExp(stem)}_t\\d+\\.jpg$`, "i");
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escapeRegex(stem)}_t\\d+\\.jpg$`, "i");
 }
 
 function displayName(ref: string): string {
