@@ -31,7 +31,7 @@ import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup } from "
 import { resolveMemory } from "../providers/memory/index.js";
 import { isRegisterableMediaRecord, resolveMediaRef } from "./media-ref.js";
 import { captureRef } from "./osint.js";
-import { ensureLocalWatchRecord } from "./index.js";
+import { ensureLocalWatchRecord, indexVerb } from "./index.js";
 import { listenVerb } from "./senses.js";
 import { scanHitProvenance, stampProvenance } from "./provenance.js";
 import {
@@ -743,6 +743,25 @@ export const archiveVerb: VerbSpec = {
       if (!matches.length) return [err(`no archived item matches '${itemArg}' in bucket '${bucket.name}'`)];
       if (matches.length > 1) return [err(`'${itemArg}' matches ${matches.length} archived items; use the record id (${matches.map((m) => m.record.id).join(", ")})`)];
       const item = matches[0];
+      // un-index the item from every bucket index BEFORE tombstoning (the
+      // tombstone would make its path unresolvable to the removal flow itself).
+      // Reuses `index remove`'s type-specific cleanup — mirror member, cached
+      // embeddings/fingerprints, remote removal. face-cluster is skipped: it
+      // stores derived face assignments, not member refs (index remove rejects
+      // it by design; recluster to rebuild).
+      const unindexed: string[] = [];
+      const indexRecords: OvercastRecord[] = [];
+      if (item.path) {
+        for (const entry of listIndexes(bucket.case)) {
+          if (entry.type === "face-cluster") continue;
+          if (!entry.members.some((m) => m.ref === item.path)) continue;
+          const recs = await indexVerb.run({ ...ctx, case: bucket.case, input: "remove", rest: [item.path], opts: { from: entry.id } });
+          for (const rec of recs) {
+            if (rec.meta?.transient !== true) indexRecords.push(writeToBucket(bucket, rec));
+          }
+          unindexed.push(entry.id);
+        }
+      }
       let fileRemoved = false;
       if (ctx.opts["keep-file"] !== true && item.path && existsSync(item.path) && realpathContained(bucket.dir, item.path)) {
         rmSync(item.path, { force: true });
@@ -759,10 +778,11 @@ export const archiveVerb: VerbSpec = {
           ref: item.path,
           sha256: item.sha256,
           file_removed: fileRemoved,
+          ...(unindexed.length ? { unindexed } : {}),
         },
         state: "ready",
       });
-      return [writeToBucket(bucket, tomb)];
+      return [...indexRecords, writeToBucket(bucket, tomb)];
     }
 
     if (action === "setup") return runSetup(ctx);

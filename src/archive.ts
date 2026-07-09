@@ -171,20 +171,36 @@ export function resolveBucketPath(bucket: BucketHandle, item: string): string | 
   return undefined;
 }
 
+/** The newest bucket capture record (ANY state) whose payload.path owns this
+ *  file — so a path-form resolution can carry its record and the readiness
+ *  gates fire for in-flight/failed items instead of silently processing a
+ *  partial file. Newest wins: a restore leaves the retired record behind. */
+export function bucketRecordForPath(bucket: BucketHandle, path: string): OvercastRecord | undefined {
+  const caps = bucket.case.records().filter((r) => {
+    if (r.verb !== "capture" || !r.payload || typeof r.payload !== "object") return false;
+    return (r.payload as Record<string, unknown>).path === path;
+  });
+  return caps.at(-1);
+}
+
 /** Classify an ABSOLUTE path that may reach into a bucket's store directly
  *  (an operator passing the raw file path instead of an `archive:` ref): which
- *  bucket owns it, and whether the manifest retired that file. Lets the media
- *  resolvers apply the same tombstone rule to raw paths as to archive: refs —
- *  otherwise `archive remove --keep-file` would be bypassable by path. Cheap
- *  for non-archive paths (one prefix compare). */
-export function bucketPathStatus(path: string, home?: string): { bucket?: BucketHandle; retired?: boolean } {
+ *  bucket owns it, the owning capture record (any state, so readiness gates
+ *  fire), and whether the manifest retired that file — retired means a
+ *  tombstone with NO live successor (a restore un-retires the path). Lets the
+ *  media resolvers apply the same manifest rules to raw paths as to archive:
+ *  refs. Cheap for non-archive paths (one prefix compare). */
+export function bucketPathStatus(path: string, home?: string): { bucket?: BucketHandle; retired?: boolean; record?: OvercastRecord } {
   const root = archiveRoot(home);
   if (!path.startsWith(root + sep)) return {};
   const name = path.slice(root.length + 1).split(sep)[0];
   const { bucket } = openBucket(name, home);
   if (!bucket) return {};
-  const retired = listBucketItems(bucket, { includeRemoved: true }).some((it) => it.removed && it.path === path);
-  return { bucket, retired };
+  const items = listBucketItems(bucket, { includeRemoved: true });
+  const live = items.filter((it) => !it.removed && it.path === path);
+  const retired = !live.length && items.some((it) => it.removed && it.path === path);
+  const record = live.at(-1)?.record ?? bucketRecordForPath(bucket, path);
+  return { bucket, retired, record };
 }
 
 /** Streaming sha256 of a file — the archive's content-dedup key (media can be

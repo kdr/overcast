@@ -336,6 +336,12 @@ test("re-adding retired bytes RESTORES the kept file instead of duplicating it",
     const [show] = await runArchive(env, "show", ["refs"]);
     assert.equal(payload(show).total_items, 1, "one live item after restore");
 
+    // a restore un-retires the RAW path too (the old tombstone must not keep
+    // blocking a path that has a live successor record)
+    const rawAfterRestore = resolveMediaRef(env.c, keptPath, env.home);
+    assert.equal(rawAfterRestore.error, undefined, "restored path resolves again");
+    assert.equal(rawAfterRestore.archive, "refs");
+
     // retired WITHOUT --keep-file (file gone) → plain re-add copies fresh
     const b = seedFile(env, "b.mp4", "other-bytes");
     const addedB = await runArchive(env, "add", [b], { to: "refs" });
@@ -345,6 +351,28 @@ test("re-adding retired bytes RESTORES the kept file instead of duplicating it",
     const entryB = (payload(recsB.find((r) => r.verb === "archive")!).added as Array<Record<string, unknown>>)[0];
     assert.equal(entryB.restored_from, undefined);
     assert.ok(existsSync(String(entryB.path)));
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("archive remove un-indexes the item from bucket indexes (mirror member dropped)", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const img = seedFile(env, "ref.png", "png-bytes");
+    await runArchive(env, "add", [img], { to: "refs" });
+    // stand up a bucket image index; backfill registers the archived image
+    await runArchive(env, "setup", ["refs"], { index: "stills:image-ransac", yes: true });
+    const bucket = openBucket("refs", env.home).bucket!;
+    const entry = listIndexes(bucket.case).find((i) => i.name === "stills")!;
+    assert.equal(entry.members.length, 1, "backfill registered the member");
+
+    const cap = bucket.case.records().find((r) => r.verb === "capture")!;
+    const recs = await runArchive(env, "remove", [cap.id], { from: "refs" });
+    const tomb = recs.find((r) => r.verb === "archive" && payload(r).op === "remove")!;
+    assert.deepEqual(payload(tomb).unindexed, [entry.id], "tombstone reports the un-indexing");
+    assert.equal(findIndex(bucket.case, entry.id)?.members.length, 0, "stale member dropped from the bucket mirror");
   } finally {
     env.cleanup();
   }
@@ -388,6 +416,13 @@ test("archive refs gate on the BUCKET record's readiness/verb, not an active-cas
     }));
     const r = resolveVideoArg(env.c, "archive:refs/cap_pending.mp4", "watch input", { home: env.home });
     assert.match(r.error ?? "", /isn't ready/, "bucket record's pending state gates the ref");
+
+    // the FILENAME and the RAW path forms carry the owning record too — a
+    // partial in-flight file isn't fair game just because the bytes exist
+    const byName = resolveVideoArg(env.c, "archive:refs/pending.mp4", "watch input", { home: env.home });
+    assert.match(byName.error ?? "", /isn't ready/, "filename form gates the same way");
+    const byPath = resolveVideoArg(env.c, clip, "watch input", { home: env.home });
+    assert.match(byPath.error ?? "", /isn't ready/, "raw path form gates the same way");
 
     // capture pulls and explicit archive adds gate the same way — never copy a
     // partial in-flight file

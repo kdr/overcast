@@ -10,7 +10,7 @@ import { basename, resolve, sep, isAbsolute } from "node:path";
 import { realpathContained } from "../fs-path.js";
 import { isReady, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
-import { ARCHIVE_REF_PREFIX, bucketPathStatus, listBucketItems, openBucket, parseArchiveRef, resolveBucketPath } from "../archive.js";
+import { ARCHIVE_REF_PREFIX, bucketPathStatus, bucketRecordForPath, listBucketItems, openBucket, parseArchiveRef, resolveBucketPath } from "../archive.js";
 
 /** Whether a `--ref` string points at a real LOCAL file, for the finding/note
  *  evidence-ref guard. An absolute path is taken as-is (an explicit operator
@@ -98,13 +98,19 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
       if (items.some((it) => it.removed && it.record.id === inBucket.recordId)) return retiredErr();
       return { ref: inBucket.ref, recordId: inBucket.recordId, record: bucket.case.recordById(inBucket.recordId), archive: parsed.bucket };
     }
-    // media filename — the LIVE manifest item that owns it
+    // media filename — the LIVE manifest item that owns it; retired means a
+    // tombstone with no live successor (a restore un-retires the name)
     const live = items.find((it) => !it.removed && !!it.path && basename(it.path) === parsed.item);
     if (live) return { ref: live.path!, recordId: live.record.id, record: live.record, archive: parsed.bucket };
     if (items.some((it) => it.removed && !!it.path && basename(it.path) === parsed.item)) return retiredErr();
     const path = resolveBucketPath(bucket, parsed.item);
     if (path) {
       if (items.some((it) => it.removed && it.path === path)) return retiredErr();
+      // an on-disk file owned by a NON-ready capture (pending/error) must carry
+      // its record so the readiness gates fire — a partial download addressed by
+      // filename is not fair game just because the bytes exist
+      const owner = bucketRecordForPath(bucket, path);
+      if (owner) return { ref: path, recordId: owner.id, record: owner, archive: parsed.bucket };
       return { ref: path, archive: parsed.bucket };
     }
     return { ref, error: `${ref} not found (no matching record, capture id, or media file in bucket '${parsed.bucket}')` };
@@ -117,11 +123,12 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
   });
   if (byCapture?.media?.ref) return { ref: byCapture.media.ref, recordId: byCapture.id };
   // a raw ABSOLUTE path into a bucket honors the manifest like its archive: ref
-  // would (retired files error, live ones carry the bucket for meta.archive)
+  // would (retired files error; live/in-flight ones carry the bucket + their
+  // owning record so meta.archive and the readiness gates apply)
   if (isAbsolute(ref)) {
     const st = bucketPathStatus(ref, home);
     if (st.retired) return { ref, error: `${ref} was retired by \`archive remove\` — re-add it with \`overcast archive add\` to restore it` };
-    if (st.bucket) return { ref, archive: st.bucket.name };
+    if (st.bucket) return { ref, archive: st.bucket.name, ...(st.record ? { recordId: st.record.id, record: st.record } : {}) };
   }
   return { ref };
 }
