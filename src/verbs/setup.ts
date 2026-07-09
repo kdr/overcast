@@ -334,7 +334,7 @@ export const providerVerb: VerbSpec = {
     { name: "profile", summary: "Profile name to write/read (default: active/default)", type: "string" },
     { name: "verb", summary: "provider setup: verb to configure", type: "string" },
     { name: "choice", summary: "provider setup: catalog choice id", type: "string" },
-    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap)", type: "string" },
+    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap|voice-print)", type: "string" },
     { name: "yes", summary: "provider setup apply: confirm profile changes", type: "boolean" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -567,9 +567,25 @@ export const doctorVerb: VerbSpec = {
       ok: true,
       detail: `${segPart}; ${voicePart}`,
     });
+    // voice match (voice-print DB): same pyannote stack as enhance --ops separate.
+    // Informational (ok) — opt-in; the windowed default needs NO token (the
+    // wespeaker embedding model is ungated), only --diarize is HF-gated.
+    checks.push({
+      name: "voice-match",
+      ok: true,
+      detail: localVoice.code === 0
+        ? `speaker-verification deps OK via ${localPy} (wespeaker model ~26MB downloads on first run)${envPresent("HF_TOKEN") || envPresent("HUGGING_FACE_HUB_TOKEN") ? "; --diarize token present" : "; --diarize needs HF_TOKEN + accepted pyannote license"}`
+        : "voice deps missing — run `scripts/visual-db-uv.sh --voice` for `voice add/match`",
+    });
 
     // exiftool — optional system CLI backing the `exif` metadata/GPS sense.
-    const exiftool = await execCapture("exiftool", ["-ver"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    // Honor OVERCAST_EXIFTOOL_CMD so a custom path/wrapper is the one checked
+    // (same knob the shipped exif.sh reads; lets offline tests point at a fake).
+    // Split on whitespace to MATCH the shipped exif.sh/verify.sh (`read -r -a <<<`),
+    // so a space-containing override path fails here too rather than passing the
+    // check yet breaking when the sense actually runs.
+    const exiftoolCmd = (process.env.OVERCAST_EXIFTOOL_CMD || "exiftool").trim().split(/\s+/);
+    const exiftool = await execCapture(exiftoolCmd[0], [...exiftoolCmd.slice(1), "-ver"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
     checks.push({
       name: "exiftool",
       ok: exiftool.code === 0,
@@ -579,13 +595,26 @@ export const doctorVerb: VerbSpec = {
     });
 
     // c2patool — optional system CLI backing the `verify` C2PA provenance sense.
-    const c2patool = await execCapture("c2patool", ["--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    const c2patoolCmd = (process.env.OVERCAST_C2PATOOL_CMD || "c2patool").trim().split(/\s+/);
+    const c2patool = await execCapture(c2patoolCmd[0], [...c2patoolCmd.slice(1), "--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
     checks.push({
       name: "c2patool",
       ok: c2patool.code === 0,
       detail: c2patool.code === 0
         ? `optional C2PA provenance sense (verify) available (${c2patool.stdout.trim()})`
         : "optional — install c2patool for the `verify` sense (`brew install c2patool` / `cargo install c2patool`)",
+    });
+
+    // geocode — OPT-IN reverse-geocode provider for `exif --geocode`. Report
+    // whether a provider is bound and whether curl is present (its default dep).
+    const geocodeBound = Boolean(ctx.profile.providers?.geocode);
+    const geocodeCurl = await execCapture("curl", ["--version"], { timeoutMs: 10_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    checks.push({
+      name: "geocode",
+      ok: true, // opt-in — never gates
+      detail: geocodeBound
+        ? `bound (exif --geocode enabled)${geocodeCurl.code === 0 ? "" : "; curl missing (the default Nominatim provider needs it)"}`
+        : "optional/off — bind to enable `exif --geocode` (`setup provider geocode \"exec:bash examples/providers/geocode/geocode.sh --input {{input}}\"`)",
     });
 
 

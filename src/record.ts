@@ -59,9 +59,11 @@ export const META_VERBS: ReadonlySet<string> = new Set(["ask", "brief", "case"])
 export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set([
   "archive",
   "collection",
+  "devices",
   "doctor",
   "grid",
   "index",
+  "map",
   "prebrief",
   "provider",
   "setup",

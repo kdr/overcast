@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { providerChoices } from "../../src/providers/catalog.ts";
+import { providerChoices, findProviderChoice, PROVIDER_PRESETS } from "../../src/providers/catalog.ts";
 
 /** The `run` command of the owl-local (see) catalog choice, resolved now. */
 function owlLocalRun(): string {
@@ -8,6 +8,16 @@ function owlLocalRun(): string {
   assert.ok(c?.descriptor && "run" in c.descriptor, "owl-local see choice has an exec descriptor");
   return (c!.descriptor as { run: string }).run;
 }
+
+test("voice-print catalog choice + preset are registered for the voice verb", () => {
+  const choice = findProviderChoice("voice", "voice-print");
+  assert.ok(choice, "voice-print choice exists");
+  assert.equal(choice!.descriptor?.type, "inproc");
+  const init = (choice!.descriptor as { init?: { command?: string } }).init?.command ?? "";
+  assert.match(init, /visual-db-uv\.sh --voice/);
+  assert.ok(choice!.env?.includes("OVERCAST_VOICE_MODEL"));
+  assert.deepEqual(PROVIDER_PRESETS["voice-print"], [{ verb: "voice", choice: "voice-print" }]);
+});
 
 test("owl-local detector honors $DETECT_PY (venv python), else falls back to python3", () => {
   const saved = process.env.DETECT_PY;

@@ -30,6 +30,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `face` — Detect, match, or search faces in video (and across face-analysis indexes).
 - `image` — Match images or video frames against a local RANSAC image index.
 - `audio` — Shazam-style exact audio matching: fingerprint clips into a local audio-fp index, or match clip-to-clip with time-offset alignment.
+- `voice` — Speaker verification: enroll voices into a local voice-print index, or find/rank a reference voice inside a clip or across members.
 - `cluster` — Build and browse a local face-cluster DB: group faces into people, identify, label, and view.
 - `similar` — Find images/video moments or audio by visual, audio, or text similarity in a local CLIP (basic-clip) or CLAP (basic-clap) index.
 - `exif` — Extract embedded metadata — GPS, capture time, device — from an image or video (ExifTool).
@@ -39,6 +40,8 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `crop` — Materialize face/object detections as cropped image records with provenance.
 - `grid` — Tile timestamped video frames into a labeled contact sheet for one-shot VLM triage.
 - `wall` — Open a control-room monitor wall: case videos looping at their evidence moments.
+- `map` — Plot every case record carrying GPS coordinates on a self-contained HTML map.
+- `devices` — Correlate case media by camera fingerprint (make/model/serial/lens) and report shared-device clusters.
 - `scan` — Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
@@ -102,10 +105,10 @@ records what would resolve it; `target close <id> --as answered|dead-end --note`
 marks it done (closed lines stop seeding scans); `target reopen <id>` reactivates.
 
 Findings **auto-suggest** by default: score triggers (face ≥75, image RANSAC,
-similar ≥85, cluster ≥70, audio fingerprint) and non-image target text matches
-emit `suggested` leads on every verb — so a standalone `face --match` /
-`image match` / `similar match` / `cluster identify` / `audio match` surfaces
-a lead. Suggested leads are
+similar ≥85, cluster ≥70, voice ≥80, audio fingerprint) and non-image target text
+matches emit `suggested` leads on every verb — so a standalone `face --match` /
+`image match` / `similar match` / `cluster identify` / `audio match` /
+`voice match` surfaces a lead. Suggested leads are
 quarantined from `ask`/`brief` until accepted. Triage with
 `finding list --state triage` (bare `list` shows only `open`), then
 `finding accept <id>` (→ evidence) or `finding dismiss <id>` (blocks re-suggestion).

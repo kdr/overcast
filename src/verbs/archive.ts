@@ -534,7 +534,7 @@ async function runSetup(ctx: VerbContext): Promise<OvercastRecord[]> {
         setup_file: bucket.case.setupFile,
         wizard_steps: [
           "1. Bucket purpose (--name)",
-          "2. Indexes — local: deepface-local (face search) | basic-clip (semantic) | image-ransac (exact image) | audio-fp (audio fingerprint) | basic-clap (audio semantic) | face-cluster (people DB); remote Cloudglue: media-descriptions | face-analysis | entities — or skip (default: save media+metadata only)",
+          "2. Indexes — local: deepface-local (face search) | basic-clip (semantic) | image-ransac (exact image) | audio-fp (audio fingerprint) | basic-clap (audio semantic) | voice-print (speaker verification) | face-cluster (people DB); remote Cloudglue: media-descriptions | face-analysis | entities — or skip (default: save media+metadata only)",
           "3. Memory backend for ask --archive: local-grep (default) | qmd (semantic)",
           "4. Automation: auto-index newly added media (--auto-index-new)",
           "5. Backfill: existing bucket media routes into new indexes automatically on apply",
@@ -623,7 +623,7 @@ export const archiveVerb: VerbSpec = {
     "local DBs (deepface-local/basic-clip/image-ransac/audio-fp/basic-clap/face-cluster) and/or remote Cloudglue " +
     "collections (media-descriptions/face-analysis/entities) plus a memory backend, backfilling existing bucket media. " +
     "From any case: sense media in place via `watch archive:<bucket>/<item>`, pull a copy via `capture archive:<bucket>/<item>`, " +
-    "query bucket indexes via `--index archive:<bucket>/<index>` (face/similar/image/audio/cluster/ask), " +
+    "query bucket indexes via `--index archive:<bucket>/<index>` (face/similar/image/audio/voice/cluster/ask), " +
     "and ask over the bucket via `ask --archive <bucket>`.",
   args: [
     { name: "action", summary: ACTIONS.join(" | "), required: true, choices: ACTIONS },

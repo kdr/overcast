@@ -12,11 +12,14 @@ import { exifVerb, verifyVerb } from "../verbs/forensics.js";
 import { faceVerb } from "../verbs/face.js";
 import { imageVerb } from "../verbs/image.js";
 import { audioVerb } from "../verbs/audio.js";
+import { voiceVerb } from "../verbs/voice.js";
 import { clusterVerb } from "../verbs/cluster.js";
 import { similarVerb } from "../verbs/similar.js";
 import { cropVerb } from "../verbs/crop.js";
 import { gridVerb } from "../verbs/grid.js";
 import { wallVerb } from "../verbs/wall.js";
+import { mapVerb } from "../verbs/map.js";
+import { devicesVerb } from "../verbs/devices.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
 import { provenanceFromCapture, stampProvenance } from "../verbs/provenance.js";
 import { provenanceCase, stampArchive } from "../archive.js";
@@ -104,6 +107,7 @@ export const VERBS: VerbSpec[] = [
   faceVerb,
   imageVerb,
   audioVerb,
+  voiceVerb,
   clusterVerb,
   similarVerb,
   exifVerb,
@@ -113,6 +117,8 @@ export const VERBS: VerbSpec[] = [
   cropVerb,
   gridVerb,
   wallVerb,
+  mapVerb,
+  devicesVerb,
   scanVerb,
   captureVerb,
   monitorVerb,

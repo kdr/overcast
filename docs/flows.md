@@ -746,9 +746,12 @@ Establish where a file came from and whether it carries signed credentials —
 evidence records like any other sense, cited by `ask` / `brief`.
 
 ```bash
-overcast exif ./photo.jpg --json      # ExifTool: GPS lat/lng, capture time, device, editing software
+overcast exif ./photo.jpg --json      # ExifTool: GPS lat/lng, capture time, device, editing software, serial/lens
 overcast verify ./clip.mp4 --json     # C2PA / Content Credentials: manifest, signer, validation state
 overcast exif <capture-record-id>     # or run over a captured scan hit (remote media is fetched first)
+overcast exif ./photo.jpg --geocode   # + reverse-geocode GPS to a place (opt-in bound geocode provider)
+overcast map --no-open                # plot every GPS-bearing record on a self-contained HTML map
+overcast devices --findings           # link media shot on the same camera (serial/lens); suggest leads
 overcast ask "what GPS coordinates or camera devices appear?"
 ```
 
@@ -756,6 +759,15 @@ overcast ask "what GPS coordinates or camera devices appear?"
 `needs_credentials`, exit 13, when absent). Media with no credentials is a clean
 `ready` `verify` record (`has_manifest: false`), not an error — and distinct from
 source-post provenance (where a record was scraped from).
+
+The metadata is then actionable: `exif --geocode` names the place (opt-in,
+ToS-gated `geocode` provider — see [providers.md](providers.md)); `map` plots all
+GPS points (online OSM tiles, or `--offline` scatter with no egress); `devices`
+links media to the same physical camera by serial/lens. `exif`/`verify` also seed
+the triage queue — a known image-editor `software` tag ("possibly edited") and a
+failed C2PA `validation_state` ("provenance validation failed") emit suggested
+findings (`case setup --findings-forensics off` to silence them). GPS-present is
+deliberately not a lead — it feeds the map, not the queue.
 
 ### 22. CSI / crime-trope skills (packaged flows)
 
@@ -834,6 +846,7 @@ overcast archive setup ref-footage status --json       # per-index coverage + me
 overcast face --match suspect.jpg --index archive:ref-footage/faces --json
 overcast similar search "white van at night" --index archive:ref-footage/clip --json
 overcast audio match query.mp3 --index archive:ref-footage/audio --json
+overcast voice match sample.wav --index archive:ref-footage/voices --json   # speaker verification
 overcast ask "when does the convoy appear?" --index archive:ref-footage/descriptions --json
 
 # use archived media directly

@@ -44,10 +44,11 @@ overcast archive setup ref-footage status --json     # coverage + memory index h
 
 Index types — local: `deepface-local` (face search), `basic-clip` (semantic),
 `image-ransac` (exact image), `audio-fp` (audio fingerprint), `basic-clap`
-(audio semantic), `face-cluster` (people DB); remote Cloudglue:
-`media-descriptions` (ask/probe), `face-analysis`, `entities`. Skipping
-indexes is fine — a bucket is still greppable via `ask --archive`. On apply,
-existing bucket media is backfilled into new indexes automatically.
+(audio semantic), `voice-print` (speaker verification), `face-cluster`
+(people DB); remote Cloudglue: `media-descriptions` (ask/probe),
+`face-analysis`, `entities`. Skipping indexes is fine — a bucket is still
+greppable via `ask --archive`. On apply, existing bucket media is backfilled
+into new indexes automatically.
 
 ## Cross-case checks from INSIDE a case
 
@@ -56,6 +57,7 @@ overcast face --match suspect.jpg --index archive:ref-footage/faces --json
 overcast similar search "white van at night" --index archive:ref-footage/clip --json
 overcast image match still.png --index archive:ref-footage/stills --json
 overcast audio match query.mp3 --index archive:ref-footage/audio --json
+overcast voice match sample.wav --index archive:ref-footage/voices --json   # speaker verification
 overcast cluster identify face.jpg --index archive:ref-footage/people --json
 overcast ask "when does the convoy appear?" --index archive:ref-footage/descriptions --json  # remote
 ```

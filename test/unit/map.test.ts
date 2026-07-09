@@ -1,0 +1,189 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { makeRecord, type OvercastRecord } from "../../src/record.ts";
+import { buildMapModel, renderMapHtml } from "../../src/report/map.ts";
+import { openCase } from "../../src/case.ts";
+import { mapVerb } from "../../src/verbs/map.ts";
+import type { VerbContext } from "../../src/registry/types.ts";
+
+function geo(opts: { lat?: number; lng?: number; verb?: string; ref?: string; time?: string; place?: string; state?: string; gps?: unknown; created?: string }): OvercastRecord {
+  return makeRecord({
+    verb: opts.verb ?? "exif",
+    format: "json",
+    payload: {
+      summary: "meta",
+      gps: opts.gps !== undefined ? opts.gps : opts.lat != null ? { lat: opts.lat, lng: opts.lng } : null,
+      ...(opts.place ? { place: opts.place } : {}),
+      ...(opts.created ? { created: opts.created } : {}),
+    },
+    media: { ref: opts.ref ?? "a.jpg" },
+    meta: opts.time ? { time: opts.time } : undefined,
+    state: opts.state,
+  });
+}
+
+const OPTS = { caseName: "case", caseDir: "/tmp/case", now: 1_700_000_000_000 };
+
+test("buildMapModel: keeps only records with numeric gps; computes bounds + counts", () => {
+  const m = buildMapModel(
+    [
+      geo({ lat: 37.7, lng: -122.4, ref: "sf.jpg" }),
+      geo({ lat: 40.7, lng: -74.0, ref: "ny.jpg", verb: "capture" }),
+      geo({ gps: null, ref: "nogps.jpg" }),
+      geo({ gps: { lat: "x", lng: 1 }, ref: "bad.jpg" }),
+    ],
+    OPTS,
+  );
+  assert.equal(m.points.length, 2);
+  assert.equal(m.total, 2);
+  assert.deepEqual(m.bounds, { minLat: 37.7, minLng: -122.4, maxLat: 40.7, maxLng: -74.0 });
+  assert.deepEqual(m.counts, { exif: 1, capture: 1 });
+});
+
+test("buildMapModel: skips error records", () => {
+  const m = buildMapModel([geo({ lat: 1, lng: 2, state: "error" }), geo({ lat: 3, lng: 4 })], OPTS);
+  assert.equal(m.points.length, 1);
+  assert.equal(m.points[0].lat, 3);
+});
+
+test("buildMapModel: --since drops older dated points but keeps undated ones", () => {
+  const m = buildMapModel(
+    [
+      geo({ lat: 1, lng: 1, ref: "old.jpg", time: "2020-01-01T00:00:00Z" }),
+      geo({ lat: 2, lng: 2, ref: "new.jpg", time: "2026-07-01T00:00:00Z" }),
+      geo({ lat: 3, lng: 3, ref: "undated.jpg" }),
+    ],
+    { ...OPTS, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") },
+  );
+  const refs = m.points.map((p) => p.ref).sort();
+  assert.deepEqual(refs, ["new.jpg", "undated.jpg"]);
+});
+
+test("buildMapModel: a truly-undated record (no meta.time) survives --since", () => {
+  // makeRecord stamps meta.time, so simulate a genuinely undated record by
+  // removing it — recordTimeMs then returns NaN, which the filter must keep.
+  const undated = geo({ lat: 5, lng: 5, ref: "undated.jpg" });
+  delete (undated.meta as Record<string, unknown>).time;
+  const recent = geo({ lat: 6, lng: 6, ref: "recent.jpg", time: "2026-07-01T00:00:00Z" });
+  const old = geo({ lat: 7, lng: 7, ref: "old.jpg", time: "2020-01-01T00:00:00Z" });
+  const m = buildMapModel([undated, recent, old], { ...OPTS, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") });
+  const refs = m.points.map((p) => p.ref).sort();
+  assert.deepEqual(refs, ["recent.jpg", "undated.jpg"]); // undated kept, old dropped
+});
+
+test("buildMapModel: out-of-range lat/lng are rejected (WGS84 bounds)", () => {
+  const m = buildMapModel(
+    [
+      geo({ gps: { lat: 200, lng: 10 }, ref: "badlat.jpg" }),
+      geo({ gps: { lat: 10, lng: 400 }, ref: "badlng.jpg" }),
+      geo({ lat: 45, lng: 90, ref: "ok.jpg" }),
+    ],
+    OPTS,
+  );
+  assert.equal(m.points.length, 1);
+  assert.equal(m.points[0].ref, "ok.jpg");
+});
+
+test("buildMapModel: --limit pages most-recent first, total reflects the full set", () => {
+  const m = buildMapModel(
+    [
+      geo({ lat: 1, lng: 1, ref: "a.jpg", time: "2026-01-01T00:00:00Z" }),
+      geo({ lat: 2, lng: 2, ref: "b.jpg", time: "2026-02-01T00:00:00Z" }),
+      geo({ lat: 3, lng: 3, ref: "c.jpg", time: "2026-03-01T00:00:00Z" }),
+    ],
+    { ...OPTS, limit: 1 },
+  );
+  assert.equal(m.total, 3);
+  assert.equal(m.points.length, 1);
+  assert.equal(m.points[0].ref, "c.jpg"); // newest
+});
+
+test("buildMapModel: exif capture time (payload.created) drives recency, not ingest meta.time", () => {
+  // an OLD photo INGESTED recently must not read as newest / pass a recent --since
+  const oldPhoto = geo({ lat: 1, lng: 1, ref: "old.jpg", created: "2019:01:01 00:00:00", time: "2026-07-09T00:00:00Z" });
+  const newPhoto = geo({ lat: 2, lng: 2, ref: "new.jpg", created: "2026:06:01 00:00:00", time: "2026-07-09T00:00:00Z" });
+  const m = buildMapModel([oldPhoto, newPhoto], { ...OPTS, sinceCutoff: Date.parse("2020-01-01T00:00:00Z") });
+  assert.deepEqual(m.points.map((p) => p.ref), ["new.jpg"]); // 2019 capture dropped despite recent ingest
+  assert.equal(m.points[0].time, "2026:06:01 00:00:00"); // point shows the capture time
+});
+
+test("buildMapModel: exif capture time is parsed as UTC (consistent with UTC --since cutoffs)", () => {
+  // a photo captured exactly at the cutoff instant must be KEPT (>=), independent
+  // of the host timezone — captureMs normalizes the zone-less exif datetime to UTC.
+  const cutoff = Date.parse("2026-01-01T00:00:00Z");
+  const atCutoff = geo({ lat: 1, lng: 1, ref: "at.jpg", created: "2026:01:01 00:00:00" });
+  const justBefore = geo({ lat: 2, lng: 2, ref: "before.jpg", created: "2025:12:31 23:59:59" });
+  const m = buildMapModel([atCutoff, justBefore], { ...OPTS, sinceCutoff: cutoff });
+  assert.deepEqual(m.points.map((p) => p.ref), ["at.jpg"]);
+});
+
+test("buildMapModel: antimeridian-straddling cluster gets a minimal-arc longitude span", () => {
+  const m = buildMapModel([geo({ lat: 18, lng: 170, ref: "e.jpg" }), geo({ lat: -16, lng: -170, ref: "w.jpg" })], OPTS);
+  assert.ok(m.bounds);
+  assert.equal(m.bounds!.minLng, 170);
+  assert.equal(m.bounds!.maxLng, 190); // -170 unwrapped → 20° span across the antimeridian, not 340°
+});
+
+test("buildMapModel: gpsTotal counts GPS records BEFORE --since (filtered ≠ none)", () => {
+  const m = buildMapModel(
+    [
+      geo({ lat: 1, lng: 1, ref: "old.jpg", created: "2019:01:01 00:00:00" }),
+      geo({ lat: 2, lng: 2, ref: "new.jpg", created: "2026:06:01 00:00:00" }),
+    ],
+    { ...OPTS, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") },
+  );
+  assert.equal(m.gpsTotal, 2); // both are GPS-bearing
+  assert.equal(m.total, 1); // only one survives --since
+});
+
+test("renderMapHtml online: drives fit from server BOUNDS via unwrap (single source of truth)", () => {
+  const m = buildMapModel([geo({ lat: 1, lng: 1 }), geo({ lat: 2, lng: 2 })], OPTS);
+  const html = renderMapHtml(m, "plain", { offline: false });
+  assert.match(html, /const BOUNDS=/);
+  assert.match(html, /function unwrap/);
+});
+
+test("mapVerb: empty-case note distinguishes no-GPS from --since-filtered", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-map-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    const ctx = (opts: Record<string, unknown>): VerbContext =>
+      ({ input: undefined, rest: [], opts: { theme: "plain", "no-open": true, ...opts }, case: c, profile: { name: "t", providers: {} } }) as unknown as VerbContext;
+    // no GPS records at all
+    const empty = await mapVerb.run(ctx({}));
+    assert.match(String((empty[0].payload as Record<string, unknown>).note), /no GPS-bearing records/);
+    // a geotagged (old) record that --since will exclude
+    c.writeRecord(makeRecord({ verb: "exif", format: "json", payload: { gps: { lat: 1, lng: 1 }, created: "2019:01:01 00:00:00" }, media: { ref: "a.jpg" } }));
+    const filtered = await mapVerb.run(ctx({ since: "2026-01-01" }));
+    const p = filtered[0].payload as Record<string, unknown>;
+    assert.equal(p.gps_total, 1);
+    assert.match(String(p.note), /but none match the current filter/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("renderMapHtml online: self-contained, OSM tile template, per-point markers, tile-scoped CSP", () => {
+  const m = buildMapModel([geo({ lat: 37.7, lng: -122.4, place: "San Francisco" })], OPTS);
+  const html = renderMapHtml(m, "plain", { offline: false });
+  assert.match(html, /^<!doctype html>/i);
+  assert.match(html, /tile\.openstreetmap\.org/);
+  assert.match(html, /img-src data: file: https:\/\/\*\.tile\.openstreetmap\.org/);
+  assert.match(html, /const POINTS=/);
+  assert.match(html, /San Francisco/);
+  // no un-inlined external asset (script/link src)
+  assert.doesNotMatch(html, /<script[^>]+src=/i);
+  assert.doesNotMatch(html, /<link[^>]+href=/i);
+});
+
+test("renderMapHtml offline: no tiles, openstreetmap.org deep links, default-src none CSP", () => {
+  const m = buildMapModel([geo({ lat: 37.7, lng: -122.4 })], OPTS);
+  const html = renderMapHtml(m, "plain", { offline: true });
+  assert.doesNotMatch(html, /tile\.openstreetmap\.org/);
+  assert.match(html, /openstreetmap\.org\/\?mlat=37\.7&amp;mlon=-122\.4/); // & escaped in href
+  assert.match(html, /default-src 'none'/);
+});

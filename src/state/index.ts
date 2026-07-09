@@ -25,12 +25,13 @@ export type IndexType =
   | "face-cluster"
   | "basic-clip"
   | "audio-fp"
-  | "basic-clap";
+  | "basic-clap"
+  | "voice-print";
 
 /** Index types that only exist locally (never tinycloud-backed). The canonical
  *  set — every writer that mirrors one of these MUST stamp backend "local", or
  *  the typed verbs (image/face/cluster/similar) will reject the entry as remote. */
-export const LOCAL_INDEX_TYPES: ReadonlySet<string> = new Set(["deepface-local", "image-ransac", "face-cluster", "basic-clip", "audio-fp", "basic-clap"]);
+export const LOCAL_INDEX_TYPES: ReadonlySet<string> = new Set(["deepface-local", "image-ransac", "face-cluster", "basic-clip", "audio-fp", "basic-clap", "voice-print"]);
 
 export interface IndexMember {
   /** the video ref registered (path / URL) */
@@ -111,6 +112,12 @@ export function normalizeIndexType(input: string): IndexType | undefined {
     case "audio-clip":
     case "audio-semantic":
       return "basic-clap";
+    case "voice-print":
+    case "voiceprint":
+    case "voice":
+    case "speaker":
+    case "speaker-id":
+      return "voice-print";
     case "rich-transcripts":
     case "rich-transcript":
     case "transcripts":

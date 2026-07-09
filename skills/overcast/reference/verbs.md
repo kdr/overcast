@@ -156,6 +156,38 @@ Options:
 
 Emits `audio.match` records.
 
+### `overcast voice`
+
+`voice add <audio|video|record-id> --index <local-voice-print-index>` embeds a clip's voiced windows (pyannote wespeaker speaker embeddings, run locally) and caches them in a local voice-print index. `voice match <clip> <sample>` ranks where the sample's SPEAKER talks in the clip (windowed cosine scan; `--diarize` upgrades to diarize-then-match against per-speaker centroids — needs HF_TOKEN + the accepted pyannote license like `enhance --ops separate`, and falls back to windowed without it). `voice match <sample> --index <id>` ranks which enrolled members contain the speaker. Videos are accepted — their audio track is extracted. `similarity` is a 0–100 rank score (anchored cosine; 50 ≈ the accept floor, 90 ≈ strong same-speaker), not a probability, and NOT liveness — a cloned/synthetic voice can score high; cross-language or degraded speech scores lower. To list a clip's speakers without a reference, use `enhance --ops separate`.
+
+```
+overcast voice <action> [input] [sample] [options]
+
+  Speaker verification: enroll voices into a local voice-print index, or find/rank a reference voice inside a clip or across members.
+
+Arguments:
+  action           add | match
+  input            audio/video path or record id (add: the clip to enroll; match: the clip to scan, or the sample when searching --index)
+  sample           match: the reference voice sample for pairwise `voice match <clip> <sample>` (instead of --index)
+
+Options:
+  --index <string>       local voice-print index id/name
+  --to <string>          alias for --index when adding
+  --min-similarity <number> score floor 0–100 (default 50 ≈ the accept threshold; suggested findings fire at 80)
+  --min-margin <number>  minimum score-point gap between the best match and the runner-up speaker (diarized) or the clip's median window (windowed/search) — a cheap calibration gate
+  --diarize              pairwise match: diarize-then-match (overlap-aware; needs HF_TOKEN + accepted pyannote license, else falls back to windowed)
+  --speakers <number>    match --diarize: expected speaker count hint
+  --start <string>       pairwise match: scan window start (seconds or HH:MM:SS)
+  --end <string>         pairwise match: scan window end (seconds or HH:MM:SS)
+  --window <number>      pairwise match: seconds per embedding window (default 3; members follow the index config)
+  --limit <number>       match: max results
+  --offset <number>      match --index: result offset
+  --format <string>      json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `voice.match` records.
+
 ### `overcast cluster`
 
 A persistent LOCAL face database backed by the deepface provider (clustering needs face embeddings, which the tinycloud face path doesn't expose). `cluster add <media>` detects faces, embeds them, and ASSIGN-OR-CREATEs each into a person (nearest existing person above --min-similarity, else a new one); `cluster identify <image|video>` surfaces the most similar person for a probe (or flags it as a likely new person) without writing; `cluster recluster` re-groups every stored face and carries human labels forward; `cluster list`/`show` read the DB and `cluster view` renders a self-contained HTML contact sheet. Needs a face-cluster index (`index create <name> --type face-cluster --local`); resolves the case's sole one when --index is omitted. Emits a `cluster` record.
@@ -222,7 +254,7 @@ Emits `similar.match` records.
 
 ### `overcast exif`
 
-Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus GPS coordinates (signed decimals), capture time, camera make/model, editing software, MIME/dimensions/duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with `setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed.
+Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus GPS coordinates (signed decimals), capture time, camera make/model, editing software, MIME/dimensions/duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with `setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed. Pass `--geocode` to reverse-geocode the GPS into a place name via a bound (opt-in) `geocode` provider.
 
 ```
 overcast exif <input> [options]
@@ -233,6 +265,7 @@ Arguments:
   input            Image/video/file path, case record id, or http(s) URL
 
 Options:
+  --geocode              Reverse-geocode GPS to a place via a bound `geocode` provider (opt-in — sends coordinates to that provider)
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -386,6 +419,46 @@ Options:
 
 Emits `wall` records.
 
+### `overcast map`
+
+Gathers all case records with payload.gps{lat,lng} (primarily `exif`; any record qualifies) and renders a self-contained HTML map — one marker per point with its record id, media thumbnail, geocoded place (when `exif --geocode` set it), and capture time, linking back to the source. Online mode fetches OSM raster tiles in the browser at view time (no CDN dependency; the map JS is inlined); --offline degrades to a coordinate scatter with per-point openstreetmap.org links and no network egress. --no-open writes the map and emits its path instead of launching. Live tiles reveal the viewer's IP + the investigated location to OpenStreetMap.
+
+```
+overcast map  [options]
+
+  Plot every case record carrying GPS coordinates on a self-contained HTML map.
+
+Options:
+  --limit <number>       Max points, most-recent first (default: 500)
+  --since <string>       Only records since (e.g. 24h, 7d, 2026-06-01)
+  --offline              No tile fetch: coordinate scatter + openstreetmap.org links only
+  --export <string>      Map HTML path (default: .overcast/media/map.html)
+  --no-open              Write the map but don't launch it
+  --theme <string>       HTML theme: plain | csi (default: plain)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `media.map` records.
+
+### `overcast devices`
+
+Rolls up all case `exif` records into device clusters keyed by make + model + serial + lens. A serial number is a durable per-device id (a strong link — same serial ≈ same physical camera); when a serial is absent the cluster falls back to make + model + lens (a weaker 'same model' hint). Reports every cluster of ≥2 media shot on the same device — e.g. an anonymous account's photo sharing a camera serial with an identified one. Pure read over records already in memory (no new index; run `exif` on media first so serial/lens are populated). With --findings it also emits `suggested` findings for serial-linked (strong) clusters, deduped by fingerprint.
+
+```
+overcast devices  [options]
+
+  Correlate case media by camera fingerprint (make/model/serial/lens) and report shared-device clusters.
+
+Options:
+  --min <number>         Minimum media per cluster to report (default: 2)
+  --findings             Also emit suggested findings for serial-linked (strong) clusters
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `devices` records.
+
 ## OSINT
 
 ### `overcast scan`
@@ -474,7 +547,7 @@ Arguments:
   arg2             entities: the video/record-id (index entities <id> <video>)
 
 Options:
-  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip | audio-fp | basic-clap
+  --type <string>        create/attach: media-descriptions | entities | face-analysis | rich-transcripts | deepface-local | image-ransac | face-cluster | basic-clip | audio-fp | basic-clap | voice-print
   --local                create a local index instead of a tinycloud-backed index
   --description <string> create: human description
   --prompt <string>      create entities: free-text extraction prompt
@@ -551,7 +624,7 @@ Emits `brief` records.
 
 ### `overcast archive`
 
-A bucket is a case-shaped folder reusable from ANY case: `init <bucket>` creates it; `add <ref...> --to <bucket>` saves local files / URLs / case records into it (sha256-deduped capture records with tags/notes/origin provenance; `--all` archives every captured/sensed media record of the active case); `list`/`show <bucket>` inspect; `remove <item> --from <bucket>` retires an item. `setup <bucket>` is the index wizard (plan/--yes): stand up local DBs (deepface-local/basic-clip/image-ransac/audio-fp/basic-clap/face-cluster) and/or remote Cloudglue collections (media-descriptions/face-analysis/entities) plus a memory backend, backfilling existing bucket media. From any case: sense media in place via `watch archive:<bucket>/<item>`, pull a copy via `capture archive:<bucket>/<item>`, query bucket indexes via `--index archive:<bucket>/<index>` (face/similar/image/audio/cluster/ask), and ask over the bucket via `ask --archive <bucket>`.
+A bucket is a case-shaped folder reusable from ANY case: `init <bucket>` creates it; `add <ref...> --to <bucket>` saves local files / URLs / case records into it (sha256-deduped capture records with tags/notes/origin provenance; `--all` archives every captured/sensed media record of the active case); `list`/`show <bucket>` inspect; `remove <item> --from <bucket>` retires an item. `setup <bucket>` is the index wizard (plan/--yes): stand up local DBs (deepface-local/basic-clip/image-ransac/audio-fp/basic-clap/face-cluster) and/or remote Cloudglue collections (media-descriptions/face-analysis/entities) plus a memory backend, backfilling existing bucket media. From any case: sense media in place via `watch archive:<bucket>/<item>`, pull a copy via `capture archive:<bucket>/<item>`, query bucket indexes via `--index archive:<bucket>/<index>` (face/similar/image/audio/voice/cluster/ask), and ask over the bucket via `ask --archive <bucket>`.
 
 ```
 overcast archive <action> [arg]... [options]
@@ -715,7 +788,8 @@ Options:
   --auto-index-new       setup/edit: automatically add newly analyzed media to configured indexes
   --no-auto-index-new    setup/edit: disable automatic indexing for newly analyzed media
   --findings <string>    setup/edit: automated finding workflow (suggest | review | off; default suggest)
-  --findings-threshold <string> setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,image_inliers=1,audio_margin=1)
+  --findings-threshold <string> setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,voice=80,image_inliers=1,audio_margin=1)
+  --findings-forensics <string> setup/edit: forensic flag triggers (on | off; default on) — exif editing-software + verify invalid-provenance leads
   --video <string>       setup/edit: comma-separated local videos/URLs to route
   --folder <string>      setup/edit: comma-separated local media folders to remember
   --no-index             setup/edit: save setup routes without starting remote collection ingestion
@@ -798,7 +872,7 @@ Options:
   --profile <string>     Profile name to write/read (default: active/default)
   --verb <string>        provider setup: verb to configure
   --choice <string>      provider setup: catalog choice id
-  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap)
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap|voice-print)
   --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt

@@ -8,7 +8,7 @@
 #   scripts/visual-db-uv.sh --detect  # also install the OWLv2 open-vocab DETECTOR (torch + transformers + scipy) for `see --detect`
 #   scripts/visual-db-uv.sh --audio   # also install audio fingerprint deps (scipy)
 #   scripts/visual-db-uv.sh --clap    # also install LAION CLAP audio embeddings (transformers + torch)
-#   scripts/visual-db-uv.sh --voice   # also install pyannote.audio (enhance --ops separate)
+#   scripts/visual-db-uv.sh --voice   # also install pyannote.audio (enhance --ops separate + voice match)
 #   scripts/visual-db-uv.sh --segment # also install transformers+SAM2/GroundingDINO (enhance --ops segment)
 #   scripts/visual-db-uv.sh --enhance # both enhance stacks (--voice + --segment)
 #   scripts/visual-db-uv.sh --all     # install everything (face + clip + detector + audio-fp + CLAP + enhance)
@@ -34,7 +34,7 @@ uv venv --allow-existing --python "$PYVER" "$VENV"
 uv pip install --python "$VENV/bin/python" --upgrade pip wheel setuptools
 uv pip install --python "$VENV/bin/python" opencv-python numpy
 
-install_voice() {   # pyannote diarization for enhance --ops separate
+install_voice() {   # pyannote: enhance --ops separate diarization + `voice` speaker match
   uv pip install --python "$VENV/bin/python" "pyannote.audio>=4.0" torch torchaudio
 }
 install_segment() { # GroundingDINO + SAM 2.1 for enhance --ops segment

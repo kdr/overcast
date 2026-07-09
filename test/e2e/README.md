@@ -100,6 +100,11 @@ exports with real visual targets and matches) · `32_headless_visualization`
 (headless agent `--mode json` export trace, default CSI HTML theme) · `33_wall`
 (control-room wall over real watch/face evidence: finding-anchored loop window,
 FND chip, CSI markers, plus the `--infinite` endless wall from the same case) ·
+`34_forensics` (real `exif` metadata/GPS/serial/lens + `verify` C2PA via system
+exiftool/c2patool, then GPS made actionable — `map` online OSM-tile + `--offline`
+scatter, opt-in live Nominatim `exif --geocode` place lookup, and `devices`
+camera-fingerprint correlation; a geotagged `OC_EXIF_IMAGE` unlocks the GPS legs,
+`OC_EXIF_IMAGE_2` a same-camera serial cluster) ·
 `40_profiles` · `50_piping` (jq / chaining) · `60_dist`
 (binary as artifact) · `70_headless` (agent `--mode json` event stream + `-p`
 tool use + watch/persist).

@@ -238,6 +238,14 @@ overcast index create sounds --type basic-clap --local --json         # CLAP aud
 overcast similar add ./clip.wav --index sounds --json                 # embed + cache (10s audio windows)
 overcast similar search "crowd chanting" --index sounds --json        # text → audio moments
 
+# 9c) voice DB: speaker verification (voice-print) — find a reference VOICE, not a recording
+scripts/visual-db-uv.sh --voice           # pyannote stack (same as enhance --ops separate; no token needed)
+overcast index create voices --type voice-print --local --json
+overcast voice add ./interview.mp4 --index voices --json              # enroll (video → audio track)
+overcast voice match ./sample.wav --index voices --json               # which members contain this speaker?
+overcast voice match ./clip.mp4 ./sample.wav --json                   # WHERE the speaker talks in a clip
+overcast voice match ./clip.mp4 ./sample.wav --diarize --json         # overlap-aware tier (HF_TOKEN gated)
+
 # 10) launch the interactive agent (pi TUI) in the current case
 overcast
 ```
@@ -303,6 +311,7 @@ surface + env vars.)
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
 | `image` | match images/video frames against a local OpenCV RANSAC image index |
 | `audio` | Shazam-style exact audio matching against a local `audio-fp` index (time-offset alignment), or clip-to-clip `audio match <query> <reference>`; `--min-margin` rejects sped re-uploads, `--draw` renders an SVG alignment plot for briefs |
+| `voice` | speaker verification: enroll voices into a local `voice-print` index (`voice add`), rank members containing a reference speaker (`voice match <sample> --index`), or locate WHERE a speaker talks in a clip (`voice match <clip> <sample>`; `--diarize` for the overlap-aware pyannote tier). Rank scores, not liveness — clones can score high |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
 | `enhance` | denoise / normalize / upscale via bundled ffmpeg, a bound restore model, or the split ops — `--ops separate` (per-speaker tracks, `--summarize` to transcribe each) and `--ops segment --prompt` (text-prompted masks + cutouts), bound local or fal, one evidence record per artifact |
@@ -321,7 +330,7 @@ surface + env vars.)
 | `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`, `audio-fp`, and `basic-clap` DBs |
+| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`, `audio-fp`, `basic-clap`, and `voice-print` DBs |
 | `archive` | global cross-case media buckets under `~/.overcast/archive` — `init` / `add` (sha256-deduped, tags/notes/provenance) / `list` / `show` / `remove` / `setup` (bucket index wizard); reuse from any case via `archive:<bucket>/<item>` refs and `--index archive:<bucket>/<index>` |
 | `target` | a **line of investigation**: `add --question`, `list`, `close <id> --as answered\|dead-end --note`, `reopen` — closed lines stop seeding scans |
 | `source` / `note` | where to look, and human-authored observations |
@@ -382,18 +391,19 @@ origin provenance; there is no registry file — the directory listing IS the
 bucket list. A fresh bucket needs zero setup (`ask --archive` searches it via
 local-grep); `archive setup <bucket>` is the plan/`--yes` wizard that stands up
 indexes (local `deepface-local` / `basic-clip` / `image-ransac` / `audio-fp` /
-`basic-clap` / `face-cluster`, remote Cloudglue `media-descriptions` /
+`basic-clap` / `voice-print` / `face-cluster`, remote Cloudglue `media-descriptions` /
 `face-analysis` / `entities`) plus a memory backend (`local-grep` / `qmd`),
 backfilling existing bucket media.
 
 ```bash
 overcast archive init ref-footage --name "Reference footage"
 overcast archive add rec_ab12cd34 --to ref-footage --tags drone --note "known drone, case 44"
-overcast archive setup ref-footage --index faces:deepface-local,clip:basic-clip --auto-index-new --yes
+overcast archive setup ref-footage --index faces:deepface-local,clip:basic-clip,voices:voice-print --auto-index-new --yes
 
 # from INSIDE any case:
 overcast face --match suspect.jpg --index archive:ref-footage/faces
 overcast similar search "white van at night" --index archive:ref-footage/clip
+overcast voice match sample.wav --index archive:ref-footage/voices   # speaker verification
 overcast watch archive:ref-footage/clip_9f3a.mp4        # sense in place, no copy
 overcast capture archive:ref-footage/clip_9f3a.mp4      # pull a copy + provenance
 overcast ask "what do I have on the blue warehouse?" --archive ref-footage
@@ -480,10 +490,12 @@ errors in both commands. `monitor` marks hard failures seen after surfacing the
 error, while pending/credential gaps remain retryable.
 
 Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`,
-`local-models`, `deepface-local`, `basic-clip`, `audio-fp`, and `basic-clap`.
-Single choices use `--verb <watch|listen|see|face|similar|audio|enhance> --choice <id>`,
+`local-models`, `deepface-local`, `basic-clip`, `audio-fp`, `basic-clap`, and
+`voice-print`.
+Single choices use `--verb <watch|listen|see|face|similar|audio|voice|enhance> --choice <id>`,
 such as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
-`face:deepface-local`, `similar:basic-clip`, `audio:audio-fp`, or `enhance:ffmpeg`.
+`face:deepface-local`, `similar:basic-clip`, `audio:audio-fp`, `voice:voice-print`,
+or `enhance:ffmpeg`.
 
 The local image DB is selected by local index type. Local face detection/matching
 can be selected as a profile provider with `face:deepface-local`, while the searchable
@@ -515,7 +527,7 @@ for cadence, and add `--max-frames` when you want a hard cap.
 
 | class | verbs | shipped providers |
 |---|---|---|
-| **sense** | watch / listen / see / face / image / audio / similar / cluster / enhance / exif / verify | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`) |
+| **sense** | watch / listen / see / face / image / audio / similar / cluster / enhance / exif / verify | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`), Nominatim (opt-in `exif --geocode`) |
 | **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), webcam (Windy Webcams) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
@@ -584,6 +596,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead. Also gates the **local** `enhance --ops separate` (pyannote diarization): its model is a **gated** HF repo — set `HF_TOKEN` **and** accept the license at <https://huggingface.co/pyannote/speaker-diarization-community-1> ("Agree and access repository") once before first use.
 - `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3), plus the split ops `enhance --ops separate` (sam-audio) / `--ops segment` (sam-3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`, `FAL_SEPARATE_MODEL`, `FAL_SEGMENT_MODEL`
 - `OC_VISUAL_DB_PY` — the **local-models** `enhance` toolbox: on-device `--ops separate` (pyannote, gated — see `HF_TOKEN`) and `--ops segment` (GroundingDINO + SAM 2.1, ungated); set up with `scripts/visual-db-uv.sh --enhance`
+- `OVERCAST_VOICE_MODEL` / `OC_VOICE_DEVICE` — the `voice` speaker-verification DB (default `pyannote/wespeaker-voxceleb-resnet34-LM`, **ungated**, CC-BY-4.0; device `cpu`). The model is pinned per voice-print index at create time. Only `voice match --diarize` needs `HF_TOKEN` + the accepted pyannote license (same gate as `enhance --ops separate`); everything else runs token-free. Set up with `scripts/visual-db-uv.sh --voice`
 - `ELEVENLABS_API_KEY` (or `XI_API_KEY`) — `listen` (Scribe STT) + `enhance` audio (voice isolation); `ELEVENLABS_STT_MODEL` (default `scribe_v1`)
 
 **OSINT sources**

@@ -12,6 +12,7 @@ import type { VerbContext } from "../registry/types.js";
 import { indexVerb } from "./index.js";
 import { similarVerb } from "./similar.js";
 import { clusterVerb } from "./cluster.js";
+import { voiceVerb } from "./voice.js";
 import { isAv } from "./media-ref.js";
 import { join } from "node:path";
 
@@ -22,6 +23,8 @@ export const DEFAULT_SIGNAL_BY_INDEX_TYPE: Record<string, string[]> = {
   // local face DB: `cluster add` feeds it (NOT `index add`, which would error) —
   // setup stands the DB up alongside other indexes; clustering stays explicit.
   "face-cluster": ["cluster add"],
+  // local speaker DB: `voice add` enrolls members (index add errors, like cluster)
+  "voice-print": ["voice add"],
 };
 export const DEFAULT_LOCAL_MEMORY_SIGNALS = ["note", "watch", "listen", "see", "scan"];
 
@@ -223,6 +226,14 @@ export async function applySetupIndexing(ctx: VerbContext, setup: CaseSetup, ope
       if (index.type === "face-cluster") {
         if (!signals.has("cluster add") && !signals.has("cluster") && !signals.has("index add")) continue;
         const recs = await clusterVerb.run({ ...ctx, input: "add", rest: [route.ref], opts: { index: id } });
+        records.push(...recs);
+        operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
+        continue;
+      }
+      if (index.type === "voice-print") {
+        // voice-print enrolls via the `voice` verb (index add errors, like cluster)
+        if (!signals.has("voice add") && !signals.has("voice") && !signals.has("index add")) continue;
+        const recs = await voiceVerb.run({ ...ctx, input: "add", rest: [route.ref], opts: { index: id } });
         records.push(...recs);
         operations.push(`${indexingOperationLabel(recs)}: ${route.ref} -> ${id}`);
         continue;

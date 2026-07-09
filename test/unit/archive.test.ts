@@ -728,6 +728,7 @@ test("parity guard: every local match/identify verb stamps query provenance thro
     "src/verbs/similar.ts": 2, // CLIP match + CLAP match
     "src/verbs/image.ts": 1, // image match
     "src/verbs/audio.ts": 1, // audio match
+    "src/verbs/voice.ts": 1, // voice match (pairwise + search share one stamp)
     "src/verbs/face.ts": 3, // deepface-local + custom + tinycloud match
     "src/verbs/cluster.ts": 2, // ingest + identify
   };
@@ -853,6 +854,29 @@ test("image add --index archive:… registers the member in the BUCKET, evidence
     assert.equal(env.c.records().filter((r) => r.verb === "image").length, 1);
 
     assert.match((await imageVerb.run(ctx(env, "add", [img], { index: "archive:nope/stills" })))[0].error ?? "", /not found/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("voice --index archive:… scopes to the BUCKET's voice-print DB (merged from #86)", async () => {
+  const env = makeEnv();
+  try {
+    const { voiceVerb } = await import("../../src/verbs/voice.ts");
+    await runArchive(env, "init", ["refs"]);
+    const bucket = openBucket("refs", env.home).bucket!;
+    addIndex(bucket.case, { id: "local_voice_test", type: "voice-print", name: "voices", backend: "local" });
+    const clip = seedFile(env, "sample.wav", "aud-bytes");
+
+    // a bad bucket errors at scope resolution, before media/provider
+    assert.match((await voiceVerb.run(ctx(env, "add", [clip], { index: "archive:nope/voices" })))[0].error ?? "", /not found/);
+    // good bucket + missing index resolves against the BUCKET mirror (not the
+    // active case, which has no indexes) → "unknown voice-print index"
+    assert.match((await voiceVerb.run(ctx(env, "add", [clip], { index: "archive:refs/missing" })))[0].error ?? "", /unknown local voice-print index/);
+    // the real bucket index passes scope + index validation and reaches the
+    // provider (offline it errors on the Python, but NOT on scope/index)
+    const recs = await voiceVerb.run(ctx(env, "add", [clip], { index: "archive:refs/voices" }));
+    assert.doesNotMatch(recs[0].error ?? "", /unknown local voice-print index|not found in bucket/);
   } finally {
     env.cleanup();
   }
