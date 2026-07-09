@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Real OSINT sources: web search (Tavily), tiktok (Apify), x (Apify), lens
-# reverse image search (Apify), youtube (yt-dlp).
+# Real OSINT sources: web search (Tavily), dork (Serper.dev Google dorking),
+# shodan (host/service recon), tiktok (Apify), x (Apify), lens reverse image
+# search (Apify), youtube (yt-dlp).
 # Bound via OVERCAST_SOURCE_<TYPE>_CMD with absolute paths (the bun binary can't
 # auto-resolve the shipped examples/).
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
@@ -44,6 +45,60 @@ if require_cred "$C.web" TAVILY_API_KEY "skipping web search"; then
   weburl="$(echo "$out" | jq -s -r '[.[]|select(.state=="ready" and .verb=="scan")][0].payload.url // empty' 2>/dev/null)"
   assert_export_has "$C.web.export" "$CASE" "$weburl" "web text hit url"
   unset OVERCAST_SOURCE_WEB_CMD
+fi
+
+# --- dork (Serper.dev Google dorking) — operators honored; small limit ---
+if require_cred "$C.dork" SERPER_API_KEY "skipping dork (Google dorking)"; then
+  CASE=$(case_dir src_dork)
+  export OVERCAST_SOURCE_DORK_CMD="bash $SRCDIR/dork.sh"
+  ocrun "$CASE" source add 'dork:site:nasa.gov filetype:pdf' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=120 oc "$CASE" scan --source dork --limit 3 --json)"
+  save_json "20_scan_dork" "$out" >/dev/null
+  assert_scan_hits "$C.dork.query" "$out" "dork operator search (site: + filetype:)"
+  dorkurl="$(echo "$out" | jq -s -r '[.[]|select(.state=="ready" and .verb=="scan")][0].payload.url // empty' 2>/dev/null)"
+  assert_export_has "$C.dork.export" "$CASE" "$dorkurl" "dork hit url"
+  unset OVERCAST_SOURCE_DORK_CMD
+fi
+
+# --- shodan (host/service recon) — search + single-host lookup, small limits ---
+if require_cred "$C.shodan" SHODAN_API_KEY "skipping shodan"; then
+  export OVERCAST_SOURCE_SHODAN_CMD="bash $SRCDIR/shodan.sh"
+
+  CASE=$(case_dir src_shodan_search)
+  ocrun "$CASE" source add 'shodan:product:nginx' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=120 oc "$CASE" scan --source shodan --limit 3 --json)"
+  save_json "20_scan_shodan_search" "$out" >/dev/null
+  assert_scan_hits "$C.shodan.search" "$out" "shodan search"
+  # a shodan hit must carry host intel (ip) in the payload — the point of the source
+  ip="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.ip != null))][0].payload.ip // empty' 2>/dev/null)"
+  assert_nonempty "$C.shodan.ip" "$ip" "shodan hit carries ip host intel"
+
+  CASE=$(case_dir src_shodan_host)
+  ocrun "$CASE" source add 'shodan:8.8.8.8' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=120 oc "$CASE" scan --source shodan --limit 5 --json)"
+  save_json "20_scan_shodan_host" "$out" >/dev/null
+  assert_scan_hits "$C.shodan.host" "$out" "shodan single-host lookup"
+
+  # opt-in screenshots (OVERCAST_SHODAN_SCREENSHOTS): hits are preserved AND the
+  # exposed-host screenshots are decoded into materialized image evidence.
+  CASE=$(case_dir src_shodan_shots)
+  export OVERCAST_SHODAN_SCREENSHOTS=1
+  ocrun "$CASE" source add 'shodan:has_screenshot:true product:VNC' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=120 oc "$CASE" scan --source shodan --limit 3 --json)"
+  save_json "20_scan_shodan_shots" "$out" >/dev/null
+  assert_scan_hits "$C.shodan.shots" "$out" "shodan opt-in screenshots (hits preserved)"
+  shots="$(echo "$out" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and .payload.screenshot==true)]|length' 2>/dev/null)"
+  if [ "${shots:-0}" -ge 1 ]; then
+    ok "$C.shodan.shot" "materialized $shots exposed-host screenshot(s) as image evidence"
+  else
+    # Screenshots are BEST-EFFORT (a host may be down or return no decodable bytes);
+    # the contract asserted above is "hits preserved", so absence is a skip, not a
+    # failure.
+    skip "$C.shodan.shot" "no decodable screenshots this run (best-effort; hits were preserved, which is the contract)"
+  fi
+  unset OVERCAST_SHODAN_SCREENSHOTS
+
+  unset OVERCAST_SOURCE_SHODAN_CMD
 fi
 
 # --- tiktok (Apify) — profile + hashtag; small limits to keep cost low ---

@@ -58,6 +58,11 @@ case "$op" in
       if ! resp="$(curl -fsS -m 30 -X POST "https://api.tavily.com/search" -H "Content-Type: application/json" -d "$body")"; then
         echo "web (tavily) search request failed for '$query'" >&2; exit 1
       fi
+      # Body-level guard: a Tavily failure (bad key, quota) with NO `results` must
+      # not map to a fake-clean empty scan even if it ever returns 2xx (curl -f
+      # catches the usual non-2xx). A genuine 0-result search still has `results:[]`.
+      werr="$(printf '%s' "$resp" | jq -r 'if (has("results")|not) and ((.error // .message // .detail) != null) then ((.error // .message // .detail) | if type=="string" then . else tojson end) else empty end' 2>/dev/null)"
+      [ -z "$werr" ] || { echo "web (tavily) API error: $werr" >&2; exit 1; }
       printf '%s' "$resp" | jq -c '[ (.results // [])[] | {title:.title, url:.url, source:"web", published:(.published_date // null), snippet:(.content // ""), media:{ref:.url}} ]'
     else
       # freshness (pd/pw/pm/py) has no special chars → safe as a URL query param;
@@ -69,6 +74,10 @@ case "$op" in
         -H "X-Subscription-Token: $BRAVE" -H "Accept: application/json")"; then
         echo "web (brave) search request failed for '$query'" >&2; exit 1
       fi
+      # Body-level guard: a Brave failure (bad key, quota) carries a top-level
+      # `error`/`message` and no `web.results` — surface it rather than an empty scan.
+      werr="$(printf '%s' "$resp" | jq -r 'if (.web.results == null) and ((.error // .message) != null) then ((.error // .message) | if type=="string" then . else tojson end) else empty end' 2>/dev/null)"
+      [ -z "$werr" ] || { echo "web (brave) API error: $werr" >&2; exit 1; }
       printf '%s' "$resp" | jq -c '[ (.web.results // [])[] | {title:.title, url:.url, source:"web", published:(.age // null), snippet:(.description // ""), media:{ref:.url}} ]'
     fi
     ;;
