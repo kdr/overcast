@@ -624,6 +624,27 @@ skipped and counted in `payload.skipped_windows`), and embedded in 3 s windows
 (hop 0.75 s for pairwise scans; members cache non-overlapping windows under
 `emb/<sha1>.npy`, the shared basic-clip layout).
 
+**How the windowed scan works.** A speaker-embedding model returns ONE fixed
+vector per input regardless of length, so a long clip is never embedded in one go —
+`voice match <clip> <sample>` sweeps it with a **sliding window** (default **3 s
+wide, 0.75 s hop** → 75 % overlap), embeds each window, and scores it (cosine)
+against the pooled reference. That per-moment score curve is what anchors a match to
+a timestamp and lets one sample light up at multiple segments; a whole-clip
+embedding would instead blur every speaker and moment into a single vector. Windows
+with under ~1 s of voiced audio are dropped by the RMS gate **before** embedding
+(silence/music costs nothing) and counted in `payload.skipped_windows`. Tune the
+scan with `--window` (widen the window; the hop stays 0.75 s) and `--start`/`--end`
+(bound the span). Cost scales linearly with the number of voiced windows — each is
+one forward pass on `OC_VOICE_DEVICE` (CPU by default; passes run sequentially, not
+batched), so a several-minute clip is a few hundred embeddings (seconds to a couple
+of minutes on CPU). Two caps bound it: a query scan stops at **2400 windows**
+(~30 min at the 0.75 s hop) and enrollment at **1200 non-overlapping windows**
+(~60 min), truncating with a warning past that. Enrollment (`voice add`) embeds
+**non-overlapping** 3 s windows (hop == window) and caches them, so it's ~4× cheaper
+per second than the overlapping query scan. `--diarize` (below) is the exception —
+it does not sliding-window at all: it runs the diarization pipeline once and
+compares the reference against a handful of per-speaker centroids.
+
 **Scores are rank scores, not probabilities.** Raw cosine is mapped through fixed
 anchors — cosine 0.25 → **50** (≈ the accept floor), 0.60 → **90** (strong
 same-speaker) — and both `similarity` (0–100) and the raw `cosine` are emitted.
