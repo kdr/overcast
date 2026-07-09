@@ -82,6 +82,34 @@ function voiceMatch(similarity: number, op = "match", opts: { at?: number | [num
   });
 }
 
+function exifRec(software: string | null, opts: { ref?: string; gps?: { lat: number; lng: number } | null } = {}): OvercastRecord {
+  return makeRecord({
+    verb: "exif",
+    format: "json",
+    payload: {
+      summary: `meta ${software ?? "none"}`,
+      software,
+      gps: opts.gps === undefined ? { lat: 1.5, lng: 2.5 } : opts.gps,
+      make: "TestCam",
+    },
+    media: { ref: opts.ref ?? "photo.jpg" },
+  });
+}
+
+function verifyRec(opts: { has_manifest?: boolean; validation_state?: string; ingredients?: number; ref?: string }): OvercastRecord {
+  return makeRecord({
+    verb: "verify",
+    format: "json",
+    payload: {
+      summary: "provenance",
+      has_manifest: opts.has_manifest ?? false,
+      validation_state: opts.validation_state,
+      ingredients: opts.ingredients ?? 0,
+    },
+    media: { ref: opts.ref ?? "photo.jpg" },
+  });
+}
+
 const nameTarget: TargetEntry = { id: "tgt_a", kind: "name", value: "acme handle", created: "2026-07-01T00:00:00Z" };
 const imageTarget: TargetEntry = { id: "tgt_b", kind: "image", value: "refs/probe.jpg", created: "2026-07-01T00:00:00Z" };
 const SUGGEST = { mode: "suggest" as const };
@@ -187,6 +215,101 @@ test("persistRecords: setup voice threshold override gates the voice trigger", (
     assert.equal(persistRecords(c, [voiceMatch(90)]).length, 0);
     assert.equal(persistRecords(c, [voiceMatch(96, "match", { at: 3 })]).length, 1);
   }));
+
+test("extractSignal: exif editing-software fires only for known editors, never plain capture", () => {
+  const ps = extractSignal(exifRec("Adobe Photoshop 24.0"), T);
+  assert.ok(ps);
+  assert.equal(ps.kind, "exif-editing-software");
+  assert.equal(ps.confidence, "medium");
+  assert.equal(ps.matched, "Adobe Photoshop 24.0");
+  // phone-OS / firmware Software strings and missing software must NOT fire
+  assert.equal(extractSignal(exifRec("13.4"), T), undefined);
+  assert.equal(extractSignal(exifRec(null), T), undefined);
+  // GPS-present alone is never a lead (feeds the map, not triage)
+  assert.equal(extractSignal(exifRec(null, { gps: { lat: 5, lng: 6 } }), T), undefined);
+});
+
+test("extractSignal: verify flags a failed/untrusted manifest, not clean or absent ones", () => {
+  const bad = extractSignal(verifyRec({ has_manifest: true, validation_state: "Invalid" }), T);
+  assert.ok(bad);
+  assert.equal(bad.kind, "verify-validation-failed");
+  assert.equal(bad.confidence, "high");
+  assert.equal(bad.matched, "Invalid");
+  // clean states and no manifest are not leads
+  assert.equal(extractSignal(verifyRec({ has_manifest: true, validation_state: "Valid" }), T), undefined);
+  assert.equal(extractSignal(verifyRec({ has_manifest: true, validation_state: "Trusted" }), T), undefined);
+  assert.equal(extractSignal(verifyRec({ has_manifest: false }), T), undefined);
+  // declared-edits: a valid manifest that lists derived ingredients
+  const edits = extractSignal(verifyRec({ has_manifest: true, validation_state: "Valid", ingredients: 2 }), T);
+  assert.equal(edits?.kind, "verify-declared-edits");
+  assert.equal(edits?.score, 2);
+  assert.equal(edits?.unit, "count");
+});
+
+test("extractSignal: verify with no validation_state but a failure code still flags high", () => {
+  // older c2patool may leave validation_state null yet report failure via codes
+  const rec = verifyRec({ has_manifest: true });
+  (rec.payload as Record<string, unknown>).validation_codes = ["signingCredential.untrusted"];
+  const sig = extractSignal(rec, T);
+  assert.equal(sig?.kind, "verify-validation-failed");
+  assert.equal(sig?.confidence, "high");
+  // a present valid/trusted state is authoritative — a benign success code must NOT fire
+  const okRec = verifyRec({ has_manifest: true, validation_state: "Valid" });
+  (okRec.payload as Record<string, unknown>).validation_codes = ["claimSignature.validated", "signingCredential.trusted"];
+  assert.equal(extractSignal(okRec, T), undefined);
+  // no state and only benign codes → not a lead
+  const cleanRec = verifyRec({ has_manifest: true });
+  (cleanRec.payload as Record<string, unknown>).validation_codes = ["assertion.hashedURI.match"];
+  assert.equal(extractSignal(cleanRec, T), undefined);
+  // suffix-precise: a failure word in a NON-terminal segment must NOT fire
+  const trap = verifyRec({ has_manifest: true });
+  (trap.payload as Record<string, unknown>).validation_codes = ["expired.rule.passed", "invalidator.matched"];
+  assert.equal(extractSignal(trap, T), undefined);
+  // a genuine last-segment failure token DOES fire
+  const mm = verifyRec({ has_manifest: true });
+  (mm.payload as Record<string, unknown>).validation_codes = ["assertion.dataHash.mismatch"];
+  assert.equal(extractSignal(mm, T)?.kind, "verify-validation-failed");
+});
+
+test("evaluateTriggers: forensic flags emit suggested leads with the stated confidence + text", () => {
+  const [ps] = evaluateTriggers({ fresh: [exifRec("GIMP 2.10")], existing: [], targets: [], policy: SUGGEST });
+  const pp = ps.payload as Record<string, unknown>;
+  assert.equal(pp.status, "suggested");
+  assert.equal(pp.trigger, "signal:exif-editing-software");
+  assert.equal(pp.confidence, "medium");
+  assert.match(String(pp.text), /possibly edited/i);
+  const [vf] = evaluateTriggers({ fresh: [verifyRec({ has_manifest: true, validation_state: "Invalid" })], existing: [], targets: [], policy: SUGGEST });
+  const vp = vf.payload as Record<string, unknown>;
+  assert.equal(vp.confidence, "high");
+  assert.equal(vp.trigger, "signal:verify-validation-failed");
+  assert.match(String(vp.text), /validation FAILED/i);
+});
+
+test("evaluateTriggers: forensic flags stay off in review + off modes", () => {
+  assert.equal(evaluateTriggers({ fresh: [exifRec("Adobe Photoshop 24.0")], existing: [], targets: [], policy: { mode: "review" } }).length, 0);
+  assert.equal(evaluateTriggers({ fresh: [exifRec("Adobe Photoshop 24.0")], existing: [], targets: [], policy: { mode: "off" } }).length, 0);
+});
+
+test("evaluateTriggers: exif + verify on one file are two distinct leads; a repeat sense folds", () => {
+  const ref = "suspect.jpg";
+  const both = evaluateTriggers({
+    fresh: [exifRec("Adobe Photoshop 24.0", { ref }), verifyRec({ has_manifest: true, validation_state: "Invalid", ref })],
+    existing: [],
+    targets: [],
+    policy: SUGGEST,
+  });
+  assert.equal(both.length, 2); // different kinds → not folded
+  // a second exif run on the same media.ref dedups to zero
+  assert.equal(evaluateTriggers({ fresh: [exifRec("Adobe Photoshop 24.0", { ref })], existing: both, targets: [], policy: SUGGEST }).length, 0);
+});
+
+test("evaluateTriggers: forensics:false suppresses only forensic kinds (score triggers still fire)", () => {
+  const policy = { mode: "suggest" as const, forensics: false };
+  assert.equal(evaluateTriggers({ fresh: [exifRec("Adobe Photoshop 24.0")], existing: [], targets: [], policy }).length, 0);
+  assert.equal(evaluateTriggers({ fresh: [verifyRec({ has_manifest: true, validation_state: "Invalid" })], existing: [], targets: [], policy }).length, 0);
+  // a face match in the same policy still fires — the gate is kind-scoped
+  assert.equal(evaluateTriggers({ fresh: [faceMatch(90)], existing: [], targets: [], policy }).length, 1);
+});
 
 test("evaluateTriggers: text-target — suggested in suggest mode, legacy open in review mode", () => {
   const watch = makeRecord({ verb: "watch", format: "json", payload: { content: "the acme handle appears here" }, media: { ref: "v.mp4" } });
@@ -333,6 +456,24 @@ test("persistRecords: custom threshold from setup gates the trigger", () =>
     saveSetup(c, setup);
     assert.equal(persistRecords(c, [faceMatch(90)]).length, 0);
     assert.equal(persistRecords(c, [faceMatch(96, { ref: "other.mp4" })]).length, 1);
+  }));
+
+test("persistRecords: a shipped-shape exif editor record yields one suggested lead, idempotently", () =>
+  withCase((c) => {
+    const rec = exifRec("GIMP 2.10", { ref: "edited.jpg" });
+    const out = persistRecords(c, [rec]);
+    assert.equal(out.length, 1);
+    assert.equal((out[0].payload as Record<string, unknown>).trigger, "signal:exif-editing-software");
+    // second identical persist on the same media.ref does not re-suggest
+    assert.equal(persistRecords(c, [exifRec("GIMP 2.10", { ref: "edited.jpg" })]).length, 0);
+  }));
+
+test("persistRecords: forensics:false in saved setup suppresses forensic leads", () =>
+  withCase((c) => {
+    const setup = emptySetup("t");
+    setup.findings = { mode: "suggest", forensics: false };
+    saveSetup(c, setup);
+    assert.equal(persistRecords(c, [exifRec("Adobe Photoshop 24.0")]).length, 0);
   }));
 
 test("loadSetup: legacy setup without findings policy resolves to suggest", () =>

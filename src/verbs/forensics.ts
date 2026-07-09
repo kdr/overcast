@@ -11,6 +11,7 @@ import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
+import { validLatLng, gpsIssue } from "../geo.js";
 import { resolveMediaRef } from "./media-ref.js";
 import { provenanceFromCapture, scanHitProvenance, stampProvenance } from "./provenance.js";
 import { shippedPath } from "../pkg.js";
@@ -106,6 +107,71 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
   return stamp(await runExecProvider(cfg.verb, `bash ${script} --input {{input}}`, ref, { env, signal: ctx.signal }));
 }
 
+/** Opt-in (`exif --geocode`) reverse geocoding: when a `geocode` provider is
+ *  bound, resolve each ready record's GPS to `payload.place`. Gated on BOTH the
+ *  flag and a bound provider — reverse geocoding egresses the subject's
+ *  coordinates to a third party, so it must never fire silently. The intermediate
+ *  geocode record is not persisted; only the resolved place string rides on the
+ *  exif record. */
+async function enrichWithPlace(ctx: VerbContext, records: OvercastRecord[]): Promise<void> {
+  const binding = providerBinding(ctx, "geocode");
+  const bound = isCustomBinding(binding);
+  for (const rec of records) {
+    if (rec.state && rec.state !== "ready") continue;
+    const p = rec.payload && typeof rec.payload === "object" ? (rec.payload as Record<string, unknown>) : undefined;
+    if (!p) continue;
+    // validate the coordinate with the SAME WGS84 check the map applies, so a
+    // NaN/Infinity/out-of-range tag the map would drop is never egressed to the
+    // third-party geocoder.
+    const coords = validLatLng(p.gps);
+    if (!coords) {
+      // --geocode was requested but there's nothing usable to geocode — leave
+      // actionable feedback instead of a silent no-op, and label the issue
+      // accurately (absent vs out-of-range vs malformed/incomplete).
+      p.place = null;
+      const issue = gpsIssue(p.gps);
+      p.geocode_status =
+        issue === "absent"
+          ? "no GPS coordinates to geocode"
+          : issue === "out-of-range"
+            ? "GPS coordinates out of range — not geocoded"
+            : "GPS coordinates malformed or incomplete — not geocoded";
+      continue;
+    }
+    if (!bound) {
+      p.place = null;
+      p.geocode_status =
+        'no geocode provider bound — `setup provider geocode "exec:bash examples/providers/geocode/geocode.sh --input {{input}}"` (opt-in)';
+      continue;
+    }
+    try {
+      const geo = await runBoundProvider("geocode", binding!, `${coords.lat},${coords.lng}`, {
+        env: providerEnv(ctx.case.mediaDir),
+        signal: ctx.signal,
+      });
+      const place = geo.payload && typeof geo.payload === "object" ? (geo.payload as Record<string, unknown>).place : undefined;
+      if (typeof place === "string" && place) {
+        p.place = place;
+      } else if (geo.state && geo.state !== "ready") {
+        // any non-ready state (error, needs_credentials, …) is a provider/setup or
+        // dependency gap — NOT a coordinate lookup miss. Distinguish the two so a
+        // missing `curl` isn't misreported as "no place for these coordinates".
+        p.place = null;
+        const detail = typeof geo.error === "string" && geo.error ? geo.error : `provider ${geo.state}`;
+        p.geocode_status = `geocode unavailable (${geo.state}): ${detail}`;
+      } else {
+        // the provider ran cleanly but found no match for these coordinates
+        p.place = null;
+        p.geocode_status = "geocode returned no place for these coordinates";
+      }
+    } catch (e) {
+      // non-fatal — the exif record stays valid without a place, but say why
+      p.place = null;
+      p.geocode_status = `geocode error: ${(e as Error).message}`;
+    }
+  }
+}
+
 // ---- exif (ExifTool metadata + GPS) ----------------------------------------
 
 export const exifVerb: VerbSpec = {
@@ -118,15 +184,21 @@ export const exifVerb: VerbSpec = {
     "duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` " +
     "on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with " +
     "`setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into " +
-    "the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed.",
+    "the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed. " +
+    "Pass `--geocode` to reverse-geocode the GPS into a place name via a bound (opt-in) `geocode` provider.",
   args: [{ name: "input", summary: "Image/video/file path, case record id, or http(s) URL", required: true }],
   flags: [
+    { name: "geocode", summary: "Reverse-geocode GPS to a place via a bound `geocode` provider (opt-in — sends coordinates to that provider)", type: "boolean" },
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
   outputKind: "media.metadata",
   providerKey: "exif",
-  run: (ctx) => runForensicSense(ctx, { verb: "exif", shipped: ["examples", "providers", "exif", "exif.sh"] }),
+  run: async (ctx) => {
+    const records = await runForensicSense(ctx, { verb: "exif", shipped: ["examples", "providers", "exif", "exif.sh"] });
+    if (ctx.opts.geocode === true) await enrichWithPlace(ctx, records);
+    return records;
+  },
 };
 
 // ---- verify (C2PA / Content Credentials provenance) ------------------------

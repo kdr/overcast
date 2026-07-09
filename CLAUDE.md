@@ -141,9 +141,12 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   ffmpeg ops, a bound restore model, or the split ops `--ops separate` = per-speaker
   tracks + optional `--summarize`, and `--ops segment --prompt` = text-prompted
   masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact),
-  `exif` (ExifTool metadata/GPS on image **or** video → `payload.gps{lat,lng}`,
-  capture time, device, editing software, dimensions; shipped `exiftool` provider,
-  raw tag dump stays in-provider), `verify` (C2PA / Content Credentials provenance
+  `exif` (ExifTool metadata/GPS on image **or** video → `payload.gps{lat,lng}`
+  (WGS84-validated at the provider), capture time, device, editing software,
+  camera `serial`/`lens` (device-linking fingerprint), dimensions; shipped
+  `exiftool` provider, raw tag dump stays in-provider; `--geocode` reverse-geocodes
+  the GPS to `payload.place` via an **opt-in** bound `geocode` provider — Nominatim,
+  no key, never default), `verify` (C2PA / Content Credentials provenance
   via `c2patool` → `has_manifest`, signer, claim generator, validation state; no
   credentials is a clean `ready` record, not an error — distinct from source-post
   provenance in `src/verbs/provenance.ts`).
@@ -162,7 +165,16 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   their evidence moments — open finding > face hit > record anchor — with
   coverage badges and scan/monitor/brief freshness overlaid; `--limit`,
   `--source`/`--since`, `--refresh`, `--infinite` endless repeat-to-fill wall,
-  `--theme plain|csi`, `--no-open`).
+  `--theme plain|csi`, `--no-open`),
+  `map` (plot every case record carrying `payload.gps` on ONE self-contained HTML
+  map — markers link back to source, geocoded place + thumbnail + capture time;
+  online = inlined-JS OSM raster tiles at view time, `--offline` = coordinate
+  scatter + openstreetmap.org deep links, no egress; `--since`/`--limit`/`--theme`/
+  `--no-open`; recency uses exif capture time, not ingest),
+  `devices` (case-wide rollup grouping `exif` records by camera fingerprint —
+  serial-only strong link, make+model+lens weak fallback; one entry per file; a
+  pure read over case memory, `--min`, `--findings` emits serial-linked suggested
+  findings). `map` + `devices` are operational (out of `ask`/`brief` evidence).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens reverse-image / dl generic-yt-dlp capture / instagram / telegram /
   gdelttv broadcast-TV / webcam live-cams / facesearch reverse-face /

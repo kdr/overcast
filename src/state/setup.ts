@@ -63,6 +63,10 @@ export interface SetupFindingsPolicy {
    *  "review": legacy text-target-only open findings; "off": no automation. */
   mode: "off" | "review" | "suggest" | string;
   thresholds?: SetupFindingsThresholds;
+  /** Forensic flag triggers (exif editing-software / verify invalid-provenance).
+   *  Absent = on (opt-out), matching the "suggestions on unless opted out"
+   *  default. Set false to silence just the forensic leads. */
+  forensics?: boolean;
 }
 
 export interface CaseSetup {

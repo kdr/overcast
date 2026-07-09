@@ -901,6 +901,11 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
       operations.push(`findings thresholds: ${Object.entries(parsed.thresholds).map(([k, v]) => `${k}=${v}`).join(",")}`);
     }
   }
+  if (ctx.opts["findings-forensics"] != null) {
+    const on = String(ctx.opts["findings-forensics"]).trim().toLowerCase() !== "off";
+    setup.findings = { ...(setup.findings ?? { mode: "suggest" }), forensics: on };
+    operations.push(`findings forensics: ${on ? "on" : "off"}`);
+  }
   if (!operations.length && op === "startup_setup") operations.push("save empty setup");
 
   setup.updated_at = new Date().toISOString();
@@ -987,6 +992,7 @@ export const caseVerb: VerbSpec = {
     { name: "no-auto-index-new", summary: "setup/edit: disable automatic indexing for newly analyzed media", type: "boolean" },
     { name: "findings", summary: "setup/edit: automated finding workflow (suggest | review | off; default suggest)", type: "string" },
     { name: "findings-threshold", summary: "setup/edit: comma-separated score-trigger floors (face=75,similar=85,cluster=70,voice=80,image_inliers=1,audio_margin=1)", type: "string" },
+    { name: "findings-forensics", summary: "setup/edit: forensic flag triggers (on | off; default on) — exif editing-software + verify invalid-provenance leads", type: "string" },
     { name: "video", summary: "setup/edit: comma-separated local videos/URLs to route", type: "string" },
     { name: "folder", summary: "setup/edit: comma-separated local media folders to remember", type: "string" },
     { name: "no-index", summary: "setup/edit: save setup routes without starting remote collection ingestion", type: "boolean" },
@@ -1109,6 +1115,7 @@ export const caseVerb: VerbSpec = {
         "no-auto-index-new",
         "findings",
         "findings-threshold",
+        "findings-forensics",
         "video",
         "folder",
         "memory",
@@ -1168,6 +1175,9 @@ export const caseVerb: VerbSpec = {
       if (ctx.opts["findings-threshold"] != null) {
         const bad = parseFindingsThresholds(String(ctx.opts["findings-threshold"])).errors;
         if (bad.length) return [err(`invalid --findings-threshold: ${bad.join("; ")}`)];
+      }
+      if (ctx.opts["findings-forensics"] != null && !["on", "off"].includes(String(ctx.opts["findings-forensics"]).trim().toLowerCase())) {
+        return [err(`invalid --findings-forensics '${ctx.opts["findings-forensics"]}' (expected on | off)`)];
       }
       const op = saved ? "startup_setup_update" : "startup_setup";
       const before = summarizeSavedSetup(saved);
