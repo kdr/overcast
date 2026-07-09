@@ -120,34 +120,51 @@ case "$op" in
     # scan. (A genuine empty result is a valid "[]" and maps to zero hits.)
     [ -n "$arr" ] || { echo "shodan: unexpected response: $(printf '%s' "$resp" | head -c 200)" >&2; exit 1; }
 
+    # Bound all downstream work to the requested count up front — a search can
+    # return 100 matches, and (with screenshots on) we must not decode 100 images to
+    # serve a --limit 5. The mapper's trailing .[0:$n] then becomes a no-op.
+    arr="$(printf '%s' "$arr" | jq -c --argjson n "$limit" '.[0:$n]')"
+
     # OPT-IN, SENSITIVE (see header): decode each service's SCREENSHOT into the case
     # media dir and tag RTSP stream endpoints. Only runs when the operator has set
     # OVERCAST_SHODAN_SCREENSHOTS — their acknowledgement that these are real
-    # exposed hosts. The heavy base64 is dropped after decoding so records stay lean.
+    # exposed hosts. Screenshot DECODING (bash) is kept separate from the JSON
+    # ENRICHMENT (a single jq pass over the whole list), so a decode/transform hiccup
+    # can never silently drop a hit: the worst case is a screenshot-less (metadata)
+    # hit, never a lost one. The heavy base64 is dropped so records stay lean.
     if shots_enabled; then
       echo "shodan: screenshot/RTSP extraction ENABLED — materializing media from REAL exposed hosts; authorized use only" >&2
       shotdir="${OVERCAST_MEDIA_DIR:-$PWD}/shodan-shots"
       mkdir -p "$shotdir" 2>/dev/null || true
-      tmp="$(mktemp 2>/dev/null || echo "${shotdir}/.arr.$$")"
-      : > "$tmp"
-      while IFS= read -r el; do
-        data="$(printf '%s' "$el" | jq -r '(.screenshot.data // .opts.screenshot.data) // empty' 2>/dev/null)"
-        shot=""
-        if [ -n "$data" ]; then
-          ipp="$(printf '%s' "$el" | jq -rj '"\(.ip_str // "host")_\(.port // 0)"' 2>/dev/null | tr -c 'A-Za-z0-9._-' '_')"
-          f="$shotdir/${ipp}.jpg"
-          if printf '%s' "$data" | base64 -d > "$f" 2>/dev/null && [ -s "$f" ]; then shot="$f"; fi
+      # 1) decode screenshots → a JSON map of "<ip>_<port>" → local jpg path. Iterate
+      #    ONLY services that carry screenshot data (@tsv is safe — base64 has no tabs).
+      shotmap="{}"
+      while IFS="$(printf '\t')" read -r ip port data; do
+        [ -n "$data" ] || continue
+        safe="$(printf '%s' "${ip}_${port}" | tr -c 'A-Za-z0-9._-' '_')"
+        f="$shotdir/${safe}.jpg"
+        if printf '%s' "$data" | base64 -d > "$f" 2>/dev/null && [ -s "$f" ]; then
+          shotmap="$(jq -cn --argjson m "$shotmap" --arg k "${ip}_${port}" --arg v "$f" '$m + {($k):$v}' 2>/dev/null || printf '%s' "$shotmap")"
         fi
-        # inject the local screenshot path + labels + rtsp stream; DROP the heavy
-        # base64 so it never bloats the record (the decoded file is the evidence).
-        printf '%s' "$el" | jq -c --arg shot "$shot" '
-          .shot_path = (if $shot == "" then null else $shot end)
-          | .screenshot_labels = ((.screenshot.labels // .opts.screenshot.labels) // [])
-          | .stream = (if (.port == 554) then ("rtsp://" + (.ip_str // "") + ":554") else null end)
-          | del(.screenshot) | del(.opts.screenshot)' >> "$tmp" 2>/dev/null
-      done < <(printf '%s' "$arr" | jq -c '.[]')
-      arr="$(jq -sc '.' "$tmp" 2>/dev/null)"
-      rm -f "$tmp"
+      done < <(printf '%s' "$arr" | jq -r '.[]
+                 | select((.screenshot.data // .opts.screenshot.data) != null)
+                 | [(.ip_str // "host"), ((.port // 0)|tostring),
+                    ((.screenshot.data // .opts.screenshot.data)|gsub("\\s";""))] | @tsv')
+      # 2) ONE jq pass over the FULL list: attach the decoded path (if any), labels,
+      #    and rtsp stream; drop the heavy base64. This never drops an element. If the
+      #    pass somehow fails (empty output), keep the metadata list rather than
+      #    losing hits — screenshots are best-effort, the host intel is not.
+      enriched="$(printf '%s' "$arr" | jq -c --argjson map "$shotmap" '[ .[]
+        | ("\(.ip_str // "host")_\(.port // 0)") as $k
+        | .shot_path = ($map[$k] // null)
+        | .screenshot_labels = ((.screenshot.labels // .opts.screenshot.labels) // [])
+        | .stream = (if (.port == 554) then ("rtsp://" + (.ip_str // "") + ":554") else null end)
+        | del(.screenshot) | del(.opts.screenshot) ]' 2>/dev/null)"
+      if [ -n "$enriched" ]; then
+        arr="$enriched"
+      else
+        echo "shodan: screenshot enrichment failed; continuing with metadata-only hits" >&2
+      fi
     fi
 
     # Map to hits. media.ref/url carry a `#<port>` fragment so every SERVICE on a

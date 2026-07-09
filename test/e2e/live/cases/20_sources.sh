@@ -79,6 +79,22 @@ if require_cred "$C.shodan" SHODAN_API_KEY "skipping shodan"; then
   save_json "20_scan_shodan_host" "$out" >/dev/null
   assert_scan_hits "$C.shodan.host" "$out" "shodan single-host lookup"
 
+  # opt-in screenshots (OVERCAST_SHODAN_SCREENSHOTS): hits are preserved AND the
+  # exposed-host screenshots are decoded into materialized image evidence.
+  CASE=$(case_dir src_shodan_shots)
+  export OVERCAST_SHODAN_SCREENSHOTS=1
+  ocrun "$CASE" source add 'shodan:has_screenshot:true product:VNC' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=120 oc "$CASE" scan --source shodan --limit 3 --json)"
+  save_json "20_scan_shodan_shots" "$out" >/dev/null
+  assert_scan_hits "$C.shodan.shots" "$out" "shodan opt-in screenshots (hits preserved)"
+  shots="$(echo "$out" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and .payload.screenshot==true)]|length' 2>/dev/null)"
+  if [ "${shots:-0}" -ge 1 ]; then
+    ok "$C.shodan.shot" "materialized $shots exposed-host screenshot(s) as image evidence"
+  else
+    fail "$C.shodan.shot" "opt-in screenshots produced no materialized image hits"
+  fi
+  unset OVERCAST_SHODAN_SCREENSHOTS
+
   unset OVERCAST_SOURCE_SHODAN_CMD
 fi
 
