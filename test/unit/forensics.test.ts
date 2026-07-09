@@ -27,15 +27,16 @@ const FAKE_VERIFY = join(HERE, "..", "fixtures", "fake-verify.sh");
 const FAKE_GEOCODE = join(HERE, "..", "fixtures", "fake-geocode.sh");
 const FAKE_GEOCODE_NOPLACE = join(HERE, "..", "fixtures", "fake-geocode-noplace.sh");
 const FAKE_GEOCODE_NEEDS = join(HERE, "..", "fixtures", "fake-geocode-needs.sh");
+const FAKE_EXIF_BADGPS = join(HERE, "..", "fixtures", "fake-exif-badgps.sh");
 
 /** Build a ctx with an exif binding (+ optional geocode binding) and opts. */
-function geocodeCtx(dir: string, img: string, opts: Record<string, unknown>, withGeocode: boolean, geocodeScript: string = FAKE_GEOCODE): VerbContext {
+function geocodeCtx(dir: string, img: string, opts: Record<string, unknown>, withGeocode: boolean, geocodeScript: string = FAKE_GEOCODE, exifScript: string = FAKE_EXIF): VerbContext {
   const c = openCase(dir);
   c.ensure();
   const profile = defaultProfile();
   profile.providers = {
     ...profile.providers,
-    exif: { type: "exec", run: `bash ${FAKE_EXIF} --input {{input}}` },
+    exif: { type: "exec", run: `bash ${exifScript} --input {{input}}` },
     ...(withGeocode ? { geocode: { type: "exec", run: `bash ${geocodeScript} --input {{input}}` } } : {}),
   };
   return { input: img, rest: [], opts, case: c, profile } as unknown as VerbContext;
@@ -134,6 +135,24 @@ test("exif --geocode reports a dependency gap (needs_credentials) distinctly fro
     const p = rec.payload as Record<string, unknown>;
     assert.equal(p.place, null);
     assert.match(String(p.geocode_status), /unavailable/i); // a setup/dep gap, not "no place"
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("exif --geocode does NOT egress an out-of-range GPS to the provider", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-exif-geo-"));
+  try {
+    const img = join(dir, "p.jpg");
+    writeFileSync(img, "exists-but-not-a-real-jpeg");
+    chmodSync(FAKE_EXIF_BADGPS, 0o755);
+    chmodSync(FAKE_GEOCODE, 0o755);
+    // exif emits gps {lat:999,...}; the geocoder would return "San Francisco…" if
+    // called — so an absent place proves the bad coord was rejected before egress.
+    const [rec] = await exifVerb.run(geocodeCtx(dir, img, { geocode: true }, true, FAKE_GEOCODE, FAKE_EXIF_BADGPS));
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal("place" in p, false);
+    assert.equal("geocode_status" in p, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
