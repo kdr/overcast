@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Real-media speaker verification — cross-segment identity, not clip identity.
-# Unlike 34 (synthetic `say` voices), this proves the field flow on a REAL
+# Unlike 36 (synthetic `say` voices), this proves the field flow on a REAL
 # single-speaker video: use ffmpeg to cut an 8s snippet of ONE speaker talking,
 # ENHANCE it (denoise) into a wav reference, then confirm that reference:
 #   • MATCHES the speaker at DIFFERENT, non-overlapping segments of their own

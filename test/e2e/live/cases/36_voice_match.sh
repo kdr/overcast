@@ -76,7 +76,7 @@ assert_nonempty "$C.caveat" "$(echo "$s" | jq -r '.payload.caveat // empty')" "r
 # speech and does not reliably discriminate/localize synthetic voices). So here we
 # only assert the windowed scan produces a well-formed anchored result — real
 # accuracy (correct localization + speaker discrimination) is asserted on REAL
-# media in 35_voice_match_realmedia.sh.
+# media in 37_voice_match_realmedia.sh.
 cond "pairwise windowed scan produces an anchored, well-formed result (plumbing; TTS voices don't discriminate)"
 "$FFMPEG" -y -v error -i "$WORK/spk_b.wav" -i "$WORK/query_a.wav" \
   -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" -ac 1 -ar 16000 -acodec pcm_s16le "$WORK/both.wav" 2>/dev/null
