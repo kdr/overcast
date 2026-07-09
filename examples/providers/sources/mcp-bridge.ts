@@ -467,11 +467,17 @@ function synthUrl(toolName: string, seed: string): string {
 
 /** Map one result object to a hit; synthesize identity when no URL is present. */
 function objToHit(o: Record<string, unknown>, toolName: string): ScanHit {
-  const url = firstString(o, ["url", "link", "uri", "href", "source_url", "permalink", "id"]);
+  const urlish = firstString(o, ["url", "link", "uri", "href", "source_url", "permalink", "id"]);
   const title = firstString(o, ["title", "name", "heading", "headline", "label"]) ?? "";
   const snippet = firstString(o, ["snippet", "description", "summary", "text", "content", "body", "abstract"]) ?? "";
   const published = firstString(o, ["published", "publishedAt", "published_at", "date", "datetime", "timestamp", "created", "created_at"]) ?? null;
-  const finalUrl = url ?? synthUrl(toolName, JSON.stringify(o));
+  // A `media.ref` must be FETCHABLE — the core `fetch`/`capture` only handles
+  // http(s), so an opaque `id` (or any non-http scheme) as the ref makes capture
+  // fail on an otherwise-valid hit. Such a ref feeds IDENTITY only, never media.
+  const fetchable = urlish && /^https?:\/\//i.test(urlish) ? urlish : undefined;
+  // identity/dedup: a real URL is best; else seed the stable synthetic id on the
+  // opaque ref (so a stable `id` still dedups across runs), else on the object.
+  const finalUrl = fetchable ?? synthUrl(toolName, urlish ?? JSON.stringify(o));
   const hit: ScanHit = {
     title: title || snippet.slice(0, 80),
     url: finalUrl,
@@ -479,7 +485,7 @@ function objToHit(o: Record<string, unknown>, toolName: string): ScanHit {
     snippet,
     mcp_tool: toolName,
   };
-  if (url) hit.media = { ref: url };
+  if (fetchable) hit.media = { ref: fetchable };
   // carry any leftover scalar fields into the loose payload (dropped nothing).
   for (const [k, v] of Object.entries(o)) {
     if (k in hit) continue;
