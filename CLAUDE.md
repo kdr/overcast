@@ -69,7 +69,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
    (`watch/listen/see/face/image/audio/similar/enhance/exif/verify`), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
-   gdelttv, webcam, facesearch), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
+   gdelttv, webcam, facesearch, dork, shodan), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
    shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
    tinycloud (exec) — except `see`, whose default is the in-proc brain-vision
@@ -153,7 +153,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--theme plain|csi`, `--no-open`).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens reverse-image / dl generic-yt-dlp capture / instagram / telegram /
-  gdelttv broadcast-TV / webcam live-cams / facesearch reverse-face;
+  gdelttv broadcast-TV / webcam live-cams / facesearch reverse-face /
+  dork Google-dorking / shodan host-recon;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
   (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
@@ -176,7 +177,12 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `.mp4`, **no key**); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
   `webcam:category:<slug>` / `webcam:<id>` (Windy Webcams — current still per poll,
   `recapture` ephemeral monitor fit); `facesearch:<image url|path>` (opt-in,
-  ToS/privacy-gated reverse **face** search via Apify — never a default).
+  ToS/privacy-gated reverse **face** search via Apify — never a default);
+  `dork:<google dork>` (Google dorking via Serper.dev — real Google SERPs that
+  **honor** `site:`/`filetype:`/`inurl:`/… operators, unlike `web`; `SERPER_API_KEY`);
+  `shodan:<search query>` or `shodan:<ip>` (host/service/banner recon via Shodan —
+  search filters or a bare-IP host lookup; `SHODAN_API_KEY`). `dork`/`shodan` are
+  authorized-recon-only, never a default binding.
 - **State** — `archive` (GLOBAL cross-case media buckets — case-shaped folders
   under `<home>/archive/<bucket>`, no registry file: `init | list | show | add |
   remove | setup`; items are sha256-deduped `capture` records with tags/notes/

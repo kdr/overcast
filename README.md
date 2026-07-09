@@ -102,6 +102,9 @@ focused workflows:
 | Skill | Trope / job |
 |---|---|
 | `overcast-recon-brief` | scan/monitor public sources → cited brief |
+| `overcast-archive` | save media into global buckets, reuse + match across cases |
+| `overcast-dork-recon` | Google-dork a domain for exposed assets → exposure brief |
+| `overcast-attack-surface` | map a target's public attack surface (dork + shodan) |
 | `overcast-visual-target-search` | find a person/logo/object across clips |
 | `overcast-media-bug-triage` | screen recordings/audio → cited bug reports |
 | `overcast-copycat-sweep` | hunt re-uploads/reskins of original video |
@@ -513,7 +516,7 @@ for cadence, and add `--max-frames` when you want a hard cap.
 | class | verbs | shipped providers |
 |---|---|---|
 | **sense** | watch / listen / see / face / image / audio / similar / cluster / enhance / exif / verify | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`) |
-| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / facesearch (Apify), web (Tavily/Brave), gdelttv (GDELT TV, no key), webcam (Windy Webcams) |
+| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), webcam (Windy Webcams) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
@@ -534,6 +537,8 @@ Built-in source refs:
 - `gdelttv:"<query>"` — GDELT 2.0 TV API broadcast-news clips (**no key**) → bounded Internet-Archive `.mp4?start=…&end=…` segments; `--since` maps to the GDELT date window.
 - `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` / `webcam:category:<slug>` / `webcam:<id>` — live public webcams (Windy Webcams API); each hit's `media.ref` is the current still, re-captured every `monitor` pass (`recapture`).
 - `facesearch:<image url or local path>` — **opt-in** reverse **face** search (Apify); ToS/privacy-gated, never a default source.
+- `dork:<google dork>` — Google dorking via Serper.dev: real Google SERPs that **honor operators** (`site:`, `filetype:`, `inurl:`, `intitle:`, `ext:`, `-term`, `OR`), unlike `web`. The result page is captured as evidence. **Authorized recon only**, never a default source.
+- `shodan:<search query>` / `shodan:<ip>` — host/service/banner intelligence via Shodan: search filters (`org:`, `net:`, `ssl:`, `product:`, `port:`, …) or a bare IP → full host lookup. Hits carry ip/port/org/product/cpe/vulns/geo; `media.ref` is the `shodan.io/host/<ip>` report page (`#<port>-<transport>` fragment so each service is distinct). Strong `monitor` fit. **Authorized recon only**, never a default source. **Opt-in (sensitive):** `OVERCAST_SHODAN_SCREENSHOTS=1` also materializes exposed-host screenshots (RDP/VNC/HTTP/camera → `see`/`face`/`crop`) and surfaces RTSP stream endpoints — real unwitting hosts, off by default.
 
 ### Profiles
 
@@ -583,6 +588,8 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 
 **OSINT sources**
 - `TAVILY_API_KEY` (preferred) / `BRAVE_API_KEY` — the `web` search source
+- `SERPER_API_KEY` — the `dork` source (Google dorking via Serper.dev — real Google SERPs that honor operators). Authorized recon only
+- `SHODAN_API_KEY` — the `shodan` source (host/service/banner intelligence). Authorized recon only
 - `APIFY_TOKEN` — the `tiktok`, `x`, `instagram`, `telegram`, `lens`, and `facesearch` sources (enumerate; fetch uses yt-dlp / direct CDN). Actor overrides: `OVERCAST_INSTAGRAM_ACTOR`, `OVERCAST_TELEGRAM_ACTOR`, `OVERCAST_LENS_ACTOR`, `OVERCAST_FACE_SEARCH_ACTOR`
 - `WINDY_API_KEY` — the `webcam` source (Windy Webcams API; free tier covers scan + still capture + monitor). Base override: `OVERCAST_WEBCAM_API`
 - `gdelttv` needs **no key** (GDELT 2.0 TV API is open)
