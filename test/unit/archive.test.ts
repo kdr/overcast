@@ -13,6 +13,8 @@ import { captureVerb } from "../../src/verbs/osint.ts";
 import { askVerb } from "../../src/verbs/read.ts";
 import { imageVerb } from "../../src/verbs/image.ts";
 import { indexVerb } from "../../src/verbs/index.ts";
+import { faceVerb } from "../../src/verbs/face.ts";
+import { watchVerb } from "../../src/registry/verbs.ts";
 import { openCase, type Case } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
@@ -112,6 +114,27 @@ test("ensureBucket stamps kind:archive; openBucket errors on missing/invalid", (
     assert.match(openBucket("../etc", env.home).error ?? "", /invalid archive bucket name/);
     assert.equal(listBuckets(env.home).length, 1);
     assert.equal(isArchiveBucket(env.c), false);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("a real case dir under the archive root is never adopted or relabeled", () => {
+  const env = makeEnv();
+  try {
+    ensureBucket("refs", env.home);
+    // plant an ordinary investigation case inside <home>/archive/
+    const stray = openCase(bucketDir("stray-case", env.home));
+    stray.ensure();
+    const kindBefore = JSON.parse(readFileSync(stray.caseFile, "utf8")).kind;
+    assert.equal(kindBefore, undefined);
+
+    assert.match(openBucket("stray-case", env.home).error ?? "", /not an archive bucket/);
+    assert.match(ensureBucket("stray-case", env.home).error ?? "", /not an archive bucket/);
+    // ensureBucket must NOT have rewritten the case's kind
+    assert.equal(JSON.parse(readFileSync(stray.caseFile, "utf8")).kind, undefined);
+    // and the bucket listing excludes it
+    assert.deepEqual(listBuckets(env.home).map((b) => b.name), ["refs"]);
   } finally {
     env.cleanup();
   }
@@ -365,6 +388,67 @@ test("archive refs gate on the BUCKET record's readiness/verb, not an active-cas
     }));
     const r = resolveVideoArg(env.c, "archive:refs/cap_pending.mp4", "watch input", { home: env.home });
     assert.match(r.error ?? "", /isn't ready/, "bucket record's pending state gates the ref");
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("face --match resolves archive: refs (and errors clearly on a missing item)", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const face = seedFile(env, "known-face.png", "png-bytes");
+    await runArchive(env, "add", [face], { to: "refs" });
+    const bucket = openBucket("refs", env.home).bucket!;
+    const file = basename(String(payload(bucket.case.records().find((r) => r.verb === "capture")!).path));
+
+    // a real archived still resolves PAST the exists/type gates and reaches op
+    // resolution (no video, no index → the usual guidance error, not "not found")
+    const recs = await faceVerb.run(ctx(env, undefined, [], { match: `archive:refs/${file}` }));
+    assert.match(recs[0].error ?? "", /needs a video to search|face-analysis index|deepface-local index/);
+
+    const missing = await faceVerb.run(ctx(env, undefined, [], { match: "archive:refs/nope.png" }));
+    assert.match(missing[0].error ?? "", /not found/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("watch on an archive: ref stamps meta.archive (in-place sensing traces to the bucket)", async () => {
+  const env = makeEnv();
+  const prev = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${join(process.cwd(), "test/fixtures/fake-tinycloud.sh")}`;
+    await runArchive(env, "init", ["refs"]);
+    const clip = seedFile(env, "clip.mp4", "vid-bytes");
+    const added = await runArchive(env, "add", [clip], { to: "refs" });
+    const file = basename(String(added.find((r) => r.verb === "capture")!.media?.ref));
+
+    const recs = await watchVerb.run(ctx(env, `archive:refs/${file}`));
+    assert.equal(recs[0].meta?.archive, "refs");
+    assert.equal(recs[0].meta?.case, env.c.dir);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prev;
+    env.cleanup();
+  }
+});
+
+test("archive add from another bucket carries the SOURCE bucket record as origin", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["src-refs"]);
+    await runArchive(env, "init", ["dst-refs"]);
+    const clip = seedFile(env, "clip.mp4", "cross-bucket-bytes");
+    const added = await runArchive(env, "add", [clip], { to: "src-refs" });
+    const srcCap = added.find((r) => r.verb === "capture")!;
+    const file = basename(String(srcCap.media?.ref));
+
+    const recs = await runArchive(env, "add", [`archive:src-refs/${file}`], { to: "dst-refs" });
+    const cap = recs.find((r) => r.verb === "capture")!;
+    const origin = payload(cap).origin as Record<string, unknown>;
+    assert.equal(origin.record, srcCap.id, "origin.record traces the source bucket item");
+    assert.equal(origin.url, `archive:src-refs/${file}`);
   } finally {
     env.cleanup();
   }

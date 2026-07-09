@@ -32,12 +32,13 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
 
   let sourceUrl: string | undefined;
   let sourceProv: Record<string, unknown> = {};
+  let archiveBucket: string | undefined;
   let ref = ctx.input;
 
   // stamp case + URL origin + source-post provenance on EVERY outgoing record
   // (successes and failures) so an error on a URL still carries meta.source_url.
   const stamp = (rec: OvercastRecord): OvercastRecord[] => {
-    rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}) };
+    rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}), ...(archiveBucket ? { archive: archiveBucket } : {}) };
     // the resolved scan/capture record's post fields (source_url/author/text)
     // first, then any capture the local file itself came from (stampProvenance
     // never clobbers, so the direct source wins).
@@ -55,6 +56,7 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
     const resolved = resolveMediaRef(ctx.case, ref, ctx.home);
     if (resolved.error) return [errorRecord(cfg.verb, `${cfg.verb} input: ${resolved.error}`)];
     ref = resolved.ref;
+    archiveBucket = resolved.archive; // forensics on an archived file traces to its bucket
     // carry the source record's provenance, and — when the record has no
     // media.ref (a scan hit whose media is a page URL) — fall back to its
     // payload.url, matching how capture/hitFetchRef resolve the same hit

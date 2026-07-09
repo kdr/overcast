@@ -322,7 +322,10 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
       failed++;
       continue;
     }
-    const srcRec = resolved.recordId ? ctx.case.recordById(resolved.recordId) : undefined;
+    // an `archive:<bucket>/<item>` source resolves its record from the SOURCE
+    // bucket — the active-case lookup would find nothing and drop the
+    // origin.record / post-provenance trace of a cross-bucket copy
+    const srcRec = resolved.record ?? (resolved.recordId ? ctx.case.recordById(resolved.recordId) : undefined);
     const ref = resolved.ref;
     const isUrl = /^https?:\/\//i.test(ref);
     if (!isUrl && !existsSync(ref)) {

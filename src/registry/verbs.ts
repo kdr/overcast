@@ -18,6 +18,7 @@ import { cropVerb } from "../verbs/crop.js";
 import { gridVerb } from "../verbs/grid.js";
 import { wallVerb } from "../verbs/wall.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
+import { stampArchive } from "../archive.js";
 import {
   scanVerb,
   captureVerb,
@@ -85,7 +86,9 @@ export const watchVerb: VerbSpec = {
       ? await runBoundProvider("watch", binding!, input, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal })
       : await runWatch(input, { run: binding?.run, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
-    return [rec];
+    // in-place sensing of an archived clip traces to its bucket, like the
+    // scoped match verbs and capture pulls
+    return [stampArchive(rec, resolved.archive)];
   },
 };
 

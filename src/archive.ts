@@ -44,7 +44,8 @@ export interface BucketHandle {
 }
 
 /** Open an existing bucket by name. Missing/invalid is an error VALUE (not a
- *  throw) so verbs can surface it as a normal error record. */
+ *  throw) so verbs can surface it as a normal error record. A case dir that
+ *  isn't kind:"archive" is rejected, not adopted — see ensureBucket. */
 export function openBucket(name: string, home?: string): { bucket?: BucketHandle; error?: string } {
   if (!validBucketName(name)) {
     return { error: `invalid archive bucket name '${name}' (letters/digits and . _ - only, no separators)` };
@@ -53,20 +54,28 @@ export function openBucket(name: string, home?: string): { bucket?: BucketHandle
   if (!c.exists()) {
     return { error: `archive bucket '${name}' not found — create it with \`overcast archive init ${name}\`` };
   }
+  if (!isArchiveBucket(c)) {
+    return { error: `${c.dir} exists but is not an archive bucket (its case.json has no kind:"archive") — move the case out of the archive root, or pick another bucket name` };
+  }
   return { bucket: { name, dir: c.dir, case: c } };
 }
 
-/** Create-if-missing + open a bucket, stamping `kind: "archive"` into its
- *  case.json so a bucket is distinguishable from an investigation case. */
+/** Create-if-missing + open a bucket. `kind: "archive"` is stamped ONLY at
+ *  creation — an already-initialized case dir that happens to sit under the
+ *  archive root is an ERROR, never silently relabeled into a bucket (that
+ *  would permanently misclassify a real investigation case). */
 export function ensureBucket(name: string, home?: string): { bucket?: BucketHandle; created?: boolean; error?: string } {
   if (!validBucketName(name)) {
     return { error: `invalid archive bucket name '${name}' (letters/digits and . _ - only, no separators)` };
   }
   const c = openCase(bucketDir(name, home));
   const created = !c.exists();
+  if (!created && !isArchiveBucket(c)) {
+    return { error: `${c.dir} already exists but is not an archive bucket (its case.json has no kind:"archive") — move the case out of the archive root, or pick another bucket name` };
+  }
   try {
     const info = c.ensure() as CaseInfo & { kind?: string };
-    if (info.kind !== "archive") {
+    if (created && info.kind !== "archive") {
       writeFileSync(c.caseFile, JSON.stringify({ ...info, kind: "archive" }, null, 2) + "\n", "utf8");
     }
   } catch (e) {
@@ -75,7 +84,8 @@ export function ensureBucket(name: string, home?: string): { bucket?: BucketHand
   return { bucket: { name, dir: c.dir, case: c }, created };
 }
 
-/** All initialized buckets under the archive root (self-healing readdir). */
+/** All buckets under the archive root (self-healing readdir; only dirs whose
+ *  case.json is kind:"archive" count — a stray case dir is not a bucket). */
 export function listBuckets(home?: string): BucketHandle[] {
   const root = archiveRoot(home);
   if (!existsSync(root)) return [];
@@ -83,7 +93,7 @@ export function listBuckets(home?: string): BucketHandle[] {
   for (const name of readdirSync(root).sort()) {
     if (!validBucketName(name)) continue;
     const c = openCase(join(root, name));
-    if (c.exists()) out.push({ name, dir: c.dir, case: c });
+    if (c.exists() && isArchiveBucket(c)) out.push({ name, dir: c.dir, case: c });
   }
   return out;
 }

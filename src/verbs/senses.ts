@@ -14,6 +14,7 @@ import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
 import { execCapture, parseFirstJson } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { resolveVideoArg } from "./media-ref.js";
+import { stampArchive } from "../archive.js";
 import {
   probe,
   enhance as ffEnhance,
@@ -110,9 +111,10 @@ export const listenVerb: VerbSpec = {
       lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
     });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
-    // trace a transcript of a captured clip back to the post it came from
+    // trace a transcript of a captured clip back to the post it came from,
+    // and in-place archive sensing back to its bucket (like watch)
     stampProvenance(rec, provenanceFromCapture(ctx.case, input));
-    return [rec];
+    return [stampArchive(rec, resolved.archive)];
   },
 };
 
