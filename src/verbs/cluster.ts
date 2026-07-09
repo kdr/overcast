@@ -24,8 +24,9 @@ import { join, dirname } from "node:path";
 import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { runLocalCluster } from "../providers/local/vision.js";
 import { indexesByType, resolveIndexRef } from "../state/index.js";
-import { resolveIndexScope, stampArchive } from "../archive.js";
+import { provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { resolveVisualArg } from "./media-ref.js";
+import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { renderClusterGallery, type ClusterGalleryPerson } from "../report/html.js";
 import { openHtmlPlayer } from "../media/view.js";
 import { badNumber } from "./validate.js";
@@ -178,6 +179,9 @@ export const clusterVerb: VerbSpec = {
         sourceRecord = raw;
       }
       const rec = await runLocalCluster(scope, media.ref!, { indexId, op: "ingest", sourceRecord, ...sampling });
+      // trace the ingested media back to the post it came from (parity with the
+      // other match/identify verbs; the bucket case when the media is an archive ref)
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, media.archive, ctx.home), media.ref));
       return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
 
@@ -189,6 +193,7 @@ export const clusterVerb: VerbSpec = {
       const media = resolveVisualArg(c, arg, "cluster identify", { requireReady: false, home: ctx.home });
       if (media.error) return [err(media.error)];
       const rec = await runLocalCluster(scope, media.ref!, { indexId, op: "identify", minSimilarity: sampling.minSimilarity, limit: sampling.limit, fps: sampling.fps, maxFrames: sampling.maxFrames, start: sampling.start, end: sampling.end, signal: ctx.signal });
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, media.archive, ctx.home), media.ref));
       return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
 

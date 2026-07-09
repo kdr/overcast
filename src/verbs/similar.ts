@@ -287,6 +287,10 @@ export const similarVerb: VerbSpec = {
     }
 
     const rec = await runLocalClip(scope, q.ref!, { ...baseOpts, ...queryOpts, op: "match", framesAt });
+    // trace the query clip back to the post it came from — parity with the CLAP
+    // match path and image/audio match (the bucket case when the query is an
+    // archive ref, else the active case)
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
     stampArchive(rec, scoped.bucket, ctx.case.dir);
     return watched ? [rec, watched] : [rec];
   },

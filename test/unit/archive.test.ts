@@ -694,6 +694,26 @@ test("note/finding anchored to archived evidence stamp meta.archive (direct ref 
   }
 });
 
+test("parity guard: every local match/identify verb stamps query provenance through provenanceCase", () => {
+  // one whole class of Bugbot findings on this PR was "verb X handles archive
+  // refs but verb Y (adjacent, same shape) doesn't". This locks the
+  // provenance-through-the-bucket wiring across every match/identify path so a
+  // future edit can't silently drop it from one and reopen the whack-a-mole.
+  // Floors, not exact counts, so a legitimate refactor that ADDS a path passes.
+  const expected: Record<string, number> = {
+    "src/verbs/similar.ts": 2, // CLIP match + CLAP match
+    "src/verbs/image.ts": 1, // image match
+    "src/verbs/audio.ts": 1, // audio match
+    "src/verbs/face.ts": 3, // deepface-local + custom + tinycloud match
+    "src/verbs/cluster.ts": 2, // ingest + identify
+  };
+  for (const [rel, min] of Object.entries(expected)) {
+    const src = readFileSync(join(process.cwd(), rel), "utf8");
+    const hits = (src.match(/provenanceFromCapture\(provenanceCase\(/g) ?? []).length;
+    assert.ok(hits >= min, `${rel}: expected >= ${min} provenanceCase-routed provenance stamps, found ${hits}`);
+  }
+});
+
 test("an auto-suggested finding inherits the archive-index match record's bucket trace", async () => {
   const env = makeEnv();
   try {
