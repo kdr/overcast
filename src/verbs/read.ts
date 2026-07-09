@@ -12,6 +12,7 @@ import { THREAD_STAGE_LABEL, type TargetThread } from "../signals/threads.js";
 import { groupTimeline, groupSummary } from "../signals/rollup.js";
 import { listTargets } from "../state/target.js";
 import { listSources } from "../state/source.js";
+import { loadSetup } from "../state/setup.js";
 import { posterFrame } from "../media/ffmpeg.js";
 import { resolveMemory, fanOutAnswer, matchesMemoryProvider } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
@@ -138,7 +139,9 @@ export const askVerb: VerbSpec = {
     if (ctx.opts.since && parseSince(String(ctx.opts.since)) == null) {
       return [askError(`invalid --since value: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
     }
-    const available = resolveMemory(ctx.case, ctx.profile);
+    // pass `deep` so the opt-in cloud tier (Cloudglue collection) is resolved ONLY
+    // for `ask --deep` — a plain ask never sees it (no silent cloud spend).
+    const available = resolveMemory(ctx.case, ctx.profile, { deep: ctx.opts.deep === true, signal: ctx.signal });
     let providers = available.filter((p) => matchesMemoryProvider(p, "local-grep"));
     if (ctx.opts.memory) {
       const ids = String(ctx.opts.memory).split(",").map((s) => s.trim()).filter(Boolean);
@@ -156,6 +159,37 @@ export const askVerb: VerbSpec = {
     if (ctx.opts.deep === true) {
       providers = (ctx.opts.memory ? providers : available).filter((p) => typeof p.deepsearch === "function");
       if (providers.length === 0) {
+        // Distinguish "Cloudglue genuinely failed to activate" from "Cloudglue
+        // resolved fine but the user filtered it out with --memory". Only the
+        // former should blame Cloudglue. Presence in `available` is the signal:
+        // resolveMemory registers the cloudglue provider ONLY when it actually
+        // activated (opted in + keyed + a resolvable collection).
+        const cloudglueOptedIn = loadSetup(ctx.case)?.memory?.cloudglue != null;
+        const cloudgluePresent = available.some((p) => matchesMemoryProvider(p, "cloudglue"));
+        // Opted in AND genuinely inactive (no cloudglue provider resolved) — the
+        // real fix is the Cloudglue setup, NOT qmd. A bare "run setup memory qmd"
+        // would misdirect; resolveMemory already wrote the specific reason to stderr.
+        if (cloudglueOptedIn && !cloudgluePresent) {
+          return [
+            askError(
+              "the Cloudglue cloud tier is opted in for --deep but inactive " +
+                "(check CLOUDGLUE_API_KEY and ensure a media-descriptions index is attached/pinned — " +
+                "the specific reason was written to stderr); " +
+                "or run `overcast setup memory qmd` for local semantic search, or use plain `ask` for local-grep",
+            ),
+          ];
+        }
+        // Cloudglue DID resolve into `available` but `--memory` excluded it — say
+        // so instead of the qmd misdirection or (wrongly) blaming Cloudglue.
+        if (cloudgluePresent && ctx.opts.memory) {
+          return [
+            askError(
+              `--memory ${ctx.opts.memory} excluded the Cloudglue cloud tier (the only --deep provider available); ` +
+                "drop --memory (or include cloudglue) to use it, run `overcast setup memory qmd` for local semantic search, " +
+                "or use plain `ask` for local-grep",
+            ),
+          ];
+        }
         return [
           askError(
             "no semantic memory provider is configured for --deep " +

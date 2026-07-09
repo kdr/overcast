@@ -17,6 +17,7 @@ import { execCapture } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
+import { loadSetup, saveSetup, emptySetup } from "../state/setup.js";
 import { findProviderChoice, providerChoices, PROVIDER_PRESETS, type ProviderChoice } from "../providers/catalog.js";
 import { localVisionPython } from "../providers/local/vision.js";
 import { PI_VERSION } from "../version.js";
@@ -268,9 +269,27 @@ export const setupVerb: VerbSpec = {
     }
     if (action === "memory") {
       const backend = (ctx.rest[0] ?? "local-grep").trim();
-      if (!backend) return [err("setup", "usage: setup memory <local-grep|qmd> [command]")];
+      if (!backend) return [err("setup", "usage: setup memory <local-grep|qmd|cloudglue> [command|index]")];
+      // `cloudglue` is the CASE-scoped, opt-in cloud tier for `ask --deep`
+      // (invariant #2 BYO spirit — uploads/queries cost money, so it is NEVER
+      // auto-enabled). Unlike local-grep/qmd it does not bind a profile provider:
+      // it pins the case's media-descriptions collection, so it lives in the case
+      // setup (.overcast/setup.json). `[index]` pins a specific media-descriptions
+      // index (id/name); `off` clears the opt-in.
+      if (backend === "cloudglue") {
+        const setup = loadSetup(ctx.case) ?? emptySetup(ctx.case.exists() ? ctx.case.info().name : "case");
+        const arg = (ctx.rest[1] ?? "").trim();
+        if (/^(off|false|none|disable|clear)$/i.test(arg)) {
+          delete setup.memory.cloudglue;
+        } else {
+          setup.memory.cloudglue = arg ? { index: arg } : {};
+        }
+        setup.updated_at = new Date().toISOString();
+        saveSetup(ctx.case, setup);
+        return [makeRecord({ verb: "setup", format: "json", payload: { memory: { cloudglue: setup.memory.cloudglue ?? null }, case: ctx.case.dir }, state: "ready" })];
+      }
       if (backend !== "local-grep" && backend !== "local" && backend !== "qmd") {
-        return [err("setup", `unknown memory backend '${backend}' (expected local-grep | qmd)`)];
+        return [err("setup", `unknown memory backend '${backend}' (expected local-grep | qmd | cloudglue)`)];
       }
       if (backend === "local-grep" || backend === "local") {
         profile.memory = [];
