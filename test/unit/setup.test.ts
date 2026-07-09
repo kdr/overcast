@@ -45,6 +45,23 @@ test("parseProviderSpec handles exec / http / inproc / bare forms", () => {
   });
 });
 
+test("provider describe redacts a secret echoed by the describe command (Bugbot #68 follow-up)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-setup-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-home-"));
+  try {
+    const SECRET = "apify_api_0123456789abcdefghij"; // matches SECRET_VALUE_RE in src/env.ts
+    // bind `see` to a provider whose `describe` echoes a credential to stdout
+    await setupVerb.run(ctx(dir, home, "provider", ["see", `exec:sh -c 'echo connecting ${SECRET}'`]));
+    const [rec] = await providerVerb.run(ctx(dir, home, "describe", ["see"]));
+    const describe = String((rec.payload as Record<string, unknown>).describe);
+    assert.match(describe, /\[REDACTED\]/, "the echoed secret must be redacted in the persisted describe field");
+    assert.doesNotMatch(describe, new RegExp(SECRET), "raw secret must not land on disk");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("setup provider persists a binding to the profile; doctor + provider list see it", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-setup-"));
   const home = mkdtempSync(join(tmpdir(), "oc-home-"));
