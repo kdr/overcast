@@ -41,8 +41,13 @@ export interface MapModel {
   caseDir: string;
   generatedAt: string;
   points: MapPoint[];
-  /** total gps-bearing records before --limit paging */
+  /** gps-bearing points after --since, before --limit paging */
   total: number;
+  /** ALL valid-gps-bearing records, before the --since filter — lets the empty
+   *  case distinguish "no GPS at all" from "filtered out by --since". */
+  gpsTotal: number;
+  /** longitude span may be shifted past ±180 (maxLng>180) for a cluster that
+   *  straddles the antimeridian; consumers unwrap point lng into [minLng,maxLng]. */
   bounds: MapBounds | null;
   /** point count by source verb */
   counts: Record<string, number>;
@@ -64,6 +69,30 @@ function atOf(v: unknown): number | [number, number] | null {
   if (typeof v === "number") return v;
   if (Array.isArray(v) && typeof v[0] === "number" && typeof v[1] === "number") return [v[0], v[1]];
   return null;
+}
+
+/** Longitude bounds as the MINIMAL enclosing arc, so a cluster straddling the
+ *  antimeridian (e.g. 170°E + 170°W) spans ~20° not ~340°. Returns [minLng,maxLng]
+ *  where maxLng may exceed 180 (frame shifted past the antimeridian); consumers
+ *  unwrap a point lng < minLng by +360 to place it in the same frame. */
+function lngBounds(lngs: number[]): { minLng: number; maxLng: number } {
+  const sorted = [...lngs].sort((a, b) => a - b);
+  const n = sorted.length;
+  // largest empty arc between consecutive longitudes (incl. the wrap-around gap);
+  // the cluster occupies the complement of that gap.
+  let gapStartIdx = n - 1;
+  let maxGap = sorted[0] + 360 - sorted[n - 1]; // wrap gap (max → min going east)
+  for (let i = 1; i < n; i++) {
+    const gap = sorted[i] - sorted[i - 1];
+    if (gap > maxGap) {
+      maxGap = gap;
+      gapStartIdx = i - 1;
+    }
+  }
+  const minLng = sorted[(gapStartIdx + 1) % n]; // point just after the gap
+  let maxLng = sorted[gapStartIdx]; // point just before the gap
+  if (maxLng < minLng) maxLng += 360; // cluster wraps the antimeridian
+  return { minLng, maxLng };
 }
 
 /** Parse an ExifTool capture datetime ("YYYY:MM:DD HH:MM:SS[.sss][±HH:MM]") to
@@ -134,11 +163,11 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
 
   let bounds: MapBounds | null = null;
   if (points.length) {
+    const lat = points.map((p) => p.lat);
     bounds = {
-      minLat: Math.min(...points.map((p) => p.lat)),
-      minLng: Math.min(...points.map((p) => p.lng)),
-      maxLat: Math.max(...points.map((p) => p.lat)),
-      maxLng: Math.max(...points.map((p) => p.lng)),
+      minLat: Math.min(...lat),
+      maxLat: Math.max(...lat),
+      ...lngBounds(points.map((p) => p.lng)),
     };
   }
 
@@ -148,6 +177,7 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
     generatedAt: new Date(opts.now ?? Date.now()).toISOString(),
     points,
     total,
+    gpsTotal: all.length,
     bounds,
     counts,
   };
@@ -253,25 +283,26 @@ function renderOnline(model: MapModel, pal: Palette): string {
 </div>
 <script>
 const POINTS=${jsonForScript(model.points.map((p, i) => ({ lat: p.lat, lng: p.lng, i })))};
+const BOUNDS=${jsonForScript(model.bounds)};
 const map=document.getElementById('map'),tiles=document.getElementById('tiles'),markers=document.getElementById('markers');
 function lon2t(lon,z){return (lon+180)/360*Math.pow(2,z);}
 function lat2t(lat,z){var r=lat*Math.PI/180;return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*Math.pow(2,z);}
-let zoom=14,center={lat:POINTS[0]?POINTS[0].lat:0,lng:POINTS[0]?POINTS[0].lng:0},panning=null;
-function fit(){if(POINTS.length<2)return;const w=map.clientWidth,h=map.clientHeight;
-  const minLa=Math.min.apply(0,POINTS.map(p=>p.lat)),maxLa=Math.max.apply(0,POINTS.map(p=>p.lat)),
-        minLo=Math.min.apply(0,POINTS.map(p=>p.lng)),maxLo=Math.max.apply(0,POINTS.map(p=>p.lng));
-  center={lat:(minLa+maxLa)/2,lng:(minLo+maxLo)/2};
-  for(let z=18;z>=1;z--){const dx=(lon2t(maxLo,z)-lon2t(minLo,z))*256,dy=(lat2t(minLa,z)-lat2t(maxLa,z))*256;
+// unwrap a point longitude into the (possibly antimeridian-shifted) BOUNDS frame
+function unwrap(lng){return (BOUNDS && lng < BOUNDS.minLng) ? lng+360 : lng;}
+let zoom=14,panning=null,center=BOUNDS?{lat:(BOUNDS.minLat+BOUNDS.maxLat)/2,lng:(BOUNDS.minLng+BOUNDS.maxLng)/2}:{lat:POINTS[0]?POINTS[0].lat:0,lng:POINTS[0]?POINTS[0].lng:0};
+// fit from the server-computed BOUNDS (single source of truth, antimeridian-aware)
+function fit(){if(!BOUNDS||POINTS.length<2)return;const w=map.clientWidth,h=map.clientHeight;
+  for(let z=18;z>=1;z--){const dx=(lon2t(BOUNDS.maxLng,z)-lon2t(BOUNDS.minLng,z))*256,dy=(lat2t(BOUNDS.minLat,z)-lat2t(BOUNDS.maxLat,z))*256;
     if(dx<=w*0.85&&dy<=h*0.85){zoom=z;return;}}zoom=1;}
 function render(){const w=map.clientWidth,h=map.clientHeight;
   const cx=lon2t(center.lng,zoom)*256,cy=lat2t(center.lat,zoom)*256,ox=cx-w/2,oy=cy-h/2,n=Math.pow(2,zoom);
   let html='';for(let tx=Math.floor(ox/256);tx<=Math.floor((ox+w)/256);tx++)for(let ty=Math.floor(oy/256);ty<=Math.floor((oy+h)/256);ty++){
     if(ty<0||ty>=n)continue;const wx=((tx%n)+n)%n,s=['a','b','c'][Math.abs(tx+ty)%3];
     html+='<img src="https://'+s+'.tile.openstreetmap.org/'+zoom+'/'+wx+'/'+ty+'.png" style="left:'+(tx*256-ox)+'px;top:'+(ty*256-oy)+'px" onerror="this.style.visibility=\\'hidden\\'">';}
-  tiles.innerHTML=html;let mk='';POINTS.forEach(p=>{const px=lon2t(p.lng,zoom)*256-ox,py=lat2t(p.lat,zoom)*256-oy;
+  tiles.innerHTML=html;let mk='';POINTS.forEach(p=>{const px=lon2t(unwrap(p.lng),zoom)*256-ox,py=lat2t(p.lat,zoom)*256-oy;
     mk+='<button class="mk" data-i="'+p.i+'" style="left:'+px+'px;top:'+py+'px"><span>'+(p.i+1)+'</span></button>';});
   markers.innerHTML=mk;}
-function focusPoint(i){const p=POINTS[i];if(!p)return;center={lat:p.lat,lng:p.lng};if(zoom<15)zoom=15;render();
+function focusPoint(i){const p=POINTS[i];if(!p)return;center={lat:p.lat,lng:unwrap(p.lng)};if(zoom<15)zoom=15;render();
   document.querySelectorAll('.mk').forEach(m=>m.classList.toggle('active',m.dataset.i==i));
   document.querySelectorAll('.prow').forEach(r=>r.classList.toggle('active',r.dataset.i==i));
   const row=document.querySelector('.prow[data-i="'+i+'"]');if(row)row.scrollIntoView({block:'nearest'});}
@@ -295,7 +326,10 @@ function renderOffline(model: MapModel, pal: Palette): string {
   const H = 520;
   const project = (lat: number, lng: number): { x: number; y: number } => {
     if (!b || b.maxLng === b.minLng || b.maxLat === b.minLat) return { x: W / 2, y: H / 2 };
-    const x = 40 + ((lng - b.minLng) / (b.maxLng - b.minLng)) * (W - 80);
+    // unwrap into the bounds frame so an antimeridian-straddling point (lng < minLng)
+    // sits at the correct end of the plot instead of the far side.
+    const lngU = lng < b.minLng ? lng + 360 : lng;
+    const x = 40 + ((lngU - b.minLng) / (b.maxLng - b.minLng)) * (W - 80);
     const y = 40 + ((b.maxLat - lat) / (b.maxLat - b.minLat)) * (H - 80); // north is up
     return { x, y };
   };

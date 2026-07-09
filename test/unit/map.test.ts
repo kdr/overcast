@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
 import { buildMapModel, renderMapHtml } from "../../src/report/map.ts";
+import { openCase } from "../../src/case.ts";
+import { mapVerb } from "../../src/verbs/map.ts";
+import type { VerbContext } from "../../src/registry/types.ts";
 
 function geo(opts: { lat?: number; lng?: number; verb?: string; ref?: string; time?: string; place?: string; state?: string; gps?: unknown; created?: string }): OvercastRecord {
   return makeRecord({
@@ -112,6 +118,53 @@ test("buildMapModel: exif capture time is parsed as UTC (consistent with UTC --s
   const justBefore = geo({ lat: 2, lng: 2, ref: "before.jpg", created: "2025:12:31 23:59:59" });
   const m = buildMapModel([atCutoff, justBefore], { ...OPTS, sinceCutoff: cutoff });
   assert.deepEqual(m.points.map((p) => p.ref), ["at.jpg"]);
+});
+
+test("buildMapModel: antimeridian-straddling cluster gets a minimal-arc longitude span", () => {
+  const m = buildMapModel([geo({ lat: 18, lng: 170, ref: "e.jpg" }), geo({ lat: -16, lng: -170, ref: "w.jpg" })], OPTS);
+  assert.ok(m.bounds);
+  assert.equal(m.bounds!.minLng, 170);
+  assert.equal(m.bounds!.maxLng, 190); // -170 unwrapped → 20° span across the antimeridian, not 340°
+});
+
+test("buildMapModel: gpsTotal counts GPS records BEFORE --since (filtered ≠ none)", () => {
+  const m = buildMapModel(
+    [
+      geo({ lat: 1, lng: 1, ref: "old.jpg", created: "2019:01:01 00:00:00" }),
+      geo({ lat: 2, lng: 2, ref: "new.jpg", created: "2026:06:01 00:00:00" }),
+    ],
+    { ...OPTS, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") },
+  );
+  assert.equal(m.gpsTotal, 2); // both are GPS-bearing
+  assert.equal(m.total, 1); // only one survives --since
+});
+
+test("renderMapHtml online: drives fit from server BOUNDS via unwrap (single source of truth)", () => {
+  const m = buildMapModel([geo({ lat: 1, lng: 1 }), geo({ lat: 2, lng: 2 })], OPTS);
+  const html = renderMapHtml(m, "plain", { offline: false });
+  assert.match(html, /const BOUNDS=/);
+  assert.match(html, /function unwrap/);
+});
+
+test("mapVerb: empty-case note distinguishes no-GPS from --since-filtered", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-map-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    const ctx = (opts: Record<string, unknown>): VerbContext =>
+      ({ input: undefined, rest: [], opts: { theme: "plain", "no-open": true, ...opts }, case: c, profile: { name: "t", providers: {} } }) as unknown as VerbContext;
+    // no GPS records at all
+    const empty = await mapVerb.run(ctx({}));
+    assert.match(String((empty[0].payload as Record<string, unknown>).note), /no GPS-bearing records/);
+    // a geotagged (old) record that --since will exclude
+    c.writeRecord(makeRecord({ verb: "exif", format: "json", payload: { gps: { lat: 1, lng: 1 }, created: "2019:01:01 00:00:00" }, media: { ref: "a.jpg" } }));
+    const filtered = await mapVerb.run(ctx({ since: "2026-01-01" }));
+    const p = filtered[0].payload as Record<string, unknown>;
+    assert.equal(p.gps_total, 1);
+    assert.match(String(p.note), /but none match the current filter/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("renderMapHtml online: self-contained, OSM tile template, per-point markers, tile-scoped CSP", () => {

@@ -71,16 +71,17 @@ export const mapVerb: VerbSpec = {
 
     // nothing to map → transient pending guidance, no artifact (wall precedent)
     if (model.points.length === 0) {
+      // distinguish "no GPS at all" from "GPS records exist but were filtered out"
+      // so the guidance points at the actual problem (like wall's empty-case note).
+      const note =
+        model.gpsTotal === 0
+          ? "no GPS-bearing records — run `exif <media>` on media with embedded GPS (a phone photo, a geotagged clip)"
+          : `${model.gpsTotal} GPS-bearing record${model.gpsTotal === 1 ? "" : "s"} in the case, but none match the current filter — widen or drop --since`;
       return [
         makeRecord({
           verb: "map",
           format: "json",
-          payload: {
-            mode: "map",
-            viewer: null,
-            points: 0,
-            note: "no GPS-bearing records — run `exif <media>` on media with embedded GPS (a phone photo, a geotagged clip)",
-          },
+          payload: { mode: "map", viewer: null, points: 0, gps_total: model.gpsTotal, note },
           meta: { transient: true },
           state: "pending",
         }),
