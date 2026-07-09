@@ -91,7 +91,10 @@ if require_cred "$C.shodan" SHODAN_API_KEY "skipping shodan"; then
   if [ "${shots:-0}" -ge 1 ]; then
     ok "$C.shodan.shot" "materialized $shots exposed-host screenshot(s) as image evidence"
   else
-    fail "$C.shodan.shot" "opt-in screenshots produced no materialized image hits"
+    # Screenshots are BEST-EFFORT (a host may be down or return no decodable bytes);
+    # the contract asserted above is "hits preserved", so absence is a skip, not a
+    # failure.
+    skip "$C.shodan.shot" "no decodable screenshots this run (best-effort; hits were preserved, which is the contract)"
   fi
   unset OVERCAST_SHODAN_SCREENSHOTS
 

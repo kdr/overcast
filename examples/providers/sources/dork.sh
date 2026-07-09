@@ -72,6 +72,13 @@ case "$op" in
       -H "X-API-KEY: $SERPER" -H "Content-Type: application/json" -d "$body")"; then
       echo "dork (serper) search request failed for '$query'" >&2; exit 1
     fi
+    # Serper reports API-level failures (bad key, quota, bad params) as a JSON body
+    # with a `message`/`statusCode` and NO `organic` key — and while those usually
+    # arrive non-2xx (caught by curl -f), a body-level guard makes a fake-clean empty
+    # scan impossible if one ever returns 2xx. A genuine 0-result search still carries
+    # an (empty) `organic` array, so it passes through as a clean zero-hit scan.
+    serr="$(printf '%s' "$resp" | jq -r 'if (has("organic")|not) and ((.message // .error) != null) then (.message // .error) else empty end' 2>/dev/null)"
+    [ -z "$serr" ] || { echo "dork (serper) API error: $serr" >&2; exit 1; }
     # organic results carry the operators-honored hits; media.ref is the page url
     # so `capture`/--pull downloads the result page as evidence (like web.sh).
     printf '%s' "$resp" | jq -c '[ (.organic // [])[] | {title:.title, url:.link, source:"dork", published:(.date // null), snippet:(.snippet // ""), media:{ref:.link}} ]'
