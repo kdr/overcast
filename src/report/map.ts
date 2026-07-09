@@ -68,10 +68,14 @@ function atOf(v: unknown): number | [number, number] | null {
 
 /** Parse an ExifTool capture datetime ("YYYY:MM:DD HH:MM:SS[.sss][±HH:MM]") to
  *  epoch ms, or undefined when absent/unparseable (the date part uses colons, so
- *  Date.parse can't read it raw). */
+ *  Date.parse can't read it raw). A zone-less value is normalized to UTC (append
+ *  "Z") — ES parses a zone-less date-time as HOST-LOCAL, which would skew --since /
+ *  ranking against the UTC `meta.time` + absolute-date cutoffs; an explicit offset
+ *  (Z or ±HH:MM) is left intact. */
 function captureMs(created: string | null): number | undefined {
   if (!created) return undefined;
-  const iso = created.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3").replace(" ", "T");
+  let iso = created.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3").replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) iso += "Z";
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? ms : undefined;
 }

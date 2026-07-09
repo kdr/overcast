@@ -104,6 +104,16 @@ test("buildMapModel: exif capture time (payload.created) drives recency, not ing
   assert.equal(m.points[0].time, "2026:06:01 00:00:00"); // point shows the capture time
 });
 
+test("buildMapModel: exif capture time is parsed as UTC (consistent with UTC --since cutoffs)", () => {
+  // a photo captured exactly at the cutoff instant must be KEPT (>=), independent
+  // of the host timezone — captureMs normalizes the zone-less exif datetime to UTC.
+  const cutoff = Date.parse("2026-01-01T00:00:00Z");
+  const atCutoff = geo({ lat: 1, lng: 1, ref: "at.jpg", created: "2026:01:01 00:00:00" });
+  const justBefore = geo({ lat: 2, lng: 2, ref: "before.jpg", created: "2025:12:31 23:59:59" });
+  const m = buildMapModel([atCutoff, justBefore], { ...OPTS, sinceCutoff: cutoff });
+  assert.deepEqual(m.points.map((p) => p.ref), ["at.jpg"]);
+});
+
 test("renderMapHtml online: self-contained, OSM tile template, per-point markers, tile-scoped CSP", () => {
   const m = buildMapModel([geo({ lat: 37.7, lng: -122.4, place: "San Francisco" })], OPTS);
   const html = renderMapHtml(m, "plain", { offline: false });

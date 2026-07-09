@@ -478,7 +478,7 @@ for cadence, and add `--max-frames` when you want a hard cap.
 
 | class | verbs | shipped providers |
 |---|---|---|
-| **sense** | watch / listen / see / face / image / audio / similar / cluster / enhance / exif / verify | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`) |
+| **sense** | watch / listen / see / face / image / audio / similar / cluster / enhance / exif / verify | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`), Nominatim (opt-in `exif --geocode`) |
 | **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), webcam (Windy Webcams) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
