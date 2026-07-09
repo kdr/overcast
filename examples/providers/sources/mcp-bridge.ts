@@ -40,6 +40,7 @@ import { createWriteStream, unlink } from "node:fs";
 import { createHash } from "node:crypto";
 import { get as httpsGet } from "node:https";
 import { get as httpGet } from "node:http";
+import { lookup as dnsLookup } from "node:dns/promises";
 
 // ---- exec-contract helpers -------------------------------------------------
 
@@ -415,8 +416,10 @@ function pickSearchTool(tools: McpTool[], override?: string): McpTool | undefine
   return scored[0]?.t;
 }
 
-/** Choose which string argument carries the query text. */
-function pickQueryArg(tool: McpTool, override?: string): string {
+/** Choose which string argument carries the query text, or UNDEFINED when the
+ *  tool exposes no string argument at all (the caller then fails fast instead of
+ *  sending a literal `query` key the tool never declared). */
+function pickQueryArg(tool: McpTool, override?: string): string | undefined {
   if (override) return override;
   const props = tool.inputSchema?.properties ?? {};
   const stringKeys = Object.keys(props).filter((k) => props[k].type === "string" || props[k].type === undefined);
@@ -429,8 +432,8 @@ function pickQueryArg(tool: McpTool, override?: string): string {
   const required = tool.inputSchema?.required ?? [];
   const reqStr = stringKeys.find((k) => required.includes(k));
   if (reqStr) return reqStr;
-  // 3) first string param, else fall back to "query"
-  return stringKeys[0] ?? "query";
+  // 3) first string param — else undefined (no string arg to carry the query)
+  return stringKeys[0];
 }
 
 // ---- result -> scan.hit mapping --------------------------------------------
@@ -486,9 +489,12 @@ function objToHit(o: Record<string, unknown>, toolName: string): ScanHit {
     mcp_tool: toolName,
   };
   if (fetchable) hit.media = { ref: fetchable };
-  // carry any leftover scalar fields into the loose payload (dropped nothing).
+  // carry any leftover scalar fields into the loose payload. `source` is RESERVED:
+  // the core stamps payload.source from the BOUND source type, and hitsToRecords
+  // prefers a hit's own `source` — so a server-supplied `source` would override the
+  // operator's binding label / freshness bucket. Keep it out (drop nothing else).
   for (const [k, v] of Object.entries(o)) {
-    if (k in hit) continue;
+    if (k in hit || k === "source") continue;
     if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") hit[k] = v;
   }
   return hit;
@@ -745,7 +751,7 @@ async function opDescribe(): Promise<void> {
       protocol_version: client.protocolVersion,
       tools: tools.map((t) => ({ name: t.name, description: t.description })),
       selected_tool: selected?.name ?? null,
-      query_arg: selected ? pickQueryArg(selected, requireValidQueryArgOverride(selected, () => client.close())) : null,
+      query_arg: selected ? (pickQueryArg(selected, requireValidQueryArgOverride(selected, () => client.close())) ?? null) : null,
     }) + "\n");
   } catch (e) {
     process.stdout.write(JSON.stringify({ ...base, server: cmd, connect_error: (e as Error).message }) + "\n");
@@ -792,6 +798,10 @@ async function opEnumerate(flags: Record<string, string>): Promise<void> {
     }
     const queryArgOverride = requireValidQueryArgOverride(tool, () => client.close());
     const queryArg = pickQueryArg(tool, queryArgOverride);
+    if (!queryArg) {
+      client.close();
+      fail(`MCP bridge: tool "${tool.name}" exposes no string argument to carry the query (args: ${Object.keys(tool.inputSchema?.properties ?? {}).join(", ") || "none"}); force a text-taking tool/arg with MCP_SEARCH_TOOL / MCP_QUERY_ARG`, 1);
+    }
     let extraArgs: Record<string, unknown> = {};
     const rawToolArgs = process.env.MCP_TOOL_ARGS?.trim();
     if (rawToolArgs) {
@@ -839,6 +849,56 @@ async function opEnumerate(flags: Record<string, string>): Promise<void> {
   }
 }
 
+/** Is a RESOLVED IP address private/loopback/link-local (incl. the 169.254.169.254
+ *  cloud-metadata endpoint)? Checked against the addresses `dns.lookup` returns —
+ *  the same getaddrinfo the socket uses — so any inet_aton encoding the resolver
+ *  accepts is covered by its normalized result. */
+function isPrivateIp(addr: string): boolean {
+  const m = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    return (
+      a === 0 || a === 127 || a === 10 ||                 // this-net, loopback, RFC1918 10/8
+      (a === 172 && b >= 16 && b <= 31) ||                // RFC1918 172.16/12
+      (a === 192 && b === 168) ||                         // RFC1918 192.168/16
+      (a === 169 && b === 254) ||                         // link-local 169.254/16 (metadata)
+      (a === 100 && b >= 64 && b <= 127)                  // CGNAT 100.64/10
+    );
+  }
+  const h = addr.toLowerCase().replace(/%.*$/, ""); // strip IPv6 zone id
+  if (h === "::1" || h === "::") return true;             // loopback / unspecified
+  if (h.startsWith("fc") || h.startsWith("fd")) return true; // ULA fc00::/7
+  if (h.startsWith("fe80")) return true;                  // link-local
+  if (h.startsWith("::ffff:")) return isPrivateIp(h.slice(7)); // IPv4-mapped IPv6
+  return false;
+}
+
+/** SSRF guard for opFetch: an MCP tool result is UNTRUSTED (invariant #10), so a
+ *  server-supplied URL (or a redirect it triggers) must not reach loopback/RFC1918/
+ *  link-local/metadata hosts. Mirrors core `assertFetchHostAllowed`: resolve every
+ *  A/AAAA record and reject if ANY is private (defeats DNS rebinding); fail CLOSED
+ *  if the host can't be resolved. Opt out with an affirmative OVERCAST_ALLOW_PRIVATE_FETCH. */
+async function assertPublicHost(host: string): Promise<void> {
+  if (/^(1|true|yes|on)$/i.test((process.env.OVERCAST_ALLOW_PRIVATE_FETCH ?? "").trim())) return;
+  const h = host.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (h === "localhost" || h.endsWith(".localhost")) {
+    throw new Error(`MCP bridge fetch: refusing a private/loopback host (${host}); set OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow`);
+  }
+  let addrs: Array<{ address: string }>;
+  try {
+    addrs = await dnsLookup(h, { all: true });
+  } catch {
+    // fail closed: if we can't resolve to verify, don't fetch — the socket would
+    // resolve independently and could still reach a private address.
+    throw new Error(`MCP bridge fetch: could not resolve host to verify it is public (${host})`);
+  }
+  for (const { address } of addrs) {
+    if (isPrivateIp(address)) {
+      throw new Error(`MCP bridge fetch: refusing a private/loopback address (${host} → ${address}); set OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow`);
+    }
+  }
+}
+
 /** best-effort fetch: HTTPS/HTTP download of a real hit URL (synthetic
  *  mcp:// identities can't be downloaded — report that clearly). */
 function opFetch(flags: Record<string, string>): Promise<void> {
@@ -861,7 +921,7 @@ function opFetch(flags: Record<string, string>): Promise<void> {
       else reject(new Error(msg));
     };
 
-    const doGet = (target: string, hop: number): void => {
+    const doGet = async (target: string, hop: number): Promise<void> => {
       let parsed: URL;
       try {
         parsed = new URL(target);
@@ -871,6 +931,14 @@ function opFetch(flags: Record<string, string>): Promise<void> {
       }
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
         reject(new Error(`MCP bridge fetch: unsupported URL scheme for ${target}`));
+        return;
+      }
+      // SSRF guard on EVERY hop (the initial URL and each redirect target) —
+      // an untrusted MCP result could point at loopback/RFC1918/metadata.
+      try {
+        await assertPublicHost(parsed.hostname);
+      } catch (e) {
+        reject(e as Error);
         return;
       }
       const getter = parsed.protocol === "https:" ? httpsGet : httpGet;
@@ -898,7 +966,7 @@ function opFetch(flags: Record<string, string>): Promise<void> {
             reject(new Error(`MCP bridge fetch: invalid redirect Location '${location}' from ${target}`));
             return;
           }
-          doGet(next, hop + 1);
+          doGet(next, hop + 1).catch(reject);
           return;
         }
         // Only stream a 2xx body to disk; anything else (incl. an unresolvable
@@ -926,7 +994,7 @@ function opFetch(flags: Record<string, string>): Promise<void> {
       req.setTimeout(60_000, () => { req.destroy(new Error("timeout")); });
     };
 
-    doGet(url, 0);
+    doGet(url, 0).catch(reject);
   });
 }
 
