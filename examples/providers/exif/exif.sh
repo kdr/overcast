@@ -72,19 +72,29 @@ w="$(get ImageWidth)"; h="$(get ImageHeight)"
 mime="$(get MIMEType)"; dur="$(get Duration)"
 count="$(printf '%s' "$obj" | jq 'keys | length' 2>/dev/null)"; [ -n "$count" ] || count=0
 
-# WGS84 range check on ExifTool's numeric lat/lng (obj carries them as numbers
-# under -n). map + `exif --geocode` drop out-of-range coordinates, so suppress them
-# here too — a stored payload.gps must be the same one the map would plot, and
-# `ask`/memory must not cite a coordinate that never geolocates.
-gps_valid="$(printf '%s' "$obj" | jq 'if ((.GPSLatitude|type)=="number") and ((.GPSLongitude|type)=="number") and (.GPSLatitude>=-90) and (.GPSLatitude<=90) and (.GPSLongitude>=-180) and (.GPSLongitude<=180) then 1 else 0 end' 2>/dev/null)"
-[ -n "$gps_valid" ] || gps_valid=0
+# Classify the ExifTool lat/lng (obj carries them as numbers under -n), matching
+# geo.ts gpsIssue: valid | range (both numeric, one outside WGS84) | malformed
+# (missing axis / non-numeric) | absent. map + `exif --geocode` drop anything but
+# `valid`, so suppress those here too — a stored payload.gps must be the same one
+# the map would plot, and `ask`/memory must not cite a coordinate that never geolocates.
+gps_state="$(printf '%s' "$obj" | jq -r '
+  .GPSLatitude as $la | .GPSLongitude as $lo
+  | if ($la == null and $lo == null) then "absent"
+    elif (($la|type)=="number" and ($lo|type)=="number")
+      then (if ($la>=-90 and $la<=90 and $lo>=-180 and $lo<=180) then "valid" else "range" end)
+    else "malformed" end' 2>/dev/null)"
+[ -n "$gps_state" ] || gps_state="absent"
+gps_valid=0; [ "$gps_state" = "valid" ] && gps_valid=1
 
 # human, searchable one-liner (indexed into case memory)
 summary=""
 add() { [ -n "$1" ] || return 0; if [ -n "$summary" ]; then summary="$summary · $1"; else summary="$1"; fi; }
-if [ "$gps_valid" = "1" ]; then add "GPS ${lat},${lng}";
-elif [ -n "$lat" ] && [ -n "$lng" ]; then add "GPS invalid (out of range)";
-else add "no GPS"; fi
+case "$gps_state" in
+  valid)     add "GPS ${lat},${lng}" ;;
+  range)     add "GPS invalid (out of range)" ;;
+  malformed) add "GPS malformed or incomplete" ;;
+  *)         add "no GPS" ;;
+esac
 dev="$(printf '%s %s' "$make" "$model" | xargs 2>/dev/null || true)"
 add "$dev"
 add "$created"

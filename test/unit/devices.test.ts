@@ -7,6 +7,7 @@ import { openCase } from "../../src/case.ts";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
 import { buildDeviceClusters } from "../../src/signals/devices.ts";
 import { devicesVerb } from "../../src/verbs/devices.ts";
+import { emptySetup, saveSetup } from "../../src/state/setup.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 function exif(opts: { ref: string; make?: string; model?: string; serial?: string; lens?: string; created?: string }): OvercastRecord {
@@ -162,4 +163,16 @@ test("devicesVerb: emits a report record; --findings creates a deduped serial-li
     c.writeRecord(finding);
     const again = await devicesVerb.run(ctxFor(c, { findings: true }));
     assert.equal(again.some((r) => r.verb === "finding"), false);
+  }));
+
+test("devicesVerb: --findings honors `findings off` policy (no device-link leads)", () =>
+  withCase(async (c) => {
+    const setup = emptySetup("t");
+    setup.findings = { mode: "off" };
+    saveSetup(c, setup);
+    c.writeRecord(exif({ ref: "a.jpg", make: "Canon", model: "EOS R5", serial: "SN1" }));
+    c.writeRecord(exif({ ref: "b.jpg", make: "Canon", model: "EOS R5", serial: "SN1" }));
+    const out = await devicesVerb.run(ctxFor(c, { findings: true }));
+    assert.equal(out.some((r) => r.verb === "finding"), false); // suppressed, like persistRecords
+    assert.equal((out[0].payload as Record<string, unknown>).mode, "devices"); // report still runs
   }));

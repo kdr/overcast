@@ -136,8 +136,15 @@ if [ -f "$frame" ]; then
   xbad="$(OVERCAST_EXIFTOOL_CMD="bash $REPO/test/fixtures/fake-exiftool-badgps.sh" \
     $OVERCAST exif "$frame" --json --case "$fcase" 2>/dev/null | jq -c 'select(.verb=="exif")')"
   assert_eq "exif.badgps_null" "null" "$(jq -r '.payload.gps' <<<"$xbad")" "out-of-range GPS suppressed to null"
-  echo "$xbad" | jq -r '.payload.summary' | grep -qi "invalid" \
-    && ok "exif.badgps_summary" "summary flags invalid GPS (not 'no GPS')" || fail "exif.badgps_summary" "no invalid-GPS note"
+  echo "$xbad" | jq -r '.payload.summary' | grep -qi "out of range" \
+    && ok "exif.badgps_summary" "out-of-range GPS labeled 'invalid (out of range)'" || fail "exif.badgps_summary" "no out-of-range note"
+
+  # exif labels an INCOMPLETE GPS (lat only) as malformed, not out-of-range — matches geo.ts gpsIssue
+  xmal="$(OVERCAST_EXIFTOOL_CMD="bash $REPO/test/fixtures/fake-exiftool-malformedgps.sh" \
+    $OVERCAST exif "$frame" --json --case "$fcase" 2>/dev/null | jq -c 'select(.verb=="exif")')"
+  assert_eq "exif.malformedgps_null" "null" "$(jq -r '.payload.gps' <<<"$xmal")" "incomplete GPS suppressed to null"
+  echo "$xmal" | jq -r '.payload.summary' | grep -qi "malformed" \
+    && ok "exif.malformedgps_summary" "incomplete GPS labeled malformed (not out-of-range)" || fail "exif.malformedgps_summary" "no malformed note"
 
   vout="$(OVERCAST_C2PATOOL_CMD="bash $REPO/test/fixtures/fake-c2patool.sh" \
     $OVERCAST verify "$frame" --json --case "$fcase" 2>/dev/null | jq -c 'select(.verb=="verify")')"

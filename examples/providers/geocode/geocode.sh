@@ -60,16 +60,24 @@ if [ "$code" -ne 0 ]; then
   exit 0
 fi
 
-# a valid response with no match still emits place:null and stays `ready`
+# Map both Nominatim (.display_name/.address) AND Photon GeoJSON
+# (.features[0].properties) response shapes — OVERCAST_GEOCODE_URL may target
+# either. A valid response with no match still emits place:null and stays `ready`.
 printf '%s' "$resp" | jq -c --arg lat "$lat" --arg lng "$lng" '
-  {
-    verb:"geocode", format:"json",
-    payload:{
-      place: (.display_name // null),
-      lat: ($lat|tonumber), lng: ($lng|tonumber),
-      address: (.address // null),
-      provider: "nominatim"
-    },
-    meta:{provider:"nominatim"},
-    state:"ready"
-  }'
+  (.features[0].properties // null) as $photon
+  | (if $photon
+       then ([$photon.name, $photon.street, $photon.district, $photon.city, $photon.county, $photon.state, $photon.country]
+             | map(select(. != null and . != "")) | join(", "))
+       else "" end) as $photon_name
+  | (.display_name // (if $photon_name == "" then null else $photon_name end)) as $place
+  | {
+      verb:"geocode", format:"json",
+      payload:{
+        place: $place,
+        lat: ($lat|tonumber), lng: ($lng|tonumber),
+        address: (.address // $photon),
+        provider: (if (.display_name != null) then "nominatim" elif $photon then "photon" else "unknown" end)
+      },
+      meta:{provider:(if (.display_name != null) then "nominatim" elif $photon then "photon" else "unknown" end)},
+      state:"ready"
+    }'

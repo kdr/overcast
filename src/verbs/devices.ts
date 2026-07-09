@@ -8,6 +8,8 @@
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { makeFinding } from "./finding.js";
 import { buildDeviceClusters } from "../signals/devices.js";
+import { resolveFindingsPolicy } from "../signals/triggers.js";
+import { loadSetup } from "../state/setup.js";
 import type { VerbSpec } from "../registry/types.js";
 
 /** Fingerprints of device-link findings already in the case, so re-running
@@ -69,7 +71,11 @@ export const devicesVerb: VerbSpec = {
 
     const out: OvercastRecord[] = [report];
 
-    if (ctx.opts.findings === true) {
+    // Respect the case findings policy: `--findings` still honors `findings off`,
+    // matching how persistRecords suppresses trigger-driven suggestions — an
+    // analyst who turned findings off must not get device-link leads either.
+    const findingsOn = resolveFindingsPolicy(loadSetup(ctx.case)).mode !== "off";
+    if (ctx.opts.findings === true && findingsOn) {
       const seen = seenDeviceFingerprints(records);
       for (const cluster of rollup.clusters) {
         if (cluster.strength !== "serial" || cluster.count < 2) continue; // strong links only
