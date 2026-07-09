@@ -187,6 +187,23 @@ test("extractSignal: verify flags a failed/untrusted manifest, not clean or abse
   assert.equal(edits?.unit, "count");
 });
 
+test("extractSignal: verify with no validation_state but a failure code still flags high", () => {
+  // older c2patool may leave validation_state null yet report failure via codes
+  const rec = verifyRec({ has_manifest: true });
+  (rec.payload as Record<string, unknown>).validation_codes = ["signingCredential.untrusted"];
+  const sig = extractSignal(rec, T);
+  assert.equal(sig?.kind, "verify-validation-failed");
+  assert.equal(sig?.confidence, "high");
+  // a present valid/trusted state is authoritative — a benign success code must NOT fire
+  const okRec = verifyRec({ has_manifest: true, validation_state: "Valid" });
+  (okRec.payload as Record<string, unknown>).validation_codes = ["claimSignature.validated", "signingCredential.trusted"];
+  assert.equal(extractSignal(okRec, T), undefined);
+  // no state and only benign codes → not a lead
+  const cleanRec = verifyRec({ has_manifest: true });
+  (cleanRec.payload as Record<string, unknown>).validation_codes = ["assertion.hashedURI.match"];
+  assert.equal(extractSignal(cleanRec, T), undefined);
+});
+
 test("evaluateTriggers: forensic flags emit suggested leads with the stated confidence + text", () => {
   const [ps] = evaluateTriggers({ fresh: [exifRec("GIMP 2.10")], existing: [], targets: [], policy: SUGGEST });
   const pp = ps.payload as Record<string, unknown>;

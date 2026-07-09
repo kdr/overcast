@@ -148,6 +148,11 @@ export const IMAGE_EDITOR_SOFTWARE: readonly string[] = [
  *  a failed/untrusted result worth flagging. */
 const OK_VALIDATION_STATES = new Set(["valid", "trusted"]);
 
+/** c2pa validation status codes that denote a FAILED/untrusted result. Consulted
+ *  only when c2patool reports NO explicit validation_state verdict (older builds),
+ *  so a present valid/trusted state is never second-guessed by a benign code. */
+const FAILED_VALIDATION_CODE = /untrusted|mismatch|revoked|expired|invalid|\.missing|notvalid|fail/i;
+
 /** Forensic (flag-shaped) signal kinds — they carry an explicit confidence and
  *  are gated by the optional per-case `forensics` policy toggle. */
 const FORENSIC_KINDS = new Set<TriggerSignal["kind"]>([
@@ -271,9 +276,15 @@ export function extractSignal(rec: OvercastRecord, thresholds: TriggerThresholds
 
   if (rec.verb === "verify") {
     if (p.has_manifest !== true) return undefined; // no manifest = clean, not a lead
-    const state = typeof p.validation_state === "string" ? p.validation_state : "";
-    if (state && !OK_VALIDATION_STATES.has(state.toLowerCase())) {
-      return { kind: "verify-validation-failed", matched: state, confidence: "high" };
+    const state = typeof p.validation_state === "string" ? p.validation_state.trim() : "";
+    const codes = Array.isArray(p.validation_codes) ? (p.validation_codes.filter((c) => typeof c === "string") as string[]) : [];
+    const failedByState = state !== "" && !OK_VALIDATION_STATES.has(state.toLowerCase());
+    // No explicit verdict? fall back to the status codes so a manifest that's
+    // invalid-by-code (older c2patool) still flags, without second-guessing a
+    // present valid/trusted state.
+    const badCode = state === "" ? codes.find((c) => FAILED_VALIDATION_CODE.test(c)) : undefined;
+    if (failedByState || badCode) {
+      return { kind: "verify-validation-failed", matched: state || badCode || "invalid manifest", confidence: "high" };
     }
     const ingredients = num(p.ingredients) ?? 0; // secondary, noisier: derived media
     if (ingredients > 0) {
