@@ -10,7 +10,7 @@ import { basename, resolve, sep, isAbsolute } from "node:path";
 import { realpathContained } from "../fs-path.js";
 import { isReady, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
-import { ARCHIVE_REF_PREFIX, listBucketItems, openBucket, parseArchiveRef, resolveBucketPath } from "../archive.js";
+import { ARCHIVE_REF_PREFIX, bucketPathStatus, listBucketItems, openBucket, parseArchiveRef, resolveBucketPath } from "../archive.js";
 
 /** Whether a `--ref` string points at a real LOCAL file, for the finding/note
  *  evidence-ref guard. An absolute path is taken as-is (an explicit operator
@@ -26,7 +26,12 @@ export function refPathExists(caseDir: string, rawRef: string, home?: string): b
     const { bucket } = openBucket(parsed.bucket, home);
     return !!bucket && resolveBucketPath(bucket, parsed.item) !== undefined;
   }
-  if (isAbsolute(rawRef)) return existsSync(rawRef);
+  if (isAbsolute(rawRef)) {
+    // a raw path INTO a bucket honors the manifest like an archive: ref would —
+    // a --keep-file retirement isn't bypassable by pasting the file path
+    if (bucketPathStatus(rawRef, home).retired) return false;
+    return existsSync(rawRef);
+  }
   const p = resolve(caseDir, rawRef);
   if (p !== caseDir && !p.startsWith(caseDir + sep)) return false; // lexical ../ escape
   // existsSync/resolve are lexical + follow symlinks: re-check containment on the
@@ -111,6 +116,13 @@ export function resolveMediaRef(c: Case, ref: string, home?: string): { ref: str
     return (r.payload as Record<string, unknown>).capture_id === ref;
   });
   if (byCapture?.media?.ref) return { ref: byCapture.media.ref, recordId: byCapture.id };
+  // a raw ABSOLUTE path into a bucket honors the manifest like its archive: ref
+  // would (retired files error, live ones carry the bucket for meta.archive)
+  if (isAbsolute(ref)) {
+    const st = bucketPathStatus(ref, home);
+    if (st.retired) return { ref, error: `${ref} was retired by \`archive remove\` — re-add it with \`overcast archive add\` to restore it` };
+    if (st.bucket) return { ref, archive: st.bucket.name };
+  }
   return { ref };
 }
 

@@ -171,6 +171,22 @@ export function resolveBucketPath(bucket: BucketHandle, item: string): string | 
   return undefined;
 }
 
+/** Classify an ABSOLUTE path that may reach into a bucket's store directly
+ *  (an operator passing the raw file path instead of an `archive:` ref): which
+ *  bucket owns it, and whether the manifest retired that file. Lets the media
+ *  resolvers apply the same tombstone rule to raw paths as to archive: refs —
+ *  otherwise `archive remove --keep-file` would be bypassable by path. Cheap
+ *  for non-archive paths (one prefix compare). */
+export function bucketPathStatus(path: string, home?: string): { bucket?: BucketHandle; retired?: boolean } {
+  const root = archiveRoot(home);
+  if (!path.startsWith(root + sep)) return {};
+  const name = path.slice(root.length + 1).split(sep)[0];
+  const { bucket } = openBucket(name, home);
+  if (!bucket) return {};
+  const retired = listBucketItems(bucket, { includeRemoved: true }).some((it) => it.removed && it.path === path);
+  return { bucket, retired };
+}
+
 /** Streaming sha256 of a file — the archive's content-dedup key (media can be
  *  GBs; never readFileSync it whole). */
 export function sha256File(path: string): Promise<string> {

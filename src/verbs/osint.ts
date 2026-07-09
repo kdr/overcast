@@ -946,6 +946,11 @@ export const captureVerb: VerbSpec = {
     if (ctx.input.startsWith(ARCHIVE_REF_PREFIX)) {
       const resolved = resolveMediaRef(ctx.case, ctx.input, ctx.home);
       if (resolved.error) return [err("capture", resolved.error)];
+      // never copy an in-flight/failed item's partial file — the bucket record's
+      // state gates the pull like it gates the senses
+      if (resolved.record && !isReady(resolved.record)) {
+        return [err("capture", `${ctx.input}: record ${resolved.record.id} isn't ready (state=${resolved.record.state ?? "?"})`)];
+      }
       let sha: string | undefined;
       try {
         sha = await sha256File(resolved.ref);

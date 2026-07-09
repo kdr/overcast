@@ -326,6 +326,13 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
     // bucket — the active-case lookup would find nothing and drop the
     // origin.record / post-provenance trace of a cross-bucket copy
     const srcRec = resolved.record ?? (resolved.recordId ? ctx.case.recordById(resolved.recordId) : undefined);
+    // never archive an in-flight/failed record's partial file (--all gates the
+    // same way via isReady; explicit refs must not bypass it)
+    if (srcRec && !isReady(srcRec)) {
+      out.push(err(`archive add ${raw}: record ${srcRec.id} isn't ready (state=${srcRec.state ?? "?"}) — wait for the capture/sense to finish`));
+      failed++;
+      continue;
+    }
     const ref = resolved.ref;
     const isUrl = /^https?:\/\//i.test(ref);
     if (!isUrl && !existsSync(ref)) {

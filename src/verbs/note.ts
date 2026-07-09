@@ -76,7 +76,7 @@ export const noteVerb: VerbSpec = {
           const isUrl = /^https?:\/\//i.test(rawRef);
           // absolute path, or a case-relative path CONTAINED in the case dir (a
           // `../` escape outside the case store is rejected — no arbitrary files).
-          const isExistingPath = !isUrl && refPathExists(ctx.case.dir, rawRef);
+          const isExistingPath = !isUrl && refPathExists(ctx.case.dir, rawRef, ctx.home);
           if (!isUrl && !isExistingPath) {
             if (/^rec_/i.test(rawRef)) return [err(`--ref record not found in this case: ${rawRef}`)];
             if (/^cap_/i.test(rawRef)) return [err(`--ref capture id not found in this case: ${rawRef}`)];

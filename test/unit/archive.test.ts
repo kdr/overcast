@@ -388,6 +388,40 @@ test("archive refs gate on the BUCKET record's readiness/verb, not an active-cas
     }));
     const r = resolveVideoArg(env.c, "archive:refs/cap_pending.mp4", "watch input", { home: env.home });
     assert.match(r.error ?? "", /isn't ready/, "bucket record's pending state gates the ref");
+
+    // capture pulls and explicit archive adds gate the same way — never copy a
+    // partial in-flight file
+    const pulled = await captureVerb.run(ctx(env, "archive:refs/cap_pending.mp4"));
+    assert.match(pulled[0].error ?? "", /isn't ready/);
+    await runArchive(env, "init", ["other"]);
+    const recs = await runArchive(env, "add", ["archive:refs/cap_pending.mp4"], { to: "other" });
+    assert.match(recs[0].error ?? "", /isn't ready/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("a retired --keep-file item is blocked by RAW absolute path too, not just archive: refs", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const clip = seedFile(env, "clip.mp4", "vid-bytes");
+    const added = await runArchive(env, "add", [clip], { to: "refs" });
+    const cap = added.find((r) => r.verb === "capture")!;
+    const keptPath = String(cap.media?.ref);
+
+    // live: a raw bucket path resolves and carries the bucket (meta.archive)
+    const live = resolveMediaRef(env.c, keptPath, env.home);
+    assert.equal(live.error, undefined);
+    assert.equal(live.archive, "refs");
+
+    await runArchive(env, "remove", [cap.id], { from: "refs", "keep-file": true });
+    assert.equal(existsSync(keptPath), true);
+    const retired = resolveMediaRef(env.c, keptPath, env.home);
+    assert.match(retired.error ?? "", /retired by `archive remove`/);
+    assert.equal(refPathExists(env.caseDir, keptPath, env.home), false, "note/finding --ref path validation rejects it too");
+    // an unrelated absolute path outside the archive root is untouched
+    assert.equal(resolveMediaRef(env.c, clip, env.home).error, undefined);
   } finally {
     env.cleanup();
   }
