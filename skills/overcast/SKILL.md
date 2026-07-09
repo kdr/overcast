@@ -89,6 +89,8 @@ Built-in source refs for `source add <type>:<ref>`:
 - `x:video:<query>` / `x:image:<query>` — only X posts with native video / images (media targeting).
 - `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
 - `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
+- `dork:<google dork>` — Google dorking via Serper.dev: real Google SERPs that HONOR operators (`site:` `filetype:` `inurl:` `intitle:` `ext:` `-term` `OR`), unlike `web`. Authorized recon only.
+- `shodan:<search query>` or `shodan:<ip>` — host/service/banner intelligence via Shodan (search filters like `org:`/`net:`/`ssl:`/`port:`, or a bare IP → full host lookup). Authorized recon only.
 
 `overcast commands --json` dumps the authoritative verb registry. Full man
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —

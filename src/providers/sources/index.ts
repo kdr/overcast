@@ -129,6 +129,20 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("webcam.sh");
       return script ? { type, base: ["bash", script], needs: "WINDY_API_KEY" } : undefined;
     }
+    case "dork": {
+      // Google dorking via Serper.dev — real Google SERPs that HONOR operators
+      // (site:/filetype:/inurl:/intitle:/…), unlike `web` (Tavily/Brave), which
+      // ignore them. Fast HTTP → default exec budget. Authorized recon only.
+      const script = shippedSource("dork.sh");
+      return script ? { type, base: ["bash", script], needs: "SERPER_API_KEY" } : undefined;
+    }
+    case "shodan": {
+      // Host / service / banner intelligence via the Shodan REST API. Search
+      // filters or a bare IP (host lookup); media.ref = the shodan.io host report
+      // page. Fast HTTP → default exec budget. Authorized recon only.
+      const script = shippedSource("shodan.sh");
+      return script ? { type, base: ["bash", script], needs: "SHODAN_API_KEY" } : undefined;
+    }
     default:
       return undefined;
   }
