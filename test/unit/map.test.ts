@@ -55,6 +55,31 @@ test("buildMapModel: --since drops older dated points but keeps undated ones", (
   assert.deepEqual(refs, ["new.jpg", "undated.jpg"]);
 });
 
+test("buildMapModel: a truly-undated record (no meta.time) survives --since", () => {
+  // makeRecord stamps meta.time, so simulate a genuinely undated record by
+  // removing it — recordTimeMs then returns NaN, which the filter must keep.
+  const undated = geo({ lat: 5, lng: 5, ref: "undated.jpg" });
+  delete (undated.meta as Record<string, unknown>).time;
+  const recent = geo({ lat: 6, lng: 6, ref: "recent.jpg", time: "2026-07-01T00:00:00Z" });
+  const old = geo({ lat: 7, lng: 7, ref: "old.jpg", time: "2020-01-01T00:00:00Z" });
+  const m = buildMapModel([undated, recent, old], { ...OPTS, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") });
+  const refs = m.points.map((p) => p.ref).sort();
+  assert.deepEqual(refs, ["recent.jpg", "undated.jpg"]); // undated kept, old dropped
+});
+
+test("buildMapModel: out-of-range lat/lng are rejected (WGS84 bounds)", () => {
+  const m = buildMapModel(
+    [
+      geo({ gps: { lat: 200, lng: 10 }, ref: "badlat.jpg" }),
+      geo({ gps: { lat: 10, lng: 400 }, ref: "badlng.jpg" }),
+      geo({ lat: 45, lng: 90, ref: "ok.jpg" }),
+    ],
+    OPTS,
+  );
+  assert.equal(m.points.length, 1);
+  assert.equal(m.points[0].ref, "ok.jpg");
+});
+
 test("buildMapModel: --limit pages most-recent first, total reflects the full set", () => {
   const m = buildMapModel(
     [

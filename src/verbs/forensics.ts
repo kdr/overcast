@@ -132,9 +132,21 @@ async function enrichWithPlace(ctx: VerbContext, records: OvercastRecord[]): Pro
         signal: ctx.signal,
       });
       const place = geo.payload && typeof geo.payload === "object" ? (geo.payload as Record<string, unknown>).place : undefined;
-      if (typeof place === "string" && place) p.place = place;
-    } catch {
-      // non-fatal — the exif record stays valid without a place
+      if (typeof place === "string" && place) {
+        p.place = place;
+      } else if (geo.state === "error") {
+        // a bound-but-failing provider must not look like success — leave a hint,
+        // mirroring the unbound case, so `place: null` is never silently ambiguous.
+        p.place = null;
+        p.geocode_status = `geocode failed: ${typeof geo.error === "string" && geo.error ? geo.error : "provider error"}`;
+      } else {
+        p.place = null;
+        p.geocode_status = "geocode returned no place for these coordinates";
+      }
+    } catch (e) {
+      // non-fatal — the exif record stays valid without a place, but say why
+      p.place = null;
+      p.geocode_status = `geocode error: ${(e as Error).message}`;
     }
   }
 }

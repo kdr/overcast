@@ -59,8 +59,18 @@ function asObj(v: unknown): Record<string, unknown> | undefined {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
 }
 
-function coord(v: unknown): number | undefined {
-  return typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 360 ? v : undefined;
+function finiteNum(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+// valid WGS84 ranges — latitude ±90, longitude ±180. A looser bound would let a
+// garbage tag through and skew the map's bounds / fit calculation.
+function latOf(v: unknown): number | undefined {
+  const n = finiteNum(v);
+  return n !== undefined && Math.abs(n) <= 90 ? n : undefined;
+}
+function lngOf(v: unknown): number | undefined {
+  const n = finiteNum(v);
+  return n !== undefined && Math.abs(n) <= 180 ? n : undefined;
 }
 
 function atOf(v: unknown): number | [number, number] | null {
@@ -81,18 +91,18 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
     const p = asObj(rec.payload);
     const gps = asObj(p?.gps);
     if (!p || !gps) continue;
-    const lat = coord(gps.lat);
-    const lng = coord(gps.lng);
+    const lat = latOf(gps.lat);
+    const lng = lngOf(gps.lng);
     if (lat === undefined || lng === undefined) continue;
 
-    const t = recordTimeMs(rec) ?? 0;
+    const t = recordTimeMs(rec); // NaN when the record is undated
     const ref = rec.media?.ref ?? null;
     const point: MapPoint = {
       recordId: rec.id,
       verb: rec.verb,
       lat,
       lng,
-      altitude: coord(gps.altitude) ?? null,
+      altitude: finiteNum(gps.altitude) ?? null,
       place: typeof p.place === "string" && p.place.trim() ? p.place.trim() : null,
       at: atOf(rec.media?.at),
       ref,
@@ -103,11 +113,14 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
     all.push({ point, t });
   }
 
-  // --since: drop points older than the cutoff (undated points are kept)
-  const filtered = opts.sinceCutoff != null ? all.filter((x) => x.t === 0 || x.t >= opts.sinceCutoff!) : all;
+  // --since: drop points older than the cutoff; KEEP undated points (NaN time),
+  // matching wall.ts. `recordTimeMs` returns NaN for undated records, which `?? 0`
+  // would NOT catch — so guard NaN explicitly here and in the sort.
+  const filtered = opts.sinceCutoff != null ? all.filter((x) => Number.isNaN(x.t) || x.t >= opts.sinceCutoff!) : all;
   const total = filtered.length;
-  // most-recent first, then page to --limit
-  filtered.sort((a, b) => b.t - a.t);
+  // most-recent first; undated (NaN) points sort to the end.
+  const sortKey = (t: number) => (Number.isNaN(t) ? -Infinity : t);
+  filtered.sort((a, b) => sortKey(b.t) - sortKey(a.t));
   const limit = opts.limit != null && opts.limit > 0 ? opts.limit : filtered.length;
   const points = filtered.slice(0, limit).map((x) => x.point);
 

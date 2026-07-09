@@ -570,7 +570,10 @@ export const doctorVerb: VerbSpec = {
     // exiftool — optional system CLI backing the `exif` metadata/GPS sense.
     // Honor OVERCAST_EXIFTOOL_CMD so a custom path/wrapper is the one checked
     // (same knob the shipped exif.sh reads; lets offline tests point at a fake).
-    const exiftoolCmd = tokenizeCommand(process.env.OVERCAST_EXIFTOOL_CMD || "exiftool");
+    // Split on whitespace to MATCH the shipped exif.sh/verify.sh (`read -r -a <<<`),
+    // so a space-containing override path fails here too rather than passing the
+    // check yet breaking when the sense actually runs.
+    const exiftoolCmd = (process.env.OVERCAST_EXIFTOOL_CMD || "exiftool").trim().split(/\s+/);
     const exiftool = await execCapture(exiftoolCmd[0], [...exiftoolCmd.slice(1), "-ver"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
     checks.push({
       name: "exiftool",
@@ -581,7 +584,7 @@ export const doctorVerb: VerbSpec = {
     });
 
     // c2patool — optional system CLI backing the `verify` C2PA provenance sense.
-    const c2patoolCmd = tokenizeCommand(process.env.OVERCAST_C2PATOOL_CMD || "c2patool");
+    const c2patoolCmd = (process.env.OVERCAST_C2PATOOL_CMD || "c2patool").trim().split(/\s+/);
     const c2patool = await execCapture(c2patoolCmd[0], [...c2patoolCmd.slice(1), "--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
     checks.push({
       name: "c2patool",
