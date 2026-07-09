@@ -730,7 +730,7 @@ overcast scan --source gdelttv --query "climate summit" --since 14d       # GDEL
 overcast scan --source instagram --query @nasa --since 7d --pull           # Instagram posts/reels (Apify)
 overcast scan --source telegram --query durov --since 30d                  # public Telegram channel (Apify)
 overcast monitor --source webcam --query "48.8584,2.2945,25" --every 30m   # live Paris cams, re-captures each pass
-overcast capture "https://rumble.com/v123.html" --source dl                # any yt-dlp host, capture-only
+overcast capture "https://rumble.com/v123.html" --source dl                # any yt-dlp host (single video; scan a channel/playlist URL to enumerate)
 overcast scan --source facesearch --query ./person.jpg --pull              # opt-in reverse FACE search (ToS-gated)
 ```
 
