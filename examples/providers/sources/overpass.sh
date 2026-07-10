@@ -75,11 +75,12 @@ case "$op" in
     # kv rides into the fallback title (`key=value #<id>`) when an element has no name.
     kv=""
     case "$query" in
-      # RAW passthrough: a query that declares an OverpassQL settings block. Key ONLY
-      # on `[out:` — NOT a bare `;`, which a friendly tag VALUE can legitimately
-      # contain (e.g. `opening_hours=Mo-Fr 09:00; Sa off`) and which would otherwise
-      # mis-route the friendly form to raw. The author is responsible for `[out:json]`
-      # and a bounded `out`; a non-JSON body then surfaces as an error.
+      # RAW passthrough: an OverpassQL query. `[out:` is the definitive marker and is
+      # checked FIRST; a bare `;` (a statement terminator) is ALSO raw but is checked
+      # AFTER the friendly `@` form below, so a `;` inside a tag value
+      # (e.g. `opening_hours=Mo-Fr 09:00; Sa off@around:…`) is not mis-routed to raw.
+      # The author is responsible for `[out:json]` and a bounded `out`; a non-JSON
+      # body then surfaces as an error.
       *'[out:'*)
         ql="$query"
         ;;
@@ -115,7 +116,12 @@ case "$op" in
             esac
             ;;
         esac
-        ql="[out:json][timeout:25];(node${tagfilter}${regionfilter}${newer};way${tagfilter}${regionfilter}${newer};relation${tagfilter}${regionfilter}${newer};);out center ${limit};"
+        ql="[out:json][timeout:25];(node${tagfilter}${regionfilter}${newer};way${tagfilter}${regionfilter}${newer};relation${tagfilter}${regionfilter}${newer};);out center meta ${limit};"
+        ;;
+      # RAW (no settings block): a QL statement with a `;` but no friendly `@region`.
+      # Checked AFTER the friendly form so a `;` inside a tag value never lands here.
+      *';'*)
+        ql="$query"
         ;;
       *)
         echo "overpass: '$query' is neither raw OverpassQL nor key=value@region" >&2
@@ -149,6 +155,10 @@ case "$op" in
             url: $osm,
             source: "overpass",
             published: ($t.start_date // null),
+            # map ranks/--since-filters by payload.created — anchor to the OSM
+            # element last-edit time (meta), so an old feature scanned today does
+            # not rank as new. Same convention as exif/firms/flights/chronolocate.
+            created: (.timestamp // $t.start_date // null),
             snippet: (($t | to_entries | map(.key + "=" + (.value|tostring)))[0:6] | join(" · ")),
             osm_type: (.type // null),
             osm_id: (.id // null),

@@ -176,14 +176,16 @@ case "$op" in
     if ! resp="$(curl -fsS -m 60 "$endpoint")"; then
       echo "firms enumerate request failed for '$query' (check bbox/ISO3 and key)" >&2; exit 1
     fi
-    # A valid response is CSV whose header carries latitude/longitude. FIRMS reports
-    # bad keys / bad params as an HTTP-200 TEXT body ("Invalid MAP_KEY…"), which
-    # `curl -f` can't catch — so a body whose first line has no `latitude` is an
-    # error, not a fake-clean empty scan. A header-only CSV (no fires) → [].
-    if ! printf '%s\n' "$resp" | head -1 | grep -qi 'latitude'; then
-      echo "firms enumerate: unexpected response: $(printf '%s' "$resp" | head -c 200)" >&2
-      exit 1
-    fi
+    # A valid response is CSV whose header carries BOTH latitude and longitude as
+    # comma-separated fields. FIRMS reports bad keys / params as an HTTP-200 TEXT
+    # body ("Invalid MAP_KEY…", "Invalid latitude…") that `curl -f` can't catch —
+    # requiring both fields AND a comma rejects prose that merely mentions the word
+    # "latitude". A header-only CSV (no fires) → [].
+    header="$(printf '%s\n' "$resp" | head -1 | tr '[:upper:]' '[:lower:]')"
+    case "$header" in
+      *latitude*,*longitude*|*longitude*,*latitude*) : ;;
+      *) echo "firms enumerate: unexpected response: $(printf '%s' "$resp" | head -c 200)" >&2; exit 1 ;;
+    esac
     printf '%s' "$resp" | firms_csv_to_hits "$src" | jq -c --argjson n "$limit" '.[0:$n]'
     ;;
 
