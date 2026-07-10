@@ -48,8 +48,15 @@ function parseInstant(raw: string): { date: Date; assumedUtc: boolean } | undefi
 }
 
 /** Parse a --date (YYYY-MM-DD) reference date for solve mode; defaults to today (UTC). */
-function parseRefDate(raw: string | undefined): Date | undefined {
-  if (raw == null || String(raw).trim() === "") return new Date();
+/** Reference date for solve mode. Defaults to TODAY AT THE SITE (derived from the
+ *  longitude) so declination + the scanned solar day match the location, not the
+ *  UTC calendar date (which can be a different day near UTC midnight). An explicit
+ *  YYYY-MM-DD is read at noon UTC. */
+function parseRefDate(raw: string | undefined, lng: number): Date | undefined {
+  if (raw == null || String(raw).trim() === "") {
+    const localNow = new Date(Date.now() + (lng / 15) * 3_600_000);
+    return new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), 12, 0, 0));
+  }
   const s = String(raw).trim();
   const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00Z` : s);
   return Number.isNaN(date.valueOf()) ? undefined : date;
@@ -146,7 +153,7 @@ export const chronolocateVerb: VerbSpec = {
           : `flags + record ${sourceRecord}`;
 
     const wantVerify = ctx.opts["at-time"] != null && String(ctx.opts["at-time"]).trim() !== "";
-    const wantSolve = ctx.opts["shadow-azimuth"] != null;
+    const wantSolve = ctx.opts["shadow-azimuth"] != null && String(ctx.opts["shadow-azimuth"]).trim() !== "";
     if (wantVerify && wantSolve) return [err("pass either --at-time (verify) or --shadow-azimuth (solve), not both")];
     if (!wantVerify && !wantSolve) return [err("chronolocate needs a mode: --at-time <ISO> (verify) or --shadow-azimuth <deg> (solve)")];
 
@@ -187,6 +194,9 @@ export const chronolocateVerb: VerbSpec = {
               gps: { lat, lng },
               gps_source: gpsSource,
               at: date.toISOString(),
+              // `map` ranks/--since-filters by payload.created — anchor this point to
+              // the ANALYZED capture moment, not the ingest time (as exif does).
+              created: date.toISOString(),
               assumed_utc: assumedUtc,
               daylight,
               sun: { azimuth: round1(pos.azimuth), altitude: round1(pos.altitude) },
@@ -203,9 +213,14 @@ export const chronolocateVerb: VerbSpec = {
     }
 
     // --- SOLVE --------------------------------------------------------------
-    const shadowAz = norm360(Number(ctx.opts["shadow-azimuth"]));
-    if (!Number.isFinite(Number(ctx.opts["shadow-azimuth"]))) return [err(`invalid --shadow-azimuth ${ctx.opts["shadow-azimuth"]}`)];
-    const refDate = parseRefDate(ctx.opts.date as string | undefined);
+    // trim + validate before norm360: Number("")/Number("  ") are 0, which would
+    // otherwise pass as a due-north shadow for a programmatic caller (the CLI
+    // rejects blanks, but the verb must guard too).
+    const azRaw = String(ctx.opts["shadow-azimuth"]).trim();
+    const azNum = Number(azRaw);
+    if (azRaw === "" || !Number.isFinite(azNum)) return [err(`invalid --shadow-azimuth ${ctx.opts["shadow-azimuth"]} (expected a number of degrees)`)];
+    const shadowAz = norm360(azNum);
+    const refDate = parseRefDate(ctx.opts.date as string | undefined, lng);
     if (!refDate) return [err(`invalid --date '${ctx.opts.date}' (expected YYYY-MM-DD)`)];
 
     let heightRatio: number | undefined;
@@ -251,6 +266,8 @@ export const chronolocateVerb: VerbSpec = {
             gps: { lat, lng },
             gps_source: gpsSource,
             date: dateStr,
+            // sort/filter this estimate on `map` by the analyzed DATE, not ingest.
+            created: refDate.toISOString(),
             declination: round1(solarDeclination(refDate)),
             observed_shadow_azimuth: round1(shadowAz),
             sun_azimuth: round1(sunAz),
