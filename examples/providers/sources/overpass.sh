@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# overcast source provider: overpass (OpenStreetMap features via the Overpass API
+# — turn "every hospital / camera / fuel station / named place in this area" into
+# geolocated case records that plot on `overcast map`). No API key.
+#
+# Bind with:  overcast source add 'overpass:amenity=hospital@around:2000,48.8584,2.2945'
+#             overcast source add 'overpass:man_made=surveillance@48.85,2.34,48.87,2.36'
+#             overcast scan   --source overpass --limit 100
+#             overcast map     --no-open                 # every feature on one map
+#             overcast monitor --source overpass --every 24h
+# Refs / queries (enumerate --query):
+#   key=value@around:<radius_m>,<lat>,<lng>   — features within <radius_m> of a point
+#   key=value@<south,west,north,east>         — features inside a bbox
+#   <raw OverpassQL>                          — any query containing `[out:` or `;`
+#                                               is passed through verbatim
+# Each element becomes one hit carrying top-level gps:{lat,lng} (from the node's
+# lat/lon, or a way/relation's `out center` centroid) so the scan record plots on
+# `map`; media.ref is the openstreetmap.org element page so `capture` stores it.
+# Implements: enumerate --query <q> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
+set -uo pipefail
+API="https://overpass-api.de/api/interpreter"
+
+op="${1:-enumerate}"; shift || true
+
+case "$op" in
+  init)     exit 0 ;;  # no credentials to check (public Overpass API)
+  describe) echo '{"source":"overpass","emits":"scan.hit","needs":[]}'; exit 0 ;;
+
+  enumerate)
+    query=""; limit=50; since=""
+    while [ "$#" -gt 0 ]; do case "$1" in
+      --query) query="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --since) since="${2:-}"; shift 2 2>/dev/null || shift ;;
+      *) shift ;;
+    esac; done
+    if [ -z "$query" ]; then
+      echo "overpass enumerate needs a query: bind overpass:<key=value@region> or pass --query" >&2
+      exit 1
+    fi
+    # sane bounds; a dense tag over a wide area can return tens of thousands.
+    case "$limit" in ''|*[!0-9]*) limit=50 ;; esac
+    [ "$limit" -gt 1000 ] 2>/dev/null && limit=1000
+    [ "$limit" -lt 1 ] 2>/dev/null && limit=1
+
+    # honor --since → an OSM `(newer:"<ISO>")` filter (only elements edited after the
+    # cutoff). Portable epoch→stamp: BSD date uses `-r <epoch>`, GNU date uses
+    # `-d @<epoch>` (mirrors wayback.sh/gdelttv.sh). Applied only to the friendly
+    # form (raw OverpassQL is passed through untouched — the author owns its filters).
+    newer=""
+    if [ -n "$since" ]; then
+      now="$(date -u +%s)"; cutepoch=""
+      case "$since" in
+        *[0-9]m) cutepoch=$(( now - ${since%m} * 60 )) ;;
+        *[0-9]h) cutepoch=$(( now - ${since%h} * 3600 )) ;;
+        *[0-9]d) cutepoch=$(( now - ${since%d} * 86400 )) ;;
+        *[0-9]w) cutepoch=$(( now - ${since%w} * 604800 )) ;;
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+          cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')" ;;
+        # an unparseable --since is a hard error (fail closed): don't silently drop
+        # the recency filter and return the full, unfiltered feature set.
+        *) echo "overpass: could not parse --since '$since' (use Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
+      esac
+      [ -n "$cutepoch" ] || { echo "overpass: could not parse --since '$since'" >&2; exit 1; }
+      iso="$(date -u -r "$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '')"
+      [ -n "$iso" ] || { echo "overpass: could not format --since '$since' into an ISO timestamp" >&2; exit 1; }
+      newer="(newer:\"$iso\")"
+    fi
+
+    # kv rides into the fallback title (`key=value #<id>`) when an element has no name.
+    kv=""
+    case "$query" in
+      # RAW passthrough: any query that already looks like OverpassQL (has a settings
+      # block or statement terminators). Sent verbatim — the author is responsible for
+      # `[out:json]` and a bounded `out`; a non-JSON body then surfaces as an error.
+      *'[out:'*|*';'*)
+        ql="$query"
+        ;;
+      # FRIENDLY form: key=value@region → expand to OverpassQL over node/way/relation
+      # with `out center` so ways/relations get a centroid lat/lon.
+      *'@'*)
+        tagpart="${query%%@*}"
+        region="${query#*@}"
+        [ -n "$tagpart" ] || { echo "overpass: empty tag in '$query' (expected key=value@region)" >&2; exit 1; }
+        [ -n "$region" ] || { echo "overpass: empty region in '$query' (expected key=value@region)" >&2; exit 1; }
+        case "$tagpart" in
+          *'='*) key="${tagpart%%=*}"; value="${tagpart#*=}"; kv="$key=$value"; tagfilter="[\"$key\"=\"$value\"]" ;;
+          *)     key="$tagpart"; kv="$key"; tagfilter="[\"$key\"]" ;;   # key-only: any value
+        esac
+        case "$region" in
+          around:*)
+            around="${region#around:}"    # radius_m,lat,lng
+            # require the three comma-separated parts so a typo fails fast, not as a
+            # confusing Overpass 400.
+            case "$around" in
+              *,*,*) regionfilter="(around:$around)" ;;
+              *) echo "overpass: around needs radius,lat,lng (got 'around:$around')" >&2; exit 1 ;;
+            esac
+            ;;
+          *)
+            # bbox: south,west,north,east
+            case "$region" in
+              *,*,*,*) regionfilter="($region)" ;;
+              *) echo "overpass: bbox needs south,west,north,east (got '$region')" >&2; exit 1 ;;
+            esac
+            ;;
+        esac
+        ql="[out:json][timeout:25];(node${tagfilter}${regionfilter}${newer};way${tagfilter}${regionfilter}${newer};relation${tagfilter}${regionfilter}${newer};);out center ${limit};"
+        ;;
+      *)
+        echo "overpass: '$query' is neither raw OverpassQL nor key=value@region" >&2
+        exit 1
+        ;;
+    esac
+
+    # POST the QL as form field `data=` (Overpass's documented interface).
+    if ! run="$(curl -fsS -m 90 --data-urlencode "data=$ql" "$API")"; then
+      echo "overpass enumerate request failed for '$query'" >&2; exit 1
+    fi
+    # A valid response is a JSON object with an `elements` array; zero matches come
+    # back as {"elements":[]} → maps to []. A non-JSON body (e.g. an HTML 429/400 or
+    # raw QL that forgot [out:json]) is a failure, not a fake-clean empty scan.
+    if ! printf '%s' "$run" | jq -e 'type == "object" and has("elements")' >/dev/null 2>&1; then
+      echo "overpass enumerate: unexpected response (need [out:json]?): $(printf '%s' "$run" | head -c 200)" >&2
+      exit 1
+    fi
+    printf '%s' "$run" | jq -c --arg kv "$kv" --argjson n "$limit" '
+      [ (.elements // [])[]
+        # gps from a node lat/lon, or a way/relation `out center` centroid; an
+        # element with neither (rare) is dropped so every hit carries a plottable point.
+        | (if (.lat != null and .lon != null) then { lat: .lat, lng: .lon }
+           elif (.center.lat != null and .center.lon != null) then { lat: .center.lat, lng: .center.lon }
+           else null end) as $gps
+        | select($gps != null)
+        | (.tags // {}) as $t
+        | ("https://www.openstreetmap.org/" + (.type // "node") + "/" + (.id|tostring)) as $osm
+        | {
+            title: ($t.name // (if $kv != "" then ($kv + " #" + (.id|tostring)) else ((.type // "node") + " #" + (.id|tostring)) end)),
+            url: $osm,
+            source: "overpass",
+            published: ($t.start_date // null),
+            snippet: (($t | to_entries | map(.key + "=" + (.value|tostring)))[0:6] | join(" · ")),
+            osm_type: (.type // null),
+            osm_id: (.id // null),
+            gps: $gps,
+            tags: $t,
+            media: { ref: $osm }
+          }
+      ] | .[0:$n]'
+    ;;
+
+  fetch)
+    url=""; out=""
+    while [ "$#" -gt 0 ]; do case "$1" in
+      --url) url="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --out) out="${2:-}"; shift 2 2>/dev/null || shift ;;
+      *) shift ;;
+    esac; done
+    [ -n "$url" ] || { echo "overpass fetch needs --url" >&2; exit 1; }
+    # a hit's ref is an openstreetmap.org element page — curl it as evidence and
+    # report the kind by content type (overcast sniffs a missing extension).
+    if ! ct="$(curl -fsSL -m 60 -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+      echo "overpass fetch failed for $url" >&2; rm -f "$out"; exit 1
+    fi
+    case "$ct" in
+      image/*)          kind="image" ;;
+      video/*)          kind="video" ;;
+      text/html*|"")    kind="page" ;;
+      *)                kind="file" ;;
+    esac
+    jq -nc --arg p "$out" --arg k "$kind" --arg u "$url" '{kind:$k,path:$p,source:"overpass",url:$u}'
+    ;;
+
+  *) echo "overpass source: unknown op (expected enumerate|fetch|init|describe)" >&2; exit 2 ;;
+esac
