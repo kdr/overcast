@@ -118,8 +118,8 @@ case "$op" in
     # normalize each dataset item defensively — try common field names for the
     # matched page url / title / thumbnail / match kind, and keep only items that
     # carry a real absolute http(s) page link (an actionable, fetchable hit).
-    items="$(printf '%s' "$run" | jq -c --argjson n "$limit" --arg self "$query" '
-      def canon: (. // "") | ascii_downcase | sub("^https?://";"") | sub("/+$";"");
+    if ! items="$(printf '%s' "$run" | jq -c --argjson n "$limit" --arg self "$query" '
+      def canon: (if type == "string" then . else "" end) | ascii_downcase | sub("^https?://";"") | sub("[?#].*$";"") | sub("/+$";"");
       [ .[]
         | ($self | canon) as $selfc
         # never echo the submitted query image back as a hit. Pick PAGE as the first
@@ -140,7 +140,10 @@ case "$op" in
         # capture/--pull cannot fetch the query image back.
         | (if (.thumb | canon) == $selfc then .thumb = "" else . end)
         | select(.page != "") ]
-      | .[0:$n]')"
+      | .[0:$n]')"; then
+      echo "yandeximg: failed to normalize actor output for '$query'" >&2
+      exit 1
+    fi
     n="$(printf '%s' "$items" | jq 'length')"
     hits="[]"
     i=0
