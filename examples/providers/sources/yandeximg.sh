@@ -116,7 +116,7 @@ case "$op" in
       [ .[]
         | { page:  (.url // .link // .pageUrl // .sourceUrl // .documentUrl // .href // ""),
             title: (.title // .name // .description // ""),
-            thumb: (.thumbnail // .thumbnailUrl // .imageUrl // .image // .img // ""),
+            thumb: (.thumbnail // .thumbnailUrl // .img // ""),
             snippet: (.description // .snippet // .text // ""),
             match: (.matchType // .match // "visual"),
             site:  (.displayLink // .source // .domain // null) }

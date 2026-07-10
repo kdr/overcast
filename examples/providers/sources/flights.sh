@@ -74,10 +74,15 @@ map_states() {
         | ($s[10]) as $track
         | ($s[13]) as $geo
         | ("https://opensky-network.org/aircraft-profile?icao24=" + $icao) as $page
-        # tag the state time onto a URL fragment so each position of the SAME
-        # aircraft is a distinct monitor identity (hitKey keys on payload.url);
-        # the fragment is inert to fetch (curl drops it), like the shodan port frag.
-        | ($page + (if $tpos != null then ("#t" + ($tpos | floor | tostring)) else "" end)) as $url
+        # tag a per-fix token onto a URL fragment so each position of the SAME
+        # aircraft is a distinct monitor identity (hitKey keys on payload.url); the
+        # fragment is inert to fetch (curl drops it), like the shodan port frag.
+        # Prefer time_position, fall back to last_contact ($s[4]), and if BOTH are
+        # null still stay distinct via the position itself (which changes per poll)
+        # — otherwise a null-time aircraft would dedupe to one point and no track.
+        | ($page + (if $tpos != null then "#t" + ($tpos | floor | tostring)
+                    elif ($s[4] != null) then "#t" + ($s[4] | floor | tostring)
+                    else "#p" + ($lat | tostring) + "," + ($lng | tostring) end)) as $url
         | {
             title: ((if $call == "" then "?" else $call end) + " (" + $icao + ") " + $country),
             url: $url,
@@ -139,7 +144,9 @@ case "$op" in
     # filter client-side — an all-states pull is large and, anonymously, the
     # first thing OpenSky rate-limits, so a bbox is strongly preferred).
     url="$STATES"
-    IFS=',' read -r bw bs be bn bx <<<"$query"
+    # strip spaces so a spaced bbox ("2.0, 48.5, 2.8, 49.0") is still recognized as
+    # four numbers instead of falling through to a global callsign fetch.
+    IFS=',' read -r bw bs be bn bx <<<"${query// /}"
     if [ -z "${bx:-}" ] && is_num "$bw" && is_num "$bs" && is_num "$be" && is_num "$bn"; then
       url="$STATES?lamin=$bs&lomin=$bw&lamax=$bn&lomax=$be"
     elif [[ "$query" =~ ^[0-9a-fA-F]{6}$ ]]; then
