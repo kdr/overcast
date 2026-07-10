@@ -20,6 +20,11 @@
 set -uo pipefail
 API="https://overpass-api.de/api/interpreter"
 
+# escape a tag key/value for safe embedding inside OverpassQL double quotes — an
+# OSM value containing `"` or `\` would otherwise break or alter the generated
+# query. Backslash first, then the quote, so the added backslash is not doubled.
+esc_ql() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
+
 op="${1:-enumerate}"; shift || true
 
 case "$op" in
@@ -79,13 +84,16 @@ case "$op" in
       # FRIENDLY form: key=value@region → expand to OverpassQL over node/way/relation
       # with `out center` so ways/relations get a centroid lat/lon.
       *'@'*)
-        tagpart="${query%%@*}"
-        region="${query#*@}"
+        # split on the LAST @: the region spec (around:… or a bbox) never contains
+        # an @, but a tag VALUE legitimately can (e.g. contact:email=user@example.com),
+        # so splitting on the first @ would mis-parse the region.
+        tagpart="${query%@*}"
+        region="${query##*@}"
         [ -n "$tagpart" ] || { echo "overpass: empty tag in '$query' (expected key=value@region)" >&2; exit 1; }
         [ -n "$region" ] || { echo "overpass: empty region in '$query' (expected key=value@region)" >&2; exit 1; }
         case "$tagpart" in
-          *'='*) key="${tagpart%%=*}"; value="${tagpart#*=}"; kv="$key=$value"; tagfilter="[\"$key\"=\"$value\"]" ;;
-          *)     key="$tagpart"; kv="$key"; tagfilter="[\"$key\"]" ;;   # key-only: any value
+          *'='*) key="${tagpart%%=*}"; value="${tagpart#*=}"; kv="$key=$value"; tagfilter="[\"$(esc_ql "$key")\"=\"$(esc_ql "$value")\"]" ;;
+          *)     key="$tagpart"; kv="$key"; tagfilter="[\"$(esc_ql "$key")\"]" ;;   # key-only: any value
         esac
         case "$region" in
           around:*)
