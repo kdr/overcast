@@ -219,9 +219,13 @@ function renderSynthesis(syn: TimelineSynthesis | undefined): string {
     findings: tldrNext,
   });
   const hasThreads = !!syn.threads?.length;
+  // "every finding is linked" only when linked findings actually exist — with
+  // no findings anywhere the honest empty state is "none recorded" (same copy
+  // rule as the markdown brief)
+  const linkedAny = (syn.threads ?? []).some((t) => t.findingCounts.accepted + t.findingCounts.open + t.findingCounts.suggested > 0);
   const findings = syn.findings.length
     ? `${hasThreads ? `<p class="meta">not linked to a line of investigation</p>` : ""}${findingListHtml(syn.findings)}`
-    : `<p class="meta">${hasThreads ? "none — every finding is linked to a line above" : "none recorded"}</p>`;
+    : `<p class="meta">${hasThreads && linkedAny ? "none — every finding is linked to a line above" : "none recorded"}</p>`;
   return `${tldr}
     ${renderThreadCards(syn.threads)}
     ${renderTriagePanel(syn.triage)}

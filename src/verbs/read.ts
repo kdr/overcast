@@ -395,27 +395,27 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
 
   // Findings not attached to any line of investigation (all of them, when no
   // lines exist) — linked findings already render inside their thread above.
+  // The section ALWAYS renders with an explicit empty state (md and the CSI
+  // export must tell the same story): "every finding is linked" is a result.
   const linkedIds = new Set(opts.pulse.threads.flatMap((t) => t.findingIds));
   const ranked = rankFindings(synthesis.findings);
   const unattached = ranked.filter((f) => !linkedIds.has(f.id));
-  const heading = opts.pulse.threads.length ? "## Other findings" : "## Key findings";
-  if (unattached.length || !opts.pulse.threads.length) {
-    lines.push(heading, "");
+  const linkedAny = opts.pulse.threads.some((t) => t.findings.accepted + t.findings.open + t.findings.suggested > 0);
+  lines.push(opts.pulse.threads.length ? "## Other findings" : "## Key findings", "");
+  if (unattached.length) {
     if (opts.pulse.threads.length) {
       lines.push("_not linked to a line of investigation — attribute with `overcast finding accept <id> --target <target>`_", "");
     }
-    if (unattached.length) {
-      for (const f of unattached.slice(0, 8)) {
-        const conf = f.confidence != null ? ` (confidence: ${f.confidence})` : "";
-        lines.push(`- \`${f.id}\` [${f.status}]${conf} ${f.text}`);
-        for (const ref of f.overlays ?? []) lines.push(`  ![match overlay](${ref})`);
-      }
-      if (unattached.length > 8) lines.push(`- …and ${unattached.length - 8} more`);
-    } else {
-      lines.push("- none recorded");
+    for (const f of unattached.slice(0, 8)) {
+      const conf = f.confidence != null ? ` (confidence: ${f.confidence})` : "";
+      lines.push(`- \`${f.id}\` [${f.status}]${conf} ${f.text}`);
+      for (const ref of f.overlays ?? []) lines.push(`  ![match overlay](${ref})`);
     }
-    lines.push("");
+    if (unattached.length > 8) lines.push(`- …and ${unattached.length - 8} more`);
+  } else {
+    lines.push(linkedAny ? "- none — every finding is linked to a line above" : "- none recorded");
   }
+  lines.push("");
 
   const triage = triageRows(caseRecords, statusByFinding);
   lines.push(...renderTriageMd(triage, triage.length));
