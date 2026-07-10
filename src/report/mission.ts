@@ -105,8 +105,11 @@ export function briefDelta(records: OvercastRecord[], now = Date.now()): string 
   const evidence = memoryRecords(records).filter((r) => r.verb !== "finding" && newer(r)).length;
   const statusMap = findingStatusMap(records);
   const newRoots = records.filter((r) => isRootFindingRecord(r) && newer(r));
-  const suggestions = newRoots.filter((f) => (statusMap.get(f.id) ?? "open") === "suggested").length;
-  const findings = newRoots.length - suggestions;
+  const effective = (f: OvercastRecord) => statusMap.get(f.id) ?? "open";
+  const suggestions = newRoots.filter((f) => effective(f) === "suggested").length;
+  // only live evidence counts as "+N findings" — a post-brief create+dismiss is
+  // a rejection, not new evidence, and must not inflate the catch-up line
+  const findings = newRoots.filter((f) => effective(f) === "accepted" || effective(f) === "open").length;
   const parts: string[] = [];
   if (evidence) parts.push(`+${evidence} record${evidence === 1 ? "" : "s"}`);
   if (findings) parts.push(`+${findings} finding${findings === 1 ? "" : "s"}`);

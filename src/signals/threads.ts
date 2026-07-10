@@ -145,9 +145,16 @@ function findingLinksTarget(finding: OvercastRecord, target: TargetEntry, stampe
   // a finding stamped onto line A must not also text-match onto line B.
   if (stampedTargetId) return stampedTargetId === target.id;
   const p = payloadOf(finding);
-  if (typeof p.target === "string" && p.target.length > 0 && p.target === target.value) return true;
-  // unstamped: fall back to the same text matcher evidence uses, so a manual
-  // finding that names the target value lands on its line.
+  // a declared target VALUE is authoritative both ways too — a trigger lead
+  // attributed to line A must not also text-match onto line B.
+  const declared = typeof p.target === "string" ? p.target : "";
+  if (declared) return declared === target.value;
+  // completely unattributed: fall back to the text matcher for HUMAN findings
+  // only ("a manual finding that names the target value lands on its line").
+  // Machine suggestion copy embeds media basenames (mediaName), so a name
+  // target whose value appears in a FILENAME would false-link a score lead.
+  const trigger = typeof p.trigger === "string" ? p.trigger : "";
+  if (trigger && trigger !== "human") return false;
   return typeof p.text === "string" && targetMatchesEvidence(target.value, p.text);
 }
 
@@ -219,8 +226,11 @@ export function buildThreads(records: OvercastRecord[], targets: TargetEntry[], 
       matches: linkedEvidence.filter((r) => MATCH_VERBS.has(r.verb)).length,
     };
 
-    // activity = linked evidence + linked findings (leads count as activity)
-    const activity = [...linkedEvidence, ...linkedFindings];
+    // activity = linked evidence + LIVE linked findings (leads count as
+    // activity; a DISMISSED lead is triage noise — it stays in the audit count
+    // above but must not make a cold line read "last activity 5m ago")
+    const liveFindings = linkedFindings.filter((f) => (statusMap.get(f.id) ?? "open") !== "dismissed");
+    const activity = [...linkedEvidence, ...liveFindings];
     const times = activity.map(timeOf);
     const lastMs = times.length ? Math.max(...times) : 0;
     const recentDay = times.filter((t) => t > 0 && now - t <= DAY_MS).length;
