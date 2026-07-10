@@ -69,7 +69,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `src/registry/verbs.ts`; the CLI subcommand, the pi AgentTool, and the skill doc
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
-   (`watch/listen/see/face/image/audio/voice/similar/enhance/exif/verify/screenshot`), **source**
+   (`watch/listen/see/face/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot`), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
    gdelttv, webcam, facesearch, dork, shodan, browser), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
@@ -141,6 +141,15 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   ffmpeg ops, a bound restore model, or the split ops `--ops separate` = per-speaker
   tracks + optional `--summarize`, and `--ops segment --prompt` = text-prompted
   masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact),
+  `reconstruct` (SPECULATIVE scene reconstruction from a still or `--at` video
+  frame via a bound generative provider — fal toolbox: `--rotate/--elevate/--zoom`
+  camera reposition + `--ops sweep` 360° stops → contact sheet + turntable mp4
+  (Qwen-2511 multi-angle), `--ops model` image→3D GLB (Trellis/Hunyuan via the
+  fal QUEUE API) rendered in an embedded no-dep WebGL orbit viewer, `--ops depth`
+  Depth-Anything map → drag-parallax viewer; same outputs[] fan-out as enhance;
+  EVERY record carries `payload.caveat` and the verb is in `OPERATIONAL_VERBS` —
+  viewable/chainable but NEVER ask/brief evidence or findings input; no builtin,
+  bind `provider setup apply --verb reconstruct --choice fal`),
   `exif` (ExifTool metadata/GPS on image **or** video → `payload.gps{lat,lng}`
   (WGS84-validated at the provider), capture time, device, editing software,
   camera `serial`/`lens` (device-linking fingerprint), dimensions; shipped
@@ -300,7 +309,9 @@ exif verify` + root `finding`s + `cluster` ingest/identify) through
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
-prebrief wall grid`, finding review-rows, dismissed **and suggested** findings (a
+prebrief wall grid reconstruct` — reconstruct deliberately: synthesized pixels
+stay out of evidence, `payload.caveat` on every record —, finding review-rows,
+dismissed **and suggested** findings (a
 suggested lead is quarantined until `finding accept` promotes it), cluster DB
 reads/maintenance `list/show/view/label/recluster`) are excluded even when they
 match the query. `face`/`see`/`image`/`audio`/`voice`/`similar`/`cluster` detections index only
