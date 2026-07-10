@@ -749,10 +749,15 @@ either. Every hostname is re-resolved per request (no verdict is cached) and fai
 closed per attempt, mirroring `assertFetchHostAllowed` — so a DNS rebind on a later
 hop is caught, and a transient resolver glitch blocks only that one request rather
 than wedging a public host for the whole render. Opt out only with an affirmative
-`OVERCAST_ALLOW_PRIVATE_FETCH` (same knob as `fetchMediaToCase`). Rendered pages
+`OVERCAST_ALLOW_PRIVATE_FETCH` (same knob as `fetchMediaToCase`). A local `.html`
+input renders via `file://`, and its `file:` subresources are confined to the
+file's **own directory subtree** (symlinks resolved) — an untrusted export can't
+pull `file:///etc/passwd` or another case's media into the render. Rendered pages
 are untrusted content (invariant #10, prompt-injection surface) — a capture may
 also be a bot-challenge or login wall, and that rendered state is still the
-evidence. Element (`--selector`) and video capture are not yet supported
+evidence. The engine also self-limits its runtime and force-closes Chromium on a
+timeout or catchable signal, so a hung render / parent timeout doesn't orphan a
+headless browser. Element (`--selector`) and video capture are not yet supported
 (reserved).
 
 ## Source providers (built-in types)

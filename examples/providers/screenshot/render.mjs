@@ -24,14 +24,20 @@
 // semantics, same accepted DNS-rebind TOCTOU residual as the fetch guard.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
-import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { lookup } from "node:dns/promises";
 
 const NAV_TIMEOUT_DEFAULT = 30_000;
 const NAV_TIMEOUT_MAX = 120_000;
 const WAIT_MAX = 15_000;
+// Overall self-imposed ceiling. The parent (runExecProvider/fetchSource) SIGKILLs
+// this process when its budget (≥180s) expires — and SIGKILL can't run the
+// finally that closes Chromium, orphaning the browser. So bound our own runtime
+// comfortably UNDER that: finish or force-kill the browser and exit first. Capped
+// at 165s (< the 180s verb budget); normally sized to nav+wait+slack per render.
+const HARD_CAP_MAX = 165_000;
 const VIEWPORT_DEFAULT = { width: 1280, height: 800 };
 const VIEWPORT_MIN = 320;
 const VIEWPORT_MAX = 4096;
@@ -201,9 +207,55 @@ async function hostBlocked(host) {
   }
 }
 
+/** Is a file: URL confined to the local input's directory subtree? Blocks a local
+ *  .html from reading absolute file:// paths (/etc/passwd, a sibling case's media,
+ *  …) into the render. Resolves symlinks so a link inside the dir can't escape it. */
+function fileWithinLocalDir(parsedUrl, localDirReal) {
+  if (!localDirReal) return false; // not a local input → no file: allowed
+  let p;
+  try {
+    p = fileURLToPath(parsedUrl);
+  } catch {
+    return false;
+  }
+  let real;
+  try {
+    real = realpathSync(p); // follow symlinks where the target exists
+  } catch {
+    real = resolve(p); // nonexistent target → lexical (will 404, but stays contained)
+  }
+  return real === localDirReal || real.startsWith(localDirReal + sep);
+}
+
 // ---------------------------------------------------------------------------
+// Browser lifecycle: track the live browser so we can kill it even on paths that
+// don't unwind through the `finally` — a catchable signal (SIGTERM/SIGHUP/SIGINT
+// from the parent or a Ctrl-C) or the self-watchdog. SIGKILL can't be caught, so
+// the watchdog exiting BEFORE the parent's budget is what prevents that orphan.
+
+let activeBrowser = null;
+
+/** Synchronously kill the browser PROCESS (not a graceful async close — usable
+ *  from a signal handler / just before process.exit, where awaiting isn't safe). */
+function killBrowserSync() {
+  const b = activeBrowser;
+  activeBrowser = null;
+  try {
+    b?.process()?.kill("SIGKILL");
+  } catch {
+    /* already gone */
+  }
+}
+
+for (const s of ["SIGTERM", "SIGHUP", "SIGINT"]) {
+  process.on(s, () => {
+    killBrowserSync();
+    process.exit(1);
+  });
+}
 
 function fail(msg, code = 1) {
+  killBrowserSync();
   process.stderr.write(`${msg}\n`);
   process.exit(code);
 }
@@ -246,6 +298,7 @@ async function main() {
   const isHttp = /^https?:\/\//i.test(args.input);
   let target;
   let localInput = false;
+  let localDirReal = null; // realpath'd dir the local .html lives in — the file: sandbox root
   if (isHttp) {
     let parsed;
     try {
@@ -261,7 +314,12 @@ async function main() {
     const p = isAbsolute(args.input) ? args.input : resolve(args.input);
     if (!existsSync(p)) fail(`render.mjs: file not found: ${p}`);
     if (!/\.x?html?$/i.test(extname(p))) fail(`render.mjs: local input must be an .html file (got ${basename(p)})`);
-    target = pathToFileURL(p).href;
+    // realpath so the containment check on file: subresources can't be escaped
+    // via a symlinked input dir; the .html's directory is the ONLY subtree its
+    // file:// assets may read from (see the route handler).
+    const real = realpathSync(p);
+    localDirReal = dirname(real);
+    target = pathToFileURL(real).href;
     localInput = true;
   }
 
@@ -273,6 +331,12 @@ async function main() {
   const rawOut = args.out ?? defaultOutPath(args.input, !!args.fullPage, viewport);
   const out = /\.png$/i.test(rawOut) ? rawOut : `${rawOut}.png`;
   mkdirSync(dirname(out), { recursive: true });
+
+  // Self-watchdog: bound the whole render to nav+wait+slack (capped at HARD_CAP_MAX,
+  // < the parent budget) so we force-kill the browser and exit before the parent
+  // can SIGKILL us and orphan Chromium. fail() runs killBrowserSync().
+  const hardCap = Math.min(timeout + wait + 20_000, HARD_CAP_MAX);
+  const watchdog = setTimeout(() => fail(`screenshot: render exceeded ${hardCap}ms — aborted`, 1), hardCap);
 
   // Playwright is optional (package.json optionalDependencies) — resolved from
   // this script's location (the package's node_modules). Missing install →
@@ -291,6 +355,7 @@ async function main() {
   try {
     try {
       browser = await chromium.launch({ headless: true });
+      activeBrowser = browser; // now killable by the watchdog / signal handlers
     } catch (e) {
       const msg = String(e && e.message ? e.message : e);
       // playwright installed but the browser payload missing → same setup-gap code
@@ -303,8 +368,7 @@ async function main() {
     // per-request half of the SSRF guard.
     const context = await browser.newContext({ viewport, serviceWorkers: "block" });
     // Per-request guard: navigation redirects, meta-refresh, JS redirects, and
-    // subresources all pass through here. file:// subrequests are allowed only
-    // when the INPUT was a local file; other schemes (data:, blob:, about:) are
+    // subresources all pass through here. Other schemes (data:, blob:, about:) are
     // inert for SSRF purposes.
     await context.route("**/*", async (route) => {
       const u = route.request().url();
@@ -318,7 +382,10 @@ async function main() {
         if (await hostBlocked(parsed.hostname)) return route.abort();
         return route.continue();
       }
-      if (parsed.protocol === "file:") return localInput ? route.continue() : route.abort();
+      // file:// only for a local .html input, and ONLY within that file's own
+      // directory subtree — an untrusted export must not pull `file:///etc/passwd`
+      // or other absolute paths into the render (and thus the PNG evidence).
+      if (parsed.protocol === "file:") return fileWithinLocalDir(parsed, localDirReal) ? route.continue() : route.abort();
       return route.continue();
     });
     // WebSocket guard: context.route above does NOT intercept ws/wss — a rendered
@@ -392,7 +459,9 @@ async function main() {
       );
     }
   } finally {
+    clearTimeout(watchdog);
     if (browser) await browser.close().catch(() => {});
+    activeBrowser = null;
   }
 }
 
