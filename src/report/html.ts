@@ -483,6 +483,71 @@ export function renderEnhanceGallery(r: EnhanceGalleryReport): string {
   return csiShell(r.title, r.subtitle, `${stats}${overlaps}${empty}<section class="grid">${origCard}${cards}</section>`);
 }
 
+export interface ReconstructGalleryView {
+  ref: string;
+  rotate?: number; // azimuth degrees
+  elevate?: number;
+  zoom?: number;
+}
+export interface ReconstructGalleryReport {
+  op: string; // "view" | "sweep"
+  title: string;
+  subtitle?: string;
+  /** the non-negotiable speculative banner — rendered loud, never omitted */
+  caveat: string;
+  sourceRef?: string; // the real captured frame the reconstruction started from
+  model?: string;
+  views: ReconstructGalleryView[];
+  sheet?: string; // sweep contact-sheet png
+  turntable?: string; // sweep turntable mp4
+}
+
+/** Render a self-contained HTML gallery for a `reconstruct` view/sweep parent:
+ *  the REAL source frame beside every synthesized camera stop (az/el/zoom
+ *  labeled), plus the sweep's contact sheet and turntable video. The caveat
+ *  banner leads the page — synthesized imagery must never read as a capture. */
+export function renderReconstructGallery(r: ReconstructGalleryReport): string {
+  const banner = `<section class="panel" style="border-color:var(--amber)"><p class="summary" style="color:var(--amber);text-transform:uppercase">⚠ ${escapeHtml(r.caveat)}</p></section>`;
+  const stats = `<section class="stats" aria-label="reconstruct stats">
+    <div><span class="label">OP</span><strong>${escapeHtml(r.op)}</strong></div>
+    <div><span class="label">SYNTHESIZED STOPS</span><strong>${r.views.length}</strong></div>
+    <div><span class="label">MODEL</span><strong>${escapeHtml(r.model ?? "—")}</strong></div>
+  </section>`;
+
+  const origSrc = r.sourceRef ? imageSrc(r.sourceRef) : undefined;
+  const origCard = origSrc
+    ? `<article class="card"><div class="card-head"><span class="verb">SOURCE</span><span class="media">captured frame (real)</span></div><img class="embed" alt="source frame" src="${origSrc}"></article>`
+    : "";
+
+  const camBits = (v: ReconstructGalleryView) =>
+    [
+      v.rotate !== undefined ? `<span class="state">az ${Math.round(v.rotate)}°</span>` : "",
+      v.elevate !== undefined ? `<span class="cyan">el ${Math.round(v.elevate)}°</span>` : "",
+      v.zoom !== undefined ? `<span class="media">zoom ${v.zoom}</span>` : "",
+    ].join("");
+  const viewCards = r.views.map((v, i) => {
+    const src = imageSrc(v.ref);
+    const img = src
+      ? `<img class="embed" alt="synthesized view ${i + 1}" src="${src}">`
+      : `<p class="meta">image missing: ${escapeHtml(v.ref.split("/").pop() ?? v.ref)}</p>`;
+    return `<article class="card"><div class="card-head"><span class="verb">SYNTHESIZED</span>${camBits(v)}</div>${img}</article>`;
+  }).join("");
+
+  const sheetSrc = r.sheet ? imageSrc(r.sheet) : undefined;
+  const sheetCard = sheetSrc
+    ? `<section class="panel"><h2>Sweep contact sheet</h2><img class="embed" style="max-width:100%;max-height:none" alt="sweep contact sheet" src="${sheetSrc}"></section>`
+    : "";
+  const turnUrl = r.turntable ? localMediaUrl(r.turntable) : undefined;
+  const turnCard = turnUrl
+    ? `<section class="panel"><h2>Turntable</h2><video class="embed" controls loop preload="none" src="${escapeHtml(turnUrl)}"></video></section>`
+    : "";
+
+  const empty = r.views.length === 0
+    ? `<section class="panel"><p class="meta">No synthesized views to show.</p></section>` : "";
+
+  return csiShell(r.title, r.subtitle, `${banner}${stats}${empty}<section class="grid">${origCard}${viewCards}</section>${sheetCard}${turnCard}`);
+}
+
 function csiShell(title: string, subtitle: string | undefined, body: string): string {
   return `<!doctype html><html><head><meta charset="utf-8">${reportCsp()}<title>${escapeHtml(title)}</title>
 <style>

@@ -338,11 +338,39 @@ Options:
 
 Emits `media.enhanced` records.
 
+### `overcast reconstruct`
+
+Scene reconstruction: hold the camera at a captured moment, then move it. Give an image (or a video + --at to pick the frame) and either camera moves — `--rotate <deg>` (0 front / 90 right / 180 behind, negative = left) with optional `--elevate <-30..90>` and `--zoom <0..10>` — or an op: `--ops sweep` synthesizes --count camera stops around 360° and assembles a labeled contact sheet + turntable video, `--ops model` lifts a textured 3D mesh (GLB) you can orbit in the built-in viewer, `--ops depth` estimates a depth map rendered as a drag-to-parallax hologram. Every output is GENERATIVE — synthesized pixels stamped with payload.caveat, excluded from ask/brief evidence and findings triggers; use it to form hypotheses (what's around the corner? what would a second camera have seen?), then verify with real captures. Needs a bound provider (no built-in): `overcast provider setup apply --verb reconstruct --choice fal --yes` (FAL_KEY). `view <record-id>` reopens the gallery / 3D orbit / parallax viewer; --view opens it immediately.
+
+```
+overcast reconstruct <input> [options]
+
+  Speculatively reposition the camera in a still (rotate/elevate/zoom, turntable sweep, 3D model, depth) via a bound generative provider — a hypothesis renderer, never evidence.
+
+Arguments:
+  input            Image (or video with --at) — path, record id, frame://rec@sec, or archive:<bucket>/<item>
+
+Options:
+  --rotate <number>      Camera azimuth in degrees (0 front, 90 right, 180 behind; negative = left)
+  --elevate <number>     Camera elevation in degrees (-30 low-angle … 0 eye-level … 60 high … 90 bird's-eye)
+  --zoom <number>        Camera distance 0-10 (0 wide, 5 as-shot, 10 close-up)
+  --ops <string>         Reconstruction op: view (default with --rotate) | sweep | model | depth
+  --count <number>       Sweep: number of synthesized camera stops around 360° (2-24, default 8)
+  --at <string>          Video input: timestamp (SS or MM:SS) of the frame to reconstruct from
+  --prompt <string>      Extra scene hint forwarded to the view-synthesis model
+  --seed <number>        Generation seed for reproducibility
+  --view                 Open the reconstruction viewer (gallery / 3D orbit / parallax) when done
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `media.reconstruction` records.
+
 ## Inspect
 
 ### `overcast view`
 
-For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or cutout/mask images for segment. --no-open writes the viewer and emits a view record with its path.
+For video/audio, generates a self-contained HTML player (timeline + markers for a referenced record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or cutout/mask images for segment. Given a `reconstruct` record, renders its dedicated viewer: a speculative gallery (view/sweep), an embedded 3D orbit viewer (model / mesh children), or a drag-parallax hologram (depth). --no-open writes the viewer and emits a view record with its path.
 
 ```
 overcast view <ref> [options]
