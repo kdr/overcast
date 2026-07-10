@@ -36,7 +36,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `exif` — Extract embedded metadata — GPS, capture time, device — from an image or video (ExifTool).
 - `verify` — Check a media file's C2PA / Content Credentials provenance manifest (c2patool).
 - `screenshot` — Render a web page (or local HTML export) to a PNG evidence record via headless Chromium.
-- `enhance` — Produce better media (denoise/normalize/upscale) or split it (separate voices / segment objects) via ffmpeg or a bound model provider.
+- `enhance` — Produce better media (denoise/normalize/upscale), split it (separate voices / segment objects), or derive analysis artifacts (ela forensic overlays / panorama stitch) via ffmpeg or a bound provider.
 - `reconstruct` — Speculatively reposition the camera in a still (rotate/elevate/zoom, turntable sweep, 3D model, depth) via a bound generative provider — a hypothesis renderer, never evidence.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.

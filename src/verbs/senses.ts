@@ -374,9 +374,11 @@ export const seeVerb: VerbSpec = {
 
 // ---- enhance (internal ffmpeg + bound split providers) ---------------------
 
-// Ops that CANNOT run on the internal ffmpeg toolkit — they split media into
-// many artifacts and require a bound model provider (local-models or fal).
-const PROVIDER_ONLY_OPS: ReadonlySet<string> = new Set(["separate", "segment"]);
+// Ops that CANNOT run on the internal ffmpeg toolkit — they fan a single input
+// out into many derived artifacts and require a bound model/analysis provider
+// (local-models, fal, or a shipped example script). separate/segment split media
+// into tracks/cutouts; ela overlays forensic maps; panorama stitches a wide still.
+const PROVIDER_ONLY_OPS: ReadonlySet<string> = new Set(["separate", "segment", "ela", "panorama"]);
 
 /** For each separated-voice track record, transcribe it via the bound listen
  *  provider and fold the transcript + a short spoken-summary onto the track
@@ -422,20 +424,22 @@ async function summarizeTracks(ctx: VerbContext, recs: OvercastRecord[]): Promis
 export const enhanceVerb: VerbSpec = {
   name: "enhance",
   group: "sense",
-  summary: "Produce better media (denoise/normalize/upscale) or split it (separate voices / segment objects) via ffmpeg or a bound model provider.",
+  summary: "Produce better media (denoise/normalize/upscale), split it (separate voices / segment objects), or derive analysis artifacts (ela forensic overlays / panorama stitch) via ffmpeg or a bound provider.",
   description:
     "Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/" +
-    "voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI restoration or the " +
-    "SPLIT ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices " +
+    "voice-isolate/upscale/stabilize/grayscale). Bind a model/analysis provider for AI restoration or the " +
+    "PROVIDER-ONLY ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices " +
     "into per-speaker tracks (add --summarize to transcribe each), `--ops segment --prompt \"<thing>\"` " +
-    "cuts requested objects out of an image as mask + cutout evidence. separate/segment need a bound " +
-    "provider (local-models = pyannote + GroundingDINO/SAM2, or fal = sam-audio + sam-3); image " +
-    "segmentation of a video is out of scope (segment a frame:// still). Emits a media.enhanced record " +
-    "per output — for the split ops, one child record per track/mask whose media.ref chains into " +
-    "watch/listen/see/view/crop.",
+    "cuts requested objects out of an image as mask + cutout evidence, `--ops ela` derives ELA/noise/" +
+    "luminance forensic overlays from an image (heuristic edit-detection leads), `--ops panorama` stitches " +
+    "a panning video into one wide still (skyline/landmark exposure for geolocation). These ops need a bound " +
+    "provider (local-models = pyannote + GroundingDINO/SAM2, fal = sam-audio + sam-3, or a shipped example " +
+    "script — enhance/ela.py, enhance/panorama.py); image segmentation/ela of a video is out of scope " +
+    "(run on a frame:// still). Emits a media.enhanced record per output — for the fan-out ops, one child " +
+    "record per track/mask/overlay whose media.ref chains into watch/listen/see/view/crop.",
   args: [{ name: "input", summary: "Media file path", required: true }],
   flags: [
-    { name: "ops", summary: "Comma list of ops (denoise,normalize,upscale,separate,segment,...)", type: "string" },
+    { name: "ops", summary: "Comma list of ops (denoise,normalize,upscale,separate,segment,ela,panorama,...)", type: "string" },
     { name: "prompt", summary: "What to segment (--ops segment) or the target voice to extract", type: "string" },
     { name: "speakers", summary: "Speaker-count hint for --ops separate", type: "string" },
     { name: "summarize", summary: "Transcribe/summarize each separated track via the bound listen provider", type: "boolean" },
@@ -599,14 +603,15 @@ export const enhanceVerb: VerbSpec = {
       return recs;
     }
 
-    // no custom binding: the split ops can't run on ffmpeg.
+    // no custom binding: the provider-only ops can't run on ffmpeg.
     if (providerOps.length) {
       return [
         errorRecord(
           "enhance",
           `--ops ${providerOps.join(",")} needs a bound enhance provider. ` +
-            `Run \`overcast provider setup plan --preset local-models\` (or --preset fal), ` +
-            `then \`--yes\` to apply; local-models needs \`scripts/visual-db-uv.sh --enhance\`.`,
+            `Bind one with \`overcast setup provider enhance "exec:python3 examples/providers/enhance/<op>.py"\` ` +
+            `(ela / panorama), or run \`overcast provider setup plan --preset local-models\` (or --preset fal) ` +
+            `then \`--yes\` for separate/segment; local-models needs \`scripts/visual-db-uv.sh --enhance\`.`,
         ),
       ];
     }
@@ -823,19 +828,25 @@ function errorRecord(verb: string, message: string): OvercastRecord {
   });
 }
 
-/** If `rec` is an enhance split-op PARENT (payload.op separate|segment), render an
+/** Provider-only enhance ops whose PARENT record fans out into gallery-able
+ *  children (audio tracks / image cutouts / forensic overlays / a stitched still).
+ *  Keep in sync with the fan-out ops in PROVIDER_ONLY_OPS. */
+const GALLERY_OPS: ReadonlySet<string> = new Set(["separate", "segment", "ela", "panorama"]);
+
+/** If `rec` is an enhance fan-out PARENT (payload.op in GALLERY_OPS), render an
  *  HTML gallery of its fanned-out children and return the view record; else null
  *  (so `view` falls through to its single-media player). A parent is identified by
  *  op + the ABSENCE of a top-level `kind` — a fanned-out CHILD carries `kind`
- *  (track/cutout/mask). This (not an outputs[] check) is used so a valid EMPTY
- *  result — op matches with outputs empty OR absent (handler guard case 3) — still
- *  renders the gallery, while children play/show normally. `source_record` isn't a
- *  discriminator: a parent can carry it too (capture provenance). */
+ *  (track/cutout/mask/ela/noise/luminance/panorama). This (not an outputs[] check)
+ *  is used so a valid EMPTY result — op matches with outputs empty OR absent
+ *  (handler guard case 3) — still renders the gallery, while children play/show
+ *  normally. `source_record` isn't a discriminator: a parent can carry it too
+ *  (capture provenance). */
 async function maybeEnhanceGallery(ctx: VerbContext, rec: OvercastRecord): Promise<OvercastRecord | null> {
   if (rec.verb !== "enhance" || typeof rec.payload !== "object" || !rec.payload) return null;
   const p = rec.payload as Record<string, unknown>;
   const op = p.op;
-  if ((op !== "separate" && op !== "segment") || typeof p.kind === "string") return null;
+  if (typeof op !== "string" || !GALLERY_OPS.has(op) || typeof p.kind === "string") return null;
   const children = ctx.case.records().filter(
     (r) => r.verb === "enhance" && (r.payload as Record<string, unknown> | undefined)?.source_record === rec.id,
   );
@@ -885,7 +896,7 @@ async function maybeEnhanceGallery(ctx: VerbContext, rec: OvercastRecord): Promi
   return makeRecord({
     verb: "view",
     format: "json",
-    payload: { mode: op === "separate" ? "separation" : "segmentation", op, viewer: htmlPath, items: items.length, source_record: rec.id },
+    payload: { mode: op === "separate" ? "separation" : op === "segment" ? "segmentation" : op, op, viewer: htmlPath, items: items.length, source_record: rec.id },
     media: { ref: htmlPath },
     meta: { case: ctx.case.dir },
     state: "ready",

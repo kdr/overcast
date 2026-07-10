@@ -417,6 +417,37 @@ overcast view <parent-id>                                        # gallery / emb
 - **Cost note.** The Qwen multi-angle LoRA bills ~$0.035/megapixel per synthesized
   view — an 8-stop sweep of a ~1 MP frame is ~$0.28.
 
+## Enhance analysis ops — `ela` (forensics) + `panorama` (stitch)
+
+Two more provider-only `enhance` ops derive analysis artifacts from ONE input and
+fan out the same way (parent + children, gallery-able via `overcast view <parent>`).
+Both ship as shell-free example providers — no fal/local-models preset, just bind
+the script:
+
+```bash
+# image forensics: ELA + noise residual + luminance-gradient overlays (pillow + numpy)
+overcast setup provider enhance "exec:python3 examples/providers/enhance/ela.py"
+overcast enhance suspect.jpg --ops ela          # -> parent + 3 overlay children
+#   ...or stitch a panning video into one wide still (opencv-python + numpy)
+overcast setup provider enhance "exec:python3 examples/providers/enhance/panorama.py"
+overcast enhance pan_shot.mp4 --ops panorama    # -> parent + 1 stitched-still child
+overcast view <parent-id>                       # gallery of the overlays / the wide still
+```
+
+- **ela** (`examples/providers/enhance/ela.py`, pillow + numpy) — from an image it
+  writes three heuristic maps: **ELA** (re-save at JPEG q90, amplify the per-pixel
+  abs difference so recompressed/pasted regions light up), **noise residual** (input
+  minus a blurred copy, normalized), and a **luminance gradient** (Sobel edge
+  magnitude). These are *leads, not proof* — compression, resizing, and texture also
+  trigger them (`payload.caveat` says so). Image-only; run it on a `frame://` still of
+  a video.
+- **panorama** (`examples/providers/enhance/panorama.py`, opencv-python + numpy) —
+  samples ~18 frames uniformly across a video (dropping black + near-duplicate
+  frames) and runs `cv2.Stitcher` in PANORAMA mode into one wide still, exposing a
+  skyline/landmark strip for geolocation that no single frame shows. A failed stitch
+  (too little overlap / too much motion) returns a clean error record, not a crash.
+  The stitched still is a first-class `media.enhanced` child → `see`/`crop`/reverse-search it.
+
 ## Object detection (`see` — open-vocabulary, local)
 
 A zero-shot **object detector** that takes a list of target objects (`--detect`)

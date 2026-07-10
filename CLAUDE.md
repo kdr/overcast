@@ -139,9 +139,13 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   search — `add`/`match`/`search` image→image, text→image against `basic-clip`
   indexes, or audio→audio, text→audio against `basic-clap` indexes; videos
   frame-sampled + pooled, audio windowed into 10s moments), `enhance` (system
-  ffmpeg ops, a bound restore model, or the split ops `--ops separate` = per-speaker
-  tracks + optional `--summarize`, and `--ops segment --prompt` = text-prompted
-  masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact),
+  ffmpeg ops, a bound restore model, or the provider-only fan-out ops
+  `--ops separate` = per-speaker tracks + optional `--summarize`, `--ops segment
+  --prompt` = text-prompted masks/cutouts (bound `local-models` or `fal`),
+  `--ops ela` = ELA/noise/luminance forensic overlays from an image (heuristic
+  edit-detection leads; `examples/providers/enhance/ela.py`), and `--ops panorama`
+  = stitch a panning video into one wide still for skyline/landmark geolocation
+  (`examples/providers/enhance/panorama.py`) — each fanned out one record per artifact),
   `reconstruct` (SPECULATIVE scene reconstruction from a still or `--at` video
   frame via a bound generative provider — fal toolbox: `--rotate/--elevate/--zoom`
   camera reposition + `--ops sweep` 360° stops → contact sheet + turntable mp4
