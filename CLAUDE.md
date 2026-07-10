@@ -69,7 +69,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `src/registry/verbs.ts`; the CLI subcommand, the pi AgentTool, and the skill doc
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
-   (`watch/listen/see/face/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot`), **source**
+   (`watch/listen/see/face/cluster/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot/chronolocate` —
+   `cluster` shares the face provider, `chronolocate` is pure local math), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, yandeximg, dl, instagram, telegram,
    gdelttv, wayback, overpass, firms, flights, webcam, facesearch, dork, shodan, browser,
    username, person, phone, property, plate), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
@@ -289,8 +290,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   (anchored via `--ref`/`--at`/`--tag`/`--confidence`; the `thread:<tgt_id>` tag
   narrates a line for the brief/status thread cards). `finding`
   (create/list/accept/dismiss) holds manual + *suggested* findings: score/text
-  triggers (face ≥75, image RANSAC, similar ≥85, cluster ≥70, audio fingerprint, target-phrase
-  matches) emit `status:"suggested"` leads that stay OUT of ask/brief evidence
+  triggers (face ≥75, image RANSAC, similar ≥85, cluster ≥70, voice ≥80, audio fingerprint,
+  target-phrase matches) emit `status:"suggested"` leads that stay OUT of ask/brief evidence
   until reviewed — `finding list --state triage` queues them, `accept` promotes a
   lead to evidence (`--target <id|value>` stamps it onto a line of investigation),
   `dismiss` rejects it (never re-fires). Mode is
@@ -329,7 +330,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   creds), `skills` (generate/install).
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
-Slash commands (TUI): `/target /source /index /case /prebrief /view /wall /setup
+Slash commands (TUI): `/target /source /index /archive /case /prebrief /view /wall /setup
 /provider /finding` (extension commands), `/chair` (man in the chair: token-authed
 localhost/tailnet bridge + phone web console that remote-drives the live session —
 steer/follow-up/abort/case glance, typed or mic-dictated via the browser's Web
@@ -351,11 +352,11 @@ reused by the same machinery; `src/archive.ts` owns bucket naming/refs and the
 
 Case memory is **evidence-only**. `ask` / `brief` read primary evidence
 (`watch listen see face image audio voice similar crop note scan capture enhance
-exif verify chronolocate` + root `finding`s + `cluster` ingest/identify) through
+exif verify screenshot chronolocate` + root `finding`s + `cluster` ingest/identify) through
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
-records (`ask brief case setup doctor provider skills index target source
-prebrief wall grid reconstruct` — reconstruct deliberately: synthesized pixels
+records (`ask brief case setup doctor provider skills index archive target source
+prebrief wall grid map devices reconstruct` — reconstruct deliberately: synthesized pixels
 stay out of evidence, `payload.caveat` on every record —, finding review-rows,
 dismissed **and suggested** findings (a
 suggested lead is quarantined until `finding accept` promotes it), cluster DB
@@ -374,8 +375,8 @@ binding**; case setup records expected choices/policy and can clear built-ins li
 ## Commands
 
 ```bash
-npm run build            # tsup (dev/library build)
-npm run typecheck        # tsc --noEmit
+npm run build            # tsup (dev/library build) + vite chair-console build
+npm run typecheck        # tsc --noEmit (src + web/chair)
 npm test                 # unit tests (offline; fixtures)
 npm run test:e2e         # offline e2e (fixture providers, no creds)
 npm run test:e2e:live    # LIVE real-data e2e (builds bun binary, sources .env)

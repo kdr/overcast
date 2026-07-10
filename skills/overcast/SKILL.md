@@ -94,6 +94,18 @@ Built-in source refs for `source add <type>:<ref>`:
 - `x:video:<query>` / `x:image:<query>` — only X posts with native video / images (media targeting).
 - `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
 - `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
+- `yandeximg:<image url or local path>` — Yandex reverse image search (Apify) — the reverse-image twin of `lens`, strongest for faces/places.
+- `dl:<url>` — any yt-dlp host (Rumble/BitChute/Odysee/Vimeo/Reddit/…): a channel/playlist/user URL enumerates; a single-video URL is capture-only.
+- `instagram:@handle` / `instagram:#tag` / a post URL — Instagram posts & reels (Apify).
+- `telegram:<channel>` or a `t.me` URL — public Telegram channel posts (Apify).
+- `gdelttv:"<query>"` — GDELT 2.0 TV broadcast-news clips → bounded Internet-Archive mp4 segments (no key).
+- `wayback:<url>` — Wayback Machine CDX snapshots (no key): recover deleted pages + a "secret changes" diff view; strong monitor fit.
+- `overpass:key=value@around:<radius>,<lat>,<lng>` (or `@<south,west,north,east>`, or raw OverpassQL) — OpenStreetMap features (no key); hits carry `payload.gps` → `map`.
+- `firms:<west,south,east,north>` — NASA FIRMS active-fire hotspots (free `FIRMS_MAP_KEY`); hits carry `payload.gps` → `map`.
+- `flights:<west,south,east,north>` / `flights:<icao24>` / `flights:<callsign>` — live ADS-B aircraft via OpenSky (anonymous works); `monitor --every` builds a track.
+- `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` / `webcam:category:<slug>` / `webcam:<id>` — live public webcams (Windy); each monitor pass re-captures the current still.
+- `browser:<url>` — rendered-page capture via headless Chromium (no key; playwright optional dep): monitor as a page-watch; the `screenshot` verb is the one-shot surface.
+- `facesearch:<image url or local path>` — OPT-IN reverse FACE search (Apify); ToS/privacy-gated, never a default.
 - `dork:<google dork>` — Google dorking via Serper.dev: real Google SERPs that HONOR operators (`site:` `filetype:` `inurl:` `intitle:` `ext:` `-term` `OR`), unlike `web`. Authorized recon only.
 - `shodan:<search query>` or `shodan:<ip>` — host/service/banner intelligence via Shodan (search filters like `org:`/`net:`/`ssl:`/`port:`, or a bare IP → full host lookup). Authorized recon only.
 - `username:<handle>` — social/forum account discovery via Apify (Maigret): a username → accounts across 3000+ sites (profile URL + name/bio/avatar). Opt-in person OSINT, authorized use only.

@@ -191,7 +191,7 @@ export const exifVerb: VerbSpec = {
   summary: "Extract embedded metadata — GPS, capture time, device — from an image or video (ExifTool).",
   description:
     "Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus " +
-    "GPS coordinates (signed decimals), capture time, camera make/model, editing software, MIME/dimensions/" +
+    "GPS coordinates (signed decimals), capture time, camera make/model/serial/lens (the device-linking fingerprint `devices` groups by), editing software, MIME/dimensions/" +
     "duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` " +
     "on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with " +
     "`setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into " +

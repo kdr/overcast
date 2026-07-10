@@ -115,6 +115,18 @@ Built-in source refs for \`source add <type>:<ref>\`:
 - \`x:video:<query>\` / \`x:image:<query>\` — only X posts with native video / images (media targeting).
 - \`web:<query>\` — web search through Tavily, falling back to Brave when Tavily is unset.
 - \`lens:<image url or local path>\` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
+- \`yandeximg:<image url or local path>\` — Yandex reverse image search (Apify) — the reverse-image twin of \`lens\`, strongest for faces/places.
+- \`dl:<url>\` — any yt-dlp host (Rumble/BitChute/Odysee/Vimeo/Reddit/…): a channel/playlist/user URL enumerates; a single-video URL is capture-only.
+- \`instagram:@handle\` / \`instagram:#tag\` / a post URL — Instagram posts & reels (Apify).
+- \`telegram:<channel>\` or a \`t.me\` URL — public Telegram channel posts (Apify).
+- \`gdelttv:"<query>"\` — GDELT 2.0 TV broadcast-news clips → bounded Internet-Archive mp4 segments (no key).
+- \`wayback:<url>\` — Wayback Machine CDX snapshots (no key): recover deleted pages + a "secret changes" diff view; strong monitor fit.
+- \`overpass:key=value@around:<radius>,<lat>,<lng>\` (or \`@<south,west,north,east>\`, or raw OverpassQL) — OpenStreetMap features (no key); hits carry \`payload.gps\` → \`map\`.
+- \`firms:<west,south,east,north>\` — NASA FIRMS active-fire hotspots (free \`FIRMS_MAP_KEY\`); hits carry \`payload.gps\` → \`map\`.
+- \`flights:<west,south,east,north>\` / \`flights:<icao24>\` / \`flights:<callsign>\` — live ADS-B aircraft via OpenSky (anonymous works); \`monitor --every\` builds a track.
+- \`webcam:<lat>,<lng>[,radius]\` / \`webcam:country:<ISO2>\` / \`webcam:category:<slug>\` / \`webcam:<id>\` — live public webcams (Windy); each monitor pass re-captures the current still.
+- \`browser:<url>\` — rendered-page capture via headless Chromium (no key; playwright optional dep): monitor as a page-watch; the \`screenshot\` verb is the one-shot surface.
+- \`facesearch:<image url or local path>\` — OPT-IN reverse FACE search (Apify); ToS/privacy-gated, never a default.
 - \`dork:<google dork>\` — Google dorking via Serper.dev: real Google SERPs that HONOR operators (\`site:\` \`filetype:\` \`inurl:\` \`intitle:\` \`ext:\` \`-term\` \`OR\`), unlike \`web\`. Authorized recon only.
 - \`shodan:<search query>\` or \`shodan:<ip>\` — host/service/banner intelligence via Shodan (search filters like \`org:\`/\`net:\`/\`ssl:\`/\`port:\`, or a bare IP → full host lookup). Authorized recon only.
 - \`username:<handle>\` — social/forum account discovery via Apify (Maigret): a username → accounts across 3000+ sites (profile URL + name/bio/avatar). Opt-in person OSINT, authorized use only.
@@ -1251,6 +1263,12 @@ to surface faces in new media, then escalate the flagged clips manually with
 \`overcast face <clip> --match ./suspect.jpg --json\`, or keep a face-analysis index
 and search it (\`face --match ./suspect.jpg --index <id>\`).
 
+**Page-watch stakeout.** To sit on a WEB PAGE instead of a feed, register the
+rendered-page source: \`overcast source add browser:<url>\` (no key; playwright
+optional dep), then \`monitor --every 30m\` — each pass re-renders the current
+page state to a PNG that flows into image auto-sense. \`wayback:<url>\` is the
+retrospective twin (its \`collapse=digest\` view surfaces content changes).
+
 ## Output
 
 A standing case that accrues cited findings over time: accepted matches with their
@@ -1328,10 +1346,21 @@ overcast crop <detect-record-id> --all --class sign --pad 0.2 --json          # 
 
 \`\`\`bash
 overcast source add "lens:./.overcast/media/crops/<crop-file>.jpg" --json
+overcast source add "yandeximg:./.overcast/media/crops/<crop-file>.jpg" --json  # Yandex twin — strongest for faces/places
 overcast source add "web:<storefront name or sign text> location" --json
 overcast scan --source lens --json      # exact + visual page matches
+overcast scan --source yandeximg --json # second engine on the same crop
 overcast scan --source web --json       # corroborating pages
 \`\`\`
+
+Wide/skyline scenes: \`overcast enhance ./pan.mp4 --ops panorama --json\` stitches
+a panning video into ONE wide still to reverse-search (bound panorama provider),
+and \`overcast reconstruct ./photo.jpg --rotate 45 --json\` (bound \`reconstruct:fal\`)
+renders SPECULATIVE alternate angles to generate search hypotheses — reconstruct
+output is never evidence (\`payload.caveat\`), only a lead generator. Once you have
+a candidate lat/lng, cross-check WHEN with the offline sun/shadow solver:
+\`overcast chronolocate <record-id> --at-time <claimed-iso>\` flags a mis-dated
+image, \`--shadow-azimuth <deg>\` solves the local-time window a shadow implies.
 
 4. Record each clue and the location verdict. Point the finding's \`--ref\` at the
    \`lens\`/\`scan\` hit that carried the strongest match, and ALWAYS leave a \`tldr\`
