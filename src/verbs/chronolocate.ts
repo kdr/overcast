@@ -79,15 +79,15 @@ export function parseRefDate(raw: string | undefined, lng: number): Date | undef
     return new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), 12, 0, 0));
   }
   const s = String(raw).trim();
+  // solve --date is documented YYYY-MM-DD ONLY. A non-ISO string (e.g. "02/28/2026",
+  // "Feb 28 2026") would be parsed by `new Date` with HOST-LOCAL rules for a
+  // zone-less value, which can shift the UTC calendar day and skew declination /
+  // the scanned solar day — so reject anything that isn't a real YYYY-MM-DD (the
+  // caller surfaces a clear "expected YYYY-MM-DD" error). Also rejects an impossible
+  // day (Date rolls 2026-02-30 → Mar 2) via the round-trip guard.
   const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (ymd) {
-    // reject an impossible day (Date rolls 2026-02-30 → Mar 2, scanning the wrong
-    // solar day) rather than silently targeting a different date.
-    if (!isRealYmd(+ymd[1], +ymd[2], +ymd[3])) return undefined;
-    return new Date(`${s}T12:00:00Z`);
-  }
-  const date = new Date(s);
-  return Number.isNaN(date.valueOf()) ? undefined : date;
+  if (!ymd || !isRealYmd(+ymd[1], +ymd[2], +ymd[3])) return undefined;
+  return new Date(`${s}T12:00:00Z`);
 }
 
 const round1 = (n: number) => Number(n.toFixed(1));

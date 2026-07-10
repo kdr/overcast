@@ -60,3 +60,11 @@ test("parseRefDate: an impossible solve --date is rejected (not rolled forward)"
   // a real day → noon UTC
   assert.equal(parseRefDate("2026-02-28", 0)?.toISOString(), "2026-02-28T12:00:00.000Z");
 });
+
+test("parseRefDate: a non-YYYY-MM-DD --date is rejected (no host-local Date parsing)", () => {
+  // these would parse host-locally via `new Date`, shifting the UTC solar day
+  assert.equal(parseRefDate("02/28/2026", 0), undefined);
+  assert.equal(parseRefDate("Feb 28 2026", 0), undefined);
+  assert.equal(parseRefDate("2026-02-28T00:00:00", 0), undefined);
+  assert.equal(parseRefDate("2026/02/28", 0), undefined);
+});
