@@ -67,6 +67,13 @@ case "$op" in
     case "$limit" in ''|*[!0-9]*) limit=50 ;; esac
     [ "$limit" -gt 1000 ] 2>/dev/null && limit=1000
     [ "$limit" -lt 1 ] 2>/dev/null && limit=1
+    # Fetch a BROADER candidate pool than the requested limit so the client-side
+    # newest-first sort (below) can surface recently-edited features. Overpass
+    # `out N` returns the first N in type-then-id order (lowest node ids first,
+    # ways/relations last), so a raw server cap would drop the newest features that
+    # --since/newer is meant to surface. qlimit bounds the fetch; the sort + `.[0:$n]`
+    # then keep the $limit most-recently-edited.
+    qlimit=$(( limit * 4 )); [ "$qlimit" -gt 2000 ] && qlimit=2000
 
     # honor --since → an OSM `(newer:"<ISO>")` filter (only elements edited after the
     # cutoff). Portable epoch→stamp: BSD date uses `-r <epoch>`, GNU date uses
@@ -117,7 +124,7 @@ case "$op" in
         around:*) regionfilter="(around:${region#around:})" ;;   # radius,lat,lng — already validated numeric
         *)        regionfilter="($region)" ;;                     # bbox S,W,N,E — already validated numeric
       esac
-      ql="[out:json][timeout:25];(node${tagfilter}${regionfilter}${newer};way${tagfilter}${regionfilter}${newer};relation${tagfilter}${regionfilter}${newer};);out center meta ${limit};"
+      ql="[out:json][timeout:25];(node${tagfilter}${regionfilter}${newer};way${tagfilter}${regionfilter}${newer};relation${tagfilter}${regionfilter}${newer};);out center meta ${qlimit};"
     elif [[ "$query" == *'[out:'* || "$query" == *';'* ]]; then
       # RAW OverpassQL: a settings block or statement terminator, and NOT a friendly
       # region. The author owns `[out:json]` + a bounded `out`; a non-JSON body errors.
@@ -164,7 +171,11 @@ case "$op" in
             tags: $t,
             media: { ref: $osm }
           }
-      ] | .[0:$n]'
+      ]
+      # newest-edited first (payload.created = OSM last-edit meta), THEN cap — so a
+      # capped scan keeps the most recent features, not the lowest-id ones. Undated
+      # elements (no timestamp/start_date) sort last. Same shape as firms/wayback.
+      | sort_by(.created // "") | reverse | .[0:$n]'
     ;;
 
   fetch)
