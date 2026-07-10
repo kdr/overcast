@@ -338,6 +338,32 @@ Options:
 
 Emits `media.enhanced` records.
 
+### `overcast chronolocate`
+
+Pure offline solar-position math (no API/key). VERIFY mode (--at-time <ISO>): given a location and a claimed capture time, computes the sun's azimuth/altitude and the shadow it must cast, so you can check it against the frame (a mismatch flags a mis-dated or staged image). SOLVE mode (--shadow-azimuth <deg>): given a location and an OBSERVED shadow bearing (0=N,90=E,180=S,270=W), returns the time window(s) on a date (--date, default today) when the sun would cast it; add --height-ratio <object:shadow> to also use shadow LENGTH and narrow the window. Location comes from --lat/--lng or, when the positional input is a case record carrying payload.gps (e.g. an `exif` hit), from that record. The result carries payload.gps (plots on `map`) and payload.caveat — chronolocation is a lead, not proof (a clone/edit can fake shadows).
+
+```
+overcast chronolocate [input] [options]
+
+  Chronolocation from the sun/shadows: solve WHEN a photo was taken, or verify a claimed time.
+
+Arguments:
+  input            Optional: a case record id (pulls its GPS + links its media) or an image/frame ref
+
+Options:
+  --lat <number>         Latitude (WGS84) — overrides a record's GPS
+  --lng <number>         Longitude (WGS84) — overrides a record's GPS
+  --at-time <string>     VERIFY: claimed capture time (ISO 8601; bare datetime read as UTC)
+  --shadow-azimuth <number> SOLVE: observed shadow bearing in degrees from North (0=N,90=E,180=S,270=W)
+  --height-ratio <number> SOLVE: object-height ÷ shadow-length, to also constrain by shadow length
+  --date <string>        SOLVE: reference date YYYY-MM-DD (declination varies by date); default today
+  --az-tol <number>      SOLVE: azimuth match tolerance in degrees (default 3) (default: 3)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `chrono.estimate` records.
+
 ## Inspect
 
 ### `overcast view`
