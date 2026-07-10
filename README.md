@@ -548,7 +548,7 @@ for cadence, and add `--max-frames` when you want a hard cap.
 | class | verbs | shipped providers |
 |---|---|---|
 | **sense** | watch / listen / see / face / image / audio / similar / cluster / enhance / exif / verify / screenshot | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`), headless Chromium / Playwright (`screenshot`), Nominatim (opt-in `exif --geocode`) |
-| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), webcam (Windy Webcams), browser (headless Chromium page render) |
+| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), webcam (Windy Webcams), browser (headless Chromium page render), and the opt-in **identity** sources username / person / phone / property / plate (Apify — authorized use only) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
@@ -572,6 +572,14 @@ Built-in source refs:
 - `dork:<google dork>` — Google dorking via Serper.dev: real Google SERPs that **honor operators** (`site:`, `filetype:`, `inurl:`, `intitle:`, `ext:`, `-term`, `OR`), unlike `web`. The result page is captured as evidence. **Authorized recon only**, never a default source.
 - `shodan:<search query>` / `shodan:<ip>` — host/service/banner intelligence via Shodan: search filters (`org:`, `net:`, `ssl:`, `product:`, `port:`, …) or a bare IP → full host lookup. Hits carry ip/port/org/product/cpe/vulns/geo; `media.ref` is the `shodan.io/host/<ip>` report page (`#<port>-<transport>` fragment so each service is distinct). Strong `monitor` fit. **Authorized recon only**, never a default source. **Opt-in (sensitive):** `OVERCAST_SHODAN_SCREENSHOTS=1` also materializes exposed-host screenshots (RDP/VNC/HTTP/camera → `see`/`face`/`crop`) and surfaces RTSP stream endpoints — real unwitting hosts, off by default.
 - `browser:<url>` — rendered-page capture via headless Chromium (Playwright optional dep, **no key**). Each `fetch` re-renders the page's current state to a PNG (`recapture` — `monitor --source browser --pull` becomes a page-watch that flows into image `auto_sense`). The one-shot counterpart is the `screenshot` verb. Private/loopback targets refused by default (`OVERCAST_ALLOW_PRIVATE_FETCH=1` to allow).
+
+**Identity / records sources** (Apify — `APIFY_TOKEN`; opt-in, live PII on real people, **authorized use only**, never a default source):
+
+- `username:<handle>` — social/forum **account discovery** via Maigret (accounts across 3000+ sites → profile URL + name/bio/avatar per hit). The username twin of `facesearch`.
+- `person:<Full Name>` (optional `@<location>`) — **people-search / skip-trace** via Apify (current + prior addresses, phones, emails, aliases, relatives, age). **Not an FCRA report** — no employment/credit/tenant use.
+- `phone:<E.164>` — reverse phone / **number OSINT** via PhoneInfoga (offline parse: carrier guess / country / validity + grouped web footprint).
+- `property:<street, city, ST zip>` — address → **county assessor / tax / recorder records** (owner, assessed/market value, tax + sale history).
+- `plate:<ST>:<plate>` — license plate → **vehicle spec** (VIN / year / make / model) via a **bound** actor. No default — US plate data is DPPA-restricted; set `OVERCAST_PLATE_ACTOR` (or `OVERCAST_SOURCE_PLATE_CMD`). **Vehicle spec only, not the owner.**
 
 ### Profiles
 
@@ -624,7 +632,8 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `TAVILY_API_KEY` (preferred) / `BRAVE_API_KEY` — the `web` search source
 - `SERPER_API_KEY` — the `dork` source (Google dorking via Serper.dev — real Google SERPs that honor operators). Authorized recon only
 - `SHODAN_API_KEY` — the `shodan` source (host/service/banner intelligence). Authorized recon only
-- `APIFY_TOKEN` — the `tiktok`, `x`, `instagram`, `telegram`, `lens`, and `facesearch` sources (enumerate; fetch uses yt-dlp / direct CDN). Actor overrides: `OVERCAST_INSTAGRAM_ACTOR`, `OVERCAST_TELEGRAM_ACTOR`, `OVERCAST_LENS_ACTOR`, `OVERCAST_FACE_SEARCH_ACTOR`
+- `APIFY_TOKEN` — the `tiktok`, `x`, `instagram`, `telegram`, `lens`, `facesearch` sources AND the opt-in identity sources `username`/`person`/`phone`/`property`/`plate` (enumerate; fetch uses yt-dlp / direct CDN). Actor overrides: `OVERCAST_INSTAGRAM_ACTOR`, `OVERCAST_TELEGRAM_ACTOR`, `OVERCAST_LENS_ACTOR`, `OVERCAST_FACE_SEARCH_ACTOR`, `OVERCAST_MAIGRET_ACTOR`, `OVERCAST_PERSON_ACTOR`, `OVERCAST_PHONE_ACTOR`, `OVERCAST_PROPERTY_ACTOR`
+- `OVERCAST_PLATE_ACTOR` — **required** for the `plate` source (no default — US plate data is DPPA-restricted; bind an Apify actor, or use `OVERCAST_SOURCE_PLATE_CMD` for a direct plate API). Vehicle spec only, not the owner
 - `WINDY_API_KEY` — the `webcam` source (Windy Webcams API; free tier covers scan + still capture + monitor). Base override: `OVERCAST_WEBCAM_API`
 - `gdelttv` needs **no key** (GDELT 2.0 TV API is open)
 - `youtube` and `dl` need `yt-dlp` on `PATH` (no key)
