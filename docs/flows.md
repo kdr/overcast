@@ -852,6 +852,28 @@ from a phone, get the QR onto a secure origin:
   (`tailscale serve` does). `OVERCAST_TAILSCALE_CMD` overrides the `tailscale`
   binary for `--serve` / auto-detect.
 
+**Prerequisites for `--serve` (one-time):** phone voice over Tailscale needs an
+HTTPS origin, which `tailscale serve` mints — but only if your tailnet has the
+feature turned on:
+
+1. **Install Tailscale + sign in** on the desk machine (`tailscale up`); the
+   `tailscale` CLI must be on `PATH` (overcast also probes `/usr/local/bin`,
+   `/opt/homebrew/bin`, and the macOS app bundle).
+2. **Enable HTTPS Certificates + MagicDNS** for the tailnet — Tailscale admin
+   console → **DNS** → enable *MagicDNS* and *HTTPS Certificates*
+   ([kb/1153](https://tailscale.com/kb/1153/enabling-https)). Without this,
+   `tailscale serve` can't get a cert and `--serve` falls back to HTTP.
+3. First run may provision a Let's Encrypt cert (a few seconds). If `--serve`
+   reports it couldn't get an HTTPS URL, run `tailscale serve --bg <port>` once
+   in a terminal to see the exact reason, then re-run `/chair on --serve` (it
+   detects the now-active serve). overcast trusts `tailscale serve status` over
+   the command's exit code, so a serve that started despite a noisy first run is
+   still picked up.
+
+The paired phone must be on the **same tailnet** (Tailscale app installed +
+signed in). `tailscale serve` is tailnet-only (not public) — use `tailscale
+funnel` only if you deliberately want public exposure.
+
 ### 24. Global archive: save once, reuse across cases
 
 Reference media that outlives one case — known faces, recurring locations,

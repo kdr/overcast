@@ -269,7 +269,13 @@ it fronts the bridge with `tailscale serve` (real HTTPS cert) and bakes that
 HTTPS origin into the QR, so scanning it lands on a secure page with voice
 working. `/chair on` also auto-detects an existing `tailscale serve`, and
 `/chair on --url https://host` (or `OVERCAST_CHAIR_URL`) sets the origin
-explicitly. See flow 23 in [`docs/flows.md`](docs/flows.md).
+explicitly.
+
+`--serve` prerequisites (one-time): Tailscale installed + signed in, with
+**MagicDNS + HTTPS Certificates enabled** for your tailnet (admin console → DNS,
+[kb/1153](https://tailscale.com/kb/1153/enabling-https)); the phone must be on
+the same tailnet. See flow 23 in [`docs/flows.md`](docs/flows.md) for the full
+setup + fallbacks.
 
 Use the three report surfaces for different jobs:
 

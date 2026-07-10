@@ -13,9 +13,20 @@
 // (offline-test + custom-path knob, mirroring OVERCAST_TINYCLOUD_CMD).
 
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
+
+// A GUI-launched process (Cursor/Terminal.app task) can inherit a minimal PATH
+// that omits /usr/local/bin, so `tailscale` isn't found even though the login
+// shell has it. Prefer a known absolute path, falling back to PATH lookup.
+const TAILSCALE_PATHS = [
+  "/usr/local/bin/tailscale",
+  "/opt/homebrew/bin/tailscale",
+  "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+];
 
 function tailscaleInvocation(): { cmd: string; base: string[] } {
   const override = process.env.OVERCAST_TAILSCALE_CMD?.trim();
@@ -23,6 +34,7 @@ function tailscaleInvocation(): { cmd: string; base: string[] } {
     const parts = override.split(/\s+/);
     return { cmd: parts[0], base: parts.slice(1) };
   }
+  for (const p of TAILSCALE_PATHS) if (existsSync(p)) return { cmd: p, base: [] };
   return { cmd: "tailscale", base: [] };
 }
 
@@ -96,19 +108,27 @@ export function serveCommandHint(port: number): string {
 }
 
 /** Bring up `tailscale serve` for the port (idempotent) and read back the HTTPS
- *  URL. Returns { url } on success or { error } with actionable text. */
+ *  URL. Returns { url } on success or { error } with actionable text.
+ *
+ *  We TRUST detection over the exit code: some tailscale builds print to stdout
+ *  and return non-zero on first-run cert provisioning even though the serve
+ *  mapping is written — so poll `serve status` before declaring failure. */
 export async function enableServe(port: number): Promise<{ url?: string; error?: string }> {
   const existing = await detectServeUrl(port);
   if (existing) return { url: existing };
-  const { code, stderr } = await runTailscale(["serve", "--bg", String(port)], 15000);
-  if (code !== 0) {
-    const detail = stderr.trim().split("\n")[0] || `exit ${code}`;
-    return { error: `tailscale serve failed (${detail}) — run \`${serveCommandHint(port)}\` manually, or check Tailscale is up with HTTPS/MagicDNS enabled` };
+  const res = await runTailscale(["serve", "--bg", String(port)], 25000);
+  const pollMs = Number(process.env.OVERCAST_TAILSCALE_POLL_MS) || 750;
+  for (let i = 0; i < 4; i++) {
+    const url = await detectServeUrl(port);
+    if (url) return { url };
+    await delay(pollMs);
   }
-  const url = await detectServeUrl(port);
-  return url
-    ? { url }
-    : { error: "tailscale serve started but exposed no HTTPS URL — enable HTTPS certificates + MagicDNS for your tailnet in the admin console" };
+  // genuine failure — surface the real reason (tailscale often writes it to
+  // stdout, not stderr), and the manual fallback + the prerequisite.
+  const detail = (res.stderr.trim() || res.stdout.trim()).split("\n").filter(Boolean)[0] || `exit ${res.code}`;
+  return {
+    error: `tailscale serve exposed no HTTPS URL (${detail}) — run \`${serveCommandHint(port)}\` manually, or enable HTTPS certificates + MagicDNS for your tailnet in the admin console`,
+  };
 }
 
 /** Best-effort teardown of the 443 serve mapping we brought up. */

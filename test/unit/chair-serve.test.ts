@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseServeUrl, detectServeUrl, serveCommandHint } from "../../src/chair/serve.ts";
+import { parseServeUrl, detectServeUrl, enableServe, serveCommandHint } from "../../src/chair/serve.ts";
 import { ChairBridge, type ChairAgent } from "../../src/chair/bridge.ts";
 import type { CaseGlance } from "../../src/chair/wire.ts";
 
@@ -84,6 +84,56 @@ test("detectServeUrl returns undefined when tailscale errors", async () => {
 test("detectServeUrl short-circuits an ephemeral (0) port", async () => {
   // no fake needed — port 0 never reaches exec
   assert.equal(await detectServeUrl(0), undefined);
+});
+
+// --- enableServe: trust `serve status` over the exit code ---
+
+/** A stateful fake tailscale: `serve status` is empty until `serve --bg` runs
+ *  (which touches a marker), and `serve --bg` mimics a build that prints to
+ *  stdout and exits non-zero even though the mapping took effect. */
+function withStatefulFake(opts: { serveExitsNonZero: boolean; mappingAppears: boolean }, fn: () => Promise<void>): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), "oc-ts2-"));
+  const marker = join(dir, "started");
+  const json = JSON.stringify(serveConfig("http://127.0.0.1:7373")).replace(/'/g, "");
+  const body = [
+    "#!/usr/bin/env bash",
+    `if [ "$1 $2" = "serve status" ]; then`,
+    `  if [ -f "${marker}" ]; then echo '${json}'; else echo 'No serve config'; fi; exit 0`,
+    "fi",
+    `if [ "$1 $2" = "serve --bg" ]; then`,
+    ...(opts.mappingAppears ? [`  touch "${marker}"`] : []),
+    `  echo "provisioning TLS certificate…"`,
+    `  exit ${opts.serveExitsNonZero ? 1 : 0}`,
+    "fi",
+    "exit 0",
+  ].join("\n");
+  const script = join(dir, "fakets.sh");
+  writeFileSync(script, `${body}\n`);
+  chmodSync(script, 0o755);
+  const prevCmd = process.env.OVERCAST_TAILSCALE_CMD;
+  const prevPoll = process.env.OVERCAST_TAILSCALE_POLL_MS;
+  process.env.OVERCAST_TAILSCALE_CMD = script;
+  process.env.OVERCAST_TAILSCALE_POLL_MS = "10";
+  return fn().finally(() => {
+    prevCmd === undefined ? delete process.env.OVERCAST_TAILSCALE_CMD : (process.env.OVERCAST_TAILSCALE_CMD = prevCmd);
+    prevPoll === undefined ? delete process.env.OVERCAST_TAILSCALE_POLL_MS : (process.env.OVERCAST_TAILSCALE_POLL_MS = prevPoll);
+    rmSync(dir, { recursive: true, force: true });
+  });
+}
+
+test("enableServe trusts detection when serve exits non-zero but the mapping appears", async () => {
+  await withStatefulFake({ serveExitsNonZero: true, mappingAppears: true }, async () => {
+    assert.deepEqual(await enableServe(7373), { url: "https://mac.tail1234.ts.net/" });
+  });
+});
+
+test("enableServe reports the stdout reason when no mapping ever appears", async () => {
+  await withStatefulFake({ serveExitsNonZero: true, mappingAppears: false }, async () => {
+    const r = await enableServe(7373);
+    assert.equal(r.url, undefined);
+    assert.match(r.error || "", /provisioning TLS certificate/);
+    assert.match(r.error || "", /tailscale serve --bg 7373/);
+  });
 });
 
 // --- ChairBridge: publicUrl drives displayUrl / secure / pairingUrl ---
