@@ -42,7 +42,10 @@ firms_csv_to_hits() { # <sensor-label>
   # so a comma split is safe.
   awk -F, '
     NR==1 {
-      for (i=1;i<=NF;i++) { c=$i; gsub(/\r/,"",c); h[c]=i }
+      # index columns by LOWERCASED header name — the enumerate header check is
+      # case-insensitive, so a mixed-case FIRMS header must resolve here too (else
+      # every row is skipped and a valid response looks like zero fires).
+      for (i=1;i<=NF;i++) { c=tolower($i); gsub(/\r/,"",c); h[c]=i }
       next
     }
     {
