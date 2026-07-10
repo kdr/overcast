@@ -14,15 +14,18 @@
 # is passed straight through for `capture`). --limit caps hits (default 8);
 # --since is ignored (reverse-image search has no recency filter).
 #
-# NOTE: there is no single canonical free Yandex reverse-image Apify actor, so
-# the DEFAULT ACTOR ID BELOW IS A PLACEHOLDER — verify it (or point
-# OVERCAST_YANDEX_ACTOR at the actor you use) for your Apify account. Output field
-# extraction is intentionally defensive (the actor's schema may differ from
-# Google Lens): it tries several common field names for the matched page / title
-# / thumbnail and falls back gracefully.
+# DEFAULT actor = johnvc/yandex-reverse-image-search on Apify (pay-per-result; its
+# image input key is `image_url`). Both the actor AND the image-input key are plain
+# overridable constants so any other Yandex reverse-image actor can be swapped in
+# without editing the script — no .env entry required for the built-in default:
+#   OVERCAST_YANDEX_ACTOR      = <user~actor | actor id>       (default below)
+#   OVERCAST_YANDEX_IMAGE_KEY  = <input field for the image url> (default image_url)
+# Output field extraction is intentionally defensive (schemas differ by author): it
+# tries several common field names for the matched page / title / thumbnail.
 # Implements: enumerate --query <image> [--limit N] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
-ACTOR="${OVERCAST_YANDEX_ACTOR:-apify~yandex-reverse-image-search}"  # PLACEHOLDER — verify/override
+ACTOR="${OVERCAST_YANDEX_ACTOR:-johnvc~yandex-reverse-image-search}"
+IMAGE_KEY="${OVERCAST_YANDEX_IMAGE_KEY:-image_url}"
 op="${1:-enumerate}"; shift || true
 
 # short content hash for stable, collision-resistant names (shasum on macOS,
@@ -98,9 +101,9 @@ case "$op" in
       query="https://api.apify.com/v2/key-value-stores/$sid/records/$key"
       uploaded=1
     fi
-    # the actor's input schema varies by author — `imageUrl` is the common shape;
-    # override the actor (OVERCAST_YANDEX_ACTOR) if yours expects a different key.
-    input="$(jq -nc --arg u "$query" '{imageUrl:$u}')"
+    # send the image url under the actor's input key (IMAGE_KEY — default image_url
+    # for the built-in actor; set OVERCAST_YANDEX_IMAGE_KEY for an actor that differs).
+    input="$(jq -nc --arg u "$query" --arg k "$IMAGE_KEY" '{($k):$u}')"
     # -f fails the request on HTTP errors so Apify error JSON isn't parsed as hits
     if ! run="$(curl -fsS -m 240 -X POST \
       -H "Authorization: Bearer $APIFY_TOKEN" \

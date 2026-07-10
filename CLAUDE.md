@@ -225,8 +225,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`;
   `lens:<image url|path>` (Google Lens reverse image search via Apify);
   `yandeximg:<image url|path>` (Yandex reverse image search via Apify — the
-  reverse-image twin of `lens`, strongest for faces/places; default actor id is a
-  placeholder, override via `OVERCAST_YANDEX_ACTOR`);
+  reverse-image twin of `lens`, strongest for faces/places; ships a working default
+  actor + `image_url` input key, override via `OVERCAST_YANDEX_ACTOR` /
+  `OVERCAST_YANDEX_IMAGE_KEY`);
   `dl:<url>` (any yt-dlp host — Rumble/BitChute/Odysee/Vimeo/Reddit/…; a
   channel/playlist/user URL `enumerate`s via yt-dlp flat-playlist so `scan`/`monitor`
   work there, a single-video URL stays capture-only → `[]`); `instagram:@handle` /
