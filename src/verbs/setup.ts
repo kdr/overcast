@@ -765,6 +765,17 @@ export const doctorVerb: VerbSpec = {
           : `plate needs ${!envPresent("APIFY_TOKEN") ? "APIFY_TOKEN" : ""}${!envPresent("APIFY_TOKEN") && !envPresent("OVERCAST_PLATE_ACTOR") ? " + " : ""}${!envPresent("OVERCAST_PLATE_ACTOR") ? "OVERCAST_PLATE_ACTOR (no default actor — DPPA)" : ""}`,
       });
     }
+    if (ctx.opts.sources === true || sourceTypes.has("browser")) {
+      // no API key — the browser source needs the same Playwright renderer the
+      // `screenshot` verb uses (probed above as the `playwright` check).
+      checks.push({
+        name: "source:browser",
+        ok: playwright.code === 0,
+        detail: playwright.code === 0
+          ? "Playwright + Chromium renderer available (rendered-page capture)"
+          : "Playwright renderer missing — run `npm install --include=optional` and `npx playwright install chromium`",
+      });
+    }
 
     // home / profiles
     const home = resolveHome({ home: ctx.home });

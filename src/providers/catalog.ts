@@ -150,6 +150,14 @@ export function providerChoices(): ProviderChoice[] {
       indexableDefault: true,
     },
     {
+      id: "playwright",
+      verb: "screenshot",
+      label: "Playwright headless Chromium",
+      summary: "Use the shipped headless-Chromium page renderer (playwright optional dep + `npx playwright install chromium`).",
+      clearsBinding: true,
+      indexableDefault: true,
+    },
+    {
       id: "hf",
       verb: "see",
       label: "Hugging Face captioner",
@@ -274,6 +282,9 @@ export const PROVIDER_PRESETS: Record<string, Array<{ verb: string; choice: stri
   ],
   "voice-print": [
     { verb: "voice", choice: "voice-print" },
+  ],
+  playwright: [
+    { verb: "screenshot", choice: "playwright" },
   ],
 };
 

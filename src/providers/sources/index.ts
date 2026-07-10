@@ -177,6 +177,16 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("plate.sh");
       return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN + OVERCAST_PLATE_ACTOR", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
     }
+    case "browser": {
+      // Rendered-page capture via the shared screenshot engine (headless
+      // Chromium / Playwright — the same engine behind the `screenshot` verb).
+      // ref = a page URL; each fetch renders the CURRENT page state to a PNG
+      // (recapture:true → monitor re-renders every pass). No API key; needs the
+      // playwright optional dep. Default budgets fit (enumerate is instant, a
+      // render finishes well inside the 5-min fetch budget).
+      const script = shippedSource("browser.sh");
+      return script ? { type, base: ["bash", script], needs: "node + playwright optional dep (npx playwright install chromium)" } : undefined;
+    }
     default:
       return undefined;
   }

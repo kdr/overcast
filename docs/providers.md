@@ -708,9 +708,57 @@ sample 8 frames.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
 - [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
 - [`examples/providers/audio-db/{audio_match,clap_match,voice_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp), LAION CLAP audio embeddings (basic-clap), and wespeaker speaker verification (voice-print) for audio DB indexes.
-- [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch,dork,shodan,username,person,phone,property,plate}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch + the identity sources username/person/phone/property/plate) + web-search (Tavily/Brave) + Google dorking (Serper.dev) + Shodan host recon + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams source providers.
+- [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch,dork,shodan,browser,username,person,phone,property,plate}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch + the identity sources username/person/phone/property/plate) + web-search (Tavily/Brave) + Google dorking (Serper.dev) + Shodan host recon + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams + headless-Chromium page render (`browser`, delegates to the screenshot engine) source providers.
+- [`examples/providers/screenshot/{screenshot.sh,render.mjs}`](../examples/providers/screenshot/) — the shared headless-Chromium page renderer (Playwright) behind the `screenshot` verb and the `browser` source.
 - [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
 - [`examples/providers/geocode/geocode.sh`](../examples/providers/geocode/geocode.sh) — opt-in OSM Nominatim reverse geocoder for `exif --geocode` (no key; never bound by default).
+
+## Screenshot engine (`screenshot` verb + `browser` source)
+
+Browser screen capture renders what a page **looks like** — the rendered pixels,
+not the raw HTML a plain `capture`/`web` fetch stores. One shipped engine
+([`examples/providers/screenshot/`](../examples/providers/screenshot/)) backs two
+surfaces:
+
+- **`screenshot <url>` verb** — one-shot render → a `web.screenshot` PNG evidence
+  record. Flags: `--full-page` (whole scrollable page, not just the viewport),
+  `--viewport WxH` (default `1280x800`), `--wait <ms>` (extra settle after load,
+  capped at 15s). Also accepts a **local `.html` file** — render a `wall`/`map`/
+  `brief --export` HTML into image evidence. Chain the PNG into `see` (describe/
+  OCR), `exif`, `note --ref`, or `archive add`.
+- **`browser:<url>` source** — the standing scan/monitor surface (see below). Each
+  fetch re-renders the current page state, so `monitor --source browser --every N
+  --pull` is a page-watch.
+
+The engine is a small Node driver (`render.mjs`) that runs under **system `node`**
+(never the bun binary) and uses the **`playwright` optional dependency**
+(`npm install --include=optional` + `npx playwright install chromium`). Missing
+deps yield a `needs_credentials` record (exit 13), not a hard failure;
+`overcast doctor` probes the renderer (the `playwright` / `source:browser` checks).
+Bind a custom renderer with `setup provider screenshot "<exec spec>"`, or override
+the source engine with `OVERCAST_SOURCE_BROWSER_CMD`; point `node` elsewhere with
+`OVERCAST_NODE`.
+
+**Security.** A headless browser fetching arbitrary URLs bypasses the fetch-side
+SSRF guard, so `render.mjs` re-implements it: private/loopback/link-local/CGNAT/
+metadata (`169.254.169.254`) targets are **refused by default**, before navigation
+and per request — HTTP(S) redirects/meta-refresh/subresources are intercepted
+(`context.route`) **and** `ws`/`wss` WebSocket connections are gated
+(`context.routeWebSocket`), so a rendered page can't reach an internal host over
+either. Every hostname is re-resolved per request (no verdict is cached) and fails
+closed per attempt, mirroring `assertFetchHostAllowed` — so a DNS rebind on a later
+hop is caught, and a transient resolver glitch blocks only that one request rather
+than wedging a public host for the whole render. Opt out only with an affirmative
+`OVERCAST_ALLOW_PRIVATE_FETCH` (same knob as `fetchMediaToCase`). A local `.html`
+input renders via `file://`, and its `file:` subresources are confined to the
+file's **own directory subtree** (symlinks resolved) — an untrusted export can't
+pull `file:///etc/passwd` or another case's media into the render. Rendered pages
+are untrusted content (invariant #10, prompt-injection surface) — a capture may
+also be a bot-challenge or login wall, and that rendered state is still the
+evidence. The engine also self-limits its runtime and force-closes Chromium on a
+timeout or catchable signal, so a hung render / parent timeout doesn't orphan a
+headless browser. Element (`--selector`) and video capture are not yet supported
+(reserved).
 
 ## Source providers (built-in types)
 
@@ -729,6 +777,7 @@ sample 8 frames.
 - **`dork`** — Google dorking via **Serper.dev** (`SERPER_API_KEY`). Real Google SERPs that **honor operators** (`site:`, `filetype:`, `inurl:`, `intitle:`, `ext:`, `-term`, `OR`) — unlike `web` (Tavily/Brave), which silently ignore them, so `dork` is the source for exposure/attack-surface discovery. Supported ref: `dork:<google dork string>` (passed verbatim to Google). Hits carry the result page (`payload.url`/`media.ref`), title, and snippet; `--since` buckets into Google's `tbs` recency window (day/week/month/year); `capture`/`--pull` downloads the result page like `web`. **Authorized recon only** — never a default binding; use only against targets you are permitted to investigate.
 - **`shodan`** — host/service/banner intelligence via the **Shodan REST API** (`SHODAN_API_KEY`). Supported refs: `shodan:<search query>` (filters like `org:"Acme" port:22`, `ssl:example.com`, `product:nginx country:DE` — 1 query credit per 100 results) and `shodan:<ip>` (a bare IPv4/IPv6 → full host lookup, one hit per exposed service). Each hit carries `ip`/`port`/`transport`/`org`/`isp`/`asn`/`product`/`hostnames`/`cpe`/`os`/`vulns` (CVE list) and geolocation (`lat`/`lng`/`country`/`city`) in the loose payload; `payload.url`/`media.ref` is the `shodan.io/host/<ip>` report page (with a `#<port>-<transport>` fragment so every service is a distinct record and `monitor` catches newly exposed ports), so `capture`/`--pull` stores a real evidence page. `--since` is ignored (Shodan search has no recency filter). Strong `monitor` fit for standing exposure watch. **Authorized recon only** — never a default binding.
   - **Opt-in screenshots / RTSP (sensitive).** Set `OVERCAST_SHODAN_SCREENSHOTS=1` (an explicit acknowledgement) to also decode the **screenshots** Shodan captures from exposed RDP/VNC/X11/HTTP/camera services into the case media dir — so `media.ref` becomes a real image `see`/`face`/`crop` can analyze — and surface RTSP (port 554) stream endpoints in `payload.stream`. These are the screens/camera views of **real, unwitting hosts**; enabling it carries privacy/ToS/legal weight and is authorized-use-only. Off by default (hits stay metadata + host page). Use `has_screenshot:true` / `screenshot.label:webcam` in the query to target hosts that have them.
+- **`browser`** — rendered-page capture via the shared headless-Chromium engine (`node` + the `playwright` optional dep; **no key**). Supported ref: `browser:<url>` (a page to screenshot; scheme-less refs assume `https://`). `enumerate` emits one ephemeral hit for the page; `fetch` renders the **current page state** to a PNG (`recapture: true`, so `monitor` re-renders every pass — a page-watch, webcam-style). The rendered PNG then flows into the case's image `auto_sense` chain (`see`/`exif`) on `scan --pull`/`monitor --pull`, exactly like a webcam still. Private/loopback targets are refused by default (`OVERCAST_ALLOW_PRIVATE_FETCH=1` to allow). This is the same engine the `screenshot` verb uses; the verb is the one-shot surface, the source is the standing scan/monitor surface. See the screenshot engine below.
 
 ### Identity / records OSINT sources (opt-in, Apify-backed)
 
