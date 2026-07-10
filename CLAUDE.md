@@ -71,7 +71,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
    (`watch/listen/see/face/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot`), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
-   gdelttv, wayback, webcam, facesearch, dork, shodan, browser), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
+   gdelttv, wayback, webcam, facesearch, dork, shodan, browser,
+   username, person, phone, property, plate), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
    shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
    tinycloud (exec) — except `see`, whose default is the in-proc brain-vision
