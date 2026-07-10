@@ -52,6 +52,25 @@ test("findingLinksTarget: machine suggestion copy cannot false-link via filename
   assert.deepEqual(acme.findingIds, [declared.id]);
 });
 
+test("coverage: a hit whose scan label differs from its source's type is never double-counted", async () => {
+  const { unattributedScanHits } = await import("../../src/signals/pulse.ts");
+  const { coverageTableRows } = await import("../../src/report/mission.ts");
+  // configured x source; the hit is STAMPED to it but labeled "twitter"
+  const sources = [{ id: "src_x1", type: "x" }];
+  const hit = makeRecord({ verb: "scan", payload: { url: "http://x/1", source: "twitter", source_id: "src_x1" }, meta: { time: iso(1000) } });
+  const stray = makeRecord({ verb: "scan", payload: { url: "http://r/1", source: "rumble" }, meta: { time: iso(900) } });
+  const adhoc = unattributedScanHits([hit, stray], sources);
+  // the stamped hit is attributed (no ad-hoc leftover); only the stray shows
+  assert.deepEqual(adhoc, [{ source: "rumble", hits: 1 }]);
+  const rows = coverageTableRows(
+    [{ id: "src_x1", spec: "x:@a", type: "x", enabled: true, lastScanAgeSeconds: 60, hits: 1, captured: 0, sensed: 0, gap: false }],
+    adhoc,
+  );
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].hits, "1");
+  assert.match(rows[1].label, /rumble.*ad-hoc/);
+});
+
 test("briefDelta: a post-brief create+dismiss is not '+1 finding'", () => {
   const brief = makeRecord({ verb: "brief", payload: { report: "# Brief", synthesis: {} }, meta: { time: iso(7200_000) } });
   const rejected = makeRecord({ verb: "finding", payload: { text: "bogus lead", target: "", source_record: "manual", source_verb: "manual", trigger: "human", status: "open" }, meta: { time: iso(3600_000) } });

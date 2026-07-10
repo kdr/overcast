@@ -9,7 +9,7 @@ import { findingStatusMap, makeRecord, errRecord, recordTimeMs, PRIMARY_TEXT_FIE
 import { openCase, recordFiles } from "../case.js";
 import { humanSize } from "../render.js";
 import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
-import { coverageTableRows, findingOverlays, renderCoverageMd, renderThreadsMd, renderTriageMd, sweptSources, threadCard, triageRows, type ThreadRenderContext } from "../report/mission.js";
+import { coverageTableRows, findingOverlays, renderCoverageMd, renderThreadsMd, renderTriageMd, threadCard, triageRows, type ThreadRenderContext } from "../report/mission.js";
 import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
@@ -17,7 +17,7 @@ import { payloadFields, pageText, fieldNames, getField } from "../render.js";
 import { redactSecrets } from "../env.js";
 import { addSource, listSources, parseSourceSpec, removeSource } from "../state/source.js";
 import { addTarget, listTargets, removeTarget } from "../state/target.js";
-import { casePulse, type CasePulse } from "../signals/pulse.js";
+import { casePulse, unattributedScanHits, type CasePulse } from "../signals/pulse.js";
 import { addIndex, listIndexes, normalizeIndexType, removeIndex, LOCAL_INDEX_TYPES } from "../state/index.js";
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex } from "../state/setup.js";
 import {
@@ -318,7 +318,7 @@ function statusMarkdown(title: string, status: CaseStatus, full = false): string
   lines.push(...renderThreadsMd(pulse.threads, threadCtx));
   // true backlog count (progress.triage_pending) — rows are capped
   lines.push(...renderTriageMd(triageRows(records, statusByFinding), pulse.progress.triage_pending));
-  lines.push(...renderCoverageMd(pulse.coverage, sweptSources(records), pulse.gaps));
+  lines.push(...renderCoverageMd(pulse.coverage, unattributedScanHits(records, pulse.coverage), pulse.gaps));
 
   const store = payload.store as { records?: number } | undefined;
   const registries = payload.registries as Record<string, number> | undefined;
@@ -789,7 +789,7 @@ export const caseVerb: VerbSpec = {
             payload: status.payload,
             threads: status.pulse.threads.map((th) => threadCard(th, missionCtx)),
             triage: triageRows(status.records, statusByFinding),
-            coverage: coverageTableRows(status.pulse.coverage, sweptSources(status.records)),
+            coverage: coverageTableRows(status.pulse.coverage, unattributedScanHits(status.records, status.pulse.coverage)),
           });
         } else {
           html = mdToPlainHtml(md, title);

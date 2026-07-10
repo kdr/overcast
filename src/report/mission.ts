@@ -399,9 +399,13 @@ export interface CoverageTableRow {
 }
 
 /** One coverage table from the two old overlapping views: configured sources
- *  (funnel + freshness + never-scanned flag) plus a row per swept-but-
- *  unconfigured source type — the same fact no longer appears twice. */
-export function coverageTableRows(coverage: SourceCoverage[], swept: Array<{ source: string; hits: number }>): CoverageTableRow[] {
+ *  (funnel + freshness + never-scanned flag) plus the ad-hoc rows for hits not
+ *  attributable to any configured source — the same fact no longer appears
+ *  twice. `adhoc` comes from unattributedScanHits (signals/pulse.ts), which
+ *  shares buildCoverage's per-hit attribution rule: subtracting label totals
+ *  here would double-count a hit whose scan label differs from its source's
+ *  type. */
+export function coverageTableRows(coverage: SourceCoverage[], adhoc: Array<{ source: string; hits: number }>): CoverageTableRow[] {
   const rows: CoverageTableRow[] = coverage.map((c) => ({
     label: `**${c.spec}**${c.enabled ? "" : " (disabled)"}`,
     lastScan: c.gap ? "⚠ never" : fmtAge(c.lastScanAgeSeconds),
@@ -410,25 +414,18 @@ export function coverageTableRows(coverage: SourceCoverage[], swept: Array<{ sou
     sensed: String(c.sensed),
     gap: c.gap,
   }));
-  // swept hits not attributable to a configured source (ad-hoc scans, legacy
-  // hits): shown so the table accounts for every hit the case actually has.
-  // The "(ad-hoc)" marker only means anything in CONTRAST to configured rows.
-  const adHoc = coverage.length ? " _(ad-hoc)_" : "";
-  const attributedByType = new Map<string, number>();
-  for (const c of coverage) attributedByType.set(c.type, (attributedByType.get(c.type) ?? 0) + c.hits);
-  for (const s of swept) {
-    const leftover = s.hits - (attributedByType.get(s.source) ?? 0);
-    if (leftover > 0) {
-      rows.push({ label: `${s.source}${adHoc}`, lastScan: "—", hits: String(leftover), captured: "—", sensed: "—", gap: false });
-    }
+  // the "(ad-hoc)" marker only means anything in CONTRAST to configured rows
+  const suffix = coverage.length ? " _(ad-hoc)_" : "";
+  for (const s of adhoc) {
+    if (s.hits > 0) rows.push({ label: `${s.source}${suffix}`, lastScan: "—", hits: String(s.hits), captured: "—", sensed: "—", gap: false });
   }
   return rows;
 }
 
 /** "## Coverage" — the single table + non-source gaps. */
-export function renderCoverageMd(coverage: SourceCoverage[], swept: Array<{ source: string; hits: number }>, gaps: string[]): string[] {
+export function renderCoverageMd(coverage: SourceCoverage[], adhoc: Array<{ source: string; hits: number }>, gaps: string[]): string[] {
   const lines: string[] = ["## Coverage", ""];
-  const rows = coverageTableRows(coverage, swept);
+  const rows = coverageTableRows(coverage, adhoc);
   if (rows.length) {
     lines.push("| source | last scan | hits | captured | sensed |");
     lines.push("| --- | --- | ---: | ---: | ---: |");

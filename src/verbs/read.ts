@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { findingStatusMap, makeRecord, memoryRecords, PRIMARY_TEXT_FIELDS, recordStub, recordTimeMs, type OvercastRecord } from "../record.js";
 import { isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord, type TimelineSynthesis } from "../report/html.js";
 import { briefDelta, coverageTableRows, findingOverlays, rankFindings, renderCoverageMd, renderThreadsMd, renderTriageMd, renderVerdictMd, sweptSources, threadCard, triageRows, type ThreadRenderContext } from "../report/mission.js";
-import { casePulse, type CasePulse } from "../signals/pulse.js";
+import { casePulse, unattributedScanHits, type CasePulse } from "../signals/pulse.js";
 import { groupTimeline, groupSummary } from "../signals/rollup.js";
 import { listTargets } from "../state/target.js";
 import { listSources } from "../state/source.js";
@@ -420,10 +420,10 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
   const triage = triageRows(caseRecords, statusByFinding);
   lines.push(...renderTriageMd(triage, triage.length));
   // the Coverage table reflects the STANDING case, like the pulse it joins
-  // against — mixing the scoped swept rollup into full-case coverage rows would
-  // make the ad-hoc leftover math (and the table's totals) incoherent under
-  // --scope. The scoped rollup still drives the verdict line (synthesis.sources).
-  lines.push(...renderCoverageMd(opts.pulse.coverage, sweptSources(caseRecords), opts.pulse.gaps));
+  // against — ad-hoc rows come from the record-level attribution rule
+  // (unattributedScanHits), never label arithmetic, so a hit is counted exactly
+  // once. The scoped rollup still drives the verdict line (synthesis.sources).
+  lines.push(...renderCoverageMd(opts.pulse.coverage, unattributedScanHits(caseRecords, opts.pulse.coverage), opts.pulse.gaps));
 
   // Appendix: the record trail. Short = a compact NEWEST-FIRST index with
   // page-it pointers (catching up reads top-down); full = each record's primary
@@ -454,7 +454,16 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
     const byId = new Map(sorted.map((r) => [r.id, r]));
     const groups = groupTimeline(sorted);
     if (groups.length >= 12 && groups.length < sorted.length) {
-      for (const g of [...groups].reverse()) {
+      // newest-first by the group's NEWEST record (g.time) — reversing first-seen
+      // order isn't enough: an old artifact that just received new senses must
+      // surface at the top. Undated groups sort newest (can't be proven stale),
+      // matching the ungrouped path; the sort is stable so ties keep group order.
+      const newestFirst = [...groups].sort((a, b) => {
+        const ta = a.time ? Date.parse(a.time) : Number.POSITIVE_INFINITY;
+        const tb = b.time ? Date.parse(b.time) : Number.POSITIVE_INFINITY;
+        return tb - ta;
+      });
+      for (const g of newestFirst) {
         const when = g.time ? g.time.replace("T", " ").replace(/\..*/, "") : "—";
         lines.push(`- **${g.title}** · ${when} — ${groupSummary(g)}`);
         // surface the group's most informative record inline as a one-liner
@@ -490,9 +499,9 @@ function enrichSynthesis(syn: BriefSynthesis, pulse: CasePulse, records: Overcas
     delta: briefDelta(records, now),
     threads: pulse.threads.map((th) => threadCard(th, ctx)),
     triage: triage.length ? triage : undefined,
-    // full-case swept rollup, matching the markdown's standing coverage table
+    // full-case ad-hoc rows, matching the markdown's standing coverage table
     // (records here is the UNSCOPED case set — see the brief run callsite)
-    coverage: coverageTableRows(pulse.coverage, sweptSources(records)),
+    coverage: coverageTableRows(pulse.coverage, unattributedScanHits(records, pulse.coverage)),
   };
 }
 

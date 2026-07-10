@@ -1064,6 +1064,30 @@ test("brief --full embeds the FULL primary field; short stubs it", async () => {
   }
 });
 
+test("brief grouped trail orders by the group's NEWEST record, not first-seen", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-briefgroup-"));
+  try {
+    const c = openCase(dir); c.ensure();
+    // an artifact whose capture is OLD but whose newest sense is the newest
+    // record in the case — its group must lead the newest-first trail
+    c.writeRecord(makeRecord({ verb: "capture", payload: { path: "media/old.mp4" }, media: { ref: "media/old.mp4" }, meta: { time: "2026-01-01T00:00:00Z" } }));
+    for (let i = 0; i < 12; i++) {
+      c.writeRecord(makeRecord({ verb: "scan", payload: { title: `hit ${i}`, url: `http://x/${i}`, source: "web" }, meta: { time: `2026-03-${String(i + 1).padStart(2, "0")}T00:00:00Z` } }));
+    }
+    c.writeRecord(makeRecord({ verb: "watch", payload: { content: "FRESH_LOOK at the old artifact" }, media: { ref: "media/old.mp4" }, meta: { time: "2026-06-01T00:00:00Z" } }));
+    const [rec] = await briefVerb.run(ctx(c, undefined, {}));
+    const report = (rec.payload as Record<string, unknown>).report as string;
+    const trail = report.split("## Record trail")[1] ?? "";
+    const artifactAt = trail.indexOf("**old.mp4**");
+    assert.ok(artifactAt >= 0, "grouped trail renders the artifact group");
+    // first-seen order would bury the old artifact under every scan; the
+    // newest-sense group must sort above the newest scan hit
+    assert.ok(artifactAt < trail.indexOf("hit 11"), "old artifact with the newest sense sorts first");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("brief --scope: pulse (threads/coverage/triage) reflects the FULL case, not the scoped window", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-briefscope-"));
   try {
