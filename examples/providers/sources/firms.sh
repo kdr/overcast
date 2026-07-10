@@ -195,9 +195,11 @@ case "$op" in
         if [ -n "${fx:-}" ] || ! is_coord "$fw" || ! is_coord "$fs" || ! is_coord "$fe" || ! is_coord "$fn"; then
           echo "firms: bbox needs four numbers west,south,east,north (got '$query')" >&2; exit 1
         fi
-        bboxenc="$(jq -rn --arg v "$bbox" '$v|@uri')"
+        # bbox parts are already validated numeric (is_coord above), so the string is
+        # URL-safe as-is — embed it RAW. The FIRMS area endpoint wants literal commas
+        # in the path segment and returns HTTP 400 when they're %2C-encoded.
         srcenc="$(jq -rn --arg v "$src" '$v|@uri')"
-        endpoint="$API/area/csv/$KEY/$srcenc/$bboxenc/$dayrange"
+        endpoint="$API/area/csv/$KEY/$srcenc/$bbox/$dayrange"
         ;;
     esac
 
