@@ -50,6 +50,7 @@ case "$op" in
     if [ -n "$since" ]; then
       now="$(date -u +%s)"; cutepoch=""
       case "$since" in
+        *[0-9]s) cutepoch=$(( now - 10#${since%s} )) ;;
         *[0-9]m) cutepoch=$(( now - 10#${since%m} * 60 )) ;;
         *[0-9]h) cutepoch=$(( now - 10#${since%h} * 3600 )) ;;
         *[0-9]d) cutepoch=$(( now - 10#${since%d} * 86400 )) ;;
@@ -58,7 +59,7 @@ case "$op" in
           cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')" ;;
         # an unparseable --since is a hard error (fail closed): don't silently
         # widen to the full history, returning far older snapshots than requested.
-        *) echo "wayback: could not parse --since '$since' (use Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
+        *) echo "wayback: could not parse --since '$since' (use Ns/Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
       esac
       [ -n "$cutepoch" ] || { echo "wayback: could not parse --since '$since'" >&2; exit 1; }
       stamp="$(date -u -r "$cutepoch" +%Y%m%d%H%M%S 2>/dev/null || date -u -d "@$cutepoch" +%Y%m%d%H%M%S 2>/dev/null || echo '')"

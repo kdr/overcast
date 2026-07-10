@@ -39,6 +39,15 @@ test("parseInstant: a fully-zoned ISO value is respected, not re-zoned", () => {
   assert.equal(got!.date.toISOString(), "2026-06-01T14:30:00.000Z");
 });
 
+test("parseInstant: a zone-less single-digit hour is still pinned to UTC (not host-local)", () => {
+  // T9:30 skipped the 2-digit-hour Z-append branch → Date read it host-local while
+  // assumed_utc stayed true (machine-varying sun/shadow results).
+  const got = parseInstant("2026-06-01T9:30:00");
+  assert.ok(got);
+  assert.equal(got!.assumedUtc, true);
+  assert.equal(got!.date.toISOString(), "2026-06-01T09:30:00.000Z");
+});
+
 test("parseInstant: garbage is undefined", () => {
   assert.equal(parseInstant("not-a-date"), undefined);
 });

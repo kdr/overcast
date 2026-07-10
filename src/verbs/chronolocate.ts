@@ -55,7 +55,11 @@ export function parseInstant(raw: string): { date: Date; assumedUtc: boolean } |
   const s = raw
     .trim()
     .replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3")
-    .replace(" ", "T");
+    .replace(" ", "T")
+    // zero-pad a single-digit hour (`T9:30` → `T09:30`) so the UTC pinning below
+    // fires and Date parses it as UTC — otherwise a zone-less single-digit-hour
+    // datetime is read HOST-LOCAL while assumed_utc still claims UTC (machine-varying).
+    .replace(/T(\d):/, "T0$1:");
   // reject an impossible calendar day (Date rolls 2026-02-30 → Mar 2, verifying the
   // WRONG instant) — the date part must be a real day regardless of time/zone.
   const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
