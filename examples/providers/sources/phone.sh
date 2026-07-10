@@ -14,7 +14,7 @@
 # Key: APIFY_TOKEN. Ref/query is a phone number in E.164 (e.g. +14155551212).
 # Actor override: OVERCAST_PHONE_ACTOR
 # (default datacach~phoneinfoga-phone-number-osint-scanner).
-# `--limit`/`--since` are ignored (one number → one intel record).
+# `--limit` caps records (normally one number → one intel record); `--since` ignored.
 # Implements: enumerate --query <e164> | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
 ACTOR="${OVERCAST_PHONE_ACTOR:-datacach~phoneinfoga-phone-number-osint-scanner}"
@@ -34,10 +34,10 @@ esac
 
 case "$op" in
   enumerate)
-    query=""
+    query=""; limit=10
     while [ "$#" -gt 0 ]; do case "$1" in
       --query) query="${2:-}"; shift 2 2>/dev/null || shift ;;
-      --limit) shift 2 2>/dev/null || shift ;;   # one number → one record
+      --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;;   # normally 1 (one number → one record), but cap defensively
       --since) shift 2 2>/dev/null || shift ;;   # no recency axis
       *) shift ;;
     esac; done
@@ -58,7 +58,9 @@ case "$op" in
     # .numberInfo / .local (country / carrier guess / validity); .googlesearch is the
     # grouped web footprint. There is no natural media for a phone record, so hits
     # carry no media.ref (metadata evidence). Field names vary across actor versions.
-    jq -c '
+    # Capped to --limit like every other source (default 1 number → 1 record, but a
+    # custom OVERCAST_PHONE_ACTOR could return more).
+    jq -c --argjson n "$limit" '
       [ .[]
         | (.numberInfo // {}) as $ni
         | (.local // {}) as $lo
@@ -81,7 +83,7 @@ case "$op" in
             international_format: ($ni.international // $ni.internationalFormat // null),
             footprint: (.googlesearch // null),
             caveat: "phone OSINT — offline parse + public web footprint; NOT an FCRA report; corroborate before acting; authorized use only"
-          } ]' <<<"$run"
+          } ] | .[0:$n]' <<<"$run"
     ;;
   fetch)
     url=""; out=""
