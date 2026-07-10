@@ -162,7 +162,14 @@ export function solveShadowWindows(opts: SolveOptions): ShadowWindow[] {
   const azTol = opts.azTolDeg ?? 3;
   const altTol = opts.altTolDeg ?? 4;
   const step = opts.stepMin ?? 1;
-  const dayStart = Date.UTC(opts.date.getUTCFullYear(), opts.date.getUTCMonth(), opts.date.getUTCDate(), 0, 0, 0, 0);
+  // Scan the LOCAL solar day, not the UTC day. --date is the calendar date AT THE
+  // LOCATION; local solar midnight lands at UTC ≈ 00:00 − lng/15h, so at extreme
+  // longitudes a plain UTC-day scan clips the morning/evening off the daylight arc
+  // (e.g. near lng ±180 solar noon sits on the UTC-day boundary). Offset the window
+  // start by the longitude so the full local day — hence the whole daylight arc — is
+  // covered. (Mean vs apparent solar time differ by ≤16 min, well inside the window.)
+  const lngOffsetMs = (opts.lng / 15) * 3_600_000;
+  const dayStart = Date.UTC(opts.date.getUTCFullYear(), opts.date.getUTCMonth(), opts.date.getUTCDate(), 0, 0, 0, 0) - lngOffsetMs;
 
   const hits: { t: number; pos: SunPos }[] = [];
   for (let min = 0; min < 24 * 60; min += step) {

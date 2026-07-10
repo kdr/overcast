@@ -86,11 +86,13 @@ export const chronolocateVerb: VerbSpec = {
   ],
   outputKind: "chrono.estimate",
   run: async (ctx) => {
-    // --- resolve location (flags win; else the input record's GPS) ------------
+    // --- resolve location (explicit flags win per-axis; else the record's GPS) --
     let lat: number | undefined;
     let lng: number | undefined;
-    let gpsSource = "flags";
+    let latFrom: "flags" | "record" | undefined;
+    let lngFrom: "flags" | "record" | undefined;
     let mediaRef: string | undefined;
+    let mediaAt: number | [number, number] | undefined;
     let sourceRecord: string | undefined;
 
     const latOpt = ctx.opts.lat != null ? validLat(Number(ctx.opts.lat)) : undefined;
@@ -102,26 +104,48 @@ export const chronolocateVerb: VerbSpec = {
       const rec = ctx.case.recordById(ctx.input);
       if (rec) {
         sourceRecord = rec.id;
-        if (rec.media?.ref) mediaRef = rec.media.ref;
+        if (rec.media?.ref) {
+          mediaRef = rec.media.ref;
+          // carry the evidence moment forward — a timed watch/see frame keeps its
+          // second/span so `map` markers and citations still anchor to the moment.
+          if (rec.media.at !== undefined) mediaAt = rec.media.at;
+        }
         const gps = rec.payload && typeof rec.payload === "object" ? (rec.payload as Record<string, unknown>).gps : undefined;
         const valid = validLatLng(gps);
         if (valid) {
           lat = valid.lat;
           lng = valid.lng;
-          gpsSource = `record ${rec.id}`;
+          latFrom = "record";
+          lngFrom = "record";
         }
       } else {
         // not a record id — treat as a media path/URL/frame ref for evidence linking
         mediaRef = ctx.input;
       }
     }
-    if (latOpt !== undefined) lat = latOpt;
-    if (lngOpt !== undefined) lng = lngOpt;
+    // an explicit --lat/--lng overrides that axis AND re-attributes its source.
+    if (latOpt !== undefined) {
+      lat = latOpt;
+      latFrom = "flags";
+    }
+    if (lngOpt !== undefined) {
+      lng = lngOpt;
+      lngFrom = "flags";
+    }
 
     if (lat === undefined || lng === undefined) {
       const why = ctx.input && sourceRecord ? ` (record ${sourceRecord} has no usable GPS)` : "";
       return [err(`chronolocate needs a location${why}: pass --lat/--lng, or a case record carrying payload.gps`)];
     }
+
+    // attribute coordinates honestly for the audit trail: flags, the linked
+    // record, or a mix when only one axis was overridden (both axes are set here).
+    const gpsSource =
+      latFrom === "flags" && lngFrom === "flags"
+        ? "flags"
+        : latFrom === "record" && lngFrom === "record"
+          ? `record ${sourceRecord}`
+          : `flags + record ${sourceRecord}`;
 
     const wantVerify = ctx.opts["at-time"] != null && String(ctx.opts["at-time"]).trim() !== "";
     const wantSolve = ctx.opts["shadow-azimuth"] != null;
@@ -129,7 +153,7 @@ export const chronolocateVerb: VerbSpec = {
     if (!wantVerify && !wantSolve) return [err("chronolocate needs a mode: --at-time <ISO> (verify) or --shadow-azimuth <deg> (solve)")];
 
     const stampMedia = (rec: OvercastRecord): OvercastRecord => {
-      if (mediaRef) rec.media = { ref: mediaRef };
+      if (mediaRef) rec.media = { ref: mediaRef, ...(mediaAt !== undefined ? { at: mediaAt } : {}) };
       rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceRecord ? { source_record: sourceRecord } : {}) };
       return rec;
     };

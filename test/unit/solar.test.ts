@@ -97,6 +97,33 @@ test("solve↔verify round-trip: the observed shadow recovers the original time"
   assert.ok(near, `no window brackets truth solar time ${truthSolar}`);
 });
 
+test("solve↔verify round-trip near the antimeridian (local solar day ≠ UTC day)", () => {
+  // At lng ~+179 solar noon sits near 00:00 UTC, so the morning falls on the
+  // PREVIOUS UTC date. A plain UTC-day scan would miss it; scanning the local
+  // solar day must still recover the time. `when` is a morning instant whose
+  // LOCAL solar date is 2024-06-21, so we solve with that date.
+  const when = new Date("2024-06-20T21:00:00Z");
+  const lat = 20;
+  const lng = 179;
+  const truth = sunPosition(when, lat, lng);
+  assert.ok(truth.altitude > 0, `expected daylight, got altitude ${truth.altitude}`);
+  const windows = solveShadowWindows({
+    date: new Date("2024-06-21T12:00:00Z"),
+    lat,
+    lng,
+    sunAzimuth: shadowToSunAzimuth(sunToShadowAzimuth(truth.azimuth)),
+    altitude: truth.altitude,
+  });
+  assert.ok(windows.length >= 1, "expected a candidate window across the UTC-day boundary");
+  const truthSolar = solarTimeHours(truth.hourAngle);
+  const near = windows.some((w) => {
+    const lo = Number(w.startSolar.slice(0, 2)) + Number(w.startSolar.slice(3)) / 60;
+    const hi = Number(w.endSolar.slice(0, 2)) + Number(w.endSolar.slice(3)) / 60;
+    return truthSolar >= lo - 0.25 && truthSolar <= hi + 0.25;
+  });
+  assert.ok(near, `no window brackets truth solar time ${truthSolar}`);
+});
+
 test("solveShadowWindows: no match when the sun is never at that bearing (polar night edge)", () => {
   // A due-north sun bearing at a mid-northern latitude never happens above the
   // horizon — expect zero windows.
