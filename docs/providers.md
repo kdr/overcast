@@ -70,7 +70,7 @@ Catalog presets:
 |---|---|
 | `cloudglue` | `watch:tinycloud`, `listen:tinycloud`, `face:tinycloud`, `enhance:ffmpeg` |
 | `hf` | `see:hf`, `enhance:hf` |
-| `fal` | `see:fal`, `enhance:fal` |
+| `fal` | `see:fal`, `enhance:fal`, `reconstruct:fal` |
 | `elevenlabs` | `listen:elevenlabs`, `enhance:elevenlabs` |
 | `owl-local` | `see:owl-local` |
 | `local-models` | `enhance:local-models` (on-device separate + segment) |
@@ -212,11 +212,13 @@ model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 Direct fal.ai providers (verified working) — bind to opt in:
 
 ```bash
-overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input}}"      # florence-2 caption / --ocr
-overcast setup provider enhance "exec:bash examples/providers/fal/enhance.sh {{input}}"  # image: esrgan · audio: deepfilternet3
+overcast setup provider see         "exec:bash examples/providers/fal/see.sh {{input}}"          # florence-2 caption / --ocr
+overcast setup provider enhance     "exec:bash examples/providers/fal/enhance.sh {{input}}"      # image: esrgan · audio: deepfilternet3
+overcast setup provider reconstruct "exec:bash examples/providers/fal/reconstruct.sh {{input}}"  # speculative camera reposition / 3D / depth
 ```
 - **see** → `fal-ai/florence-2-large` (detailed caption; `--ocr` for text).
 - **enhance** is a **toolbox** dispatched by `--ops`: image → `fal-ai/esrgan`, audio → `fal-ai/deepfilternet3`; `--ops separate` → `fal-ai/sam-audio/separate`, `--ops segment` → `fal-ai/sam-3/image`. Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL` / `FAL_SEPARATE_MODEL` / `FAL_SEGMENT_MODEL`. See **Enhance split ops** below.
+- **reconstruct** is a **toolbox** dispatched by `--ops`: camera reposition / `sweep` → `fal-ai/qwen-image-edit-2511-multiple-angles`, `model` → `fal-ai/trellis` (image→3D GLB, via the fal **queue API**), `depth` → `fal-ai/image-preprocessors/depth-anything/v2`. Models override via `FAL_RECONSTRUCT_VIEW_MODEL` / `FAL_RECONSTRUCT_MESH_MODEL` (e.g. `fal-ai/hunyuan3d-v3/image-to-3d`) / `FAL_RECONSTRUCT_DEPTH_MODEL`; queue knobs `FAL_QUEUE_POLL_S` / `FAL_QUEUE_TIMEOUT_S`. See **Speculative reconstruction** below.
 
 ## Forensic senses — `exif` (metadata + GPS, no key)
 
@@ -375,6 +377,45 @@ overcast crop <segment-parent-id> --all                            # materialize
   emits masks instead of cutouts. Image-only — segment a `frame://rec@sec` still of a
   video, not the video. Boxes are crop-compatible (`{xmin,ymin,xmax,ymax}`, with
   `box_normalized` when the model returns normalized coordinates).
+
+## Speculative reconstruction — `reconstruct` (camera reposition / 3D / depth)
+
+`reconstruct` synthesizes what a captured scene *would plausibly* look like from
+a camera the investigator never had. It is deliberately quarantined: every
+record carries `payload.caveat` (stamped by the verb even when a provider
+forgets) and the verb is excluded from ask/brief evidence and findings triggers
+— synthesized pixels steer hypotheses, they never prove anything.
+
+```bash
+overcast provider setup plan --preset fal && overcast provider setup apply --preset fal --yes   # FAL_KEY
+
+overcast reconstruct scene.jpg --rotate 45 --elevate 30          # reposition the camera on a still
+overcast reconstruct clip.mp4 --at 12.5 --rotate 90 --view       # pin a video frame, then rotate around it
+overcast reconstruct scene.jpg --ops sweep --count 8             # 8 stops around 360° → contact sheet + turntable mp4
+overcast reconstruct scene.jpg --ops model                       # image → textured 3D GLB (fal queue API; minutes)
+overcast reconstruct scene.jpg --ops depth                       # estimated depth map
+overcast view <parent-id>                                        # gallery / embedded 3D orbit viewer / drag-parallax hologram
+```
+
+- **Ops.** `view` (default when `--rotate`/`--elevate`/`--zoom` is given) emits one
+  synthesized view; `sweep` emits one child per stop plus a labeled contact sheet
+  (`kind:"sheet"`, the grid trick over synthesized stops) and a turntable video
+  (`kind:"turntable"`, assembled locally by the internal ffmpeg); `model` emits a
+  `kind:"mesh"` GLB; `depth` a `kind:"depth"` map.
+- **Multi-output contract.** Same as enhance split ops: ONE provider record with
+  `payload.outputs[] = [{kind, ref, ...}]`, fanned out into `[parent, ...children]`
+  with `source_record` provenance — plus the caveat stamped on every record.
+- **Viewers.** `view <parent-id>` renders the op's viewer: a scriptless CSI gallery
+  for view/sweep, an embedded WebGL **3D orbit viewer** for `model` (hand-rolled GLB
+  renderer, no CDN, mesh embedded base64; Draco/KTX2-compressed GLBs degrade to an
+  explicit message), and a WebGL **parallax hologram** for `depth`. `--view` opens it
+  immediately.
+- **Queue API.** `--ops model` runs minutes, so the provider submits to
+  `queue.fal.run` and polls the returned `status_url` (`FAL_QUEUE_POLL_S`, default
+  5s; `FAL_QUEUE_TIMEOUT_S`, default 600s) — the first shipped provider to use fal's
+  queue transport; copy it for any other long-running fal model.
+- **Cost note.** The Qwen multi-angle LoRA bills ~$0.035/megapixel per synthesized
+  view — an 8-stop sweep of a ~1 MP frame is ~$0.28.
 
 ## Object detection (`see` — open-vocabulary, local)
 
@@ -702,7 +743,7 @@ sample 8 frames.
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec/in-proc).
 - [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
-- [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance, plus `--ops separate` (sam-audio) and `--ops segment` (sam-3).
+- [`examples/providers/fal/{see,enhance,reconstruct}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance (plus `--ops separate` sam-audio / `--ops segment` sam-3), and the speculative `reconstruct` toolbox (Qwen multi-angle reposition/sweep, Trellis image→3D via the queue API, Depth Anything V2).
 - [`examples/providers/local/enhance.sh`](../examples/providers/local/enhance.sh) + [`examples/providers/visual-db/enhance_{voice,segment}.py`](../examples/providers/visual-db/) — on-device `enhance --ops separate` (pyannote) and `--ops segment` (GroundingDINO + SAM 2.1).
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).

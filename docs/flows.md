@@ -582,6 +582,31 @@ overcast similar add <track-record-id> --to voices               # embed the iso
 overcast similar search "calm female narrator" --index voices    # then CLAP-search across the separated voices
 ```
 
+### 13c. Speculative reconstruction — rotate the camera you never had
+
+"Hold the camera at that moment — now show me the scene from the right, from
+above, from behind." `reconstruct` synthesizes those views with a bound
+generative provider. **Everything it emits is a hypothesis, not evidence**: each
+record carries `payload.caveat` and is excluded from ask/brief evidence and
+findings triggers. Use it to decide where to look next, then verify with real
+captures.
+
+```bash
+overcast provider setup plan --preset fal && overcast provider setup apply --preset fal --yes  # FAL_KEY
+
+overcast reconstruct ./cctv.mp4 --at 12.5 --rotate 90 --view    # pin the frame, swing the camera to the right side
+overcast reconstruct ./scene.jpg --rotate -45 --elevate 30      # quarter-turn left, elevated
+overcast reconstruct ./scene.jpg --ops sweep --count 8          # full 360°: 8 stops + contact sheet + turntable mp4
+overcast reconstruct ./scene.jpg --ops model --view             # lift a 3D mesh → drag-to-orbit WebGL viewer
+overcast reconstruct ./scene.jpg --ops depth --view             # estimated depth → drag-parallax hologram
+overcast view <parent-id>                                       # reopen any reconstruction's viewer later
+```
+
+The sweep's contact sheet (`kind:"sheet"`) is the grid trick over synthesized
+stops — one VLM pass can triage every angle ("in which stop is the plate
+visible?"), then a targeted `--rotate` at higher fidelity follows up. Seed with
+`--seed` for reproducible synthesis; `--prompt` adds a scene hint.
+
 ### 14. Detection crop evidence
 
 Turn face/object boxes into durable, citable, searchable images.
