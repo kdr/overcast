@@ -66,6 +66,12 @@ export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set([
   "map",
   "prebrief",
   "provider",
+  // reconstruct is a SENSE verb by group, quarantined here on purpose: its
+  // records are synthesized pixels (novel views / 3D lifts / estimated depth),
+  // stamped payload.caveat — viewable, chainable, exportable, but never
+  // ask/brief evidence and never findings-trigger input. crop materializes
+  // real pixels and stays evidence; reconstruct materializes hypotheses.
+  "reconstruct",
   "setup",
   "skills",
   "source",

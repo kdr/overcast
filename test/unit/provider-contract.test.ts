@@ -31,6 +31,7 @@ const PROVIDERS: Prov[] = [
   sh("bash/watch.sh"),
   sh("fal/see.sh"),
   sh("fal/enhance.sh"),
+  sh("fal/reconstruct.sh"),
   sh("hf/see.sh"),
   sh("hf/enhance.sh"),
   sh("elevenlabs/listen.sh"),

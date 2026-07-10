@@ -33,6 +33,7 @@ import { escapeHtml, renderEnhanceGallery, type EnhanceGalleryItem, type Enhance
 import { providerEnv } from "../providers/provider-env.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { fanOutEnhance, hasFanOut } from "./enhance-fanout.js";
+import { maybeReconstructViewer } from "./reconstruct.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -658,7 +659,9 @@ export const viewVerb: VerbSpec = {
     "record's media.at) and opens it. For other files, uses the OS open command. Given an `enhance` " +
     "split-op PARENT record (--ops separate/segment), renders a GALLERY of its fanned-out children " +
     "instead — per-speaker audio players + spectrograms for separate (with cross-talk regions), or " +
-    "cutout/mask images for segment. --no-open writes the viewer and emits a view record with its path.",
+    "cutout/mask images for segment. Given a `reconstruct` record, renders its dedicated viewer: a " +
+    "speculative gallery (view/sweep), an embedded 3D orbit viewer (model / mesh children), or a " +
+    "drag-parallax hologram (depth). --no-open writes the viewer and emits a view record with its path.",
   args: [{ name: "ref", summary: "Media path, capture-id, or record-id", required: true }],
   flags: [
     { name: "at", summary: "Start at SS or seek a START-END span", type: "string" },
@@ -731,6 +734,10 @@ export const viewVerb: VerbSpec = {
     if (rec) {
       const gallery = await maybeEnhanceGallery(ctx, rec);
       if (gallery) return [gallery];
+      // reconstruct records get their dedicated viewers (gallery of synthesized
+      // stops, 3D orbit for a mesh, drag-parallax for a depth map) — same seam.
+      const reconstruction = maybeReconstructViewer(ctx, rec);
+      if (reconstruction) return [reconstruction];
     }
 
     // watch/listen accept and persist http(s) URLs; view must too (don't treat
