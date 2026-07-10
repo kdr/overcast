@@ -177,6 +177,11 @@ case "$op" in
           # hex-looking callsign is inherently ambiguous (and a bare airline code matches
           # no aircraft anyway), so prefer the direct id over a global states fetch.
           url="$STATES?icao24=$(printf '%6s' "$qt" | tr ' A-F' '0a-f')"
+        elif [[ "$qt" =~ ^[0-9a-fA-F]{7,}$ ]]; then
+          # a hex-only token LONGER than 6 is a malformed icao24 (a 24-bit address is at
+          # most 6 hex digits), not a callsign — reject it rather than silently pulling
+          # the global, unfiltered states/all (same reason the bbox arm rejects).
+          echo "flights enumerate: '$query' looks like an icao24 but has more than 6 hex digits (a 24-bit address is at most 6) — check the id" >&2; exit 1
         else
           callsign="$qt"
         fi
