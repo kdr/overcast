@@ -256,7 +256,10 @@ export const clusterVerb: VerbSpec = {
     writeFileSync(outPath, html, "utf8");
     const noOpen = ctx.opts["no-open"] === true;
     if (!noOpen) openHtmlPlayer(outPath);
-    return [makeRecord({
+    // route the SUCCESS record through finish() too (not just the error path) so a
+    // bucket-scoped gallery (`--index archive:…`) traces to its bucket like every
+    // other cluster op — round-14 pattern A, the view success branch was the gap.
+    return finish(makeRecord({
       verb: "cluster",
       format: "json",
       payload: {
@@ -269,6 +272,6 @@ export const clusterVerb: VerbSpec = {
       },
       meta: { provider: "local:face-cluster", case: c.dir },
       state: "ready",
-    })];
+    }), "view");
   },
 };

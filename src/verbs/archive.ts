@@ -389,7 +389,12 @@ async function runAdd(ctx: VerbContext): Promise<OvercastRecord[]> {
 
     cap ??= await captureRef({ ...ctx, case: bucket.case }, ref);
     let dest = cap.media?.ref;
-    if (cap.state === "error" || cap.state === "needs_credentials" || !dest || !existsSync(dest)) {
+    // require a READY capture before it becomes a manifest row: the dedup set is
+    // built from listBucketItems (ready-only), so persisting a non-ready capture
+    // (pending/errored/cred-gapped partial) would leave a row that a later add of
+    // the same bytes can't see for dedup — storing a duplicate file + row for one
+    // hash. A non-ready capture is a failed archive (can't store a partial file).
+    if (!isReady(cap) || !dest || !existsSync(dest)) {
       failed++;
       out.push(cap);
       continue;

@@ -777,6 +777,49 @@ test("parity guard: every local match/identify verb stamps query provenance thro
   }
 });
 
+test("every resolveIndexScope-scoped verb stamps meta.archive on ALL op branches (no raw makeRecord return)", () => {
+  // finding class: cluster VIEW returned makeRecord directly, bypassing the
+  // stampArchive its sibling ops (list/show/label + the view ERROR path) apply —
+  // so a bucket-scoped gallery (`--index archive:…`) lost its trace. Lock it
+  // across every scoped typed verb: no `return [makeRecord(` that skips
+  // finish()/stampArchive. Error records (err()/errRecord) carry no evidence and
+  // are exempt. A source-level guard because the success paths need a live local
+  // DB (Python) that offline tests can't stand up.
+  for (const v of ["image", "similar", "audio", "voice", "cluster", "face"]) {
+    const rel = `src/verbs/${v}.ts`;
+    const src = readFileSync(join(process.cwd(), rel), "utf8");
+    assert.ok(/resolveIndexScope/.test(src), `${rel} is index-scoped`);
+    const raw = (src.match(/return \[makeRecord\(/g) ?? []).length;
+    assert.equal(raw, 0, `${rel}: every record emission must route through stampArchive/finish, found ${raw} raw \`return [makeRecord(\``);
+  }
+});
+
+test("archive add persists only READY captures, so the dedup set stays complete", async () => {
+  const env = makeEnv();
+  try {
+    await runArchive(env, "init", ["refs"]);
+    const a = seedFile(env, "a.mp4", "aaa");
+    await runArchive(env, "add", [a], { to: "refs" });
+    const bucket = openBucket("refs", env.home).bucket!;
+    const caps = () => bucket.case.records().filter((r) => r.verb === "capture");
+    // every manifest capture is READY, so listBucketItems (ready-only) — the sha
+    // dedup source — is complete: a non-ready/partial capture is never persisted as
+    // a row a later same-bytes add couldn't see (finding: pending captures skip
+    // dedup). archive add now requires isReady(cap) before it becomes a row.
+    assert.ok(caps().length >= 1);
+    for (const cap of caps()) {
+      assert.notEqual(cap.state, "pending", `manifest capture ${cap.id} not pending`);
+      assert.notEqual(cap.state, "error", `manifest capture ${cap.id} not error`);
+    }
+    // re-add the same bytes → dedup (already_archived), not a duplicate row
+    const again = await runArchive(env, "add", [a], { to: "refs" });
+    assert.equal((payload(again.find((r) => r.verb === "archive")!).already_archived as unknown[]).length, 1);
+    assert.equal(caps().length, 1, "no duplicate manifest row for one hash");
+  } finally {
+    env.cleanup();
+  }
+});
+
 test("an auto-suggested finding inherits the archive-index match record's bucket trace", async () => {
   const env = makeEnv();
   try {
