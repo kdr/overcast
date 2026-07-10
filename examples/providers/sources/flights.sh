@@ -88,6 +88,10 @@ map_states() {
             url: $url,
             source: "flights",
             published: (if $tpos != null then (($tpos | floor) | todate) else null end),
+            # `map` ranks/--since-filters by payload.created — anchor a plotted
+            # position to its observation time (time_position, else last_contact),
+            # not the scan ingest time. Same convention as exif/firms/chronolocate.
+            created: (($tpos // $s[4]) | if . != null then (floor | todate) else null end),
             snippet: (
               "alt " + (if $baro != null then ($baro | tostring) + "m" else "?" end)
               + " · vel " + (if $vel != null then ($vel | tostring) + "m/s" else "?" end)
