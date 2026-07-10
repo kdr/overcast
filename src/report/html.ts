@@ -189,9 +189,14 @@ function findingListHtml(findings: TimelineSynthesis["findings"]): string {
  *  rows), falling back to the swept-source list when nothing is configured. */
 function coverageTableHtml(coverage: CoverageTableRow[] | undefined, sources: TimelineSynthesis["sources"]): string {
   if (coverage?.length) {
+    // the "(ad-hoc)" marker only means anything in CONTRAST to configured rows
+    const hasConfigured = coverage.some((r) => !r.adHoc);
     const rows = coverage.map((r) => {
-      const label = r.label.replace(/\*\*|_/g, ""); // md emphasis → plain for html
-      return `<tr><td>${escapeHtml(label)}</td><td${r.gap ? ` class="bad"` : ""}>${escapeHtml(r.lastScan)}</td><td>${escapeHtml(r.hits)}</td><td>${escapeHtml(r.captured)}</td><td>${escapeHtml(r.sensed)}</td></tr>`;
+      // labels are PLAIN in the model — each renderer adds its own emphasis
+      const label = r.adHoc
+        ? `${escapeHtml(r.label)}${hasConfigured ? ` <span class="meta">(ad-hoc)</span>` : ""}`
+        : `<strong>${escapeHtml(r.label)}</strong>${r.disabled ? ` <span class="meta">(disabled)</span>` : ""}`;
+      return `<tr><td>${label}</td><td${r.gap ? ` class="bad"` : ""}>${escapeHtml(r.lastScan)}</td><td>${escapeHtml(r.hits)}</td><td>${escapeHtml(r.captured)}</td><td>${escapeHtml(r.sensed)}</td></tr>`;
     }).join("");
     return `<table class="coverage" data-csi-coverage="true"><thead><tr><th>source</th><th>last scan</th><th>hits</th><th>captured</th><th>sensed</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
@@ -242,7 +247,8 @@ function renderThreadCards(threads: TimelineSynthesis["threads"]): string {
     // geometric evidence stays WITH its line of investigation
     const findingRows = t.findings.map((f) => {
       const overlays = (f.overlays ?? []).map((ref) => imageTag(ref)).filter(Boolean).slice(0, 3).join("");
-      return `<li><span class="id">${escapeHtml(f.id)}</span> <span class="state">[${escapeHtml(f.status)}]</span> ${escapeHtml(f.text)}${overlays ? `<div class="overlays" data-csi-overlays="true">${overlays}</div>` : ""}</li>`;
+      const conf = f.confidence != null ? ` <span class="meta">(${escapeHtml(String(f.confidence))})</span>` : "";
+      return `<li><span class="id">${escapeHtml(f.id)}</span> <span class="state">[${escapeHtml(f.status)}]</span>${conf} ${escapeHtml(f.text)}${overlays ? `<div class="overlays" data-csi-overlays="true">${overlays}</div>` : ""}</li>`;
     }).join("");
     const latestRows = t.latest.map((l) => `<li><span class="id">${escapeHtml(l.id)}</span> ${escapeHtml(l.verb)}${l.at ? ` ${escapeHtml(l.at)}` : ""}${l.age ? ` <span class="meta">(${escapeHtml(l.age)} ago)</span>` : ""} — ${escapeHtml(l.stub)}</li>`).join("");
     // counts render even without resolved rows — the status export builds cards

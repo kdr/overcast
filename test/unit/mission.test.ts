@@ -68,7 +68,10 @@ test("coverage: a hit whose scan label differs from its source's type is never d
   );
   assert.equal(rows.length, 2);
   assert.equal(rows[0].hits, "1");
-  assert.match(rows[1].label, /rumble.*ad-hoc/);
+  // labels are PLAIN in the model (renderers add emphasis) — underscores in a
+  // spec must survive both md and html rendering
+  assert.equal(rows[1].label, "rumble");
+  assert.equal(rows[1].adHoc, true);
 });
 
 test("a dismiss --target stamp never becomes live linkage after a later accept", () => {

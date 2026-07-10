@@ -272,7 +272,8 @@ export function threadCard(th: TargetThread, ctx: ThreadRenderContext): ThreadCa
     latest,
     next,
     closed: th.status !== "active" ? th.why : undefined,
-    dimmed: th.status !== "active",
+    // only DEAD-END lines dim — an answered line is a success, not a rejection
+    dimmed: th.status === "dead-end",
   };
 }
 
@@ -390,7 +391,14 @@ export function sweptSources(records: OvercastRecord[]): Array<{ source: string;
 }
 
 export interface CoverageTableRow {
+  /** PLAIN source spec / scan label — renderers add their own emphasis (md
+   *  bold / html <strong>); markup in the model corrupted labels containing
+   *  underscores when the other surface tried to strip it */
   label: string;
+  /** swept hit not attributable to any configured source */
+  adHoc: boolean;
+  /** configured source currently disabled */
+  disabled: boolean;
   lastScan: string;
   hits: string;
   captured: string;
@@ -407,17 +415,17 @@ export interface CoverageTableRow {
  *  type. */
 export function coverageTableRows(coverage: SourceCoverage[], adhoc: Array<{ source: string; hits: number }>): CoverageTableRow[] {
   const rows: CoverageTableRow[] = coverage.map((c) => ({
-    label: `**${c.spec}**${c.enabled ? "" : " (disabled)"}`,
+    label: c.spec,
+    adHoc: false,
+    disabled: !c.enabled,
     lastScan: c.gap ? "⚠ never" : fmtAge(c.lastScanAgeSeconds),
     hits: String(c.hits),
     captured: String(c.captured),
     sensed: String(c.sensed),
     gap: c.gap,
   }));
-  // the "(ad-hoc)" marker only means anything in CONTRAST to configured rows
-  const suffix = coverage.length ? " _(ad-hoc)_" : "";
   for (const s of adhoc) {
-    if (s.hits > 0) rows.push({ label: `${s.source}${suffix}`, lastScan: "—", hits: String(s.hits), captured: "—", sensed: "—", gap: false });
+    if (s.hits > 0) rows.push({ label: s.source, adHoc: true, disabled: false, lastScan: "—", hits: String(s.hits), captured: "—", sensed: "—", gap: false });
   }
   return rows;
 }
@@ -426,10 +434,15 @@ export function coverageTableRows(coverage: SourceCoverage[], adhoc: Array<{ sou
 export function renderCoverageMd(coverage: SourceCoverage[], adhoc: Array<{ source: string; hits: number }>, gaps: string[]): string[] {
   const lines: string[] = ["## Coverage", ""];
   const rows = coverageTableRows(coverage, adhoc);
+  // the "(ad-hoc)" marker only means anything in CONTRAST to configured rows
+  const hasConfigured = rows.some((r) => !r.adHoc);
   if (rows.length) {
     lines.push("| source | last scan | hits | captured | sensed |");
     lines.push("| --- | --- | ---: | ---: | ---: |");
-    for (const r of rows) lines.push(`| ${r.label} | ${r.lastScan} | ${r.hits} | ${r.captured} | ${r.sensed} |`);
+    for (const r of rows) {
+      const label = r.adHoc ? `${r.label}${hasConfigured ? " _(ad-hoc)_" : ""}` : `**${r.label}**${r.disabled ? " (disabled)" : ""}`;
+      lines.push(`| ${label} | ${r.lastScan} | ${r.hits} | ${r.captured} | ${r.sensed} |`);
+    }
     lines.push("");
   } else {
     lines.push("- no sources configured and no scan hits in scope", "");
