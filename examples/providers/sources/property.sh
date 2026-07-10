@@ -35,10 +35,10 @@ esac
 
 case "$op" in
   enumerate)
-    query=""
+    query=""; limit=10
     while [ "$#" -gt 0 ]; do case "$1" in
       --query) query="${2:-}"; shift 2 2>/dev/null || shift ;;
-      --limit) shift 2 2>/dev/null || shift ;;   # one address → its parcel record(s)
+      --limit) limit="${2:-}"; shift 2 2>/dev/null || shift ;;   # an address can map to several parcels — honor the cap
       --since) shift 2 2>/dev/null || shift ;;   # records have no recency axis
       *) shift ;;
     esac; done
@@ -58,8 +58,9 @@ case "$op" in
     # map resolved parcels → hits. Drop not_covered/failed rows and rows carrying an
     # error, and require an identity (owner OR an assessed value). Field names are
     # extracted defensively across county sources. media.ref is the source-of-record
-    # page so `capture`/--pull banks it as evidence.
-    jq -c '
+    # page so `capture`/--pull banks it as evidence. Capped to --limit like the
+    # other sources (an address can resolve to several parcels).
+    jq -c --argjson n "$limit" '
       [ .[]
         | ((.status // "") | tostring | ascii_downcase) as $st
         # anchored: drop only EXACT negative statuses (no substring supersets); an
@@ -96,7 +97,7 @@ case "$op" in
             caveat: "public property/assessor records; verify against the county source of record; authorized use only"
           }
         | (if $url != "" then . + {media:{ref:$url}} else . end)
-      ]' <<<"$run"
+      ] | .[0:$n]' <<<"$run"
     ;;
   fetch)
     url=""; out=""
