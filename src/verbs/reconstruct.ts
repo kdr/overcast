@@ -403,13 +403,24 @@ export function maybeReconstructViewer(ctx: VerbContext, rec: OvercastRecord): O
       writeFileSync(out, buildOrbitViewerHtml(ref, viewerOpts), "utf8");
       mode = "orbit";
     } else if (p.kind === "depth") {
+      // the interactive parallax viewer needs the ORIGINAL frame to displace; if
+      // that source is gone (or the pair can't be inlined) still show the depth
+      // map through the caveat-bannered still viewer rather than falling through
+      // to a bare OS-open with no "not evidence" context (a depth map is itself
+      // a readable image).
       const src = typeof p.source_media === "string" && existsSync(p.source_media) ? p.source_media : undefined;
-      if (!src) return null;
-      const html = buildParallaxViewerHtml(src, ref, viewerOpts);
-      if (!html) return null;
-      out = join(ctx.case.mediaDir, `reconstruct-parallax-${rec.id}.html`);
-      writeFileSync(out, html, "utf8");
-      mode = "parallax";
+      const parallax = src ? buildParallaxViewerHtml(src, ref, viewerOpts) : undefined;
+      if (parallax) {
+        out = join(ctx.case.mediaDir, `reconstruct-parallax-${rec.id}.html`);
+        writeFileSync(out, parallax, "utf8");
+        mode = "parallax";
+      } else {
+        const still = buildArtifactViewerHtml(ref, "image", viewerOpts);
+        if (!still) return null;
+        out = join(ctx.case.mediaDir, `reconstruct-artifact-${rec.id}.html`);
+        writeFileSync(out, still, "utf8");
+        mode = "still";
+      }
     } else if (p.kind === "view" || p.kind === "sheet" || p.kind === "turntable") {
       // synthesized still / contact sheet / turntable → the same caveat-bannered
       // wrapper, so the "not evidence" banner rides along with a raw PNG/MP4.

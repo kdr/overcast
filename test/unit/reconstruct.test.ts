@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hasReconstructFanOut, fanOutReconstruct, RECONSTRUCT_CAVEAT } from "../../src/verbs/reconstruct-fanout.ts";
-import { reconstructVerb } from "../../src/verbs/reconstruct.ts";
+import { reconstructVerb, maybeReconstructViewer } from "../../src/verbs/reconstruct.ts";
 import { viewVerb } from "../../src/verbs/senses.ts";
 import { renderReconstructGallery } from "../../src/report/html.ts";
 import { buildOrbitViewerHtml, buildParallaxViewerHtml } from "../../src/report/reconstruct-viewers.ts";
@@ -233,6 +233,22 @@ test("view on a depth PARENT opens the parallax viewer with both images inlined"
   const html = readFileSync(view.media!.ref, "utf8");
   assert.match(html, /COLOR_URI/);
   assert.match(html, /DEPTH_URI/);
+});
+
+test("depth CHILD still gets the caveat banner when the source frame is gone (no bare OS-open)", async () => {
+  const recs = await reconstructVerb.run(ctx(img, { ops: "depth" }, FAKE));
+  const depthChild = recs.find((r) => (r.payload as Record<string, unknown>).kind === "depth")!;
+  // simulate the original captured frame having been cleaned up: with the source
+  // gone the parallax viewer can't be built, but the depth map itself is a
+  // readable image and must still open through the caveat-bannered still viewer.
+  (depthChild.payload as Record<string, unknown>).source_media = "/gone/original.png";
+  const vctx = ctx(img, { "no-open": true }, FAKE);
+  const view = maybeReconstructViewer(vctx, depthChild)!;
+  assert.ok(view, "a viewer is still produced (never a null → bare OS-open)");
+  assert.equal((view.payload as Record<string, unknown>).mode, "still");
+  const html = readFileSync(view.media!.ref, "utf8");
+  assert.match(html, /class="banner"/);
+  assert.match(html, /not photographic evidence/i);
 });
 
 test("view on a mesh CHILD record opens the orbit viewer directly", async () => {
