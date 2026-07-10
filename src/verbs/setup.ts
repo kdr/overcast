@@ -715,6 +715,56 @@ export const doctorVerb: VerbSpec = {
           : "SHODAN_API_KEY missing for shodan scans (https://account.shodan.io)",
       });
     }
+    // Identity / records OSINT sources (Apify-backed) — opt-in, never default,
+    // authorized use only. All gate on APIFY_TOKEN; `plate` additionally needs
+    // OVERCAST_PLATE_ACTOR (no default actor — US plate data is DPPA-restricted).
+    if (ctx.opts.sources === true || sourceTypes.has("username")) {
+      checks.push({
+        name: "source:username",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present (opt-in username→accounts OSINT — authorized use only)"
+          : "APIFY_TOKEN missing for username (Maigret account discovery) scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("person")) {
+      checks.push({
+        name: "source:person",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present (opt-in people-search — NOT an FCRA report; authorized use only)"
+          : "APIFY_TOKEN missing for person (people-search / skip-trace) scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("phone")) {
+      checks.push({
+        name: "source:phone",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present (opt-in phone OSINT — authorized use only)"
+          : "APIFY_TOKEN missing for phone (reverse phone / number OSINT) scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("property")) {
+      checks.push({
+        name: "source:property",
+        ok: envPresent("APIFY_TOKEN"),
+        detail: envPresent("APIFY_TOKEN")
+          ? "APIFY_TOKEN present (opt-in property/assessor records — authorized use only)"
+          : "APIFY_TOKEN missing for property (address→assessor/tax records) scans",
+      });
+    }
+    if (ctx.opts.sources === true || sourceTypes.has("plate")) {
+      // plate needs an explicitly bound actor (no default — DPPA); report both.
+      const plateOk = envPresent("APIFY_TOKEN") && envPresent("OVERCAST_PLATE_ACTOR");
+      checks.push({
+        name: "source:plate",
+        ok: plateOk,
+        detail: plateOk
+          ? "APIFY_TOKEN + OVERCAST_PLATE_ACTOR present (vehicle SPEC only — owner is DPPA-restricted)"
+          : `plate needs ${!envPresent("APIFY_TOKEN") ? "APIFY_TOKEN" : ""}${!envPresent("APIFY_TOKEN") && !envPresent("OVERCAST_PLATE_ACTOR") ? " + " : ""}${!envPresent("OVERCAST_PLATE_ACTOR") ? "OVERCAST_PLATE_ACTOR (no default actor — DPPA)" : ""}`,
+      });
+    }
 
     // home / profiles
     const home = resolveHome({ home: ctx.home });

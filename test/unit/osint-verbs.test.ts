@@ -1767,7 +1767,12 @@ test("builtinDescriptor resolves the shipped gdelttv source", () => {
 });
 
 test("builtinDescriptor resolves the Apify run-sync sources with the long budget", () => {
-  for (const [type, file] of [["instagram", "instagram.sh"], ["telegram", "telegram.sh"], ["facesearch", "facesearch.sh"]] as const) {
+  for (const [type, file] of [
+    ["instagram", "instagram.sh"], ["telegram", "telegram.sh"], ["facesearch", "facesearch.sh"],
+    // identity / records sources — all Apify run-sync, opt-in, never a default.
+    ["username", "username.sh"], ["person", "person.sh"], ["phone", "phone.sh"],
+    ["property", "property.sh"], ["plate", "plate.sh"],
+  ] as const) {
     const desc = builtinDescriptor(type);
     assert.ok(desc, `${type} descriptor should resolve`);
     assert.equal(desc!.type, type);
@@ -1776,6 +1781,10 @@ test("builtinDescriptor resolves the Apify run-sync sources with the long budget
     // doesn't kill them at the generic 2-minute default.
     assert.equal(desc!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
   }
+  // plate is DPPA-gated: its `needs` note names the required bound actor (no
+  // default), distinguishing it from the token-only identity sources.
+  assert.equal(builtinDescriptor("plate")!.needs, "APIFY_TOKEN + OVERCAST_PLATE_ACTOR");
+  assert.equal(builtinDescriptor("username")!.needs, "APIFY_TOKEN");
 });
 
 test("builtinDescriptor resolves the webcam source with the plain budget", () => {

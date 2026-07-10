@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Real OSINT sources: web search (Tavily), dork (Serper.dev Google dorking),
 # shodan (host/service recon), tiktok (Apify), x (Apify), lens reverse image
-# search (Apify), youtube (yt-dlp).
+# search (Apify), youtube (yt-dlp), and the opt-in identity/records sources
+# username/person/phone/property/plate (Apify; gate on APIFY_TOKEN, benign targets).
 # Bound via OVERCAST_SOURCE_<TYPE>_CMD with absolute paths (the bun binary can't
 # auto-resolve the shipped examples/).
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
@@ -255,4 +256,72 @@ if require_cred "$C.telegram" APIFY_TOKEN "skipping telegram"; then
   save_json "20_scan_telegram" "$out" >/dev/null
   assert_scan_hits "$C.telegram.channel" "$out" "telegram channel"
   unset OVERCAST_SOURCE_TELEGRAM_CMD
+fi
+
+# --- identity / records sources (Apify) — username / person / phone / property /
+# plate. These hit LIVE PII on real people and spend Apify credits, so like the
+# other Apify sources they gate on APIFY_TOKEN. Targets are kept benign — a public
+# org handle, a corporate phone line, a government building, an overridable common
+# name (OC_PERSON_QUERY / OC_PROPERTY_QUERY), and the deterministic DPPA gate on
+# `plate`. Do NOT point person/phone at private individuals in CI.
+if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; then
+  # username — Maigret account discovery for a public org handle
+  CASE=$(case_dir src_username)
+  export OVERCAST_SOURCE_USERNAME_CMD="bash $SRCDIR/username.sh"
+  ocrun "$CASE" source add 'username:bellingcat' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=300 oc "$CASE" scan --source username --limit 6 --json)"
+  save_json "20_scan_username" "$out" >/dev/null
+  assert_scan_hits "$C.username.accounts" "$out" "username account discovery"
+  purl="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and ((.payload.url // "")|test("^https?://")))][0].payload.url // empty' 2>/dev/null)"
+  assert_nonempty "$C.username.profileurl" "$purl" "username hit carries a profile URL"
+  unset OVERCAST_SOURCE_USERNAME_CMD
+
+  # phone — PhoneInfoga on a public corporate line (offline parse + footprint)
+  CASE=$(case_dir src_phone)
+  export OVERCAST_SOURCE_PHONE_CMD="bash $SRCDIR/phone.sh"
+  ocrun "$CASE" source add 'phone:+14089961010' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=300 oc "$CASE" scan --source phone --json)"
+  save_json "20_scan_phone" "$out" >/dev/null
+  assert_scan_hits "$C.phone.number" "$out" "phone number OSINT"
+  pcountry="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.country // empty' 2>/dev/null)"
+  assert_nonempty "$C.phone.country" "$pcountry" "phone hit carries a parsed country"
+  unset OVERCAST_SOURCE_PHONE_CMD
+
+  # property — county assessor lookup for a government building (reliably covered)
+  CASE=$(case_dir src_property)
+  export OVERCAST_SOURCE_PROPERTY_CMD="bash $SRCDIR/property.sh"
+  ocrun "$CASE" source add "property:${OC_PROPERTY_QUERY:-1001 Preston St, Houston, TX 77002}" --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=300 oc "$CASE" scan --source property --json)"
+  save_json "20_scan_property" "$out" >/dev/null
+  assert_scan_hits "$C.property.address" "$out" "property assessor records"
+  powner="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.owner != null))][0].payload.owner // empty' 2>/dev/null)"
+  assert_nonempty "$C.property.owner" "$powner" "property hit carries an owner"
+  unset OVERCAST_SOURCE_PROPERTY_CMD
+
+  # person — people-search / skip-trace for an overridable common name
+  CASE=$(case_dir src_person)
+  export OVERCAST_SOURCE_PERSON_CMD="bash $SRCDIR/person.sh"
+  ocrun "$CASE" source add "person:${OC_PERSON_QUERY:-Robert Williams}" --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=300 oc "$CASE" scan --source person --limit 3 --json)"
+  save_json "20_scan_person" "$out" >/dev/null
+  assert_scan_hits "$C.person.name" "$out" "person people-search"
+  pname="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and ((.payload.full_name // "") != ""))][0].payload.full_name // empty' 2>/dev/null)"
+  assert_nonempty "$C.person.record" "$pname" "person hit carries a resolved name"
+  unset OVERCAST_SOURCE_PERSON_CMD
+
+  # plate — deterministic DPPA gate: with no OVERCAST_PLATE_ACTOR it must report
+  # needs_credentials (a setup gap), NOT a fake-clean empty scan. Costs nothing.
+  CASE=$(case_dir src_plate_gate)
+  export OVERCAST_SOURCE_PLATE_CMD="bash $SRCDIR/plate.sh"
+  unset OVERCAST_PLATE_ACTOR
+  ocrun "$CASE" source add 'plate:CA:7ABC123' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=60 oc "$CASE" scan --source plate --json 2>/dev/null)"
+  save_json "20_scan_plate_gate" "$out" >/dev/null
+  pst="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan")][0].state // empty' 2>/dev/null)"
+  if [ "$pst" = "needs_credentials" ]; then
+    ok "$C.plate.gate" "plate reports needs_credentials without OVERCAST_PLATE_ACTOR (DPPA-gated, no default)"
+  else
+    fail "$C.plate.gate" "expected needs_credentials without a bound plate actor, got '$pst'"
+  fi
+  unset OVERCAST_SOURCE_PLATE_CMD
 fi

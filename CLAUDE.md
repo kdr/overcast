@@ -178,7 +178,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens reverse-image / dl generic-yt-dlp capture / instagram / telegram /
   gdelttv broadcast-TV / webcam live-cams / facesearch reverse-face /
-  dork Google-dorking / shodan host-recon;
+  dork Google-dorking / shodan host-recon / username account-discovery /
+  person people-search / phone reverse-phone / property assessor-records /
+  plate license-plate;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
   (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
@@ -205,8 +207,17 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `dork:<google dork>` (Google dorking via Serper.dev — real Google SERPs that
   **honor** `site:`/`filetype:`/`inurl:`/… operators, unlike `web`; `SERPER_API_KEY`);
   `shodan:<search query>` or `shodan:<ip>` (host/service/banner recon via Shodan —
-  search filters or a bare-IP host lookup; `SHODAN_API_KEY`). `dork`/`shodan` are
-  authorized-recon-only, never a default binding.
+  search filters or a bare-IP host lookup; `SHODAN_API_KEY`); and the **identity /
+  records** sources (all Apify-backed, `APIFY_TOKEN`, opt-in, PII on real people):
+  `username:<handle>` (Maigret account discovery across 3000+ sites),
+  `person:<Full Name>` / `person:<Full Name>@<location>` (people-search / skip-trace
+  via Apify skip-trace — addresses/phones/emails/relatives/age; **not** an FCRA report),
+  `phone:<E.164>` (reverse phone / number OSINT via PhoneInfoga — offline parse +
+  web footprint), `property:<street, city, ST zip>`
+  (address→assessor/tax/recorder records), and `plate:<ST>:<plate>` (license
+  plate→vehicle SPEC via a bound actor — no default, `OVERCAST_PLATE_ACTOR`
+  required, US owner data is DPPA-restricted). `dork`/`shodan` and every identity
+  source are authorized-recon-only, never a default binding.
 - **State** — `archive` (GLOBAL cross-case media buckets — case-shaped folders
   under `<home>/archive/<bucket>`, no registry file: `init | list | show | add |
   remove | setup`; items are sha256-deduped `capture` records with tags/notes/

@@ -46,6 +46,11 @@ const PROVIDERS: Prov[] = [
   sh("sources/tiktok.sh", "source"),
   sh("sources/x.sh", "source"),
   sh("sources/web.sh", "source"),
+  sh("sources/username.sh", "source"),
+  sh("sources/person.sh", "source"),
+  sh("sources/phone.sh", "source"),
+  sh("sources/property.sh", "source"),
+  sh("sources/plate.sh", "source"),
 ];
 
 function run(p: Prov, args: string[]) {

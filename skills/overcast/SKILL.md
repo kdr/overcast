@@ -93,6 +93,11 @@ Built-in source refs for `source add <type>:<ref>`:
 - `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
 - `dork:<google dork>` — Google dorking via Serper.dev: real Google SERPs that HONOR operators (`site:` `filetype:` `inurl:` `intitle:` `ext:` `-term` `OR`), unlike `web`. Authorized recon only.
 - `shodan:<search query>` or `shodan:<ip>` — host/service/banner intelligence via Shodan (search filters like `org:`/`net:`/`ssl:`/`port:`, or a bare IP → full host lookup). Authorized recon only.
+- `username:<handle>` — social/forum account discovery via Apify (Maigret): a username → accounts across 3000+ sites (profile URL + name/bio/avatar). Opt-in person OSINT, authorized use only.
+- `person:<Full Name>` (optional `@<location>` hint) — people-search / skip-trace via Apify: a name → public records (current + prior addresses, phones, emails, aliases, relatives, age). NOT an FCRA report; authorized use only.
+- `phone:<E.164>` — reverse phone / number OSINT via Apify (PhoneInfoga): offline parse (carrier guess / country / validity) + grouped web footprint. Authorized use only.
+- `property:<street, city, ST zip>` — address → county assessor / tax / recorder records via Apify: owner / assessed value / tax + sale history. Authorized use only.
+- `plate:<ST>:<plate>` — license plate → vehicle spec (VIN / year / make / model) via a BOUND Apify actor. No default actor (US plate data is DPPA-restricted — set `OVERCAST_PLATE_ACTOR`); vehicle SPEC only, not the owner. Authorized use only.
 
 `overcast commands --json` dumps the authoritative verb registry. Full man
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
