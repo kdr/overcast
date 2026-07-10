@@ -37,14 +37,20 @@ const err = (message: string): OvercastRecord => errRecord("chronolocate", messa
  *  midnight by Date) rather than the host's local zone, so results are
  *  reproducible — and `assumedUtc` flags EITHER case so a citation never implies
  *  a zoned instant the user did not actually give. */
-function parseInstant(raw: string): { date: Date; assumedUtc: boolean } | undefined {
-  // normalize ExifTool-style dates (`YYYY:MM:DD HH:MM:SS`) — exactly what `exif`
-  // writes into payload.created — so copying that value straight into --at-time
-  // verifies cleanly instead of failing as invalid (mirrors map's captureMs).
-  const s = raw.trim().replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3");
+export function parseInstant(raw: string): { date: Date; assumedUtc: boolean } | undefined {
+  // normalize ExifTool-style dates (`YYYY:MM:DD HH:MM:SS[±HH:MM]`) — exactly what
+  // `exif` writes into payload.created — so copying that value straight into
+  // --at-time verifies cleanly instead of failing as invalid. Normalize the date
+  // colons AND the space separator UNCONDITIONALLY (mirrors map's captureMs): a
+  // zoned value with a space (`… HH:MM:SS+05:30`) must still become ISO `T` or it
+  // fails / verifies at the wrong instant.
+  const s = raw
+    .trim()
+    .replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3")
+    .replace(" ", "T");
   const hasZone = /[zZ]$|[+-]\d\d:?\d\d$/.test(s);
-  const hasTime = /[T ]\d\d:\d\d/.test(s);
-  const iso = !hasZone && hasTime ? s.replace(" ", "T") + "Z" : s;
+  const hasTime = /T\d\d:\d\d/.test(s);
+  const iso = !hasZone && hasTime ? s + "Z" : s;
   const date = new Date(iso);
   if (Number.isNaN(date.valueOf())) return undefined;
   return { date, assumedUtc: !hasZone };
