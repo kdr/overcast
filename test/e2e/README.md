@@ -106,6 +106,11 @@ exiftool/c2patool, then GPS made actionable — `map` online OSM-tile + `--offli
 scatter, opt-in live Nominatim `exif --geocode` place lookup, and `devices`
 camera-fingerprint correlation; a geotagged `OC_EXIF_IMAGE` unlocks the GPS legs,
 `OC_EXIF_IMAGE_2` a same-camera serial cluster) ·
+`38_screenshot` (real browser screen capture via the shipped Playwright engine:
+`screenshot <url>` + `--full-page` + a local `.html` export to PNG, the SSRF
+loopback-refusal guard, and the `browser:` source `scan --pull` page render;
+gated on the playwright optional dep + Chromium, `OC_SCREENSHOT_URL` overrides
+the target) ·
 `40_profiles` · `50_piping` (jq / chaining) · `60_dist`
 (binary as artifact) · `70_headless` (agent `--mode json` event stream + `-p`
 tool use + watch/persist).

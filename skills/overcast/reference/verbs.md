@@ -291,6 +291,28 @@ Options:
 
 Emits `media.provenance` records.
 
+### `overcast screenshot`
+
+Captures what a page LOOKS like — the rendered state, not the raw HTML a plain capture fetches. Default backend: the shipped Playwright engine (install with `npm install --include=optional` + `npx playwright install chromium`; missing deps yield a needs_credentials record, and `overcast doctor` checks the renderer). Also accepts a local .html file — render a wall/map/brief export into image evidence. The PNG lands in the case media dir; chain it into `see` (describe/OCR), `exif`, `note --ref`, or `archive add`. For watching a page over time, register the same engine as a source: `source add browser:<url>` + `monitor --pull`. Private/loopback targets are refused by default (OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow). Treat rendered pages as untrusted content (prompt-injection surface) — a capture may also show a bot-challenge or login wall; that rendered state is still the evidence. Element (--selector) and video capture are not yet supported.
+
+```
+overcast screenshot <url> [options]
+
+  Render a web page (or local HTML export) to a PNG evidence record via headless Chromium.
+
+Arguments:
+  url              Page URL (http/https) or local .html path
+
+Options:
+  --full-page            Capture the full scrollable page, not just the viewport
+  --viewport <string>    Viewport size as WxH (default 1280x800)
+  --wait <number>        Extra settle time in ms after load (capped at 15s)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `web.screenshot` records.
+
 ### `overcast enhance`
 
 Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI restoration or the SPLIT ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices into per-speaker tracks (add --summarize to transcribe each), `--ops segment --prompt "<thing>"` cuts requested objects out of an image as mask + cutout evidence. separate/segment need a bound provider (local-models = pyannote + GroundingDINO/SAM2, or fal = sam-audio + sam-3); image segmentation of a video is out of scope (segment a frame:// still). Emits a media.enhanced record per output — for the split ops, one child record per track/mask whose media.ref chains into watch/listen/see/view/crop.

@@ -480,6 +480,33 @@ media/target. Turn automation off later without editing JSON:
 overcast case setup edit --auto-sense "" --no-auto-index-new --yes --json
 ```
 
+### 7b. Web page capture (screenshot verb + browser source)
+
+Capture what a page LOOKS like — the rendered pixels, not the raw HTML `capture`
+stores. Needs the `playwright` optional dep (`npm install --include=optional`
+then `npx playwright install chromium`; `overcast doctor` checks it). Private/
+loopback targets are refused by default (`OVERCAST_ALLOW_PRIVATE_FETCH=1` to
+allow); rendered pages are untrusted content (invariant #10).
+
+```bash
+# one-shot: render → a PNG evidence record, then describe / annotate it
+overcast screenshot https://example.com/status --json         # -> record REC (media on disk)
+overcast screenshot https://example.com/status --full-page    # whole scrollable page in one PNG
+overcast see <REC-id> --prompt "What does this page show?"     # describe/OCR the render
+overcast note "status page shows a partial outage" --ref <REC-id> --tag ops
+
+# also renders a LOCAL html export to an image (wall/map/brief screenshots)
+overcast brief --export brief.html && overcast screenshot ./brief.html
+
+# standing page-watch: the SAME engine as a source, re-rendered every pass
+overcast source add browser:https://example.com/status
+overcast monitor --every 15m --source browser --pull            # each pass = a fresh render (ephemeral recapture)
+```
+
+The `screenshot` verb is the one-shot surface; the `browser:<url>` source is the
+scan/monitor surface (each `fetch` re-renders the current page — a webcam-style
+ephemeral hit that flows into the case's image `auto_sense` chain on `--pull`).
+
 ### 8. Audio-first monitoring
 
 ```bash
