@@ -24,6 +24,24 @@ assert_scan_hits() {
   fi
 }
 
+# assert_scan_ready: like assert_scan_hits but does NOT require payload.url — for
+# metadata sources whose hits legitimately carry no url (e.g. `phone` number intel,
+# or a `person`/`property` record with no linked profile/source page). The hit's
+# meaningful signal is asserted separately by the caller (e.g. country / owner).
+assert_scan_ready() {
+  local id="$1" out="$2" label="$3"
+  local hits title
+  hits="$(echo "$out" | jq -s '[.[]|select(.state=="ready" and .verb=="scan")]|length' 2>/dev/null)"
+  title="$(echo "$out" | jq -s -r '[.[]|select(.state=="ready" and .verb=="scan" and (.payload.title // "") != "")][0].payload.title // empty' 2>/dev/null)"
+  if [ "${hits:-0}" -ge 1 ]; then
+    ok "$id" "$label returned $hits ready record(s): ${title:-<no title>}"
+  else
+    local err
+    err="$(echo "$out" | jq -s -r '[.[]|select(.state=="error" or .state=="needs_credentials")][0].error // "no records"' 2>/dev/null)"
+    fail "$id" "$label returned no ready records ($err)"
+  fi
+}
+
 # scan evidence must surface in the case's records web export (the audit page)
 assert_export_has() { # <id> <casedir> <needle> <label>
   local id="$1" cd="$2" needle="$3" label="$4"
@@ -282,7 +300,7 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
   ocrun "$CASE" source add 'phone:+14089961010' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source phone --json)"
   save_json "20_scan_phone" "$out" >/dev/null
-  assert_scan_hits "$C.phone.number" "$out" "phone number OSINT"
+  assert_scan_ready "$C.phone.number" "$out" "phone number OSINT"   # url-less (metadata) hits
   pcountry="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.country // empty' 2>/dev/null)"
   assert_nonempty "$C.phone.country" "$pcountry" "phone hit carries a parsed country"
   unset OVERCAST_SOURCE_PHONE_CMD
@@ -293,7 +311,7 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
   ocrun "$CASE" source add "property:${OC_PROPERTY_QUERY:-1001 Preston St, Houston, TX 77002}" --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source property --json)"
   save_json "20_scan_property" "$out" >/dev/null
-  assert_scan_hits "$C.property.address" "$out" "property assessor records"
+  assert_scan_ready "$C.property.address" "$out" "property assessor records"   # source_url may be absent
   powner="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.owner != null))][0].payload.owner // empty' 2>/dev/null)"
   assert_nonempty "$C.property.owner" "$powner" "property hit carries an owner"
   unset OVERCAST_SOURCE_PROPERTY_CMD
@@ -304,7 +322,7 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
   ocrun "$CASE" source add "person:${OC_PERSON_QUERY:-Robert Williams}" --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source person --limit 3 --json)"
   save_json "20_scan_person" "$out" >/dev/null
-  assert_scan_hits "$C.person.name" "$out" "person people-search"
+  assert_scan_ready "$C.person.name" "$out" "person people-search"   # profileUrl may be absent
   pname="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and ((.payload.full_name // "") != ""))][0].payload.full_name // empty' 2>/dev/null)"
   assert_nonempty "$C.person.record" "$pname" "person hit carries a resolved name"
   unset OVERCAST_SOURCE_PERSON_CMD

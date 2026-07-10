@@ -755,14 +755,21 @@ export const doctorVerb: VerbSpec = {
       });
     }
     if (ctx.opts.sources === true || sourceTypes.has("plate")) {
-      // plate needs an explicitly bound actor (no default — DPPA); report both.
-      const plateOk = envPresent("APIFY_TOKEN") && envPresent("OVERCAST_PLATE_ACTOR");
+      // plate has no default actor (DPPA). It's healthy when configured EITHER via
+      // the Apify path (APIFY_TOKEN + OVERCAST_PLATE_ACTOR) OR a self-contained
+      // command override (OVERCAST_SOURCE_PLATE_CMD — e.g. a direct plate API that
+      // supplies its own resolution). Accept both so a valid direct-API binding
+      // isn't reported as unhealthy.
+      const plateCmd = envPresent("OVERCAST_SOURCE_PLATE_CMD");
+      const plateApify = envPresent("APIFY_TOKEN") && envPresent("OVERCAST_PLATE_ACTOR");
       checks.push({
         name: "source:plate",
-        ok: plateOk,
-        detail: plateOk
-          ? "APIFY_TOKEN + OVERCAST_PLATE_ACTOR present (vehicle SPEC only — owner is DPPA-restricted)"
-          : `plate needs ${!envPresent("APIFY_TOKEN") ? "APIFY_TOKEN" : ""}${!envPresent("APIFY_TOKEN") && !envPresent("OVERCAST_PLATE_ACTOR") ? " + " : ""}${!envPresent("OVERCAST_PLATE_ACTOR") ? "OVERCAST_PLATE_ACTOR (no default actor — DPPA)" : ""}`,
+        ok: plateCmd || plateApify,
+        detail: plateCmd
+          ? "OVERCAST_SOURCE_PLATE_CMD bound (custom plate provider — vehicle SPEC only, owner is DPPA-restricted)"
+          : plateApify
+            ? "APIFY_TOKEN + OVERCAST_PLATE_ACTOR present (vehicle SPEC only — owner is DPPA-restricted)"
+            : `plate needs ${!envPresent("APIFY_TOKEN") ? "APIFY_TOKEN + " : ""}OVERCAST_PLATE_ACTOR (no default actor — DPPA), or a custom OVERCAST_SOURCE_PLATE_CMD`,
       });
     }
     if (ctx.opts.sources === true || sourceTypes.has("browser")) {

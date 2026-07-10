@@ -67,7 +67,9 @@ case "$op" in
         | (.profileUrl // .url // .link // "") as $url
         | ((.status // .statusText // "claimed") | tostring) as $st
         | select(($url | length) > 0)
-        | select(($st | ascii_downcase) | test("not.?found|unknown|error|available") | not)
+        # drop only EXACT negative statuses — anchored so "unavailable" is not caught
+        # by "available", nor "no_error" by "error" (keep everything else, incl. claimed)
+        | select(($st | ascii_downcase) | test("^(not.?found|unknown|error|available)$") | not)
         | {
             title: ((.siteName // .site // .name // "account") | tostring | .[0:120]),
             url: $url,
