@@ -5,10 +5,11 @@
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { makeRecord, errRecord, recordTimeMs, type OvercastRecord } from "../record.js";
+import { findingStatusMap, makeRecord, errRecord, recordTimeMs, PRIMARY_TEXT_FIELDS, type OvercastRecord } from "../record.js";
 import { openCase, recordFiles } from "../case.js";
 import { humanSize } from "../render.js";
 import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
+import { coverageTableRows, findingOverlays, renderCoverageMd, renderThreadsMd, renderTriageMd, threadCard, triageRows, type ThreadRenderContext } from "../report/mission.js";
 import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
@@ -16,9 +17,7 @@ import { payloadFields, pageText, fieldNames, getField } from "../render.js";
 import { redactSecrets } from "../env.js";
 import { addSource, listSources, parseSourceSpec, removeSource } from "../state/source.js";
 import { addTarget, listTargets, removeTarget } from "../state/target.js";
-import { casePulse, type CasePulse } from "../signals/pulse.js";
-import { sparkline } from "../report/components.js";
-import { THREAD_STAGE_LABEL } from "../signals/threads.js";
+import { casePulse, unattributedScanHits, type CasePulse } from "../signals/pulse.js";
 import { addIndex, listIndexes, normalizeIndexType, removeIndex, LOCAL_INDEX_TYPES } from "../state/index.js";
 import { emptySetup, loadSetup, saveSetup, setupSummary, type CaseSetup, type SetupIndex } from "../state/setup.js";
 import {
@@ -89,13 +88,19 @@ async function memoryIndexStatuses(ctx: VerbContext): Promise<unknown[]> {
   return statuses;
 }
 
-async function buildCaseStatus(ctx: VerbContext): Promise<Record<string, unknown>> {
+interface CaseStatus {
+  payload: Record<string, unknown>;
+  pulse: CasePulse;
+  records: OvercastRecord[];
+}
+
+async function buildCaseStatus(ctx: VerbContext): Promise<CaseStatus> {
   const c = ctx.case;
   const clear = c.clearSummary();
   const saved = loadSetup(c);
   const records = c.records();
   const pulse = casePulse({ records, targets: listTargets(c), sources: listSources(c) });
-  return {
+  const payload = {
     dir: c.dir,
     initialized: c.exists(),
     info: c.exists() ? c.info() : null,
@@ -134,37 +139,16 @@ async function buildCaseStatus(ctx: VerbContext): Promise<Record<string, unknown
       indexes: listIndexes(c).length,
     },
   };
+  return { payload, pulse, records };
 }
 
-/** Suggested-lead rows for the status triage queue (compact, newest first). */
+/** Suggested-lead rows for the status triage queue (compact, newest first) —
+ *  the SHARED triage rows (score + provenance excerpt) plus the review command
+ *  for JSON consumers. */
 function statusTriage(records: OvercastRecord[], _pulse: CasePulse): Array<Record<string, unknown>> {
-  const p = (r: OvercastRecord): Record<string, unknown> => (typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {});
-  const statusMap = new Map<string, string>();
-  for (const r of records) {
-    if (r.verb !== "finding" || typeof r.payload !== "object" || r.payload == null) continue;
-    const pay = p(r);
-    if (typeof pay.status !== "string") continue;
-    statusMap.set(typeof pay.finding_id === "string" ? pay.finding_id : r.id, pay.status);
-  }
-  return records
-    .filter((r) => {
-      if (r.verb !== "finding" || r.state === "error") return false;
-      const pay = p(r);
-      return typeof pay.finding_id !== "string" && typeof pay.text === "string" && (statusMap.get(r.id) ?? "open") === "suggested";
-    })
-    .sort((a, b) => Date.parse(String(b.meta?.time ?? "")) - Date.parse(String(a.meta?.time ?? "")))
+  return triageRows(records, findingStatusMap(records))
     .slice(0, 8)
-    .map((r) => {
-      const pay = p(r);
-      const sig = pay.signal && typeof pay.signal === "object" ? (pay.signal as Record<string, unknown>) : {};
-      return {
-        id: r.id,
-        text: String(pay.text ?? ""),
-        confidence: pay.confidence,
-        score: typeof sig.score === "number" ? sig.score : undefined,
-        review: `overcast finding accept ${r.id}`,
-      };
-    });
+    .map((r) => ({ ...r, review: `overcast finding accept ${r.id}` }));
 }
 
 /** Suggested next actions — pulse-aware (triage first, then gaps, then brief). */
@@ -269,7 +253,8 @@ function recordSummary(rec: OvercastRecord): string | undefined {
   const payload = rec.payload;
   if (typeof payload === "string") return truncateLine(payload);
   const p = payload as Record<string, unknown>;
-  for (const key of ["summary", "text", "content", "caption", "transcript", "title", "snippet"]) {
+  // the SHARED primary-text precedence (record.ts) — same field wins everywhere
+  for (const key of PRIMARY_TEXT_FIELDS) {
     const value = p[key];
     if (typeof value === "string" && value.trim()) return truncateLine(value);
   }
@@ -310,10 +295,12 @@ function caseRecordsMarkdown(title: string, records: OvercastRecord[], counts: R
 }
 
 /** The mission-board status as markdown (terminal + plain HTML). Leads with the
- *  goal-progress headline, then lines of investigation, triage, coverage, gaps,
- *  and next actions — the operational store/setup detail is demoted to the tail.
- *  `--full` appends the raw payload as JSON for auditing. */
-function statusMarkdown(title: string, payload: Record<string, unknown>, full = false): string {
+ *  goal-progress headline + next actions, then the SHARED mission-board sections
+ *  (lines of investigation, triage, coverage — the same renderer the brief uses,
+ *  so the two reports can't drift) — the operational store/setup detail is
+ *  demoted to the tail. `--full` appends the raw payload as JSON for auditing. */
+function statusMarkdown(title: string, status: CaseStatus, full = false): string {
+  const { payload, pulse, records } = status;
   const lines: string[] = [`# ${title}`, ""];
   const mission = payload.mission as { headline?: string; progress?: Record<string, number> } | undefined;
   if (mission?.headline) lines.push(`**${mission.headline}**`, "");
@@ -324,55 +311,14 @@ function statusMarkdown(title: string, payload: Record<string, unknown>, full = 
     lines.push("");
   }
 
-  const threads = Array.isArray(payload.threads) ? (payload.threads as Array<Record<string, unknown>>) : [];
-  lines.push("## Lines of investigation", "");
-  if (threads.length) {
-    for (const th of threads) {
-      const stage = THREAD_STAGE_LABEL[(th.stage as keyof typeof THREAD_STAGE_LABEL)] ?? String(th.stage ?? "").toUpperCase();
-      const bins = Array.isArray(th.activityBins) ? (th.activityBins as number[]) : [];
-      const spark = sparkline(bins);
-      const f = th.funnel as { scan: number; captures: number; senses: number; matches: number } | undefined;
-      const fnd = th.findings as { accepted: number; open: number; suggested: number } | undefined;
-      lines.push(`- **${th.value}** — [${stage}]${spark ? ` \`${spark}\`` : ""}`);
-      if (th.question) lines.push(`  - question: ${th.question}`);
-      if (f) lines.push(`  - scan ${f.scan} → cap ${f.captures} → sense ${f.senses} → match ${f.matches}${fnd ? ` · findings: ${fnd.accepted} acc / ${fnd.open} open / ${fnd.suggested} sug` : ""}`);
-      if (th.narrative) lines.push(`  - ${th.narrative}`);
-      if (th.status !== "active" && th.why) lines.push(`  - closed: ${th.why}`);
-    }
-  } else {
-    lines.push("- none — add one with `overcast target add <value> --question \"…\"`");
-  }
-  lines.push("");
-
-  const triage = Array.isArray(payload.triage) ? (payload.triage as Array<Record<string, unknown>>) : [];
-  // true backlog count (progress.triage_pending); payload.triage is capped at 8
-  const triageTotal = typeof mission?.progress?.triage_pending === "number" ? mission.progress.triage_pending : triage.length;
-  if (triageTotal) {
-    lines.push(`## Triage — ${triageTotal} awaiting review`, "");
-    const shown = triage.slice(0, 8);
-    for (const t of shown) {
-      lines.push(`- \`${t.id}\`${t.confidence != null ? ` [${t.confidence}]` : ""} ${t.text}`);
-      lines.push(`  - ${t.review}`);
-    }
-    if (triageTotal > shown.length) lines.push(`- …and ${triageTotal - shown.length} more (\`overcast finding list --state suggested\`)`);
-    lines.push("");
-  }
-
-  const coverage = Array.isArray(payload.coverage) ? (payload.coverage as Array<Record<string, unknown>>) : [];
-  const gaps = Array.isArray(payload.gaps) ? (payload.gaps as string[]) : [];
-  lines.push("## Coverage", "");
-  if (coverage.length) {
-    for (const c of coverage) {
-      lines.push(`- **${c.spec}**${c.enabled ? "" : " (disabled)"} — ${c.hits} hit(s) → ${c.captured} captured → ${c.sensed} sensed`);
-    }
-  } else {
-    lines.push("- no sources configured");
-  }
-  if (gaps.length) {
-    lines.push("", "**Gaps:**");
-    for (const g of gaps.slice(0, 5)) lines.push(`- ${g}`);
-  }
-  lines.push("");
+  const statusByFinding = findingStatusMap(records);
+  // overlays too — an accepted finding's geometric proof must not render in
+  // `brief` but silently drop from the `case status` board on the same records
+  const threadCtx: ThreadRenderContext = { byId: new Map(records.map((r) => [r.id, r])), statusByFinding, overlaysByFinding: findingOverlays(records) };
+  lines.push(...renderThreadsMd(pulse.threads, threadCtx));
+  // true backlog count (progress.triage_pending) — rows are capped
+  lines.push(...renderTriageMd(triageRows(records, statusByFinding), pulse.progress.triage_pending));
+  lines.push(...renderCoverageMd(pulse.coverage, unattributedScanHits(records, pulse.coverage), pulse.gaps));
 
   const store = payload.store as { records?: number } | undefined;
   const registries = payload.registries as Record<string, number> | undefined;
@@ -820,19 +766,40 @@ export const caseVerb: VerbSpec = {
     if (action === "status") {
       const theme = normalizeHtmlTheme(ctx.opts.theme);
       if (!theme) return [err(`invalid --theme '${ctx.opts.theme}' (expected plain or csi)`)];
-      const payload = await buildCaseStatus(ctx);
+      const status = await buildCaseStatus(ctx);
+      const title = `Case status — ${ctx.case.exists() ? ctx.case.info().name : "case"}`;
+      const md = statusMarkdown(title, status, ctx.opts.full === true);
       let exported: string | undefined;
       if (ctx.opts.export) {
         const path = resolve(String(ctx.opts.export));
-        const title = `Case status — ${ctx.case.exists() ? ctx.case.info().name : "case"}`;
-        const md = statusMarkdown(title, payload, ctx.opts.full === true);
-        const html = theme === "csi"
-          ? renderCsiStatusReport({ title, subtitle: ctx.case.dir, payload })
-          : mdToPlainHtml(md, title);
+        let html: string;
+        if (theme === "csi") {
+          // hand the CSI shell the SAME shared models the md renders from —
+          // full thread cards (records resolved, overlays attached), enriched
+          // triage rows, and the coverage table incl. ad-hoc swept rows.
+          const statusByFinding = findingStatusMap(status.records);
+          const missionCtx: ThreadRenderContext = {
+            byId: new Map(status.records.map((r) => [r.id, r])),
+            statusByFinding,
+            overlaysByFinding: findingOverlays(status.records),
+          };
+          html = renderCsiStatusReport({
+            title,
+            subtitle: ctx.case.dir,
+            payload: status.payload,
+            threads: status.pulse.threads.map((th) => threadCard(th, missionCtx)),
+            triage: triageRows(status.records, statusByFinding),
+            coverage: coverageTableRows(status.pulse.coverage, unattributedScanHits(status.records, status.pulse.coverage)),
+          });
+        } else {
+          html = mdToPlainHtml(md, title);
+        }
         writeFileSync(path, isHtmlExportPath(path) ? html : md, "utf8");
         exported = path;
       }
-      return [makeRecord({ verb: "case", format: "json", payload: { ...payload, export: exported ?? null }, state: "ready" })];
+      // format md + payload.report → the terminal prints the mission board by
+      // default (nativeReportFormat); --json still returns the full payload.
+      return [makeRecord({ verb: "case", format: "md", payload: { ...status.payload, report: md, export: exported ?? null }, state: "ready" })];
     }
 
     if (action === "setup") {

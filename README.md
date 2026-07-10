@@ -285,13 +285,19 @@ setup + fallbacks.
 
 Use the three report surfaces for different jobs:
 
-- `brief` answers "what does the evidence say?" **Short by default**: it leads
-  with the verdict, key findings (with visual proof), the **lines of
-  investigation** (per-target threads with a stage + activity sparkline), the
-  triage queue of suggested leads, and coverage gaps — then a compact record
-  trail. `--full` appends the verbatim per-record timeline (the audit dump). It
-  reports over the same evidence-only boundary as case memory, so setup/read/meta
-  records — and un-accepted **suggested** findings — are excluded.
+- `brief` answers "what does the evidence say?" **Short by default**, story-first:
+  a Verdict block (the analyst `tldr` note leading; the machine coverage line,
+  goal-progress headline, and a "since last brief" delta demoted to one meta
+  line), then one story per **line of investigation** (question → answer so far →
+  linked findings with visual proof → latest evidence → NEXT move), findings not
+  linked to any line, the triage queue (each lead with its trigger score + source
+  excerpt), ONE coverage table (configured sources + ad-hoc sweeps, never-scanned
+  flagged), and a newest-first record trail. `--full` swaps in the verbatim
+  chronological per-record timeline (the audit dump). It reports over the same
+  evidence-only boundary as case memory, so setup/read/meta records — and
+  un-accepted **suggested** findings — are excluded. In a terminal, `brief` and
+  `case status` print the markdown report directly (`--json` for the record
+  envelope).
 - `case records` answers "what exactly happened?" It is the append-only audit log
   and includes operational records such as setup, target/source changes, index
   work, asks, briefs, and status checks.
@@ -303,7 +309,8 @@ Use the three report surfaces for different jobs:
   below. It is a dashboard, not evidence for later memory or briefs.
 
 Run the **`/debrief`** prompt to drive the analyst loop over these surfaces:
-triage the suggested leads (`finding accept`/`dismiss`), write one
+triage the suggested leads (`finding accept <id> --target <line>` to attribute
+the finding to a line of investigation, or `dismiss`), write one
 `thread:<target-id>` note narrating each line of investigation, close resolved
 lines, refresh the `tldr` note, then export the brief.
 
@@ -362,14 +369,14 @@ surface + env vars.)
 | `archive` | global cross-case media buckets under `~/.overcast/archive` — `init` / `add` (sha256-deduped, tags/notes/provenance) / `list` / `show` / `remove` / `setup` (bucket index wizard); reuse from any case via `archive:<bucket>/<item>` refs and `--index archive:<bucket>/<index>` |
 | `target` | a **line of investigation**: `add --question`, `list`, `close <id> --as answered\|dead-end --note`, `reopen` — closed lines stop seeding scans |
 | `source` / `note` | where to look, and human-authored observations |
-| `finding` | manual + **auto-suggested** findings (`create` / `list` / `accept` / `dismiss`). Score triggers (face / image / similar / cluster / audio match) + target text hits auto-emit `suggested` leads via a hook on every verb; `finding list --state triage` queues them, `accept` promotes a lead to evidence, `dismiss` blocks re-suggestion. Leads are quarantined from ask/brief until accepted |
+| `finding` | manual + **auto-suggested** findings (`create` / `list` / `accept` / `dismiss`). Score triggers (face / image / similar / cluster / audio match) + target text hits auto-emit `suggested` leads via a hook on every verb; `finding list --state triage` queues them, `accept` promotes a lead to evidence (`--target <id\|value>` stamps it onto a line of investigation so it renders in that thread), `dismiss` blocks re-suggestion. Leads are quarantined from ask/brief until accepted |
 | `prebrief` | stand up a case (name + target + source) in one shot |
 
 **Read** — synthesize the case
 | verb | does |
 |---|---|
 | `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--deep` uses configured semantic memory such as qmd; `--index <id>` answers over a media-descriptions index (`--probe` for moment search); `--archive <bucket>` asks over a global archive bucket |
-| `brief` | analyst report — **short by default** (verdict / key findings / lines of investigation / triage / coverage / compact trail), `--full` for the verbatim timeline; `--export` to md/html |
+| `brief` | analyst report — **short by default** (verdict + delta / per-line-of-investigation stories / unattached findings / triage with score + excerpt / one coverage table / newest-first trail), `--full` for the verbatim timeline; `--export` to md/html; prints the md report in a terminal |
 | `case` | inspect/manage the case: `init` / `setup` / `status` (mission board) / `info` / `records` / `memory` / `clear` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
 
 **Config / SDK / dist** — `setup` (bind providers + brain LLM), `provider`

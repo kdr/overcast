@@ -124,30 +124,58 @@ function sensedRefs(records: OvercastRecord[]): Set<string> {
   return refs;
 }
 
+/** Whether a scan hit's payload attributes to a configured source: exact match
+ *  on the stamped source_id (the pipeline stamps it at enumerate time), else
+ *  the platform-type fallback ONLY when that type has a single configured
+ *  source — legacy/adhoc hits mustn't read "never scanned" without
+ *  over-attributing an ambiguous hit to every same-type source. The ONE
+ *  attribution rule, shared by buildCoverage and unattributedScanHits so the
+ *  coverage table's configured and ad-hoc rows can never double-count a hit. */
+function hitMatchesSource(p: Record<string, unknown>, src: { id: string; type: string }, uniqueOfType: boolean): boolean {
+  if (typeof p.source_id === "string") return p.source_id === src.id;
+  return uniqueOfType && typeof p.source === "string" && p.source === src.type;
+}
+
+/** Ready scan hits carrying a url (the swept set), excluding progress rows. */
+function scanHitRecords(records: OvercastRecord[]): OvercastRecord[] {
+  return records.filter((r) => {
+    if (r.verb !== "scan" || !isReady(r)) return false;
+    const p = payloadOf(r);
+    if (p.op === "pull_progress") return false;
+    return typeof p.url === "string" && p.url.length > 0;
+  });
+}
+
+/** Swept hits NOT attributable to any configured source, rolled up by their
+ *  scan label — the coverage table's ad-hoc rows. Complements buildCoverage's
+ *  per-source rows via the SAME hitMatchesSource rule (label arithmetic would
+ *  double-count a hit whose `source` label differs from its source's type). */
+export function unattributedScanHits(records: OvercastRecord[], sources: Array<{ id: string; type: string }>): Array<{ source: string; hits: number }> {
+  const typeCount = new Map<string, number>();
+  for (const s of sources) typeCount.set(s.type, (typeCount.get(s.type) ?? 0) + 1);
+  const bySource = new Map<string, number>();
+  for (const r of scanHitRecords(records)) {
+    const p = payloadOf(r);
+    const attributed = sources.some((src) => hitMatchesSource(p, src, (typeCount.get(src.type) ?? 0) === 1));
+    if (attributed) continue;
+    const label = typeof p.source === "string" && p.source ? p.source : "unknown";
+    bySource.set(label, (bySource.get(label) ?? 0) + 1);
+  }
+  return [...bySource].map(([source, hits]) => ({ source, hits }));
+}
+
 /** Per-source coverage funnel: configured sources joined to their scan hits,
  *  captures (via source_id → hit → capture provenance), and sensed media. */
 function buildCoverage(records: OvercastRecord[], sources: SourceEntry[], now: number): SourceCoverage[] {
   const sensed = sensedRefs(records);
   const captures = records.filter((r) => r.verb === "capture" && isReady(r));
-  // how many enabled sources share each platform type — an unstamped hit can
-  // only be attributed by type when that type has a SINGLE source (otherwise
-  // it's ambiguous and attributing to all would double-count / clear real gaps).
+  // how many enabled sources share each platform type (see hitMatchesSource)
   const typeCount = new Map<string, number>();
   for (const s of sources) typeCount.set(s.type, (typeCount.get(s.type) ?? 0) + 1);
 
   return sources.map((src) => {
     const uniqueOfType = (typeCount.get(src.type) ?? 0) === 1;
-    const hitRecords = records.filter((r) => {
-      if (r.verb !== "scan" || !isReady(r)) return false;
-      const p = payloadOf(r);
-      if (typeof p.url !== "string" || !p.url.length) return false;
-      // exact match on the stamped source_id (current pipeline stamps it at
-      // enumerate time); fall back to the platform type ONLY for the unique
-      // source of that type, so legacy/adhoc hits don't read as "never scanned"
-      // without over-attributing an ambiguous hit to every same-type source.
-      if (typeof p.source_id === "string") return p.source_id === src.id;
-      return uniqueOfType && typeof p.source === "string" && p.source === src.type;
-    });
+    const hitRecords = scanHitRecords(records).filter((r) => hitMatchesSource(payloadOf(r), src, uniqueOfType));
     const hitIds = new Set(hitRecords.map((r) => r.id));
     const captured = captures.filter((c) => {
       const p = payloadOf(c);

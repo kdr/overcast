@@ -293,18 +293,27 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   triggers (face ≥75, image RANSAC, similar ≥85, cluster ≥70, voice ≥80, audio fingerprint,
   target-phrase matches) emit `status:"suggested"` leads that stay OUT of ask/brief evidence
   until reviewed — `finding list --state triage` queues them, `accept` promotes a
-  lead to evidence, `dismiss` rejects it (never re-fires). Mode is
+  lead to evidence (`--target <id|value>` stamps it onto a line of investigation),
+  `dismiss` rejects it (never re-fires). Mode is
   `setup.findings` (`suggest` default | `review` legacy | `off`), thresholds via
   `case setup --findings-threshold`. `prebrief` stands up name+target+source in
   one shot.
 - **Read** — `ask` (cited retrieval over case memory; `--deep`/`--memory qmd` for
   semantic local search; `--index <id>` answers over a media-descriptions index,
-  `--probe` for moment search), `brief` — **short by default**: verdict + goal
-  status + key findings + lines of investigation (per-target threads with stage +
-  activity sparkline) + triage queue + coverage gaps + a compact record trail;
-  `--full` appends the verbatim record dump (audit), `--export` md/html,
-  `--theme plain|csi`. `/debrief` (prompt) drives the analyst loop: triage leads →
-  narrate each thread → close resolved lines → refresh `tldr` → export.
+  `--probe` for moment search), `brief` — **short by default**, story-first:
+  Verdict (analyst `tldr` note leading; machine coverage line + pulse headline +
+  "since last brief" delta demoted to one meta line) → one story per line of
+  investigation (question → answer-so-far → linked findings → latest evidence →
+  NEXT; findings link via `target_id` stamps or text match, rendered by the
+  SHARED mission renderer `src/report/mission.ts` that `case status` also uses) →
+  unattached findings → triage queue (score + source excerpt + review commands) →
+  ONE coverage table (configured funnel + ad-hoc sweeps, never-scanned flagged) →
+  newest-first record trail; `--full` swaps in the verbatim chronological record
+  dump (audit), `--export` md/html, `--theme plain|csi`. In a terminal, `brief`
+  and `case status` print the md report by default (`--json` for the envelope).
+  `/debrief` (prompt) drives the analyst loop: triage leads (`finding accept
+  <id> --target <line>`) → narrate each thread → close resolved lines → refresh
+  `tldr` → export.
 - **Case** — `case init | setup | status | info | records | memory | clear`.
   `case status`/`records`/`brief` HTML `--export` takes `--theme plain|csi`
   (direct CLI defaults to `plain`; agent/TUI `.html` exports default to `csi`).

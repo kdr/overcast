@@ -10,7 +10,7 @@ import { openCase } from "./case.js";
 import { loadProfile, type HomeOptions } from "./profile.js";
 import { makeRecord, type OvercastRecord } from "./record.js";
 import { persistRecords } from "./registry/persist.js";
-import { renderForFormat } from "./render.js";
+import { nativeReportFormat, renderForFormat } from "./render.js";
 import { loadDotEnv } from "./env.js";
 import { writeSync } from "node:fs";
 
@@ -404,8 +404,10 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
     records = [...records, ...persistRecords(c, records)];
 
     const wantJson = parsed.opts.json === true || parsed.opts.format === "json";
-    const format = wantJson ? "json" : (parsed.opts.format as string) ?? "human";
-    for (const rec of records) io.out(renderForFormat(rec, format) + "\n");
+    const explicit = wantJson ? "json" : (parsed.opts.format as string | undefined);
+    // no explicit format → a report-shaped record (brief / case status) prints
+    // its md body, everything else the magnitude preview (nativeReportFormat).
+    for (const rec of records) io.out(renderForFormat(rec, explicit ?? nativeReportFormat(rec) ?? "human") + "\n");
 
     return exitCodeForRecords(records);
   }

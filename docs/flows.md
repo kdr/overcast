@@ -727,9 +727,11 @@ Findings also **auto-suggest**: matching verbs (`face --match`, `image match`,
 `similar match`, `cluster identify`, `voice match`, `audio match`, or a sense
 verb hitting a target) emit
 `status:"suggested"` leads. Triage them with `finding list --state triage`
-(open + suggested), then `finding accept` (→ evidence) or `finding dismiss` (a
-dismissed suggestion never re-fires for the same match). Both `suggested` and
-dismissed findings stay auditable but drop out of memory/briefs.
+(open + suggested), then `finding accept <id> --target <line>` (→ evidence,
+attributed to that line of investigation so it renders inside the thread) or
+`finding dismiss` (a dismissed suggestion never re-fires for the same match).
+Both `suggested` and dismissed findings stay auditable but drop out of
+memory/briefs.
 
 ### 17. Control-room wall
 
@@ -788,7 +790,7 @@ of investigation, then a verdict-led brief.
 ```bash
 overcast face ./clip.mp4 --match ./suspect.jpg --json   # a ≥75 match auto-suggests a lead
 overcast finding list --state triage --json             # open + suggested leads awaiting review
-overcast finding accept <finding-id> --json             # promote a lead to evidence…
+overcast finding accept <finding-id> --target <target-id> --json  # promote a lead to evidence, attributed to its line…
 overcast finding dismiss <other-id> --json              # …or block it (never re-suggested for that match)
 overcast target close <target-id> --as answered --note "confirmed: suspect appears at 00:14" --json
 overcast case status --json                             # mission board: threads on the stage ladder + triage

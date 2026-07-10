@@ -9,7 +9,9 @@ Work through these steps in order, using the tools:
 1. **Triage the suggested leads.** Run `finding list --state triage --json`. For
    each suggested finding, weigh its `signal.score` and the cited record's
    provenance (`source_url` / `source_excerpt`). Then either
-   `finding accept <id>` (it becomes evidence in ask/brief) or
+   `finding accept <id> --target <target_id>` (it becomes evidence in ask/brief;
+   `--target` attributes it to a line of investigation so it renders inside that
+   thread — pass the target id or value, omit only when no line fits) or
    `finding dismiss <id>` (a dismissed lead never re-suggests). Say why in one
    line per decision.
 

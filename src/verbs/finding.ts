@@ -1,9 +1,23 @@
 import { makeRecord, errRecord, isReady, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef, refPathExists } from "./media-ref.js";
 import { parseAtSpan } from "../media/ffmpeg.js";
+import { listTargets, type TargetEntry } from "../state/target.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 const err = (message: string): OvercastRecord => errRecord("finding", message);
+
+/** Resolve a `--target` value against the target registry, by id or exact value
+ *  (case-insensitive on the value). A finding stamped with the resolved
+ *  target_id renders inside that line of investigation in brief/status. */
+function resolveTargetFlag(ctx: VerbContext, raw: string): { entry?: TargetEntry; error?: string } {
+  const value = raw.trim();
+  const targets = listTargets(ctx.case);
+  const entry = targets.find((t) => t.id === value) ?? targets.find((t) => t.value.toLowerCase() === value.toLowerCase());
+  if (entry) return { entry };
+  return {
+    error: `--target does not match a target id or value: ${value}` + (targets.length ? ` (targets: ${targets.map((t) => `${t.id}=${t.value}`).join(", ")})` : " (no targets defined — `overcast target add …` first)"),
+  };
+}
 
 export function latestFindingStatus(ctx: VerbContext, id: string): string {
   const updates = ctx.case.records().filter((r) => r.verb === "finding" && typeof r.payload === "object");
@@ -85,7 +99,7 @@ export const findingVerb: VerbSpec = {
   ],
   flags: [
     { name: "state", summary: "list: open | suggested | accepted | dismissed | all | triage (open+suggested), or a comma-list", type: "string" },
-    { name: "target", summary: "create: target/scope this finding supports", type: "string" },
+    { name: "target", summary: "create/accept/dismiss: the target line this finding supports (id or value; stamps target_id so it renders in that line of investigation)", type: "string" },
     { name: "ref", summary: "create: source record id, capture id, media path, or URL", type: "string" },
     { name: "at", summary: "create: evidence timestamp seconds, hh:mm:ss, or start-end", type: "string" },
     { name: "confidence", summary: "create: confidence marker or score", type: "string" },
@@ -151,14 +165,20 @@ export const findingVerb: VerbSpec = {
         if (at == null) return [err(`invalid --at '${ctx.opts.at}' (expected seconds, hh:mm:ss, or start-end)`)];
         media = { ref: media.ref, at };
       }
+      // --target resolves softly on create: a registry match stamps target_id
+      // (the finding renders inside that line of investigation); a free-form
+      // scope string is kept as-is in payload.target (back-compat).
+      const rawTarget = ctx.opts.target ? String(ctx.opts.target) : "";
+      const resolvedTarget = rawTarget ? resolveTargetFlag(ctx, rawTarget).entry : undefined;
       const payload: Record<string, unknown> = {
         text,
-        target: ctx.opts.target ? String(ctx.opts.target) : "",
+        target: resolvedTarget?.value ?? rawTarget,
         source_record: sourceRecord ?? "manual",
         source_verb: sourceVerb,
         trigger: "human",
         status: "open",
       };
+      if (resolvedTarget) payload.target_id = resolvedTarget.id;
       if (ctx.opts.confidence) payload.confidence = String(ctx.opts.confidence);
       if (evidenceRef) payload.ref = evidenceRef;
       return [makeRecord({ verb: "finding", format: "json", payload, media, meta: { case: ctx.case.dir, provider: "human", ...(archiveBucket ? { archive: archiveBucket } : {}) }, state: "ready" })];
@@ -196,11 +216,21 @@ export const findingVerb: VerbSpec = {
       return [err(`finding ${action} requires a root finding id, not a review record id`)];
     }
     const status = action === "accept" ? "accepted" : "dismissed";
+    // --target at review time stamps the finding onto a line of investigation
+    // (strict: attribution is the point here, so an unresolvable value errors).
+    // On DISMISS the stamp is audit metadata only — findingTargetMap ignores
+    // dismiss-row stamps, so it can't become live linkage after a later accept.
+    let reviewTargetId: string | undefined;
+    if (ctx.opts.target != null) {
+      const resolved = resolveTargetFlag(ctx, String(ctx.opts.target));
+      if (!resolved.entry) return [err(resolved.error!)];
+      reviewTargetId = resolved.entry.id;
+    }
     return [
       makeRecord({
         verb: "finding",
         format: "json",
-        payload: { finding_id: id, status, reviewed_at: new Date().toISOString() },
+        payload: { finding_id: id, status, reviewed_at: new Date().toISOString(), ...(reviewTargetId ? { target_id: reviewTargetId } : {}) },
         media: original.media,
         meta: { case: ctx.case.dir, provider: "human-review" },
         state: "ready",
