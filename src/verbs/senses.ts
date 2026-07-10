@@ -380,6 +380,18 @@ export const seeVerb: VerbSpec = {
 // into tracks/cutouts; ela overlays forensic maps; panorama stitches a wide still.
 const PROVIDER_ONLY_OPS: ReadonlySet<string> = new Set(["separate", "segment", "ela", "panorama"]);
 
+/** Remediation hint tailored to the provider-only op family — ela/panorama ship as
+ *  example Python scripts; separate/segment need the local-models (or fal) preset.
+ *  Shared by the no-binding and the wrong-provider (single-output) error paths so a
+ *  user is never told to bind a split preset for an op that doesn't use one. */
+function providerOpHint(op: string): string {
+  return op === "ela" || op === "panorama"
+    ? `Bind one with \`overcast setup provider enhance "exec:python3 examples/providers/enhance/${op}.py"\` ` +
+        `(${op === "panorama" ? "opencv-python + numpy" : "pillow + numpy"}).`
+    : `Run \`overcast provider setup plan --preset local-models\` (or --preset fal) then \`--yes\`; ` +
+        `local-models needs \`scripts/visual-db-uv.sh --enhance\`.`;
+}
+
 /** For each separated-voice track record, transcribe it via the bound listen
  *  provider and fold the transcript + a short spoken-summary onto the track
  *  record itself (self-contained evidence). Non-fatal per track: a failed
@@ -581,7 +593,7 @@ export const enhanceVerb: VerbSpec = {
             errorRecord(
               "enhance",
               `the bound enhance provider did not perform '--ops ${providerOps[0]}' (it returned a single output). ` +
-                `Bind a split-capable provider: \`overcast provider setup plan --preset local-models\` (or --preset fal).`,
+                providerOpHint(providerOps[0]),
             ),
           ];
         }
@@ -606,17 +618,12 @@ export const enhanceVerb: VerbSpec = {
 
     // no custom binding: the provider-only ops can't run on ffmpeg.
     if (providerOps.length) {
-      const op = providerOps[0];
-      // tailor the remediation to the op family — ela/panorama ship as example
-      // Python scripts; separate/segment need the local-models (or fal) preset —
-      // so the hint isn't misleading for whichever op was actually requested.
-      const hint =
-        op === "ela" || op === "panorama"
-          ? `Bind one with \`overcast setup provider enhance "exec:python3 examples/providers/enhance/${op}.py"\` ` +
-            `(${op === "panorama" ? "opencv-python + numpy" : "pillow + numpy"}).`
-          : `Run \`overcast provider setup plan --preset local-models\` (or --preset fal) then \`--yes\`; ` +
-            `local-models needs \`scripts/visual-db-uv.sh --enhance\`.`;
-      return [errorRecord("enhance", `--ops ${providerOps.join(",")} needs a bound enhance provider. ${hint}`)];
+      return [
+        errorRecord(
+          "enhance",
+          `--ops ${providerOps.join(",")} needs a bound enhance provider. ${providerOpHint(providerOps[0])}`,
+        ),
+      ];
     }
 
     const requested = rawOps.length ? (rawOps as EnhanceOp[]) : undefined;
