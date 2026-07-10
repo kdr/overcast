@@ -209,6 +209,25 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("browser.sh");
       return script ? { type, base: ["bash", script], needs: "node + playwright optional dep (npx playwright install chromium)" } : undefined;
     }
+    case "flights": {
+      // Live ADS-B aircraft positions via the OpenSky Network REST API. KEYLESS-
+      // CAPABLE: anonymous works (rate-limited), optional OAuth2 client creds
+      // raise limits. Every hit carries top-level gps so scan records plot on
+      // `map` and `monitor --every` builds a track; media.ref is the aircraft
+      // profile page. Fast HTTP → default exec budget. Public data, but opt-in
+      // (never a default binding).
+      const script = shippedSource("flights.sh");
+      return script
+        ? { type, base: ["bash", script], needs: "none (anonymous OpenSky) — optional OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET raise rate limits" }
+        : undefined;
+    }
+    case "yandeximg": {
+      // Yandex reverse image search via Apify — the reverse-image counterpart of
+      // `lens` (Google), strongest for faces/places. Ref/query = image URL or
+      // local image path. Apify run-sync (like lens/tiktok) → longer exec budget.
+      const script = shippedSource("yandeximg.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
     default:
       return undefined;
   }

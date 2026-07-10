@@ -57,6 +57,8 @@ const PROVIDERS: Prov[] = [
   sh("sources/plate.sh", "source"),
   sh("sources/overpass.sh", "source"),
   sh("sources/firms.sh", "source"),
+  sh("sources/flights.sh", "source"),
+  sh("sources/yandeximg.sh", "source"),
 ];
 
 function run(p: Prov, args: string[]) {
