@@ -430,6 +430,166 @@ function escFilterValue(s: string): string {
     .replace(/'/g, "\\'");
 }
 
+export interface ImageSheetOpts {
+  cols?: number;
+  cellWidth?: number;
+  outPath?: string;
+  /** force labels off even when drawtext is available */
+  label?: boolean;
+}
+
+export interface ImageSheetResult {
+  output: string;
+  cols: number;
+  rows: number;
+  cellWidth: number;
+  cellHeight: number;
+  labeled: boolean;
+}
+
+/** drawtext label text: keep it to characters that never need filtergraph
+ *  escaping (':'/','/quote are separators — contactSheet avoids them by
+ *  construction; sheet labels come from callers, so sanitize instead). */
+function safeLabel(s: string): string {
+  return s.replace(/[^A-Za-z0-9 °.+_=-]+/g, " ").trim().slice(0, 24);
+}
+
+/**
+ * Tile separate IMAGE FILES into one labeled contact sheet — the still-image
+ * sibling of `contactSheet` (which samples ONE video at timestamps). Used by
+ * `reconstruct --ops sweep` to put every synthesized camera stop on a single
+ * VLM-triageable montage (the `grid` trick, but the cells are distinct files).
+ * Cells keep the first image's aspect (letterboxed); labels are burned only when
+ * drawtext is available, matching contactSheet's degrade behavior.
+ */
+export async function tileImageSheet(
+  images: Array<{ path: string; label?: string }>,
+  outDir: string,
+  opts: ImageSheetOpts = {},
+): Promise<ImageSheetResult> {
+  if (images.length === 0) throw new Error("image sheet needs at least one image");
+  ensureDir(outDir);
+
+  const cellWidth = clampInt(opts.cellWidth ?? 320, 120, 960);
+  const p = await probe(images[0].path).catch(() => undefined);
+  const aspect = p?.width && p?.height ? p.height / p.width : 9 / 16;
+  let cellHeight = Math.round(cellWidth * aspect);
+  if (cellHeight % 2) cellHeight += 1;
+
+  const n = images.length;
+  const cols = clampInt(opts.cols ?? Math.ceil(Math.sqrt(n)), 1, 12);
+  const rows = Math.ceil(n / cols);
+  const slots = cols * rows;
+
+  const labeled = opts.label !== false && (await hasDrawtext()) && !!findGridFont();
+  const font = findGridFont();
+  const fontSize = clampInt(cellWidth / 14, 14, 40);
+
+  const base = basename(images[0].path, extname(images[0].path));
+  const sig = shortHash({ images: images.map((i) => [i.path, i.label]), cols, cellWidth, cellHeight, labeled });
+  const out = opts.outPath ?? join(outDir, `${safeName(base)}_sheet_${n}_${sig}.png`);
+  ensureDir(dirname(out));
+  const work = mkdtempSync(join(tmpdir(), "oc-sheet-"));
+  const missing = new Set<number>();
+  try {
+    const scalePad =
+      `scale=${cellWidth}:${cellHeight}:force_original_aspect_ratio=decrease,` +
+      `pad=${cellWidth}:${cellHeight}:(ow-iw)/2:(oh-ih)/2:color=black`;
+    for (let i = 0; i < n; i++) {
+      const cell = join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`);
+      let vf = scalePad;
+      const label = safeLabel(images[i].label ?? String(i + 1));
+      if (labeled && font && label) {
+        vf +=
+          `,drawtext=fontfile=${escFilterValue(font)}:text=${escFilterValue(label)}:x=10:y=10:` +
+          `fontsize=${fontSize}:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=6`;
+      }
+      if (existsSync(images[i].path)) {
+        await execFileP(
+          FFMPEG_PATH,
+          ["-y", "-i", images[i].path, "-frames:v", "1", "-q:v", "3", "-vf", vf, cell],
+          { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
+        ).catch(() => undefined);
+      }
+      // a cell that never materialized becomes a filler + stays labeled missing,
+      // so later cells can't shift into its slot (contactSheet invariant).
+      if (!existsSync(cell)) missing.add(i);
+    }
+    if (n < slots || missing.size) {
+      const filler = join(work, "filler.jpg");
+      await execFileP(
+        FFMPEG_PATH,
+        ["-y", "-f", "lavfi", "-i", `color=c=0x101418:s=${cellWidth}x${cellHeight}`, "-frames:v", "1", filler],
+        { maxBuffer: 8 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
+      );
+      for (const i of missing) {
+        copyFileSync(filler, join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`));
+      }
+      for (let i = n; i < slots; i++) {
+        copyFileSync(filler, join(work, `cell_${String(i + 1).padStart(3, "0")}.jpg`));
+      }
+    }
+    await execFileP(
+      FFMPEG_PATH,
+      [
+        "-y", "-framerate", "1", "-i", join(work, "cell_%03d.jpg"),
+        "-frames:v", "1", "-vf", `tile=${cols}x${rows}:padding=6:margin=6:color=0x101418`, out,
+      ],
+      { maxBuffer: 64 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+  return { output: out, cols, rows, cellWidth, cellHeight, labeled };
+}
+
+/**
+ * Encode an ordered list of still images into a short looping video (the
+ * `reconstruct --ops sweep` turntable). Every frame is letterboxed to the first
+ * image's (even-rounded, capped) dimensions so mixed sizes can't break the
+ * encode; yuv420p keeps it playable in <video> everywhere.
+ */
+export async function imagesToVideo(
+  images: string[],
+  outPath: string,
+  opts: { fps?: number; maxWidth?: number } = {},
+): Promise<string> {
+  const frames = images.filter((f) => existsSync(f));
+  if (frames.length < 2) throw new Error("turntable video needs at least two frames");
+  ensureDir(dirname(outPath));
+  const fps = Math.max(1, Math.min(12, Math.round(opts.fps ?? 2)));
+
+  const p = await probe(frames[0]).catch(() => undefined);
+  let w = Math.min(p?.width ?? 960, clampInt(opts.maxWidth ?? 1280, 240, 1920));
+  let h = Math.round(w * ((p?.width && p?.height ? p.height / p.width : 9 / 16)));
+  if (w % 2) w += 1;
+  if (h % 2) h += 1;
+
+  const work = mkdtempSync(join(tmpdir(), "oc-turntable-"));
+  try {
+    const scalePad =
+      `scale=${w}:${h}:force_original_aspect_ratio=decrease,` +
+      `pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black`;
+    let k = 0;
+    for (const f of frames) {
+      k += 1;
+      await execFileP(
+        FFMPEG_PATH,
+        ["-y", "-i", f, "-frames:v", "1", "-q:v", "3", "-vf", scalePad, join(work, `seq_${String(k).padStart(3, "0")}.jpg`)],
+        { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
+      );
+    }
+    await execFileP(
+      FFMPEG_PATH,
+      ["-y", "-framerate", String(fps), "-i", join(work, "seq_%03d.jpg"), "-pix_fmt", "yuv420p", outPath],
+      { maxBuffer: 64 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+  return outPath;
+}
+
 /** Render an audio spectrogram to a PNG via ffmpeg's native showspectrumpic. */
 export async function spectrogram(input: string, outDir: string): Promise<string> {
   ensureDir(outDir);

@@ -29,6 +29,7 @@ export function providerChoices(): ProviderChoice[] {
   const falSee = sidecar("examples", "providers", "fal", "see.sh");
   const tcSee = sidecar("examples", "providers", "tinycloud", "see.sh");
   const falEnhance = sidecar("examples", "providers", "fal", "enhance.sh");
+  const falReconstruct = sidecar("examples", "providers", "fal", "reconstruct.sh");
   const elListen = sidecar("examples", "providers", "elevenlabs", "listen.sh");
   const elEnhance = sidecar("examples", "providers", "elevenlabs", "enhance.sh");
   const detect = sidecar("examples", "providers", "detect", "detect.py");
@@ -150,6 +151,14 @@ export function providerChoices(): ProviderChoice[] {
       indexableDefault: true,
     },
     {
+      id: "playwright",
+      verb: "screenshot",
+      label: "Playwright headless Chromium",
+      summary: "Use the shipped headless-Chromium page renderer (playwright optional dep + `npx playwright install chromium`).",
+      clearsBinding: true,
+      indexableDefault: true,
+    },
+    {
       id: "hf",
       verb: "see",
       label: "Hugging Face captioner",
@@ -195,6 +204,16 @@ export function providerChoices(): ProviderChoice[] {
       descriptor: exec(`bash ${falEnhance} --input {{input}}`, `bash ${falEnhance} init`, `bash ${falEnhance} describe`),
       env: ["FAL_KEY"],
       indexableDefault: true,
+    },
+    {
+      id: "fal",
+      verb: "reconstruct",
+      label: "fal.ai reconstruct",
+      summary:
+        "fal.ai speculative scene reconstruction: camera reposition + --ops sweep (Qwen multi-angle), --ops model (Trellis image→3D GLB, queue-polled), --ops depth (Depth Anything V2). Synthesized imagery — quarantined from evidence, every record carries payload.caveat.",
+      descriptor: exec(`bash ${falReconstruct} --input {{input}}`, `bash ${falReconstruct} init`, `bash ${falReconstruct} describe`),
+      env: ["FAL_KEY"],
+      indexableDefault: false,
     },
     {
       id: "local-models",
@@ -249,6 +268,7 @@ export const PROVIDER_PRESETS: Record<string, Array<{ verb: string; choice: stri
   fal: [
     { verb: "see", choice: "fal" },
     { verb: "enhance", choice: "fal" },
+    { verb: "reconstruct", choice: "fal" },
   ],
   elevenlabs: [
     { verb: "listen", choice: "elevenlabs" },
@@ -274,6 +294,9 @@ export const PROVIDER_PRESETS: Record<string, Array<{ verb: string; choice: stri
   ],
   "voice-print": [
     { verb: "voice", choice: "voice-print" },
+  ],
+  playwright: [
+    { verb: "screenshot", choice: "playwright" },
   ],
 };
 

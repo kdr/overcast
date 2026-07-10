@@ -57,6 +57,9 @@ const FIELD_POLICY: Record<string, string[]> = {
   cluster: ["summary", "op", "index", "count", "new_clusters", "clusters_total"],
   similar: ["summary", "query", "matches[].ref"],
   crop: ["summary", "kind", "class", "detection_id", "source_record", "source_verb", "source_media", "at", "confidence", "crop"],
+  // rendered-page captures index the page identity (title/url) + the one-line
+  // summary; the PNG path stays in the record (like every other media verb).
+  screenshot: ["summary", "title", "url"],
   note: ["title", "text", "tags", "confidence", "ref"],
   scan: ["title", "snippet", "url", "source", "published"],
   // tags/note/source_ref only appear on archive-written captures (bucket items) —

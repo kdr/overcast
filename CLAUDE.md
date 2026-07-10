@@ -69,9 +69,9 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `src/registry/verbs.ts`; the CLI subcommand, the pi AgentTool, and the skill doc
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
-   (`watch/listen/see/face/image/audio/voice/similar/enhance/exif/verify`), **source**
+   (`watch/listen/see/face/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot`), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
-   gdelttv, webcam, facesearch, dork, shodan), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
+   gdelttv, webcam, facesearch, dork, shodan, browser), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
    shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
    tinycloud (exec) — except `see`, whose default is the in-proc brain-vision
@@ -141,6 +141,15 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   ffmpeg ops, a bound restore model, or the split ops `--ops separate` = per-speaker
   tracks + optional `--summarize`, and `--ops segment --prompt` = text-prompted
   masks/cutouts — bound `local-models` or `fal`, fanned out one record per artifact),
+  `reconstruct` (SPECULATIVE scene reconstruction from a still or `--at` video
+  frame via a bound generative provider — fal toolbox: `--rotate/--elevate/--zoom`
+  camera reposition + `--ops sweep` 360° stops → contact sheet + turntable mp4
+  (Qwen-2511 multi-angle), `--ops model` image→3D GLB (Trellis/Hunyuan via the
+  fal QUEUE API) rendered in an embedded no-dep WebGL orbit viewer, `--ops depth`
+  Depth-Anything map → drag-parallax viewer; same outputs[] fan-out as enhance;
+  EVERY record carries `payload.caveat` and the verb is in `OPERATIONAL_VERBS` —
+  viewable/chainable but NEVER ask/brief evidence or findings input; no builtin,
+  bind `provider setup apply --verb reconstruct --choice fal`),
   `exif` (ExifTool metadata/GPS on image **or** video → `payload.gps{lat,lng}`
   (WGS84-validated at the provider), capture time, device, editing software,
   camera `serial`/`lens` (device-linking fingerprint), dimensions; shipped
@@ -149,7 +158,15 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   no key, never default), `verify` (C2PA / Content Credentials provenance
   via `c2patool` → `has_manifest`, signer, claim generator, validation state; no
   credentials is a clean `ready` record, not an error — distinct from source-post
-  provenance in `src/verbs/provenance.ts`).
+  provenance in `src/verbs/provenance.ts`), `screenshot` (browser screen capture —
+  render a web page **or a local `.html` export** to a PNG evidence record via
+  headless Chromium; the shared Playwright engine in `examples/providers/screenshot/`
+  also backs the `browser:` source, runs under system `node` with the playwright
+  **optional dep** — missing → `needs_credentials`; `--full-page`, `--viewport WxH`,
+  `--wait ms`; re-implements the fetch SSRF guard over HTTP **and** WebSocket
+  (`ws`/`wss`), private/loopback refused by default with
+  `OVERCAST_ALLOW_PRIVATE_FETCH` opt-out; rendered pages are untrusted,
+  invariant #10).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`; on an `enhance` split-op parent it renders a GALLERY of the fanned-out
   children — per-track audio + spectrograms for `separate`, cutouts for `segment`,
@@ -178,7 +195,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens reverse-image / dl generic-yt-dlp capture / instagram / telegram /
   gdelttv broadcast-TV / webcam live-cams / facesearch reverse-face /
-  dork Google-dorking / shodan host-recon;
+  dork Google-dorking / shodan host-recon / browser rendered-page-capture;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
   (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
@@ -206,7 +223,11 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   **honor** `site:`/`filetype:`/`inurl:`/… operators, unlike `web`; `SERPER_API_KEY`);
   `shodan:<search query>` or `shodan:<ip>` (host/service/banner recon via Shodan —
   search filters or a bare-IP host lookup; `SHODAN_API_KEY`). `dork`/`shodan` are
-  authorized-recon-only, never a default binding.
+  authorized-recon-only, never a default binding. `browser:<url>` (rendered-page
+  capture via the shared headless-Chromium screenshot engine — one ephemeral
+  `recapture` hit, `fetch` renders the current page to a PNG; the `screenshot`
+  verb is the one-shot surface, this source is the monitor/page-watch surface;
+  no key, playwright optional dep).
 - **State** — `archive` (GLOBAL cross-case media buckets — case-shaped folders
   under `<home>/archive/<bucket>`, no registry file: `init | list | show | add |
   remove | setup`; items are sha256-deduped `capture` records with tags/notes/
@@ -280,7 +301,9 @@ exif verify` + root `finding`s + `cluster` ingest/identify) through
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source
-prebrief wall grid`, finding review-rows, dismissed **and suggested** findings (a
+prebrief wall grid reconstruct` — reconstruct deliberately: synthesized pixels
+stay out of evidence, `payload.caveat` on every record —, finding review-rows,
+dismissed **and suggested** findings (a
 suggested lead is quarantined until `finding accept` promotes it), cluster DB
 reads/maintenance `list/show/view/label/recluster`) are excluded even when they
 match the query. `face`/`see`/`image`/`audio`/`voice`/`similar`/`cluster` detections index only

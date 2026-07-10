@@ -70,7 +70,7 @@ Catalog presets:
 |---|---|
 | `cloudglue` | `watch:tinycloud`, `listen:tinycloud`, `face:tinycloud`, `enhance:ffmpeg` |
 | `hf` | `see:hf`, `enhance:hf` |
-| `fal` | `see:fal`, `enhance:fal` |
+| `fal` | `see:fal`, `enhance:fal`, `reconstruct:fal` |
 | `elevenlabs` | `listen:elevenlabs`, `enhance:elevenlabs` |
 | `owl-local` | `see:owl-local` |
 | `local-models` | `enhance:local-models` (on-device separate + segment) |
@@ -212,11 +212,13 @@ model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 Direct fal.ai providers (verified working) — bind to opt in:
 
 ```bash
-overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input}}"      # florence-2 caption / --ocr
-overcast setup provider enhance "exec:bash examples/providers/fal/enhance.sh {{input}}"  # image: esrgan · audio: deepfilternet3
+overcast setup provider see         "exec:bash examples/providers/fal/see.sh {{input}}"          # florence-2 caption / --ocr
+overcast setup provider enhance     "exec:bash examples/providers/fal/enhance.sh {{input}}"      # image: esrgan · audio: deepfilternet3
+overcast setup provider reconstruct "exec:bash examples/providers/fal/reconstruct.sh {{input}}"  # speculative camera reposition / 3D / depth
 ```
 - **see** → `fal-ai/florence-2-large` (detailed caption; `--ocr` for text).
 - **enhance** is a **toolbox** dispatched by `--ops`: image → `fal-ai/esrgan`, audio → `fal-ai/deepfilternet3`; `--ops separate` → `fal-ai/sam-audio/separate`, `--ops segment` → `fal-ai/sam-3/image`. Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL` / `FAL_SEPARATE_MODEL` / `FAL_SEGMENT_MODEL`. See **Enhance split ops** below.
+- **reconstruct** is a **toolbox** dispatched by `--ops`: camera reposition / `sweep` → `fal-ai/qwen-image-edit-2511-multiple-angles`, `model` → `fal-ai/trellis` (image→3D GLB, via the fal **queue API**), `depth` → `fal-ai/image-preprocessors/depth-anything/v2`. Models override via `FAL_RECONSTRUCT_VIEW_MODEL` / `FAL_RECONSTRUCT_MESH_MODEL` (e.g. `fal-ai/hunyuan3d-v3/image-to-3d`) / `FAL_RECONSTRUCT_DEPTH_MODEL`; queue knobs `FAL_QUEUE_POLL_S` / `FAL_QUEUE_TIMEOUT_S`. See **Speculative reconstruction** below.
 
 ## Forensic senses — `exif` (metadata + GPS, no key)
 
@@ -375,6 +377,45 @@ overcast crop <segment-parent-id> --all                            # materialize
   emits masks instead of cutouts. Image-only — segment a `frame://rec@sec` still of a
   video, not the video. Boxes are crop-compatible (`{xmin,ymin,xmax,ymax}`, with
   `box_normalized` when the model returns normalized coordinates).
+
+## Speculative reconstruction — `reconstruct` (camera reposition / 3D / depth)
+
+`reconstruct` synthesizes what a captured scene *would plausibly* look like from
+a camera the investigator never had. It is deliberately quarantined: every
+record carries `payload.caveat` (stamped by the verb even when a provider
+forgets) and the verb is excluded from ask/brief evidence and findings triggers
+— synthesized pixels steer hypotheses, they never prove anything.
+
+```bash
+overcast provider setup plan --preset fal && overcast provider setup apply --preset fal --yes   # FAL_KEY
+
+overcast reconstruct scene.jpg --rotate 45 --elevate 30          # reposition the camera on a still
+overcast reconstruct clip.mp4 --at 12.5 --rotate 90 --view       # pin a video frame, then rotate around it
+overcast reconstruct scene.jpg --ops sweep --count 8             # 8 stops around 360° → contact sheet + turntable mp4
+overcast reconstruct scene.jpg --ops model                       # image → textured 3D GLB (fal queue API; minutes)
+overcast reconstruct scene.jpg --ops depth                       # estimated depth map
+overcast view <parent-id>                                        # gallery / embedded 3D orbit viewer / drag-parallax hologram
+```
+
+- **Ops.** `view` (default when `--rotate`/`--elevate`/`--zoom` is given) emits one
+  synthesized view; `sweep` emits one child per stop plus a labeled contact sheet
+  (`kind:"sheet"`, the grid trick over synthesized stops) and a turntable video
+  (`kind:"turntable"`, assembled locally by the internal ffmpeg); `model` emits a
+  `kind:"mesh"` GLB; `depth` a `kind:"depth"` map.
+- **Multi-output contract.** Same as enhance split ops: ONE provider record with
+  `payload.outputs[] = [{kind, ref, ...}]`, fanned out into `[parent, ...children]`
+  with `source_record` provenance — plus the caveat stamped on every record.
+- **Viewers.** `view <parent-id>` renders the op's viewer: a scriptless CSI gallery
+  for view/sweep, an embedded WebGL **3D orbit viewer** for `model` (hand-rolled GLB
+  renderer, no CDN, mesh embedded base64; Draco/KTX2-compressed GLBs degrade to an
+  explicit message), and a WebGL **parallax hologram** for `depth`. `--view` opens it
+  immediately.
+- **Queue API.** `--ops model` runs minutes, so the provider submits to
+  `queue.fal.run` and polls the returned `status_url` (`FAL_QUEUE_POLL_S`, default
+  5s; `FAL_QUEUE_TIMEOUT_S`, default 600s) — the first shipped provider to use fal's
+  queue transport; copy it for any other long-running fal model.
+- **Cost note.** The Qwen multi-angle LoRA bills ~$0.035/megapixel per synthesized
+  view — an 8-stop sweep of a ~1 MP frame is ~$0.28.
 
 ## Object detection (`see` — open-vocabulary, local)
 
@@ -702,15 +743,63 @@ sample 8 frames.
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec/in-proc).
 - [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
-- [`examples/providers/fal/{see,enhance}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance, plus `--ops separate` (sam-audio) and `--ops segment` (sam-3).
+- [`examples/providers/fal/{see,enhance,reconstruct}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance (plus `--ops separate` sam-audio / `--ops segment` sam-3), and the speculative `reconstruct` toolbox (Qwen multi-angle reposition/sweep, Trellis image→3D via the queue API, Depth Anything V2).
 - [`examples/providers/local/enhance.sh`](../examples/providers/local/enhance.sh) + [`examples/providers/visual-db/enhance_{voice,segment}.py`](../examples/providers/visual-db/) — on-device `enhance --ops separate` (pyannote) and `--ops segment` (GroundingDINO + SAM 2.1).
 - [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
 - [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
 - [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
 - [`examples/providers/audio-db/{audio_match,clap_match,voice_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp), LAION CLAP audio embeddings (basic-clap), and wespeaker speaker verification (voice-print) for audio DB indexes.
-- [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch,dork,shodan}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch) + web-search (Tavily/Brave) + Google dorking (Serper.dev) + Shodan host recon + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams source providers.
+- [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,instagram,telegram,webcam,facesearch,dork,shodan,browser}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch) + web-search (Tavily/Brave) + Google dorking (Serper.dev) + Shodan host recon + Google Lens reverse-image + GDELT TV broadcast-news + Windy Webcams + headless-Chromium page render (`browser`, delegates to the screenshot engine) source providers.
+- [`examples/providers/screenshot/{screenshot.sh,render.mjs}`](../examples/providers/screenshot/) — the shared headless-Chromium page renderer (Playwright) behind the `screenshot` verb and the `browser` source.
 - [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
 - [`examples/providers/geocode/geocode.sh`](../examples/providers/geocode/geocode.sh) — opt-in OSM Nominatim reverse geocoder for `exif --geocode` (no key; never bound by default).
+
+## Screenshot engine (`screenshot` verb + `browser` source)
+
+Browser screen capture renders what a page **looks like** — the rendered pixels,
+not the raw HTML a plain `capture`/`web` fetch stores. One shipped engine
+([`examples/providers/screenshot/`](../examples/providers/screenshot/)) backs two
+surfaces:
+
+- **`screenshot <url>` verb** — one-shot render → a `web.screenshot` PNG evidence
+  record. Flags: `--full-page` (whole scrollable page, not just the viewport),
+  `--viewport WxH` (default `1280x800`), `--wait <ms>` (extra settle after load,
+  capped at 15s). Also accepts a **local `.html` file** — render a `wall`/`map`/
+  `brief --export` HTML into image evidence. Chain the PNG into `see` (describe/
+  OCR), `exif`, `note --ref`, or `archive add`.
+- **`browser:<url>` source** — the standing scan/monitor surface (see below). Each
+  fetch re-renders the current page state, so `monitor --source browser --every N
+  --pull` is a page-watch.
+
+The engine is a small Node driver (`render.mjs`) that runs under **system `node`**
+(never the bun binary) and uses the **`playwright` optional dependency**
+(`npm install --include=optional` + `npx playwright install chromium`). Missing
+deps yield a `needs_credentials` record (exit 13), not a hard failure;
+`overcast doctor` probes the renderer (the `playwright` / `source:browser` checks).
+Bind a custom renderer with `setup provider screenshot "<exec spec>"`, or override
+the source engine with `OVERCAST_SOURCE_BROWSER_CMD`; point `node` elsewhere with
+`OVERCAST_NODE`.
+
+**Security.** A headless browser fetching arbitrary URLs bypasses the fetch-side
+SSRF guard, so `render.mjs` re-implements it: private/loopback/link-local/CGNAT/
+metadata (`169.254.169.254`) targets are **refused by default**, before navigation
+and per request — HTTP(S) redirects/meta-refresh/subresources are intercepted
+(`context.route`) **and** `ws`/`wss` WebSocket connections are gated
+(`context.routeWebSocket`), so a rendered page can't reach an internal host over
+either. Every hostname is re-resolved per request (no verdict is cached) and fails
+closed per attempt, mirroring `assertFetchHostAllowed` — so a DNS rebind on a later
+hop is caught, and a transient resolver glitch blocks only that one request rather
+than wedging a public host for the whole render. Opt out only with an affirmative
+`OVERCAST_ALLOW_PRIVATE_FETCH` (same knob as `fetchMediaToCase`). A local `.html`
+input renders via `file://`, and its `file:` subresources are confined to the
+file's **own directory subtree** (symlinks resolved) — an untrusted export can't
+pull `file:///etc/passwd` or another case's media into the render. Rendered pages
+are untrusted content (invariant #10, prompt-injection surface) — a capture may
+also be a bot-challenge or login wall, and that rendered state is still the
+evidence. The engine also self-limits its runtime and force-closes Chromium on a
+timeout or catchable signal, so a hung render / parent timeout doesn't orphan a
+headless browser. Element (`--selector`) and video capture are not yet supported
+(reserved).
 
 ## Source providers (built-in types)
 
@@ -729,6 +818,7 @@ sample 8 frames.
 - **`dork`** — Google dorking via **Serper.dev** (`SERPER_API_KEY`). Real Google SERPs that **honor operators** (`site:`, `filetype:`, `inurl:`, `intitle:`, `ext:`, `-term`, `OR`) — unlike `web` (Tavily/Brave), which silently ignore them, so `dork` is the source for exposure/attack-surface discovery. Supported ref: `dork:<google dork string>` (passed verbatim to Google). Hits carry the result page (`payload.url`/`media.ref`), title, and snippet; `--since` buckets into Google's `tbs` recency window (day/week/month/year); `capture`/`--pull` downloads the result page like `web`. **Authorized recon only** — never a default binding; use only against targets you are permitted to investigate.
 - **`shodan`** — host/service/banner intelligence via the **Shodan REST API** (`SHODAN_API_KEY`). Supported refs: `shodan:<search query>` (filters like `org:"Acme" port:22`, `ssl:example.com`, `product:nginx country:DE` — 1 query credit per 100 results) and `shodan:<ip>` (a bare IPv4/IPv6 → full host lookup, one hit per exposed service). Each hit carries `ip`/`port`/`transport`/`org`/`isp`/`asn`/`product`/`hostnames`/`cpe`/`os`/`vulns` (CVE list) and geolocation (`lat`/`lng`/`country`/`city`) in the loose payload; `payload.url`/`media.ref` is the `shodan.io/host/<ip>` report page (with a `#<port>-<transport>` fragment so every service is a distinct record and `monitor` catches newly exposed ports), so `capture`/`--pull` stores a real evidence page. `--since` is ignored (Shodan search has no recency filter). Strong `monitor` fit for standing exposure watch. **Authorized recon only** — never a default binding.
   - **Opt-in screenshots / RTSP (sensitive).** Set `OVERCAST_SHODAN_SCREENSHOTS=1` (an explicit acknowledgement) to also decode the **screenshots** Shodan captures from exposed RDP/VNC/X11/HTTP/camera services into the case media dir — so `media.ref` becomes a real image `see`/`face`/`crop` can analyze — and surface RTSP (port 554) stream endpoints in `payload.stream`. These are the screens/camera views of **real, unwitting hosts**; enabling it carries privacy/ToS/legal weight and is authorized-use-only. Off by default (hits stay metadata + host page). Use `has_screenshot:true` / `screenshot.label:webcam` in the query to target hosts that have them.
+- **`browser`** — rendered-page capture via the shared headless-Chromium engine (`node` + the `playwright` optional dep; **no key**). Supported ref: `browser:<url>` (a page to screenshot; scheme-less refs assume `https://`). `enumerate` emits one ephemeral hit for the page; `fetch` renders the **current page state** to a PNG (`recapture: true`, so `monitor` re-renders every pass — a page-watch, webcam-style). The rendered PNG then flows into the case's image `auto_sense` chain (`see`/`exif`) on `scan --pull`/`monitor --pull`, exactly like a webcam still. Private/loopback targets are refused by default (`OVERCAST_ALLOW_PRIVATE_FETCH=1` to allow). This is the same engine the `screenshot` verb uses; the verb is the one-shot surface, the source is the standing scan/monitor surface. See the screenshot engine below.
 - Any type via `OVERCAST_SOURCE_<TYPE>_CMD="<base cmd>"` (the fixture/e2e mechanism).
 
 For local-media-only cases, `scan` falls back to local case media/indexes instead
