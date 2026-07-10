@@ -154,10 +154,24 @@ test("reconstruct --ops sweep assembles a contact sheet + turntable as children"
   const pp = recs[0].payload as Record<string, unknown>;
   assert.ok(typeof pp.sheet === "string" && existsSync(pp.sheet as string), "sheet on disk");
   assert.ok(typeof pp.turntable === "string" && existsSync(pp.turntable as string), "turntable on disk");
+  // parent count must include the appended sheet+turntable, matching outputs[]
+  // and the fan-out child count (3 views + sheet + turntable = 5).
+  assert.equal(pp.count, (pp.outputs as unknown[]).length, "count tracks outputs[] after assembly");
+  assert.equal(pp.count, recs.length - 1, "count matches the fanned-out children");
+  assert.equal(pp.count, 5);
   for (const r of recs.slice(1)) {
     assert.equal((r.payload as Record<string, unknown>).caveat, RECONSTRUCT_CAVEAT);
     assert.equal((r.payload as Record<string, unknown>).source_record, recs[0].id);
   }
+});
+
+test("reconstruct rejects a fan-out whose op doesn't match the request (mis-bound provider)", async () => {
+  const WRONG = `bash ${join(FIX, "fake-reconstruct-wrongop.sh")} --input {{input}}`;
+  const recs = await reconstructVerb.run(ctx(img, { rotate: 45 }, WRONG)); // requests op "view"
+  assert.equal(recs.length, 1, "no fan-out on a rejected mismatch");
+  assert.equal(recs[0].state, "error");
+  assert.match(recs[0].error ?? "", /did not perform '--ops view'/);
+  assert.match(recs[0].error ?? "", /op="depth"/);
 });
 
 test("reconstruct extracts the --at frame from a real video before synthesis", async () => {

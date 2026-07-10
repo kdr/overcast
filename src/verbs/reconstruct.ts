@@ -209,24 +209,28 @@ export const reconstructVerb: VerbSpec = {
       signal: ctx.signal,
     });
 
-    // Guard the envelope (enhance precedent): a ready record that does NOT fan
-    // out either declared malformed outputs[] (fail loudly — artifacts would be
-    // silently dropped) or ignored the requested op (a mis-bound provider).
+    // Guard the envelope (enhance precedent). A ready record must (a) not declare
+    // a malformed outputs[] (fail loudly — artifacts would be silently dropped),
+    // and (b) echo the requested op, whether or not it fanned out. Validating the
+    // op on BOTH paths matters: sweep assembly + viewer routing key off the
+    // requested op, so a mis-bound/buggy provider returning a valid fan-out under
+    // the WRONG op label would otherwise run sweep code over depth outputs (etc.)
+    // and leave the parent's op/routing inconsistent.
     const recPayload = payloadOf(rec);
     const declaredOutputs = Array.isArray(recPayload.outputs) ? recPayload.outputs : undefined;
-    if (rec.state === "ready" && !hasReconstructFanOut(rec)) {
-      if (declaredOutputs && declaredOutputs.length > 0) {
+    if (rec.state === "ready") {
+      if (!hasReconstructFanOut(rec) && declaredOutputs && declaredOutputs.length > 0) {
         return [errorRecord(
           `the reconstruct provider returned malformed outputs[] (each item needs a string 'ref' and 'kind'); no artifacts were expanded.`,
         )];
       }
       if (recPayload.op !== op) {
         return [errorRecord(
-          `the bound reconstruct provider did not perform '--ops ${op}' (no outputs, op=${JSON.stringify(recPayload.op ?? null)}). ` +
+          `the bound reconstruct provider did not perform '--ops ${op}' (returned op=${JSON.stringify(recPayload.op ?? null)}). ` +
             "Bind the fal reconstruct provider: `overcast provider setup apply --verb reconstruct --choice fal --yes`.",
         )];
       }
-      // else: op matches with no outputs — a valid empty result, fall through.
+      // op matches; a fan-out expands below, an empty result falls through.
     }
 
     // ---- sweep post-processing: assemble the contact sheet + turntable video
@@ -263,6 +267,10 @@ export const reconstructVerb: VerbSpec = {
         } catch (e) {
           recPayload.turntable_error = (e as Error).message;
         }
+        // keep the parent's declared count in step with the artifacts we just
+        // appended — otherwise count (provider's view-only value) understates the
+        // outputs[]/fan-out-children the record actually carries.
+        recPayload.count = outputs.length;
       }
     }
 
