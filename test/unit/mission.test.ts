@@ -71,6 +71,21 @@ test("coverage: a hit whose scan label differs from its source's type is never d
   assert.match(rows[1].label, /rumble.*ad-hoc/);
 });
 
+test("a dismiss --target stamp never becomes live linkage after a later accept", () => {
+  // unattributed human finding whose text does NOT name the target
+  const root = makeRecord({ verb: "finding", payload: { text: "unrelated observation", target: "", source_record: "manual", source_verb: "manual", trigger: "human", status: "open" }, meta: { time: iso(3600_000) } });
+  const dismiss = makeRecord({ verb: "finding", payload: { finding_id: root.id, status: "dismissed", reviewed_at: iso(1800_000), target_id: "tgt_a" }, meta: { time: iso(1800_000) } });
+  const accept = makeRecord({ verb: "finding", payload: { finding_id: root.id, status: "accepted", reviewed_at: iso(900_000) }, meta: { time: iso(900_000) } });
+  const th = buildThreads([root, dismiss, accept], [target], NOW)[0];
+  // the dismiss row's stamp is audit metadata — the re-accepted finding must
+  // not render inside tgt_a on the strength of a rejection's attribution
+  assert.deepEqual(th.findingIds, []);
+  // an accept-row stamp DOES link (the intended path)
+  const accept2 = makeRecord({ verb: "finding", payload: { finding_id: root.id, status: "accepted", reviewed_at: iso(600_000), target_id: "tgt_a" }, meta: { time: iso(600_000) } });
+  const th2 = buildThreads([root, dismiss, accept, accept2], [target], NOW)[0];
+  assert.deepEqual(th2.findingIds, [root.id]);
+});
+
 test("briefDelta: a post-brief create+dismiss is not '+1 finding'", () => {
   const brief = makeRecord({ verb: "brief", payload: { report: "# Brief", synthesis: {} }, meta: { time: iso(7200_000) } });
   const rejected = makeRecord({ verb: "finding", payload: { text: "bogus lead", target: "", source_record: "manual", source_verb: "manual", trigger: "human", status: "open" }, meta: { time: iso(3600_000) } });

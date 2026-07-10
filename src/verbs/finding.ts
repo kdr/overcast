@@ -218,6 +218,8 @@ export const findingVerb: VerbSpec = {
     const status = action === "accept" ? "accepted" : "dismissed";
     // --target at review time stamps the finding onto a line of investigation
     // (strict: attribution is the point here, so an unresolvable value errors).
+    // On DISMISS the stamp is audit metadata only — findingTargetMap ignores
+    // dismiss-row stamps, so it can't become live linkage after a later accept.
     let reviewTargetId: string | undefined;
     if (ctx.opts.target != null) {
       const resolved = resolveTargetFlag(ctx, String(ctx.opts.target));

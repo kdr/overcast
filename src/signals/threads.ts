@@ -124,16 +124,20 @@ function evidenceLinksTarget(rec: OvercastRecord, target: TargetEntry): boolean 
   return targetMatchesEvidence(target.value, payloadText(rec));
 }
 
-/** Latest target_id per root finding, from ANY finding row carrying one — the
- *  root's own stamp, or a review record's `finding accept --target …` stamp
- *  (keyed by finding_id). Append order = chronological, so last write wins,
- *  mirroring findingStatusMap. */
+/** Latest LIVE target_id per root finding — the root's own stamp, or a review
+ *  record's `finding accept --target …` stamp (keyed by finding_id). Append
+ *  order = chronological, so last write wins, mirroring findingStatusMap.
+ *  A stamp on a DISMISS row is audit metadata (which line the rejection was
+ *  about) and never enters the map — otherwise it would sit inert while
+ *  dismissed and then unexpectedly become live linkage if the finding is later
+ *  accepted without --target. */
 export function findingTargetMap(records: OvercastRecord[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const r of records) {
     if (r.verb !== "finding") continue;
     const p = payloadOf(r);
     if (typeof p.target_id !== "string" || !p.target_id) continue;
+    if (typeof p.finding_id === "string" && p.status === "dismissed") continue;
     const rootId = typeof p.finding_id === "string" ? p.finding_id : r.id;
     map.set(rootId, p.target_id);
   }
