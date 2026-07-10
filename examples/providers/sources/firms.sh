@@ -85,6 +85,10 @@ firms_csv_to_hits() { # <sensor-label>
             url: $url,
             source: "firms",
             published: $iso,
+            # `map` ranks/filters by payload.created (fire ACQUISITION time here),
+            # not the scan ingest time — so a detection sorts by when the fire
+            # burned, not when we scanned it. Null date → map falls back to ingest.
+            created: $iso,
             snippet: (([ (if $conf != "" then "confidence " + $conf else empty end),
                          (if $frp != null then "FRP " + ($frp|tostring) else empty end),
                          (if $sensor != "" then $sensor else empty end),

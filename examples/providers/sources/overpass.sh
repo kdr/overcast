@@ -75,10 +75,12 @@ case "$op" in
     # kv rides into the fallback title (`key=value #<id>`) when an element has no name.
     kv=""
     case "$query" in
-      # RAW passthrough: any query that already looks like OverpassQL (has a settings
-      # block or statement terminators). Sent verbatim — the author is responsible for
-      # `[out:json]` and a bounded `out`; a non-JSON body then surfaces as an error.
-      *'[out:'*|*';'*)
+      # RAW passthrough: a query that declares an OverpassQL settings block. Key ONLY
+      # on `[out:` — NOT a bare `;`, which a friendly tag VALUE can legitimately
+      # contain (e.g. `opening_hours=Mo-Fr 09:00; Sa off`) and which would otherwise
+      # mis-route the friendly form to raw. The author is responsible for `[out:json]`
+      # and a bounded `out`; a non-JSON body then surfaces as an error.
+      *'[out:'*)
         ql="$query"
         ;;
       # FRIENDLY form: key=value@region → expand to OverpassQL over node/way/relation
