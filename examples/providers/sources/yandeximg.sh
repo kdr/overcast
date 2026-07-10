@@ -121,20 +121,25 @@ case "$op" in
     items="$(printf '%s' "$run" | jq -c --argjson n "$limit" --arg self "$query" '
       def canon: (. // "") | ascii_downcase | sub("^https?://";"") | sub("/+$";"");
       [ .[]
-        | { page:  (.url // .link // .pageUrl // .sourceUrl // .documentUrl // .href // ""),
+        | ($self | canon) as $selfc
+        # never echo the submitted query image back as a hit. Pick PAGE as the first
+        # candidate field that is a real http URL AND does NOT canonically match the
+        # probe — so if the actor echoes the probe in an early field (.url) but puts
+        # the real match in a later one (.link/.pageUrl), we USE the real match rather
+        # than dropping the whole row. Canonical compare is case-folded + scheme- and
+        # trailing-slash-insensitive.
+        | { page:  ([.url, .link, .pageUrl, .sourceUrl, .documentUrl, .href]
+                    | map(select(type == "string" and (ascii_downcase | startswith("http")) and (canon != $selfc)))
+                    | (.[0] // "")),
             title: (.title // .name // .description // ""),
             thumb: (.thumbnail // .thumbnailUrl // .img // ""),
             snippet: (.description // .snippet // .text // ""),
             match: (.matchType // .match // "visual"),
             site:  (.displayLink // .source // .domain // null) }
-        # never echo the submitted query image back as a hit: exclude it as the PAGE
-        # and blank it as the THUMB (which becomes media.ref). Compare CANONICALLY
-        # (lowercased, scheme- and trailing-slash-insensitive) so an actor echoing
-        # the probe url with http/https, a trailing /, or different case cannot slip
-        # the probe image into payload.url/media.ref for capture/--pull to fetch.
-        | ($self | canon) as $selfc
+        # blank a THUMB (which becomes media.ref) that echoes the probe so
+        # capture/--pull cannot fetch the query image back.
         | (if (.thumb | canon) == $selfc then .thumb = "" else . end)
-        | select(((.page // "") | ascii_downcase | startswith("http")) and ((.page | canon) != $selfc)) ]
+        | select(.page != "") ]
       | .[0:$n]')"
     n="$(printf '%s' "$items" | jq 'length')"
     hits="[]"
