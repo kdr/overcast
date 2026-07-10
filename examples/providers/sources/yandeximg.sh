@@ -112,7 +112,7 @@ case "$op" in
     # normalize each dataset item defensively — try common field names for the
     # matched page url / title / thumbnail / match kind, and keep only items that
     # carry a real absolute http(s) page link (an actionable, fetchable hit).
-    items="$(printf '%s' "$run" | jq -c --argjson n "$limit" '
+    items="$(printf '%s' "$run" | jq -c --argjson n "$limit" --arg self "$query" '
       [ .[]
         | { page:  (.url // .link // .pageUrl // .sourceUrl // .documentUrl // .href // ""),
             title: (.title // .name // .description // ""),
@@ -120,7 +120,10 @@ case "$op" in
             snippet: (.description // .snippet // .text // ""),
             match: (.matchType // .match // "visual"),
             site:  (.displayLink // .source // .domain // null) }
-        | select((.page // "") | ascii_downcase | startswith("http")) ]
+        # keep only a real absolute http(s) page link, and EXCLUDE the submitted
+        # query image itself (actors often echo the input url in a page field) so a
+        # bogus hit cannot point payload.url/media.ref at the probe image.
+        | select(((.page // "") | ascii_downcase | startswith("http")) and (.page != $self)) ]
       | .[0:$n]')"
     n="$(printf '%s' "$items" | jq 'length')"
     hits="[]"

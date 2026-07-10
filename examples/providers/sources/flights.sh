@@ -53,7 +53,7 @@ opensky_token() {
 # 3=time_position 5=longitude 6=latitude 7=baro_altitude 8=on_ground 9=velocity
 # 10=true_track 13=geo_altitude.
 map_states() {
-  jq -c --argjson n "$1" --arg cs "$2" '
+  jq -c --argjson n "$1" --arg cs "$2" --arg now "${3:-}" '
     ( .states // [] )
     | map(select(.[5] != null and .[6] != null))
     | ( if $cs != ""
@@ -74,20 +74,22 @@ map_states() {
         | ($s[10]) as $track
         | ($s[13]) as $geo
         | ("https://opensky-network.org/aircraft-profile?icao24=" + $icao) as $page
-        # tag a per-fix token onto a URL fragment so each position of the SAME
+        # tag a per-fix token onto a URL fragment so each observation of the SAME
         # aircraft is a distinct monitor identity (hitKey keys on payload.url); the
         # fragment is inert to fetch (curl drops it), like the shodan port frag.
-        # Prefer time_position, fall back to last_contact ($s[4]), and if BOTH are
-        # null still stay distinct via the position itself (which changes per poll)
-        # — otherwise a null-time aircraft would dedupe to one point and no track.
+        # Prefer time_position, fall back to last_contact ($s[4]); if BOTH are null
+        # (near-never — OpenSky keeps last_contact current) fall back to the position
+        # PLUS the poll time ($now), so even a STATIONARY, timestamp-less aircraft
+        # still yields a distinct point per monitor poll instead of deduping to one.
         | ($page + (if $tpos != null then "#t" + ($tpos | floor | tostring)
                     elif ($s[4] != null) then "#t" + ($s[4] | floor | tostring)
-                    else "#p" + ($lat | tostring) + "," + ($lng | tostring) end)) as $url
+                    else "#p" + ($lat | tostring) + "," + ($lng | tostring)
+                         + (if $now != "" then "@" + $now else "" end) end)) as $url
         | {
             title: ((if $call == "" then "?" else $call end) + " (" + $icao + ") " + $country),
             url: $url,
             source: "flights",
-            published: (if $tpos != null then (($tpos | floor) | todate) else null end),
+            published: (($tpos // $s[4]) | if . != null then (floor | todate) else null end),
             # `map` ranks/--since-filters by payload.created — anchor a plotted
             # position to its observation time (time_position, else last_contact),
             # not the scan ingest time. Same convention as exif/firms/chronolocate.
@@ -152,6 +154,9 @@ case "$op" in
     # then strip ALL spaces for the bbox test so "2.0, 48.5, 2.8, 49.0" is recognized
     # as four numbers instead of falling through to a global callsign fetch.
     qt="${query#"${query%%[![:space:]]*}"}"; qt="${qt%"${qt##*[![:space:]]}"}"
+    # a whitespace-only query trims to empty — reject it instead of falling through
+    # to an empty callsign, which would fetch the global (unfiltered) states/all.
+    [ -n "$qt" ] || { echo "flights enumerate: query is empty (expected bbox|icao24|callsign)" >&2; exit 1; }
     IFS=',' read -r bw bs be bn bx <<<"${qt// /}"
     if [ -z "${bx:-}" ] && is_num "$bw" && is_num "$bs" && is_num "$be" && is_num "$bn"; then
       url="$STATES?lamin=$bs&lomin=$bw&lamax=$bn&lomax=$be"
@@ -180,7 +185,10 @@ case "$op" in
       echo "flights enumerate: unexpected response: $(printf '%s' "$run" | head -c 200)" >&2
       exit 1
     fi
-    printf '%s' "$run" | map_states "$limit" "$callsign"
+    # the poll wall-time distinguishes successive observations of a timestamp-less
+    # aircraft (see the fragment logic above).
+    now="$(date -u +%s)"
+    printf '%s' "$run" | map_states "$limit" "$callsign" "$now"
     ;;
 
   _map)
