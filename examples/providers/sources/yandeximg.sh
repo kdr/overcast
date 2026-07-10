@@ -43,6 +43,9 @@ case "$op" in
       --since) shift 2 2>/dev/null || shift ;;   # reverse-image search has no recency filter
       *) shift ;;
     esac; done
+    # trim surrounding whitespace so a padded URL/path still classifies correctly
+    # (a whitespace-only query then trips the empty-query check below), like flights.
+    query="${query#"${query%%[![:space:]]*}"}"; query="${query%"${query##*[![:space:]]}"}"
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN" >&2; exit 13; }
     if [ -z "$query" ]; then
       echo "yandeximg enumerate needs an image: bind yandeximg:<image-url> or pass --query <url|local path>" >&2
@@ -113,6 +116,7 @@ case "$op" in
     # matched page url / title / thumbnail / match kind, and keep only items that
     # carry a real absolute http(s) page link (an actionable, fetchable hit).
     items="$(printf '%s' "$run" | jq -c --argjson n "$limit" --arg self "$query" '
+      def canon: (. // "") | ascii_downcase | sub("^https?://";"") | sub("/+$";"");
       [ .[]
         | { page:  (.url // .link // .pageUrl // .sourceUrl // .documentUrl // .href // ""),
             title: (.title // .name // .description // ""),
@@ -121,11 +125,13 @@ case "$op" in
             match: (.matchType // .match // "visual"),
             site:  (.displayLink // .source // .domain // null) }
         # never echo the submitted query image back as a hit: exclude it as the PAGE
-        # (case-insensitively) and blank it as the THUMB (which becomes media.ref),
-        # so capture/--pull cannot fetch the probe image instead of a real match.
-        | (($self | ascii_downcase)) as $selfl
-        | (if ((.thumb // "") | ascii_downcase) == $selfl then .thumb = "" else . end)
-        | select(((.page // "") | ascii_downcase | startswith("http")) and (((.page // "") | ascii_downcase) != $selfl)) ]
+        # and blank it as the THUMB (which becomes media.ref). Compare CANONICALLY
+        # (lowercased, scheme- and trailing-slash-insensitive) so an actor echoing
+        # the probe url with http/https, a trailing /, or different case cannot slip
+        # the probe image into payload.url/media.ref for capture/--pull to fetch.
+        | ($self | canon) as $selfc
+        | (if (.thumb | canon) == $selfc then .thumb = "" else . end)
+        | select(((.page // "") | ascii_downcase | startswith("http")) and ((.page | canon) != $selfc)) ]
       | .[0:$n]')"
     n="$(printf '%s' "$items" | jq 'length')"
     hits="[]"
