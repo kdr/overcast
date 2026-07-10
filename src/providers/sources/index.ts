@@ -151,6 +151,40 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("shodan.sh");
       return script ? { type, base: ["bash", script], needs: "SHODAN_API_KEY" } : undefined;
     }
+    case "username": {
+      // Social/forum account discovery via Apify (Maigret): username → accounts
+      // across 3000+ sites. Opt-in / sensitive (person OSINT) — never a default.
+      const script = shippedSource("username.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
+    case "person": {
+      // People-search / skip-trace via Apify (apivault skip-trace): name(+location)
+      // → public records (addresses/phones/emails/relatives/age). Opt-in /
+      // sensitive, NOT an FCRA report.
+      const script = shippedSource("person.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
+    case "phone": {
+      // Reverse phone / number OSINT via Apify (PhoneInfoga): number → offline
+      // parse (carrier guess / country / validity) + web footprint. APIFY_TOKEN
+      // only. Opt-in / sensitive — never a default.
+      const script = shippedSource("phone.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
+    case "property": {
+      // Address → county assessor / tax / recorder records via Apify
+      // (county-property-records): owner / value / tax / sale history. Opt-in /
+      // sensitive — never a default.
+      const script = shippedSource("property.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
+    case "plate": {
+      // License plate → vehicle spec via a BOUND Apify actor. DPPA-restricted and
+      // deliberately unbound by default: needs APIFY_TOKEN + OVERCAST_PLATE_ACTOR.
+      // Vehicle spec only (no owner). Opt-in / sensitive — never a default.
+      const script = shippedSource("plate.sh");
+      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN + OVERCAST_PLATE_ACTOR", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
+    }
     case "browser": {
       // Rendered-page capture via the shared screenshot engine (headless
       // Chromium / Playwright — the same engine behind the `screenshot` verb).
