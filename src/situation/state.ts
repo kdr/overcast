@@ -164,3 +164,21 @@ export function consumeControl(c: Case, mtimeMs: number): void {
     /* another writer landed mid-consume — leave it for the next tick */
   }
 }
+
+/** Before a FRESH serve binds, drop a stale `stop: true` still sitting in
+ *  control.json (Bugbot #98/high): it's left over from an earlier `situation
+ *  stop` whose server died before its poll tick consumed it, and would instantly
+ *  kill the new server on its first control tick. The stop key is removed; any
+ *  set-before-start config is preserved (deleting the file only if nothing else
+ *  remains). */
+export function clearStaleStop(c: Case): void {
+  const cur = readControl(c)?.control;
+  if (!cur || cur.stop !== true) return;
+  const { stop: _stop, ...rest } = cur;
+  try {
+    if (Object.keys(rest).length === 0) rmSync(controlFile(c), { force: true });
+    else writeFileAtomic(controlFile(c), JSON.stringify(rest, null, 2) + "\n");
+  } catch {
+    /* best-effort; the server also ignores a stop it can't attribute */
+  }
+}

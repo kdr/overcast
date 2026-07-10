@@ -184,37 +184,10 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
     if (u && t && !titleByUrl.has(u)) titleByUrl.set(u, t);
   }
 
-  // --- wall tiles (shared model with the static wall verb) --------------------
-  const wall = buildWallModel(records, {
-    caseName: opts.caseName,
-    caseDir: opts.caseDir,
-    limit: tileLimit,
-    // wall's --source is a single type; apply the first entry there and the full
-    // list to the feed/stills filters below.
-    source: sourceFilter?.[0],
-    sinceCutoff,
-    now,
-    fileExists,
-  });
-  const tiles: SituationTileModel[] = wall.tiles.map((t) => ({
-    ref: t.ref,
-    media: t.mode === "down" ? null : mediaRefFor(t.ref, fileExists),
-    poster: null,
-    mode: t.mode,
-    title: t.title,
-    duration: t.duration,
-    anchor: t.anchor,
-    coverage: t.coverage,
-    faceCount: t.faceCount,
-    openFindings: t.openFindings,
-    summary: t.summary,
-    sourceType: t.sourceType,
-    sourceUrl: sourceUrlByRef.get(t.ref) ?? null,
-    sourceAuthor: sourceAuthorByRef.get(t.ref) ?? null,
-    lastRecordTime: t.lastRecordTime,
-    ageSeconds: t.ageSeconds,
-  }));
-
+  // The `--source` filter (types + registered ids) is applied UNIFORMLY across
+  // every panel (Bugbot: it used to differ — wall took only the first entry, map
+  // was unfiltered, stills ignored source ids). One predicate, fed the right
+  // source-type + source-id for each panel's record kind.
   const matchesSourceFilter = (source: string | null, sourceId: string | null): boolean => {
     if (!sourceFilter?.length) return true;
     return sourceFilter.includes((source ?? "").toLowerCase()) || (sourceId != null && sourceFilter.includes(sourceId.toLowerCase()));
@@ -224,6 +197,58 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
     const t = recordTimeMs(r);
     return Number.isNaN(t) || t >= sinceCutoff; // undated kept, matching wall/map
   };
+  // ref → the registered source id that produced it. Captures don't carry
+  // source_id, so trace capture.source_record → the scan hit's source_id; also
+  // accept a direct source_id on any record referencing the ref.
+  const scanById = new Map(records.filter((r) => r.verb === "scan").map((r) => [r.id, r] as const));
+  const sourceIdByRef = new Map<string, string>();
+  for (const r of records) {
+    const ref = r.media?.ref;
+    if (!ref || sourceIdByRef.has(ref)) continue;
+    const p = payloadOf(r);
+    const direct = str(p.source_id);
+    const viaScan = str(p.source_record) ? str(payloadOf(scanById.get(str(p.source_record)!) ?? ({} as OvercastRecord)).source_id) : null;
+    const sid = direct ?? viaScan;
+    if (sid) sourceIdByRef.set(ref, sid);
+  }
+  const sourceIdOf = (rec: OvercastRecord | undefined): string | null => {
+    if (!rec) return null;
+    return str(payloadOf(rec).source_id) ?? (rec.media?.ref ? sourceIdByRef.get(rec.media.ref) ?? null : null);
+  };
+
+  // --- wall tiles (shared model with the static wall verb) --------------------
+  // Build ALL tiles (no source cap in the shared model), then apply the full
+  // source filter, THEN take the top `tileLimit` — so filtering picks the top-N
+  // of the MATCHING set, not the first-N-then-filter.
+  const wall = buildWallModel(records, {
+    caseName: opts.caseName,
+    caseDir: opts.caseDir,
+    limit: Number.MAX_SAFE_INTEGER,
+    sinceCutoff,
+    now,
+    fileExists,
+  });
+  const tiles: SituationTileModel[] = wall.tiles
+    .filter((t) => matchesSourceFilter(t.sourceType, sourceIdByRef.get(t.ref) ?? null))
+    .slice(0, tileLimit)
+    .map((t) => ({
+      ref: t.ref,
+      media: t.mode === "down" ? null : mediaRefFor(t.ref, fileExists),
+      poster: null,
+      mode: t.mode,
+      title: t.title,
+      duration: t.duration,
+      anchor: t.anchor,
+      coverage: t.coverage,
+      faceCount: t.faceCount,
+      openFindings: t.openFindings,
+      summary: t.summary,
+      sourceType: t.sourceType,
+      sourceUrl: sourceUrlByRef.get(t.ref) ?? null,
+      sourceAuthor: sourceAuthorByRef.get(t.ref) ?? null,
+      lastRecordTime: t.lastRecordTime,
+      ageSeconds: t.ageSeconds,
+    }));
 
   // --- feed: scan hits newest-first (incl. error / cred-gap rows) -------------
   const feed: SituationFeedModel[] = records
@@ -268,9 +293,16 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
     if (key) trackOf.set(r.id, key.toLowerCase());
   }
   const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-  const points: SituationPointModel[] = mapModel.points.map((p) => {
-    const pl = payloadOf(recById.get(p.recordId) ?? ({} as OvercastRecord));
-    return {
+  const points: SituationPointModel[] = mapModel.points
+    // apply the same --source filter the feed/wall/stills use (was unfiltered)
+    .filter((p) => {
+      const rec = recById.get(p.recordId);
+      const src = str(payloadOf(rec ?? ({} as OvercastRecord)).source) ?? (p.verb === "scan" ? null : p.verb);
+      return matchesSourceFilter(src, sourceIdOf(rec));
+    })
+    .map((p) => {
+      const pl = payloadOf(recById.get(p.recordId) ?? ({} as OvercastRecord));
+      return {
       recordId: p.recordId,
       verb: p.verb,
       source: str(pl.source) ?? (p.verb === "scan" ? null : p.verb),
@@ -308,6 +340,8 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
     if (!prev || Number.isNaN(prevT) || (!Number.isNaN(t) && t >= prevT)) byKey.set(key, r);
   }
   const stills: SituationStillModel[] = [...byKey.entries()]
+    // apply the full --source filter (type + id) on the record, before mapping
+    .filter(([, r]) => matchesSourceFilter(str(payloadOf(r).source), sourceIdOf(r)))
     .map(([key, r]) => {
       const p = payloadOf(r);
       const source = str(p.source) ?? (r.verb === "screenshot" ? "screenshot" : null);
@@ -330,7 +364,6 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
         time: str(r.meta?.time),
       };
     })
-    .filter((s) => matchesSourceFilter(s.source, null))
     .sort((a, b) => (b.time ?? "").localeCompare(a.time ?? ""))
     .slice(0, STILLS_CAP);
 

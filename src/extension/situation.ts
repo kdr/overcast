@@ -24,6 +24,7 @@ import { SituationServer } from "../situation/server.js";
 import { situationConsoleDir } from "../situation/assets.js";
 import {
   clearRuntime,
+  clearStaleStop,
   parsePanels,
   readRuntime,
   runtimeAlive,
@@ -109,6 +110,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
       await stopSituation();
     }
     await stopping; // wait for any in-flight stop to release the port
+    clearStaleStop(c); // drop a stale stop:true that would kill us on tick 1
     const bind = opts.bind || lastStartOpts.bind || process.env.OVERCAST_SITUATION_BIND || "127.0.0.1";
     const port = opts.port ?? lastStartOpts.port ?? envPort(process.env.OVERCAST_SITUATION_PORT) ?? 7374;
     const token = process.env.OVERCAST_SITUATION_TOKEN || sessionToken || randomBytes(32).toString("base64url");

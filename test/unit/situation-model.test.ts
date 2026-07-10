@@ -157,6 +157,34 @@ test("situation model: map points inherit flight track keys", () => {
   assert.ok(m.bounds, "bounds derived for the fit");
 });
 
+test("situation model: --source filters ALL panels consistently (type + id)", () => {
+  const ytCap = makeRecord({ verb: "capture", format: "json", payload: { capture_id: "cap_y", path: "/tmp/tc/y.mp4", source: "youtube", source_id: "src_yt" }, media: { ref: "/tmp/tc/y.mp4" }, meta: { time: "2026-07-10T10:00:00Z" } });
+  const ytWatch = makeRecord({ verb: "watch", format: "json", payload: { content: "x" }, media: { ref: "/tmp/tc/y.mp4", at: 2 }, meta: { time: "2026-07-10T10:01:00Z" } });
+  const flight = makeRecord({ verb: "scan", format: "json", payload: { title: "AF", url: "https://sky/1", source: "flights", source_id: "src_fl", gps: { lat: 48, lng: 2 } }, meta: { time: "2026-07-10T10:02:00Z" } });
+  const webHit = makeRecord({ verb: "scan", format: "json", payload: { title: "art", url: "https://e.com/a", source: "web", source_id: "src_web" }, meta: { time: "2026-07-10T10:03:00Z" } });
+  const camCap = makeRecord({ verb: "capture", format: "json", payload: { capture_id: "cap_c", source: "webcam", url: "https://cam/1", source_url: "https://cam/1" }, media: { ref: "/tmp/tc/cam.jpg" }, meta: { time: "2026-07-10T10:04:00Z" } });
+  const recs = [ytCap, ytWatch, flight, webHit, camCap];
+
+  // filter to youtube (by type): only the wall tile survives; feed/map/stills empty
+  let m = buildSituationModel(recs, opts({ config: { source: "youtube" }, sources: [src("youtube"), src("flights"), src("web"), src("webcam")] }));
+  assert.deepEqual(m.tiles.map((t) => t.ref), ["/tmp/tc/y.mp4"], "wall keeps only youtube");
+  assert.equal(m.feed.length, 0, "feed excludes non-youtube");
+  assert.equal(m.points.length, 0, "map excludes non-youtube");
+  assert.equal(m.stills.length, 0, "stills exclude non-youtube");
+
+  // filter to flights: only the map point; nothing else
+  m = buildSituationModel(recs, opts({ config: { source: "flights" } }));
+  assert.equal(m.tiles.length, 0);
+  assert.equal(m.points.length, 1);
+  assert.equal(m.stills.length, 0);
+
+  // filter by a registered SOURCE ID (src_web) — feed keeps it, others empty
+  m = buildSituationModel(recs, opts({ config: { source: "src_web" } }));
+  assert.deepEqual(m.feed.map((f) => f.source), ["web"]);
+  assert.equal(m.tiles.length, 0);
+  assert.equal(m.stills.length, 0);
+});
+
 test("situation model: theme defaults to csi on the wire; plain honored", () => {
   assert.equal(buildSituationModel([], opts()).config.theme, "csi");
   assert.equal(buildSituationModel([], opts({ config: { theme: "plain" } })).config.theme, "plain");

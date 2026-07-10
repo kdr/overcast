@@ -1,8 +1,10 @@
 // HUD strip: case identity + pulse chips (findings/triage/scan/monitor/brief
-// freshness — the same signals the wall HUD and `case status` derive) + a
-// connection dot, a live clock, and sync controls. Chips are TAPPABLE — each
-// opens a popover with a glance of detail. The SYNC control shows the last-sync
-// age + the server poll interval and a ⟳ force-sync button.
+// freshness — the same signals the wall HUD and `case status` derive) + a live
+// clock and a liveness/sync control. Chips are TAPPABLE — each opens a popover
+// with a glance of detail. The SYNC control shows connection liveness (◉ LIVE
+// while the stream is up, ⚠ + a climbing age when it drops) with the data
+// refresh + control cadences and last-data age in its popover, plus a ⟳ button
+// that forces a sync to now.
 
 import type { SituationSnapshot, SituationWireEvent } from "../../../../src/situation/wire.js";
 import { sourceStyle } from "../sources.js";
@@ -12,6 +14,8 @@ export interface HudView {
   el: HTMLElement;
   update(snap: SituationSnapshot): void;
   setConnected(connected: boolean): void;
+  /** note a fresh contact with the server (event/heartbeat) — resets the age */
+  markSynced(): void;
   monitorPulse(evt: Extract<SituationWireEvent, { type: "monitor" }>): void;
   setOffAir(reason: string): void;
   /** flash the sync control while a force-sync is in flight */
@@ -34,15 +38,15 @@ export function createHud(onSyncNow: () => void): HudView {
   const right = el("span", "right");
   const passChip = el("span", "chip cyan");
   passChip.style.display = "none";
+  const syncChip = el("button", "chip sync") as HTMLButtonElement;
   const syncBtn = el("button", "syncbtn", "⟳");
   syncBtn.title = "sync to now";
   syncBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     onSyncNow();
   });
-  const conn = el("span", "conn");
   const clock = el("span", "clock");
-  right.append(passChip, syncBtn, conn, clock);
+  right.append(passChip, syncChip, syncBtn, clock);
   root.append(brand, caseName, chips, right);
 
   // one shared popover, positioned under the tapped chip
@@ -54,7 +58,6 @@ export function createHud(onSyncNow: () => void): HudView {
   };
   document.addEventListener("click", closePop);
   window.addEventListener("resize", closePop);
-
   const openPop = (anchor: HTMLElement, detail: string): void => {
     pop.textContent = detail;
     pop.style.display = "block";
@@ -63,13 +66,39 @@ export function createHud(onSyncNow: () => void): HudView {
     pop.style.top = `${r.bottom + 6}px`;
   };
 
+  // liveness state
+  let connected = false;
+  let lastContact = Date.now();
+  let pollSeconds = 60;
+  let generatedAt: string | null = null;
+
+  const renderSync = (): void => {
+    if (connected) {
+      syncChip.textContent = "◉ LIVE";
+      syncChip.className = "chip sync live";
+    } else {
+      syncChip.textContent = `⚠ ${fmtAge((Date.now() - lastContact) / 1000)}`;
+      syncChip.className = "chip sync down";
+    }
+  };
+  syncChip.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const dataAge = fmtAge(ageOf(generatedAt));
+    openPop(
+      syncChip,
+      connected
+        ? `Live — the stream is connected. Data refreshes every ${pollSeconds}s (⟳ to sync now); control (set/stop) applies within ~2s. Newest data ${dataAge} old.`
+        : `Reconnecting — no contact for ${fmtAge((Date.now() - lastContact) / 1000)}. The console will resync automatically; ⟳ to retry. Newest data ${dataAge} old.`,
+    );
+  });
+
   const tick = (): void => {
     clock.textContent = new Date().toLocaleTimeString();
+    if (!connected) renderSync(); // climb the age while offline
   };
   tick();
   setInterval(tick, 1000);
-
-  let generatedAt: string | null = null;
+  renderSync();
 
   const build = (snap: SituationSnapshot): Chip[] => {
     const hud = snap.hud;
@@ -107,14 +136,15 @@ export function createHud(onSyncNow: () => void): HudView {
     return out;
   };
 
-  const syncChip = el("button", "chip muted sync") as HTMLButtonElement;
-
   return {
     el: root,
     update(snap) {
       caseName.textContent = `CASE ▸ ${snap.caseName}`;
       caseName.title = snap.caseDir;
       generatedAt = snap.generatedAt;
+      pollSeconds = snap.pollSeconds;
+      lastContact = Date.now(); // a snapshot IS a sync
+      renderSync();
       const built = build(snap);
       const nodes = built.map((c) => {
         const b = el("button", `chip${c.tone ? ` ${c.tone}` : ""}`) as HTMLButtonElement;
@@ -126,20 +156,20 @@ export function createHud(onSyncNow: () => void): HudView {
         });
         return b;
       });
-      // sync chip: age + poll interval, tappable for detail
-      syncChip.textContent = `SYNC ${fmtAge(ageOf(generatedAt))} · every ${snap.pollSeconds}s`;
-      syncChip.onclick = (e) => {
-        e.stopPropagation();
-        openPop(syncChip, `Snapshot generated ${generatedAt ? new Date(generatedAt).toLocaleString() : "—"} (${fmtAge(ageOf(generatedAt))} ago). The server re-checks the case store every ${snap.pollSeconds}s; ⟳ forces a sync to now.`);
-      };
-      nodes.push(syncChip);
       chips.replaceChildren(...nodes);
     },
-    setConnected(connected) {
-      conn.classList.toggle("on", connected);
-      conn.title = connected ? "live" : "reconnecting…";
+    setConnected(c) {
+      connected = c;
+      if (c) lastContact = Date.now();
+      renderSync();
+    },
+    markSynced() {
+      lastContact = Date.now();
+      if (connected) return; // "◉ LIVE" already; nothing to reflow
+      renderSync();
     },
     monitorPulse(evt) {
+      lastContact = Date.now();
       if (evt.phase === "start") {
         passChip.style.display = "";
         passChip.textContent = `PASS ${evt.pass} RUNNING…`;
@@ -153,9 +183,11 @@ export function createHud(onSyncNow: () => void): HudView {
       }
     },
     setOffAir(reason) {
-      conn.classList.remove("on");
+      connected = false;
       passChip.style.display = "none";
       syncBtn.style.display = "none";
+      syncChip.textContent = "■ OFF AIR";
+      syncChip.className = "chip sync down";
       chips.replaceChildren(el("span", "offair", `■ OFF AIR — ${reason}`));
     },
     syncing(on) {

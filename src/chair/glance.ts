@@ -9,7 +9,7 @@ import { findingStatusMap, type OvercastRecord } from "../record.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
 import { listTargets } from "../state/target.js";
 import { listSources } from "../state/source.js";
-import { readRuntime, runtimeAlive } from "../situation/state.js";
+import { readRuntime, runtimeServing } from "../situation/state.js";
 import type { CaseGlance, GlanceFinding, GlanceRecord, GlanceSituation } from "./wire.js";
 
 const SUMMARY_KEYS = ["text", "summary", "answer", "description", "title", "content", "transcript", "query", "op"];
@@ -38,7 +38,7 @@ function recordTime(rec: OvercastRecord): string | undefined {
   return typeof rec.meta?.time === "string" ? rec.meta.time : undefined;
 }
 
-export function buildCaseGlance(c: Case, limit = 8): CaseGlance {
+export async function buildCaseGlance(c: Case, limit = 8): Promise<CaseGlance> {
   const records = c.records();
   const counts: Record<string, number> = {};
   for (const r of records) counts[r.verb] = (counts[r.verb] ?? 0) + 1;
@@ -79,10 +79,11 @@ export function buildCaseGlance(c: Case, limit = 8): CaseGlance {
       return entry;
     });
 
-  // live situation page for this case (runtime.json + pid probe — cheap, and
-  // never includes the pairing token)
+  // live situation page for this case — pid alive AND the recorded port is
+  // actually served (Bugbot #98/med: a read-only surface must not report "live"
+  // off a reused pid alone). Never includes the pairing token.
   const rt = readRuntime(c);
-  const situation: GlanceSituation | null = runtimeAlive(rt)
+  const situation: GlanceSituation | null = (await runtimeServing(rt))
     ? { running: true, url: rt!.displayUrl, port: rt!.port, startedAt: rt!.startedAt, every: rt!.every, mode: rt!.mode }
     : null;
 

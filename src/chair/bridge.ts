@@ -37,7 +37,7 @@ export interface ChairAgent {
   caseName(): string;
   caseDir(): string;
   transcript(limit: number): TranscriptItem[];
-  caseGlance(): CaseGlance;
+  caseGlance(): CaseGlance | Promise<CaseGlance>;
   /** Text of the in-flight assistant message, "" when none — lets a mid-stream
    *  resync rebuild the live line (getBranch only holds finalized messages). */
   livePartial?(): string;
@@ -79,7 +79,17 @@ export class ChairBridge extends LiveHttpd<ChairEventInput> {
       return true;
     }
     if (req.method === "GET" && path === "/api/case") {
-      this.json(res, 200, this.agent.caseGlance());
+      // caseGlance may be async (it verifies a live situation page's port) — the
+      // route stays sync-return, resolving the promise then answering.
+      void Promise.resolve(this.agent.caseGlance())
+        .then((g) => this.json(res, 200, g))
+        .catch(() => {
+          try {
+            this.json(res, 500, { error: "glance failed" });
+          } catch {
+            /* headers already sent */
+          }
+        });
       return true;
     }
     if (req.method === "POST") {

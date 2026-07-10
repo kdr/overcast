@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
 import { SituationServer, parseRange } from "../../src/situation/server.ts";
-import { writeControl, readRuntime, writeRuntime, clearRuntime, runtimeAlive } from "../../src/situation/state.ts";
+import { writeControl, readControl, clearStaleStop, readRuntime, writeRuntime, clearRuntime, runtimeAlive } from "../../src/situation/state.ts";
 
 function tmpCase() {
   const dir = mkdtempSync(join(tmpdir(), "oc-situation-"));
@@ -187,6 +187,27 @@ test("situation server: /media refuses a record ref outside the case dir (contai
     await s.stop();
     rmSync(dir, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("situation state: clearStaleStop drops a leftover stop:true (keeps config)", () => {
+  const { dir, c } = tmpCase();
+  try {
+    // a bare stale stop → file removed entirely, so a fresh serve isn't killed
+    writeControl(c, { stop: true });
+    clearStaleStop(c);
+    assert.equal(readControl(c), undefined, "bare stale stop is cleared");
+    // a stop alongside a set-before-start config → stop dropped, config kept
+    writeControl(c, { stop: true, panels: ["map"], theme: "plain" });
+    clearStaleStop(c);
+    const left = readControl(c)?.control;
+    assert.equal(left?.stop, undefined, "stale stop removed");
+    assert.deepEqual(left?.panels, ["map"], "set-before-start config preserved");
+    // a config-only control is untouched
+    clearStaleStop(c);
+    assert.deepEqual(readControl(c)?.control.panels, ["map"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

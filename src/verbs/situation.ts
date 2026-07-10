@@ -28,6 +28,7 @@ import { SituationServer } from "../situation/server.js";
 import { situationConsoleDir } from "../situation/assets.js";
 import {
   clearRuntime,
+  clearStaleStop,
   parsePanels,
   readControl,
   readRuntime,
@@ -134,7 +135,7 @@ export const situationVerb: VerbSpec = {
     { name: "limit", summary: "Max wall tiles (default 12; other panels have fixed caps)", type: "number" },
     { name: "theme", summary: "Console theme: csi | plain", type: "string", choices: ["csi", "plain"], default: "csi" },
     { name: "query", summary: "Ad-hoc monitor query (used by the --every cadence)", type: "string" },
-    { name: "poll", summary: "serve: store/control poll seconds (default 2)", type: "number" },
+    { name: "poll", summary: "serve: data-refresh cadence seconds (default 60; control stays ~2s; ⟳/monitor passes force now)", type: "number" },
     { name: "no-open", summary: "serve: don't launch the browser", type: "boolean" },
     { name: "force", summary: "stop: also SIGTERM the serving pid (when control isn't picked up)", type: "boolean" },
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -145,7 +146,7 @@ export const situationVerb: VerbSpec = {
   run: async (ctx) => {
     const action = (ctx.input ?? "serve").toLowerCase();
 
-    if (action === "status") return [statusRecord(ctx)];
+    if (action === "status") return [await statusRecord(ctx)];
 
     if (action === "set") {
       const parsed = parseConfigFlags(ctx);
@@ -244,6 +245,7 @@ export const situationVerb: VerbSpec = {
       return [err(`a situation is already live at ${existing!.displayUrl} (pid ${existing!.pid}) — \`overcast situation stop\` first`)];
     }
     if (existing) clearRuntime(ctx.case); // sweep a stale/dead runtime before binding
+    clearStaleStop(ctx.case); // and a stale stop:true that would kill us on tick 1
 
     const parsed = parseConfigFlags(ctx);
     if ("error" in parsed) return [parsed.error];
@@ -385,6 +387,10 @@ export const situationVerb: VerbSpec = {
         passError = (e as Error).message;
       }
       server.monitorEnded(passes, { ...(newItems !== undefined ? { newItems } : {}), ...(passError ? { error: passError } : {}) });
+      // the owned cadence just wrote records — refresh the page NOW rather than
+      // waiting up to a full (slow) data-poll interval. Best-effort: a transient
+      // rebuild failure must not break the monitor loop (the poll retries).
+      await server.forceRebuild().catch(() => {});
       process.stderr.write(
         `situation: pass ${passes}${newItems !== undefined ? ` — ${newItems} new` : ""}${passError ? ` — ${passError}` : ""}\n`,
       );
@@ -429,9 +435,11 @@ export const situationVerb: VerbSpec = {
   },
 };
 
-function statusRecord(ctx: VerbContext): OvercastRecord {
+async function statusRecord(ctx: VerbContext): Promise<OvercastRecord> {
   const rt = readRuntime(ctx.case);
-  const running = runtimeAlive(rt);
+  // running = pid alive AND the recorded port is actually served (Bugbot #98/med:
+  // a read-only surface must not report "live" off a reused pid alone).
+  const running = runtimeAlive(rt) && (await runtimeServing(rt));
   const pending = readControl(ctx.case)?.control ?? null;
   return makeRecord({
     verb: "situation",

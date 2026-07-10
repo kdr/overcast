@@ -161,6 +161,7 @@ async function boot(): Promise<void> {
   };
 
   const onEvent = (evt: SituationWireEvent): void => {
+    hud.markSynced(); // any event = fresh contact with the server
     if (evt.type === "hello") {
       lastSeq = evt.seq;
       return;

@@ -204,7 +204,9 @@ a.stillcell { text-decoration: none; color: inherit; cursor: pointer; }
 /* --- HUD: tappable chips, popover, sync ------------------------------------- */
 .hud .chip { cursor: pointer; font: inherit; }
 .hud button.chip { line-height: 1.5; }
-.hud .chip.sync { border-style: dashed; }
+.hud .chip.sync { border-style: dashed; letter-spacing: 1px; }
+.hud .chip.sync.live { color: var(--green); border-color: var(--green); border-style: solid; box-shadow: 0 0 6px rgba(92,255,150,.25); }
+.hud .chip.sync.down { color: var(--amber); border-color: var(--amber); }
 .syncbtn { background: transparent; border: 1px solid var(--line); color: var(--cyan); border-radius: 4px; cursor: pointer; width: 24px; height: 22px; font-size: 13px; line-height: 1; }
 .syncbtn:hover { border-color: var(--cyan); box-shadow: 0 0 6px rgba(56,232,255,.3); }
 .syncbtn.spin { animation: spin .7s linear infinite; }

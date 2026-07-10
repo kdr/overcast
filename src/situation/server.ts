@@ -39,7 +39,13 @@ type SituationEventInput = SituationWireEvent extends infer E
   : never;
 
 export const SITUATION_DEFAULT_PORT = 7374;
-const POLL_MS = 2000;
+// Two cadences: DATA refresh (fingerprint → rebuild) defaults to once a minute
+// so the page isn't churning every couple seconds, while CONTROL (situation
+// set/stop from the agent/CLI/chair) stays snappy so retunes/stops apply within
+// a couple seconds. The ⟳ Sync-now button and owned monitor passes force an
+// immediate rebuild regardless.
+const POLL_MS = 60_000;
+const CONTROL_MS = 2000;
 
 export interface SituationServerOptions extends LiveHttpdOptions {
   case: Case;
@@ -63,6 +69,7 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
   private readonly opts: SituationServerOptions;
   private readonly case: Case;
   private timer: ReturnType<typeof setInterval> | undefined;
+  private controlTimer: ReturnType<typeof setInterval> | undefined;
   private snapshot: Omit<SituationSnapshot, "seq"> | undefined;
   private mediaMap = new Map<string, string>();
   private prevMediaMap = new Map<string, string>();
@@ -88,14 +95,21 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
   override async start(): Promise<{ url: string; pairingUrl: string; port: number }> {
     const started = await super.start();
     await this.rebuild();
-    this.timer = setInterval(() => void this.tick(), this.opts.pollMs ?? POLL_MS);
+    const pollMs = this.opts.pollMs ?? POLL_MS;
+    // data rebuild at the (slow) poll cadence; control at the fast cadence
+    // (never slower than the data poll — a tiny --poll keeps both quick).
+    this.timer = setInterval(() => void this.pollRebuildTick(), pollMs);
     this.timer.unref(); // the owner's serve loop keeps the process alive, not us
+    this.controlTimer = setInterval(() => void this.applyControlTick(), Math.min(CONTROL_MS, pollMs));
+    this.controlTimer.unref();
     return started;
   }
 
   override async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
+    if (this.controlTimer) clearInterval(this.controlTimer);
     this.timer = undefined;
+    this.controlTimer = undefined;
     await super.stop();
   }
 
@@ -118,26 +132,39 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     this.publish({ type: "monitor", phase: "end", pass, ...info });
   }
 
-  // --- poll tick ----------------------------------------------------------------
+  // --- poll ticks ---------------------------------------------------------------
 
-  /** One poll: apply any pending control, then rebuild when the store (or the
-   *  active config) changed. Public so tests can drive it without timers. */
-  async tick(): Promise<void> {
+  /** Apply any pending control (situation set/stop) — the FAST cadence, so a
+   *  retune/stop from the agent/CLI/chair lands within a couple seconds. */
+  private async applyControlTick(): Promise<void> {
     if (this.stopRequested) return;
     const ctl = readControl(this.case);
-    if (ctl) {
-      const { stop, ...patch } = ctl.control;
-      this.applyConfig(patch);
-      consumeControl(this.case, ctl.mtimeMs);
-      if (stop === true) {
-        this.stopRequested = true;
-        this.announceStopping("stop requested via situation stop");
-        this.opts.onStopRequested?.("control");
-        return;
-      }
+    if (!ctl) return;
+    const { stop, ...patch } = ctl.control;
+    this.applyConfig(patch);
+    consumeControl(this.case, ctl.mtimeMs);
+    if (stop === true) {
+      this.stopRequested = true;
+      this.announceStopping("stop requested via situation stop");
+      this.opts.onStopRequested?.("control");
+      return;
     }
+    // a config change should reflect promptly (not wait for the slow data poll)
+    if (this.configDirty) await this.rebuild();
+  }
+
+  /** Rebuild when the store (or the active config) changed — the SLOW cadence. */
+  private async pollRebuildTick(): Promise<void> {
+    if (this.stopRequested) return;
     const fp = this.fingerprint();
     if (fp !== this.lastFingerprint || this.configDirty) await this.rebuild();
+  }
+
+  /** Apply control then rebuild-on-change in one shot. Public so tests can drive
+   *  the whole poll cycle deterministically without the timers. */
+  async tick(): Promise<void> {
+    await this.applyControlTick();
+    if (!this.stopRequested) await this.pollRebuildTick();
   }
 
   /** Apply a config patch (from control.json), dropping invalid values rather
@@ -181,9 +208,12 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
 
   // --- model → wire ---------------------------------------------------------------
 
-  private async rebuild(): Promise<void> {
+  private async rebuild(force = false): Promise<void> {
     if (this.building) {
       this.rebuildPending = true;
+      // a forced rebuild (Sync-now) must not report success off an in-flight
+      // build it didn't observe — tell the caller it couldn't rebuild now.
+      if (force) throw new Error("rebuild already in progress");
       return;
     }
     this.building = true;
@@ -208,8 +238,11 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
       if (prevRecords !== undefined) {
         this.publish({ type: "refresh", generatedAt: model.generatedAt, records: model.hud.records });
       }
-    } catch {
-      /* a torn store read mid-write heals on the next tick */
+    } catch (e) {
+      // a torn store read mid-write heals on the next tick; but a FORCED rebuild
+      // (Sync-now) must surface the failure so the caller doesn't treat a stale
+      // snapshot as a fresh sync (Bugbot #98/med).
+      if (force) throw e;
     } finally {
       this.building = false;
       if (this.rebuildPending) {
@@ -351,20 +384,31 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     // tick is ≤pollMs away, but the console's Sync button wants the freshest cut)
     // then return the new snapshot so the console renders it without a round-trip.
     if (req.method === "POST" && url.pathname === "/api/refresh") {
-      void this.forceRebuild().then(() => {
-        if (!this.snapshot) return this.json(res, 503, { error: "warming up" });
-        this.json(res, 200, { ...this.snapshot, seq: this.seq } satisfies SituationSnapshot);
-      });
+      void this.forceRebuild()
+        .then(() => {
+          if (!this.snapshot) return this.json(res, 503, { error: "warming up" });
+          this.json(res, 200, { ...this.snapshot, seq: this.seq } satisfies SituationSnapshot);
+        })
+        .catch(() => {
+          // the forced rebuild couldn't complete (torn read / in-flight build) —
+          // report failure so the console doesn't treat it as a fresh sync.
+          try {
+            this.json(res, 503, { error: "could not sync now — try again" });
+          } catch {
+            /* headers already sent */
+          }
+        });
       return true;
     }
     return false;
   }
 
   /** Rebuild from the current store on demand (the Sync-now button). Bypasses
-   *  the fingerprint short-circuit so it always reflects "now". */
+   *  the fingerprint short-circuit so it always reflects "now"; THROWS if the
+   *  rebuild couldn't complete so the caller doesn't report a stale sync. */
   async forceRebuild(): Promise<void> {
     this.lastFingerprint = ""; // force rebuild() past the no-change guard
-    await this.rebuild();
+    await this.rebuild(true);
   }
 
   protected helloEvent(): Record<string, unknown> {
