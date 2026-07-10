@@ -77,14 +77,16 @@ map_states() {
         # tag a per-fix token onto a URL fragment so each observation of the SAME
         # aircraft is a distinct monitor identity (hitKey keys on payload.url); the
         # fragment is inert to fetch (curl drops it), like the shodan port frag.
-        # Prefer time_position, fall back to last_contact ($s[4]); if BOTH are null
-        # (near-never — OpenSky keeps last_contact current) fall back to the position
-        # PLUS the poll time ($now), so even a STATIONARY, timestamp-less aircraft
-        # still yields a distinct point per monitor poll instead of deduping to one.
-        | ($page + (if $tpos != null then "#t" + ($tpos | floor | tostring)
-                    elif ($s[4] != null) then "#t" + ($s[4] | floor | tostring)
-                    else "#p" + ($lat | tostring) + "," + ($lng | tostring)
-                         + (if $now != "" then "@" + $now else "" end) end)) as $url
+        # Fragment = time component AND position, so a fix is distinct when EITHER the
+        # timestamp advances OR the aircraft moved — OpenSky can repeat time_position
+        # across polls while gps changes, and a time-only key would dedupe the moved
+        # leg away. Time component: time_position, else last_contact ($s[4]), else the
+        # poll time ($now) so even a timestamp-less stationary aircraft still advances.
+        # A genuine no-change repeat (same time AND same position) correctly dedupes.
+        | (if $tpos != null then ($tpos | floor | tostring)
+           elif ($s[4] != null) then ($s[4] | floor | tostring)
+           else $now end) as $tstamp
+        | ($page + "#t" + $tstamp + ";@" + ($lat | tostring) + "," + ($lng | tostring)) as $url
         | {
             title: ((if $call == "" then "?" else $call end) + " (" + $icao + ") " + $country),
             url: $url,
