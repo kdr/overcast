@@ -89,6 +89,22 @@ else
   ok "$C.ws.blocked" "no connection reached the private WS server (routeWebSocket guard held)"
 fi
 
+# --- 4c) no Chromium leak on a hard navigation failure ---
+# fail() must not process.exit while the browser is open (that skips the finally
+# that closes it). Render a PUBLIC host on a refused port (passes the SSRF guard,
+# fails goto hard) and assert no headless Chromium is left running.
+cond "screenshot does not leak a Chromium process on a hard nav failure"
+chrome_procs() { pgrep -f "Google Chrome for Testing" 2>/dev/null | wc -l | tr -d ' '; }
+before_procs="$(chrome_procs)"
+OC_TIMEOUT=90 oc "$CASE" screenshot "https://example.com:9999/" --json >/dev/null 2>&1
+sleep 3
+after_procs="$(chrome_procs)"
+if [ "${after_procs:-0}" -le "${before_procs:-0}" ]; then
+  ok "$C.no_leak" "no orphaned Chromium after a hard nav error (before=$before_procs after=$after_procs)"
+else
+  fail "$C.no_leak" "Chromium leaked on nav failure (before=$before_procs after=$after_procs)"
+fi
+
 # --- 5) browser: source — scan --pull renders + captures a page image ---
 cond "browser source scan --pull renders the page into an image capture"
 SCASE=$(case_dir browser_src)

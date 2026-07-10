@@ -348,7 +348,11 @@ async function main() {
       if (/Timeout.*exceeded/i.test(msg) && !page.url().startsWith("about:")) {
         settled = false;
       } else {
-        fail(`screenshot: could not load ${args.input}: ${msg.split("\n")[0]}`);
+        // THROW rather than fail() here: fail() calls process.exit(), which skips
+        // the enclosing `finally` and would leak the headless Chromium process on
+        // a hard nav error. Throwing runs the finally (browser.close) and is
+        // reported by main().catch → fail() with the same exit 1 / error record.
+        throw new Error(`could not load ${args.input}: ${msg.split("\n")[0]}`);
       }
     }
     if (wait > 0) await page.waitForTimeout(wait);
