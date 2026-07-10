@@ -148,15 +148,17 @@ case "$op" in
     # filter client-side — an all-states pull is large and, anonymously, the
     # first thing OpenSky rate-limits, so a bbox is strongly preferred).
     url="$STATES"
-    # strip spaces so a spaced bbox ("2.0, 48.5, 2.8, 49.0") is still recognized as
-    # four numbers instead of falling through to a global callsign fetch.
-    IFS=',' read -r bw bs be bn bx <<<"${query// /}"
+    # trim surrounding whitespace first so a padded icao24/callsign routes correctly;
+    # then strip ALL spaces for the bbox test so "2.0, 48.5, 2.8, 49.0" is recognized
+    # as four numbers instead of falling through to a global callsign fetch.
+    qt="${query#"${query%%[![:space:]]*}"}"; qt="${qt%"${qt##*[![:space:]]}"}"
+    IFS=',' read -r bw bs be bn bx <<<"${qt// /}"
     if [ -z "${bx:-}" ] && is_num "$bw" && is_num "$bs" && is_num "$be" && is_num "$bn"; then
       url="$STATES?lamin=$bs&lomin=$bw&lamax=$bn&lomax=$be"
-    elif [[ "$query" =~ ^[0-9a-fA-F]{6}$ ]]; then
-      url="$STATES?icao24=$(printf '%s' "$query" | tr 'A-F' 'a-f')"
+    elif [[ "$qt" =~ ^[0-9a-fA-F]{6}$ ]]; then
+      url="$STATES?icao24=$(printf '%s' "$qt" | tr 'A-F' 'a-f')"
     else
-      callsign="$query"
+      callsign="$qt"
     fi
 
     if ! token="$(opensky_token)"; then
