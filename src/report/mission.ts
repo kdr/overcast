@@ -208,7 +208,10 @@ export function threadCard(th: TargetThread, ctx: ThreadRenderContext): ThreadCa
       const overlays = ctx.overlaysByFinding?.get(r.id);
       if (overlays?.length) row.overlays = overlays;
       return row;
-    });
+    })
+    // dismissed = rejected evidence: it stays linked for audit (thread counts in
+    // threads.ts), but must never render back into the thread story after triage
+    .filter((f) => f.effectiveStatus !== "dismissed");
   // chronological in, so rankFindings' recency tiebreak holds
   const ranked = rankFindings(resolvedFindings.slice().reverse());
   const counts = { accepted: 0, open: 0, suggested: 0 };
@@ -217,11 +220,11 @@ export function threadCard(th: TargetThread, ctx: ThreadRenderContext): ThreadCa
     else if (f.effectiveStatus === "open") counts.open += 1;
     else if (f.effectiveStatus === "suggested") counts.suggested += 1;
   }
-  // findings are already listed above; everything else (senses, scans, human
-  // notes) is fair game for the "latest evidence" read.
-  const latest = th.recentIds
+  // latest evidence rides the evidence-only recency list — recentIds mixes
+  // findings in and is capped, so a burst of findings would starve this section
+  const latest = th.recentEvidenceIds
     .map((id) => ctx.byId.get(id))
-    .filter((r): r is OvercastRecord => !!r && r.verb !== "finding")
+    .filter((r): r is OvercastRecord => !!r)
     .slice(0, 2)
     .map((r) => evidenceLine(r, now));
   const lastMs = th.lastActivity ? Date.parse(th.lastActivity) : NaN;

@@ -423,7 +423,11 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
 
   const triage = triageRows(caseRecords, statusByFinding);
   lines.push(...renderTriageMd(triage, triage.length));
-  lines.push(...renderCoverageMd(opts.pulse.coverage, synthesis.sources, opts.pulse.gaps));
+  // the Coverage table reflects the STANDING case, like the pulse it joins
+  // against — mixing the scoped swept rollup into full-case coverage rows would
+  // make the ad-hoc leftover math (and the table's totals) incoherent under
+  // --scope. The scoped rollup still drives the verdict line (synthesis.sources).
+  lines.push(...renderCoverageMd(opts.pulse.coverage, sweptSources(caseRecords), opts.pulse.gaps));
 
   // Appendix: the record trail. Short = a compact NEWEST-FIRST index with
   // page-it pointers (catching up reads top-down); full = each record's primary
@@ -490,7 +494,9 @@ function enrichSynthesis(syn: BriefSynthesis, pulse: CasePulse, records: Overcas
     delta: briefDelta(records, now),
     threads: pulse.threads.map((th) => threadCard(th, ctx)),
     triage: triage.length ? triage : undefined,
-    coverage: coverageTableRows(pulse.coverage, syn.sources),
+    // full-case swept rollup, matching the markdown's standing coverage table
+    // (records here is the UNSCOPED case set — see the brief run callsite)
+    coverage: coverageTableRows(pulse.coverage, sweptSources(records)),
   };
 }
 

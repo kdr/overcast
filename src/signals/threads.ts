@@ -70,6 +70,10 @@ export interface TargetThread {
   activityBins: number[];
   /** ids of the most recent linked records (evidence + findings), newest first */
   recentIds: string[];
+  /** ids of the most recent linked EVIDENCE records (no findings), newest first —
+   *  the "latest evidence" feed; recentIds mixes findings in and is capped, so a
+   *  burst of findings would otherwise starve the evidence view */
+  recentEvidenceIds: string[];
   /** ids of ALL linked root findings, newest first — the brief resolves + ranks
    *  these per thread (and derives the "unattached findings" complement) */
   findingIds: string[];
@@ -227,6 +231,11 @@ export function buildThreads(records: OvercastRecord[], targets: TargetEntry[], 
       .slice(0, 8)
       .map((r) => r.id);
 
+    const recentEvidenceIds = [...linkedEvidence]
+      .sort((a, b) => timeOf(b) - timeOf(a))
+      .slice(0, 8)
+      .map((r) => r.id);
+
     const stage = stageFor(status, counts, linkedEvidence.length);
     const why = status === "active"
       ? undefined
@@ -258,6 +267,7 @@ export function buildThreads(records: OvercastRecord[], targets: TargetEntry[], 
       recent: { day: recentDay, week: recentWeek },
       activityBins: activityBins(times, now),
       recentIds,
+      recentEvidenceIds,
       findingIds,
       why,
       narrative,

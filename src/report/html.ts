@@ -254,14 +254,26 @@ function renderThreadCards(threads: TimelineSynthesis["threads"]): string {
     const chip = `<span class="chip ${toneFor(t.stage)}">${escapeHtml(t.stage)}</span>`;
     const c = t.findingCounts;
     const countBits = [c.accepted ? `${c.accepted} accepted` : "", c.open ? `${c.open} open` : "", c.suggested ? `${c.suggested} suggested` : ""].filter(Boolean).join(" · ");
-    const findingRows = t.findings.map((f) => `<li><span class="id">${escapeHtml(f.id)}</span> <span class="state">[${escapeHtml(f.status)}]</span> ${escapeHtml(f.text)}</li>`).join("");
+    // overlay proofs ride each finding row, exactly like the markdown path — the
+    // geometric evidence stays WITH its line of investigation
+    const findingRows = t.findings.map((f) => {
+      const overlays = (f.overlays ?? []).map((ref) => imageTag(ref)).filter(Boolean).slice(0, 3).join("");
+      return `<li><span class="id">${escapeHtml(f.id)}</span> <span class="state">[${escapeHtml(f.status)}]</span> ${escapeHtml(f.text)}${overlays ? `<div class="overlays" data-csi-overlays="true">${overlays}</div>` : ""}</li>`;
+    }).join("");
     const latestRows = t.latest.map((l) => `<li><span class="id">${escapeHtml(l.id)}</span> ${escapeHtml(l.verb)}${l.at ? ` ${escapeHtml(l.at)}` : ""}${l.age ? ` <span class="meta">(${escapeHtml(l.age)} ago)</span>` : ""} — ${escapeHtml(l.stub)}</li>`).join("");
+    // counts render even without resolved rows — the status export builds cards
+    // from the raw payload (no record store), so counts are all it has
+    const findingsBlock = findingRows
+      ? `<p class="meta">findings${countBits ? ` (${escapeHtml(countBits)})` : ""}:</p><ul class="findings">${findingRows}</ul>`
+      : countBits
+        ? `<p class="meta">findings: ${escapeHtml(countBits)}</p>`
+        : "";
     return `<article class="context-card"${dim}>
       <span class="label">TARGET</span>
       <p><strong>${escapeHtml(t.value)}</strong> ${chip}${t.spark ? ` <span class="cyan">${escapeHtml(t.spark)}</span> <span class="meta">${escapeHtml(t.sparkWindow)}</span>` : ""}</p>
       ${t.question ? `<p class="meta">? ${escapeHtml(t.question)}</p>` : ""}
       ${t.answer ? `<p>${escapeHtml(t.answer)}</p>` : ""}
-      ${findingRows ? `<p class="meta">findings${countBits ? ` (${escapeHtml(countBits)})` : ""}:</p><ul class="findings">${findingRows}</ul>` : ""}
+      ${findingsBlock}
       <p class="meta">${escapeHtml(t.funnel)}${t.lastActivityAge ? ` · last activity ${escapeHtml(t.lastActivityAge)} ago` : ""}</p>
       ${latestRows ? `<ul class="findings">${latestRows}</ul>` : ""}
       ${t.closed ? `<p class="meta">closed: ${escapeHtml(t.closed)}</p>` : t.next ? `<p class="meta">NEXT: ${escapeHtml(t.next)}</p>` : ""}
