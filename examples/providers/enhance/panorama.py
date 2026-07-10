@@ -102,7 +102,6 @@ def sample_frames(cv2, np, inp):
     cap = cv2.VideoCapture(inp)
     if not cap.isOpened():
         return []
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     frames = []
     prev_gray = None
 
@@ -119,43 +118,32 @@ def sample_frames(cv2, np, inp):
         prev_gray = gray
         frames.append(frame)
 
-    if total > 1:
-        # oversample positions across the FULL clip so black/dup filtering still
-        # leaves a healthy overlap set. Do NOT stop at TARGET_FRAMES mid-scan — that
-        # would keep only the first ~half of a pan; walk every position, then thin
-        # evenly below so the kept frames span the whole clip.
-        n = min(total, TARGET_FRAMES * 3)
-        idxs = sorted({int(round(k * (total - 1) / (n - 1))) for k in range(n)})
-        for idx in idxs:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+    # Do NOT trust CAP_PROP_FRAME_COUNT: it is frequently wrong — 0/1 when metadata
+    # is missing, or UNDERSTATED — and a seek/space over that count confines sampling
+    # to the clip's opening segment. Instead COUNT the real frames with a cheap grab
+    # pass (no decode), then reopen and keep uniformly-spaced indices across the FULL
+    # clip by a position counter (reading, not seeking, which is also unreliable when
+    # the metadata is). Panorama inputs are short pans, so two passes are cheap.
+    count = 0
+    while cap.grab():
+        count += 1
+    cap.release()
+    cap = cv2.VideoCapture(inp)
+    if count > 1:
+        n = min(count, TARGET_FRAMES * 3)
+        want = {int(round(k * (count - 1) / (n - 1))) for k in range(n)}
+        idx = 0
+        while True:
             ok, frame = cap.read()
-            if ok:
+            if not ok:
+                break
+            if idx in want:
                 consider(frame)
-    else:
-        # unreliable metadata (frame_count 0/1): COUNT frames with a cheap grab pass
-        # (no decode), then reopen and keep uniformly-spaced indices across the FULL
-        # clip by COUNTING (not seeking — unreliable metadata often means seeking is
-        # unreliable too). This spans the whole pan instead of just its opening slice.
-        count = 0
-        while cap.grab():
-            count += 1
-        cap.release()
-        cap = cv2.VideoCapture(inp)
-        if count > 1:
-            n = min(count, TARGET_FRAMES * 3)
-            want = {int(round(k * (count - 1) / (n - 1))) for k in range(n)}
-            idx = 0
-            while True:
-                ok, frame = cap.read()
-                if not ok:
-                    break
-                if idx in want:
-                    consider(frame)
-                idx += 1
-        else:
-            ok, frame = cap.read()
-            if ok:
-                consider(frame)
+            idx += 1
+    elif count == 1:
+        ok, frame = cap.read()
+        if ok:
+            consider(frame)
     cap.release()
 
     # thin an oversampled set down to TARGET_FRAMES, evenly across its span, so the

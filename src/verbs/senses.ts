@@ -890,6 +890,7 @@ async function maybeEnhanceGallery(ctx: VerbContext, rec: OvercastRecord): Promi
     subtitle: typeof p.input === "string" ? (p.input.split("/").pop() ?? rec.id) : rec.id,
     sourceRef: rec.media?.ref,
     model: typeof p.model === "string" ? p.model : typeof p.detect_model === "string" ? p.detect_model : undefined,
+    caveat: typeof p.caveat === "string" ? p.caveat : undefined,
     overlaps,
     items,
   };

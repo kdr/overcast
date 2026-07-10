@@ -415,6 +415,7 @@ export interface EnhanceGalleryReport {
   sourceRef?: string; // the original media (separate: playable "mixed" track)
   overlaps?: Array<{ at: [number, number]; speakers: string[] }>;
   model?: string;
+  caveat?: string; // honest-provenance note surfaced in the gallery (a lead, not proof)
   items: EnhanceGalleryItem[];
 }
 
@@ -480,7 +481,13 @@ export function renderEnhanceGallery(r: EnhanceGalleryReport): string {
   const empty = r.items.length === 0
     ? `<section class="panel"><p class="meta">No ${isSep ? "tracks" : "instances"} to show.</p></section>` : "";
 
-  return csiShell(r.title, r.subtitle, `${stats}${overlaps}${empty}<section class="grid">${origCard}${cards}</section>`);
+  // surface the parent record's honest-provenance caveat (ela/panorama are
+  // heuristic leads) prominently in the gallery, not just in the JSON record.
+  const caveat = r.caveat
+    ? `<section class="panel" style="border-color:var(--amber);box-shadow:0 0 24px rgba(255,209,102,.15)"><h2 style="color:var(--amber)">Caveat — a lead, not proof</h2><p class="summary">${escapeHtml(r.caveat)}</p></section>`
+    : "";
+
+  return csiShell(r.title, r.subtitle, `${stats}${caveat}${overlaps}${empty}<section class="grid">${origCard}${cards}</section>`);
 }
 
 export interface ReconstructGalleryView {
