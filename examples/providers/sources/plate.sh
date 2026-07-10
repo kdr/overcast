@@ -57,9 +57,19 @@ case "$op" in
     esac; done
     need
     [ -n "$query" ] || { echo "plate enumerate needs a plate: bind plate:<ST>:<plate> (or plate:<plate>) or pass --query" >&2; exit 1; }
-    # "<ST>:<plate>" → state + plate; a bare "<plate>" leaves state empty.
+    # "<ST>:<plate>" → state + plate; a bare "<plate>" leaves state empty. Only
+    # treat the pre-colon prefix as a state when it's a valid 2-letter code (real
+    # plates have no colon; a US/CA state is exactly two alpha chars) — so a ref like
+    # `plate:12:34` keeps the whole value as the plate, not state 12 / plate 34.
     state=""; plate="$query"
-    case "$query" in *:*) state="${query%%:*}"; plate="${query#*:}" ;; esac
+    case "$query" in
+      *:*)
+        pfx="${query%%:*}"
+        case "$pfx" in
+          [A-Za-z][A-Za-z]) state="$pfx"; plate="${query#*:}" ;;
+          *) plate="$query" ;;   # not a 2-letter state → colon belongs to the plate
+        esac ;;
+    esac
     state="$(printf '%s' "$state" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')"
     plate="$(printf '%s' "$plate" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')"
     [ -n "$plate" ] || { echo "plate: empty plate number in '$query'" >&2; exit 1; }
