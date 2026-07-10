@@ -174,6 +174,15 @@ test("reconstruct rejects a fan-out whose op doesn't match the request (mis-boun
   assert.match(recs[0].error ?? "", /op="depth"/);
 });
 
+test("reconstruct rejects a ready result with no artifacts (failed provider, not an empty success)", async () => {
+  const EMPTY = `bash ${join(FIX, "fake-reconstruct-empty.sh")} --input {{input}}`;
+  const recs = await reconstructVerb.run(ctx(img, { rotate: 45 }, EMPTY));
+  assert.equal(recs.length, 1, "no parent-only 'success' record");
+  assert.equal(recs[0].state, "error");
+  assert.match(recs[0].error ?? "", /empty outputs\[\]/);
+  assert.match(recs[0].error ?? "", /provider failure/);
+});
+
 test("reconstruct extracts the --at frame from a real video before synthesis", async () => {
   const clip = join(dir, "real.mp4");
   execFileSync(

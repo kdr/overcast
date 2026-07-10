@@ -209,28 +209,33 @@ export const reconstructVerb: VerbSpec = {
       signal: ctx.signal,
     });
 
-    // Guard the envelope (enhance precedent). A ready record must (a) not declare
-    // a malformed outputs[] (fail loudly — artifacts would be silently dropped),
-    // and (b) echo the requested op, whether or not it fanned out. Validating the
-    // op on BOTH paths matters: sweep assembly + viewer routing key off the
-    // requested op, so a mis-bound/buggy provider returning a valid fan-out under
-    // the WRONG op label would otherwise run sweep code over depth outputs (etc.)
-    // and leave the parent's op/routing inconsistent.
+    // Guard the envelope. A ready record must (a) echo the requested op — sweep
+    // assembly + viewer routing key off it, so a mis-bound provider returning a
+    // fan-out under the WRONG op label must be rejected, not run through sweep
+    // code over depth outputs — and (b) actually carry a valid outputs[] fan-out.
+    // Unlike enhance (whose `segment` op has a legitimate "matched nothing → 0
+    // outputs" result), EVERY reconstruct op yields an artifact or errors; there
+    // is no empty-but-ready success. So a ready record with no valid outputs[] is
+    // a provider failure, not a valid empty result — fail loudly instead of
+    // emitting a parent-only "success" with zero synthesized media.
     const recPayload = payloadOf(rec);
     const declaredOutputs = Array.isArray(recPayload.outputs) ? recPayload.outputs : undefined;
     if (rec.state === "ready") {
-      if (!hasReconstructFanOut(rec) && declaredOutputs && declaredOutputs.length > 0) {
-        return [errorRecord(
-          `the reconstruct provider returned malformed outputs[] (each item needs a string 'ref' and 'kind'); no artifacts were expanded.`,
-        )];
-      }
       if (recPayload.op !== op) {
         return [errorRecord(
           `the bound reconstruct provider did not perform '--ops ${op}' (returned op=${JSON.stringify(recPayload.op ?? null)}). ` +
             "Bind the fal reconstruct provider: `overcast provider setup apply --verb reconstruct --choice fal --yes`.",
         )];
       }
-      // op matches; a fan-out expands below, an empty result falls through.
+      if (!hasReconstructFanOut(rec)) {
+        const detail = declaredOutputs && declaredOutputs.length > 0
+          ? "returned malformed outputs[] (each item needs a string 'ref' and 'kind')"
+          : "returned no synthesized artifacts (empty outputs[])";
+        return [errorRecord(
+          `the reconstruct '${op}' provider reported success but ${detail} — no reconstruction was produced. ` +
+            "This is a provider failure; check FAL_KEY / the model response.",
+        )];
+      }
     }
 
     // ---- sweep post-processing: assemble the contact sheet + turntable video
