@@ -575,6 +575,10 @@ export function hostSourceType(url: string): string {
   if (/(^|\.)archive\.org$/.test(host)) {
     try {
       const p = new URL(url).pathname;
+      // a Wayback snapshot (web.archive.org/web/<timestamp>/<url>) → wayback.sh's
+      // fetch, which keeps an archived HTTP error page as evidence (curl -sSL, no
+      // -f, unlike the web fetcher) and labels provenance source:wayback.
+      if (/^\/web\//.test(p)) return "wayback";
       if (/^\/download\//.test(p) && /\.(mp4|m4v|mov|webm|mkv|ts|mp3|m4a|wav|jpe?g|png|webp|gif)$/i.test(p)) {
         return "gdelttv";
       }
