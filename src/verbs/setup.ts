@@ -715,6 +715,17 @@ export const doctorVerb: VerbSpec = {
           : "SHODAN_API_KEY missing for shodan scans (https://account.shodan.io)",
       });
     }
+    if (ctx.opts.sources === true || sourceTypes.has("browser")) {
+      // no API key — the browser source needs the same Playwright renderer the
+      // `screenshot` verb uses (probed above as the `playwright` check).
+      checks.push({
+        name: "source:browser",
+        ok: playwright.code === 0,
+        detail: playwright.code === 0
+          ? "Playwright + Chromium renderer available (rendered-page capture)"
+          : "Playwright renderer missing — run `npm install --include=optional` and `npx playwright install chromium`",
+      });
+    }
 
     // home / profiles
     const home = resolveHome({ home: ctx.home });

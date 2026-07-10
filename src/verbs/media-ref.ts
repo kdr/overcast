@@ -67,8 +67,9 @@ export function isRegisterableMediaRecord(r: OvercastRecord): boolean {
 }
 
 /** Verbs whose media.ref is captured/sensed media the ARCHIVE can store —
- *  MEDIA_VERBS (AV) plus `see` (its media.ref is the analyzed still image). */
-const ARCHIVABLE_MEDIA_VERBS = [...MEDIA_VERBS, "see"];
+ *  MEDIA_VERBS (AV) plus `see` (its media.ref is the analyzed still image) and
+ *  `screenshot` (a rendered-page PNG). */
+const ARCHIVABLE_MEDIA_VERBS = [...MEDIA_VERBS, "see", "screenshot"];
 
 /** Whether a case RECORD is captured/sensed media for `archive add --all`.
  *  Like isRegisterableMediaRecord, but the archive stores IMAGES **and** audio/
