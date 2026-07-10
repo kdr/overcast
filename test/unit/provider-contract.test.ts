@@ -42,6 +42,8 @@ const PROVIDERS: Prov[] = [
   py("detect/detect.py"),
   py("visual-db/enhance_voice.py"),
   py("visual-db/enhance_segment.py"),
+  py("enhance/ela.py"),
+  py("enhance/panorama.py"),
   ts("ts/see.ts"),
   sh("sources/youtube.sh", "source"),
   sh("sources/tiktok.sh", "source"),

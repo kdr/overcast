@@ -315,18 +315,18 @@ Emits `web.screenshot` records.
 
 ### `overcast enhance`
 
-Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model provider for AI restoration or the SPLIT ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices into per-speaker tracks (add --summarize to transcribe each), `--ops segment --prompt "<thing>"` cuts requested objects out of an image as mask + cutout evidence. separate/segment need a bound provider (local-models = pyannote + GroundingDINO/SAM2, or fal = sam-audio + sam-3); image segmentation of a video is out of scope (segment a frame:// still). Emits a media.enhanced record per output — for the split ops, one child record per track/mask whose media.ref chains into watch/listen/see/view/crop.
+Default: deterministic, modality-dispatched ops on the bundled ffmpeg (denoise/normalize/voice-isolate/upscale/stabilize/grayscale). Bind a model/analysis provider for AI restoration or the PROVIDER-ONLY ops via `setup provider enhance <spec>`: `--ops separate` splits an audio/video's voices into per-speaker tracks (add --summarize to transcribe each), `--ops segment --prompt "<thing>"` cuts requested objects out of an image as mask + cutout evidence, `--ops ela` derives ELA/noise/luminance forensic overlays from an image (heuristic edit-detection leads), `--ops panorama` stitches a panning video into one wide still (skyline/landmark exposure for geolocation). These ops need a bound provider (local-models = pyannote + GroundingDINO/SAM2, fal = sam-audio + sam-3, or a shipped example script — enhance/ela.py, enhance/panorama.py); image segmentation/ela of a video is out of scope (run on a frame:// still). Emits a media.enhanced record per output — for the fan-out ops, one child record per track/mask/overlay whose media.ref chains into watch/listen/see/view/crop.
 
 ```
 overcast enhance <input> [options]
 
-  Produce better media (denoise/normalize/upscale) or split it (separate voices / segment objects) via ffmpeg or a bound model provider.
+  Produce better media (denoise/normalize/upscale), split it (separate voices / segment objects), or derive analysis artifacts (ela forensic overlays / panorama stitch) via ffmpeg or a bound provider.
 
 Arguments:
   input            Media file path
 
 Options:
-  --ops <string>         Comma list of ops (denoise,normalize,upscale,separate,segment,...)
+  --ops <string>         Comma list of ops (denoise,normalize,upscale,separate,segment,ela,panorama,...)
   --prompt <string>      What to segment (--ops segment) or the target voice to extract
   --speakers <string>    Speaker-count hint for --ops separate
   --summarize            Transcribe/summarize each separated track via the bound listen provider
