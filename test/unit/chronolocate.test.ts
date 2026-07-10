@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseInstant } from "../../src/verbs/chronolocate.ts";
+import { parseInstant, parseRefDate } from "../../src/verbs/chronolocate.ts";
 
 // parseInstant normalizes ExifTool-style capture times (what `exif` writes into
 // payload.created) so an analyst can paste one straight into --at-time. It must
@@ -41,4 +41,22 @@ test("parseInstant: a fully-zoned ISO value is respected, not re-zoned", () => {
 
 test("parseInstant: garbage is undefined", () => {
   assert.equal(parseInstant("not-a-date"), undefined);
+});
+
+test("parseInstant: an impossible calendar day is rejected (not rolled forward)", () => {
+  // Date would roll 2026-02-30 → Mar 2 and verify the wrong instant.
+  assert.equal(parseInstant("2026-02-30"), undefined);
+  assert.equal(parseInstant("2026:02:30 12:00:00"), undefined);
+  assert.equal(parseInstant("2025-02-29"), undefined); // 2025 is not a leap year
+  // a real day still parses
+  assert.equal(parseInstant("2026-02-28")?.date.toISOString(), "2026-02-28T00:00:00.000Z");
+  assert.equal(parseInstant("2024-02-29")?.date.toISOString(), "2024-02-29T00:00:00.000Z"); // leap year
+});
+
+test("parseRefDate: an impossible solve --date is rejected (not rolled forward)", () => {
+  assert.equal(parseRefDate("2026-02-30", 0), undefined);
+  assert.equal(parseRefDate("2026-13-01", 0), undefined);
+  assert.equal(parseRefDate("2025-02-29", 0), undefined);
+  // a real day → noon UTC
+  assert.equal(parseRefDate("2026-02-28", 0)?.toISOString(), "2026-02-28T12:00:00.000Z");
 });

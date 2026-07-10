@@ -32,6 +32,14 @@ import type { VerbSpec } from "../registry/types.js";
 
 const err = (message: string): OvercastRecord => errRecord("chronolocate", message);
 
+/** Is `YYYY-MM-DD` a REAL calendar day? A regex match isn't enough — `Date` rolls
+ *  an impossible day (2026-02-30 → Mar 2) instead of rejecting it, so a solve/verify
+ *  date would silently target the wrong day. Confirm the components round-trip. */
+function isRealYmd(y: number, mo: number, d: number): boolean {
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
+
 /** Parse an --at-time value. Anything without an explicit zone is read as UTC
  *  (a bare datetime is pinned to UTC; a date-only string is parsed as UTC
  *  midnight by Date) rather than the host's local zone, so results are
@@ -48,6 +56,10 @@ export function parseInstant(raw: string): { date: Date; assumedUtc: boolean } |
     .trim()
     .replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3")
     .replace(" ", "T");
+  // reject an impossible calendar day (Date rolls 2026-02-30 → Mar 2, verifying the
+  // WRONG instant) — the date part must be a real day regardless of time/zone.
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (ymd && !isRealYmd(+ymd[1], +ymd[2], +ymd[3])) return undefined;
   const hasZone = /[zZ]$|[+-]\d\d:?\d\d$/.test(s);
   const hasTime = /T\d\d:\d\d/.test(s);
   const iso = !hasZone && hasTime ? s + "Z" : s;
@@ -61,13 +73,20 @@ export function parseInstant(raw: string): { date: Date; assumedUtc: boolean } |
  *  longitude) so declination + the scanned solar day match the location, not the
  *  UTC calendar date (which can be a different day near UTC midnight). An explicit
  *  YYYY-MM-DD is read at noon UTC. */
-function parseRefDate(raw: string | undefined, lng: number): Date | undefined {
+export function parseRefDate(raw: string | undefined, lng: number): Date | undefined {
   if (raw == null || String(raw).trim() === "") {
     const localNow = new Date(Date.now() + (lng / 15) * 3_600_000);
     return new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), 12, 0, 0));
   }
   const s = String(raw).trim();
-  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00Z` : s);
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (ymd) {
+    // reject an impossible day (Date rolls 2026-02-30 → Mar 2, scanning the wrong
+    // solar day) rather than silently targeting a different date.
+    if (!isRealYmd(+ymd[1], +ymd[2], +ymd[3])) return undefined;
+    return new Date(`${s}T12:00:00Z`);
+  }
+  const date = new Date(s);
   return Number.isNaN(date.valueOf()) ? undefined : date;
 }
 
