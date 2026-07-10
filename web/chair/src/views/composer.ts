@@ -106,7 +106,10 @@ export function createComposer(handlers: {
     }
   });
   input.addEventListener("input", autosize);
-  abort.addEventListener("click", handlers.onAbort);
+  abort.addEventListener("click", () => {
+    dictation.cancel(); // halting remote control stops the mic too (matches submit)
+    handlers.onAbort();
+  });
 
   return {
     el,

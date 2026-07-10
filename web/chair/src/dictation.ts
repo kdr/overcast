@@ -100,7 +100,16 @@ export function createDictation(handlers: {
     };
     live = true;
     handlers.onState(true);
-    rec.start();
+    try {
+      rec.start();
+    } catch {
+      // some engines throw synchronously (e.g. InvalidStateError) with no
+      // onend to follow — roll the optimistic listening state back so the mic
+      // "on" UI can't stick until an unrelated cancel() (matches end()'s guard)
+      live = false;
+      handlers.onState(false);
+      handlers.onError("could not start dictation — try again");
+    }
   };
 
   const end = (hard: boolean): void => {
