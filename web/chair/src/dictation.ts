@@ -37,9 +37,10 @@ export interface Dictation {
   support: DictationSupport;
   listening(): boolean;
   start(): void;
-  /** Graceful stop — the recognizer may still flush a final result. */
+  /** Stop dictation, keeping the transcript captured so far; listening() flips
+   *  off synchronously so the mic toggle can restart immediately. */
   stop(): void;
-  /** Hard stop — mutes any late flush (used when the composer submits). */
+  /** Stop and discard the engine buffer (used when the composer submits). */
   cancel(): void;
 }
 
@@ -65,18 +66,22 @@ export function createDictation(handlers: {
   const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
   const support: DictationSupport = !Ctor ? "unsupported" : window.isSecureContext ? "ok" : "insecure";
 
+  // `rec` is the CURRENT recognizer (undefined ⇒ not listening). The engine
+  // keeps emitting onresult/onend after stop()/abort() and across a restart, so
+  // every callback is scoped to the instance that registered it (`rec === self`):
+  // a prior session's late event can't mutate the new session's state.
   let rec: SpeechRec | undefined;
-  let live = false;
 
   const start = (): void => {
-    if (!Ctor || support !== "ok" || live) return;
+    if (!Ctor || support !== "ok" || rec) return;
     // fresh recognizer per session — reuse after stop() is flaky across engines
-    rec = new Ctor();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = navigator.language || "en-US";
-    rec.onresult = (e) => {
-      if (!live) return; // cancelled — drop the late flush
+    const self = new Ctor();
+    const current = (): boolean => rec === self;
+    self.continuous = true;
+    self.interimResults = true;
+    self.lang = navigator.language || "en-US";
+    self.onresult = (e) => {
+      if (!current()) return; // stale flush from a stopped/replaced session
       // rebuild from the full result list every event: idempotent, and iOS
       // Safari replaces earlier entries rather than only appending
       let finalText = "";
@@ -88,45 +93,57 @@ export function createDictation(handlers: {
       }
       handlers.onText(finalText, interim);
     };
-    rec.onerror = (e) => {
+    self.onerror = (e) => {
+      if (!current()) return;
       const message = ERROR_TEXT[e.error];
-      if (live && message !== null) handlers.onError(message ?? `dictation failed: ${e.error}`);
+      if (message !== null) handlers.onError(message ?? `dictation failed: ${e.error}`);
     };
-    rec.onend = () => {
-      // fires after stop(), abort(), errors, AND engine silence timeouts
-      if (!live) return;
-      live = false;
+    self.onend = () => {
+      // fires after stop(), abort(), errors, AND engine silence timeouts; only
+      // the current session cleans up (a superseded instance already handed off,
+      // so its late onend must not turn off the mic for the new session)
+      if (!current()) return;
+      rec = undefined;
       handlers.onState(false);
     };
-    live = true;
+    rec = self;
     handlers.onState(true);
     try {
-      rec.start();
+      self.start();
     } catch {
-      // some engines throw synchronously (e.g. InvalidStateError) with no
-      // onend to follow — roll the optimistic listening state back so the mic
-      // "on" UI can't stick until an unrelated cancel() (matches end()'s guard)
-      live = false;
-      handlers.onState(false);
+      // some engines throw synchronously (e.g. InvalidStateError) with no onend
+      // to follow — roll the optimistic state back so the mic "on" UI can't
+      // stick (guarded so a racing newer session is left untouched)
+      if (current()) {
+        rec = undefined;
+        handlers.onState(false);
+      }
       handlers.onError("could not start dictation — try again");
     }
   };
 
+  // Stop the current session and flip listening OFF *synchronously* (clear
+  // `rec`) so the mic UI + the composer's start/stop toggle react at once —
+  // waiting for the engine's async onend left listening() stale, so a second
+  // tap re-stopped instead of starting. The just-ended instance's late events
+  // are then dropped by the identity guard above. hard=true (submit) aborts +
+  // discards the engine buffer; graceful (mic tap) stop()s so nothing is pending.
   const end = (hard: boolean): void => {
-    if (!live) return;
-    if (hard) live = false; // mute onresult/onerror before the engine reacts
+    const self = rec;
+    if (!self) return;
+    rec = undefined;
+    handlers.onState(false);
     try {
-      if (hard) rec?.abort();
-      else rec?.stop();
+      if (hard) self.abort();
+      else self.stop();
     } catch {
       /* already stopped */
     }
-    if (hard) handlers.onState(false);
   };
 
   return {
     support,
-    listening: () => live,
+    listening: () => rec !== undefined,
     start,
     stop: () => end(false),
     cancel: () => end(true),
