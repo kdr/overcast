@@ -702,6 +702,76 @@ test("a port-only rebind keeps the current bind (tailnet/explicit not reset to l
   }
 });
 
+test("`/chair on --url` on a RUNNING chair switches the QR to the HTTPS origin (Bugbot r5)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-url-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  const prevChair = process.env.OVERCAST_CHAIR;
+  const prevTs = process.env.OVERCAST_TAILSCALE_CMD;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    delete process.env.OVERCAST_CHAIR;
+    process.env.OVERCAST_TAILSCALE_CMD = "echo"; // isolate: auto-detect finds no real serve
+    const { pi, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await commands.get("chair")?.("on --port 0", ctx);
+    assert.equal(handle.bridge()!.secure, false, "starts on http");
+
+    // a later --url on the running chair must apply (not short-circuit on status)
+    await commands.get("chair")?.("on --url https://mac.tailnet.ts.net", ctx);
+    assert.equal(handle.bridge()!.displayUrl, "https://mac.tailnet.ts.net/", "running chair adopts --url");
+    assert.equal(handle.bridge()!.secure, true);
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    if (prevChair === undefined) delete process.env.OVERCAST_CHAIR;
+    else process.env.OVERCAST_CHAIR = prevChair;
+    if (prevTs === undefined) delete process.env.OVERCAST_TAILSCALE_CMD;
+    else process.env.OVERCAST_TAILSCALE_CMD = prevTs;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a partial rebind + reload preserve the explicit --url origin (Bugbot r5)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-urlkeep-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  const prevChair = process.env.OVERCAST_CHAIR;
+  const prevTs = process.env.OVERCAST_TAILSCALE_CMD;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    delete process.env.OVERCAST_CHAIR;
+    process.env.OVERCAST_TAILSCALE_CMD = "echo";
+    const { pi, emit, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    await commands.get("chair")?.("on --url https://mac.tailnet.ts.net --port 0", ctx);
+    assert.equal(handle.bridge()!.displayUrl, "https://mac.tailnet.ts.net/");
+
+    // a port-only rebind WITHOUT repeating --url must keep the HTTPS origin
+    await commands.get("chair")?.("on --port 0", ctx);
+    assert.equal(handle.bridge()!.displayUrl, "https://mac.tailnet.ts.net/", "partial rebind keeps --url");
+
+    // and a reload keeps it too
+    await emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, ctx);
+    await emit("session_start", { type: "session_start", reason: "reload" }, ctx);
+    assert.equal(handle.bridge()!.displayUrl, "https://mac.tailnet.ts.net/", "reload keeps --url");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    if (prevChair === undefined) delete process.env.OVERCAST_CHAIR;
+    else process.env.OVERCAST_CHAIR = prevChair;
+    if (prevTs === undefined) delete process.env.OVERCAST_TAILSCALE_CMD;
+    else process.env.OVERCAST_TAILSCALE_CMD = prevTs;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a manually-started /chair on survives a reload (no env/flag)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-chair-manualreload-"));
   const prevCase = process.env.OVERCAST_CASE;

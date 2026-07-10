@@ -36,8 +36,13 @@ const DELTA_FLUSH_MS = 40;
 interface StartOptions {
   bind?: string;
   port?: number;
-  /** Explicit public HTTPS origin for the QR (`--url` / OVERCAST_CHAIR_URL). */
+  /** Explicit public HTTPS origin for the QR (`--url` / OVERCAST_CHAIR_URL).
+   *  PERSISTED in lastStartOpts and reused across partial rebinds / reloads. */
   publicUrl?: string;
+  /** A `tailscale serve` HTTPS origin resolved for THIS start (`--serve`).
+   *  Transient — NOT persisted, since it's tied to the port and is re-detected
+   *  on the next bind (reusing it after a port change would be wrong). */
+  serveUrl?: string;
   /** `--serve`: bring up `tailscale serve` so the QR is HTTPS (voice-capable). */
   serve?: boolean;
 }
@@ -403,11 +408,12 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     // reuse it across reload-restarts (a reload must not rotate it, round 17).
     const token = process.env.OVERCAST_CHAIR_TOKEN || sessionToken || randomBytes(32).toString("base64url");
     // Resolve the public HTTPS origin (secure context → phone voice works):
-    // an explicit --url/env override wins; otherwise, when the bind is reachable
-    // by a loopback serve proxy, auto-detect an existing `tailscale serve`. The
-    // `--serve` enable itself happens in startChair (it emits progress/errors).
-    const explicitUrl = normalizePublicUrl(opts.publicUrl || process.env.OVERCAST_CHAIR_URL);
-    const publicUrl = explicitUrl || (loopbackBind(bind) ? await detectServeUrl(port) : undefined);
+    // this-start's `--serve` URL wins, then an explicit --url/env override
+    // (falling back to the LAST explicit override so a partial `/chair on --port
+    // …` doesn't silently drop it — mirrors the bind/port fallback), then an
+    // auto-detected `tailscale serve` when the bind is loopback-reachable.
+    const explicitUrl = normalizePublicUrl(opts.publicUrl || lastStartOpts.publicUrl || process.env.OVERCAST_CHAIR_URL);
+    const publicUrl = opts.serveUrl || explicitUrl || (loopbackBind(bind) ? await detectServeUrl(port) : undefined);
     const b = new ChairBridge({
       agent: buildAgent(), // caseName/caseDir are read live from the agent
       profile: profile.name ?? "default",
@@ -429,9 +435,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     // store the RESOLVED bind + the ACTUAL bound port, so a reload rebinds to the
     // same concrete address the phone is paired to (an ephemeral 0 became a real
     // port; a partial rebind kept the prior bind)
-    // Persist the explicit --url override for reloads; an auto-detected serve
-    // URL is re-resolved on each bind (cheap) so it stays correct if serve moves.
-    lastStartOpts = { bind, port: b.port, publicUrl: opts.publicUrl };
+    // Persist the explicit --url override for reloads AND partial rebinds — fall
+    // back to the prior one so a `/chair on --port …` that doesn't repeat --url
+    // keeps it (mirrors the bind/port carry-over). An auto-detected serve URL is
+    // NOT persisted (transient serveUrl) — it's re-resolved cheaply each bind.
+    lastStartOpts = { bind, port: b.port, publicUrl: opts.publicUrl || lastStartOpts.publicUrl };
     return undefined;
   }
 
@@ -452,7 +460,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       emitResult(pi, "▶ chair: enabling HTTPS via `tailscale serve`…");
       const r = await enableServe(port);
       if (r.url) {
-        opts.publicUrl = r.url;
+        opts.serveUrl = r.url; // transient (port-tied), kept out of the persisted explicit --url
         if (r.created) serveCreatedPort = port; // ours to tear down — adopted only after bind succeeds
       } else {
         emitResult(pi, `▶ chair: ${r.error} — continuing over HTTP (voice needs HTTPS)`);
@@ -461,9 +469,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     const wasRunning = bridge?.running === true;
     const prevOpts = lastStartOpts; // the opts the running bridge is using (concrete)
     if (wasRunning) {
-      // explicit bind/port → rebind: stop (rotating the token unless pinned)
-      // and fall through to a fresh start; a bare `/chair on` just reports.
-      if (opts.bind === undefined && opts.port === undefined) {
+      // explicit bind/port/origin → rebind: stop (rotating the token unless
+      // pinned) and fall through to a fresh start; a bare `/chair on` just
+      // reports. `--url`/`--serve` are origin CHANGES, so they force a rebind
+      // too — otherwise HTTPS voice could never be enabled on a running chair.
+      if (opts.bind === undefined && opts.port === undefined && opts.publicUrl === undefined && opts.serveUrl === undefined) {
         showStatus();
         return;
       }
