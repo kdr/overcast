@@ -190,6 +190,25 @@ if require_cred "$C.lens" APIFY_TOKEN "skipping lens reverse image search"; then
   unset OVERCAST_SOURCE_LENS_CMD
 fi
 
+# --- yandeximg (Apify Yandex reverse image) — built-in actor + image_url key ---
+if require_cred "$C.yandeximg" APIFY_TOKEN "skipping yandeximg reverse image search"; then
+  CASE=$(case_dir src_yandeximg)
+  export OVERCAST_SOURCE_YANDEXIMG_CMD="bash $SRCDIR/yandeximg.sh"
+  # stable public image; the built-in default actor (johnvc~yandex-reverse-image-search)
+  # is invoked with the image under its `image_url` input key — asserts the shipped
+  # default actor + input key work end to end with only APIFY_TOKEN set (no
+  # OVERCAST_YANDEX_ACTOR / OVERCAST_YANDEX_IMAGE_KEY override required).
+  ocrun "$CASE" source add 'yandeximg:https://upload.wikimedia.org/wikipedia/commons/a/a8/Tour_Eiffel_Wikimedia_Commons.jpg' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=420 oc "$CASE" scan --source yandeximg --limit 3 --json)"
+  save_json "20_scan_yandeximg" "$out" >/dev/null
+  assert_scan_hits "$C.yandeximg.query" "$out" "yandeximg reverse image (built-in actor + image_url key)"
+  ymatch="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.match // empty' 2>/dev/null)"
+  assert_nonempty "$C.yandeximg.match" "$ymatch" "yandeximg hit carries a match kind"
+  yurl="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.url // empty' 2>/dev/null)"
+  assert_export_has "$C.yandeximg.export" "$CASE" "$yurl" "yandeximg match url"
+  unset OVERCAST_SOURCE_YANDEXIMG_CMD
+fi
+
 # --- youtube (yt-dlp) — channel + playlist URL + keyword search ---
 if have_cmd yt-dlp; then
   export OVERCAST_SOURCE_YOUTUBE_CMD="bash $SRCDIR/youtube.sh"

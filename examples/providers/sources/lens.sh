@@ -106,9 +106,11 @@ case "$op" in
     # without an absolute http(s) page link isn't actionable/fetchable
     # evidence — drop those, matching the visual-match filter; schemes compare
     # case-insensitively like the query guard and capture do)
-    exact="$(printf '%s' "$run" | jq -c --argjson n "$limit" \
+    if ! exact="$(printf '%s' "$run" | jq -c --argjson n "$limit" \
       '[.[]["exact-match"] | select(. != null) | .results[]
-        | select((.link // "") | ascii_downcase | startswith("http"))] | .[0:$n]')"
+        | select(((.link // "") | type == "string") and ((.link // "") | ascii_downcase | startswith("http")))] | .[0:$n]')"; then
+      echo "lens: failed to normalize exact matches for '$query'" >&2; exit 1
+    fi
     exact_hits="[]"
     n="$(printf '%s' "$exact" | jq 'length')"
     i=0
@@ -141,12 +143,14 @@ case "$op" in
     done
     # visual matches: similar-but-not-identical pages. Drop relative Google
     # in-app links; keep only real webpage hrefs.
-    visual_hits="$(printf '%s' "$run" | jq -c --argjson n "$limit" \
+    if ! visual_hits="$(printf '%s' "$run" | jq -c --argjson n "$limit" \
       '[.[]["visual-match"] | select(. != null) | .results[].search
-        | select((.href // "") | ascii_downcase | startswith("http"))]
+        | select(((.href // "") | type == "string") and ((.href // "") | ascii_downcase | startswith("http")))]
        | .[0:$n]
        | map({title:(.title // ""), url:.href, source:"lens", published:null,
-              snippet:(.description // ""), match:"visual", media:{ref:.href}})')"
+              snippet:(.description // ""), match:"visual", media:{ref:.href}})')"; then
+      echo "lens: failed to normalize visual matches for '$query'" >&2; exit 1
+    fi
     hits="$(jq -nc --argjson e "$exact_hits" --argjson v "$visual_hits" '$e + $v')"
     if [ "$(printf '%s' "$hits" | jq 'length')" -eq 0 ] && [ "$uploaded" -eq 1 ]; then
       echo "lens: no matches — if your Apify account restricts storage access, the actor may not be able to fetch the uploaded image ($query)" >&2

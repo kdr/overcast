@@ -70,8 +70,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    are generated from it. `overcast commands --json` is the source of truth.
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
    (`watch/listen/see/face/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot`), **source**
-   (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
-   gdelttv, wayback, overpass, firms, webcam, facesearch, dork, shodan, browser,
+   (`scan/capture/monitor`; youtube, tiktok, x, web, lens, yandeximg, dl, instagram, telegram,
+   gdelttv, wayback, overpass, firms, flights, webcam, facesearch, dork, shodan, browser,
    username, person, phone, property, plate), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
    shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
@@ -205,10 +205,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   pure read over case memory, `--min`, `--findings` emits serial-linked suggested
   findings). `map` + `devices` are operational (out of `ask`/`brief` evidence).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
-  lens reverse-image / dl generic-yt-dlp capture / instagram / telegram /
+  lens + yandeximg reverse-image / dl generic-yt-dlp capture / instagram / telegram /
   gdelttv broadcast-TV / wayback deleted-web / overpass OSM-features / firms active-fires /
-  webcam live-cams / facesearch reverse-face / dork Google-dorking / shodan host-recon /
-  browser rendered-page-capture /
+  flights ADS-B-aircraft / webcam live-cams / facesearch reverse-face /
+  dork Google-dorking / shodan host-recon / browser rendered-page-capture /
   username account-discovery / person people-search / phone reverse-phone /
   property assessor-records / plate license-plate;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
@@ -224,6 +224,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `x:@handle`,
   `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`;
   `lens:<image url|path>` (Google Lens reverse image search via Apify);
+  `yandeximg:<image url|path>` (Yandex reverse image search via Apify — the
+  reverse-image twin of `lens`, strongest for faces/places; ships a working default
+  actor + `image_url` input key, override via `OVERCAST_YANDEX_ACTOR` /
+  `OVERCAST_YANDEX_IMAGE_KEY`);
   `dl:<url>` (any yt-dlp host — Rumble/BitChute/Odysee/Vimeo/Reddit/…; a
   channel/playlist/user URL `enumerate`s via yt-dlp flat-playlist so `scan`/`monitor`
   work there, a single-video URL stays capture-only → `[]`); `instagram:@handle` /
@@ -240,7 +244,14 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `firms:<west,south,east,north>` (NASA FIRMS active-fire
   hotspots — bbox/area only, no country endpoint; CSV parsed by header name →
   `payload.gps` + ISO capture time; **free** `FIRMS_MAP_KEY`; `--since Nd` →
-  dayrange 1–10; media.ref = a FIRMS fire-map deep link); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
+  dayrange 1–10; media.ref = a FIRMS fire-map deep link);
+  `flights:<west,south,east,north>` / `flights:<icao24>` /
+  `flights:<callsign>` (live ADS-B aircraft positions via OpenSky — keyless-capable
+  anonymous access, optional `OPENSKY_CLIENT_ID`/`OPENSKY_CLIENT_SECRET` OAuth2 to
+  raise rate limits; each aircraft carries top-level `payload.gps` so scan records
+  plot on `map` and `monitor --every` builds a track; media.ref = the aircraft-
+  profile page; opt-in, never a default; AIS/vessel tracking is a deferred
+  websocket-only follow-up); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
   `webcam:category:<slug>` / `webcam:<id>` (Windy Webcams — current still per poll,
   `recapture` ephemeral monitor fit); `facesearch:<image url|path>` (opt-in,
   ToS/privacy-gated reverse **face** search via Apify — never a default);

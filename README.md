@@ -116,6 +116,7 @@ focused workflows:
 | `overcast-lineup` | build a face DB, run a probe through it ("the lineup") |
 | `overcast-stakeout` | standing monitor + findings review + control-room wall |
 | `overcast-scene-locate` | "where was this taken?" — clues → reverse-image search |
+| `overcast-ocr-translate-search` | read foreign text off a frame → translate → re-search in the source language |
 | `overcast-enhance-and-resolve` | "zoom in… enhance" — upscale, re-read, honestly |
 | `overcast-wiretap` | diarize + audio-scene + spectrogram + voice-isolate/separate |
 | `overcast-provenance` | "is this clip real?" — trace to the earliest source |

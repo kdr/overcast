@@ -771,11 +771,12 @@ seeding scans), and `target reopen` revives it. The `/debrief` prompt automates
 this whole loop — triage leads, write `thread:<tgt_id>` narrative notes, close
 resolved lines, refresh the `tldr` note, and `brief --export`.
 
-### 20. New OSINT sources: broadcast, social, live cams, reverse-image
+### 20. New OSINT sources: broadcast, social, geodata, tracking, reverse-image
 
-Broadcast TV, more social platforms, live webcams, and reverse-image lookups —
-same `scan` / `capture` / `monitor` verbs, one loose record shape. All discover
-via `enumerate`; add `--pull` to capture + sense each hit.
+Broadcast TV, more social platforms, deleted-web recovery, open geodata, live
+webcams, moving-object tracking, and reverse-image lookups — same `scan` /
+`capture` / `monitor` verbs, one loose record shape. All discover via
+`enumerate`; add `--pull` to capture + sense each hit.
 
 ```bash
 overcast scan --source gdelttv --query "climate summit" --since 14d       # GDELT TV → bounded Internet-Archive clips (no key)
@@ -784,6 +785,11 @@ overcast scan --source telegram --query durov --since 30d                  # pub
 overcast monitor --source webcam --query "48.8584,2.2945,25" --every 30m   # live Paris cams, re-captures each pass
 overcast capture "https://rumble.com/v123.html" --source dl                # any yt-dlp host (single video; scan a channel/playlist URL to enumerate)
 overcast scan --source facesearch --query ./person.jpg --pull              # opt-in reverse FACE search (ToS-gated)
+overcast scan --source wayback --query "https://example.gov/page" --pull   # Wayback Machine — recover deleted pages / changes over time (no key)
+overcast scan --source overpass --query 'amenity=hospital@around:2000,48.85,2.29'  # OSM features → each hit carries payload.gps → map (no key)
+overcast scan --source firms --query "-124,32,-114,42" --since 3d           # NASA FIRMS active-fire hotspots → map (free FIRMS_MAP_KEY)
+overcast monitor --source flights --query "2.0,48.5,2.8,49.0" --every 5m    # live ADS-B aircraft positions → a track on the map (OpenSky; anon ok)
+overcast scan --source yandeximg --query ./crop.jpg --pull                  # Yandex reverse-image (Apify) — strongest for faces/places
 ```
 
 `webcam` hits carry `recapture: true` so `monitor` re-captures the CURRENT still
@@ -791,6 +797,12 @@ each pass without bloating the seen-set (a permanently broken cam is given up
 after repeated failures). An unparseable `--since` fails closed on the
 recency-aware sources rather than silently widening the window. `facesearch` is
 never a default — you must bind it explicitly.
+
+`overpass` / `firms` / `flights` hits carry top-level `payload.gps`, so they plot
+directly on `overcast map` (turning `map` into "plot any open geodata layer"), and
+`monitor --source flights` builds a position track over time (each fix is a
+distinct record). `wayback` `collapse=digest` returns only captures whose content
+actually changed — the "secret changes" view — so `monitor`ing a URL surfaces edits.
 
 ### 21. Media forensics: metadata, GPS & provenance
 
@@ -804,6 +816,12 @@ overcast exif <capture-record-id>     # or run over a captured scan hit (remote 
 overcast exif ./photo.jpg --geocode   # + reverse-geocode GPS to a place (opt-in bound geocode provider)
 overcast map --no-open                # plot every GPS-bearing record on a self-contained HTML map
 overcast devices --findings           # link media shot on the same camera (serial/lens); suggest leads
+# chronolocation — WHEN was it taken (offline sun/shadow math, no key):
+overcast chronolocate <exif-record-id> --at-time 2024-06-01T14:30:00Z   # VERIFY: do the sun/shadow match the claimed time?
+overcast chronolocate --lat 48.85 --lng 2.29 --shadow-azimuth 250 --date 2024-06-01  # SOLVE: what time could cast that shadow?
+# pixel forensics — heuristic tamper overlays (bind a provider, one record → 3 children):
+overcast setup provider enhance "exec:python3 examples/providers/enhance/ela.py"
+overcast enhance ./photo.jpg --ops ela --json   # ELA + noise + luminance overlays → view <parent> renders the gallery
 overcast ask "what GPS coordinates or camera devices appear?"
 ```
 
@@ -811,6 +829,12 @@ overcast ask "what GPS coordinates or camera devices appear?"
 `needs_credentials`, exit 13, when absent). Media with no credentials is a clean
 `ready` `verify` record (`has_manifest: false`), not an error — and distinct from
 source-post provenance (where a record was scraped from).
+
+`chronolocate` and `enhance --ops ela` are HEURISTIC leads, not proof: chronolocate
+trusts the location + claimed time you give it and a clone can fake shadows, while
+the ELA / noise / luminance overlays flag possible edits but compression, resizing,
+and texture also trigger them. Both stamp `payload.caveat`; `chronolocate` needs no
+key (offline solar math) and carries `payload.gps` so its estimate plots on `map`.
 
 The metadata is then actionable: `exif --geocode` names the place (opt-in,
 ToS-gated `geocode` provider — see [providers.md](providers.md)); `map` plots all
