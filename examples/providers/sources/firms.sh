@@ -165,7 +165,13 @@ case "$op" in
       [ -n "$cutiso" ] || { echo "firms: could not format --since '$since' into an ISO timestamp" >&2; exit 1; }
       dayrange=$(( (now - cutepoch + 86399) / 86400 ))   # ceil to whole days
       [ "$dayrange" -lt 1 ] && dayrange=1
-      [ "$dayrange" -gt 10 ] && dayrange=10
+      # FIRMS caps a single request at 10 days. A wider window can't be served, so
+      # WARN (don't silently return a narrower range than asked) and cap the fetch;
+      # cutiso still filters the returned rows precisely within the 10-day cap.
+      if [ "$dayrange" -gt 10 ]; then
+        echo "firms: --since '$since' exceeds the FIRMS 10-day maximum; returning only the most recent 10 days (older detections omitted)" >&2
+        dayrange=10
+      fi
     fi
 
     # country:<ISO3> hits the country endpoint; anything else is a bbox (W,S,E,N).
