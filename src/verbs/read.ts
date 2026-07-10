@@ -5,8 +5,8 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { findingStatusMap, makeRecord, memoryRecords, PRIMARY_TEXT_FIELDS, recordStub, recordTimeMs, type OvercastRecord } from "../record.js";
-import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord, type TimelineSynthesis } from "../report/html.js";
-import { briefDelta, coverageTableRows, rankFindings, renderCoverageMd, renderThreadsMd, renderTriageMd, renderVerdictMd, sweptSources, threadCard, triageRows, type ThreadRenderContext } from "../report/mission.js";
+import { isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord, type TimelineSynthesis } from "../report/html.js";
+import { briefDelta, coverageTableRows, findingOverlays, rankFindings, renderCoverageMd, renderThreadsMd, renderTriageMd, renderVerdictMd, sweptSources, threadCard, triageRows, type ThreadRenderContext } from "../report/mission.js";
 import { casePulse, type CasePulse } from "../signals/pulse.js";
 import { groupTimeline, groupSummary } from "../signals/rollup.js";
 import { listTargets } from "../state/target.js";
@@ -294,7 +294,7 @@ export interface BriefSynthesis {
   findings: Array<{ id: string; status: string; text: string; confidence?: unknown; overlays?: string[] }>;
 }
 
-function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, string>): BriefSynthesis {
+function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, string>, overlaysByFinding: Map<string, string[]>): BriefSynthesis {
   const p = (r: OvercastRecord): Record<string, unknown> =>
     typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {};
   // swept-source rollup via the shared helper so the verdict's hit counts always
@@ -308,7 +308,6 @@ function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, 
   const mediaChecks = records.filter((r) =>
     ["face", "image", "see"].includes(r.verb) && r.state !== "error" && !(r.verb === "image" && p(r).op === "add"),
   ).length;
-  const byId = new Map(records.map((r) => [r.id, r]));
   const findings = records
     .filter((r) => {
       if (r.verb !== "finding" || r.state === "error") return false;
@@ -320,15 +319,10 @@ function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, 
       // reviewed status (accepted/open), not the root record's initial "open"
       const row: BriefSynthesis["findings"][number] = { id: r.id, status: statusByFinding.get(r.id) ?? String(pay.status), text: String(pay.text) };
       if (pay.confidence != null) row.confidence = pay.confidence;
-      // attach match-draw overlays: from the finding's own payload, and from the
-      // image/face/audio match record it cites via source_record (the geometric
-      // proof for image/face, the offset-alignment plot for audio).
-      const overlays = new Set(collectVisualRefs(pay));
-      const src = typeof pay.source_record === "string" ? byId.get(pay.source_record) : undefined;
-      if (src && (src.verb === "image" || src.verb === "face" || src.verb === "audio")) {
-        for (const ref of collectVisualRefs(src.payload)) overlays.add(ref);
-      }
-      if (overlays.size) row.overlays = [...overlays].slice(0, 3);
+      // match-draw overlays come from the SHARED map (findingOverlays) — the
+      // geometric proof for image/face, the offset-alignment plot for audio.
+      const overlays = overlaysByFinding.get(r.id);
+      if (overlays?.length) row.overlays = overlays;
       return row;
     });
   // newest tldr-tagged note wins (records arrive chronologically sorted)
@@ -385,8 +379,10 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
     .sort((a, b) => a.t - b.t || a.i - b.i)
     .map((x) => x.r);
 
-  const synthesis = briefSynthesis(sorted, statusByFinding);
-  const overlaysByFinding = new Map(synthesis.findings.filter((f) => f.overlays?.length).map((f) => [f.id, f.overlays!]));
+  // overlays over the FULL case set (any status, unscoped) — suggested leads in
+  // thread cards and out-of-window accepted findings keep their proofs.
+  const overlaysByFinding = findingOverlays(caseRecords);
+  const synthesis = briefSynthesis(sorted, statusByFinding, overlaysByFinding);
   const threadCtx: ThreadRenderContext = { byId: new Map(caseRecords.map((r) => [r.id, r])), statusByFinding, overlaysByFinding, now };
   const delta = briefDelta(caseRecords, now);
 
@@ -481,7 +477,7 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
  *  synthesis header so the exported HTML tells the same story as the markdown. */
 function enrichSynthesis(syn: BriefSynthesis, pulse: CasePulse, records: OvercastRecord[], now = Date.now()): TimelineSynthesis {
   const statusByFinding = findingStatusMap(records);
-  const overlaysByFinding = new Map(syn.findings.filter((f) => f.overlays?.length).map((f) => [f.id, f.overlays!]));
+  const overlaysByFinding = findingOverlays(records);
   const ctx: ThreadRenderContext = { byId: new Map(records.map((r) => [r.id, r])), statusByFinding, overlaysByFinding, now };
   const triage = triageRows(records, statusByFinding);
   const linkedIds = new Set(pulse.threads.flatMap((t) => t.findingIds));

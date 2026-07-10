@@ -134,6 +134,38 @@ export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
   });
 }
 
+const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
+// deliberately NOT a bare `path`/`img` — the image-match payload carries
+// `db_img_path` (the reference frame) and `query_path` (a temp frame that's
+// deleted after the run); only the rendered `match_draw_path` overlay and real
+// crop/thumbnail evidence should surface.
+const VISUAL_KEY_RE = /(?:draw|overlay|visual|thumbnail|thumb|crop|image)/i;
+
+/** Collect visualization image refs from a record payload — match-draw overlays,
+ *  crops, thumbnails: data URIs, or image-extension paths under a visual-ish key
+ *  (`match_draw_path`, `crop`, `thumbnail`, …). Shared by briefs, `case status`,
+ *  and the mission renderer so overlays surface identically everywhere. Lives
+ *  here (pure payload introspection) so report/mission.ts can use it without an
+ *  html.ts import cycle; html.ts re-exports it. */
+export function collectVisualRefs(value: unknown): string[] {
+  const refs = new Set<string>();
+  const visit = (v: unknown, key = ""): void => {
+    if (typeof v === "string") {
+      if (/^data:image\//i.test(v) || (VISUAL_EXT_RE.test(v) && VISUAL_KEY_RE.test(key))) refs.add(v);
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const item of v) visit(item, key);
+      return;
+    }
+    if (v && typeof v === "object") {
+      for (const [k, child] of Object.entries(v as Record<string, unknown>)) visit(child, k);
+    }
+  };
+  visit(value);
+  return [...refs];
+}
+
 const ID_PREFIX = "rec_";
 
 /** Stable-ish unique id; this IS the record's memory address. 8 random bytes

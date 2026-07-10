@@ -2,8 +2,19 @@
  * Shared report primitives — DOM-free string builders used by wall, brief, and
  * status so freshness/coverage/thread rendering can't drift between surfaces.
  * No node/ffmpeg/pi imports; offline-unit-testable like report/wall.ts.
+ *
+ * escapeHtml lives HERE (html.ts re-exports it) so the import graph stays
+ * acyclic: components ← mission ← html. html.ts value-imports the shared
+ * mission models; if components imported from html, that would be a cycle.
  */
-import { escapeHtml } from "./html.js";
+
+export function escapeHtml(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 /** Compact age: 45s / 12m / 3h / 6d. "—" for unknown. Shared by every freshness
  *  chip so the wall HUD and the status board read identically. */

@@ -9,7 +9,7 @@ import { findingStatusMap, makeRecord, errRecord, recordTimeMs, PRIMARY_TEXT_FIE
 import { openCase, recordFiles } from "../case.js";
 import { humanSize } from "../render.js";
 import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
-import { renderCoverageMd, renderThreadsMd, renderTriageMd, sweptSources, triageRows, type ThreadRenderContext } from "../report/mission.js";
+import { coverageTableRows, findingOverlays, renderCoverageMd, renderThreadsMd, renderTriageMd, sweptSources, threadCard, triageRows, type ThreadRenderContext } from "../report/mission.js";
 import { matchesMemoryProvider, resolveMemory } from "../providers/memory/index.js";
 import { parseSince } from "../providers/memory/local.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
@@ -312,7 +312,9 @@ function statusMarkdown(title: string, status: CaseStatus, full = false): string
   }
 
   const statusByFinding = findingStatusMap(records);
-  const threadCtx: ThreadRenderContext = { byId: new Map(records.map((r) => [r.id, r])), statusByFinding };
+  // overlays too — an accepted finding's geometric proof must not render in
+  // `brief` but silently drop from the `case status` board on the same records
+  const threadCtx: ThreadRenderContext = { byId: new Map(records.map((r) => [r.id, r])), statusByFinding, overlaysByFinding: findingOverlays(records) };
   lines.push(...renderThreadsMd(pulse.threads, threadCtx));
   // true backlog count (progress.triage_pending) — rows are capped
   lines.push(...renderTriageMd(triageRows(records, statusByFinding), pulse.progress.triage_pending));
@@ -770,9 +772,28 @@ export const caseVerb: VerbSpec = {
       let exported: string | undefined;
       if (ctx.opts.export) {
         const path = resolve(String(ctx.opts.export));
-        const html = theme === "csi"
-          ? renderCsiStatusReport({ title, subtitle: ctx.case.dir, payload: status.payload })
-          : mdToPlainHtml(md, title);
+        let html: string;
+        if (theme === "csi") {
+          // hand the CSI shell the SAME shared models the md renders from —
+          // full thread cards (records resolved, overlays attached), enriched
+          // triage rows, and the coverage table incl. ad-hoc swept rows.
+          const statusByFinding = findingStatusMap(status.records);
+          const missionCtx: ThreadRenderContext = {
+            byId: new Map(status.records.map((r) => [r.id, r])),
+            statusByFinding,
+            overlaysByFinding: findingOverlays(status.records),
+          };
+          html = renderCsiStatusReport({
+            title,
+            subtitle: ctx.case.dir,
+            payload: status.payload,
+            threads: status.pulse.threads.map((th) => threadCard(th, missionCtx)),
+            triage: triageRows(status.records, statusByFinding),
+            coverage: coverageTableRows(status.pulse.coverage, sweptSources(status.records)),
+          });
+        } else {
+          html = mdToPlainHtml(md, title);
+        }
         writeFileSync(path, isHtmlExportPath(path) ? html : md, "utf8");
         exported = path;
       }

@@ -13,6 +13,7 @@
  *   4. what was covered (one table, not three overlapping lists).
  */
 import {
+  collectVisualRefs,
   findingStatusMap,
   isReady,
   memoryRecords,
@@ -112,6 +113,29 @@ export function briefDelta(records: OvercastRecord[], now = Date.now()): string 
   if (suggestions) parts.push(`+${suggestions} suggestion${suggestions === 1 ? "" : "s"}`);
   const age = fmtAge(Math.max(0, (now - last) / 1000));
   return `since last brief (${age} ago): ${parts.length ? parts.join(", ") : "nothing new"}`;
+}
+
+/** Match-draw overlay refs per root finding id — from the finding's own payload
+ *  and from the image/face/audio match record it cites via source_record (the
+ *  geometric proof / alignment plot). Built over the FULL record set and every
+ *  status: suggested leads render inside thread cards and the triage panel, so
+ *  their proofs must attach too (dismissed rows are filtered at render time and
+ *  never surface their overlays). The ONE overlay source for brief synthesis,
+ *  thread cards, and case status — md and html can't drift. */
+export function findingOverlays(records: OvercastRecord[]): Map<string, string[]> {
+  const byId = new Map(records.map((r) => [r.id, r]));
+  const out = new Map<string, string[]>();
+  for (const r of records) {
+    if (!isRootFindingRecord(r)) continue;
+    const p = payloadOf(r);
+    const overlays = new Set(collectVisualRefs(p));
+    const src = typeof p.source_record === "string" ? byId.get(p.source_record) : undefined;
+    if (src && (src.verb === "image" || src.verb === "face" || src.verb === "audio")) {
+      for (const ref of collectVisualRefs(src.payload)) overlays.add(ref);
+    }
+    if (overlays.size) out.set(r.id, [...overlays].slice(0, 3));
+  }
+  return out;
 }
 
 // ---- threads (lines of investigation) ----------------------------------------
@@ -214,12 +238,10 @@ export function threadCard(th: TargetThread, ctx: ThreadRenderContext): ThreadCa
     .filter((f) => f.effectiveStatus !== "dismissed");
   // chronological in, so rankFindings' recency tiebreak holds
   const ranked = rankFindings(resolvedFindings.slice().reverse());
-  const counts = { accepted: 0, open: 0, suggested: 0 };
-  for (const f of resolvedFindings) {
-    if (f.effectiveStatus === "accepted") counts.accepted += 1;
-    else if (f.effectiveStatus === "open") counts.open += 1;
-    else if (f.effectiveStatus === "suggested") counts.suggested += 1;
-  }
+  // counts come from the THREAD (threads.ts computed them from the same status
+  // map, dismissed already excluded from a/o/s) — not from the resolved rows,
+  // so a payload-only render (no record store, empty byId) still shows them.
+  const counts = { accepted: th.findings.accepted, open: th.findings.open, suggested: th.findings.suggested };
   // latest evidence rides the evidence-only recency list — recentIds mixes
   // findings in and is capped, so a burst of findings would starve this section
   const latest = th.recentEvidenceIds

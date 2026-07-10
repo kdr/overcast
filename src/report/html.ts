@@ -2,10 +2,19 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { envEnabled } from "../env.js";
-import { PRIMARY_TEXT_FIELDS, recordStub, type OvercastRecord } from "../record.js";
-// type-only: erased at compile time, so no runtime cycle with mission.ts
-// (mission → components → html would otherwise loop)
-import type { CoverageTableRow, ThreadCard, TriageRow } from "./mission.js";
+import { collectVisualRefs, PRIMARY_TEXT_FIELDS, recordStub, type OvercastRecord } from "../record.js";
+import { escapeHtml } from "./components.js";
+// mission is the shared model layer for thread cards / triage / coverage; the
+// graph is acyclic because escapeHtml + collectVisualRefs live below both
+// (components.ts / record.ts) and mission never imports html.
+import { coverageTableRows, threadCard, type CoverageTableRow, type ThreadCard, type TriageRow } from "./mission.js";
+import type { SourceCoverage } from "../signals/pulse.js";
+import type { TargetThread } from "../signals/threads.js";
+
+// re-exports: these historically lived here and are imported from "./html.js"
+// across verbs/reports; their homes moved for import-graph acyclicity.
+export { escapeHtml } from "./components.js";
+export { collectVisualRefs } from "../record.js";
 
 export type HtmlTheme = "plain" | "csi";
 
@@ -76,35 +85,8 @@ export interface TimelineSynthesis {
   coverage?: CoverageTableRow[];
 }
 
+// (collectVisualRefs moved to record.ts — re-exported above.)
 const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
-// deliberately NOT a bare `path`/`img` — the image-match payload carries
-// `db_img_path` (the reference frame) and `query_path` (a temp frame that's
-// deleted after the run); only the rendered `match_draw_path` overlay and real
-// crop/thumbnail evidence should surface.
-const VISUAL_KEY_RE = /(?:draw|overlay|visual|thumbnail|thumb|crop|image)/i;
-
-/** Collect visualization image refs from a record payload — match-draw overlays,
- *  crops, thumbnails: data URIs, or image-extension paths under a visual-ish key
- *  (`match_draw_path`, `crop`, `thumbnail`, …). Shared by briefs and `case
- *  status` so overlays surface identically in both. */
-export function collectVisualRefs(value: unknown): string[] {
-  const refs = new Set<string>();
-  const visit = (v: unknown, key = ""): void => {
-    if (typeof v === "string") {
-      if (/^data:image\//i.test(v) || (VISUAL_EXT_RE.test(v) && VISUAL_KEY_RE.test(key))) refs.add(v);
-      return;
-    }
-    if (Array.isArray(v)) {
-      for (const item of v) visit(item, key);
-      return;
-    }
-    if (v && typeof v === "object") {
-      for (const [k, child] of Object.entries(v as Record<string, unknown>)) visit(child, k);
-    }
-  };
-  visit(value);
-  return [...refs];
-}
 
 export interface TimelineReport {
   title: string;
@@ -120,6 +102,13 @@ export interface StatusReport {
   title: string;
   subtitle?: string;
   payload: Record<string, unknown>;
+  /** shared mission models, prebuilt by the caller WITH the record store —
+   *  full thread cards (resolved findings + overlays), enriched triage rows,
+   *  and the coverage table incl. ad-hoc swept rows. When absent, degraded
+   *  fallbacks are derived from the payload alone. */
+  threads?: ThreadCard[];
+  triage?: TriageRow[];
+  coverage?: CoverageTableRow[];
 }
 
 export function normalizeHtmlTheme(value: unknown): HtmlTheme | undefined {
@@ -133,13 +122,8 @@ export function isHtmlExportPath(path: string): boolean {
   return extname(path).toLowerCase() === ".html";
 }
 
-export function escapeHtml(s: unknown): string {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+// escapeHtml moved to components.ts (import-graph acyclicity); re-exported
+// above so existing `from "./html.js"` importers keep working.
 
 export function mdToPlainHtml(md: string, title: string): string {
   const out: string[] = [];
@@ -310,13 +294,12 @@ export function renderCsiStatusReport(report: StatusReport): string {
   const tldr = mission?.headline
     ? renderTldr({ headline: mission.headline, next: nextActions })
     : renderTldr(payload.tldr);
-  const missionThreads = statusThreads(payload);
-  const threads = renderThreadCards(missionThreads);
+  const threads = renderThreadCards(report.threads ?? statusThreads(payload));
   // the true backlog count (mission.progress.triage_pending) may exceed the
   // capped rows in payload.triage — pass it so the heading doesn't undercount.
   const triagePending = typeof mission?.progress?.triage_pending === "number" ? mission.progress.triage_pending : undefined;
-  const triage = renderTriagePanel(statusTriageRows(payload), triagePending);
-  const coverage = renderCoveragePanel(payload);
+  const triage = renderTriagePanel(report.triage ?? statusTriageRows(payload), triagePending);
+  const coverage = renderCoveragePanel(payload, report.coverage);
   const context = renderContextSections(payload);
   // demote operational detail (store/setup/memory/registries) into a collapsed
   // panel grid below the mission board.
@@ -336,38 +319,15 @@ export function renderCsiStatusReport(report: StatusReport): string {
   `);
 }
 
-/** Map status payload threads → the shared thread-card model. The status
- *  payload carries the raw TargetThread structs; without the record store at
- *  render time the resolved finding/latest rows stay empty (the brief export
- *  and the terminal md render the full cards from records). */
-function statusThreads(payload: Record<string, unknown>): TimelineSynthesis["threads"] {
-  const threads = Array.isArray(payload.threads) ? (payload.threads as Array<Record<string, unknown>>) : [];
-  const label: Record<string, string> = { answered: "ANSWERED", "dead-end": "DEAD-END", corroborated: "CORROBORATED", leads: "LEADS", collecting: "COLLECTING", cold: "COLD" };
-  return threads.map((th) => {
-    const f = th.funnel as { scan: number; captures: number; senses: number; matches: number } | undefined;
-    const fnd = th.findings as { accepted?: number; open?: number; suggested?: number } | undefined;
-    const bins = Array.isArray(th.activityBins) ? (th.activityBins as number[]) : [];
-    const active = th.status === "active";
-    const counts = { accepted: fnd?.accepted ?? 0, open: fnd?.open ?? 0, suggested: fnd?.suggested ?? 0 };
-    let next: string | undefined;
-    if (active && th.stage === "cold") next = "no evidence yet — scan/capture toward this line";
-    else if (active && counts.suggested) next = `triage ${counts.suggested} suggested finding${counts.suggested === 1 ? "" : "s"}`;
-    return {
-      value: String(th.value ?? ""),
-      stage: label[String(th.stage)] ?? String(th.stage ?? "").toUpperCase(),
-      spark: sparklineFrom(bins),
-      sparkWindow: `${bins.length}d`, // daily bins, so length == window days
-      funnel: f ? `scan ${f.scan} → capture ${f.captures} → sense ${f.senses} → match ${f.matches}` : "",
-      question: typeof th.question === "string" ? th.question : undefined,
-      answer: typeof th.narrative === "string" ? th.narrative : undefined,
-      findings: [],
-      findingCounts: counts,
-      latest: [],
-      next,
-      closed: !active && typeof th.why === "string" ? th.why : undefined,
-      dimmed: !active,
-    };
-  });
+/** Payload-only fallback: map the raw TargetThread structs through the SHARED
+ *  threadCard model with an empty record context — resolved finding/latest rows
+ *  stay empty, but stage/spark/funnel/counts/NEXT all come from the one model
+ *  (no reimplemented card logic to drift). Production callers pass prebuilt
+ *  cards via StatusReport.threads instead. */
+function statusThreads(payload: Record<string, unknown>): ThreadCard[] {
+  const threads = Array.isArray(payload.threads) ? (payload.threads as unknown as TargetThread[]) : [];
+  const emptyCtx = { byId: new Map<string, OvercastRecord>(), statusByFinding: new Map<string, string>() };
+  return threads.map((th) => threadCard(th, emptyCtx));
 }
 
 function statusTriageRows(payload: Record<string, unknown>): TimelineSynthesis["triage"] {
@@ -383,40 +343,18 @@ function statusTriageRows(payload: Record<string, unknown>): TimelineSynthesis["
   }));
 }
 
-function renderCoveragePanel(payload: Record<string, unknown>): string {
-  const coverage = Array.isArray(payload.coverage) ? (payload.coverage as Array<Record<string, unknown>>) : [];
+/** The status coverage panel — the SAME shared table as the brief. Prebuilt
+ *  rows (incl. ad-hoc swept sources) come from the caller; the payload-only
+ *  fallback derives rows from the configured SourceCoverage structs. */
+function renderCoveragePanel(payload: Record<string, unknown>, prebuilt?: CoverageTableRow[]): string {
   const gaps = Array.isArray(payload.gaps) ? (payload.gaps as string[]) : [];
-  if (!coverage.length && !gaps.length) return "";
-  // same table shape as the brief's coverage panel (coverageTableHtml), built
-  // from the raw SourceCoverage rows the status payload carries.
-  const rows = coverage.length
-    ? `<table class="coverage" data-csi-coverage="true"><thead><tr><th>source</th><th>last scan</th><th>hits</th><th>captured</th><th>sensed</th></tr></thead><tbody>${coverage.map((c) => {
-        const age = typeof c.lastScanAgeSeconds === "number" ? fmtAgeHtml(c.lastScanAgeSeconds) : c.gap ? "⚠ never" : "—";
-        return `<tr><td>${escapeHtml(String(c.spec))}${c.enabled ? "" : ` <span class="meta">(disabled)</span>`}</td><td${c.gap ? ` class="bad"` : ""}>${escapeHtml(age)}</td><td>${escapeHtml(String(c.hits))}</td><td>${escapeHtml(String(c.captured))}</td><td>${escapeHtml(String(c.sensed))}</td></tr>`;
-      }).join("")}</tbody></table>`
-    : `<p class="meta">no sources configured</p>`;
+  const configured = Array.isArray(payload.coverage) ? (payload.coverage as unknown as SourceCoverage[]) : [];
+  const rows = prebuilt ?? coverageTableRows(configured, []);
+  if (!rows.length && !gaps.length) return "";
+  const table = coverageTableHtml(rows, []);
   const rest = gaps.filter((g) => !g.endsWith("enabled but never scanned")).slice(0, 5);
   const gapList = rest.length ? `<p class="meta">Gaps:</p><ul class="findings">${rest.map((g) => `<li class="amber">${escapeHtml(g)}</li>`).join("")}</ul>` : "";
-  return `<section class="panel"><h2>Coverage</h2>${rows}${gapList}</section>`;
-}
-
-/** Compact age for the status coverage table (avoids a components import cycle
- *  in html.ts, mirroring sparklineFrom). */
-function fmtAgeHtml(sec: number): string {
-  if (!Number.isFinite(sec)) return "—";
-  if (sec < 60) return `${Math.max(0, Math.round(sec))}s`;
-  if (sec < 3600) return `${Math.round(sec / 60)}m`;
-  if (sec < 86400) return `${Math.round(sec / 3600)}h`;
-  return `${Math.round(sec / 86400)}d`;
-}
-
-/** Local sparkline (avoids a components import cycle in html.ts). */
-function sparklineFrom(bins: number[]): string | undefined {
-  if (!bins.length) return undefined;
-  const blocks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-  const max = Math.max(...bins);
-  if (max <= 0) return blocks[0].repeat(bins.length);
-  return bins.map((v) => blocks[Math.min(blocks.length - 1, Math.round((v / max) * (blocks.length - 1)))]).join("");
+  return `<section class="panel"><h2>Coverage</h2>${table}${gapList}</section>`;
 }
 
 export interface ClusterGalleryPerson {
