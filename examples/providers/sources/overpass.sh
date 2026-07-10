@@ -25,6 +25,23 @@ API="https://overpass-api.de/api/interpreter"
 # query. Backslash first, then the quote, so the added backslash is not doubled.
 esc_ql() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
 
+# a numeric coordinate/radius (digits, optional leading sign + decimal) and NOTHING
+# else — so a friendly region can neither smuggle OverpassQL punctuation (`)`/`;`)
+# into the generated query nor be confused with raw QL.
+is_coord() { [[ "$1" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; }
+
+# is $1 a VALID friendly region — `around:<radius>,<lat>,<lng>` or a 4-number
+# `<south,west,north,east>` bbox, every part numeric? This (NOT a substring marker)
+# decides friendly-vs-raw: a tag VALUE can contain `[out:`, `;`, or `@`, so only a
+# real numeric region after the LAST `@` makes a ref friendly.
+is_region() {
+  local a b c d e IFS=,
+  case "$1" in
+    around:*) read -r a b c d   <<<"${1#around:}"; [ -z "${d:-}" ] && is_coord "$a" && is_coord "$b" && is_coord "$c" ;;
+    *)        read -r a b c d e <<<"$1";           [ -z "${e:-}" ] && is_coord "$a" && is_coord "$b" && is_coord "$c" && is_coord "$d" ;;
+  esac
+}
+
 op="${1:-enumerate}"; shift || true
 
 case "$op" in
@@ -74,60 +91,33 @@ case "$op" in
 
     # kv rides into the fallback title (`key=value #<id>`) when an element has no name.
     kv=""
-    case "$query" in
-      # RAW passthrough: an OverpassQL query. `[out:` is the definitive marker and is
-      # checked FIRST; a bare `;` (a statement terminator) is ALSO raw but is checked
-      # AFTER the friendly `@` form below, so a `;` inside a tag value
-      # (e.g. `opening_hours=Mo-Fr 09:00; Sa off@around:…`) is not mis-routed to raw.
-      # The author is responsible for `[out:json]` and a bounded `out`; a non-JSON
-      # body then surfaces as an error.
-      *'[out:'*)
-        ql="$query"
-        ;;
-      # FRIENDLY form: key=value@region → expand to OverpassQL over node/way/relation
-      # with `out center` so ways/relations get a centroid lat/lon.
-      *'@'*)
-        # split on the LAST @: the region spec (around:… or a bbox) never contains
-        # an @, but a tag VALUE legitimately can (e.g. contact:email=user@example.com),
-        # so splitting on the first @ would mis-parse the region.
-        tagpart="${query%@*}"
-        region="${query##*@}"
-        [ -n "$tagpart" ] || { echo "overpass: empty tag in '$query' (expected key=value@region)" >&2; exit 1; }
-        [ -n "$region" ] || { echo "overpass: empty region in '$query' (expected key=value@region)" >&2; exit 1; }
-        case "$tagpart" in
-          *'='*) key="${tagpart%%=*}"; value="${tagpart#*=}"; kv="$key=$value"; tagfilter="[\"$(esc_ql "$key")\"=\"$(esc_ql "$value")\"]" ;;
-          *)     key="$tagpart"; kv="$key"; tagfilter="[\"$(esc_ql "$key")\"]" ;;   # key-only: any value
-        esac
-        case "$region" in
-          around:*)
-            around="${region#around:}"    # radius_m,lat,lng
-            # require the three comma-separated parts so a typo fails fast, not as a
-            # confusing Overpass 400.
-            case "$around" in
-              *,*,*) regionfilter="(around:$around)" ;;
-              *) echo "overpass: around needs radius,lat,lng (got 'around:$around')" >&2; exit 1 ;;
-            esac
-            ;;
-          *)
-            # bbox: south,west,north,east
-            case "$region" in
-              *,*,*,*) regionfilter="($region)" ;;
-              *) echo "overpass: bbox needs south,west,north,east (got '$region')" >&2; exit 1 ;;
-            esac
-            ;;
-        esac
-        ql="[out:json][timeout:25];(node${tagfilter}${regionfilter}${newer};way${tagfilter}${regionfilter}${newer};relation${tagfilter}${regionfilter}${newer};);out center meta ${limit};"
-        ;;
-      # RAW (no settings block): a QL statement with a `;` but no friendly `@region`.
-      # Checked AFTER the friendly form so a `;` inside a tag value never lands here.
-      *';'*)
-        ql="$query"
-        ;;
-      *)
-        echo "overpass: '$query' is neither raw OverpassQL nor key=value@region" >&2
-        exit 1
-        ;;
-    esac
+    # Decide friendly `key=value@region` vs raw OverpassQL by the REGION (the part
+    # after the LAST `@`), NOT by substring markers — a tag VALUE can legitimately
+    # contain `[out:`, `;`, or `@`. A ref is friendly ONLY when that suffix is a
+    # valid NUMERIC region (is_region); anything else carrying a settings block /
+    # statement terminator is raw; the rest is an error.
+    region="${query##*@}"
+    if [ "$query" != "$region" ] && is_region "$region"; then
+      # FRIENDLY: expand key=value@region → node/way/relation QL with `out center meta`.
+      tagpart="${query%@*}"
+      [ -n "$tagpart" ] || { echo "overpass: empty tag in '$query' (expected key=value@region)" >&2; exit 1; }
+      case "$tagpart" in
+        *'='*) key="${tagpart%%=*}"; value="${tagpart#*=}"; kv="$key=$value"; tagfilter="[\"$(esc_ql "$key")\"=\"$(esc_ql "$value")\"]" ;;
+        *)     key="$tagpart"; kv="$key"; tagfilter="[\"$(esc_ql "$key")\"]" ;;   # key-only: any value
+      esac
+      case "$region" in
+        around:*) regionfilter="(around:${region#around:})" ;;   # radius,lat,lng — already validated numeric
+        *)        regionfilter="($region)" ;;                     # bbox S,W,N,E — already validated numeric
+      esac
+      ql="[out:json][timeout:25];(node${tagfilter}${regionfilter}${newer};way${tagfilter}${regionfilter}${newer};relation${tagfilter}${regionfilter}${newer};);out center meta ${limit};"
+    elif [[ "$query" == *'[out:'* || "$query" == *';'* ]]; then
+      # RAW OverpassQL: a settings block or statement terminator, and NOT a friendly
+      # region. The author owns `[out:json]` + a bounded `out`; a non-JSON body errors.
+      ql="$query"
+    else
+      echo "overpass: '$query' is neither raw OverpassQL nor key=value@region" >&2
+      exit 1
+    fi
 
     # POST the QL as form field `data=` (Overpass's documented interface).
     if ! run="$(curl -fsS -m 90 --data-urlencode "data=$ql" "$API")"; then
