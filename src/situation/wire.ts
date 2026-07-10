@@ -50,6 +50,10 @@ export interface SituationTile {
   openFindings: number;
   summary: string;
   sourceType: string | null;
+  /** the originating post/page URL (tweet / video / article) — click-to-source */
+  sourceUrl: string | null;
+  /** author/handle of the source post, when known (e.g. an X handle) */
+  sourceAuthor: string | null;
   lastRecordTime: string | null;
   ageSeconds: number | null;
   posterUrl: string | null;
@@ -79,16 +83,26 @@ export interface SituationFeedItem {
 export interface SituationPoint {
   recordId: string;
   verb: string;
+  /** source type (flights | overpass | firms | exif …) for color + icon + filter */
+  source: string | null;
   lat: number;
   lng: number;
   place: string | null;
   time: string | null;
   summary: string;
   ref: string | null;
+  url: string | null;
   thumbUrl: string | null;
   /** track grouping key (flights icao24/callsign) — points sharing a track are
    *  drawn as a polyline, oldest→newest, so `monitor --every` builds a path */
   track: string | null;
+  /** heading in degrees (0=N, 90=E) for flight markers — from ADS-B true_track */
+  heading: number | null;
+  /** ground speed (m/s) and on-ground flag, for the flight marker/tooltip */
+  velocity: number | null;
+  onGround: boolean | null;
+  /** callsign / label (flights) */
+  label: string | null;
 }
 
 /** The freshest still per recapture-ish source (webcam / browser / screenshot)
@@ -99,6 +113,8 @@ export interface SituationStill {
   recordId: string;
   title: string;
   source: string | null;
+  /** the source page URL (e.g. the windy.com webcam page) — click-to-source */
+  url: string | null;
   mediaUrl: string | null;
   time: string | null;
 }
@@ -160,4 +176,6 @@ export interface SituationSnapshot {
    *  store is fed by a separate `monitor --every` / the agent) */
   monitor: { every: string | null; passes: number; lastPassAt: string | null; running: boolean } | null;
   sources: Array<{ id: string; type: string; ref: string; enabled: boolean }>;
+  /** server store/control poll cadence (seconds) — shown in the HUD sync chip */
+  pollSeconds: number;
 }

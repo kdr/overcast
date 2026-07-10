@@ -150,6 +150,46 @@ test("situation server: a store append triggers a refresh event", async () => {
   }
 });
 
+test("situation server: POST /api/refresh forces a rebuild + returns fresh snapshot", async () => {
+  const { dir, c } = tmpCase();
+  const s = server(dir);
+  const { url, pairingUrl } = await s.start();
+  const token = pairingUrl.split("#t=")[1];
+  const auth = { Authorization: `Bearer ${token}` };
+  try {
+    const before = (await (await fetch(`${url}api/state`, { headers: auth })).json()) as { hud: { records: number } };
+    c.writeRecord({ id: "rec_x", verb: "scan", format: "json", payload: { title: "t", url: "https://e.com/z", source: "web" }, meta: { time: "2026-07-10T11:00:00Z" }, state: "ready" });
+    const refreshed = (await (await fetch(`${url}api/refresh`, { method: "POST", headers: auth })).json()) as { hud: { records: number } };
+    assert.equal(refreshed.hud.records, before.hud.records + 1, "force-refresh reflects the new record without waiting for a tick");
+  } finally {
+    await s.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation server: /media refuses a record ref outside the case dir (containment)", async () => {
+  const { dir, c } = tmpCase();
+  const outside = mkdtempSync(join(tmpdir(), "oc-situation-outside-"));
+  const secret = join(outside, "secret.mp4");
+  writeFileSync(secret, Buffer.from("SECRET-BYTES"));
+  // a record referencing a file OUTSIDE the case dir — must never become servable
+  c.writeRecord({ id: "rec_out", verb: "capture", format: "json", payload: { capture_id: "cap_out", path: secret, source: "youtube" }, media: { ref: secret }, meta: { time: "2026-07-10T10:00:00Z" }, state: "ready" });
+  const s = server(dir);
+  const { url, pairingUrl } = await s.start();
+  const token = pairingUrl.split("#t=")[1];
+  const auth = { Authorization: `Bearer ${token}` };
+  try {
+    const snap = (await (await fetch(`${url}api/state`, { headers: auth })).json()) as { tiles: { ref: string; mediaUrl: string | null }[] };
+    const tile = snap.tiles.find((t) => t.ref === secret);
+    assert.ok(tile, "the out-of-case tile still appears");
+    assert.equal(tile!.mediaUrl, null, "but its media is not servable (no /media URL minted)");
+  } finally {
+    await s.stop();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("parseRange: standard, open-ended, suffix, and unsatisfiable", () => {
   assert.deepEqual(parseRange("bytes=2-5", 16), { start: 2, end: 5 });
   assert.deepEqual(parseRange("bytes=10-", 16), { start: 10, end: 15 });

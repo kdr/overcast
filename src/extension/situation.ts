@@ -27,6 +27,7 @@ import {
   parsePanels,
   readRuntime,
   runtimeAlive,
+  runtimeServing,
   writeRuntime,
   type SituationConfig,
 } from "../situation/state.js";
@@ -91,10 +92,11 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     const c = openCase(caseCwd());
     c.ensure();
     // a CLI pane already serving this case → point at it instead of fighting
-    // over runtime.json (and probably the port).
+    // over runtime.json (and probably the port). Require the port to actually be
+    // served (not just a live/reused pid) before deferring to it.
     const existing = readRuntime(c);
-    if (runtimeAlive(existing) && existing!.pid !== process.pid) {
-      emitResult(pi, `▶ situation: already live at ${existing!.displayUrl} (pid ${existing!.pid}, ${existing!.mode}) — /situation off won't touch it; use \`overcast situation stop\``);
+    if (existing && existing.pid !== process.pid && (await runtimeServing(existing))) {
+      emitResult(pi, `▶ situation: already live at ${existing.displayUrl} (pid ${existing.pid}, ${existing.mode}) — /situation off won't touch it; use \`overcast situation stop\``);
       return;
     }
     if (server?.running) {
@@ -162,13 +164,16 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     if (!s) return;
     server = undefined;
     hideQr();
+    // Stop the LISTENER first, THEN clear runtime.json (Bugbot #98/med): clearing
+    // it while the port is still open advertises "offline" to another
+    // `situation`/glance for the shutdown window, which could race a rebind.
+    stopping = s.stop();
+    await stopping;
     try {
       clearRuntime(openCase(caseCwd()));
     } catch {
       /* best-effort */
     }
-    stopping = s.stop();
-    await stopping;
   }
 
   function showQr(): void {

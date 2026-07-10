@@ -43,6 +43,8 @@ export interface SituationTileModel {
   openFindings: number;
   summary: string;
   sourceType: string | null;
+  sourceUrl: string | null;
+  sourceAuthor: string | null;
   lastRecordTime: string | null;
   ageSeconds: number | null;
 }
@@ -65,14 +67,20 @@ export interface SituationFeedModel {
 export interface SituationPointModel {
   recordId: string;
   verb: string;
+  source: string | null;
   lat: number;
   lng: number;
   place: string | null;
   time: string | null;
   summary: string;
   ref: string | null;
+  url: string | null;
   thumb: SituationMediaRef | null;
   track: string | null;
+  heading: number | null;
+  velocity: number | null;
+  onGround: boolean | null;
+  label: string | null;
 }
 
 export interface SituationStillModel {
@@ -80,6 +88,7 @@ export interface SituationStillModel {
   recordId: string;
   title: string;
   source: string | null;
+  url: string | null;
   media: SituationMediaRef | null;
   time: string | null;
 }
@@ -149,6 +158,32 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
   const tileLimit = cfg.limit && cfg.limit > 0 ? Math.floor(cfg.limit) : DEFAULT_TILE_LIMIT;
   const sourceFilter = cfg.source ? cfg.source.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean) : undefined;
 
+  // ref → originating post URL + author, lifted from provenance (watch/capture
+  // carry payload.source_url/source_author) or the scan hit's own url. Lets a
+  // wall tile link back to the tweet/video/article it came from.
+  const sourceUrlByRef = new Map<string, string>();
+  const sourceAuthorByRef = new Map<string, string>();
+  for (const r of records) {
+    const ref = r.media?.ref;
+    if (!ref) continue;
+    const p = payloadOf(r);
+    const url = str(p.source_url) ?? (r.verb === "scan" ? str(p.url) : null);
+    if (url && !sourceUrlByRef.has(ref)) sourceUrlByRef.set(ref, url);
+    const author = str(p.source_author) ?? (r.verb === "scan" ? str(p.author) : null);
+    if (author && !sourceAuthorByRef.has(ref)) sourceAuthorByRef.set(ref, author);
+  }
+  const recById = new Map(records.map((r) => [r.id, r] as const));
+  // url → the scan hit's human title (e.g. a webcam's name), so a recapture's
+  // still cell reads "Paris: Quartier de Chaillot" not the imgproxy URL.
+  const titleByUrl = new Map<string, string>();
+  for (const r of records) {
+    if (r.verb !== "scan") continue;
+    const p = payloadOf(r);
+    const u = str(p.url);
+    const t = str(p.title);
+    if (u && t && !titleByUrl.has(u)) titleByUrl.set(u, t);
+  }
+
   // --- wall tiles (shared model with the static wall verb) --------------------
   const wall = buildWallModel(records, {
     caseName: opts.caseName,
@@ -174,6 +209,8 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
     openFindings: t.openFindings,
     summary: t.summary,
     sourceType: t.sourceType,
+    sourceUrl: sourceUrlByRef.get(t.ref) ?? null,
+    sourceAuthor: sourceAuthorByRef.get(t.ref) ?? null,
     lastRecordTime: t.lastRecordTime,
     ageSeconds: t.ageSeconds,
   }));
@@ -230,18 +267,28 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
     const key = str(p.icao24) ?? str(p.callsign);
     if (key) trackOf.set(r.id, key.toLowerCase());
   }
-  const points: SituationPointModel[] = mapModel.points.map((p) => ({
-    recordId: p.recordId,
-    verb: p.verb,
-    lat: p.lat,
-    lng: p.lng,
-    place: p.place,
-    time: p.time,
-    summary: p.summary,
-    ref: p.ref,
-    thumb: p.ref && IMAGE_RE.test(p.ref) ? mediaRefFor(p.ref, fileExists) : null,
-    track: trackOf.get(p.recordId) ?? null,
-  }));
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const points: SituationPointModel[] = mapModel.points.map((p) => {
+    const pl = payloadOf(recById.get(p.recordId) ?? ({} as OvercastRecord));
+    return {
+      recordId: p.recordId,
+      verb: p.verb,
+      source: str(pl.source) ?? (p.verb === "scan" ? null : p.verb),
+      lat: p.lat,
+      lng: p.lng,
+      place: p.place,
+      time: p.time,
+      summary: p.summary,
+      ref: p.ref,
+      url: str(pl.url),
+      thumb: p.ref && IMAGE_RE.test(p.ref) ? mediaRefFor(p.ref, fileExists) : null,
+      track: trackOf.get(p.recordId) ?? null,
+      heading: num(pl.true_track),
+      velocity: num(pl.velocity),
+      onGround: typeof pl.on_ground === "boolean" ? pl.on_ground : null,
+      label: str(pl.callsign) ?? str(pl.title),
+    };
+  });
 
   // --- stills: freshest capture per recapture-ish source ----------------------
   const stillCandidates = records.filter((r) => {
@@ -264,11 +311,21 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
     .map(([key, r]) => {
       const p = payloadOf(r);
       const source = str(p.source) ?? (r.verb === "screenshot" ? "screenshot" : null);
+      // click-through prefers the source PAGE (windy.com/webcams/…) over the raw
+      // image; the scan hit that named this cam is keyed by that page url, so the
+      // webcam's NAME ("Paris: Palais d'Iéna") joins off source_url, not the
+      // imgproxy .jpg. Fall back to the capture url for non-webcam stills.
+      const srcUrl = str(p.source_url);
+      const capUrl = str(p.url);
+      const url = srcUrl ?? capUrl;
+      const scanTitle = (srcUrl ? titleByUrl.get(srcUrl) : undefined) ?? (capUrl ? titleByUrl.get(capUrl) : undefined);
+      const title = scanTitle ?? str(p.title) ?? str(p.source_text) ?? url ?? key;
       return {
         key,
         recordId: r.id,
-        title: str(p.title) ?? str(p.url) ?? key,
+        title,
         source,
+        url,
         media: mediaRefFor(r.media!.ref, fileExists),
         time: str(r.meta?.time),
       };

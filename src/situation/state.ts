@@ -12,6 +12,7 @@
 //     its next poll tick (~2s). `stop: true` shuts the server down gracefully.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { connect } from "node:net";
 import { join } from "node:path";
 import { writeFileAtomic } from "../fs-atomic.js";
 import type { Case } from "../case.js";
@@ -76,7 +77,10 @@ export function clearRuntime(c: Case): void {
 }
 
 /** Whether the runtime's pid is alive (signal 0 probe). A stale runtime.json
- *  (crash / kill -9) reads as not running so a new serve can start. */
+ *  (crash / kill -9) reads as not running so a new serve can start. Cheap +
+ *  sync — used by the read-only display paths (status/glance). NOTE: a reused
+ *  pid after a crash can false-positive; the DANGEROUS paths (refusing a new
+ *  serve, stop --force) additionally require `runtimeServing` below. */
 export function runtimeAlive(rt: SituationRuntime | undefined): boolean {
   if (!rt || !Number.isInteger(rt.pid) || rt.pid <= 0) return false;
   try {
@@ -85,6 +89,34 @@ export function runtimeAlive(rt: SituationRuntime | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+/** Confirm SOMETHING is actually listening on the runtime's bound port (Bugbot
+ *  #98/med: a crash + pid reuse makes runtimeAlive false-positive on an unrelated
+ *  process). pid-alive AND port-listening is a strong "our server is up" signal —
+ *  used before refusing a new serve or SIGTERM-ing on stop --force, so neither
+ *  acts on a reused pid. Best-effort TCP connect with a short timeout. */
+export function runtimeServing(rt: SituationRuntime | undefined, timeoutMs = 400): Promise<boolean> {
+  if (!runtimeAlive(rt) || !rt || !Number.isInteger(rt.port) || rt.port <= 0) return Promise.resolve(false);
+  const host = rt.bind === "0.0.0.0" || rt.bind === "::" ? "127.0.0.1" : rt.bind || "127.0.0.1";
+  return new Promise<boolean>((resolvePromise) => {
+    let settled = false;
+    const done = (v: boolean) => {
+      if (settled) return;
+      settled = true;
+      try {
+        sock.destroy();
+      } catch {
+        /* already closed */
+      }
+      resolvePromise(v);
+    };
+    const sock = connect({ host, port: rt.port });
+    sock.setTimeout(timeoutMs);
+    sock.once("connect", () => done(true));
+    sock.once("timeout", () => done(false));
+    sock.once("error", () => done(false));
+  });
 }
 
 /** Parse + validate a comma list of panel names. Returns undefined for empty

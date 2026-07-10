@@ -6,6 +6,7 @@
 
 import type { SituationSnapshot, SituationTile } from "../../../../src/situation/wire.js";
 import { mediaSrc } from "../api.js";
+import { sourceStyle, formatAuthor } from "../sources.js";
 import { el, fmtAge, fmtTime } from "../util.js";
 
 interface Cell {
@@ -51,6 +52,13 @@ export function createWall(): WallView {
   startBtn.addEventListener("click", () => {
     document.body.classList.remove("stalled");
     for (const cell of cells.values()) if (cell.video?.src) cell.video.play().catch(() => {});
+  });
+
+  // when the wall is fullscreen, enable native video controls so the operator
+  // can scrub/see the whole clip; off otherwise (the wall is an ambient loop).
+  window.addEventListener("situation-fs", (e) => {
+    const fs = (e as CustomEvent<{ key: string | null }>).detail?.key === "wall";
+    for (const cell of cells.values()) if (cell.video) cell.video.controls = fs;
   });
 
   function sigOf(t: SituationTile): string {
@@ -168,6 +176,14 @@ export function createWall(): WallView {
     intel.append(el("p", "sum"), el("div", "kv ref"), el("div", "kv anchor"), el("div", "kv source"), el("code"));
     fig.append(intel);
 
+    // click-to-source badge (bottom-left): source emoji + @author + "↗". A real
+    // <a> so it works over the video controls and opens the tweet/video page.
+    const badge = el("a", "srcbadge");
+    badge.target = "_blank";
+    badge.rel = "noopener noreferrer";
+    badge.style.display = "none";
+    fig.append(badge);
+
     const cell: Cell = { fig, video, sig: sigOf(tile) };
     updateLabels(cell, tile, index);
     io?.observe(fig);
@@ -199,6 +215,20 @@ export function createWall(): WallView {
       `anchor ${tile.anchor.source} @ ${fmtTime(tile.anchor.at)} · loop ${fmtTime(tile.anchor.start)}–${fmtTime(tile.anchor.end)}${tile.duration ? ` · dur ${fmtTime(tile.duration)}` : ""}`;
     q<HTMLElement>(".intel .source").textContent = tile.sourceType ? `source ${tile.sourceType}` : "";
     q<HTMLElement>(".intel code").textContent = `overcast view ${tile.ref} --at ${tile.anchor.span ? `${tile.anchor.start}-${tile.anchor.end}` : Math.round(tile.anchor.at)}`;
+    // source badge (click-to-source)
+    const badge = q<HTMLAnchorElement>(".srcbadge");
+    if (tile.sourceUrl) {
+      const st = sourceStyle(tile.sourceType);
+      const who = formatAuthor(tile.sourceType, tile.sourceAuthor);
+      badge.href = tile.sourceUrl;
+      badge.style.display = "";
+      badge.style.color = st.color;
+      badge.textContent = `${st.emoji} ${who ?? st.label} ↗`;
+      badge.title = `open source — ${tile.sourceUrl}`;
+    } else {
+      badge.style.display = "none";
+      badge.removeAttribute("href");
+    }
   }
 
   return {

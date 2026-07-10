@@ -1,10 +1,13 @@
 // Stills panel: the freshest frame per recapture source (webcam / browser /
 // screenshot). Cells are keyed by the source ref so a new capture swaps the
 // image in place — a bank of "current view" monitors that tick over on each
-// monitor pass.
+// monitor pass. Click a cell to open the source page (the windy.com webcam).
+// In fullscreen the grid reflows to big multi-column cells so you can actually
+// see what each cam shows.
 
 import type { SituationSnapshot } from "../../../../src/situation/wire.js";
 import { mediaSrc } from "../api.js";
+import { sourceStyle } from "../sources.js";
 import { ageOf, el, fmtAge } from "../util.js";
 
 export interface StillsView {
@@ -42,9 +45,16 @@ export function createStills(): StillsView {
       for (const still of stills) {
         seen.add(still.key);
         const src = mediaSrc(still.mediaUrl);
+        const st = sourceStyle(still.source);
         let cell = cells.get(still.key);
         if (!cell) {
-          const cellRoot = el("div", "stillcell");
+          const cellRoot = (still.url ? el("a", "stillcell") : el("div", "stillcell")) as HTMLElement;
+          if (still.url) {
+            (cellRoot as HTMLAnchorElement).href = still.url;
+            (cellRoot as HTMLAnchorElement).target = "_blank";
+            (cellRoot as HTMLAnchorElement).rel = "noopener noreferrer";
+            cellRoot.title = `open source — ${still.url}`;
+          }
           const img = el("img");
           img.alt = still.title;
           const label = el("div", "label");
@@ -59,9 +69,11 @@ export function createStills(): StillsView {
           cell.root.classList.add("new");
           setTimeout(() => cell!.root.classList.remove("new"), 2500);
         }
-        (cell.root.querySelector(".s") as HTMLElement).textContent = still.source ?? "";
+        const s = cell.root.querySelector(".s") as HTMLElement;
+        s.textContent = `${st.emoji} ${st.label}`;
+        s.style.color = st.color;
         (cell.root.querySelector(".t") as HTMLElement).textContent = still.title;
-        (cell.root.querySelector(".a") as HTMLElement).textContent = still.time ? fmtAge(ageOf(still.time)) : "";
+        (cell.root.querySelector(".a") as HTMLElement).textContent = still.time ? `${fmtAge(ageOf(still.time))} ago` : "";
       }
       for (const [key, cell] of [...cells]) {
         if (!seen.has(key)) {

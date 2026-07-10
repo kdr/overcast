@@ -41,8 +41,8 @@ export function mediaSrc(url: string | null): string | null {
   return url;
 }
 
-async function call<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: { Authorization: `Bearer ${pairToken()}` } });
+async function call<T>(path: string, method: "GET" | "POST" = "GET"): Promise<T> {
+  const res = await fetch(path, { method, headers: { Authorization: `Bearer ${pairToken()}` } });
   if (!res.ok) {
     if (res.status === 401) throw new Error("unauthorized");
     const detail = (await res.json().catch(() => ({}))) as { error?: string };
@@ -52,3 +52,6 @@ async function call<T>(path: string): Promise<T> {
 }
 
 export const getState = (): Promise<SituationSnapshot> => call<SituationSnapshot>("/api/state");
+/** Force the server to rebuild from the current store ("sync to now") and return
+ *  the fresh snapshot. */
+export const forceSync = (): Promise<SituationSnapshot> => call<SituationSnapshot>("/api/refresh", "POST");

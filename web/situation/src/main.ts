@@ -2,18 +2,19 @@
 // snapshot, render the panels, then follow the SSE stream. The wire is
 // snapshot-shaped by design — a `refresh` event just refetches /api/state and
 // each panel diffs by record id, so there is no incremental state machine to
-// drift (the chair fallback's lesson). Auth failure (token rotated / server
-// restarted) tears down to the pairing gate; anything else retries.
+// drift. Any panel can go fullscreen (⤢ / Esc). Auth failure (token rotated /
+// server restarted) tears down to the pairing gate; anything else retries.
 
 import "./theme.css";
-import type { SituationSnapshot, SituationWireEvent } from "../../../src/situation/wire.js";
-import { clearToken, getState, pairToken } from "./api.js";
+import type { SituationPanel, SituationSnapshot, SituationWireEvent } from "../../../src/situation/wire.js";
+import { clearToken, forceSync, getState, pairToken } from "./api.js";
 import { connectStream } from "./stream.js";
 import { createHud } from "./views/hud.js";
 import { createWall } from "./views/wall.js";
 import { createFeed } from "./views/feed.js";
 import { createMap } from "./views/map.js";
 import { createStills } from "./views/stills.js";
+import { el } from "./util.js";
 
 const RETRY_MS = 8000;
 const ERROR_RESYNC_MS = 3000;
@@ -32,7 +33,7 @@ async function boot(): Promise<void> {
     return;
   }
 
-  const hud = createHud();
+  const hud = createHud(() => void syncNow());
   const wall = createWall();
   const feed = createFeed();
   const map = createMap();
@@ -41,6 +42,37 @@ async function boot(): Promise<void> {
   const main = document.createElement("main");
   main.className = "panels";
   app.replaceChildren(hud.el, main);
+
+  // --- fullscreen: any panel can fill the viewport (⤢ button / Esc) ----------
+  let fsKey: SituationPanel | null = null;
+  const fsBtns: Partial<Record<SituationPanel, HTMLButtonElement>> = {};
+  const setFullscreen = (key: SituationPanel | null): void => {
+    fsKey = key;
+    main.classList.toggle("has-fs", !!key);
+    for (const k of Object.keys(panels) as SituationPanel[]) {
+      panels[k].el.classList.toggle("fs", k === key);
+      const btn = fsBtns[k];
+      if (btn) {
+        btn.textContent = k === key ? "⤡" : "⤢";
+        btn.title = k === key ? "exit fullscreen (Esc)" : "fullscreen";
+      }
+    }
+    // let panels react (wall enables video controls; the map re-renders at size)
+    window.dispatchEvent(new CustomEvent("situation-fs", { detail: { key: fsKey } }));
+    window.dispatchEvent(new Event("resize"));
+  };
+  for (const k of Object.keys(panels) as SituationPanel[]) {
+    const hdr = panels[k].el.querySelector("header");
+    if (!hdr) continue;
+    const btn = el("button", "fsbtn", "⤢");
+    btn.title = "fullscreen";
+    btn.addEventListener("click", () => setFullscreen(fsKey === k ? null : k));
+    hdr.append(btn);
+    fsBtns[k] = btn;
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && fsKey) setFullscreen(null);
+  });
 
   let gated = false;
   let offAir = false;
@@ -75,6 +107,8 @@ async function boot(): Promise<void> {
     document.body.dataset.theme = snap.config.theme;
     document.title = `situation — ${snap.caseName}`;
     hud.update(snap);
+    // if the fullscreen'd panel dropped out of the active set, exit fullscreen
+    if (fsKey && !snap.panels.includes(fsKey)) setFullscreen(null);
     // (re)order the panel sections only when the active set changed — moving a
     // node with playing <video>s pauses them.
     const order = snap.panels.join(",");
@@ -88,8 +122,23 @@ async function boot(): Promise<void> {
     stills.update(snap);
   };
 
-  /** Refetch + render the snapshot. The stream stays open (state is idempotent
-   *  whole-snapshot); pass reopenSince to also (re)connect the stream. */
+  // "sync to now": force the server to rebuild from the current store and render
+  // the fresh snapshot immediately (don't wait for the ≤pollSeconds tick).
+  async function syncNow(): Promise<void> {
+    if (gated || offAir) return;
+    hud.syncing(true);
+    try {
+      const snap = await forceSync();
+      render(snap);
+      lastSeq = snap.seq;
+    } catch (e) {
+      if (isAuthError(e)) onAuthFailure();
+    } finally {
+      hud.syncing(false);
+    }
+  }
+
+  /** Refetch + render the snapshot. Pass reopen to also (re)connect the stream. */
   const refresh = async (reopen: boolean): Promise<void> => {
     if (gated || offAir) return;
     const token = ++refreshToken;
@@ -146,8 +195,6 @@ async function boot(): Promise<void> {
         onStatus: (connected) => {
           if (offAir) return;
           hud.setConnected(connected);
-          // EventSource can't read HTTP status and silently retries a 401
-          // forever — if it stays down, a refresh surfaces the 401 → re-pair.
           if (connected) {
             if (errorTimer) clearTimeout(errorTimer);
             errorTimer = undefined;

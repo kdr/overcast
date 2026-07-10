@@ -1,12 +1,13 @@
 // Live map panel — the runtime twin of report/map.ts's inline slippy renderer
-// (hand-rolled OSM raster tiles, no Leaflet/CDN): pan/drag/wheel-zoom, numbered
-// markers, fit-to-bounds on first data, plus track polylines (points sharing a
-// `track` key — flights icao24 — drawn oldest→newest as monitor passes land).
-// Tiles are fetched by the viewer's browser at view time, matching the map
-// verb's online mode.
+// (hand-rolled OSM raster tiles, no Leaflet/CDN): pan/drag/wheel-zoom, fit-to-
+// bounds. Markers are colour-coded + emoji'd by source type (a legend + a filter
+// bar match the feed). Aircraft render as a plane glyph rotated to their ADS-B
+// heading; points sharing a track (same icao24 across monitor passes) are joined
+// by a trajectory polyline with historical positions as breadcrumb dots.
 
 import type { SituationPoint, SituationSnapshot } from "../../../../src/situation/wire.js";
-import { el } from "../util.js";
+import { sourceStyle } from "../sources.js";
+import { el, fmtAge, ageOf } from "../util.js";
 
 export interface MapView {
   el: HTMLElement;
@@ -20,45 +21,51 @@ interface Bounds {
   maxLng: number;
 }
 
+const SVGNS = "http://www.w3.org/2000/svg";
+
 export function createMap(): MapView {
   const root = el("section", "panel panel-map");
   const header = el("header");
   header.append(el("span", "", "◉ MAP"), el("span", "sub"));
+  const filterbar = el("div", "filterbar");
   const wrap = el("div", "mapwrap");
   const tiles = el("div", "tiles");
   const markers = el("div", "markers");
-  const tracks = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const tracks = document.createElementNS(SVGNS, "svg");
   tracks.setAttribute("class", "tracks");
   const ctl = el("div", "mapctl");
   const zin = el("button", "", "+");
   const zout = el("button", "", "−");
   ctl.append(zin, zout);
   const attrib = el("div", "attrib", "© OpenStreetMap contributors");
+  const legend = el("div", "legend");
   const info = el("div", "mapinfo");
-  info.append(el("div", "t"), el("div", "d"));
-  wrap.append(tiles, tracks, markers, ctl, attrib, info);
+  wrap.append(tiles, tracks, markers, ctl, attrib, legend, info);
   const empty = el("div", "empty", "NO LOCATED RECORDS — gps-bearing hits plot here");
-  root.append(header, wrap, empty);
+  root.append(header, filterbar, wrap, empty);
 
   let points: SituationPoint[] = [];
   let bounds: Bounds | null = null;
-  let zoom = 14;
+  let zoom = 13;
   let center = { lat: 0, lng: 0 };
   let fitted = false;
   let activeId: string | null = null;
   let panning: { x: number; y: number } | null = null;
+  const hidden = new Set<string>();
 
   const lon2t = (lon: number, z: number): number => ((lon + 180) / 360) * Math.pow(2, z);
   const lat2t = (lat: number, z: number): number => {
     const r = (lat * Math.PI) / 180;
     return ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * Math.pow(2, z);
   };
-  // unwrap a point longitude into the (possibly antimeridian-shifted) bounds frame
   const unwrap = (lng: number): number => (bounds && lng < bounds.minLng ? lng + 360 : lng);
+  const typeOf = (p: SituationPoint): string => (p.source ?? p.verb ?? "scan").toLowerCase();
+  const visible = (): SituationPoint[] => points.filter((p) => !hidden.has(typeOf(p)));
 
   function fit(): void {
-    if (!bounds || points.length < 2) {
-      if (points.length === 1) center = { lat: points[0].lat, lng: points[0].lng };
+    const pts = visible();
+    if (!bounds || pts.length < 2) {
+      if (pts.length === 1) center = { lat: pts[0].lat, lng: pts[0].lng };
       return;
     }
     center = { lat: (bounds.minLat + bounds.maxLat) / 2, lng: (bounds.minLng + bounds.maxLng) / 2 };
@@ -79,15 +86,29 @@ export function createMap(): MapView {
     return { x: lon2t(unwrap(p.lng), zoom) * 256 - ox, y: lat2t(p.lat, zoom) * 256 - oy };
   }
 
+  // newest recordId per track key → its plane shows the current position/heading;
+  // older positions in the same track render as breadcrumb dots.
+  function newestPerTrack(pts: SituationPoint[]): Set<string> {
+    const best = new Map<string, SituationPoint>();
+    for (const p of pts) {
+      if (!p.track) continue;
+      const cur = best.get(p.track);
+      if (!cur || (p.time ?? "") >= (cur.time ?? "")) best.set(p.track, p);
+    }
+    return new Set([...best.values()].map((p) => p.recordId));
+  }
+
   function render(): void {
     const w = wrap.clientWidth;
     const h = wrap.clientHeight;
     if (!w || !h) return;
+    const pts = visible();
     const cx = lon2t(center.lng, zoom) * 256;
     const cy = lat2t(center.lat, zoom) * 256;
     const ox = cx - w / 2;
     const oy = cy - h / 2;
     const n = Math.pow(2, zoom);
+
     // tiles
     const imgs: HTMLImageElement[] = [];
     for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + w) / 256); tx++) {
@@ -104,56 +125,113 @@ export function createMap(): MapView {
       }
     }
     tiles.replaceChildren(...imgs);
-    // tracks (oldest→newest per key)
+
+    // trajectory polylines (oldest→newest per track), coloured by source
     tracks.setAttribute("viewBox", `0 0 ${w} ${h}`);
     tracks.setAttribute("width", String(w));
     tracks.setAttribute("height", String(h));
     const byTrack = new Map<string, SituationPoint[]>();
-    for (const p of points) {
+    for (const p of pts) {
       if (!p.track) continue;
       const arr = byTrack.get(p.track) ?? [];
       arr.push(p);
       byTrack.set(p.track, arr);
     }
-    const lines: SVGPolylineElement[] = [];
+    const lines: SVGElement[] = [];
     for (const arr of byTrack.values()) {
       if (arr.length < 2) continue;
       const sorted = [...arr].sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      const line = document.createElementNS(SVGNS, "polyline");
       line.setAttribute("points", sorted.map((p) => { const c = px(p, ox, oy); return `${c.x},${c.y}`; }).join(" "));
+      line.setAttribute("stroke", sourceStyle(typeOf(arr[0])).color);
       lines.push(line);
     }
     tracks.replaceChildren(...lines);
+
     // markers
-    const mks = points.map((p, i) => {
+    const heads = newestPerTrack(pts);
+    const mks = pts.map((p) => {
       const c = px(p, ox, oy);
-      const b = el("button", `mk${p.recordId === activeId ? " active" : ""}`);
+      const type = typeOf(p);
+      const st = sourceStyle(type);
+      const isFlight = type === "flights";
+      const isHead = !p.track || heads.has(p.recordId);
+      let b: HTMLElement;
+      if (isFlight && isHead) {
+        // current aircraft position: a plane glyph rotated to the ADS-B heading
+        b = el("button", "mk plane");
+        const g = el("span", "glyph", "✈︎"); // ✈ text-presentation (colourable)
+        if (p.heading != null) g.style.transform = `rotate(${p.heading - 45}deg)`;
+        g.style.color = st.color;
+        b.append(g);
+      } else if (p.track && !isHead) {
+        b = el("button", "mk dot"); // historical breadcrumb along the track
+        b.style.background = st.color;
+      } else {
+        // static point (camera / fire / exif): a coloured pin with the source emoji
+        b = el("button", "mk pin");
+        b.style.background = st.color;
+        b.append(el("span", "e", st.emoji));
+      }
       b.style.left = `${c.x}px`;
       b.style.top = `${c.y}px`;
-      b.dataset.i = String(i);
-      b.title = p.place ?? `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
-      b.append(el("span", "", String(i + 1)));
+      b.dataset.id = p.recordId;
+      if (p.recordId === activeId) b.classList.add("active");
+      b.title = p.label ?? p.place ?? `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`;
       return b;
     });
     markers.replaceChildren(...mks);
+
+    // legend: types present
+    const present = [...new Set(pts.map(typeOf))];
+    legend.replaceChildren(
+      ...present.map((t) => {
+        const st = sourceStyle(t);
+        const row = el("span", "lrow");
+        const dot = el("span", "ldot");
+        dot.style.background = st.color;
+        row.append(dot, el("span", "", `${st.emoji} ${st.label}`));
+        return row;
+      }),
+    );
   }
 
-  function focusPoint(i: number): void {
-    const p = points[i];
+  function focusPoint(id: string): void {
+    const p = points.find((x) => x.recordId === id);
     if (!p) return;
-    activeId = p.recordId;
+    activeId = id;
     center = { lat: p.lat, lng: unwrap(p.lng) };
     if (zoom < 12) zoom = 12;
-    (info.querySelector(".t") as HTMLElement).textContent =
-      `${p.verb.toUpperCase()} · ${p.place ?? `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`}${p.time ? ` · ${p.time}` : ""}`;
-    (info.querySelector(".d") as HTMLElement).textContent = p.summary;
+    const st = sourceStyle(typeOf(p));
+    info.replaceChildren();
+    const t = el("div", "t");
+    t.style.color = st.color;
+    t.textContent = `${st.emoji} ${p.label ?? st.label}`;
+    info.append(t);
+    const meta: string[] = [p.place ?? `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`];
+    if (typeOf(p) === "flights") {
+      meta.push(
+        `${p.onGround ? "on ground" : "airborne"}${p.velocity != null ? ` · ${p.velocity.toFixed(0)} m/s` : ""}${p.heading != null ? ` · hdg ${p.heading.toFixed(0)}°` : ""}`,
+      );
+    }
+    if (p.time) meta.push(`${fmtAge(ageOf(p.time))} ago`);
+    info.append(el("div", "d", meta.join(" · ")));
+    if (p.summary && typeOf(p) !== "flights") info.append(el("div", "d", p.summary.slice(0, 160)));
+    if (p.url) {
+      const a = el("a", "d src", `open source ↗`);
+      a.href = p.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.style.color = st.color;
+      info.append(a);
+    }
     info.classList.add("on");
     render();
   }
 
   markers.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest(".mk") as HTMLElement | null;
-    if (b?.dataset.i) focusPoint(Number(b.dataset.i));
+    if (b?.dataset.id) focusPoint(b.dataset.id);
   });
   wrap.addEventListener("mousedown", (e) => {
     if ((e.target as HTMLElement).closest(".mk") || (e.target as HTMLElement).closest(".mapctl")) return;
@@ -199,6 +277,26 @@ export function createMap(): MapView {
   });
   window.addEventListener("resize", render);
 
+  const renderFilters = (types: string[]): void => {
+    filterbar.replaceChildren(
+      ...types.map((type) => {
+        const st = sourceStyle(type);
+        const on = !hidden.has(type);
+        const chip = el("button", `fchip${on ? " on" : ""}`);
+        chip.style.setProperty("--c", st.color);
+        chip.textContent = `${st.emoji} ${st.label}`;
+        chip.title = on ? `hide ${st.label}` : `show ${st.label}`;
+        chip.addEventListener("click", () => {
+          if (hidden.has(type)) hidden.delete(type);
+          else hidden.add(type);
+          render();
+          renderFilters(types);
+        });
+        return chip;
+      }),
+    );
+  };
+
   return {
     el: root,
     update(snap) {
@@ -207,9 +305,12 @@ export function createMap(): MapView {
       if (!active) return;
       points = snap.points;
       bounds = snap.bounds;
-      (header.querySelector(".sub") as HTMLElement).textContent = `${points.length} located`;
+      const types = [...new Set(points.map(typeOf))];
+      for (const h of [...hidden]) if (!types.includes(h)) hidden.delete(h);
+      (header.querySelector(".sub") as HTMLElement).textContent = `${visible().length} located`;
       empty.style.display = points.length ? "none" : "";
       wrap.style.display = points.length ? "" : "none";
+      renderFilters(types);
       if (!fitted && points.length) {
         fit();
         fitted = true;

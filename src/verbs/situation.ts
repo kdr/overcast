@@ -32,6 +32,7 @@ import {
   readControl,
   readRuntime,
   runtimeAlive,
+  runtimeServing,
   writeControl,
   writeRuntime,
   type SituationConfig,
@@ -190,12 +191,24 @@ export const situationVerb: VerbSpec = {
       }
       writeControl(ctx.case, { stop: true } satisfies SituationControl);
       let delivered = "control";
+      // --force SIGTERM is ONLY for a dedicated CLI serve pane. For a `/situation
+      // on` (mode "tui") the runtime pid IS the whole TUI session, so signalling
+      // it would kill the operator's editor (Bugbot #98/high) — the in-process
+      // server honors the control-file stop on its poll tick instead. And gate
+      // the signal on the port actually being served, so a reused pid after a
+      // crash (Bugbot #98/med) isn't SIGTERM'd.
       if (ctx.opts.force === true && rt) {
-        try {
-          process.kill(rt.pid, "SIGTERM");
-          delivered = "control+signal";
-        } catch {
-          /* already exiting */
+        if (rt.mode !== "cli") {
+          delivered = "control (—force ignored: /situation on stops via control, not signal)";
+        } else if (await runtimeServing(rt)) {
+          try {
+            process.kill(rt.pid, "SIGTERM");
+            delivered = "control+signal";
+          } catch {
+            /* already exiting */
+          }
+        } else {
+          delivered = "control (—force ignored: no live server on the recorded port)";
         }
       }
       return [
@@ -223,10 +236,14 @@ export const situationVerb: VerbSpec = {
       ];
     }
 
+    // refuse a second serve only when a server is ACTUALLY up (pid alive AND the
+    // port is being served) — a stale runtime.json from a crash, or a reused pid
+    // (Bugbot #98/med), must not block a fresh serve. A stale file is swept.
     const existing = readRuntime(ctx.case);
-    if (runtimeAlive(existing)) {
+    if (runtimeAlive(existing) && (await runtimeServing(existing))) {
       return [err(`a situation is already live at ${existing!.displayUrl} (pid ${existing!.pid}) — \`overcast situation stop\` first`)];
     }
+    if (existing) clearRuntime(ctx.case); // sweep a stale/dead runtime before binding
 
     const parsed = parseConfigFlags(ctx);
     if ("error" in parsed) return [parsed.error];

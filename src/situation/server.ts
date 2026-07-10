@@ -26,6 +26,7 @@ import { LiveHttpd, MEDIA_CONTENT_TYPES, type LiveHttpdOptions } from "../live/h
 import { reportRemoteMediaEnabled, normalizeHtmlTheme } from "../report/html.js";
 import { posterFrame } from "../media/ffmpeg.js";
 import { listSources } from "../state/source.js";
+import { realpathContained } from "../fs-path.js";
 import type { Case } from "../case.js";
 import { buildSituationModel, type SituationMediaRef, type SituationModel } from "./model.js";
 import { consumeControl, readControl, type SituationConfig } from "./state.js";
@@ -244,6 +245,12 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
       if (!ref) return null;
       if (ref.local) {
         const abs = resolve(ref.local);
+        // CONTAINMENT (Bugbot #98/high): only case-scoped media is servable.
+        // The allowlist (model refs) already bounds it, but a record could
+        // reference an absolute/symlinked path outside the case; refuse those so
+        // the /media route can never stream arbitrary disk paths, even with the
+        // token. realpathContained resolves symlinks, closing the escape hole.
+        if (!realpathContained(this.case.dir, abs)) return null;
         const id = createHash("sha1").update(abs).digest("hex");
         this.mediaMap.set(id, abs);
         return `/media/${id}/${encodeURIComponent(basename(abs))}`;
@@ -272,6 +279,8 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
         openFindings: t.openFindings,
         summary: t.summary,
         sourceType: t.sourceType,
+        sourceUrl: t.sourceUrl,
+        sourceAuthor: t.sourceAuthor,
         lastRecordTime: t.lastRecordTime,
         ageSeconds: t.ageSeconds,
         posterUrl: urlFor(t.poster),
@@ -293,14 +302,20 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
       points: model.points.map((p) => ({
         recordId: p.recordId,
         verb: p.verb,
+        source: p.source,
         lat: p.lat,
         lng: p.lng,
         place: p.place,
         time: p.time,
         summary: p.summary,
         ref: p.ref,
+        url: p.url,
         thumbUrl: urlFor(p.thumb),
         track: p.track,
+        heading: p.heading,
+        velocity: p.velocity,
+        onGround: p.onGround,
+        label: p.label,
       })),
       bounds: model.bounds,
       stills: model.stills.map((s) => ({
@@ -308,6 +323,7 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
         recordId: s.recordId,
         title: s.title,
         source: s.source,
+        url: s.url,
         mediaUrl: urlFor(s.media),
         time: s.time,
       })),
@@ -316,6 +332,7 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
           ? { every: this.opts.every, ...this.monitorInfo }
           : { every: null, ...this.monitorInfo },
       sources: model.sources,
+      pollSeconds: Math.round(((this.opts.pollMs ?? POLL_MS) / 1000) * 10) / 10,
     };
   }
 
@@ -330,7 +347,24 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
       this.json(res, 200, { ...this.snapshot, seq: this.seq } satisfies SituationSnapshot);
       return true;
     }
+    // force "sync to now": rebuild from the current store immediately (the poll
+    // tick is ≤pollMs away, but the console's Sync button wants the freshest cut)
+    // then return the new snapshot so the console renders it without a round-trip.
+    if (req.method === "POST" && url.pathname === "/api/refresh") {
+      void this.forceRebuild().then(() => {
+        if (!this.snapshot) return this.json(res, 503, { error: "warming up" });
+        this.json(res, 200, { ...this.snapshot, seq: this.seq } satisfies SituationSnapshot);
+      });
+      return true;
+    }
     return false;
+  }
+
+  /** Rebuild from the current store on demand (the Sync-now button). Bypasses
+   *  the fingerprint short-circuit so it always reflects "now". */
+  async forceRebuild(): Promise<void> {
+    this.lastFingerprint = ""; // force rebuild() past the no-change guard
+    await this.rebuild();
   }
 
   protected helloEvent(): Record<string, unknown> {
@@ -364,6 +398,9 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     const id = url.pathname.split("/")[2] ?? "";
     const path = this.mediaMap.get(id) ?? this.prevMediaMap.get(id);
     if (!path) return this.json(res, 404, { error: "not found" });
+    // re-verify containment at serve time (defense in depth; catches a symlink
+    // swap between snapshot build and this request) — never stream outside the case.
+    if (!realpathContained(this.case.dir, path)) return this.json(res, 404, { error: "not found" });
     let st: ReturnType<typeof statSync>;
     try {
       st = statSync(path);
