@@ -160,8 +160,12 @@ case "$op" in
     IFS=',' read -r bw bs be bn bx <<<"${qt// /}"
     if [ -z "${bx:-}" ] && is_num "$bw" && is_num "$bs" && is_num "$be" && is_num "$bn"; then
       url="$STATES?lamin=$bs&lomin=$bw&lamax=$bn&lomax=$be"
-    elif [[ "$qt" =~ ^[0-9a-fA-F]{6}$ ]]; then
-      url="$STATES?icao24=$(printf '%s' "$qt" | tr 'A-F' 'a-f')"
+    elif [[ "$qt" =~ ^[0-9a-fA-F]{1,6}$ ]]; then
+      # a pure-hex token is an icao24 (24-bit hex, frequently written WITHOUT the
+      # leading zeros) — zero-pad to 6 and lowercase for the ?icao24= lookup. A
+      # hex-looking callsign is inherently ambiguous (and a bare airline code matches
+      # no aircraft anyway), so prefer the direct id over a global states fetch.
+      url="$STATES?icao24=$(printf '%6s' "$qt" | tr ' A-F' '0a-f')"
     else
       callsign="$qt"
     fi
