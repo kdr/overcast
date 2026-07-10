@@ -180,24 +180,29 @@ function allowPrivate() {
 
 /** true = blocked. Resolves real hostnames (all A/AAAA) and fails CLOSED on a
  *  resolution error — the browser resolves independently and could still reach
- *  a private address. Cached per host for the route interceptor. */
-const hostVerdicts = new Map();
+ *  a private address.
+ *
+ *  Only a BLOCKED hostname is remembered (monotonic — a known-bad host stays bad
+ *  and needn't re-resolve). An ALLOWED result is deliberately NOT cached: a
+ *  hostname that first resolves public then rebinds to a private address must be
+ *  caught on the NEXT request, mirroring assertFetchHostAllowed's per-hop
+ *  re-check in fetch.ts. (Caching an allow would widen the DNS-rebind window.) */
+const blockedHosts = new Set();
 async function hostBlocked(host) {
   if (allowPrivate()) return false;
-  const cached = hostVerdicts.get(host);
-  if (cached !== undefined) return cached;
+  if (blockedHosts.has(host)) return true;
+  // deterministic literal checks (no DNS)
+  if (isBlockedHostLiteral(host)) { blockedHosts.add(host); return true; }
+  if (isIpLiteralHost(host)) return false; // vetted public IP literal
+  // real hostname → resolve EVERY time (never cache the allow)
   let blocked;
-  if (isBlockedHostLiteral(host)) blocked = true;
-  else if (isIpLiteralHost(host)) blocked = false; // vetted public IP literal
-  else {
-    try {
-      const addrs = await lookup(host, { all: true });
-      blocked = addrs.some(({ address }) => isBlockedHostLiteral(address));
-    } catch {
-      blocked = true; // fail closed: unresolvable ≠ verified public
-    }
+  try {
+    const addrs = await lookup(host, { all: true });
+    blocked = addrs.some(({ address }) => isBlockedHostLiteral(address));
+  } catch {
+    blocked = true; // fail closed: unresolvable ≠ verified public
   }
-  hostVerdicts.set(host, blocked);
+  if (blocked) blockedHosts.add(host);
   return blocked;
 }
 
@@ -320,6 +325,21 @@ async function main() {
       }
       if (parsed.protocol === "file:") return localInput ? route.continue() : route.abort();
       return route.continue();
+    });
+    // WebSocket guard: context.route above does NOT intercept ws/wss — a rendered
+    // (untrusted, invariant #10) page could otherwise open a socket straight to a
+    // private/internal host, bypassing the HTTP guard. Route every WebSocket:
+    // connect through to the server ONLY for an allowed host; a blocked host is
+    // closed and never reaches the real server (connectToServer is never called).
+    await context.routeWebSocket(/.*/, async (ws) => {
+      let host;
+      try {
+        host = new URL(ws.url()).hostname;
+      } catch {
+        return ws.close({ code: 1008, reason: "blocked" });
+      }
+      if (await hostBlocked(host)) return ws.close({ code: 1008, reason: "blocked" });
+      ws.connectToServer();
     });
 
     const page = await context.newPage();

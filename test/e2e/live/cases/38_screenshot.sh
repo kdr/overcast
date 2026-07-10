@@ -69,6 +69,26 @@ else
   fail "$C.ssrf.blocked" "expected error for 127.0.0.1, got state=$bstate"
 fi
 
+# --- 4b) SSRF over WebSocket: a rendered page must NOT reach a private ws server ---
+# context.route only guards HTTP(S); context.routeWebSocket guards ws/wss. Stand up
+# a loopback server, render a page that opens a WS to it, and assert ZERO
+# connections arrive (the guard closes it before connectToServer).
+cond "screenshot blocks a WebSocket from a rendered page to a private host"
+WSPORT=$(( (RANDOM % 4000) + 41000 ))
+HITF="$SMOKE_DIR/38_ws_hits"; rm -f "$HITF"
+node -e "const http=require('http'),fs=require('fs');const s=http.createServer();s.on('connection',()=>{try{fs.writeFileSync('$HITF','hit')}catch(e){}});s.listen($WSPORT,'127.0.0.1');setTimeout(()=>process.exit(0),25000);" &
+WSPID=$!
+sleep 1
+wshtml="$SMOKE_DIR/38_ws.html"
+printf '%s\n' "<!doctype html><meta charset=utf-8><title>WS</title><script>try{new WebSocket('ws://127.0.0.1:$WSPORT/x')}catch(e){}</script>" >"$wshtml"
+OC_TIMEOUT=60 oc "$CASE" screenshot "$wshtml" --wait 2500 --json >/dev/null 2>&1
+sleep 1; { kill "$WSPID" && wait "$WSPID"; } 2>/dev/null || true
+if [ -f "$HITF" ]; then
+  fail "$C.ws.blocked" "private WS server received a connection (SSRF leak)"
+else
+  ok "$C.ws.blocked" "no connection reached the private WS server (routeWebSocket guard held)"
+fi
+
 # --- 5) browser: source — scan --pull renders + captures a page image ---
 cond "browser source scan --pull renders the page into an image capture"
 SCASE=$(case_dir browser_src)

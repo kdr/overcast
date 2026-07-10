@@ -154,8 +154,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   headless Chromium; the shared Playwright engine in `examples/providers/screenshot/`
   also backs the `browser:` source, runs under system `node` with the playwright
   **optional dep** — missing → `needs_credentials`; `--full-page`, `--viewport WxH`,
-  `--wait ms`; re-implements the fetch SSRF guard, private/loopback refused by
-  default with `OVERCAST_ALLOW_PRIVATE_FETCH` opt-out; rendered pages are untrusted,
+  `--wait ms`; re-implements the fetch SSRF guard over HTTP **and** WebSocket
+  (`ws`/`wss`), private/loopback refused by default with
+  `OVERCAST_ALLOW_PRIVATE_FETCH` opt-out; rendered pages are untrusted,
   invariant #10).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`; on an `enhance` split-op parent it renders a GALLERY of the fanned-out

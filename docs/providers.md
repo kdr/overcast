@@ -741,13 +741,18 @@ the source engine with `OVERCAST_SOURCE_BROWSER_CMD`; point `node` elsewhere wit
 
 **Security.** A headless browser fetching arbitrary URLs bypasses the fetch-side
 SSRF guard, so `render.mjs` re-implements it: private/loopback/link-local/CGNAT/
-metadata (`169.254.169.254`) targets are **refused by default**, both before
-navigation and per request (redirects/meta-refresh/subresources are intercepted).
-Opt out only with an affirmative `OVERCAST_ALLOW_PRIVATE_FETCH` (same knob as
-`fetchMediaToCase`). Rendered pages are untrusted content (invariant #10,
-prompt-injection surface) — a capture may also be a bot-challenge or login wall,
-and that rendered state is still the evidence. Element (`--selector`) and video
-capture are not yet supported (reserved).
+metadata (`169.254.169.254`) targets are **refused by default**, before navigation
+and per request — HTTP(S) redirects/meta-refresh/subresources are intercepted
+(`context.route`) **and** `ws`/`wss` WebSocket connections are gated
+(`context.routeWebSocket`), so a rendered page can't reach an internal host over
+either. A blocked hostname is remembered, but an *allowed* one is re-resolved each
+request (never cached) to catch a DNS rebind on a later hop, mirroring
+`assertFetchHostAllowed`. Opt out only with an affirmative
+`OVERCAST_ALLOW_PRIVATE_FETCH` (same knob as `fetchMediaToCase`). Rendered pages
+are untrusted content (invariant #10, prompt-injection surface) — a capture may
+also be a bot-challenge or login wall, and that rendered state is still the
+evidence. Element (`--selector`) and video capture are not yet supported
+(reserved).
 
 ## Source providers (built-in types)
 
