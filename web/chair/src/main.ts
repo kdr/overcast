@@ -40,6 +40,7 @@ async function boot(): Promise<void> {
   let gated = false;
   const teardownSession = (): void => {
     gated = true;
+    composer.cancelDictation(); // stop the browser mic before the console is torn down
     disconnect?.(); // close the EventSource (stops its auto-reconnect)
     disconnect = undefined;
     streamConnected = false;
@@ -87,6 +88,7 @@ async function boot(): Promise<void> {
         .then(refreshIfDisconnected)
         .catch((e) => (isAuthError(e) ? onAuthFailure() : transcript.notice("abort failed", "error")));
     },
+    onNotice: (text, level) => transcript.notice(text, level),
   });
 
   let booted = false;

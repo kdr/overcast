@@ -1,16 +1,21 @@
 // Bottom composer: message box, delivery-mode segmented control
-// (auto = steer while busy, new turn while idle), send + ABORT.
+// (auto = steer while busy, new turn while idle), mic dictation, send + ABORT.
 
 import type { ChairPromptMode } from "../../../../src/chair/wire.js";
+import { createDictation } from "../dictation.js";
 
 export interface Composer {
   el: HTMLElement;
   setBusy(busy: boolean): void;
+  /** Stop any active dictation — called before the console tears down (auth
+   *  gate) so the browser mic doesn't keep recording after the UI is gone. */
+  cancelDictation(): void;
 }
 
 export function createComposer(handlers: {
   onSend: (text: string, mode: ChairPromptMode) => Promise<void>;
   onAbort: () => void;
+  onNotice: (text: string, level?: "info" | "warning" | "error") => void;
 }): Composer {
   const el = document.createElement("footer");
   el.className = "composer";
@@ -22,11 +27,13 @@ export function createComposer(handlers: {
       <button type="button" data-mode="followUp">follow-up</button>
     </span>
     <span class="actions">
+      <button type="button" class="mic" hidden>mic</button>
       <button type="button" class="abort">ABORT</button>
       <button type="button" class="send">send</button>
     </span>
   `;
   const input = el.querySelector<HTMLTextAreaElement>("textarea")!;
+  const mic = el.querySelector<HTMLButtonElement>(".mic")!;
   const send = el.querySelector<HTMLButtonElement>(".send")!;
   const abort = el.querySelector<HTMLButtonElement>(".abort")!;
   let mode: ChairPromptMode = "auto";
@@ -38,16 +45,74 @@ export function createComposer(handlers: {
     });
   }
 
+  const autosize = (): void => {
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, innerHeight * 0.3)}px`;
+  };
+
+  // Dictation: tap-to-toggle. While listening the textarea is the live
+  // transcript view (base text captured at start + finals + interim); a manual
+  // stop keeps whatever is displayed, submit hard-cancels so a late final
+  // flush can't repopulate the cleared box.
+  let base = "";
+  const dictation = createDictation({
+    onText: (finalText, interim) => {
+      const spoken = (finalText + interim).trim();
+      input.value = base ? (spoken ? `${base} ${spoken}` : base) : spoken;
+      autosize();
+    },
+    onState: (listening) => {
+      mic.classList.toggle("on", listening);
+      input.placeholder = listening ? "listening…" : busyPlaceholder();
+    },
+    onError: (message) => handlers.onNotice(message, "warning"),
+  });
+  // Show the button whenever the API could work here — hidden only when the
+  // browser genuinely lacks it (secure context, no API: e.g. Firefox). On an
+  // insecure origin, show it blocked with a self-explaining label so it reads as
+  // "needs HTTPS", not "missing".
+  if (dictation.support !== "unsupported") mic.hidden = false;
+  if (dictation.support === "insecure") {
+    mic.classList.add("blocked");
+    mic.textContent = "mic 🔒";
+    mic.title = "voice needs HTTPS — tap for details";
+  }
+  mic.addEventListener("click", () => {
+    if (dictation.support === "insecure") {
+      handlers.onNotice(
+        "voice needs a secure page (HTTPS or localhost). You're on a plain-HTTP address — front the chair with HTTPS, e.g. `/chair on --serve` at the desk (Tailscale), then re-scan the QR.",
+        "warning",
+      );
+      return;
+    }
+    if (dictation.listening()) {
+      dictation.stop();
+    } else {
+      base = input.value.trim();
+      dictation.start();
+    }
+  });
+
+  let busy = false;
+  const busyPlaceholder = (): string => (busy ? "steer the running agent…" : "message the desk…");
+
   const submit = async (): Promise<void> => {
+    dictation.cancel();
     const text = input.value.trim();
     if (!text) return;
     send.disabled = true;
+    // Lock the mic while the send is in flight: a mic-start during the async
+    // onSend would capture the outgoing text as `base` and, once the successful
+    // send clears the box, the next onText would write it back in — resending
+    // already-sent text.
+    mic.disabled = true;
     try {
       await handlers.onSend(text, mode);
       input.value = "";
       input.style.height = "auto";
     } finally {
       send.disabled = false;
+      mic.disabled = false;
     }
   };
   send.addEventListener("click", () => void submit());
@@ -58,15 +123,24 @@ export function createComposer(handlers: {
     }
   });
   input.addEventListener("input", () => {
-    input.style.height = "auto";
-    input.style.height = `${Math.min(input.scrollHeight, innerHeight * 0.3)}px`;
+    // A manual edit takes over from dictation: cancel so a late interim/final
+    // can't rebuild the box from `base` and wipe the correction. onText sets
+    // `.value` programmatically, which does NOT fire 'input', so this only trips
+    // on genuine typing/paste/IME — never on our own transcript updates.
+    if (dictation.listening()) dictation.cancel();
+    autosize();
   });
-  abort.addEventListener("click", handlers.onAbort);
+  abort.addEventListener("click", () => {
+    dictation.cancel(); // halting remote control stops the mic too (matches submit)
+    handlers.onAbort();
+  });
 
   return {
     el,
-    setBusy(busy) {
-      input.placeholder = busy ? "steer the running agent…" : "message the desk…";
+    setBusy(nowBusy) {
+      busy = nowBusy;
+      if (!dictation.listening()) input.placeholder = busyPlaceholder();
     },
+    cancelDictation: () => dictation.cancel(),
   };
 }

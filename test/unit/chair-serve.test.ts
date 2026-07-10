@@ -1,0 +1,206 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseServeUrl, serveIsSolelyPort, detectServeUrl, enableServe, disableServe, serveCommandHint } from "../../src/chair/serve.ts";
+import { ChairBridge, type ChairAgent } from "../../src/chair/bridge.ts";
+import type { CaseGlance } from "../../src/chair/wire.ts";
+
+// --- parseServeUrl: pull the HTTPS origin out of `tailscale serve status --json` ---
+
+const serveConfig = (proxy: string, host = "mac.tail1234.ts.net:443", mount = "/") => ({
+  TCP: { "443": { HTTPS: true } },
+  Web: { [host]: { Handlers: { [mount]: { Proxy: proxy } } } },
+});
+
+test("parseServeUrl maps a loopback proxy to its HTTPS origin (strips :443)", () => {
+  assert.equal(parseServeUrl(serveConfig("http://127.0.0.1:7373"), 7373), "https://mac.tail1234.ts.net/");
+});
+
+test("parseServeUrl accepts localhost and ::1 loopback targets", () => {
+  assert.equal(parseServeUrl(serveConfig("http://localhost:7373"), 7373), "https://mac.tail1234.ts.net/");
+  assert.equal(parseServeUrl(serveConfig("http://[::1]:7373"), 7373), "https://mac.tail1234.ts.net/");
+});
+
+test("parseServeUrl keeps a non-443 host port and a non-root mount", () => {
+  assert.equal(parseServeUrl(serveConfig("http://127.0.0.1:7373", "mac.ts.net:8443", "/chair"), 7373), "https://mac.ts.net:8443/chair/");
+});
+
+test("parseServeUrl returns undefined when the proxy targets a different port", () => {
+  assert.equal(parseServeUrl(serveConfig("http://127.0.0.1:9999"), 7373), undefined);
+});
+
+test("parseServeUrl ignores non-loopback proxy targets", () => {
+  assert.equal(parseServeUrl(serveConfig("http://100.82.85.64:7373"), 7373), undefined);
+});
+
+test("parseServeUrl tolerates empty / malformed config", () => {
+  assert.equal(parseServeUrl(null, 7373), undefined);
+  assert.equal(parseServeUrl({}, 7373), undefined);
+  assert.equal(parseServeUrl({ Web: {} }, 7373), undefined);
+  assert.equal(parseServeUrl({ Web: { "h:443": {} } }, 7373), undefined);
+});
+
+test("serveCommandHint names the port", () => {
+  assert.equal(serveCommandHint(7373), "tailscale serve --bg 7373");
+});
+
+// --- serveIsSolelyPort: teardown guard ---
+
+test("serveIsSolelyPort true when the only handler is the chair port", () => {
+  assert.equal(serveIsSolelyPort(serveConfig("http://127.0.0.1:7373"), 7373), true);
+});
+
+test("serveIsSolelyPort false when another mapping shares the 443 config", () => {
+  const cfg = { Web: { "mac.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:7373" }, "/other": { Proxy: "http://127.0.0.1:9000" } } } } };
+  assert.equal(serveIsSolelyPort(cfg, 7373), false);
+});
+
+test("serveIsSolelyPort false for an empty config", () => {
+  assert.equal(serveIsSolelyPort({}, 7373), false);
+  assert.equal(serveIsSolelyPort(null, 7373), false);
+});
+
+// --- detectServeUrl: exec wiring via OVERCAST_TAILSCALE_CMD fake ---
+
+function withFakeTailscale(body: string, fn: () => Promise<void>): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), "oc-ts-"));
+  const script = join(dir, "fakets.sh");
+  writeFileSync(script, `#!/usr/bin/env bash\n${body}\n`);
+  chmodSync(script, 0o755);
+  const prev = process.env.OVERCAST_TAILSCALE_CMD;
+  process.env.OVERCAST_TAILSCALE_CMD = script;
+  return fn().finally(() => {
+    if (prev === undefined) delete process.env.OVERCAST_TAILSCALE_CMD;
+    else process.env.OVERCAST_TAILSCALE_CMD = prev;
+    rmSync(dir, { recursive: true, force: true });
+  });
+}
+
+test("detectServeUrl parses a fake `serve status --json`", async () => {
+  const json = JSON.stringify(serveConfig("http://127.0.0.1:7373"));
+  await withFakeTailscale(`echo '${json}'`, async () => {
+    assert.equal(await detectServeUrl(7373), "https://mac.tail1234.ts.net/");
+  });
+});
+
+test("detectServeUrl returns undefined on non-JSON output (old CLI)", async () => {
+  await withFakeTailscale(`echo 'https://mac.ts.net/ (tailnet only)'`, async () => {
+    assert.equal(await detectServeUrl(7373), undefined);
+  });
+});
+
+test("detectServeUrl returns undefined when tailscale errors", async () => {
+  await withFakeTailscale(`echo 'not logged in' >&2; exit 1`, async () => {
+    assert.equal(await detectServeUrl(7373), undefined);
+  });
+});
+
+test("detectServeUrl short-circuits an ephemeral (0) port", async () => {
+  // no fake needed — port 0 never reaches exec
+  assert.equal(await detectServeUrl(0), undefined);
+});
+
+// --- enableServe: trust `serve status` over the exit code ---
+
+/** A stateful fake tailscale: `serve status` is empty until `serve --bg` runs
+ *  (which touches a marker), and `serve --bg` mimics a build that prints to
+ *  stdout and exits non-zero even though the mapping took effect. */
+function withStatefulFake(opts: { serveExitsNonZero: boolean; mappingAppears: boolean }, fn: () => Promise<void>): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), "oc-ts2-"));
+  const marker = join(dir, "started");
+  const json = JSON.stringify(serveConfig("http://127.0.0.1:7373")).replace(/'/g, "");
+  const body = [
+    "#!/usr/bin/env bash",
+    `if [ "$1 $2" = "serve status" ]; then`,
+    `  if [ -f "${marker}" ]; then echo '${json}'; else echo 'No serve config'; fi; exit 0`,
+    "fi",
+    `if [ "$1 $2" = "serve --bg" ]; then`,
+    ...(opts.mappingAppears ? [`  touch "${marker}"`] : []),
+    `  echo "provisioning TLS certificate…"`,
+    `  exit ${opts.serveExitsNonZero ? 1 : 0}`,
+    "fi",
+    "exit 0",
+  ].join("\n");
+  const script = join(dir, "fakets.sh");
+  writeFileSync(script, `${body}\n`);
+  chmodSync(script, 0o755);
+  const prevCmd = process.env.OVERCAST_TAILSCALE_CMD;
+  const prevPoll = process.env.OVERCAST_TAILSCALE_POLL_MS;
+  process.env.OVERCAST_TAILSCALE_CMD = script;
+  process.env.OVERCAST_TAILSCALE_POLL_MS = "10";
+  return fn().finally(() => {
+    prevCmd === undefined ? delete process.env.OVERCAST_TAILSCALE_CMD : (process.env.OVERCAST_TAILSCALE_CMD = prevCmd);
+    prevPoll === undefined ? delete process.env.OVERCAST_TAILSCALE_POLL_MS : (process.env.OVERCAST_TAILSCALE_POLL_MS = prevPoll);
+    rmSync(dir, { recursive: true, force: true });
+  });
+}
+
+test("enableServe returns created:false for a pre-existing serve (not ours to remove)", async () => {
+  const json = JSON.stringify(serveConfig("http://127.0.0.1:7373")).replace(/'/g, "");
+  await withFakeTailscale(`echo '${json}'`, async () => {
+    assert.deepEqual(await enableServe(7373), { url: "https://mac.tail1234.ts.net/", created: false });
+  });
+});
+
+test("enableServe trusts detection when serve exits non-zero but the mapping appears (created:true)", async () => {
+  await withStatefulFake({ serveExitsNonZero: true, mappingAppears: true }, async () => {
+    assert.deepEqual(await enableServe(7373), { url: "https://mac.tail1234.ts.net/", created: true });
+  });
+});
+
+test("disableServe skips teardown when another mapping shares the 443 config", async () => {
+  const cfg = JSON.stringify({ Web: { "h:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:7373" }, "/x": { Proxy: "http://127.0.0.1:9000" } } } } }).replace(/'/g, "");
+  await withFakeTailscale(`if [ "$1 $2" = "serve status" ]; then echo '${cfg}'; fi; exit 0`, async () => {
+    const r = await disableServe(7373);
+    assert.equal(r.ok, false);
+    assert.match(r.skipped || "", /other tailscale serve mappings/);
+  });
+});
+
+test("disableServe tears down when the serve config is solely ours", async () => {
+  const cfg = JSON.stringify(serveConfig("http://127.0.0.1:7373")).replace(/'/g, "");
+  await withFakeTailscale(`if [ "$1 $2" = "serve status" ]; then echo '${cfg}'; fi; exit 0`, async () => {
+    assert.deepEqual(await disableServe(7373), { ok: true });
+  });
+});
+
+test("enableServe reports the stdout reason when no mapping ever appears", async () => {
+  await withStatefulFake({ serveExitsNonZero: true, mappingAppears: false }, async () => {
+    const r = await enableServe(7373);
+    assert.equal(r.url, undefined);
+    assert.match(r.error || "", /provisioning TLS certificate/);
+    assert.match(r.error || "", /tailscale serve --bg 7373/);
+  });
+});
+
+// --- ChairBridge: publicUrl drives displayUrl / secure / pairingUrl ---
+
+const GLANCE: CaseGlance = { caseName: "tc", dir: "/tmp/tc", records: 0, counts: {}, targets: [], sources: [], openFindings: [], latest: [] };
+const agent: ChairAgent = {
+  isIdle: () => true,
+  hasPending: () => false,
+  abort: () => {},
+  sendUserMessage: () => {},
+  model: () => "m",
+  sessionName: () => "s",
+  caseName: () => "tc",
+  caseDir: () => "/tmp/tc",
+  transcript: () => [],
+  caseGlance: () => GLANCE,
+};
+
+test("ChairBridge with publicUrl pairs over the HTTPS origin", () => {
+  const b = new ChairBridge({ agent, profile: "default", version: "0", port: 0, token: "tok", publicUrl: "https://mac.ts.net/" });
+  assert.equal(b.displayUrl, "https://mac.ts.net/");
+  assert.equal(b.secure, true);
+  assert.equal(b.pairingUrl, "https://mac.ts.net/#t=tok");
+});
+
+test("ChairBridge without publicUrl stays on the raw http bind", () => {
+  const b = new ChairBridge({ agent, profile: "default", version: "0", port: 0, token: "tok" });
+  assert.match(b.displayUrl, /^http:\/\//);
+  assert.equal(b.secure, false);
+  assert.match(b.pairingUrl, /#t=tok$/);
+});
