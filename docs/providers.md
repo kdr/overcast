@@ -745,9 +745,10 @@ metadata (`169.254.169.254`) targets are **refused by default**, before navigati
 and per request — HTTP(S) redirects/meta-refresh/subresources are intercepted
 (`context.route`) **and** `ws`/`wss` WebSocket connections are gated
 (`context.routeWebSocket`), so a rendered page can't reach an internal host over
-either. A blocked hostname is remembered, but an *allowed* one is re-resolved each
-request (never cached) to catch a DNS rebind on a later hop, mirroring
-`assertFetchHostAllowed`. Opt out only with an affirmative
+either. Every hostname is re-resolved per request (no verdict is cached) and fails
+closed per attempt, mirroring `assertFetchHostAllowed` — so a DNS rebind on a later
+hop is caught, and a transient resolver glitch blocks only that one request rather
+than wedging a public host for the whole render. Opt out only with an affirmative
 `OVERCAST_ALLOW_PRIVATE_FETCH` (same knob as `fetchMediaToCase`). Rendered pages
 are untrusted content (invariant #10, prompt-injection surface) — a capture may
 also be a bot-challenge or login wall, and that rendered state is still the

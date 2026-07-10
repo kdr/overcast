@@ -182,28 +182,23 @@ function allowPrivate() {
  *  resolution error — the browser resolves independently and could still reach
  *  a private address.
  *
- *  Only a BLOCKED hostname is remembered (monotonic — a known-bad host stays bad
- *  and needn't re-resolve). An ALLOWED result is deliberately NOT cached: a
- *  hostname that first resolves public then rebinds to a private address must be
- *  caught on the NEXT request, mirroring assertFetchHostAllowed's per-hop
- *  re-check in fetch.ts. (Caching an allow would widen the DNS-rebind window.) */
-const blockedHosts = new Set();
+ *  NO verdict is cached — each call resolves fresh, exactly like
+ *  assertFetchHostAllowed in fetch.ts. Caching an ALLOW would widen the
+ *  DNS-rebind window (a host that rebinds public→private would skip re-check);
+ *  caching a BLOCK is worse, because the fail-closed branch treats a TRANSIENT
+ *  resolver glitch (NXDOMAIN/timeout) as blocked — caching that would wedge an
+ *  otherwise-public host for the rest of the render. So fail closed PER ATTEMPT
+ *  only. (The OS resolver caches real lookups, so re-resolving is cheap.) */
 async function hostBlocked(host) {
   if (allowPrivate()) return false;
-  if (blockedHosts.has(host)) return true;
-  // deterministic literal checks (no DNS)
-  if (isBlockedHostLiteral(host)) { blockedHosts.add(host); return true; }
+  if (isBlockedHostLiteral(host)) return true; // deterministic literal, no DNS
   if (isIpLiteralHost(host)) return false; // vetted public IP literal
-  // real hostname → resolve EVERY time (never cache the allow)
-  let blocked;
   try {
     const addrs = await lookup(host, { all: true });
-    blocked = addrs.some(({ address }) => isBlockedHostLiteral(address));
+    return addrs.some(({ address }) => isBlockedHostLiteral(address));
   } catch {
-    blocked = true; // fail closed: unresolvable ≠ verified public
+    return true; // fail closed for THIS attempt only (never remembered)
   }
-  if (blocked) blockedHosts.add(host);
-  return blocked;
 }
 
 // ---------------------------------------------------------------------------
