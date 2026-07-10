@@ -150,28 +150,34 @@ case "$op" in
     while [ "$i" -lt "$n" ]; do
       item="$(printf '%s' "$items" | jq -c ".[$i]")"
       thumb_src="$(printf '%s' "$item" | jq -r '.thumb // ""')"
-      ref=""
+      ref=""         # media.ref candidate — ONLY a probe-excluded http(s) thumb url
+      thumb_file=""  # a materialized base64 preview — attached as thumbnail_path only
       case "$thumb_src" in
         data:image/*\;base64,*)
-          # a base64 thumbnail → materialize into the case media dir (like lens)
+          # a base64 thumbnail is an inline preview the actor chose to embed; unlike a
+          # url thumb it cannot be canon-compared to the probe, so it may be the query
+          # image echoed back on an otherwise-real page. Materialize it for DISPLAY
+          # (thumbnail_path) but NEVER promote it to media.ref: capture/--pull ingest
+          # media.ref, and the submitted image must not become match evidence. media.ref
+          # falls back to the (exclusion-checked) page url below.
           if [ -n "${OVERCAST_MEDIA_DIR:-}" ]; then
             mime="${thumb_src#data:image/}"; mime="${mime%%;*}"
             case "$mime" in jpeg) text="jpg" ;; *) text="$mime" ;; esac
             f="$OVERCAST_MEDIA_DIR/yandeximg_$(printf '%s' "$item" | jq -r '.page // ""' | h8).$text"
             if printf '%s' "${thumb_src#*base64,}" | base64 -d >"$f" 2>/dev/null && [ -s "$f" ]; then
-              ref="$f"
+              thumb_file="$f"
             else
               rm -f "$f"
             fi
           fi ;;
-        http://*|https://*) ref="$thumb_src" ;;   # a plain image url — capture downloads it
+        http://*|https://*) ref="$thumb_src" ;;   # a plain image url, already probe-excluded → safe as media.ref
       esac
-      hit="$(printf '%s' "$item" | jq -c --arg r "$ref" '
+      hit="$(printf '%s' "$item" | jq -c --arg r "$ref" --arg tf "$thumb_file" '
         {title:.title, url:.page, source:"yandeximg", published:null,
          snippet:(if .snippet != "" then .snippet else "reverse image match" end),
          match:.match, site:.site}
         + (if $r != "" then {media:{ref:$r}} else {media:{ref:.page}} end)
-        + (if $r != "" and ($r | ascii_downcase | startswith("http") | not) then {thumbnail_path:$r} else {} end)')"
+        + (if $tf != "" then {thumbnail_path:$tf} else {} end)')"
       hits="$(printf '%s' "$hits" | jq -c --argjson h "$hit" '. + [$h]')"
       i=$((i + 1))
     done
