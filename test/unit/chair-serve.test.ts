@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseServeUrl, detectServeUrl, enableServe, serveCommandHint } from "../../src/chair/serve.ts";
+import { parseServeUrl, serveIsSolelyPort, detectServeUrl, enableServe, disableServe, serveCommandHint } from "../../src/chair/serve.ts";
 import { ChairBridge, type ChairAgent } from "../../src/chair/bridge.ts";
 import type { CaseGlance } from "../../src/chair/wire.ts";
 
@@ -44,6 +44,22 @@ test("parseServeUrl tolerates empty / malformed config", () => {
 
 test("serveCommandHint names the port", () => {
   assert.equal(serveCommandHint(7373), "tailscale serve --bg 7373");
+});
+
+// --- serveIsSolelyPort: teardown guard ---
+
+test("serveIsSolelyPort true when the only handler is the chair port", () => {
+  assert.equal(serveIsSolelyPort(serveConfig("http://127.0.0.1:7373"), 7373), true);
+});
+
+test("serveIsSolelyPort false when another mapping shares the 443 config", () => {
+  const cfg = { Web: { "mac.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:7373" }, "/other": { Proxy: "http://127.0.0.1:9000" } } } } };
+  assert.equal(serveIsSolelyPort(cfg, 7373), false);
+});
+
+test("serveIsSolelyPort false for an empty config", () => {
+  assert.equal(serveIsSolelyPort({}, 7373), false);
+  assert.equal(serveIsSolelyPort(null, 7373), false);
 });
 
 // --- detectServeUrl: exec wiring via OVERCAST_TAILSCALE_CMD fake ---
@@ -121,9 +137,32 @@ function withStatefulFake(opts: { serveExitsNonZero: boolean; mappingAppears: bo
   });
 }
 
-test("enableServe trusts detection when serve exits non-zero but the mapping appears", async () => {
+test("enableServe returns created:false for a pre-existing serve (not ours to remove)", async () => {
+  const json = JSON.stringify(serveConfig("http://127.0.0.1:7373")).replace(/'/g, "");
+  await withFakeTailscale(`echo '${json}'`, async () => {
+    assert.deepEqual(await enableServe(7373), { url: "https://mac.tail1234.ts.net/", created: false });
+  });
+});
+
+test("enableServe trusts detection when serve exits non-zero but the mapping appears (created:true)", async () => {
   await withStatefulFake({ serveExitsNonZero: true, mappingAppears: true }, async () => {
-    assert.deepEqual(await enableServe(7373), { url: "https://mac.tail1234.ts.net/" });
+    assert.deepEqual(await enableServe(7373), { url: "https://mac.tail1234.ts.net/", created: true });
+  });
+});
+
+test("disableServe skips teardown when another mapping shares the 443 config", async () => {
+  const cfg = JSON.stringify({ Web: { "h:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:7373" }, "/x": { Proxy: "http://127.0.0.1:9000" } } } } }).replace(/'/g, "");
+  await withFakeTailscale(`if [ "$1 $2" = "serve status" ]; then echo '${cfg}'; fi; exit 0`, async () => {
+    const r = await disableServe(7373);
+    assert.equal(r.ok, false);
+    assert.match(r.skipped || "", /other tailscale serve mappings/);
+  });
+});
+
+test("disableServe tears down when the serve config is solely ours", async () => {
+  const cfg = JSON.stringify(serveConfig("http://127.0.0.1:7373")).replace(/'/g, "");
+  await withFakeTailscale(`if [ "$1 $2" = "serve status" ]; then echo '${cfg}'; fi; exit 0`, async () => {
+    assert.deepEqual(await disableServe(7373), { ok: true });
   });
 });
 

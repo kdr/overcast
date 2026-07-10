@@ -122,7 +122,14 @@ export function createComposer(handlers: {
       void submit();
     }
   });
-  input.addEventListener("input", autosize);
+  input.addEventListener("input", () => {
+    // A manual edit takes over from dictation: cancel so a late interim/final
+    // can't rebuild the box from `base` and wipe the correction. onText sets
+    // `.value` programmatically, which does NOT fire 'input', so this only trips
+    // on genuine typing/paste/IME — never on our own transcript updates.
+    if (dictation.listening()) dictation.cancel();
+    autosize();
+  });
   abort.addEventListener("click", () => {
     dictation.cancel(); // halting remote control stops the mic too (matches submit)
     handlers.onAbort();

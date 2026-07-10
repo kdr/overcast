@@ -74,10 +74,12 @@ function httpsUrlFor(hostPort: string, mount: string): string {
   return `https://${host}${suffix}${path}`;
 }
 
+type ServeWeb = Record<string, { Handlers?: Record<string, { Proxy?: string }> }>;
+
 /** Pure core: pull an HTTPS URL proxying to loopback:<port> out of the parsed
  *  `tailscale serve status --json` config (undefined if none). */
 export function parseServeUrl(config: unknown, port: number): string | undefined {
-  const web = (config as { Web?: Record<string, { Handlers?: Record<string, { Proxy?: string }> }> } | null)?.Web;
+  const web = (config as { Web?: ServeWeb } | null)?.Web;
   if (!web || typeof web !== "object") return undefined;
   for (const [hostPort, entry] of Object.entries(web)) {
     const handlers = entry?.Handlers;
@@ -87,6 +89,22 @@ export function parseServeUrl(config: unknown, port: number): string | undefined
     }
   }
   return undefined;
+}
+
+/** Pure core: true only when EVERY serve handler proxies to loopback:<port> —
+ *  i.e. the serve config is solely the chair's mapping, so turning HTTPS off
+ *  can't remove a mapping the operator set up outside overcast. */
+export function serveIsSolelyPort(config: unknown, port: number): boolean {
+  const web = (config as { Web?: ServeWeb } | null)?.Web;
+  if (!web || typeof web !== "object") return false;
+  let ours = false;
+  for (const entry of Object.values(web)) {
+    for (const handler of Object.values(entry?.Handlers ?? {})) {
+      if (handler?.Proxy && proxyTargetsPort(handler.Proxy, port)) ours = true;
+      else return false; // a handler that isn't ours — don't touch the shared 443 config
+    }
+  }
+  return ours;
 }
 
 /** The HTTPS URL an existing `tailscale serve` exposes for the chair port, or
@@ -108,19 +126,20 @@ export function serveCommandHint(port: number): string {
 }
 
 /** Bring up `tailscale serve` for the port (idempotent) and read back the HTTPS
- *  URL. Returns { url } on success or { error } with actionable text.
+ *  URL. Returns { url, created } on success (created=true only when WE started
+ *  it, so the caller knows whether it's ours to tear down) or { error }.
  *
  *  We TRUST detection over the exit code: some tailscale builds print to stdout
  *  and return non-zero on first-run cert provisioning even though the serve
  *  mapping is written — so poll `serve status` before declaring failure. */
-export async function enableServe(port: number): Promise<{ url?: string; error?: string }> {
+export async function enableServe(port: number): Promise<{ url?: string; created?: boolean; error?: string }> {
   const existing = await detectServeUrl(port);
-  if (existing) return { url: existing };
+  if (existing) return { url: existing, created: false }; // pre-existing — not ours to remove
   const res = await runTailscale(["serve", "--bg", String(port)], 25000);
   const pollMs = Number(process.env.OVERCAST_TAILSCALE_POLL_MS) || 750;
   for (let i = 0; i < 4; i++) {
     const url = await detectServeUrl(port);
-    if (url) return { url };
+    if (url) return { url, created: true };
     await delay(pollMs);
   }
   // genuine failure — surface the real reason (tailscale often writes it to
@@ -131,8 +150,21 @@ export async function enableServe(port: number): Promise<{ url?: string; error?:
   };
 }
 
-/** Best-effort teardown of the 443 serve mapping we brought up. */
-export async function disableServe(port: number): Promise<void> {
+/** Tear down the serve mapping for the chair port — but ONLY when the serve
+ *  config is solely ours, so we never remove a mapping the operator set up
+ *  outside overcast. `tailscale serve --https=443 off` is coarse (whole 443),
+ *  so we guard it with a solely-ours check first. */
+export async function disableServe(port: number): Promise<{ ok: boolean; skipped?: string }> {
+  const { code, stdout } = await runTailscale(["serve", "status", "--json"], 4000);
+  if (code === 0 && stdout.trim()) {
+    try {
+      if (!serveIsSolelyPort(JSON.parse(stdout), port)) {
+        return { ok: false, skipped: "other tailscale serve mappings share the HTTPS config — left it up" };
+      }
+    } catch {
+      /* unparseable status — fall through and attempt the off */
+    }
+  }
   await runTailscale(["serve", "--https=443", "off"], 8000).catch(() => {});
-  void port;
+  return { ok: true };
 }

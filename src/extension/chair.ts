@@ -438,16 +438,22 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   async function startChair(opts: StartOptions = {}): Promise<void> {
     // --serve: front the chair with HTTPS via `tailscale serve` so the paired
     // phone loads a SECURE context and voice dictation works. serve proxies to
-    // loopback, so force a loopback bind; enable it before binding, and record
-    // the port so /chair off tears exactly this mapping down.
+    // LOOPBACK, so force a loopback bind (a `tailnet` bind would make the HTTPS
+    // QR point at a chair the proxy can't reach). Enable it before binding to
+    // get the public URL, but only ADOPT it for teardown after a successful bind
+    // and only when WE created the mapping (not a pre-existing operator serve).
+    let serveCreatedPort: number | undefined;
     if (opts.serve) {
-      if (opts.bind === undefined) opts.bind = "127.0.0.1";
+      if (opts.bind && !loopbackBind(opts.bind)) {
+        emitResult(pi, "▶ chair: --serve gives HTTPS over your tailnet via `tailscale serve`; binding loopback (ignoring the tailnet bind)");
+      }
+      opts.bind = "127.0.0.1";
       const port = opts.port ?? lastStartOpts.port ?? envPort(process.env.OVERCAST_CHAIR_PORT) ?? 7373;
       emitResult(pi, "▶ chair: enabling HTTPS via `tailscale serve`…");
       const r = await enableServe(port);
       if (r.url) {
         opts.publicUrl = r.url;
-        serveEnabledPort = port;
+        if (r.created) serveCreatedPort = port; // ours to tear down — adopted only after bind succeeds
       } else {
         emitResult(pi, `▶ chair: ${r.error} — continuing over HTTP (voice needs HTTPS)`);
       }
@@ -469,10 +475,14 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     await stopping;
     const err = await bindBridge(opts);
     if (!err) {
+      if (serveCreatedPort !== undefined) serveEnabledPort = serveCreatedPort; // now there's a listener behind it
       showQr();
       showStatus();
       return;
     }
+    // Bind failed — if WE just started a serve mapping there's now no listener
+    // behind it, so tear the one we created back down (never a pre-existing one).
+    if (serveCreatedPort !== undefined) await disableServe(serveCreatedPort);
     // A rebind of a previously-running bridge failed (bad bind / port taken) —
     // restore the previous listener so remote control isn't lost (Bugbot r22).
     if (wasRunning && !(await bindBridge(prevOpts))) {
@@ -574,13 +584,14 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
         chairDesired = false;
         sessionToken = undefined; // rotate: the next /chair on mints a fresh token
         await stopChair();
-        // tear down the `tailscale serve` mapping we brought up (--serve), best
-        // effort — leaving it up would keep the HTTPS host proxying to a dead port
+        // tear down the `tailscale serve` mapping WE brought up (--serve) — only
+        // ever set for a serve we created, and disableServe additionally refuses
+        // to touch a 443 config shared with the operator's own mappings.
         let served = "";
         if (serveEnabledPort !== undefined) {
-          await disableServe(serveEnabledPort);
+          const r = await disableServe(serveEnabledPort);
           serveEnabledPort = undefined;
-          served = " · tailscale serve stopped";
+          served = r.ok ? " · tailscale serve stopped" : ` · ${r.skipped}`;
         }
         // honest about rotation: a pinned OVERCAST_CHAIR_TOKEN survives restarts
         emitResult(
