@@ -32,21 +32,19 @@ import type { VerbSpec } from "../registry/types.js";
 
 const err = (message: string): OvercastRecord => errRecord("chronolocate", message);
 
-/** Parse an --at-time value. A bare datetime with no zone is read as UTC (with a
- *  note) rather than the host's local zone, so results are reproducible. */
+/** Parse an --at-time value. Anything without an explicit zone is read as UTC
+ *  (a bare datetime is pinned to UTC; a date-only string is parsed as UTC
+ *  midnight by Date) rather than the host's local zone, so results are
+ *  reproducible — and `assumedUtc` flags EITHER case so a citation never implies
+ *  a zoned instant the user did not actually give. */
 function parseInstant(raw: string): { date: Date; assumedUtc: boolean } | undefined {
   const s = raw.trim();
   const hasZone = /[zZ]$|[+-]\d\d:?\d\d$/.test(s);
   const hasTime = /[T ]\d\d:\d\d/.test(s);
-  let iso = s;
-  let assumedUtc = false;
-  if (!hasZone && hasTime) {
-    iso = s.replace(" ", "T") + "Z";
-    assumedUtc = true;
-  }
+  const iso = !hasZone && hasTime ? s.replace(" ", "T") + "Z" : s;
   const date = new Date(iso);
   if (Number.isNaN(date.valueOf())) return undefined;
-  return { date, assumedUtc };
+  return { date, assumedUtc: !hasZone };
 }
 
 /** Parse a --date (YYYY-MM-DD) reference date for solve mode; defaults to today (UTC). */
