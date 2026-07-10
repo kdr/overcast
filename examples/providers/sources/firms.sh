@@ -22,6 +22,10 @@ API="https://firms.modaps.eosdis.nasa.gov/api"
 KEY="${FIRMS_MAP_KEY:-}"
 DEFAULT_SOURCE="VIIRS_SNPP_NRT"
 
+# a numeric coordinate (digits, optional sign + decimal) — validates bbox parts so a
+# non-numeric one fails fast with a clear message instead of a downstream API error.
+is_coord() { [[ "$1" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; }
+
 need() {
   if [ -z "$KEY" ]; then
     echo "firms source needs a key: set FIRMS_MAP_KEY (free at https://firms.modaps.eosdis.nasa.gov/api/)" >&2
@@ -122,6 +126,9 @@ case "$op" in
       *) shift ;;
     esac; done
     need
+    # trim surrounding whitespace so a padded bbox/country ref still parses (a
+    # whitespace-only query then trips the empty check) — consistent with the others.
+    query="${query#"${query%%[![:space:]]*}"}"; query="${query%"${query##*[![:space:]]}"}"
     [ -n "$query" ] || { echo "firms enumerate needs an area: bind firms:<W,S,E,N> or firms:country:<ISO3>" >&2; exit 1; }
     case "$limit" in ''|*[!0-9]*) limit=200 ;; esac
     [ "$limit" -lt 1 ] 2>/dev/null && limit=1
@@ -165,12 +172,15 @@ case "$op" in
         endpoint="$API/country/csv/$KEY/$srcenc/$isoenc/$dayrange"
         ;;
       *)
-        # bbox: west,south,east,north (Overpass/Leaflet order). Require the 4 parts.
-        case "$query" in
-          *,*,*,*) : ;;
-          *) echo "firms: bbox needs west,south,east,north (got '$query')" >&2; exit 1 ;;
-        esac
-        bboxenc="$(jq -rn --arg v "$query" '$v|@uri')"
+        # bbox: west,south,east,north (Overpass/Leaflet order) — strip inner spaces
+        # then require FOUR NUMERIC parts, so "-124, 32, -114, 42" is accepted and a
+        # malformed/non-numeric ref fails fast (and never reaches the API).
+        bbox="${query// /}"
+        IFS=, read -r fw fs fe fn fx <<<"$bbox"
+        if [ -n "${fx:-}" ] || ! is_coord "$fw" || ! is_coord "$fs" || ! is_coord "$fe" || ! is_coord "$fn"; then
+          echo "firms: bbox needs four numbers west,south,east,north (got '$query')" >&2; exit 1
+        fi
+        bboxenc="$(jq -rn --arg v "$bbox" '$v|@uri')"
         srcenc="$(jq -rn --arg v "$src" '$v|@uri')"
         endpoint="$API/area/csv/$KEY/$srcenc/$bboxenc/$dayrange"
         ;;
