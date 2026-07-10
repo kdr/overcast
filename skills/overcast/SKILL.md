@@ -40,6 +40,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `reconstruct` — Speculatively reposition the camera in a still (rotate/elevate/zoom, turntable sweep, 3D model, depth) via a bound generative provider — a hypothesis renderer, never evidence.
 - `view` — Open media in a lightweight local viewer (scrubbable player) or hand off to the OS.
 - `crop` — Materialize face/object detections as cropped image records with provenance.
+- `chronolocate` — Chronolocation from the sun/shadows: solve WHEN a photo was taken, or verify a claimed time.
 - `grid` — Tile timestamped video frames into a labeled contact sheet for one-shot VLM triage.
 - `wall` — Open a control-room monitor wall: case videos looping at their evidence moments.
 - `map` — Plot every case record carrying GPS coordinates on a self-contained HTML map.

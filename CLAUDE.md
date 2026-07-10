@@ -71,7 +71,8 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
    (`watch/listen/see/face/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot`), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
-   gdelttv, webcam, facesearch, dork, shodan, browser), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
+   gdelttv, wayback, webcam, facesearch, dork, shodan, browser,
+   username, person, phone, property, plate), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
    shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
    tinycloud (exec) — except `see`, whose default is the in-proc brain-vision
@@ -166,7 +167,14 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--wait ms`; re-implements the fetch SSRF guard over HTTP **and** WebSocket
   (`ws`/`wss`), private/loopback refused by default with
   `OVERCAST_ALLOW_PRIVATE_FETCH` opt-out; rendered pages are untrusted,
-  invariant #10).
+  invariant #10), `chronolocate` (chronolocation from the
+  sun/shadows — pure offline solar-position math in `src/solar.ts`, no API/key:
+  **verify** (`--at-time`) computes the sun az/altitude + expected shadow bearing &
+  length for a claimed time (a mismatch flags a mis-dated/staged image), **solve**
+  (`--shadow-azimuth`, optional `--height-ratio` = object:shadow length) returns the
+  local-solar-time window(s) a shadow bearing implies on `--date`; location from
+  `--lat`/`--lng` or a linked record's `payload.gps`; carries `payload.gps` (plots on
+  `map`) + `payload.caveat` — a lead, not proof).
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`; on an `enhance` split-op parent it renders a GALLERY of the fanned-out
   children — per-track audio + spectrograms for `separate`, cutouts for `segment`,
@@ -194,7 +202,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   findings). `map` + `devices` are operational (out of `ask`/`brief` evidence).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens reverse-image / dl generic-yt-dlp capture / instagram / telegram /
-  gdelttv broadcast-TV / webcam live-cams / facesearch reverse-face /
+  gdelttv broadcast-TV / wayback deleted-web / webcam live-cams / facesearch reverse-face /
   dork Google-dorking / shodan host-recon / browser rendered-page-capture /
   username account-discovery / person people-search / phone reverse-phone /
   property assessor-records / plate license-plate;
@@ -217,7 +225,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `instagram:#tag` / a post URL
   (Apify); `telegram:<channel>` or a `t.me` URL (Apify, public channels);
   `gdelttv:"<query>"` (GDELT 2.0 TV broadcast-news clips → bounded Internet-Archive
-  `.mp4`, **no key**); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
+  `.mp4`, **no key**); `wayback:<url>` (Wayback Machine CDX — recover deleted pages/
+  posts + `collapse=digest` "secret changes" view, newest-first snapshots, **no key**;
+  named `wayback` not `archive` to avoid the media-bucket collision; strong `monitor`
+  fit); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
   `webcam:category:<slug>` / `webcam:<id>` (Windy Webcams — current still per poll,
   `recapture` ephemeral monitor fit); `facesearch:<image url|path>` (opt-in,
   ToS/privacy-gated reverse **face** search via Apify — never a default);
@@ -308,7 +319,7 @@ reused by the same machinery; `src/archive.ts` owns bucket naming/refs and the
 
 Case memory is **evidence-only**. `ask` / `brief` read primary evidence
 (`watch listen see face image audio voice similar crop note scan capture enhance
-exif verify` + root `finding`s + `cluster` ingest/identify) through
+exif verify chronolocate` + root `finding`s + `cluster` ingest/identify) through
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index target source

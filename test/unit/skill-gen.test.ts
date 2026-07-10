@@ -15,6 +15,7 @@ import {
   generateLineupSkill,
   generateStakeoutSkill,
   generateSceneLocateSkill,
+  generateOcrTranslateSearchSkill,
   generateEnhanceAndResolveSkill,
   generateWiretapSkill,
   generateProvenanceSkill,
@@ -110,6 +111,11 @@ const generatedSkills = [
     name: "overcast-scene-locate",
     body: generateSceneLocateSkill,
     verbs: ["doctor", "case init", "exif", "watch", "see", "crop", "scan", "note", "finding", "brief"],
+  },
+  {
+    name: "overcast-ocr-translate-search",
+    body: generateOcrTranslateSearchSkill,
+    verbs: ["doctor", "case init", "see", "watch", "note", "source add", "scan", "ask", "finding", "brief"],
   },
   {
     name: "overcast-enhance-and-resolve",
