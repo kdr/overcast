@@ -99,7 +99,11 @@ case "$op" in
     # contain `[out:`, `;`, or `@`. A ref is friendly ONLY when that suffix is a
     # valid NUMERIC region (is_region); anything else carrying a settings block /
     # statement terminator is raw; the rest is an error.
-    region="${query##*@}"
+    # the @-suffix, with inner spaces stripped so a spaced region ("48.85, 2.34,
+    # 48.87, 2.36") still validates — is_region is the gate, so stripping is safe
+    # even when the query has no @ (a raw QL's stripped form is never a valid region).
+    # Consistent with the space handling in firms/flights bbox parsing.
+    region="${query##*@}"; region="${region// /}"
     if [ "$query" != "$region" ] && is_region "$region"; then
       # FRIENDLY: expand key=value@region → node/way/relation QL with `out center meta`.
       tagpart="${query%@*}"
