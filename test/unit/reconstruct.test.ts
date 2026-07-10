@@ -222,6 +222,39 @@ test("view on a mesh CHILD record opens the orbit viewer directly", async () => 
   assert.equal((view.payload as Record<string, unknown>).mode, "orbit");
 });
 
+test("view on a synthesized view/sheet/turntable CHILD wraps it in the caveat banner (never a bare OS-open)", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const recs = await reconstructVerb.run(ctx(img, { ops: "sweep", count: 3 }, FAKE));
+  for (const r of recs) c.writeRecord(r);
+  const byKind = (k: string) => recs.find((r) => (r.payload as Record<string, unknown>).kind === k)!;
+  // a synthesized still view child
+  const [vv] = await viewVerb.run({ input: byKind("view").id, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
+  assert.equal((vv.payload as Record<string, unknown>).mode, "still", "view child → bannered still viewer, not OS-open");
+  const vhtml = readFileSync(vv.media!.ref, "utf8");
+  assert.match(vhtml, /class="banner"/);
+  assert.match(vhtml, /not photographic evidence/i);
+  // the sweep turntable child → a bannered video viewer
+  const [tv] = await viewVerb.run({ input: byKind("turntable").id, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
+  assert.equal((tv.payload as Record<string, unknown>).mode, "clip");
+  assert.match(readFileSync(tv.media!.ref, "utf8"), /<video/);
+});
+
+test("sweep sheet + turntable are scoped to the producing record id (re-runs don't clobber)", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const a = await reconstructVerb.run(ctx(img, { ops: "sweep", count: 3 }, FAKE));
+  const b = await reconstructVerb.run(ctx(img, { ops: "sweep", count: 3 }, FAKE));
+  const artifactRef = (recs: typeof a, kind: string) =>
+    recs.find((r) => (r.payload as Record<string, unknown>).kind === kind)?.media?.ref;
+  // distinct parent ids → distinct sheet/turntable paths, so B never overwrites A
+  assert.notEqual(a[0].id, b[0].id);
+  assert.notEqual(artifactRef(a, "sheet"), artifactRef(b, "sheet"));
+  assert.notEqual(artifactRef(a, "turntable"), artifactRef(b, "turntable"));
+  assert.ok(artifactRef(a, "sheet")!.includes(a[0].id), "sheet path carries the record id");
+  assert.ok(existsSync(artifactRef(a, "turntable")!) && existsSync(artifactRef(b, "turntable")!), "both runs' turntables survive");
+});
+
 test("renderReconstructGallery degrades honestly (empty stops, missing files)", () => {
   const html = renderReconstructGallery({
     op: "view", title: "reconstruct view", caveat: RECONSTRUCT_CAVEAT,

@@ -10,6 +10,7 @@
 // never read as a capture (same posture as the reconstruct gallery).
 
 import { readFileSync, existsSync, statSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { escapeHtml, imageSrc } from "./html.js";
 
 export interface ReconstructViewerOpts {
@@ -45,6 +46,38 @@ function shell(opts: ReconstructViewerOpts, extraHead: string, body: string): st
 <div class="title">◈ ${escapeHtml(opts.title)}${opts.subtitle ? ` <span class="subtitle">— ${escapeHtml(opts.subtitle)}</span>` : ""}</div>
 ${body}
 </body></html>`;
+}
+
+// ---- still / video caveat viewer ---------------------------------------------
+
+const ARTIFACT_CSS = `
+  .stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:78px 16px 16px}
+  .stage img,.stage video{max-width:100%;max-height:100%;object-fit:contain;border:1px solid #1f3a3b;border-radius:6px;background:#000}
+`;
+
+/**
+ * Wrap a single synthesized artifact (a repositioned view PNG, a sweep contact
+ * sheet, or a turntable MP4) in the same caveat-bannered shell the mesh/depth
+ * viewers use — so opening ANY reconstruct child through `view` shows the
+ * "not evidence" banner instead of OS-opening a bare file with no context.
+ * Images inline as data URIs; video is referenced by file:// (played locally).
+ * Returns undefined when the artifact can't be embedded/located.
+ */
+export function buildArtifactViewerHtml(
+  ref: string,
+  kind: "image" | "video",
+  opts: ReconstructViewerOpts,
+): string | undefined {
+  if (!existsSync(ref)) return undefined;
+  let media: string;
+  if (kind === "video") {
+    media = `<video src="${escapeHtml(pathToFileURL(ref).href)}" controls loop autoplay muted playsinline></video>`;
+  } else {
+    const src = imageSrc(ref);
+    if (!src) return undefined;
+    media = `<img src="${src}" alt="${escapeHtml(opts.title)}">`;
+  }
+  return shell(opts, `<style>${ARTIFACT_CSS}</style>`, `<div class="stage">${media}</div>`);
 }
 
 // ---- 3D orbit viewer ---------------------------------------------------------

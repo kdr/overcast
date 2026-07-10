@@ -34,7 +34,7 @@ import {
 import { openHtmlPlayer } from "../media/view.js";
 import { fanOutReconstruct, hasReconstructFanOut, RECONSTRUCT_CAVEAT } from "./reconstruct-fanout.js";
 import { renderReconstructGallery, type ReconstructGalleryView } from "../report/html.js";
-import { buildOrbitViewerHtml, buildParallaxViewerHtml } from "../report/reconstruct-viewers.js";
+import { buildOrbitViewerHtml, buildParallaxViewerHtml, buildArtifactViewerHtml } from "../report/reconstruct-viewers.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 const RECONSTRUCT_OPS: ReadonlySet<string> = new Set(["view", "sweep", "model", "depth"]);
@@ -196,12 +196,16 @@ export const reconstructVerb: VerbSpec = {
     const seed = optNum(ctx.opts.seed);
     if (seed !== undefined) extraArgs.push("--seed", String(seed));
 
-    // model lifts (queue-polled) and 24-stop sweeps are slow — allow 15 min like
-    // the other bound model providers.
+    // A `model` lift polls the fal queue (FAL_QUEUE_TIMEOUT_S, default 600s) then
+    // downloads a multi-MB GLB; a `sweep` makes up to --count 24 sequential model
+    // calls. Both can outlast enhance's 15-min budget and get killed mid-work,
+    // stranding partial artifacts. Give reconstruct 30 min so the outer exec
+    // timeout comfortably clears the provider's own longest bounded work (the
+    // 600s queue poll + downloads, or a full sweep).
     const rec = await runBoundProvider("reconstruct", binding!, input, {
       env: providerEnv(ctx.case.mediaDir),
       extraArgs,
-      timeoutMs: 15 * 60_000,
+      timeoutMs: 30 * 60_000,
       signal: ctx.signal,
     });
 
@@ -236,10 +240,15 @@ export const reconstructVerb: VerbSpec = {
         .sort((a, b) => (optNum(a.azimuth ?? a.rotate) ?? 0) - (optNum(b.azimuth ?? b.rotate) ?? 0));
       if (stops.length >= 2) {
         const outDir = join(ctx.case.mediaDir, "reconstruct");
+        // scope both assembled artifacts to THIS record's id (rec.id is unique per
+        // invocation) so a re-run never overwrites an earlier sweep's sheet/
+        // turntable and strands its record on stale pixels — the same
+        // collision-free-per-run intent as contactSheet's content hash.
         try {
           const sheet = await tileImageSheet(
             stops.map((s) => ({ path: s.ref as string, label: `az ${Math.round(optNum(s.azimuth ?? s.rotate) ?? 0)}` })),
             outDir,
+            { outPath: join(outDir, `reconstruct-sheet-${rec.id}.png`) },
           );
           recPayload.sheet = sheet.output;
           outputs.push({ kind: "sheet", ref: sheet.output, cols: sheet.cols, rows: sheet.rows, labeled: sheet.labeled });
@@ -247,7 +256,7 @@ export const reconstructVerb: VerbSpec = {
           recPayload.sheet_error = (e as Error).message;
         }
         try {
-          const turnPath = join(outDir, `${(rec.media?.ref ?? input).split("/").pop()?.replace(/\.[^.]+$/, "") ?? "sweep"}_turntable.mp4`);
+          const turnPath = join(outDir, `reconstruct-turntable-${rec.id}.mp4`);
           const turn = await imagesToVideo(stops.map((s) => s.ref as string), turnPath, { fps: 2 });
           recPayload.turntable = turn;
           outputs.push({ kind: "turntable", ref: turn, fps: 2, frames: stops.length });
@@ -358,9 +367,10 @@ export function buildReconstructViewer(
 /** If `rec` is a reconstruct record with a dedicated viewer, render it and
  *  return the view record; else null so `view` falls through to its player.
  *  A PARENT (payload.op, no kind) gets the op's viewer over its fanned-out
- *  children; a mesh/depth CHILD opens its interactive viewer directly (an
- *  OS-open of a raw .glb or a bare depth map is useless). Plain view children
- *  fall through — the standard image path shows them fine. */
+ *  children; a CHILD opens its own caveat-bannered viewer — the interactive
+ *  mesh/depth ones, or a bannered still/video wrapper for view/sheet/turntable
+ *  so a synthesized artifact never OS-opens as a bare file with no "not
+ *  evidence" context (every reconstruct child carries payload.caveat). */
 export function maybeReconstructViewer(ctx: VerbContext, rec: OvercastRecord): OvercastRecord | null {
   if (rec.verb !== "reconstruct" || typeof rec.payload !== "object" || !rec.payload) return null;
   const p = payloadOf(rec);
@@ -372,20 +382,30 @@ export function maybeReconstructViewer(ctx: VerbContext, rec: OvercastRecord): O
     if (!ref || !existsSync(ref)) return null;
     const title = `reconstruct ${typeof p.op === "string" ? p.op : ""}`.trim();
     const subtitle = typeof p.source_media === "string" ? p.source_media.split("/").pop() : rec.id;
+    const viewerOpts = { title, subtitle, caveat };
     let out: string | undefined;
     let mode: string | undefined;
     if (p.kind === "mesh") {
       out = join(ctx.case.mediaDir, `reconstruct-orbit-${rec.id}.html`);
-      writeFileSync(out, buildOrbitViewerHtml(ref, { title, subtitle, caveat }), "utf8");
+      writeFileSync(out, buildOrbitViewerHtml(ref, viewerOpts), "utf8");
       mode = "orbit";
     } else if (p.kind === "depth") {
       const src = typeof p.source_media === "string" && existsSync(p.source_media) ? p.source_media : undefined;
       if (!src) return null;
-      const html = buildParallaxViewerHtml(src, ref, { title, subtitle, caveat });
+      const html = buildParallaxViewerHtml(src, ref, viewerOpts);
       if (!html) return null;
       out = join(ctx.case.mediaDir, `reconstruct-parallax-${rec.id}.html`);
       writeFileSync(out, html, "utf8");
       mode = "parallax";
+    } else if (p.kind === "view" || p.kind === "sheet" || p.kind === "turntable") {
+      // synthesized still / contact sheet / turntable → the same caveat-bannered
+      // wrapper, so the "not evidence" banner rides along with a raw PNG/MP4.
+      const artKind = p.kind === "turntable" ? "video" : "image";
+      const html = buildArtifactViewerHtml(ref, artKind, viewerOpts);
+      if (!html) return null;
+      out = join(ctx.case.mediaDir, `reconstruct-artifact-${rec.id}.html`);
+      writeFileSync(out, html, "utf8");
+      mode = artKind === "video" ? "clip" : "still";
     }
     if (!out) return null;
     if (ctx.opts["no-open"] !== true) openHtmlPlayer(out);

@@ -83,6 +83,18 @@ mkdir -p "$OUTDIR/reconstruct"
 subtype="$ext"; [ "$subtype" = "jpg" ] && subtype="jpeg"
 IMIME="image/$subtype"
 
+# Per-run signature folded into every output filename so a re-run with DIFFERENT
+# params (or a different source of the same basename) can't overwrite an earlier
+# run's artifacts and strand its record on stale pixels. Identical params hash the
+# same (idempotent regeneration), distinct params diverge — the collision-free
+# intent contactSheet/grid already use. Portable across sha256sum / shasum / cksum.
+hash10() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -c1-10
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -c1-10
+  else cksum | tr -d ' ' | cut -c1-10; fi
+}
+RUNSIG="$(printf '%s' "$input|$ops|$rotate|$elevate|$zoom|$count|$prompt|$seed" | hash10)"
+
 # normalize any azimuth (incl. negatives / >360) into [0,360)
 norm_az() { awk -v a="${1:-0}" 'BEGIN{m=a%360; if(m<0)m+=360; printf "%g", m}'; }
 # filesystem-safe number tag (12.5 -> 12p5, -30 handled by norm upstream)
@@ -105,7 +117,7 @@ gen_view() {
     GEN_ERR="$(jq -r '(.detail // .error // "view synthesis failed") | if type=="string" then . else tojson end' <<<"$resp" 2>/dev/null | head -c 300)"
     return 1
   fi
-  out="$OUTDIR/reconstruct/${base}_az$(ntag "$az")${elevate:+_el$(ntag "$elevate")}${zoom:+_z$(ntag "$zoom")}.png"
+  out="$OUTDIR/reconstruct/${base}_${RUNSIG}_az$(ntag "$az")${elevate:+_el$(ntag "$elevate")}${zoom:+_z$(ntag "$zoom")}.png"
   curl -fsS -m 300 -o "$out" "$url" && [ -s "$out" ] || { GEN_ERR="synthesized view download failed"; rm -f "$out"; return 1; }
   rseed="$(jq -r '.seed // empty' <<<"$resp" 2>/dev/null)"
   jq -nc --arg ref "$out" --arg az "$az" --arg v "$elevate" --arg z "$zoom" --arg s "$rseed" '
@@ -169,7 +181,8 @@ do_sweep() {
 # queue.fal.run, then poll the returned status_url until COMPLETED and fetch
 # response_url. Trellis takes image_url; hunyuan takes input_image_url.
 do_model() {
-  local key sub status_url response_url waited=0 st s resp murl out
+  local key sub status_url response_url waited=0 empties=0 st s resp murl out
+  local max_empty="${FAL_QUEUE_MAX_EMPTY:-6}"
   IURL="$(fal_upload "$input" "$IMIME")" || { emit_err "fal: image upload to storage failed"; return; }
   case "$MESH_MODEL" in
     *hunyuan*) key="input_image_url" ;;
@@ -186,8 +199,19 @@ do_model() {
     st="$(curl -s -m 30 -H "Authorization: Key $KEY" "$status_url" 2>/dev/null)"
     s="$(jq -r '.status // empty' <<<"$st" 2>/dev/null)"
     [ "$s" = "COMPLETED" ] && break
-    if [ -n "$s" ] && [ "$s" != "IN_QUEUE" ] && [ "$s" != "IN_PROGRESS" ]; then
-      emit_err "fal queue: $MESH_MODEL returned status $s"; return
+    if [ -n "$s" ]; then
+      empties=0
+      if [ "$s" != "IN_QUEUE" ] && [ "$s" != "IN_PROGRESS" ]; then
+        emit_err "fal queue: $MESH_MODEL returned status $s"; return
+      fi
+    else
+      # a status poll with NO status field (curl failure / empty / malformed
+      # body) must not spin silently to the full QTIMEOUT — bail after a few
+      # consecutive empties so a broken status endpoint fails fast.
+      empties=$((empties + 1))
+      if [ "$empties" -ge "$max_empty" ]; then
+        emit_err "fal queue: $MESH_MODEL status endpoint returned no status $empties times (endpoint down or bad response)"; return
+      fi
     fi
     if [ "$waited" -ge "$QTIMEOUT" ]; then
       emit_err "fal queue: $MESH_MODEL timed out after ${QTIMEOUT}s (raise FAL_QUEUE_TIMEOUT_S)"; return
@@ -199,7 +223,7 @@ do_model() {
   if [ -z "$murl" ]; then
     emit_err "$(jq -r '(.detail // .error // "mesh generation returned no model file") | if type=="string" then . else tojson end' <<<"$resp" 2>/dev/null | head -c 300)"; return
   fi
-  out="$OUTDIR/reconstruct/${base}_mesh.glb"
+  out="$OUTDIR/reconstruct/${base}_${RUNSIG}_mesh.glb"
   curl -fsS -m 600 -o "$out" "$murl" && [ -s "$out" ] || { rm -f "$out"; emit_err "mesh download failed or empty"; return; }
   emit_ready "model" "$MESH_MODEL" "$(jq -nc --arg r "$out" '[{kind:"mesh",ref:$r,format:"glb"}]')" "{}"
 }
@@ -214,7 +238,7 @@ do_depth() {
   if [ -z "$url" ]; then
     emit_err "$(jq -r '(.detail // .error // "depth estimation failed") | if type=="string" then . else tojson end' <<<"$resp" 2>/dev/null | head -c 300)"; return
   fi
-  out="$OUTDIR/reconstruct/${base}_depth.png"
+  out="$OUTDIR/reconstruct/${base}_${RUNSIG}_depth.png"
   curl -fsS -m 300 -o "$out" "$url" && [ -s "$out" ] || { rm -f "$out"; emit_err "depth map download failed or empty"; return; }
   emit_ready "depth" "$DEPTH_MODEL" "$(jq -nc --arg r "$out" '[{kind:"depth",ref:$r}]')" "{}"
 }
