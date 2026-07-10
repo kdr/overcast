@@ -143,8 +143,12 @@ case "$op" in
 
     # --since → FIRMS dayrange (1–10; default 1). Portable epoch math (BSD/GNU date)
     # then ceil to whole days; fail closed on an unparseable window (don't silently
-    # widen to a different range than asked).
-    dayrange=1
+    # widen to a different range than asked). dayrange is COARSE (whole days), so a
+    # sub-day window (6h/30m) rounds up to a full day — we then filter each detection
+    # client-side by its acquisition time (cutiso) so `--since` is honored exactly,
+    # like overpass's `(newer:)` / gdelttv's STARTDATETIME. A detection we can't date
+    # is dropped under an active window (can't confirm it falls inside it).
+    dayrange=1; cutiso=""
     if [ -n "$since" ]; then
       now="$(date -u +%s)"; cutepoch=""
       case "$since" in
@@ -157,6 +161,8 @@ case "$op" in
         *) echo "firms: could not parse --since '$since' (use Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
       esac
       [ -n "$cutepoch" ] || { echo "firms: could not parse --since '$since'" >&2; exit 1; }
+      cutiso="$(date -u -r "$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '')"
+      [ -n "$cutiso" ] || { echo "firms: could not format --since '$since' into an ISO timestamp" >&2; exit 1; }
       dayrange=$(( (now - cutepoch + 86399) / 86400 ))   # ceil to whole days
       [ "$dayrange" -lt 1 ] && dayrange=1
       [ "$dayrange" -gt 10 ] && dayrange=10
@@ -199,7 +205,11 @@ case "$op" in
       *latitude*,*longitude*|*longitude*,*latitude*) : ;;
       *) echo "firms enumerate: unexpected response: $(printf '%s' "$resp" | head -c 200)" >&2; exit 1 ;;
     esac
-    printf '%s' "$resp" | firms_csv_to_hits "$src" | jq -c --argjson n "$limit" '.[0:$n]'
+    # honor --since EXACTLY: drop detections whose acquisition time predates the
+    # window (dayrange only bounds the fetch to whole days), then apply --limit.
+    printf '%s' "$resp" | firms_csv_to_hits "$src" \
+      | jq -c --argjson n "$limit" --arg cutiso "$cutiso" \
+          'map(select($cutiso == "" or (.created != null and .created >= $cutiso))) | .[0:$n]'
     ;;
 
   fetch)
