@@ -56,6 +56,9 @@ case "$op" in
       --since) since="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
+    # trim surrounding whitespace so a padded ref still parses (a whitespace-only
+    # query then trips the empty check below) — consistent with the other sources.
+    query="${query#"${query%%[![:space:]]*}"}"; query="${query%"${query##*[![:space:]]}"}"
     if [ -z "$query" ]; then
       echo "overpass enumerate needs a query: bind overpass:<key=value@region> or pass --query" >&2
       exit 1
