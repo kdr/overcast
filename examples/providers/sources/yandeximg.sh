@@ -67,6 +67,7 @@ case "$op" in
           exit 1
         fi ;;
     esac
+    uploaded=0
     if [ -f "$query" ]; then
       # local image → upload to the account's `overcast-yandeximg` key-value store
       # (get-or-create) under a content-hash key, so repeat scans of the same
@@ -92,6 +93,7 @@ case "$op" in
         echo "yandeximg: image upload to Apify failed for $query" >&2; exit 1
       fi
       query="https://api.apify.com/v2/key-value-stores/$sid/records/$key"
+      uploaded=1
     fi
     # the actor's input schema varies by author — `imageUrl` is the common shape;
     # override the actor (OVERCAST_YANDEX_ACTOR) if yours expects a different key.
@@ -151,6 +153,12 @@ case "$op" in
       hits="$(printf '%s' "$hits" | jq -c --argjson h "$hit" '. + [$h]')"
       i=$((i + 1))
     done
+    # a common failure mode: the actor could not FETCH the uploaded image because
+    # the Apify account restricts key-value-store access — surface it as a hint
+    # (mirrors the lens source) rather than a silent empty result.
+    if [ "$uploaded" = "1" ] && printf '%s' "$hits" | jq -e 'length == 0' >/dev/null 2>&1; then
+      echo "yandeximg: no matches — if your Apify account restricts storage access, the actor may not be able to fetch the uploaded image ($query)" >&2
+    fi
     printf '%s\n' "$hits"
     ;;
   fetch)

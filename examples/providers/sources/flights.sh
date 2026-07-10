@@ -57,7 +57,7 @@ map_states() {
     ( .states // [] )
     | map(select(.[5] != null and .[6] != null))
     | ( if $cs != ""
-        then map(select(((.[1] // "") | ascii_upcase | gsub("^ +| +$";"")) == ($cs | ascii_upcase)))
+        then map(select(((.[1] // "") | ascii_upcase | gsub("^ +| +$";"")) == ($cs | ascii_upcase | gsub("^ +| +$";""))))
         else . end )
     | .[0:$n]
     | map(
