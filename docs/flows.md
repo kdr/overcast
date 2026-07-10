@@ -62,9 +62,10 @@ overcast case setup edit \
 
 Findings **auto-suggest** by default (`--findings suggest`): a persist hook on
 every evidence verb emits `status:"suggested"` findings from score triggers
-(face ≥75, image RANSAC ≥1 inlier, similar ≥85, cluster ≥70, audio fingerprint) and non-image
+(face ≥75, image RANSAC ≥1 inlier, similar ≥85, cluster ≥70, voice ≥80, audio
+fingerprint) and non-image
 target text matches, quarantined until you `finding accept` them. Tune the floors
-with `case setup --findings-threshold face=75,similar=85,cluster=70,image_inliers=1`;
+with `case setup --findings-threshold face=75,similar=85,cluster=70,voice=80,image_inliers=1,audio_margin=1`;
 `--findings review` is the legacy text-only mode and `off` disables it.
 
 Provider classes:
@@ -75,12 +76,17 @@ Provider classes:
   frame extraction, detection-crop extraction, and viewer support.
 - **opt-in model/media providers** for `see` / `listen` / `enhance` — Hugging
   Face, fal.ai, ElevenLabs, and local detector/Whisper examples.
-- **visual DBs** — uv-managed OpenCV RANSAC image matching, DeepFace face
-  matching, the `cluster` face DB, and CLIP semantic search, selected by the
-  `image-ransac` / `deepface-local` / `face-cluster` / `basic-clip` index types.
+- **visual / audio DBs** — uv-managed OpenCV RANSAC image matching, DeepFace face
+  matching, the `cluster` face DB, CLIP/CLAP semantic search, Shazam-style audio
+  fingerprinting, and speaker verification, selected by the `image-ransac` /
+  `deepface-local` / `face-cluster` / `basic-clip` / `basic-clap` / `audio-fp` /
+  `voice-print` index types.
 - **source providers** — external discovery and URL fetching (youtube / tiktok /
-  x / web / lens reverse-image / dl generic-yt-dlp / instagram / telegram /
-  gdelttv broadcast-TV / webcam live-cams / facesearch opt-in reverse-face).
+  x / web / lens + yandeximg reverse-image / dl generic-yt-dlp / instagram /
+  telegram / gdelttv broadcast-TV / wayback deleted-web / overpass OSM-features /
+  firms active-fires / flights ADS-B / webcam live-cams / browser page-render /
+  facesearch opt-in reverse-face / dork Google-dorking / shodan host-recon / and
+  the opt-in identity sources username / person / phone / property / plate).
 - **case memory** over primary evidence for `ask` / `brief` / `case memory` —
   `local-grep` by default, or qmd for lifecycle-managed semantic local search.
 
@@ -406,6 +412,29 @@ fully offline runs. `--clip` and `--clap` share one torch in the venv — instal
 together via `scripts/visual-db-uv.sh --all` when you want the whole visual+audio
 stack (see [providers.md](providers.md)).
 
+### 4c. Local voice DB: find a speaker (speaker verification)
+
+The voice twin of `face --match`: a `voice-print` index holds speaker embeddings
+(pyannote/wespeaker — the default tier is **ungated**, no `HF_TOKEN`), and
+`voice match` finds WHERE a reference speaker talks in a clip or WHICH index
+members contain them.
+
+```bash
+scripts/visual-db-uv.sh --voice   # pyannote.audio deps (~26MB wespeaker model on first run)
+overcast index create speakers --type voice-print --local --json
+overcast voice add ./interview.mp4 --to speakers --json          # enroll a clip's voiced windows
+overcast voice match ./unknown.mp4 ./reference.wav --json        # WHERE does the reference speaker talk? (windowed scan)
+overcast voice match ./reference.wav --index speakers --json     # WHICH members contain the speaker?
+overcast voice match ./unknown.mp4 ./reference.wav --diarize --json  # overlap-aware diarize-then-match tier
+```
+
+`similarity` is an anchored-cosine 0–100 **rank** score (the raw `cosine` rides
+along); `--min-margin` gates best-vs-runner-up. `--diarize` needs `HF_TOKEN` +
+the accepted pyannote pipeline license and falls back to the windowed scan when
+gated. This is **not** liveness/anti-spoof — a clone of the voice scores high;
+every record carries `payload.caveat`. A voice match ≥80 auto-suggests a finding
+(tune via `case setup --findings-threshold voice=…`).
+
 ### 5. Local-media-only person search
 
 Candidate videos on disk + a reference image, no external sources.
@@ -695,7 +724,8 @@ overcast brief --scope verb:note --export analyst-notes.md
 
 Use `note` for observations; use `finding create` to pin confirmed evidence.
 Findings also **auto-suggest**: matching verbs (`face --match`, `image match`,
-`similar match`, `cluster identify`, or a sense verb hitting a target) emit
+`similar match`, `cluster identify`, `voice match`, `audio match`, or a sense
+verb hitting a target) emit
 `status:"suggested"` leads. Triage them with `finding list --state triage`
 (open + suggested), then `finding accept` (→ evidence) or `finding dismiss` (a
 dismissed suggestion never re-fires for the same match). Both `suggested` and
@@ -779,17 +809,31 @@ webcams, moving-object tracking, and reverse-image lookups — same `scan` /
 `enumerate`; add `--pull` to capture + sense each hit.
 
 ```bash
-overcast scan --source gdelttv --query "climate summit" --since 14d       # GDELT TV → bounded Internet-Archive clips (no key)
-overcast scan --source instagram --query @nasa --since 7d --pull           # Instagram posts/reels (Apify)
-overcast scan --source telegram --query durov --since 30d                  # public Telegram channel (Apify)
-overcast monitor --source webcam --query "48.8584,2.2945,25" --every 30m   # live Paris cams, re-captures each pass
-overcast capture "https://rumble.com/v123.html" --source dl                # any yt-dlp host (single video; scan a channel/playlist URL to enumerate)
-overcast scan --source facesearch --query ./person.jpg --pull              # opt-in reverse FACE search (ToS-gated)
-overcast scan --source wayback --query "https://example.gov/page" --pull   # Wayback Machine — recover deleted pages / changes over time (no key)
-overcast scan --source overpass --query 'amenity=hospital@around:2000,48.85,2.29'  # OSM features → each hit carries payload.gps → map (no key)
-overcast scan --source firms --query "-124,32,-114,42" --since 3d           # NASA FIRMS active-fire hotspots → map (free FIRMS_MAP_KEY)
-overcast monitor --source flights --query "2.0,48.5,2.8,49.0" --every 5m    # live ADS-B aircraft positions → a track on the map (OpenSky; anon ok)
-overcast scan --source yandeximg --query ./crop.jpg --pull                  # Yandex reverse-image (Apify) — strongest for faces/places
+# scan/monitor only sweep REGISTERED sources — `source add <type>:<ref>` first
+# (`--query` overrides a registered source's ref for a one-off pass; it never
+#  creates a source by itself):
+overcast source add 'gdelttv:"climate summit"'                 # GDELT TV → bounded Internet-Archive clips (no key)
+overcast source add instagram:@nasa                            # Instagram posts/reels (Apify)
+overcast source add telegram:durov                             # public Telegram channel (Apify)
+overcast source add 'webcam:48.8584,2.2945,25'                 # live Paris cams (Windy)
+overcast source add 'wayback:https://example.gov/page'         # Wayback Machine deleted-web recovery (no key)
+overcast source add 'overpass:amenity=hospital@around:2000,48.85,2.29'  # OSM features → payload.gps → map (no key)
+overcast source add 'firms:-124,32,-114,42'                    # NASA FIRMS active-fire hotspots (free FIRMS_MAP_KEY)
+overcast source add 'flights:2.0,48.5,2.8,49.0'                # live ADS-B aircraft (OpenSky; anon ok)
+overcast source add facesearch:./person.jpg                    # opt-in reverse FACE search (ToS-gated)
+overcast source add yandeximg:./crop.jpg                       # Yandex reverse-image (Apify) — strongest for faces/places
+
+overcast scan --source gdelttv --since 14d
+overcast scan --source instagram --since 7d --pull
+overcast scan --source telegram --since 30d
+overcast monitor --source webcam --every 30m                   # re-captures the CURRENT still each pass
+overcast capture "https://rumble.com/v123.html"                # any yt-dlp host auto-routes to `dl` by host (single video; scan a channel/playlist URL to enumerate)
+overcast scan --source facesearch --pull
+overcast scan --source wayback --pull                          # recover deleted pages / changes over time
+overcast scan --source overpass                                # each hit carries payload.gps → map
+overcast scan --source firms --since 3d
+overcast monitor --source flights --every 5m                   # live positions → a track on the map
+overcast scan --source yandeximg --pull
 ```
 
 `webcam` hits carry `recapture: true` so `monitor` re-captures the CURRENT still
@@ -803,6 +847,19 @@ directly on `overcast map` (turning `map` into "plot any open geodata layer"), a
 `monitor --source flights` builds a position track over time (each fix is a
 distinct record). `wayback` `collapse=digest` returns only captures whose content
 actually changed — the "secret changes" view — so `monitor`ing a URL surfaces edits.
+
+The **identity / records** sources ride the same machinery (all Apify-backed,
+`APIFY_TOKEN`; **opt-in — live PII on real people, authorized use only**, never
+a default binding):
+
+```bash
+overcast source add username:somehandle                             # Maigret account discovery across 3000+ sites
+overcast source add 'person:Jane Doe@Austin, TX'                    # people-search / skip-trace (NOT an FCRA report)
+overcast source add phone:+15551234567                              # reverse phone / number OSINT (PhoneInfoga)
+overcast source add 'property:1001 Preston St, Houston, TX 77002'   # county assessor / tax / recorder records
+overcast source add 'plate:TX:ABC1234'                              # plate → vehicle SPEC (bind OVERCAST_PLATE_ACTOR; no default — DPPA)
+overcast scan --source username --pull
+```
 
 ### 21. Media forensics: metadata, GPS & provenance
 
@@ -822,6 +879,9 @@ overcast chronolocate --lat 48.85 --lng 2.29 --shadow-azimuth 250 --date 2024-06
 # pixel forensics — heuristic tamper overlays (bind a provider, one record → 3 children):
 overcast setup provider enhance "exec:python3 examples/providers/enhance/ela.py"
 overcast enhance ./photo.jpg --ops ela --json   # ELA + noise + luminance overlays → view <parent> renders the gallery
+# panorama — stitch a panning video into ONE wide still for skyline/landmark geolocation:
+overcast setup provider enhance "exec:python3 examples/providers/enhance/panorama.py"
+overcast enhance ./pan.mp4 --ops panorama --json
 overcast ask "what GPS coordinates or camera devices appear?"
 ```
 
@@ -1012,12 +1072,19 @@ packages this flow.
 | `cluster` | sense | `cluster` | local DeepFace (`face-cluster` index) | `OC_VISUAL_DB_PY` | Persistent local face DB |
 | `similar` | sense | `similar.match` | local CLIP (`basic-clip`) / CLAP (`basic-clap`) | `OC_VISUAL_DB_PY` | Cross-modal semantic search |
 | `audio` | sense | `audio.match` | local fingerprint (`audio-fp` index) | `OC_VISUAL_DB_PY` | Shazam-style exact audio matching |
-| `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve / split media |
+| `voice` | sense | `voice.match` | local speaker verification (`voice-print` index) | `OC_VISUAL_DB_PY` / `OVERCAST_VOICE_MODEL` | Find/rank a reference speaker |
+| `enhance` | sense | `media.enhanced` | local ffmpeg | `setup provider enhance "exec:…"` | Improve / split media / forensic overlays |
+| `reconstruct` | sense | `media.reconstruction` | none (bind `reconstruct:fal`) | `provider setup apply --verb reconstruct` | SPECULATIVE camera reposition / 3D / depth (never evidence) |
 | `exif` | sense | `media.metadata` | ExifTool (shipped) | `setup provider exif "exec:…"` | Embedded metadata + GPS |
 | `verify` | sense | `media.provenance` | c2patool (shipped) | `setup provider verify "exec:…"` | C2PA / Content Credentials |
+| `screenshot` | sense | `web.screenshot` | headless Chromium (playwright optional dep) | `setup provider screenshot "exec:…"` / `OVERCAST_NODE` | Render a page / local HTML → PNG evidence |
+| `chronolocate` | sense | `chrono.estimate` | offline solar math (no provider) | none | Verify/solve WHEN from sun & shadows |
 | `view` | inspect | `view` | local HTML viewer / OS open | none | Inspect media/anchors |
 | `crop` | inspect | `media.crop` | local ffmpeg | none | Materialize detection crops |
+| `grid` | inspect | `media.grid` | local ffmpeg contact sheet | `OVERCAST_GRID_FONT` | Frame grid for one-shot VLM triage |
 | `wall` | inspect | `wall` | local HTML wall (file:// refs) | none | Control-room monitor wall |
+| `map` | inspect | `media.map` | local HTML map (OSM tiles / `--offline`) | none | Plot GPS-bearing records |
+| `devices` | inspect | `devices` | local rollup over `exif` records | none | Camera-fingerprint clusters (`--findings`) |
 | `scan` | osint | `scan.hit` / local summary | source providers; local fallback | `OVERCAST_SOURCE_*_CMD` | Discovery / local scan |
 | `capture` | osint | `capture` | local copy/stdin or source fetch | source provider | Acquire media/content |
 | `monitor` | osint | `scan.hit` + capture/sense | scan/capture/sense chain | source + sense overrides | Repeated discovery w/ dedupe |
@@ -1059,8 +1126,10 @@ overcast provider init listen --profile recon --json
 overcast doctor --profile recon --json
 ```
 
-Presets: `cloudglue` · `hf` · `fal` · `elevenlabs` · `owl-local` · `deepface-local` ·
-`basic-clip`. Single choices use `--verb <watch|listen|see|face|enhance> --choice <id>`.
+Presets: `cloudglue` · `hf` · `fal` · `elevenlabs` · `owl-local` · `local-models` ·
+`deepface-local` · `basic-clip` · `audio-fp` · `basic-clap` · `voice-print` ·
+`playwright`. Single choices use
+`--verb <watch|listen|see|face|similar|audio|voice|enhance|screenshot|reconstruct> --choice <id>`.
 
 ### Pin tinycloud
 

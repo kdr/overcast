@@ -68,6 +68,12 @@ to surface faces in new media, then escalate the flagged clips manually with
 `overcast face <clip> --match ./suspect.jpg --json`, or keep a face-analysis index
 and search it (`face --match ./suspect.jpg --index <id>`).
 
+**Page-watch stakeout.** To sit on a WEB PAGE instead of a feed, register the
+rendered-page source: `overcast source add browser:<url>` (no key; playwright
+optional dep), then `monitor --every 30m` — each pass re-renders the current
+page state to a PNG that flows into image auto-sense. `wayback:<url>` is the
+retrospective twin (its `collapse=digest` view surfaces content changes).
+
 ## Output
 
 A standing case that accrues cited findings over time: accepted matches with their
