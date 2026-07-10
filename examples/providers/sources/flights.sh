@@ -157,18 +157,29 @@ case "$op" in
     # a whitespace-only query trims to empty — reject it instead of falling through
     # to an empty callsign, which would fetch the global (unfiltered) states/all.
     [ -n "$qt" ] || { echo "flights enumerate: query is empty (expected bbox|icao24|callsign)" >&2; exit 1; }
-    IFS=',' read -r bw bs be bn bx <<<"${qt// /}"
-    if [ -z "${bx:-}" ] && is_num "$bw" && is_num "$bs" && is_num "$be" && is_num "$bn"; then
-      url="$STATES?lamin=$bs&lomin=$bw&lamax=$bn&lomax=$be"
-    elif [[ "$qt" =~ ^[0-9a-fA-F]{1,6}$ ]]; then
-      # a pure-hex token is an icao24 (24-bit hex, frequently written WITHOUT the
-      # leading zeros) — zero-pad to 6 and lowercase for the ?icao24= lookup. A
-      # hex-looking callsign is inherently ambiguous (and a bare airline code matches
-      # no aircraft anyway), so prefer the direct id over a global states fetch.
-      url="$STATES?icao24=$(printf '%6s' "$qt" | tr ' A-F' '0a-f')"
-    else
-      callsign="$qt"
-    fi
+    # A comma means the analyst meant a bbox: require FOUR NUMBERS or REJECT — never
+    # fall through to callsign mode (which fetches the global, unfiltered states/all),
+    # so one mistyped coordinate can't trigger a huge anonymous request + rate-limit.
+    case "$qt" in
+      *,*)
+        IFS=',' read -r bw bs be bn bx <<<"${qt// /}"
+        if [ -n "${bx:-}" ] || ! is_num "$bw" || ! is_num "$bs" || ! is_num "$be" || ! is_num "$bn"; then
+          echo "flights enumerate: bbox needs four numbers west,south,east,north (got '$query')" >&2; exit 1
+        fi
+        url="$STATES?lamin=$bs&lomin=$bw&lamax=$bn&lomax=$be"
+        ;;
+      *)
+        if [[ "$qt" =~ ^[0-9a-fA-F]{1,6}$ ]]; then
+          # a pure-hex token is an icao24 (24-bit hex, frequently written WITHOUT the
+          # leading zeros) — zero-pad to 6 and lowercase for the ?icao24= lookup. A
+          # hex-looking callsign is inherently ambiguous (and a bare airline code matches
+          # no aircraft anyway), so prefer the direct id over a global states fetch.
+          url="$STATES?icao24=$(printf '%6s' "$qt" | tr ' A-F' '0a-f')"
+        else
+          callsign="$qt"
+        fi
+        ;;
+    esac
 
     if ! token="$(opensky_token)"; then
       echo "flights: OPENSKY_CLIENT_ID/SECRET set but the OAuth2 token exchange failed" >&2; exit 1
