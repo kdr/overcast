@@ -38,7 +38,10 @@ const err = (message: string): OvercastRecord => errRecord("chronolocate", messa
  *  reproducible — and `assumedUtc` flags EITHER case so a citation never implies
  *  a zoned instant the user did not actually give. */
 function parseInstant(raw: string): { date: Date; assumedUtc: boolean } | undefined {
-  const s = raw.trim();
+  // normalize ExifTool-style dates (`YYYY:MM:DD HH:MM:SS`) — exactly what `exif`
+  // writes into payload.created — so copying that value straight into --at-time
+  // verifies cleanly instead of failing as invalid (mirrors map's captureMs).
+  const s = raw.trim().replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3");
   const hasZone = /[zZ]$|[+-]\d\d:?\d\d$/.test(s);
   const hasTime = /[T ]\d\d:\d\d/.test(s);
   const iso = !hasZone && hasTime ? s.replace(" ", "T") + "Z" : s;
