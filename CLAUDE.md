@@ -196,6 +196,25 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   coverage badges and scan/monitor/brief freshness overlaid; `--limit`,
   `--source`/`--since`, `--refresh`, `--infinite` endless repeat-to-fill wall,
   `--theme plain|csi`, `--no-open`),
+  `situation` (the LIVE twin of `wall` — "monitor the situation": a
+  token-authed local server (`src/situation/` over the shared
+  `src/live/httpd.ts`, default `127.0.0.1:7374`) that serves a self-updating
+  multi-panel page — wall tiles + reverse-chron scan/monitor feed + live gps
+  map (flights build tracks) + refreshing webcam/browser stills — panels
+  auto-picked from configured sources. `serve` (default) is a BLOCKING,
+  operator/CLI-only op meant for its own pane (opening a listener is an operator
+  action, invariant #10 — the agent tool + `/situation` slash serve only
+  `status`/`set`/`stop`); `--every <interval>` makes the serving process own the
+  monitor cadence too. Refresh = poll the store fingerprint (no eventing) → SSE
+  `refresh` → the browser refetches whole. Local media streams over an
+  authenticated `/media` route with Range (a page served from http:// can't load
+  `file://` like the static wall); remote embeds gated by
+  `OVERCAST_REPORT_REMOTE_MEDIA`. Control plane = `.overcast/situation/`
+  (`runtime.json` discovery + `control.json`, consumed on the ~2s poll tick), so
+  `situation set`/`stop` (CLI, agent tool, or chair→agent) retune/stop a running
+  page cross-process. `/situation on` in the TUI runs the SAME server in-process,
+  bound to the session lifecycle, as a viewer (the agent feeds it). Operational:
+  out of `ask`/`brief` evidence),
   `map` (plot every case record carrying `payload.gps` on ONE self-contained HTML
   map — markers link back to source, geocoded place + thumbnail + capture time;
   online = inlined-JS OSM raster tiles at view time, `--offline` = coordinate
@@ -328,7 +347,12 @@ steer/follow-up/abort/case glance, typed or mic-dictated via the browser's Web
 Speech API (secure-context only — `/chair on --serve` fronts the QR with
 `tailscale serve` HTTPS so phone voice works; also auto-detects an existing
 serve, or `--url`/`OVERCAST_CHAIR_URL` for an explicit origin; `src/chair/serve.ts`);
-extension-only, no agent tool, emits no case records), and `/ask /brief /debrief` (prompt templates in `prompts/`), plus pi
+extension-only, no agent tool, emits no case records), `/situation` (the live
+monitoring page: `on [tailnet|--bind|--port|--panels …]|off|status|qr|set …|stop`
+— an in-process `SituationServer` bound to the session, same operator-only-to-open
+rule as `/chair`; `set`/`stop` delegate to the agent-safe verb ops; the chair's
+case glance surfaces a "SITUATION LIVE" card off `runtime.json`), and
+`/ask /brief /debrief` (prompt templates in `prompts/`), plus pi
 built-ins (`/model /tree /session /resume`).
 
 ## Case model & memory
@@ -347,7 +371,7 @@ exif verify screenshot chronolocate` + root `finding`s + `cluster` ingest/identi
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index archive target source
-prebrief wall grid map devices reconstruct` — reconstruct deliberately: synthesized pixels
+prebrief wall situation grid map devices reconstruct` — reconstruct deliberately: synthesized pixels
 stay out of evidence, `payload.caveat` on every record —, finding review-rows,
 dismissed **and suggested** findings (a
 suggested lead is quarantined until `finding accept` promotes it), cluster DB

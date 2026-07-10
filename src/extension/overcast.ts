@@ -23,6 +23,7 @@ import { OvercastHeader, OvercastFooter, workingIndicator, opLabel, idleLabel } 
 import { registerSlashCommands } from "./slash.js";
 import { registerYeahEasterEgg } from "./horatio.js";
 import { registerChair } from "./chair.js";
+import { registerSituation } from "./situation.js";
 import { OvercastEditor } from "./editor.js";
 import { OVERCAST_VERSION } from "../version.js";
 import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
@@ -136,6 +137,10 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
   // live session from a phone (src/extension/chair.ts). footerLabel() feeds the
   // status segment below.
   const chair = registerChair(pi);
+
+  // /situation on → in-process live monitoring page over this case
+  // (src/extension/situation.ts); the CLI twin is `overcast situation`.
+  registerSituation(pi);
 
   // unlisted: the sunglasses moment (src/extension/horatio.ts)
   registerYeahEasterEgg(pi);

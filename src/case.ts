@@ -206,6 +206,12 @@ export class Case {
     return [...this.loadRecords()];
   }
 
+  /** The store's change fingerprint (see storeStamp) — lets a poller (the
+   *  situation server) detect "any record landed" without parsing the store. */
+  storeFingerprint(): string {
+    return this.storeStamp();
+  }
+
   recordById(id: string): OvercastRecord | undefined {
     this.loadRecords();
     return this._idIndex!.get(id);

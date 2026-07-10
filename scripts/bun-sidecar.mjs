@@ -96,7 +96,23 @@ try {
   console.error(`[build:bun] WARNING: could not copy chair console (${e.message}); /chair will serve the fallback page`);
 }
 
+// 6) situation console (vite build output) → dist/bin/assets/situation-console/,
+// so `overcast situation` serves the live page from beside the binary; without
+// it the server 404s the root (there is no inline fallback for this one).
+let situation = 0;
+try {
+  const src = join(process.cwd(), "assets", "situation-console");
+  if (existsSync(src)) {
+    cpSync(src, join(OUT, "assets", "situation-console"), { recursive: true });
+    situation = 1;
+  } else {
+    console.error("[build:bun] WARNING: assets/situation-console missing (run `npm run build:web`); `situation` will 404 its page");
+  }
+} catch (e) {
+  console.error(`[build:bun] WARNING: could not copy situation console (${e.message}); \`situation\` will 404 its page`);
+}
+
 console.error(
   `[build:bun] wrote ${OUT}/package.json + ${copied} builtin theme file(s)` +
-    `${providers ? " + example providers" : ""}${sting ? " + branding audio" : ""}${chair ? " + chair console" : ""}`,
+    `${providers ? " + example providers" : ""}${sting ? " + branding audio" : ""}${chair ? " + chair console" : ""}${situation ? " + situation console" : ""}`,
 );

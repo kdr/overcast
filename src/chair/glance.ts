@@ -9,7 +9,8 @@ import { findingStatusMap, type OvercastRecord } from "../record.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
 import { listTargets } from "../state/target.js";
 import { listSources } from "../state/source.js";
-import type { CaseGlance, GlanceFinding, GlanceRecord } from "./wire.js";
+import { readRuntime, runtimeAlive } from "../situation/state.js";
+import type { CaseGlance, GlanceFinding, GlanceRecord, GlanceSituation } from "./wire.js";
 
 const SUMMARY_KEYS = ["text", "summary", "answer", "description", "title", "content", "transcript", "query", "op"];
 const SUMMARY_MAX = 160;
@@ -78,6 +79,13 @@ export function buildCaseGlance(c: Case, limit = 8): CaseGlance {
       return entry;
     });
 
+  // live situation page for this case (runtime.json + pid probe — cheap, and
+  // never includes the pairing token)
+  const rt = readRuntime(c);
+  const situation: GlanceSituation | null = runtimeAlive(rt)
+    ? { running: true, url: rt!.displayUrl, port: rt!.port, startedAt: rt!.startedAt, every: rt!.every, mode: rt!.mode }
+    : null;
+
   return {
     caseName: c.exists() ? c.info().name : basename(c.dir),
     dir: c.dir,
@@ -87,5 +95,6 @@ export function buildCaseGlance(c: Case, limit = 8): CaseGlance {
     sources: listSources(c).map((s) => ({ id: s.id, type: s.type, ref: clip(s.ref, 120), enabled: s.enabled })),
     openFindings,
     latest,
+    situation,
   };
 }
