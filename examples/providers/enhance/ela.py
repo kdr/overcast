@@ -74,6 +74,7 @@ def init():
 
 def parse_args(argv):
     inp = ""
+    ops = ""
 
     def val(j):
         return argv[j + 1] if j + 1 < len(argv) else ""
@@ -83,8 +84,10 @@ def parse_args(argv):
         a = argv[i]
         if a == "--input":
             inp = val(i); i += 2
-        elif a in ("--ops", "--prompt", "--speakers"):
-            i += 2  # accepted; consume the value (--ops is the dispatch key)
+        elif a == "--ops":
+            ops = val(i); i += 2  # the dispatch key — must be 'ela' for this provider
+        elif a in ("--prompt", "--speakers"):
+            i += 2  # accepted; consume the value
         elif a == "--masks-only":
             i += 1
         elif a == "run":
@@ -93,7 +96,7 @@ def parse_args(argv):
             inp = a; i += 1
         else:
             i += 1
-    return inp
+    return inp, ops
 
 
 def _outdir(inp):
@@ -104,7 +107,12 @@ def _outdir(inp):
 
 
 def run():
-    inp = parse_args(sys.argv[1:])
+    inp, ops = parse_args(sys.argv[1:])
+    # this provider handles ONLY --ops ela; a different provider-only op routed here
+    # (because it is the bound enhance provider) must fail loudly, not silently
+    # return an ELA result for, say, a requested panorama.
+    if ops and ops.strip().lower() != "ela":
+        fail("this provider only handles --ops ela (got %r) — bind the provider that implements %r" % (ops, ops))
     if not inp or not os.path.exists(inp):
         fail("input not found: %r" % inp)
     if not inp.lower().endswith(IMG_EXTS):

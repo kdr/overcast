@@ -519,14 +519,15 @@ export const enhanceVerb: VerbSpec = {
       ];
     }
 
-    // A split op (separate/segment) can't compose with any other op: the toolbox
-    // providers dispatch to exactly ONE handler, so `--ops segment,separate` or
-    // `--ops separate,denoise` would silently drop the rest. Require it solo.
+    // A provider-only op (separate/segment/ela/panorama) can't compose with any
+    // other op: the toolbox providers dispatch to exactly ONE handler, so
+    // `--ops segment,separate` or `--ops ela,denoise` would silently drop the rest.
+    // Require it solo.
     if (providerOps.length && rawOps.length !== 1) {
       return [
         errorRecord(
           "enhance",
-          `a split op (${providerOps.join(", ")}) must be the only --ops value (got: ${rawOps.join(",")}). Run separate/segment one at a time.`,
+          `a provider-only op (${providerOps.join(", ")}) must be the only --ops value (got: ${rawOps.join(",")}). Run these ops one at a time.`,
         ),
       ];
     }

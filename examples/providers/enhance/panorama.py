@@ -64,6 +64,7 @@ def init():
 
 def parse_args(argv):
     inp = ""
+    ops = ""
 
     def val(j):
         return argv[j + 1] if j + 1 < len(argv) else ""
@@ -73,8 +74,10 @@ def parse_args(argv):
         a = argv[i]
         if a == "--input":
             inp = val(i); i += 2
-        elif a in ("--ops", "--prompt", "--speakers", "--at"):
-            i += 2  # accepted; consume the value (--ops is the dispatch key)
+        elif a == "--ops":
+            ops = val(i); i += 2  # the dispatch key — must be 'panorama' here
+        elif a in ("--prompt", "--speakers", "--at"):
+            i += 2  # accepted; consume the value
         elif a == "--masks-only":
             i += 1
         elif a == "run":
@@ -83,7 +86,7 @@ def parse_args(argv):
             inp = a; i += 1
         else:
             i += 1
-    return inp
+    return inp, ops
 
 
 def _outdir(inp):
@@ -117,35 +120,43 @@ def sample_frames(cv2, np, inp):
         frames.append(frame)
 
     if total > 1:
-        # oversample positions so filtering still leaves a healthy overlap set
-        n = min(total, TARGET_FRAMES * 2)
+        # oversample positions across the FULL clip so black/dup filtering still
+        # leaves a healthy overlap set. Do NOT stop at TARGET_FRAMES mid-scan — that
+        # would keep only the first ~half of a pan; walk every position, then thin
+        # evenly below so the kept frames span the whole clip.
+        n = min(total, TARGET_FRAMES * 3)
         idxs = sorted({int(round(k * (total - 1) / (n - 1))) for k in range(n)})
         for idx in idxs:
             cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
             ok, frame = cap.read()
             if ok:
                 consider(frame)
-            if len(frames) >= TARGET_FRAMES:
-                break
     else:
-        # unknown/streaming length: read sequentially, keep every Kth non-dup
-        step = 1
-        i = 0
-        while True:
+        # unknown/streaming length: read sequentially, keeping non-dup frames into a
+        # bounded buffer (still spanning the clip), then thin below.
+        cap_buf = TARGET_FRAMES * 3
+        while len(frames) < cap_buf:
             ok, frame = cap.read()
             if not ok:
                 break
-            if i % step == 0:
-                consider(frame)
-            i += 1
-            if len(frames) >= TARGET_FRAMES:
-                break
+            consider(frame)
     cap.release()
+
+    # thin an oversampled set down to TARGET_FRAMES, evenly across its span, so the
+    # stitch input covers the full pan rather than a contiguous early slice.
+    if len(frames) > TARGET_FRAMES:
+        keep = sorted({int(round(k * (len(frames) - 1) / (TARGET_FRAMES - 1))) for k in range(TARGET_FRAMES)})
+        frames = [frames[j] for j in keep]
     return frames
 
 
 def run():
-    inp = parse_args(sys.argv[1:])
+    inp, ops = parse_args(sys.argv[1:])
+    # this provider handles ONLY --ops panorama; a different provider-only op routed
+    # here (because it is the bound enhance provider) must fail loudly, not silently
+    # stitch a panorama for, say, a requested ela.
+    if ops and ops.strip().lower() != "panorama":
+        fail("this provider only handles --ops panorama (got %r) — bind the provider that implements %r" % (ops, ops))
     if not inp or not os.path.exists(inp):
         fail("input not found: %r" % inp)
     if not inp.lower().endswith(VID_EXTS):
