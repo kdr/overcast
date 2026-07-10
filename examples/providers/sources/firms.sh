@@ -79,10 +79,14 @@ firms_csv_to_hits() { # <sensor-label>
         | ($frpRaw | tonumber?) as $frp
         | (if ($date | length) == 10 then ($date + "T" + $hm[0:2] + ":" + $hm[2:4] + ":00Z") else null end) as $iso
         # a monitor track needs a UNIQUE identity per detection: hitKey keys on
-        # payload.url, so two fires at the same coordinate must differ or the later
-        # one is deduped. Fold the capture time + sensor into the map-link fragment
-        # (inert to fetch -- curl drops the #...), like shodan #<port> / flights #t.
-        | ("t:" + ($iso // ($date + $hm)) + (if $sensor != "" then ";s:" + $sensor else "" end)) as $detkey
+        # payload.url, so two detections sharing a coordinate+time+sensor must still
+        # differ or the later is deduped. Fold capture time + sensor + the intensity
+        # fields (frp, brightness) into the map-link fragment (inert to fetch -- curl
+        # drops the #...), like shodan #<port> / flights #t;@lat,lng.
+        | ("t:" + ($iso // ($date + $hm))
+           + (if $sensor != "" then ";s:" + $sensor else "" end)
+           + (if $frpRaw != "" then ";f:" + $frpRaw else "" end)
+           + (if $bright != "" then ";b:" + $bright else "" end)) as $detkey
         | ("https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@" + ($lng|tostring) + "," + ($lat|tostring) + ",10z;" + $detkey) as $url
         | {
             title: ("fire " + (if $conf != "" then $conf + " conf" else "detection" end)
@@ -192,16 +196,22 @@ case "$op" in
     if ! resp="$(curl -fsS -m 60 "$endpoint")"; then
       echo "firms enumerate request failed for '$query' (check bbox and key)" >&2; exit 1
     fi
-    # A valid response is CSV whose header carries BOTH latitude and longitude as
-    # comma-separated fields. FIRMS reports bad keys / params as an HTTP-200 TEXT
+    # A valid response is CSV whose header has `latitude` AND `longitude` as EXACT
+    # comma-delimited columns. FIRMS reports bad keys / params as an HTTP-200 TEXT
     # body ("Invalid MAP_KEY…", "Invalid latitude…") that `curl -f` can't catch —
-    # requiring both fields AND a comma rejects prose that merely mentions the word
-    # "latitude". A header-only CSV (no fires) → [].
-    header="$(printf '%s\n' "$resp" | head -1 | tr '[:upper:]' '[:lower:]')"
-    case "$header" in
-      *latitude*,*longitude*|*longitude*,*latitude*) : ;;
-      *) echo "firms enumerate: unexpected response: $(printf '%s' "$resp" | head -c 200)" >&2; exit 1 ;;
-    esac
+    # matching whole fields (not substrings) rejects prose like "Invalid latitude,
+    # longitude out of range" that would otherwise map to a fake empty scan. A
+    # header-only CSV (no fires) → [].
+    have_lat=0; have_lng=0
+    IFS=, read -ra _cols < <(printf '%s' "$resp" | head -1 | tr '[:upper:]' '[:lower:]')
+    for _c in "${_cols[@]}"; do
+      _c="${_c//[[:space:]]/}"
+      [ "$_c" = "latitude" ] && have_lat=1
+      [ "$_c" = "longitude" ] && have_lng=1
+    done
+    if [ "$have_lat" -ne 1 ] || [ "$have_lng" -ne 1 ]; then
+      echo "firms enumerate: unexpected response: $(printf '%s' "$resp" | head -c 200)" >&2; exit 1
+    fi
     # honor --since EXACTLY: drop detections whose acquisition time predates the
     # window (dayrange only bounds the fetch to whole days), sort NEWEST-first, THEN
     # apply --limit — the FIRMS area CSV is not ordered by time, so slicing raw rows
