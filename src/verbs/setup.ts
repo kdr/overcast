@@ -15,7 +15,7 @@ import {
 import { listBuckets } from "../archive.js";
 import { FFMPEG_PATH, FFPROBE_PATH, probeTool, MIN_FFMPEG } from "../media/ffmpeg.js";
 import { execCapture } from "../providers/exec.js";
-import { tokenizeCommand } from "../providers/sources/index.js";
+import { tokenizeCommand, builtinDescriptor } from "../providers/sources/index.js";
 import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
 import { loadSetup, saveSetup, emptySetup } from "../state/setup.js";
@@ -755,22 +755,28 @@ export const doctorVerb: VerbSpec = {
       });
     }
     if (ctx.opts.sources === true || sourceTypes.has("plate")) {
-      // plate has no default actor (DPPA). It's healthy when configured EITHER via
-      // the Apify path (APIFY_TOKEN + OVERCAST_PLATE_ACTOR) OR a self-contained
-      // command override (OVERCAST_SOURCE_PLATE_CMD — e.g. a direct plate API that
-      // supplies its own resolution). Accept both so a valid direct-API binding
-      // isn't reported as unhealthy.
-      const plateCmd = envPresent("OVERCAST_SOURCE_PLATE_CMD");
-      const plateApify = envPresent("APIFY_TOKEN") && envPresent("OVERCAST_PLATE_ACTOR");
-      checks.push({
-        name: "source:plate",
-        ok: plateCmd || plateApify,
-        detail: plateCmd
-          ? "OVERCAST_SOURCE_PLATE_CMD bound (custom plate provider — vehicle SPEC only, owner is DPPA-restricted)"
-          : plateApify
-            ? "APIFY_TOKEN + OVERCAST_PLATE_ACTOR present (vehicle SPEC only — owner is DPPA-restricted)"
-            : `plate needs ${!envPresent("APIFY_TOKEN") ? "APIFY_TOKEN + " : ""}OVERCAST_PLATE_ACTOR (no default actor — DPPA), or a custom OVERCAST_SOURCE_PLATE_CMD`,
-      });
+      // plate has no default actor (DPPA) and can be bound two ways — the Apify path
+      // (APIFY_TOKEN + OVERCAST_PLATE_ACTOR) or a custom OVERCAST_SOURCE_PLATE_CMD
+      // (e.g. a direct plate API). Neither can be judged from env alone: a rebound
+      // *shipped* plate.sh still needs the actor, while a self-contained custom
+      // command needs nothing. So probe the provider's own `init` health check
+      // (exit 0 = ready, 13 = missing creds/actor) — the definitive signal for both.
+      // (plate is the only source with this override-vs-actor ambiguity; the rest
+      // are a single env key, checked directly above.)
+      const plateDesc = builtinDescriptor("plate");
+      let plateOk = false;
+      let plateDetail = "plate provider unavailable (shipped plate.sh not found)";
+      if (plateDesc) {
+        const [pcmd, ...plead] = plateDesc.base;
+        const res = await execCapture(pcmd, [...plead, "init"], { signal: ctx.signal, timeoutMs: 15_000 }).catch(
+          () => ({ code: 1, stdout: "", stderr: "" }),
+        );
+        plateOk = res.code === 0;
+        plateDetail = plateOk
+          ? "plate provider ready (vehicle SPEC only — owner is DPPA-restricted)"
+          : "plate not ready — set APIFY_TOKEN + OVERCAST_PLATE_ACTOR (no default actor — DPPA), or a self-contained OVERCAST_SOURCE_PLATE_CMD";
+      }
+      checks.push({ name: "source:plate", ok: plateOk, detail: plateDetail });
     }
     if (ctx.opts.sources === true || sourceTypes.has("browser")) {
       // no API key — the browser source needs the same Playwright renderer the

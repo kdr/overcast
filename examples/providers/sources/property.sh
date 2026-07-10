@@ -70,7 +70,16 @@ case "$op" in
         # boolean `error:false`/absent/"" all pass (avoids the `// null` falsy-coalesce
         # trap where `false // null` == null); only a non-empty string or `true` drops
         | select((.error == null) or (.error == false) or (.error == ""))
-        | select(((.owner_name // .owner // "") | tostring | length) > 0 or (.assessed_value // null) != null)
+        # keep a parcel that carries ANY identifying/valuable field — not just owner
+        # or assessed value; a county may expose market_value / parcel_id / address
+        # without those, and dropping it would empty an otherwise-successful scan
+        | select(
+            ((.owner_name // .owner // "") | tostring | length) > 0
+            or (.assessed_value // null) != null
+            or (.market_value // null) != null
+            or ((.parcel_id // .apn // "") | tostring | length) > 0
+            or ((.situs_address // .address // "") | tostring | length) > 0
+          )
         | ((.source_url // .url // "") | tostring) as $url
         | {
             title: ((.situs_address // .address // .owner_name // .owner // "property") | tostring | .[0:120]),
