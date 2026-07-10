@@ -85,12 +85,14 @@ case "$op" in
       exit 1
     fi
     # map → vehicle hits. Actor output shapes vary, so parse VIN/make/model/year
-    # defensively. Require a VIN or a make (else it's not an actionable match).
+    # defensively. Require a vin/make/model (else it is not an actionable match).
     jq -c --argjson n "$limit" --arg plate "$plate" --arg state "$state" '
       [ .[]
         | ((.vin // .VIN // "") | tostring) as $vin
         | ((.make // .brand // .Make // "") | tostring) as $make
-        | select(($vin | length) > 0 or ($make | length) > 0)
+        # keep a vehicle identified by ANY of vin/make/model (not just vin-or-make),
+        # so a spec-only actor row (make absent but model present) is not dropped
+        | select(($vin | length) > 0 or ($make | length) > 0 or ((.model // .Model // "") | tostring | length) > 0)
         | ((.url // .source_url // "") | tostring) as $url
         | {
             title: ([ ((.year // .modelYear // .Year // "") | tostring), $make, ((.model // .Model // "") | tostring) ]
