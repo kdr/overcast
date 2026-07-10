@@ -288,6 +288,10 @@ body {
   color: var(--muted);
 }
 
+.composer .mic:disabled {
+  opacity: 0.4;
+}
+
 .composer .abort {
   background: #170a0a;
   border: 1px solid var(--bad);

@@ -40,6 +40,7 @@ async function boot(): Promise<void> {
   let gated = false;
   const teardownSession = (): void => {
     gated = true;
+    composer.cancelDictation(); // stop the browser mic before the console is torn down
     disconnect?.(); // close the EventSource (stops its auto-reconnect)
     disconnect = undefined;
     streamConnected = false;

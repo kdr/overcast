@@ -7,6 +7,9 @@ import { createDictation } from "../dictation.js";
 export interface Composer {
   el: HTMLElement;
   setBusy(busy: boolean): void;
+  /** Stop any active dictation — called before the console tears down (auth
+   *  gate) so the browser mic doesn't keep recording after the UI is gone. */
+  cancelDictation(): void;
 }
 
 export function createComposer(handlers: {
@@ -90,12 +93,18 @@ export function createComposer(handlers: {
     const text = input.value.trim();
     if (!text) return;
     send.disabled = true;
+    // Lock the mic while the send is in flight: a mic-start during the async
+    // onSend would capture the outgoing text as `base` and, once the successful
+    // send clears the box, the next onText would write it back in — resending
+    // already-sent text.
+    mic.disabled = true;
     try {
       await handlers.onSend(text, mode);
       input.value = "";
       input.style.height = "auto";
     } finally {
       send.disabled = false;
+      mic.disabled = false;
     }
   };
   send.addEventListener("click", () => void submit());
@@ -117,5 +126,6 @@ export function createComposer(handlers: {
       busy = nowBusy;
       if (!dictation.listening()) input.placeholder = busyPlaceholder();
     },
+    cancelDictation: () => dictation.cancel(),
   };
 }
