@@ -256,11 +256,14 @@ A **case is just a directory** with a `.overcast/` store — switch cases with
 **Man in the chair** — remote-drive the live TUI session from your phone: run
 `/chair on tailnet` (or launch with `overcast --chair`), scan the QR that
 appears, and the chair console opens in your phone browser — live assistant
-stream, steer / follow-up prompts, ABORT, and a read-only case glance. The
-bridge is a token-authed localhost/tailnet HTTP+SSE server (no TLS in v1 —
-pair it with Tailscale or an SSH tunnel; the pairing token rides in the QR
-URL's `#fragment` and rotates on `/chair off`). See flow 23 in
-[`docs/flows.md`](docs/flows.md).
+stream, steer / follow-up prompts (typed or spoken: the composer's `mic`
+button dictates via the browser's speech recognition), ABORT, and a read-only
+case glance. The bridge is a token-authed localhost/tailnet HTTP+SSE server
+(no TLS in v1 — pair it with Tailscale or an SSH tunnel; the pairing token
+rides in the QR URL's `#fragment` and rotates on `/chair off`). Browsers only
+allow the mic on secure origins, so dictation works on `localhost` out of the
+box but needs HTTPS in front of a tailnet bind (e.g. `tailscale serve`). See
+flow 23 in [`docs/flows.md`](docs/flows.md).
 
 Use the three report surfaces for different jobs:
 

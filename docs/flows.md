@@ -806,6 +806,8 @@ your man in the chair; you check in from the field over your tailnet.
 # on the phone (same tailnet): scan the QR → the chair console opens
 #   watch the live stream (assistant text, tool activity, turn state)
 #   send prompts — auto mode steers a running agent, or queue a follow-up
+#   or speak them: `mic` dictates into the composer (browser speech
+#   recognition — review the transcript, then send/steer as usual)
 #   ABORT stops the current run; the case drawer shows scope/findings/evidence
 
 /chair status            # bind, port, connected clients
@@ -821,6 +823,18 @@ desk + in context) and cannot expand slash commands or templates. `/chair` emits
 no case records. Env knobs: `OVERCAST_CHAIR`, `OVERCAST_CHAIR_BIND`,
 `OVERCAST_CHAIR_PORT`, `OVERCAST_CHAIR_TOKEN`. The console dev loop is
 `npm run dev:web` (vite, proxies to a running chair on 7373).
+
+Voice dictation: the `mic` button uses the browser's Web Speech API (Chrome,
+Safari/iOS ≥ 14.5, Edge; Firefox ships it disabled — the button hides when the
+API is missing). Speech is transcribed by the browser/OS engine (often
+cloud-backed; Chrome 142+ can transcribe on-device), streamed live into the
+composer, and sent through the normal prompt path — nothing new server-side.
+Browsers only grant the mic on secure origins: `localhost` works as-is, but on
+a plain-HTTP tailnet bind the button shows blocked and dictation needs HTTPS in
+front of the bridge — e.g. keep the default localhost bind and expose it with
+`tailscale serve` (if send/abort then 403 with "origin mismatch", make the
+proxy forward the original `Host` header — the bridge checks `Origin`↔`Host`
+on POSTs).
 
 ### 24. Global archive: save once, reuse across cases
 

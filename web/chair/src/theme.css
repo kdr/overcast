@@ -262,6 +262,32 @@ body {
   opacity: 0.4;
 }
 
+.composer .mic {
+  background: #07100c;
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  border-radius: 6px;
+  font: inherit;
+  padding: 8px 12px;
+}
+
+.composer .mic.on {
+  border-color: var(--magenta);
+  color: var(--magenta);
+}
+
+.composer .mic.on::before {
+  content: "●";
+  margin-right: 5px;
+  animation: pulse 1.1s ease-in-out infinite;
+  display: inline-block;
+}
+
+.composer .mic.blocked {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
 .composer .abort {
   background: #170a0a;
   border: 1px solid var(--bad);

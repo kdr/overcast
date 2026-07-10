@@ -87,6 +87,7 @@ async function boot(): Promise<void> {
         .then(refreshIfDisconnected)
         .catch((e) => (isAuthError(e) ? onAuthFailure() : transcript.notice("abort failed", "error")));
     },
+    onNotice: (text, level) => transcript.notice(text, level),
   });
 
   let booted = false;
