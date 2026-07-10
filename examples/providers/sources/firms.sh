@@ -72,11 +72,17 @@ firms_csv_to_hits() { # <sensor-label>
         | ($f[7] // "") as $bright
         | ($frpRaw | tonumber?) as $frp
         | (if ($date | length) == 10 then ($date + "T" + $hm[0:2] + ":" + $hm[2:4] + ":00Z") else null end) as $iso
+        # a monitor track needs a UNIQUE identity per detection: hitKey keys on
+        # payload.url, so two fires at the same coordinate must differ or the later
+        # one is deduped. Fold the capture time + sensor into the map-link fragment
+        # (inert to fetch -- curl drops the #...), like shodan #<port> / flights #t.
+        | ("t:" + ($iso // ($date + $hm)) + (if $sensor != "" then ";s:" + $sensor else "" end)) as $detkey
+        | ("https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@" + ($lng|tostring) + "," + ($lat|tostring) + ",10z;" + $detkey) as $url
         | {
             title: ("fire " + (if $conf != "" then $conf + " conf" else "detection" end)
                     + (if $frp != null then ", FRP " + ($frp|tostring) else "" end)
                     + (if $iso != null then " @ " + $date + " " + $hm[0:2] + ":" + $hm[2:4] else "" end)),
-            url: ("https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@" + ($lng|tostring) + "," + ($lat|tostring) + ",10z"),
+            url: $url,
             source: "firms",
             published: $iso,
             snippet: (([ (if $conf != "" then "confidence " + $conf else empty end),
@@ -89,7 +95,7 @@ firms_csv_to_hits() { # <sensor-label>
             brightness: (if $bright != "" then ($bright | tonumber?) else null end),
             daynight: (if $dn != "" then $dn else null end),
             sensor: (if $sensor != "" then $sensor else null end),
-            media: { ref: ("https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@" + ($lng|tostring) + "," + ($lat|tostring) + ",10z") }
+            media: { ref: $url }
           }
       )'
 }
