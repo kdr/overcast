@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type Server } from "node:http";
@@ -768,6 +768,111 @@ test("a partial rebind + reload preserve the explicit --url origin (Bugbot r5)",
     else process.env.OVERCAST_CHAIR = prevChair;
     if (prevTs === undefined) delete process.env.OVERCAST_TAILSCALE_CMD;
     else process.env.OVERCAST_TAILSCALE_CMD = prevTs;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a FAILED `/chair on --serve` leaves a running chair untouched (Bugbot r6)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-servefail-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  const prevChair = process.env.OVERCAST_CHAIR;
+  const prevTs = process.env.OVERCAST_TAILSCALE_CMD;
+  const prevPoll = process.env.OVERCAST_TAILSCALE_POLL_MS;
+  try {
+    process.env.OVERCAST_CASE = dir;
+    delete process.env.OVERCAST_CHAIR;
+    process.env.OVERCAST_TAILSCALE_CMD = "false"; // every tailscale call fails → serve can't come up
+    process.env.OVERCAST_TAILSCALE_POLL_MS = "5";
+    const { pi, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    // running chair on an explicit non-loopback bind (stands in for a tailnet bind)
+    await commands.get("chair")?.("on --bind 0.0.0.0 --port 0", ctx);
+    const bind0 = handle.bridge()!.bind;
+    const port0 = handle.bridge()!.port;
+    const token0 = handle.bridge()!.pairingUrl.split("#t=")[1];
+
+    // --serve fails → must NOT rebind to loopback or rotate the token
+    await commands.get("chair")?.("on --serve", ctx);
+    assert.equal(handle.bridge()!.bind, bind0, "failed serve keeps the bind (no loopback yank)");
+    assert.equal(handle.bridge()!.port, port0, "failed serve keeps the port");
+    assert.equal(handle.bridge()!.pairingUrl.split("#t=")[1], token0, "failed serve does NOT rotate the token");
+    assert.equal(handle.bridge()!.secure, false, "still http");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    if (prevChair === undefined) delete process.env.OVERCAST_CHAIR;
+    else process.env.OVERCAST_CHAIR = prevChair;
+    if (prevTs === undefined) delete process.env.OVERCAST_TAILSCALE_CMD;
+    else process.env.OVERCAST_TAILSCALE_CMD = prevTs;
+    if (prevPoll === undefined) delete process.env.OVERCAST_TAILSCALE_POLL_MS;
+    else process.env.OVERCAST_TAILSCALE_POLL_MS = prevPoll;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a `--port` rebind tears down the serve mapping for the port it left (Bugbot r6)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-chair-serveorphan-"));
+  const prevCase = process.env.OVERCAST_CASE;
+  const prevChair = process.env.OVERCAST_CHAIR;
+  const prevTs = process.env.OVERCAST_TAILSCALE_CMD;
+  const prevPoll = process.env.OVERCAST_TAILSCALE_POLL_MS;
+  const SERVE_PORT = 47373; // unlikely-in-use fixed port so serve maps a known target
+  try {
+    process.env.OVERCAST_CASE = dir;
+    delete process.env.OVERCAST_CHAIR;
+    process.env.OVERCAST_TAILSCALE_POLL_MS = "5";
+    // logging + stateful fake: records every call; `serve status` is empty until
+    // `serve --bg` runs (so enableServe reports created=true), then returns a
+    // config proxying to the served port.
+    const calls = join(dir, "calls.log");
+    const mark = join(dir, "served");
+    const cfg = `{"Web":{"h.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:${SERVE_PORT}"}}}}}`;
+    const script = join(dir, "fakets.sh");
+    writeFileSync(
+      script,
+      [
+        "#!/usr/bin/env bash",
+        `echo "$@" >> "${calls}"`,
+        `if [ "$1 $2" = "serve status" ]; then`,
+        `  if [ -f "${mark}" ]; then echo '${cfg}'; else echo 'No serve config'; fi; exit 0`,
+        "fi",
+        `if [ "$1 $2" = "serve --bg" ]; then touch "${mark}"; exit 0; fi`,
+        "exit 0",
+      ].join("\n") + "\n",
+    );
+    chmodSync(script, 0o755);
+    process.env.OVERCAST_TAILSCALE_CMD = script;
+
+    const { pi, commands } = fakePi();
+    const handle = registerChair(pi as never);
+    const { ctx } = fakeCtx(dir);
+
+    // serve on SERVE_PORT (created by us), chair listens there, HTTPS QR
+    await commands.get("chair")?.(`on --serve --port ${SERVE_PORT}`, ctx);
+    assert.equal(handle.bridge()!.secure, true, "serve came up → HTTPS");
+    assert.equal(handle.bridge()!.port, SERVE_PORT);
+
+    // rebind to a fresh ephemeral port WITHOUT --serve → the SERVE_PORT mapping
+    // is now orphaned and must be torn down
+    await commands.get("chair")?.("on --port 0", ctx);
+    assert.notEqual(handle.bridge()!.port, SERVE_PORT, "moved to a new port");
+    const log = existsSync(calls) ? readFileSync(calls, "utf8") : "";
+    assert.match(log, /serve --https=443 off/, "orphaned serve mapping was torn down");
+
+    await commands.get("chair")?.("off", ctx);
+  } finally {
+    if (prevCase === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prevCase;
+    if (prevChair === undefined) delete process.env.OVERCAST_CHAIR;
+    else process.env.OVERCAST_CHAIR = prevChair;
+    if (prevTs === undefined) delete process.env.OVERCAST_TAILSCALE_CMD;
+    else process.env.OVERCAST_TAILSCALE_CMD = prevTs;
+    if (prevPoll === undefined) delete process.env.OVERCAST_TAILSCALE_POLL_MS;
+    else process.env.OVERCAST_TAILSCALE_POLL_MS = prevPoll;
     rmSync(dir, { recursive: true, force: true });
   }
 });

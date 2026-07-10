@@ -452,16 +452,19 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     // and only when WE created the mapping (not a pre-existing operator serve).
     let serveCreatedPort: number | undefined;
     if (opts.serve) {
-      if (opts.bind && !loopbackBind(opts.bind)) {
-        emitResult(pi, "▶ chair: --serve gives HTTPS over your tailnet via `tailscale serve`; binding loopback (ignoring the tailnet bind)");
-      }
-      opts.bind = "127.0.0.1";
       const port = opts.port ?? lastStartOpts.port ?? envPort(process.env.OVERCAST_CHAIR_PORT) ?? 7373;
       emitResult(pi, "▶ chair: enabling HTTPS via `tailscale serve`…");
       const r = await enableServe(port);
       if (r.url) {
         opts.serveUrl = r.url; // transient (port-tied), kept out of the persisted explicit --url
         if (r.created) serveCreatedPort = port; // ours to tear down — adopted only after bind succeeds
+        // serve fronts LOOPBACK — force the loopback bind ONLY on success, so a
+        // FAILED serve never yanks a working tailnet chair to loopback + rotates
+        // its token for nothing (a bare `/chair on --serve` then stays a no-op).
+        if (opts.bind && !loopbackBind(opts.bind)) {
+          emitResult(pi, "▶ chair: --serve gives HTTPS over your tailnet via `tailscale serve`; binding loopback (ignoring the tailnet bind)");
+        }
+        opts.bind = "127.0.0.1";
       } else {
         emitResult(pi, `▶ chair: ${r.error} — continuing over HTTP (voice needs HTTPS)`);
       }
@@ -485,6 +488,16 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     await stopping;
     const err = await bindBridge(opts);
     if (!err) {
+      // Reconcile the serve mapping with the port we actually bound. If we own a
+      // serve for a DIFFERENT port than the chair now listens on (a `--port`
+      // rebind moved off it, with or without a new `--serve`), that mapping now
+      // proxies to a dead listener — tear it down. Then adopt any serve created
+      // for this bind.
+      const boundPort = bridge!.port;
+      if (serveEnabledPort !== undefined && serveEnabledPort !== (serveCreatedPort ?? boundPort)) {
+        await disableServe(serveEnabledPort);
+        serveEnabledPort = undefined;
+      }
       if (serveCreatedPort !== undefined) serveEnabledPort = serveCreatedPort; // now there's a listener behind it
       showQr();
       showStatus();
