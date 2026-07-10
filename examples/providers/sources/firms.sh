@@ -151,13 +151,14 @@ case "$op" in
     if [ -n "$since" ]; then
       now="$(date -u +%s)"; cutepoch=""
       case "$since" in
+        *[0-9]s) cutepoch=$(( now - 10#${since%s} )) ;;
         *[0-9]m) cutepoch=$(( now - 10#${since%m} * 60 )) ;;
         *[0-9]h) cutepoch=$(( now - 10#${since%h} * 3600 )) ;;
         *[0-9]d) cutepoch=$(( now - 10#${since%d} * 86400 )) ;;
         *[0-9]w) cutepoch=$(( now - 10#${since%w} * 604800 )) ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
           cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')" ;;
-        *) echo "firms: could not parse --since '$since' (use Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
+        *) echo "firms: could not parse --since '$since' (use Ns/Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
       esac
       [ -n "$cutepoch" ] || { echo "firms: could not parse --since '$since'" >&2; exit 1; }
       cutiso="$(date -u -r "$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '')"
@@ -202,10 +203,15 @@ case "$op" in
       *) echo "firms enumerate: unexpected response: $(printf '%s' "$resp" | head -c 200)" >&2; exit 1 ;;
     esac
     # honor --since EXACTLY: drop detections whose acquisition time predates the
-    # window (dayrange only bounds the fetch to whole days), then apply --limit.
+    # window (dayrange only bounds the fetch to whole days), sort NEWEST-first, THEN
+    # apply --limit — the FIRMS area CSV is not ordered by time, so slicing raw rows
+    # could keep older detections and drop the most recent ones in the window.
+    # `.created // ""` sorts undated rows first → reverse puts them last (lowest
+    # priority under the cap), so dated detections keep their recency ranking.
     printf '%s' "$resp" | firms_csv_to_hits "$src" \
       | jq -c --argjson n "$limit" --arg cutiso "$cutiso" \
-          'map(select($cutiso == "" or (.created != null and .created >= $cutiso))) | .[0:$n]'
+          'map(select($cutiso == "" or (.created != null and .created >= $cutiso)))
+           | sort_by(.created // "") | reverse | .[0:$n]'
     ;;
 
   fetch)
