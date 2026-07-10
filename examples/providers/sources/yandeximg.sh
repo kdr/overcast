@@ -120,10 +120,12 @@ case "$op" in
             snippet: (.description // .snippet // .text // ""),
             match: (.matchType // .match // "visual"),
             site:  (.displayLink // .source // .domain // null) }
-        # keep only a real absolute http(s) page link, and EXCLUDE the submitted
-        # query image itself (actors often echo the input url in a page field) so a
-        # bogus hit cannot point payload.url/media.ref at the probe image.
-        | select(((.page // "") | ascii_downcase | startswith("http")) and (.page != $self)) ]
+        # never echo the submitted query image back as a hit: exclude it as the PAGE
+        # (case-insensitively) and blank it as the THUMB (which becomes media.ref),
+        # so capture/--pull cannot fetch the probe image instead of a real match.
+        | (($self | ascii_downcase)) as $selfl
+        | (if ((.thumb // "") | ascii_downcase) == $selfl then .thumb = "" else . end)
+        | select(((.page // "") | ascii_downcase | startswith("http")) and (((.page // "") | ascii_downcase) != $selfl)) ]
       | .[0:$n]')"
     n="$(printf '%s' "$items" | jq 'length')"
     hits="[]"
