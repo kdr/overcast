@@ -7,6 +7,7 @@ import {
   generateSkillCreatorSkill,
   generateMediaBugTriageSkill,
   generateReconBriefSkill,
+  generateArchiveSkill,
   generateDorkReconSkill,
   generateAttackSurfaceSkill,
   generateVisualTargetSearchSkill,
@@ -73,6 +74,9 @@ const generatedSkills = [
     verbs: ["doctor", "case init", "case setup", "scan", "monitor", "finding", "ask", "brief"],
   },
   {
+    name: "overcast-archive",
+    body: generateArchiveSkill,
+    verbs: ["archive init", "archive add", "archive show", "archive setup", "face", "similar", "image", "audio", "cluster", "watch", "capture", "ask"],
     name: "overcast-dork-recon",
     body: generateDorkReconSkill,
     verbs: ["doctor", "case init", "case setup", "source add", "scan", "finding", "note", "ask", "brief"],

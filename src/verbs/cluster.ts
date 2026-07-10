@@ -24,7 +24,9 @@ import { join, dirname } from "node:path";
 import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { runLocalCluster } from "../providers/local/vision.js";
 import { indexesByType, resolveIndexRef } from "../state/index.js";
+import { provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { resolveVisualArg } from "./media-ref.js";
+import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { renderClusterGallery, type ClusterGalleryPerson } from "../report/html.js";
 import { openHtmlPlayer } from "../media/view.js";
 import { badNumber } from "./validate.js";
@@ -138,7 +140,12 @@ export const clusterVerb: VerbSpec = {
 
     const indexFlag = ctx.opts.index != null ? String(ctx.opts.index) : undefined;
     if (indexFlag !== undefined && !indexFlag.trim()) return [err("--index requires a face-cluster index id or name")];
-    const idx = resolveClusterIndex(c, indexFlag);
+    // `--index archive:<bucket>/<index>` targets a BUCKET's face-cluster DB;
+    // auto-pick (no --index) stays case-local. Evidence persists to the case.
+    const scoped = resolveIndexScope(c, indexFlag ?? "", ctx.home);
+    if (scoped.error) return [err(scoped.error)];
+    const scope = scoped.scope;
+    const idx = resolveClusterIndex(scope, indexFlag === undefined ? undefined : scoped.value);
     if (idx.error) return [err(idx.error)];
     const indexId = idx.id!;
 
@@ -154,13 +161,13 @@ export const clusterVerb: VerbSpec = {
 
     const finish = (rec: OvercastRecord, op: string): OvercastRecord[] => {
       if (NON_MEDIA_OPS.has(op) && rec.media?.ref === "-") rec.media = undefined;
-      return [rec];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     };
 
     if (action === "add" || action === "ingest") {
       const arg = ctx.rest[0];
       if (!arg) return [err("usage: cluster add <video|image> --index <id>")];
-      const media = resolveVisualArg(c, arg, "cluster add", { requireReady: false });
+      const media = resolveVisualArg(c, arg, "cluster add", { requireReady: false, home: ctx.home });
       if (media.error) return [err(media.error)];
       // an explicit --source-record wins over the resolver's inferred record id
       // (the flag exists precisely for bare paths the resolver can't attribute);
@@ -171,8 +178,11 @@ export const clusterVerb: VerbSpec = {
         if (!raw) return [err("--source-record requires a case record id")];
         sourceRecord = raw;
       }
-      const rec = await runLocalCluster(c, media.ref!, { indexId, op: "ingest", sourceRecord, ...sampling });
-      return [rec];
+      const rec = await runLocalCluster(scope, media.ref!, { indexId, op: "ingest", sourceRecord, ...sampling });
+      // trace the ingested media back to the post it came from (parity with the
+      // other match/identify verbs; the bucket case when the media is an archive ref)
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, media.archive, ctx.home), media.ref));
+      return [stampArchive(rec, scoped.bucket ?? media.archive, ctx.case.dir)];
     }
 
     if (action === "identify") {
@@ -180,26 +190,27 @@ export const clusterVerb: VerbSpec = {
       if (!arg) return [err("usage: cluster identify <image|video> --index <id>")];
       // a probe may be a still image OR a clip (the provider samples video frames
       // with the same --fps/--max-frames/--start/--end machinery as ingest).
-      const media = resolveVisualArg(c, arg, "cluster identify", { requireReady: false });
+      const media = resolveVisualArg(c, arg, "cluster identify", { requireReady: false, home: ctx.home });
       if (media.error) return [err(media.error)];
-      const rec = await runLocalCluster(c, media.ref!, { indexId, op: "identify", minSimilarity: sampling.minSimilarity, limit: sampling.limit, fps: sampling.fps, maxFrames: sampling.maxFrames, start: sampling.start, end: sampling.end, signal: ctx.signal });
-      return [rec];
+      const rec = await runLocalCluster(scope, media.ref!, { indexId, op: "identify", minSimilarity: sampling.minSimilarity, limit: sampling.limit, fps: sampling.fps, maxFrames: sampling.maxFrames, start: sampling.start, end: sampling.end, signal: ctx.signal });
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, media.archive, ctx.home), media.ref));
+      return [stampArchive(rec, scoped.bucket ?? media.archive, ctx.case.dir)];
     }
 
     if (action === "recluster") {
-      const rec = await runLocalCluster(c, "-", { indexId, op: "recluster", minSimilarity: sampling.minSimilarity, signal: ctx.signal });
+      const rec = await runLocalCluster(scope, "-", { indexId, op: "recluster", minSimilarity: sampling.minSimilarity, signal: ctx.signal });
       return finish(rec, "recluster");
     }
 
     if (action === "list") {
-      const rec = await runLocalCluster(c, "-", { indexId, op: "list", limit: sampling.limit, signal: ctx.signal });
+      const rec = await runLocalCluster(scope, "-", { indexId, op: "list", limit: sampling.limit, signal: ctx.signal });
       return finish(rec, "list");
     }
 
     if (action === "show") {
       const person = ctx.rest[0] ?? (ctx.opts.cluster != null ? String(ctx.opts.cluster) : undefined);
       if (!person || !person.trim()) return [err("usage: cluster show <person-id> --index <id>")];
-      const rec = await runLocalCluster(c, "-", { indexId, op: "show", cluster: person, limit: sampling.limit, signal: ctx.signal });
+      const rec = await runLocalCluster(scope, "-", { indexId, op: "show", cluster: person, limit: sampling.limit, signal: ctx.signal });
       return finish(rec, "show");
     }
 
@@ -208,12 +219,12 @@ export const clusterVerb: VerbSpec = {
       const name = ctx.rest[1] ?? (ctx.opts.label != null ? String(ctx.opts.label) : undefined);
       if (!person || !person.trim()) return [err("usage: cluster label <person-id> <name> --index <id>")];
       if (!name || !name.trim()) return [err("cluster label requires a name (cluster label <person-id> <name>)")];
-      const rec = await runLocalCluster(c, "-", { indexId, op: "label", cluster: person, label: name, signal: ctx.signal });
+      const rec = await runLocalCluster(scope, "-", { indexId, op: "label", cluster: person, label: name, signal: ctx.signal });
       return finish(rec, "label");
     }
 
     // view: render the people into a self-contained HTML contact sheet + open it.
-    const listRec = await runLocalCluster(c, "-", { indexId, op: "list", limit: 10000, signal: ctx.signal });
+    const listRec = await runLocalCluster(scope, "-", { indexId, op: "list", limit: 10000, signal: ctx.signal });
     if (listRec.state === "error") {
       // the user invoked VIEW — re-attribute the failing internal list record
       // so traces/agents keying off payload.op don't blame the wrong op.
@@ -245,7 +256,10 @@ export const clusterVerb: VerbSpec = {
     writeFileSync(outPath, html, "utf8");
     const noOpen = ctx.opts["no-open"] === true;
     if (!noOpen) openHtmlPlayer(outPath);
-    return [makeRecord({
+    // route the SUCCESS record through finish() too (not just the error path) so a
+    // bucket-scoped gallery (`--index archive:…`) traces to its bucket like every
+    // other cluster op — round-14 pattern A, the view success branch was the gap.
+    return finish(makeRecord({
       verb: "cluster",
       format: "json",
       payload: {
@@ -258,6 +272,6 @@ export const clusterVerb: VerbSpec = {
       },
       meta: { provider: "local:face-cluster", case: c.dir },
       state: "ready",
-    })];
+    }), "view");
   },
 };

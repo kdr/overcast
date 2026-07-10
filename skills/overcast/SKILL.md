@@ -46,6 +46,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.
 - `index` — Manage tinycloud indexes that index a target's videos (create/attach/add/list/show/delete/remove/entities).
+- `archive` — Global cross-case media archive: save media into named buckets under ~/.overcast/archive (init/list/show/add/remove/setup).
 - `target` — Define/refine the standing scope, a.k.a. a line of investigation (add|list|rm|show|close|reopen). Persisted to .overcast/target.json.
 - `source` — Register where to look (add <type>:<ref> | list | enable|disable <id> | rm <id>).
 - `note` — Add a human observation/finding to the case, optionally anchored to evidence.

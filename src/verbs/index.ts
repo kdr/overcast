@@ -58,6 +58,7 @@ import {
   type VoicePrintConfig,
 } from "../providers/local/audio.js";
 import { resolveVideoArg, resolveImageArg, resolveVisualArg, isRegisterableMediaRecord, isImage } from "./media-ref.js";
+import { openBucket, resolveIndexScope, stampArchive } from "../archive.js";
 import { badNumber, numFlag } from "./validate.js";
 import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
 import type { Case } from "../case.js";
@@ -214,7 +215,7 @@ function hasWatchRecord(c: Case, ref: string): boolean {
   });
 }
 
-async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Promise<OvercastRecord | undefined> {
+export async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Promise<OvercastRecord | undefined> {
   if (
     ctx.opts["__skip-local-watch"] === true ||
     /^https?:\/\//i.test(ref) ||
@@ -231,6 +232,23 @@ async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Promise<Ov
       })
     : await runWatch(ref, { run: binding?.run, signal: ctx.signal });
   rec.meta = { ...rec.meta, case: ctx.case.dir, triggered_by: "index add" };
+  return rec;
+}
+
+/** ensure-watch for a video resolved from an ARCHIVE ref: the media lives in
+ *  the bucket, so the watch evidence (dedup lookup + the record itself) belongs
+ *  to the BUCKET's store, not the active case — otherwise every case that
+ *  indexes the same archived clip re-pays the watch, and the record would be
+ *  dropped by the active case's persist seam anyway (other-case guard). Written
+ *  bucket-side directly; still returned so the caller can display it. */
+async function ensureArchiveWatchRecord(ctx: VerbContext, bucketName: string, ref: string): Promise<OvercastRecord | undefined> {
+  const { bucket } = openBucket(bucketName, ctx.home);
+  if (!bucket) return undefined;
+  const rec = await ensureLocalWatchRecord({ ...ctx, case: bucket.case }, ref);
+  if (rec) {
+    bucket.case.writeRecord(rec);
+    rec.meta = { ...rec.meta, persisted: true };
+  }
   return rec;
 }
 
@@ -589,7 +607,13 @@ export const indexVerb: VerbSpec = {
       }
       // `!= null` (not truthy) so a provided-but-empty `--to=` reaches resolveTarget
       // as a blank value it rejects, rather than being treated as omitted (→ sole).
-      const target = resolveTarget(c, ctx.opts.to != null ? String(ctx.opts.to) : undefined, typeHint);
+      // `--to archive:<bucket>/<index>` targets a BUCKET's index: the mirror +
+      // local artifacts live in the bucket; the source media stays case-side.
+      const toRaw = ctx.opts.to != null ? String(ctx.opts.to) : undefined;
+      const scoped = resolveIndexScope(c, toRaw ?? "", ctx.home);
+      if (scoped.error) return [err(`index add: ${scoped.error}`)];
+      const scope = scoped.scope;
+      const target = resolveTarget(scope, toRaw === undefined ? undefined : scoped.value, typeHint);
       if (target.error) return [err(`index add: ${target.error}`)];
       const id = target.id!;
       // Ensure the target is in the local mirror — it may have been created
@@ -597,7 +621,7 @@ export const indexVerb: VerbSpec = {
       // no-ops (index absent) and `add --all` re-adds the same videos every
       // run. Record the --type hint when given so face auto-resolution can find
       // it; otherwise "unknown" (face --match falls back to those candidates).
-      const existing = findIndex(c, id);
+      const existing = findIndex(scope, id);
       const hintedLocal = typeHint ? LOCAL_INDEX_TYPES.has(typeHint) : false;
       // a --type hint that CONTRADICTS the target's known type is a mistake, not a
       // silent no-op — reject it so the video isn't indexed into the wrong type.
@@ -608,12 +632,12 @@ export const indexVerb: VerbSpec = {
         return [err(`index add: index ${id} is not a local visual index; create a local ${typeHint} index first, or choose an empty target`)];
       }
       if (!existing) {
-        addIndex(c, { id, type: typeHint ?? "unknown", name: id, backend: hintedLocal ? "local" : undefined });
+        addIndex(scope, { id, type: typeHint ?? "unknown", name: id, backend: hintedLocal ? "local" : undefined });
       } else if (typeHint && existing.type === "unknown") {
         // a later `add --type face` classifies a previously-unknown stub (addIndex upserts).
-        addIndex(c, { id, type: typeHint, name: existing.name, description: existing.description, backend: hintedLocal ? "local" : existing.backend });
+        addIndex(scope, { id, type: typeHint, name: existing.name, description: existing.description, backend: hintedLocal ? "local" : existing.backend });
       }
-      const targetEntry = findIndex(c, id);
+      const targetEntry = findIndex(scope, id);
       // face-cluster is guarded by TYPE, above the backend dispatch — a mirror
       // entry missing its "local" stamp must still hit this error, not fall
       // through to the tinycloud add path (the type is local-only regardless).
@@ -645,36 +669,36 @@ export const indexVerb: VerbSpec = {
           const seen = new Set(targetEntry.members.map((m) => m.ref));
           const refs = imageTargets.filter((m) => !seen.has(m.ref));
           if (!refs.length) return [err("index add --all: no new image records to register in the local index")];
-          for (const m of refs) addMember(c, id, m);
-          mkdirSync(localIndexDir(c, id), { recursive: true });
-          return [makeRecord({
+          for (const m of refs) addMember(scope, id, m);
+          mkdirSync(localIndexDir(scope, id), { recursive: true });
+          return [stampArchive(makeRecord({
             verb: "index",
             format: "json",
             payload: { op: "add", index: id, backend: "local", files: refs.map((r) => r.ref), count: refs.length },
             meta: { provider: "local", case: c.dir },
             state: "ready",
-          })];
+          }), scoped.bucket, c.dir)];
         }
         const arg = ctx.rest[0];
         if (!arg) return [err("usage: index add <image|record-id> --to <local-index>")];
         if (targetEntry.type !== "deepface-local" && targetEntry.type !== "image-ransac") {
           return [err(`index add: local index ${id} has unsupported type '${targetEntry.type}'`)];
         }
-        const img = resolveImageArg(c, arg, "index add");
+        const img = resolveImageArg(c, arg, "index add", { home: ctx.home });
         if (img.error) return [err(img.error)];
         if (targetEntry.members.some((m) => m.ref === img.ref)) {
-          return [makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: img.ref, backend: "local", already_member: true }, media: { ref: img.ref! }, meta: { case: c.dir }, state: "ready" })];
+          return [stampArchive(makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: img.ref, backend: "local", already_member: true }, media: { ref: img.ref! }, meta: { case: c.dir }, state: "ready" }), scoped.bucket, c.dir)];
         }
-        mkdirSync(localIndexDir(c, id), { recursive: true });
-        addMember(c, id, { ref: img.ref!, recordId: img.recordId });
-        return [makeRecord({
+        mkdirSync(localIndexDir(scope, id), { recursive: true });
+        addMember(scope, id, { ref: img.ref!, recordId: img.recordId });
+        return [stampArchive(makeRecord({
           verb: "index",
           format: "json",
           payload: { op: "add", index: id, file: img.ref, backend: "local", summary: `added image to local ${targetEntry.type} index` },
           media: { ref: img.ref! },
           meta: { provider: "local", case: c.dir },
           state: "ready",
-        })];
+        }), scoped.bucket, c.dir)];
       }
       const addOpts = {
         ...tcOpts,
@@ -687,7 +711,7 @@ export const indexVerb: VerbSpec = {
         // --all reads the whole case, not a positional — a stray video arg is a
         // mistake (it would be silently ignored if other videos exist).
         if (ctx.rest[0]) return [err("index add: --all registers every case video — drop the positional video, or omit --all to add just that one")];
-        const col = findIndex(c, id);
+        const col = findIndex(scope, id);
         const members = new Set(col?.members.map((m) => m.ref) ?? []);
         const vids = caseVideoRefs(c).filter((v) => !members.has(v.ref));
         if (vids.length === 0) {
@@ -712,9 +736,9 @@ export const indexVerb: VerbSpec = {
         for (const v of vids) {
           const watched = await ensureLocalWatchRecord(ctx, v.ref);
           const { rec } = await tcCollectionAdd(v.ref, id, addOpts);
-          if (accepted(rec)) addMember(c, id, { ref: v.ref, recordId: v.recordId });
+          if (accepted(rec)) addMember(scope, id, { ref: v.ref, recordId: v.recordId });
           rec.meta = { ...rec.meta, case: c.dir };
-          recs.push(indexRecord(rec));
+          recs.push(stampArchive(indexRecord(rec), scoped.bucket, c.dir));
           if (watched) recs.push(watched);
         }
         return recs;
@@ -722,19 +746,23 @@ export const indexVerb: VerbSpec = {
 
       const arg = ctx.rest[0];
       if (!arg) return [err("usage: index add <video|record-id> --to <id> (or --all)")];
-      const v = resolveVideoArg(c, arg, "index add");
+      const v = resolveVideoArg(c, arg, "index add", { home: ctx.home });
       if (v.error) return [err(v.error)];
       const ref = v.ref!;
       // dedupe like `--all` (which filters existing members) — don't re-submit a
       // video already in the index to tinycloud.
-      if (findIndex(c, id)?.members.some((m) => m.ref === ref)) {
-        return [makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" })];
+      if (findIndex(scope, id)?.members.some((m) => m.ref === ref)) {
+        return [stampArchive(makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" }), scoped.bucket, c.dir)];
       }
-      const watched = await ensureLocalWatchRecord(ctx, ref);
+      const watched = v.archive
+        ? await ensureArchiveWatchRecord(ctx, v.archive, ref)
+        : await ensureLocalWatchRecord(ctx, ref);
       const { rec } = await tcCollectionAdd(ref, id, addOpts);
-      if (accepted(rec)) addMember(c, id, { ref, recordId: v.recordId });
+      if (accepted(rec)) addMember(scope, id, { ref, recordId: v.recordId });
       rec.meta = { ...rec.meta, case: c.dir };
-      return watched ? [indexRecord(rec), watched] : [indexRecord(rec)];
+      // stamp only the add record — a bucket-persisted `watched` side-record
+      // must keep its bucket ownership, not be re-homed to the case
+      return watched ? [stampArchive(indexRecord(rec), scoped.bucket, c.dir), watched] : [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     // ---- list ----
@@ -753,11 +781,15 @@ export const indexVerb: VerbSpec = {
     if (action === "show") {
       const stray = strayTargetFlag(ctx);
       if (stray) return [err(`index show takes a positional id: \`index show <id>\` (saw ${stray}, which doesn't apply here)`)];
-      const target = resolveTarget(c, ctx.rest[0]);
+      // `index show archive:<bucket>/<index>` reads a bucket's mirror entry.
+      const scoped = resolveIndexScope(c, ctx.rest[0] ?? "", ctx.home);
+      if (scoped.error) return [err(`index show: ${scoped.error}`)];
+      const scope = scoped.scope;
+      const target = resolveTarget(scope, ctx.rest[0] === undefined ? undefined : scoped.value);
       if (target.error) return [err(`index show: ${target.error}`)];
-      const local = findIndex(c, target.id!);
+      const local = findIndex(scope, target.id!);
       if (local && isLocalIndex(local)) {
-        return [makeRecord({
+        return [stampArchive(makeRecord({
           verb: "index",
           format: "json",
           payload: {
@@ -766,17 +798,17 @@ export const indexVerb: VerbSpec = {
             name: local.name,
             type: local.type,
             backend: local.backend ?? "local",
-            path: localIndexDir(c, local.id),
+            path: localIndexDir(scope, local.id),
             members: local.members,
             member_count: local.members.length,
           },
           meta: { provider: "local", case: c.dir },
           state: "ready",
-        })];
+        }), scoped.bucket, c.dir)];
       }
       const { rec } = await tcCollectionShow(target.id!, tcOpts);
       rec.meta = { ...rec.meta, case: c.dir };
-      return [indexRecord(rec)];
+      return [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     // ---- delete ----
@@ -788,24 +820,29 @@ export const indexVerb: VerbSpec = {
       // delete requires an EXPLICIT id — unlike show, it must never fall back to the
       // case's sole index (a bare `index delete` would be silent data loss).
       if (!ctx.rest[0]) return [err("usage: index delete <id> (an explicit id is required — delete won't default to your only index)")];
-      const target = resolveTarget(c, ctx.rest[0]);
+      // `index delete archive:<bucket>/<index>` administers a BUCKET's index
+      // (mirror + local artifacts in the bucket), like add/show.
+      const scoped = resolveIndexScope(c, ctx.rest[0], ctx.home);
+      if (scoped.error) return [err(`index delete: ${scoped.error}`)];
+      const scope = scoped.scope;
+      const target = resolveTarget(scope, scoped.value);
       if (target.error) return [err(`index delete: ${target.error}`)];
-      const local = findIndex(c, target.id!);
+      const local = findIndex(scope, target.id!);
       if (local && isLocalIndex(local)) {
-        removeIndex(c, target.id!);
-        rmSync(localIndexDir(c, target.id!), { recursive: true, force: true });
-        return [makeRecord({
+        removeIndex(scope, target.id!);
+        rmSync(localIndexDir(scope, target.id!), { recursive: true, force: true });
+        return [stampArchive(makeRecord({
           verb: "index",
           format: "json",
           payload: { op: "delete", index: target.id, backend: "local", deleted: true },
           meta: { provider: "local", case: c.dir },
           state: "ready",
-        })];
+        }), scoped.bucket, c.dir)];
       }
       const { rec } = await tcCollectionDelete(target.id!, tcOpts);
-      if (accepted(rec)) removeIndex(c, target.id!);
+      if (accepted(rec)) removeIndex(scope, target.id!);
       rec.meta = { ...rec.meta, case: c.dir };
-      return [indexRecord(rec)];
+      return [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     // ---- remove ----
@@ -815,9 +852,15 @@ export const indexVerb: VerbSpec = {
       if (ctx.opts.to != null) return [err("index remove targets with --from, not --to")];
       const arg = ctx.rest[0];
       if (!arg) return [err("usage: index remove <video|record-id> --from <id>")];
-      const from = resolveTarget(c, ctx.opts.from != null ? String(ctx.opts.from) : undefined);
+      // `--from archive:<bucket>/<index>` un-indexes from a BUCKET's index —
+      // the member list + cached embeddings/fingerprints live bucket-side.
+      const fromRaw = ctx.opts.from != null ? String(ctx.opts.from) : undefined;
+      const scoped = resolveIndexScope(c, fromRaw ?? "", ctx.home);
+      if (scoped.error) return [err(`index remove: ${scoped.error}`)];
+      const scope = scoped.scope;
+      const from = resolveTarget(scope, fromRaw === undefined ? undefined : scoped.value);
       if (from.error) return [err(`index remove: ${from.error}`)];
-      const local = findIndex(c, from.id!);
+      const local = findIndex(scope, from.id!);
       if (local?.type === "face-cluster") {
         return [err(`index remove doesn't apply to a face-cluster index — it stores face assignments in faces.jsonl/clusters.json. Create a new face-cluster index or rebuild with \`cluster recluster --index ${from.id}\`.`)];
       }
@@ -828,38 +871,38 @@ export const indexVerb: VerbSpec = {
         const avTypes = new Set(["basic-clip", "basic-clap", "audio-fp", "voice-print"]);
         const resolved = avTypes.has(local.type)
           ? (local.type === "basic-clip"
-              ? resolveVisualArg(c, arg, "index remove", { requireExists: false, requireReady: false })
-              : resolveVideoArg(c, arg, "index remove", { requireExists: false, requireReady: false }))
-          : resolveImageArg(c, arg, "index remove", { requireExists: false, requireReady: false });
+              ? resolveVisualArg(c, arg, "index remove", { requireExists: false, requireReady: false, home: ctx.home })
+              : resolveVideoArg(c, arg, "index remove", { requireExists: false, requireReady: false, home: ctx.home }))
+          : resolveImageArg(c, arg, "index remove", { requireExists: false, requireReady: false, home: ctx.home });
         if (resolved.error) return [err(resolved.error)];
-        const removed = removeMember(c, from.id!, resolved.ref!);
+        const removed = removeMember(scope, from.id!, resolved.ref!);
         if (removed) {
-          const dir = localIndexDir(c, from.id!);
+          const dir = localIndexDir(scope, from.id!);
           // voice-print caches share the basic-clip emb/<sha1(ref)> layout
           if (local.type === "basic-clip" || local.type === "basic-clap" || local.type === "voice-print") removeClipEmbedding(dir, resolved.ref!);
           else if (local.type === "audio-fp") removeAudioFingerprint(dir, resolved.ref!);
         }
-        return [makeRecord({
+        return [stampArchive(makeRecord({
           verb: "index",
           format: "json",
           payload: { op: "remove", index: from.id, file: resolved.ref, backend: "local", removed },
           media: { ref: resolved.ref! },
           meta: { provider: "local", case: c.dir },
           state: "ready",
-        })];
+        }), scoped.bucket, c.dir)];
       }
       // same media filters as add/entities (reject scan/face-search/non-AV refs),
       // but allow a gone local file / errored record — you should still be able to
       // un-index a video that's no longer on disk or whose sense later failed.
-      const v = resolveVideoArg(c, arg, "index remove", { requireExists: false, requireReady: false });
+      const v = resolveVideoArg(c, arg, "index remove", { requireExists: false, requireReady: false, home: ctx.home });
       if (v.error) return [err(v.error)];
       const ref = v.ref!;
       const { rec } = await tcCollectionRemove(ref, from.id!, tcOpts);
       // mirror on ready OR pending (an async remove still removed the member),
       // matching how `add` tracks membership via accepted().
-      if (accepted(rec)) removeMember(c, from.id!, ref);
+      if (accepted(rec)) removeMember(scope, from.id!, ref);
       rec.meta = { ...rec.meta, case: c.dir };
-      return [indexRecord(rec)];
+      return [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     // ---- entities ----
@@ -885,21 +928,24 @@ export const indexVerb: VerbSpec = {
       // resolve the index id, surfacing an ambiguous-name error (like ask/add)
       // and rejecting a mirrored index whose type isn't entities (entities are
       // only readable from an entities index), consistent with ask/face.
-      const colRef = resolveIndexRef(c, id);
+      // `archive:<bucket>/<index>` resolves through the BUCKET's mirror.
+      const scoped = resolveIndexScope(c, id, ctx.home);
+      if (scoped.error) return [err(`index entities: ${scoped.error}`)];
+      const colRef = resolveIndexRef(scoped.scope, scoped.value);
       if (colRef.error) return [err(`index entities: ${colRef.error}`)];
       const colEntry = colRef.entry;
       if (colEntry && colEntry.type !== "entities" && colEntry.type !== "unknown") {
         return [err(`index ${colEntry.id} is type '${colEntry.type}', not entities — \`index entities\` only reads entities indexes`)];
       }
-      const colId = colEntry?.id ?? id;
+      const colId = colEntry?.id ?? scoped.value;
       // same media filters as `add` (reject scan/face-search/non-AV refs), but
       // requireExists:false — entities reads PRE-EXTRACTED data for a video already
       // indexed remotely, so its local file may be gone (matches `remove`).
-      const v = resolveVideoArg(c, videoArg, "index entities", { requireExists: false, requireReady: false });
+      const v = resolveVideoArg(c, videoArg, "index entities", { requireExists: false, requireReady: false, home: ctx.home });
       if (v.error) return [err(v.error)];
       const { rec } = await tcCollectionEntities(colId, v.ref!, { ...tcOpts, limit, offset });
       rec.meta = { ...rec.meta, case: c.dir };
-      return [indexRecord(rec)];
+      return [stampArchive(indexRecord(rec), scoped.bucket, c.dir)];
     }
 
     return [err(`usage: index <${VALID_ACTIONS.join("|")}>`)];

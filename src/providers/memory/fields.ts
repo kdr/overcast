@@ -59,7 +59,9 @@ const FIELD_POLICY: Record<string, string[]> = {
   crop: ["summary", "kind", "class", "detection_id", "source_record", "source_verb", "source_media", "at", "confidence", "crop"],
   note: ["title", "text", "tags", "confidence", "ref"],
   scan: ["title", "snippet", "url", "source", "published"],
-  capture: ["title", "snippet", "text", "path", "source", "kind"],
+  // tags/note/source_ref only appear on archive-written captures (bucket items) —
+  // they carry the operator's own labels, the whole point of `ask --archive`.
+  capture: ["title", "snippet", "text", "path", "source", "kind", "tags", "note", "source_ref"],
   // enhance now also fans out separate/segment child records — index the compact
   // signal (op, kind, speaker/label, prompt, transcript) but keep binaries
   // (mask/track paths), raw boxes, and segment arrays out of case memory.

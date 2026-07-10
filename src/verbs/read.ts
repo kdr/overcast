@@ -19,6 +19,7 @@ import { parseSince } from "../providers/memory/local.js";
 import { tcAsk } from "../providers/tinycloud/collection.js";
 import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
 import { resolveIndexRef } from "../state/index.js";
+import { openBucket, resolveIndexScope, stampArchive } from "../archive.js";
 import { badNumber } from "./validate.js";
 import { providerEnv } from "../providers/provider-env.js";
 import type { QueryOpts } from "../providers/memory/types.js";
@@ -54,7 +55,8 @@ export const askVerb: VerbSpec = {
   args: [{ name: "question", summary: "The question to answer", required: true }],
   flags: [
     { name: "deep", summary: "Use a provider's semantic/deep search path when available (e.g. qmd)", type: "boolean" },
-    { name: "index", summary: "Answer over a media-descriptions index (id/name) via tinycloud, not local memory", type: "string" },
+    { name: "archive", summary: "Answer over a global archive BUCKET's memory instead of this case (composable with --deep/--memory)", type: "string" },
+    { name: "index", summary: "Answer over a media-descriptions index (id/name, or archive:<bucket>/<index>) via tinycloud, not local memory", type: "string" },
     { name: "probe", summary: "With --index: semantic moment search (probe) instead of Q&A (ask)", type: "boolean" },
     { name: "scope", summary: "With --index --probe: file | segment", type: "string" },
     { name: "memory", summary: "Restrict to memory provider/backend ids (local-grep/local, qmd)", type: "string" },
@@ -88,6 +90,23 @@ export const askVerb: VerbSpec = {
     if (ctx.opts.scope && ctx.opts.probe !== true) {
       return [askError("--scope only applies with --probe (probe = semantic moment search)")];
     }
+    // --archive <bucket>: run the SAME local-memory ask, but over the bucket's
+    // store + bound backends (buckets are case-shaped, so local-grep/qmd work
+    // unchanged). Exclusive with --index — a bucket's REMOTE index is addressed
+    // as `--index archive:<bucket>/<index>` instead.
+    let memoryCase = ctx.case;
+    let archiveBucket: string | undefined;
+    if (ctx.opts.archive != null) {
+      const name = String(ctx.opts.archive).trim();
+      if (!name) return [askError("--archive requires a bucket name")];
+      if (ctx.opts.index != null) {
+        return [askError("--archive and --index are mutually exclusive — use `--index archive:<bucket>/<index>` to ask a bucket's media-descriptions index")];
+      }
+      const { bucket, error } = openBucket(name, ctx.home);
+      if (!bucket) return [askError(error!)];
+      memoryCase = bucket.case;
+      archiveBucket = name;
+    }
     // --index: answer over a tinycloud media-descriptions index (the
     // index of a target's videos) instead of the local case memory. The id/name
     // resolves through the case mirror to the real tinycloud index id. Gate on
@@ -111,16 +130,19 @@ export const askVerb: VerbSpec = {
       }
       const value = String(ctx.opts.index).trim();
       if (!value) return [askError("--index requires an index id or name")];
+      // `--index archive:<bucket>/<index>` resolves through the BUCKET's mirror.
+      const scoped = resolveIndexScope(ctx.case, value, ctx.home);
+      if (scoped.error) return [askError(scoped.error)];
       // resolve through the mirror: error on an ambiguous display name, and on a
       // mirrored index whose type isn't ask-able (ask/probe only read
       // media-descriptions). An unmirrored value is passed through as a raw id.
-      const ref = resolveIndexRef(ctx.case, value);
+      const ref = resolveIndexRef(scoped.scope, scoped.value);
       if (ref.error) return [askError(ref.error)];
       const entry = ref.entry;
       if (entry && entry.type !== "media-descriptions" && entry.type !== "unknown") {
         return [askError(`index ${entry.id} is type '${entry.type}', not media-descriptions — ask/probe only reads media-descriptions indexes (use \`face --match … --index\` for face-analysis, \`index entities\` for entities)`)];
       }
-      const colId = entry?.id ?? value;
+      const colId = entry?.id ?? scoped.value;
       const limit = ctx.opts.limit != null ? Number(ctx.opts.limit) : undefined;
       const rec = await tcAsk(ctx.input, colId, {
         probe: ctx.opts.probe === true,
@@ -133,7 +155,7 @@ export const askVerb: VerbSpec = {
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: ctx.case.dir };
-      return [rec];
+      return [stampArchive(rec, scoped.bucket, ctx.case.dir)];
     }
     // an unparseable --since is a user error, not a silent "no time bound"
     if (ctx.opts.since && parseSince(String(ctx.opts.since)) == null) {
@@ -141,7 +163,7 @@ export const askVerb: VerbSpec = {
     }
     // pass `deep` so the opt-in cloud tier (Cloudglue collection) is resolved ONLY
     // for `ask --deep` — a plain ask never sees it (no silent cloud spend).
-    const available = resolveMemory(ctx.case, ctx.profile, { deep: ctx.opts.deep === true, signal: ctx.signal });
+    const available = resolveMemory(memoryCase, ctx.profile, { deep: ctx.opts.deep === true, signal: ctx.signal });
     let providers = available.filter((p) => matchesMemoryProvider(p, "local-grep"));
     if (ctx.opts.memory) {
       const ids = String(ctx.opts.memory).split(",").map((s) => s.trim()).filter(Boolean);
@@ -164,7 +186,7 @@ export const askVerb: VerbSpec = {
         // former should blame Cloudglue. Presence in `available` is the signal:
         // resolveMemory registers the cloudglue provider ONLY when it actually
         // activated (opted in + keyed + a resolvable collection).
-        const cloudglueOptedIn = loadSetup(ctx.case)?.memory?.cloudglue != null;
+        const cloudglueOptedIn = loadSetup(memoryCase)?.memory?.cloudglue != null;
         const cloudgluePresent = available.some((p) => matchesMemoryProvider(p, "cloudglue"));
         // Opted in AND genuinely inactive (no cloudglue provider resolved) — the
         // real fix is the Cloudglue setup, NOT qmd. A bare "run setup memory qmd"
@@ -208,8 +230,15 @@ export const askVerb: VerbSpec = {
       makeRecord({
         verb: "ask",
         format: "md",
-        payload: { text: answer.text, citations: answer.citations, question: ctx.input },
-        meta: { provider: providers.map((p) => p.id).join(","), case: ctx.case.dir },
+        payload: {
+          text: answer.text,
+          citations: answer.citations,
+          question: ctx.input,
+          // cited record ids live in the BUCKET's store — carry where to page
+          // them (`case memory get <id> --case <dir>`), or they'd 404 here.
+          ...(archiveBucket ? { archive: { bucket: archiveBucket, dir: memoryCase.dir } } : {}),
+        },
+        meta: { provider: providers.map((p) => p.id).join(","), case: ctx.case.dir, ...(archiveBucket ? { archive: archiveBucket } : {}) },
         state: "ready",
       }),
     ];

@@ -12,6 +12,7 @@ import { addMember, findIndex, resolveIndexRef } from "../state/index.js";
 import { localIndexDir } from "../providers/local/vision.js";
 import { runLocalAudio } from "../providers/local/audio.js";
 import { resolveVideoArg } from "./media-ref.js";
+import { provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { badNumber } from "./validate.js";
 import type { Case } from "../case.js";
@@ -79,6 +80,12 @@ export const audioVerb: VerbSpec = {
     if (numErr) return [err(`audio ${action}: ${numErr}`)];
 
     const indexValue = ctx.opts.index ?? ctx.opts.to;
+    // `--index archive:<bucket>/<index>` targets a BUCKET's audio-fp index (see
+    // image/similar): DB + members live in the bucket, evidence in the case.
+    const scoped = resolveIndexScope(ctx.case, indexValue != null ? String(indexValue) : "", ctx.home);
+    if (scoped.error) return [err(`audio ${action}: ${scoped.error}`)];
+    const scope = scoped.scope;
+    const scopedIndexValue = indexValue == null ? indexValue : scoped.value;
     const minVotes = ctx.opts["min-votes"] != null ? Number(ctx.opts["min-votes"]) : undefined;
     const minRatio = ctx.opts["min-ratio"] != null ? Number(ctx.opts["min-ratio"]) : undefined;
     const minMargin = ctx.opts["min-margin"] != null ? Number(ctx.opts["min-margin"]) : undefined;
@@ -86,46 +93,46 @@ export const audioVerb: VerbSpec = {
     // ---- add: fingerprint a member into an index (no pairwise) ----
     if (action === "add") {
       if (reference) return [err("audio add takes one input; a second positional is only for `audio match <query> <reference>`")];
-      const idx = localAudioIndex(ctx.case, indexValue);
+      const idx = localAudioIndex(scope, scopedIndexValue);
       if (idx.error) return [err(`audio add: ${idx.error}`)];
-      const q = resolveVideoArg(ctx.case, input, "audio add");
+      const q = resolveVideoArg(ctx.case, input, "audio add", { home: ctx.home });
       if (q.error) return [err(q.error)];
-      const entry = findIndex(ctx.case, idx.id!);
+      const entry = findIndex(scope, idx.id!);
       if (entry?.members.some((m) => m.ref === q.ref)) {
-        return [makeRecord({ verb: "audio", format: "json", payload: { op: "add", index: idx.id, file: q.ref, already_member: true }, media: { ref: q.ref! }, meta: { case: ctx.case.dir }, state: "ready" })];
+        return [stampArchive(makeRecord({ verb: "audio", format: "json", payload: { op: "add", index: idx.id, file: q.ref, already_member: true }, media: { ref: q.ref! }, meta: { case: ctx.case.dir }, state: "ready" }), scoped.bucket ?? q.archive, ctx.case.dir)];
       }
-      mkdirSync(localIndexDir(ctx.case, idx.id!), { recursive: true });
-      const rec = await runLocalAudio(ctx.case, q.ref!, { op: "add", indexId: idx.id!, signal: ctx.signal });
+      mkdirSync(localIndexDir(scope, idx.id!), { recursive: true });
+      const rec = await runLocalAudio(scope, q.ref!, { op: "add", indexId: idx.id!, signal: ctx.signal });
       // register the member only after the fingerprint SUCCEEDED (mirrors similar
       // add) — a failed fingerprint must not leave a cacheless member that match
       // would silently skip.
       if (isReady(rec) && !entry?.members.some((m) => m.ref === q.ref)) {
-        addMember(ctx.case, idx.id!, { ref: q.ref!, recordId: q.recordId });
+        addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
       }
-      return [rec];
+      return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
     }
 
     // ---- match: exactly one of pairwise reference XOR --index ----
     if (reference && indexValue) return [err("audio match: pass either a second clip (clip-to-clip) OR --index, not both")];
     if (!reference && !indexValue) return [err("audio match: pass --index <audio-fp-index> or a second clip to compare against")];
 
-    const q = resolveVideoArg(ctx.case, input, "audio match");
+    const q = resolveVideoArg(ctx.case, input, "audio match", { home: ctx.home });
     if (q.error) return [err(q.error)];
     if (!/^https?:\/\//i.test(q.ref!) && !existsSync(q.ref!)) return [err(`audio match: input not found: ${q.ref}`)];
 
     let rec: OvercastRecord;
     if (reference) {
-      const ref = resolveVideoArg(ctx.case, reference, "audio match");
+      const ref = resolveVideoArg(ctx.case, reference, "audio match", { home: ctx.home });
       if (ref.error) return [err(ref.error)];
       if (!/^https?:\/\//i.test(ref.ref!) && !existsSync(ref.ref!)) return [err(`audio match: reference not found: ${ref.ref}`)];
       rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", against: ref.ref!, minVotes, minRatio, minMargin, draw: ctx.opts.draw === true, signal: ctx.signal });
     } else {
-      const idx = localAudioIndex(ctx.case, indexValue);
+      const idx = localAudioIndex(scope, scopedIndexValue);
       if (idx.error) return [err(`audio match: ${idx.error}`)];
-      rec = await runLocalAudio(ctx.case, q.ref!, { op: "match", indexId: idx.id!, minVotes, minRatio, minMargin, draw: ctx.opts.draw === true, signal: ctx.signal });
+      rec = await runLocalAudio(scope, q.ref!, { op: "match", indexId: idx.id!, minVotes, minRatio, minMargin, draw: ctx.opts.draw === true, signal: ctx.signal });
     }
     // if the query was captured from a post, trace the match back to it
-    stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
-    return [rec];
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
+    return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
   },
 };

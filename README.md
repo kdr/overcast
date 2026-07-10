@@ -102,6 +102,9 @@ focused workflows:
 | Skill | Trope / job |
 |---|---|
 | `overcast-recon-brief` | scan/monitor public sources → cited brief |
+| `overcast-archive` | save media into global buckets, reuse + match across cases |
+| `overcast-dork-recon` | Google-dork a domain for exposed assets → exposure brief |
+| `overcast-attack-surface` | map a target's public attack surface (dork + shodan) |
 | `overcast-visual-target-search` | find a person/logo/object across clips |
 | `overcast-media-bug-triage` | screen recordings/audio → cited bug reports |
 | `overcast-copycat-sweep` | hunt re-uploads/reskins of original video |
@@ -328,6 +331,7 @@ surface + env vars.)
 | `capture` | fetch a URL / scan-hit / local path into the case |
 | `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
 | `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`, `audio-fp`, `basic-clap`, and `voice-print` DBs |
+| `archive` | global cross-case media buckets under `~/.overcast/archive` — `init` / `add` (sha256-deduped, tags/notes/provenance) / `list` / `show` / `remove` / `setup` (bucket index wizard); reuse from any case via `archive:<bucket>/<item>` refs and `--index archive:<bucket>/<index>` |
 | `target` | a **line of investigation**: `add --question`, `list`, `close <id> --as answered\|dead-end --note`, `reopen` — closed lines stop seeding scans |
 | `source` / `note` | where to look, and human-authored observations |
 | `finding` | manual + **auto-suggested** findings (`create` / `list` / `accept` / `dismiss`). Score triggers (face / image / similar / cluster / audio match) + target text hits auto-emit `suggested` leads via a hook on every verb; `finding list --state triage` queues them, `accept` promotes a lead to evidence, `dismiss` blocks re-suggestion. Leads are quarantined from ask/brief until accepted |
@@ -336,7 +340,7 @@ surface + env vars.)
 **Read** — synthesize the case
 | verb | does |
 |---|---|
-| `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--deep` uses configured semantic memory such as qmd; `--index <id>` answers over a media-descriptions index (`--probe` for moment search) |
+| `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--deep` uses configured semantic memory such as qmd; `--index <id>` answers over a media-descriptions index (`--probe` for moment search); `--archive <bucket>` asks over a global archive bucket |
 | `brief` | analyst report — **short by default** (verdict / key findings / lines of investigation / triage / coverage / compact trail), `--full` for the verbatim timeline; `--export` to md/html |
 | `case` | inspect/manage the case: `init` / `setup` / `status` (mission board) / `info` / `records` / `memory` / `clear` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
 
@@ -376,6 +380,40 @@ match. Local visual DB scans search candidate case media against stored referenc
 images, not the target image by itself, and cap candidate fan-out with
 `--limit` (default 5). Use `overcast scan --local` to force this local scan even
 after adding external sources.
+
+### Global archive
+
+Media that should outlive one case — reference footage, known faces, recurring
+locations, signature audio — lives in the **archive**: named, case-shaped
+buckets under `~/.overcast/archive/<bucket>` (relocate with `OVERCAST_HOME` /
+`--home`). Items are sha256-deduped `capture` records carrying tags, notes, and
+origin provenance; there is no registry file — the directory listing IS the
+bucket list. A fresh bucket needs zero setup (`ask --archive` searches it via
+local-grep); `archive setup <bucket>` is the plan/`--yes` wizard that stands up
+indexes (local `deepface-local` / `basic-clip` / `image-ransac` / `audio-fp` /
+`basic-clap` / `voice-print` / `face-cluster`, remote Cloudglue `media-descriptions` /
+`face-analysis` / `entities`) plus a memory backend (`local-grep` / `qmd`),
+backfilling existing bucket media.
+
+```bash
+overcast archive init ref-footage --name "Reference footage"
+overcast archive add rec_ab12cd34 --to ref-footage --tags drone --note "known drone, case 44"
+overcast archive setup ref-footage --index faces:deepface-local,clip:basic-clip,voices:voice-print --auto-index-new --yes
+
+# from INSIDE any case:
+overcast face --match suspect.jpg --index archive:ref-footage/faces
+overcast similar search "white van at night" --index archive:ref-footage/clip
+overcast voice match sample.wav --index archive:ref-footage/voices   # speaker verification
+overcast watch archive:ref-footage/clip_9f3a.mp4        # sense in place, no copy
+overcast capture archive:ref-footage/clip_9f3a.mp4      # pull a copy + provenance
+overcast ask "what do I have on the blue warehouse?" --archive ref-footage
+```
+
+Cross-case match evidence persists to the **current** case (stamped
+`meta.archive`); the bucket holds the media, mirror, and DB artifacts. Because
+a bucket is a case-shaped folder, everything else works via
+`--case ~/.overcast/archive/<bucket>` (e.g. `case memory index rebuild` for a
+bucket's qmd index).
 
 ---
 

@@ -2,7 +2,7 @@
 // outputs), so they flow through local memory, ask, brief, and case records like
 // sensed/captured evidence. They can optionally anchor to a media ref or record.
 
-import { makeRecord, errRecord, type MediaRef, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, isReady, type MediaRef, type OvercastRecord } from "../record.js";
 import { resolveMediaRef, refPathExists } from "./media-ref.js";
 import { parseAtSpan } from "../media/ffmpeg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
@@ -58,6 +58,10 @@ export const noteVerb: VerbSpec = {
     let media: MediaRef | undefined;
     let relatedRecord: string | undefined;
     let evidenceRef: string | undefined;
+    // a note anchored to archived evidence traces to the bucket, like the
+    // derived sense records — from a case record that already carries it, or
+    // from an archive:<bucket>/<item> ref
+    let archiveBucket: string | undefined;
 
     if (ctx.opts.ref != null) {
       const rawRef = String(ctx.opts.ref).trim();
@@ -65,17 +69,24 @@ export const noteVerb: VerbSpec = {
       if (rec) {
         relatedRecord = rec.id;
         evidenceRef = rec.media?.ref ?? rawRef;
+        if (typeof rec.meta?.archive === "string") archiveBucket = rec.meta.archive;
         // Link to the same media, but do NOT inherit the source record's
         // timestamp. A human note is only time-anchored when the analyst says so
         // with --at.
         if (rec.media?.ref) media = { ref: rec.media.ref };
       } else {
-        const resolved = resolveMediaRef(ctx.case, rawRef);
-        if (resolved.recordId == null) {
+        const resolved = resolveMediaRef(ctx.case, rawRef, ctx.home);
+        if (resolved.error) return [err(`--ref ${resolved.error}`)];
+        // don't anchor evidence to a partial in-flight bucket file (senses/
+        // capture/view/forensics reject the same) — the resolver carries the
+        // bucket record so we can gate on its readiness
+        if (resolved.record && !isReady(resolved.record)) return [err(`--ref record ${resolved.record.id} isn't ready (state=${resolved.record.state ?? "?"})`)];
+        archiveBucket = resolved.archive;
+        if (resolved.recordId == null && !resolved.archive) {
           const isUrl = /^https?:\/\//i.test(rawRef);
           // absolute path, or a case-relative path CONTAINED in the case dir (a
           // `../` escape outside the case store is rejected — no arbitrary files).
-          const isExistingPath = !isUrl && refPathExists(ctx.case.dir, rawRef);
+          const isExistingPath = !isUrl && refPathExists(ctx.case.dir, rawRef, ctx.home);
           if (!isUrl && !isExistingPath) {
             if (/^rec_/i.test(rawRef)) return [err(`--ref record not found in this case: ${rawRef}`)];
             if (/^cap_/i.test(rawRef)) return [err(`--ref capture id not found in this case: ${rawRef}`)];
@@ -83,7 +94,9 @@ export const noteVerb: VerbSpec = {
           }
         }
         relatedRecord = resolved.recordId;
-        evidenceRef = resolved.ref;
+        // keep the archive:<bucket>/<item> trace as the cited ref; media.ref
+        // carries the resolved playable path.
+        evidenceRef = resolved.archive ? rawRef : resolved.ref;
         media = { ref: resolved.ref };
       }
     }
@@ -110,7 +123,7 @@ export const noteVerb: VerbSpec = {
         format: "md",
         payload,
         media,
-        meta: { provider: "human", case: ctx.case.dir },
+        meta: { provider: "human", case: ctx.case.dir, ...(archiveBucket ? { archive: archiveBucket } : {}) },
         state: "ready",
       }),
     ];

@@ -7,6 +7,7 @@ import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { addMember, findIndex, resolveIndexRef } from "../state/index.js";
 import { localIndexDir, runLocalImage } from "../providers/local/vision.js";
 import { resolveImageArg, resolveVisualArg } from "./media-ref.js";
+import { provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { badNumber } from "./validate.js";
 import { mkdirSync } from "node:fs";
@@ -58,7 +59,13 @@ export const imageVerb: VerbSpec = {
     const arg = ctx.rest[0];
     if (!arg) return [err(`image ${action} requires an input`)];
     const indexValue = ctx.opts.index ?? ctx.opts.to;
-    const idx = localImageIndex(ctx.case, indexValue);
+    // `--index archive:<bucket>/<index>` targets a BUCKET's index: the mirror,
+    // DB artifacts, and members live in the bucket; the query record still
+    // persists to the active case (stamped meta.archive).
+    const scoped = resolveIndexScope(ctx.case, indexValue != null ? String(indexValue) : "", ctx.home);
+    if (scoped.error) return [err(`image ${action}: ${scoped.error}`)];
+    const scope = scoped.scope;
+    const idx = localImageIndex(scope, indexValue == null ? indexValue : scoped.value);
     if (idx.error) return [err(`image ${action}: ${idx.error}`)];
 
     const numErr =
@@ -70,28 +77,28 @@ export const imageVerb: VerbSpec = {
     if (numErr) return [err(`image ${action}: ${numErr}`)];
 
     if (action === "add") {
-      const img = resolveImageArg(ctx.case, arg, "image add");
+      const img = resolveImageArg(ctx.case, arg, "image add", { home: ctx.home });
       if (img.error) return [err(img.error)];
-      const entry = findIndex(ctx.case, idx.id!);
+      const entry = findIndex(scope, idx.id!);
       if (entry?.members.some((m) => m.ref === img.ref)) {
-        return [makeRecord({ verb: "image", format: "json", payload: { op: "add", index: idx.id, file: img.ref, already_member: true }, media: { ref: img.ref! }, meta: { case: ctx.case.dir }, state: "ready" })];
+        return [stampArchive(makeRecord({ verb: "image", format: "json", payload: { op: "add", index: idx.id, file: img.ref, already_member: true }, media: { ref: img.ref! }, meta: { case: ctx.case.dir }, state: "ready" }), scoped.bucket ?? img.archive, ctx.case.dir)];
       }
-      mkdirSync(localIndexDir(ctx.case, idx.id!), { recursive: true });
-      addMember(ctx.case, idx.id!, { ref: img.ref!, recordId: img.recordId });
-      return [makeRecord({
+      mkdirSync(localIndexDir(scope, idx.id!), { recursive: true });
+      addMember(scope, idx.id!, { ref: img.ref!, recordId: img.recordId });
+      return [stampArchive(makeRecord({
         verb: "image",
         format: "json",
         payload: { op: "add", index: idx.id, file: img.ref, summary: `added reference image to ${idx.id}` },
         media: { ref: img.ref! },
         meta: { case: ctx.case.dir, provider: "local:image-ransac" },
         state: "ready",
-      })];
+      }), scoped.bucket ?? img.archive, ctx.case.dir)];
     }
 
-    const q = resolveVisualArg(ctx.case, arg, "image match");
+    const q = resolveVisualArg(ctx.case, arg, "image match", { home: ctx.home });
     if (q.error) return [err(q.error)];
     if (!/^https?:\/\//i.test(q.ref!) && !existsSync(q.ref!)) return [err(`image match: input not found: ${q.ref}`)];
-    const rec = await runLocalImage(ctx.case, q.ref!, {
+    const rec = await runLocalImage(scope, q.ref!, {
       indexId: idx.id!,
       minInliers: ctx.opts["min-inliers"] != null ? Number(ctx.opts["min-inliers"]) : undefined,
       minRatio: ctx.opts["min-ratio"] != null ? Number(ctx.opts["min-ratio"]) : undefined,
@@ -102,7 +109,7 @@ export const imageVerb: VerbSpec = {
       signal: ctx.signal,
     });
     // if the matched video was captured from a post, trace the match back to it
-    stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
-    return [rec];
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
+    return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
   },
 };

@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { existsSync, writeFileSync } from "node:fs";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { isReady, makeRecord, type OvercastRecord } from "../record.js";
 import { runListen } from "../providers/tinycloud/listen.js";
 import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
@@ -13,7 +13,8 @@ import { seeWithBrain, brainSeeDisabled } from "../providers/brain/vision.js";
 import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
 import { execCapture, parseFirstJson } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
-import { resolveVideoArg } from "./media-ref.js";
+import { resolveMediaRef, resolveVideoArg } from "./media-ref.js";
+import { provenanceCase, stampArchive } from "../archive.js";
 import {
   probe,
   enhance as ffEnhance,
@@ -101,7 +102,7 @@ export const listenVerb: VerbSpec = {
     if (!ctx.input) {
       return [errorRecord("listen", "listen requires an audio/video input")];
     }
-    const resolved = resolveVideoArg(ctx.case, ctx.input, "listen input", { requireReady: false });
+    const resolved = resolveVideoArg(ctx.case, ctx.input, "listen input", { requireReady: false, home: ctx.home });
     if (resolved.error) return [errorRecord("listen", resolved.error)];
     const input = resolved.ref ?? ctx.input;
     const rec = await dispatchListen(ctx, input, {
@@ -110,9 +111,10 @@ export const listenVerb: VerbSpec = {
       lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
     });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
-    // trace a transcript of a captured clip back to the post it came from
-    stampProvenance(rec, provenanceFromCapture(ctx.case, input));
-    return [rec];
+    // trace a transcript of a captured clip back to the post it came from,
+    // and in-place archive sensing back to its bucket (like watch)
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, resolved.archive, ctx.home), input));
+    return [stampArchive(rec, resolved.archive)];
   },
 };
 
@@ -149,8 +151,9 @@ export const seeVerb: VerbSpec = {
     // record — successes and failures alike, so an error on a URL input still
     // carries meta.source_url.
     let sourceUrl: string | undefined;
+    let archiveBucket: string | undefined;
     const stamp = (rec: OvercastRecord): OvercastRecord[] => {
-      rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}) };
+      rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}), ...(archiveBucket ? { archive: archiveBucket } : {}) };
       return [rec];
     };
 
@@ -158,18 +161,39 @@ export const seeVerb: VerbSpec = {
     let resolvedRef = ctx.input;
     const fr = parseFrameRef(ctx.input);
     if (fr) {
-      // a frame:// ref that can't be resolved must FAIL clearly — never hand the
-      // literal "frame://…" string to a provider (which reports a confusing
-      // "image not found: frame://…").
-      const src = ctx.case.recordById(fr.recordId)?.media?.ref;
+      // resolve the frame's SOURCE through the shared resolver so the record
+      // part accepts a case record id, a capture id, OR an
+      // archive:<bucket>/<item> ref (a clip cited from `ask --archive` lives in
+      // the bucket, not the active case). A frame:// ref that can't be resolved
+      // must FAIL clearly — never hand the literal "frame://…" to a provider.
+      const fsrc = resolveMediaRef(ctx.case, fr.recordId, ctx.home);
+      const src = fsrc.error ? undefined : fsrc.ref;
       if (!src || !existsSync(src)) {
-        return stamp(errorRecord("see", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`));
+        return stamp(errorRecord("see", `cannot resolve ${ctx.input}: ${fsrc.error ?? `record ${fr.recordId} has no media on disk`}`));
       }
+      // a bucket source that's still materializing (pending/errored capture) has
+      // a partial file — don't extract a frame from it (matches direct archive refs)
+      if (fsrc.record && !isReady(fsrc.record)) {
+        return stamp(errorRecord("see", `cannot extract ${ctx.input}: record ${fsrc.record.id} isn't ready (state=${fsrc.record.state ?? "?"})`));
+      }
+      archiveBucket = fsrc.archive;
       try {
         resolvedRef = await extractFrame(src, fr.second, ctx.case.mediaDir);
       } catch (e) {
         return stamp(errorRecord("see", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`));
       }
+    }
+
+    // record ids / capture ids / archive:<bucket>/<item> refs resolve through
+    // the SHARED resolver (like watch/listen/exif) — retired archive files and
+    // in-flight bucket captures error here instead of slipping through as
+    // literal paths.
+    if (!fr && !isHttpUrl(resolvedRef)) {
+      const r = resolveMediaRef(ctx.case, resolvedRef, ctx.home);
+      if (r.error) return stamp(errorRecord("see", `see input: ${r.error}`));
+      if (r.record && !isReady(r.record)) return stamp(errorRecord("see", `see input: record ${r.record.id} isn't ready (state=${r.record.state ?? "?"})`));
+      resolvedRef = r.ref;
+      archiveBucket = r.archive;
     }
 
     // An http(s) URL is fetched into the case media dir first (evidence, like
@@ -431,18 +455,36 @@ export const enhanceVerb: VerbSpec = {
     // frame:// still is not itself a capture, so provenanceFromCapture must look up
     // the source clip the frame came from (else the video-frame path loses it).
     let provenanceSource = ctx.input;
+    // record ids / capture ids / archive:<bucket>/<item> refs resolve through
+    // the SHARED resolver (like watch/listen/see); retired archive files error.
+    let archiveBucket: string | undefined;
     const fr = parseFrameRef(ctx.input);
     if (fr) {
-      const src = ctx.case.recordById(fr.recordId)?.media?.ref;
+      // resolve the frame's SOURCE through the shared resolver so a bucket clip
+      // (cited from `ask --archive`, addressed archive:<bucket>/<item>) works too.
+      const fsrc = resolveMediaRef(ctx.case, fr.recordId, ctx.home);
+      const src = fsrc.error ? undefined : fsrc.ref;
       if (!src || !existsSync(src)) {
-        return [errorRecord("enhance", `cannot resolve ${ctx.input}: record ${fr.recordId} has no media on disk`)];
+        return [errorRecord("enhance", `cannot resolve ${ctx.input}: ${fsrc.error ?? `record ${fr.recordId} has no media on disk`}`)];
+      }
+      if (fsrc.record && !isReady(fsrc.record)) {
+        return [errorRecord("enhance", `cannot extract ${ctx.input}: record ${fsrc.record.id} isn't ready (state=${fsrc.record.state ?? "?"})`)];
       }
       provenanceSource = src;
+      archiveBucket = fsrc.archive;
       try {
         input = await extractFrame(src, fr.second, ctx.case.mediaDir);
       } catch (e) {
         return [errorRecord("enhance", `frame extraction failed for ${ctx.input}: ${(e as Error).message}`)];
       }
+    }
+    if (!fr) {
+      const r = resolveMediaRef(ctx.case, input, ctx.home);
+      if (r.error) return [errorRecord("enhance", `enhance input: ${r.error}`)];
+      if (r.record && !isReady(r.record)) return [errorRecord("enhance", `enhance input: record ${r.record.id} isn't ready (state=${r.record.state ?? "?"})`)];
+      input = r.ref;
+      provenanceSource = r.ref;
+      archiveBucket = r.archive;
     }
     if (!existsSync(input)) {
       return [errorRecord("enhance", `input not found: ${input}`)];
@@ -542,10 +584,11 @@ export const enhanceVerb: VerbSpec = {
       // expand a multi-output envelope (per-speaker tracks / per-instance masks)
       // into [parent, ...children]; single-output providers pass through.
       const recs = fanOutEnhance(rec, { caseDir: ctx.case.dir });
-      const prov = provenanceFromCapture(ctx.case, provenanceSource);
+      const prov = provenanceFromCapture(provenanceCase(ctx.case, archiveBucket, ctx.home), provenanceSource);
       for (const r of recs) {
         r.meta = { ...r.meta, case: ctx.case.dir };
         stampProvenance(r, prov);
+        stampArchive(r, archiveBucket);
       }
       // --summarize: transcribe each separated track through the bound listen
       // provider, embedding transcript+summary on the track record itself.
@@ -596,8 +639,8 @@ export const enhanceVerb: VerbSpec = {
       });
       // trace back to the originating post — same as the bound-provider path, and
       // for the frame:// path use the ORIGINAL clip (provenanceSource), not the still.
-      stampProvenance(ffRec, provenanceFromCapture(ctx.case, provenanceSource));
-      return [ffRec];
+      stampProvenance(ffRec, provenanceFromCapture(provenanceCase(ctx.case, archiveBucket, ctx.home), provenanceSource));
+      return [stampArchive(ffRec, archiveBucket)];
     } catch (e) {
       return [errorRecord("enhance", `ffmpeg enhance failed: ${(e as Error).message}`)];
     }
@@ -635,10 +678,27 @@ export const viewVerb: VerbSpec = {
     // a true [start,end] span carried by the resolved record — preserved as-is
     // for the view record's media.at (we never SYNTHESIZE a span from 2 points).
     let recordSpan: [number, number] | undefined;
+    let archiveBucket: string | undefined;
     let at = ctx.opts.at ? String(ctx.opts.at) : undefined;
     const rec = ctx.case.recordById(ctx.input);
+    // a pending/errored CASE record's partial media must not be opened — the
+    // recordById fast-path would otherwise skip the readiness gate the archive-ref
+    // branch below (and see/enhance/exif/verify) all apply (thread-2 class).
+    if (rec && !isReady(rec)) return [errorRecord("view", `view input: record ${rec.id} isn't ready (state=${rec.state ?? "?"})`)];
+    if (!rec) {
+      // capture ids / archive:<bucket>/<item> refs / raw bucket paths go through
+      // the SHARED resolver (retired archive files error, like the senses)
+      const r = resolveMediaRef(ctx.case, ctx.input, ctx.home);
+      if (r.error) return [errorRecord("view", `view input: ${r.error}`)];
+      if (r.record && !isReady(r.record)) return [errorRecord("view", `view input: record ${r.record.id} isn't ready (state=${r.record.state ?? "?"})`)];
+      mediaPath = r.ref;
+      archiveBucket = r.archive;
+    }
     if (rec?.media?.ref) {
       mediaPath = rec.media.ref;
+      // a record already stamped with its bucket (e.g. a `capture archive:…`
+      // copy) carries that trace onto the view record too
+      if (typeof rec.meta?.archive === "string") archiveBucket = rec.meta.archive;
       const a = rec.media.at;
       if (typeof a === "number") {
         markers = [a];
@@ -700,7 +760,7 @@ export const viewVerb: VerbSpec = {
           format: "json",
           payload: { mode: "os-open", ref: mediaPath, opened: !noOpen },
           media: { ref: mediaPath },
-          meta: { provider: "view", case: ctx.case.dir },
+          meta: { provider: "view", case: ctx.case.dir, ...(archiveBucket ? { archive: archiveBucket } : {}) },
           state: "ready",
         }),
       ];
@@ -737,7 +797,7 @@ export const viewVerb: VerbSpec = {
         // a real span if the source had one; otherwise the first marker as a
         // point seek — never a fabricated [start,end] from two distinct points.
         media: { ref: mediaPath, at: recordSpan ?? (markers.length ? markers[0] : undefined) },
-        meta: { provider: "view", case: ctx.case.dir },
+        meta: { provider: "view", case: ctx.case.dir, ...(archiveBucket ? { archive: archiveBucket } : {}) },
         state: "ready",
       }),
     ];

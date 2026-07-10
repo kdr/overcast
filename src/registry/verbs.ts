@@ -21,6 +21,8 @@ import { wallVerb } from "../verbs/wall.js";
 import { mapVerb } from "../verbs/map.js";
 import { devicesVerb } from "../verbs/devices.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
+import { provenanceFromCapture, stampProvenance } from "../verbs/provenance.js";
+import { provenanceCase, stampArchive } from "../archive.js";
 import {
   scanVerb,
   captureVerb,
@@ -30,6 +32,7 @@ import {
   prebriefVerb,
 } from "../verbs/osint.js";
 import { indexVerb } from "../verbs/index.js";
+import { archiveVerb } from "../verbs/archive.js";
 import { askVerb, briefVerb } from "../verbs/read.js";
 import { caseVerb } from "../verbs/case.js";
 import { noteVerb } from "../verbs/note.js";
@@ -65,7 +68,7 @@ export const watchVerb: VerbSpec = {
         }),
       ];
     }
-    const resolved = resolveVideoArg(ctx.case, ctx.input, "watch input", { requireReady: false });
+    const resolved = resolveVideoArg(ctx.case, ctx.input, "watch input", { requireReady: false, home: ctx.home });
     if (resolved.error) {
       return [
         makeRecord({
@@ -87,7 +90,12 @@ export const watchVerb: VerbSpec = {
       ? await runBoundProvider("watch", binding!, input, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal })
       : await runWatch(input, { run: binding?.run, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
-    return [rec];
+    // trace back to the originating post (like listen) — for archived media the
+    // capture that materialized it lives in the BUCKET, so look there
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, resolved.archive, ctx.home), input));
+    // in-place sensing of an archived clip traces to its bucket, like the
+    // scoped match verbs and capture pulls
+    return [stampArchive(rec, resolved.archive)];
   },
 };
 
@@ -115,6 +123,7 @@ export const VERBS: VerbSpec[] = [
   captureVerb,
   monitorVerb,
   indexVerb,
+  archiveVerb,
   targetVerb,
   sourceVerb,
   noteVerb,

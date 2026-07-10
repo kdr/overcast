@@ -30,14 +30,16 @@ import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { parseSince } from "../providers/memory/local.js";
-import { isAv, isImage } from "./media-ref.js";
+import { isAv, isImage, resolveMediaRef } from "./media-ref.js";
+import { ARCHIVE_REF_PREFIX, provenanceCase, sha256File } from "../archive.js";
+import { isReady } from "../record.js";
 import { faceVerb } from "./face.js";
 import { imageVerb } from "./image.js";
 import { seeVerb, enhanceVerb } from "./senses.js";
 import { exifVerb, verifyVerb } from "./forensics.js";
 import { indexVerb } from "./index.js";
 import { evaluateTriggers, resolveFindingsPolicy } from "../signals/triggers.js";
-import { scanHitProvenance, stampProvenance } from "./provenance.js";
+import { provenanceFromCapture, scanHitProvenance, stampProvenance } from "./provenance.js";
 import { redactSecrets } from "../env.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -610,7 +612,7 @@ function hitSourceType(rec: OvercastRecord | undefined): string | undefined {
   return undefined;
 }
 
-async function captureRef(
+export async function captureRef(
   ctx: VerbContext,
   ref: string,
   opts: { sourceType?: string; out?: string } = {},
@@ -939,6 +941,58 @@ export const captureVerb: VerbSpec = {
     if (!ctx.input) return [err("capture", "capture requires a ref (URL/path/scan.hit id, or - for stdin)")];
     // `-` → ingest stdin (a piped clip/image) into the case.
     if (ctx.input === "-") return [await captureStdin(ctx, ctx.opts.out ? String(ctx.opts.out) : undefined)];
+    // archive:<bucket>/<item> → pull a COPY of archived media into this case,
+    // with provenance back to the bucket (and sha256 dedup against a prior pull).
+    if (ctx.input.startsWith(ARCHIVE_REF_PREFIX)) {
+      const resolved = resolveMediaRef(ctx.case, ctx.input, ctx.home);
+      if (resolved.error) return [err("capture", resolved.error)];
+      // never copy an in-flight/failed item's partial file — the bucket record's
+      // state gates the pull like it gates the senses
+      if (resolved.record && !isReady(resolved.record)) {
+        return [err("capture", `${ctx.input}: record ${resolved.record.id} isn't ready (state=${resolved.record.state ?? "?"})`)];
+      }
+      let sha: string | undefined;
+      try {
+        sha = await sha256File(resolved.ref);
+      } catch {
+        /* dedup is best-effort; the copy below surfaces a real read error */
+      }
+      if (sha) {
+        const existing = ctx.case.records().find((r) => {
+          if (r.verb !== "capture" || !isReady(r) || !r.payload || typeof r.payload !== "object") return false;
+          return (r.payload as Record<string, unknown>).sha256 === sha;
+        });
+        if (existing) {
+          const p = existing.payload as Record<string, unknown>;
+          return [makeRecord({
+            verb: "capture",
+            format: "json",
+            payload: { already_present: true, capture_id: p.capture_id, record: existing.id, sha256: sha, source: "archive", source_ref: ctx.input },
+            media: existing.media,
+            meta: { provider: "capture:archive", case: ctx.case.dir, archive: resolved.archive, transient: true },
+            state: "ready",
+          })];
+        }
+      }
+      const archiveCap = await captureRef(ctx, resolved.ref, { out: ctx.opts.out ? String(ctx.opts.out) : undefined });
+      if (archiveCap.payload && typeof archiveCap.payload === "object") {
+        const p = archiveCap.payload as Record<string, unknown>;
+        p.source = "archive";
+        p.source_ref = ctx.input;
+        if (sha) p.sha256 = sha;
+        p.origin = {
+          ...(p.origin && typeof p.origin === "object" ? (p.origin as Record<string, unknown>) : {}),
+          bucket: resolved.archive,
+          ...(resolved.recordId ? { record: resolved.recordId } : {}),
+        };
+      }
+      archiveCap.meta = { ...archiveCap.meta, archive: resolved.archive };
+      // carry the bucket item's originating-post provenance (source_url/author/
+      // text) onto the pulled case copy — the owning capture lives in the BUCKET,
+      // so look it up there (same as a sense on the ref via provenanceCase)
+      stampProvenance(archiveCap, provenanceFromCapture(provenanceCase(ctx.case, resolved.archive, ctx.home), resolved.ref));
+      return [archiveCap];
+    }
     // resolve a scan.hit record id → its media ref (and source provider). Fall
     // back to payload.url when the hit has a url but no media field (matches
     // hitKey/hitsToRecords).

@@ -6,7 +6,7 @@
 // senses (src/verbs/senses.ts) so behavior can't drift.
 
 import { existsSync } from "node:fs";
-import { makeRecord, type OvercastRecord } from "../record.js";
+import { isReady, makeRecord, type OvercastRecord } from "../record.js";
 import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
@@ -14,6 +14,7 @@ import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
 import { validLatLng, gpsIssue } from "../geo.js";
 import { resolveMediaRef } from "./media-ref.js";
 import { provenanceFromCapture, scanHitProvenance, stampProvenance } from "./provenance.js";
+import { provenanceCase } from "../archive.js";
 import { shippedPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -33,17 +34,18 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
 
   let sourceUrl: string | undefined;
   let sourceProv: Record<string, unknown> = {};
+  let archiveBucket: string | undefined;
   let ref = ctx.input;
 
   // stamp case + URL origin + source-post provenance on EVERY outgoing record
   // (successes and failures) so an error on a URL still carries meta.source_url.
   const stamp = (rec: OvercastRecord): OvercastRecord[] => {
-    rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}) };
+    rec.meta = { ...rec.meta, case: ctx.case.dir, ...(sourceUrl ? { source_url: sourceUrl } : {}), ...(archiveBucket ? { archive: archiveBucket } : {}) };
     // the resolved scan/capture record's post fields (source_url/author/text)
     // first, then any capture the local file itself came from (stampProvenance
     // never clobbers, so the direct source wins).
     stampProvenance(rec, sourceProv);
-    stampProvenance(rec, provenanceFromCapture(ctx.case, ref));
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, archiveBucket, ctx.home), ref));
     return [rec];
   };
 
@@ -53,14 +55,23 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
   //    provenance so a sense run directly on a scan hit stays traceable to the
   //    originating post (capture stamps the same via scanHitProvenance).
   if (!isHttpUrl(ref)) {
-    const resolved = resolveMediaRef(ctx.case, ref);
+    const resolved = resolveMediaRef(ctx.case, ref, ctx.home);
+    if (resolved.error) return [errorRecord(cfg.verb, `${cfg.verb} input: ${resolved.error}`)];
+    // an archive/bucket ref carries its bucket record (from the bucket store, not
+    // the active case) — gate on it so forensics never reads a pending/errored
+    // capture's partial file (matches capture/archive add), and use it directly
+    // for provenance (the active-case lookup would find nothing for a bucket id).
+    if (resolved.record && !isReady(resolved.record)) {
+      return [errorRecord(cfg.verb, `${cfg.verb} input: record ${resolved.record.id} isn't ready (state=${resolved.record.state ?? "?"})`)];
+    }
     ref = resolved.ref;
+    archiveBucket = resolved.archive; // forensics on an archived file traces to its bucket
     // carry the source record's provenance, and — when the record has no
     // media.ref (a scan hit whose media is a page URL) — fall back to its
     // payload.url, matching how capture/hitFetchRef resolve the same hit
     // (resolveMediaRef only follows media.ref, so it would otherwise leave the
     // bare record id and fail the local-file check).
-    const rec = ctx.case.recordById(resolved.recordId ?? ctx.input);
+    const rec = resolved.record ?? ctx.case.recordById(resolved.recordId ?? ctx.input);
     if (rec) {
       sourceProv = scanHitProvenance(rec);
       if (!resolved.recordId) {

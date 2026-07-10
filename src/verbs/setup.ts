@@ -12,6 +12,7 @@ import {
   type Profile,
   type ProviderDescriptor,
 } from "../profile.js";
+import { listBuckets } from "../archive.js";
 import { FFMPEG_PATH, FFPROBE_PATH, probeTool, MIN_FFMPEG } from "../media/ffmpeg.js";
 import { execCapture } from "../providers/exec.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
@@ -720,6 +721,16 @@ export const doctorVerb: VerbSpec = {
     const pdir = profilesDir(home);
     const profiles = existsSync(pdir) ? readdirSync(pdir).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, "")) : [];
     checks.push({ name: "home", ok: true, detail: `${home} (${profiles.length} profile(s))` });
+
+    // global archive buckets (case-shaped stores under <home>/archive)
+    const buckets = listBuckets(ctx.home);
+    checks.push({
+      name: "archive",
+      ok: true,
+      detail: buckets.length
+        ? `${buckets.length} bucket(s): ${buckets.map((b) => b.name).join(", ")}`
+        : "no buckets yet (create one with `overcast archive init <bucket>`)",
+    });
 
     // provider bindings
     const bound = Object.keys(ctx.profile.providers ?? {});

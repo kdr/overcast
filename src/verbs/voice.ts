@@ -16,6 +16,7 @@ import { addMember, findIndex, resolveIndexRef } from "../state/index.js";
 import { localIndexDir } from "../providers/local/vision.js";
 import { defaultVoicePrintConfig, runLocalVoice, writeVoicePrintConfig } from "../providers/local/audio.js";
 import { resolveVideoArg } from "./media-ref.js";
+import { provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { badNumber, numFlag } from "./validate.js";
 import type { Case } from "../case.js";
@@ -114,6 +115,13 @@ export const voiceVerb: VerbSpec = {
     }
 
     const indexValue = ctx.opts.index ?? ctx.opts.to;
+    // `--index archive:<bucket>/<index>` targets a BUCKET's voice-print DB (like
+    // audio/similar): the mirror + cached embeddings live in the bucket, the
+    // match evidence persists to the active case stamped meta.archive.
+    const scoped = resolveIndexScope(ctx.case, indexValue != null ? String(indexValue) : "", ctx.home);
+    if (scoped.error) return [err(`voice ${action}: ${scoped.error}`)];
+    const scope = scoped.scope;
+    const scopedIndexValue = indexValue == null ? indexValue : scoped.value;
     const minSimilarity = numFlag(ctx.opts, "min-similarity");
     const minMargin = numFlag(ctx.opts, "min-margin");
     const limit = numFlag(ctx.opts, "limit");
@@ -126,39 +134,39 @@ export const voiceVerb: VerbSpec = {
       if (ctx.opts.offset != null || minSimilarity != null || minMargin != null || limit != null) {
         return [err("voice add enrolls a member — match flags (--min-similarity/--min-margin/--limit/--offset) don't apply")];
       }
-      const idx = localVoiceIndex(ctx.case, indexValue);
+      const idx = localVoiceIndex(scope, scopedIndexValue);
       if (idx.error) return [err(`voice add: ${idx.error}`)];
-      const q = resolveVideoArg(ctx.case, input, "voice add");
+      const q = resolveVideoArg(ctx.case, input, "voice add", { home: ctx.home });
       if (q.error) return [err(q.error)];
-      const entry = findIndex(ctx.case, idx.id!);
+      const entry = findIndex(scope, idx.id!);
       if (entry?.members.some((m) => m.ref === q.ref)) {
-        return [makeRecord({ verb: "voice", format: "json", payload: { op: "add", index: idx.id, file: q.ref, already_member: true }, media: { ref: q.ref! }, meta: { case: ctx.case.dir }, state: "ready" })];
+        return [stampArchive(makeRecord({ verb: "voice", format: "json", payload: { op: "add", index: idx.id, file: q.ref, already_member: true }, media: { ref: q.ref! }, meta: { case: ctx.case.dir }, state: "ready" }), scoped.bucket ?? q.archive, ctx.case.dir)];
       }
-      const dir = localIndexDir(ctx.case, idx.id!);
+      const dir = localIndexDir(scope, idx.id!);
       mkdirSync(dir, { recursive: true });
       // defensive: pin the model/window config on first enroll if create didn't
       // (the provider's model guard + cache hash key off this file)
       if (!existsSync(join(dir, "config.json"))) writeVoicePrintConfig(dir, defaultVoicePrintConfig());
-      const rec = await runLocalVoice(ctx.case, q.ref!, { op: "add", indexId: idx.id!, signal: ctx.signal });
+      const rec = await runLocalVoice(scope, q.ref!, { op: "add", indexId: idx.id!, signal: ctx.signal });
       // register the member only after the embed SUCCEEDED (mirrors audio add) —
       // a failed embed must not leave a cacheless member that search would skip.
       if (isReady(rec) && !entry?.members.some((m) => m.ref === q.ref)) {
-        addMember(ctx.case, idx.id!, { ref: q.ref!, recordId: q.recordId });
+        addMember(scope, idx.id!, { ref: q.ref!, recordId: q.recordId });
       }
-      return [rec];
+      return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
     }
 
     // ---- match: exactly one of pairwise sample XOR --index ----
     if (sample && indexValue) return [err("voice match: pass either a sample (clip-vs-sample) OR --index, not both")];
     if (!sample && !indexValue) return [err("voice match: pass --index <voice-print-index> or a reference sample to find in the clip")];
 
-    const q = resolveVideoArg(ctx.case, input, "voice match");
+    const q = resolveVideoArg(ctx.case, input, "voice match", { home: ctx.home });
     if (q.error) return [err(q.error)];
     if (!/^https?:\/\//i.test(q.ref!) && !existsSync(q.ref!)) return [err(`voice match: input not found: ${q.ref}`)];
 
     let rec: OvercastRecord;
     if (sample) {
-      const ref = resolveVideoArg(ctx.case, sample, "voice match");
+      const ref = resolveVideoArg(ctx.case, sample, "voice match", { home: ctx.home });
       if (ref.error) return [err(ref.error)];
       if (!/^https?:\/\//i.test(ref.ref!) && !existsSync(ref.ref!)) return [err(`voice match: sample not found: ${ref.ref}`)];
       if (ctx.opts.offset != null) return [err("voice match: --offset only applies to an index search (`voice match <sample> --index <id>`)")];
@@ -178,9 +186,9 @@ export const voiceVerb: VerbSpec = {
     } else {
       const bad = FLAG_OPS.find(([flag]) => flag !== "offset" && ctx.opts[flag] != null);
       if (bad) return [err(`voice match --index: --${bad[0]} only applies to ${bad[1]} (${bad[2]})`)];
-      const idx = localVoiceIndex(ctx.case, indexValue);
+      const idx = localVoiceIndex(scope, scopedIndexValue);
       if (idx.error) return [err(`voice match: ${idx.error}`)];
-      rec = await runLocalVoice(ctx.case, q.ref!, {
+      rec = await runLocalVoice(scope, q.ref!, {
         op: "search",
         indexId: idx.id!,
         minSimilarity,
@@ -190,8 +198,9 @@ export const voiceVerb: VerbSpec = {
         signal: ctx.signal,
       });
     }
-    // if the clip was captured from a post, trace the match back to it
-    stampProvenance(rec, provenanceFromCapture(ctx.case, q.ref));
-    return [rec];
+    // if the clip was captured from a post, trace the match back to it (the
+    // bucket case when the query is an archive ref — parity with audio/similar)
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, q.archive, ctx.home), q.ref));
+    return [stampArchive(rec, scoped.bucket ?? q.archive, ctx.case.dir)];
   },
 };

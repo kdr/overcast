@@ -1,0 +1,255 @@
+// Archive = the global, cross-case media store. A BUCKET is a case-shaped
+// folder (a dir with its own `.overcast/` store) under <home>/archive/<name>,
+// so every Case-rooted mechanism — records JSONL, media dir, indexes.json
+// mirror, local index DBs, memory providers, setup.json — works on a bucket
+// unchanged (invariant #4: no bespoke store object; `Case` is reused, not
+// subclassed). There is deliberately NO bucket registry file: the directory
+// listing IS the bucket list, so it can't go stale.
+//
+// Cross-case addressing uses `archive:<bucket>/<item>` refs. This module owns
+// bucket naming/paths + ref parsing + the index-scope seam; MEDIA resolution
+// for archive refs stays in verbs/media-ref.ts (the one place that resolves
+// media refs), which imports these helpers.
+
+import { createHash } from "node:crypto";
+import { createReadStream, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+import { openCase, type Case, type CaseInfo } from "./case.js";
+import { resolveHome } from "./profile.js";
+import { realpathContained } from "./fs-path.js";
+import { isReady, type OvercastRecord } from "./record.js";
+
+export const ARCHIVE_DIRNAME = "archive";
+export const ARCHIVE_REF_PREFIX = "archive:";
+
+/** The archive root under the overcast home (--home > $OVERCAST_HOME > ~/.overcast). */
+export function archiveRoot(home?: string): string {
+  return join(resolveHome({ home }), ARCHIVE_DIRNAME);
+}
+
+/** Bucket names are single path segments — no separators, no leading dot, so a
+ *  name can never traverse out of the archive root. */
+export function validBucketName(name: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name);
+}
+
+export function bucketDir(name: string, home?: string): string {
+  return join(archiveRoot(home), name);
+}
+
+export interface BucketHandle {
+  name: string;
+  dir: string;
+  case: Case;
+}
+
+/** Open an existing bucket by name. Missing/invalid is an error VALUE (not a
+ *  throw) so verbs can surface it as a normal error record. A case dir that
+ *  isn't kind:"archive" is rejected, not adopted — see ensureBucket. */
+export function openBucket(name: string, home?: string): { bucket?: BucketHandle; error?: string } {
+  if (!validBucketName(name)) {
+    return { error: `invalid archive bucket name '${name}' (letters/digits and . _ - only, no separators)` };
+  }
+  const c = openCase(bucketDir(name, home));
+  if (!c.exists()) {
+    return { error: `archive bucket '${name}' not found — create it with \`overcast archive init ${name}\`` };
+  }
+  if (!isArchiveBucket(c)) {
+    return { error: `${c.dir} exists but is not an archive bucket (its case.json has no kind:"archive") — move the case out of the archive root, or pick another bucket name` };
+  }
+  return { bucket: { name, dir: c.dir, case: c } };
+}
+
+/** Create-if-missing + open a bucket. `kind: "archive"` is stamped ONLY at
+ *  creation — an already-initialized case dir that happens to sit under the
+ *  archive root is an ERROR, never silently relabeled into a bucket (that
+ *  would permanently misclassify a real investigation case). */
+export function ensureBucket(name: string, home?: string): { bucket?: BucketHandle; created?: boolean; error?: string } {
+  if (!validBucketName(name)) {
+    return { error: `invalid archive bucket name '${name}' (letters/digits and . _ - only, no separators)` };
+  }
+  const c = openCase(bucketDir(name, home));
+  const created = !c.exists();
+  if (!created && !isArchiveBucket(c)) {
+    return { error: `${c.dir} already exists but is not an archive bucket (its case.json has no kind:"archive") — move the case out of the archive root, or pick another bucket name` };
+  }
+  try {
+    const info = c.ensure() as CaseInfo & { kind?: string };
+    if (created && info.kind !== "archive") {
+      writeFileSync(c.caseFile, JSON.stringify({ ...info, kind: "archive" }, null, 2) + "\n", "utf8");
+    }
+  } catch (e) {
+    return { error: `could not initialize archive bucket '${name}': ${(e as Error).message}` };
+  }
+  return { bucket: { name, dir: c.dir, case: c }, created };
+}
+
+/** All buckets under the archive root (self-healing readdir; only dirs whose
+ *  case.json is kind:"archive" count — a stray case dir is not a bucket). */
+export function listBuckets(home?: string): BucketHandle[] {
+  const root = archiveRoot(home);
+  if (!existsSync(root)) return [];
+  const out: BucketHandle[] = [];
+  for (const name of readdirSync(root).sort()) {
+    if (!validBucketName(name)) continue;
+    const c = openCase(join(root, name));
+    if (c.exists() && isArchiveBucket(c)) out.push({ name, dir: c.dir, case: c });
+  }
+  return out;
+}
+
+/** Whether a Case is an archive bucket (case.json kind === "archive"). */
+export function isArchiveBucket(c: Case): boolean {
+  try {
+    return (JSON.parse(readFileSync(c.caseFile, "utf8")) as { kind?: string }).kind === "archive";
+  } catch {
+    return false;
+  }
+}
+
+export interface BucketItem {
+  record: OvercastRecord;
+  captureId?: string;
+  path?: string;
+  sha256?: string;
+  /** a later `archive remove` retired this item from the manifest */
+  removed?: boolean;
+}
+
+/** The live bucket manifest: the bucket's READY capture records minus
+ *  tombstoned ones (`archive` op:"remove" records name the capture record id
+ *  they retire). ONE definition — the archive verb, dedup/restore, and
+ *  `archive:` media resolution must all agree on what "in the bucket" means.
+ *  `includeRemoved` keeps retired items (flagged) for restore + retired-ref
+ *  error reporting. */
+export function listBucketItems(bucket: BucketHandle, opts: { includeRemoved?: boolean } = {}): BucketItem[] {
+  const recs = bucket.case.records();
+  const removed = new Set<string>();
+  for (const r of recs) {
+    if (r.verb !== "archive" || !r.payload || typeof r.payload !== "object") continue;
+    const p = r.payload as Record<string, unknown>;
+    if (p.op === "remove" && typeof p.item === "string") removed.add(p.item);
+  }
+  const items: BucketItem[] = [];
+  for (const r of recs) {
+    if (r.verb !== "capture" || !r.media?.ref || !isReady(r)) continue;
+    const isRemoved = removed.has(r.id);
+    if (isRemoved && !opts.includeRemoved) continue;
+    const p = r.payload && typeof r.payload === "object" ? (r.payload as Record<string, unknown>) : {};
+    items.push({
+      record: r,
+      captureId: typeof p.capture_id === "string" ? p.capture_id : undefined,
+      path: typeof p.path === "string" ? p.path : r.media.ref,
+      sha256: typeof p.sha256 === "string" ? p.sha256 : undefined,
+      ...(isRemoved ? { removed: true } : {}),
+    });
+  }
+  return items;
+}
+
+/** Split an `archive:<bucket>/<item>` ref. `item` may be empty ("archive:b") —
+ *  resolvers requiring an item reject that themselves. Non-archive refs → undefined. */
+export function parseArchiveRef(raw: string): { bucket: string; item: string } | undefined {
+  if (!raw.startsWith(ARCHIVE_REF_PREFIX)) return undefined;
+  const rest = raw.slice(ARCHIVE_REF_PREFIX.length);
+  const slash = rest.indexOf("/");
+  if (slash < 0) return { bucket: rest, item: "" };
+  return { bucket: rest.slice(0, slash), item: rest.slice(slash + 1) };
+}
+
+/** Resolve a bucket-relative item to an absolute path INSIDE the bucket, or
+ *  undefined. Tries `.overcast/media/<item>` first (the common case), then
+ *  `<bucket>/<item>`. Containment is lexical (`../` escape) AND re-checked on
+ *  the real path (a bucket-local symlink pointing outside is rejected), the
+ *  same double guard as refPathExists in verbs/media-ref.ts. */
+export function resolveBucketPath(bucket: BucketHandle, item: string): string | undefined {
+  for (const candidate of [join(bucket.case.mediaDir, item), join(bucket.dir, item)]) {
+    const lexical = resolve(candidate);
+    if (lexical !== bucket.dir && !lexical.startsWith(bucket.dir + sep)) continue;
+    if (existsSync(lexical) && realpathContained(bucket.dir, lexical)) return lexical;
+  }
+  return undefined;
+}
+
+/** The newest bucket capture record (ANY state) whose payload.path owns this
+ *  file — so a path-form resolution can carry its record and the readiness
+ *  gates fire for in-flight/failed items instead of silently processing a
+ *  partial file. Newest wins: a restore leaves the retired record behind. */
+export function bucketRecordForPath(bucket: BucketHandle, path: string): OvercastRecord | undefined {
+  const caps = bucket.case.records().filter((r) => {
+    if (r.verb !== "capture" || !r.payload || typeof r.payload !== "object") return false;
+    return (r.payload as Record<string, unknown>).path === path;
+  });
+  return caps.at(-1);
+}
+
+/** Classify an ABSOLUTE path that may reach into a bucket's store directly
+ *  (an operator passing the raw file path instead of an `archive:` ref): which
+ *  bucket owns it, the owning capture record (any state, so readiness gates
+ *  fire), and whether the manifest retired that file — retired means a
+ *  tombstone with NO live successor (a restore un-retires the path). Lets the
+ *  media resolvers apply the same manifest rules to raw paths as to archive:
+ *  refs. Cheap for non-archive paths (one prefix compare). */
+export function bucketPathStatus(path: string, home?: string): { bucket?: BucketHandle; retired?: boolean; record?: OvercastRecord } {
+  const root = archiveRoot(home);
+  if (!path.startsWith(root + sep)) return {};
+  const name = path.slice(root.length + 1).split(sep)[0];
+  const { bucket } = openBucket(name, home);
+  if (!bucket) return {};
+  const items = listBucketItems(bucket, { includeRemoved: true });
+  const live = items.filter((it) => !it.removed && it.path === path);
+  const retired = !live.length && items.some((it) => it.removed && it.path === path);
+  const record = live.at(-1)?.record ?? bucketRecordForPath(bucket, path);
+  return { bucket, retired, record };
+}
+
+/** Streaming sha256 of a file — the archive's content-dedup key (media can be
+ *  GBs; never readFileSync it whole). */
+export function sha256File(path: string): Promise<string> {
+  return new Promise((res, rej) => {
+    const hash = createHash("sha256");
+    createReadStream(path)
+      .on("data", (chunk) => hash.update(chunk))
+      .on("end", () => res(hash.digest("hex")))
+      .on("error", rej);
+  });
+}
+
+/** The index-scope seam: `--index archive:<bucket>/<index>` resolves to the
+ *  BUCKET's Case (its indexes.json mirror + index dir), anything else stays on
+ *  the active case. Typed verbs substitute `scope` for ctx.case in mirror
+ *  lookups / localIndexDir / member writes, and stamp `bucket` on emitted
+ *  records — the query evidence still persists to the ACTIVE case. */
+export function resolveIndexScope(
+  c: Case,
+  raw: string,
+  home?: string,
+): { scope: Case; value: string; bucket?: string; error?: string } {
+  const parsed = parseArchiveRef(raw);
+  if (!parsed) return { scope: c, value: raw };
+  const opened = openBucket(parsed.bucket, home);
+  if (!opened.bucket) return { scope: c, value: raw, error: opened.error };
+  if (!parsed.item) {
+    return { scope: c, value: raw, error: `archive index ref needs an index: archive:${parsed.bucket}/<index id or name>` };
+  }
+  return { scope: opened.bucket.case, value: parsed.item, bucket: parsed.bucket };
+}
+
+/** The Case whose capture records own `bucket`'s media, else the active case.
+ *  `provenanceFromCapture` scans a case's captures by file path to inherit an
+ *  archived clip's originating post — but that capture lives in the BUCKET, so
+ *  an archive-scoped sense must look there, not the active case. */
+export function provenanceCase(active: Case, bucket: string | undefined, home?: string): Case {
+  if (!bucket) return active;
+  return openBucket(bucket, home).bucket?.case ?? active;
+}
+
+/** Tag a record produced by an archive-scoped query so the evidence traces to
+ *  the bucket it was matched against — and RE-HOME it to the active case: the
+ *  local provider runners stamp meta.case from the Case they ran against (the
+ *  bucket), which would make the active case's persist seam skip the record
+ *  (the other-case guard), silently dropping the query evidence. */
+export function stampArchive(rec: OvercastRecord, bucket?: string, caseDir?: string): OvercastRecord {
+  if (bucket) rec.meta = { ...rec.meta, archive: bucket, ...(caseDir ? { case: caseDir } : {}) };
+  return rec;
+}

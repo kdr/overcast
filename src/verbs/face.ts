@@ -9,7 +9,7 @@
 //   face <video> --index <id>         → list     (stored detections for that video)
 
 import { existsSync } from "node:fs";
-import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
+import { isReady, makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { runFace, type FaceOp, type FaceParams } from "../providers/tinycloud/face.js";
 import { tinycloudBaseFromRun, TC_SUBCOMMANDS, TINYCLOUD_TIMEOUT_MS } from "../providers/tinycloud/envelope.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
@@ -18,7 +18,8 @@ import { providerEnv } from "../providers/provider-env.js";
 import { indexesByType, resolveIndexRef } from "../state/index.js";
 import { findIndex } from "../state/index.js";
 import { runLocalFace, type LocalFaceOp } from "../providers/local/vision.js";
-import { isImage, resolveVideoArg } from "./media-ref.js";
+import { isImage, resolveMediaRef, resolveVideoArg } from "./media-ref.js";
+import { provenanceCase, resolveIndexScope, stampArchive } from "../archive.js";
 import { badNumber } from "./validate.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import type { Case } from "../case.js";
@@ -36,18 +37,24 @@ function faceQueryImageError(ref: string): string | undefined {
     : `--match image must be a JPEG or PNG: ${ref} (tinycloud face preflight rejects webp/heic/gif/bmp/tiff/avif; webp support in 0.3.7 is see/extract-only)`;
 }
 
-/** Resolve a --match face-IMAGE ref. A path/URL is used as-is; a case record id
- *  resolves to its media ONLY when that media looks like an image — a watch/
- *  listen (or non-search face) record's ref is the analyzed video/audio, not a
- *  face photo, so reject it with a clear local error instead of matching against
- *  the wrong media. */
-function resolveImageRef(c: Case, ref: string): { ref?: string; error?: string } {
+/** Resolve a --match face-IMAGE ref through the SHARED media resolver, so
+ *  record ids, capture ids, AND `archive:<bucket>/<item>` refs all work — not
+ *  just literal paths/URLs. A record-backed ref resolves ONLY when its media
+ *  looks like an image — a watch/listen (or non-search face) record's ref is
+ *  the analyzed video/audio, not a face photo, so reject it with a clear local
+ *  error instead of matching against the wrong media. */
+function resolveImageRef(c: Case, ref: string, home?: string): { ref?: string; archive?: string; error?: string } {
   const rec = c.recordById(ref);
-  if (!rec) return { ref }; // a direct path / URL — trust the user's choice
-  const m = rec.media?.ref;
-  if (!m) return { error: `--match record ${ref} has no media` };
-  if (!isImage(m)) return { error: `--match record ${ref} resolves to ${m}; not an image file` };
-  return { ref: m };
+  if (rec && !rec.media?.ref) return { error: `--match record ${ref} has no media` };
+  const r = resolveMediaRef(c, ref, home);
+  if (r.error) return { error: `--match: ${r.error}` };
+  // gate readiness on the resolved record so a pending/errored capture's partial
+  // image isn't matched — an archive ref carries it as r.record; a CASE record id
+  // has r.recordId but no r.record, so look it up (else case refs bypass the gate)
+  const src = r.record ?? (r.recordId ? c.recordById(r.recordId) : undefined);
+  if (src && !isReady(src)) return { error: `--match record ${src.id} isn't ready (state=${src.state ?? "?"})` };
+  if (r.recordId && !isImage(r.ref)) return { error: `--match record ${ref} resolves to ${r.ref}; not an image file` };
+  return { ref: r.ref, archive: r.archive };
 }
 
 /** Resolve a --index value (id or name, comma-list ok) to tinycloud-backed index
@@ -133,24 +140,28 @@ export const faceVerb: VerbSpec = {
     // --match is a face image: a path/URL is used as-is; a record id resolves only
     // when its media is an image (not an analyzed video/audio).
     let image: string | undefined;
+    let imageArchive: string | undefined;
     if (ctx.opts.match != null) {
       // `!= null` + blank reject so a provided-but-empty `--match=` is a user
       // error, not silently treated as omitted (→ detect instead of match/search).
       const raw = String(ctx.opts.match);
       if (!raw.trim()) return [err("--match requires a face image (path/URL/record-id)")];
-      const r = resolveImageRef(c, raw);
+      const r = resolveImageRef(c, raw, ctx.home);
       if (r.error) return [err(r.error)];
       image = r.ref;
+      imageArchive = r.archive;
     }
     // the video input goes through the SAME media validation as index
     // add/entities (reject a scan record's page URL, a non-AV ref, a face-search
     // query image, a missing local file). requireReady:false — a video file is
     // analyzable regardless of whether a prior sense finished.
     let video: string | undefined;
+    let videoArchive: string | undefined;
     if (ctx.input) {
-      const v = resolveVideoArg(c, ctx.input, "face video", { requireReady: false });
+      const v = resolveVideoArg(c, ctx.input, "face video", { requireReady: false, home: ctx.home });
       if (v.error) return [err(v.error)];
       video = v.ref;
+      videoArchive = v.archive;
     }
     // `!= null` (not truthy) so a provided-but-empty `--index=` is caught as a
     // user error below rather than treated as omitted (→ silent detect/auto-pick).
@@ -158,6 +169,16 @@ export const faceVerb: VerbSpec = {
     if (indexFlag !== undefined && !indexFlag.trim()) {
       return [err("--index requires an index id or name")];
     }
+    // `--index archive:<bucket>/<index>` reads a BUCKET's face index (mirror +
+    // local DB artifacts live in the bucket); auto-pick (no --index) stays
+    // case-local. The result record persists to the ACTIVE case (meta.archive).
+    const scoped = resolveIndexScope(c, indexFlag ?? "", ctx.home);
+    if (scoped.error) return [err(scoped.error)];
+    const scope = scoped.scope;
+    const scopedIndexFlag = indexFlag === undefined ? undefined : scoped.value;
+    // the record traces to a bucket whether the INDEX or the MEDIA came from
+    // one (an archived reference still / archived clip), like watch/listen
+    const refBucket = scoped.bucket ?? imageArchive ?? videoArchive;
     // a provided-but-blank `--start=`/`--end=` is a user error (it would otherwise
     // be treated as omitted and run the full clip), matching the blank-flag hygiene
     // used for --match/--index/--min-similarity.
@@ -196,10 +217,10 @@ export const faceVerb: VerbSpec = {
       // search/list in tinycloud. A local face index may be provided to choose the
       // local matcher backend while still matching inside this one clip.
       if (indexFlag) {
-        const r = resolveFaceIndexes(c, indexFlag);
+        const r = resolveFaceIndexes(scope, scopedIndexFlag!);
         if (r.error) return [err(r.error)];
         if (!r.ids.length) return [err(`--index '${indexFlag}' has no valid index id`)];
-        const entries = r.ids.map((id) => findIndex(c, id)).filter(Boolean);
+        const entries = r.ids.map((id) => findIndex(scope, id)).filter(Boolean);
         const allLocal = entries.length === r.ids.length && entries.every((e) => e!.backend === "local" && e!.type === "deepface-local");
         if (!allLocal) {
           return [err(`--index can't combine with a video for ${useDeepface ? "deepface-local" : "tinycloud"} --match unless it is a deepface-local index: drop the video to search the index, or drop --index to match within the video`)];
@@ -211,7 +232,7 @@ export const faceVerb: VerbSpec = {
     } else if (image && !video) {
       // search the face across a face-analysis index (case-wide).
       if (indexFlag) {
-        const r = resolveFaceIndexes(c, indexFlag);
+        const r = resolveFaceIndexes(scope, scopedIndexFlag!);
         if (r.error) return [err(r.error)];
         // a flag that resolves to nothing (whitespace/comma-only) must not run an
         // unscoped search — surface it as the user error it is.
@@ -237,7 +258,7 @@ export const faceVerb: VerbSpec = {
       op = "search";
     } else if (video && indexFlag) {
       // list the video's stored detections within the index.
-      const r = resolveFaceIndexes(c, indexFlag);
+      const r = resolveFaceIndexes(scope, scopedIndexFlag!);
       if (r.error) return [err(r.error)];
       if (!r.ids.length) return [err(`--index '${indexFlag}' has no valid index id`)];
       indexes = r.ids;
@@ -269,7 +290,13 @@ export const faceVerb: VerbSpec = {
       }
     }
 
-    const localEntries = (indexes ?? []).map((id) => findIndex(c, id)).filter((x): x is NonNullable<ReturnType<typeof findIndex>> => !!x && x.backend === "local" && x.type === "deepface-local");
+    // the media whose originating post the evidence traces to: a SEARCH has no
+    // video — its query IS the --match image, so provenance comes from there
+    // (video/videoArchive are unset). match/detect/list trace the analyzed video.
+    const queryMedia = op === "search" ? image : video;
+    const queryArchive = op === "search" ? imageArchive : videoArchive;
+
+    const localEntries = (indexes ?? []).map((id) => findIndex(scope, id)).filter((x): x is NonNullable<ReturnType<typeof findIndex>> => !!x && x.backend === "local" && x.type === "deepface-local");
     const hasExplicitIndexes = (indexes?.length ?? 0) > 0;
     const shouldUseDeepfaceProvider = useDeepface && !hasExplicitIndexes && (op === "detect" || op === "match");
     if (localEntries.length || shouldUseDeepfaceProvider) {
@@ -291,7 +318,7 @@ export const faceVerb: VerbSpec = {
       }
       const localOp: LocalFaceOp = op === "search" ? "search" : op === "match" ? "match" : "detect";
       const primary = localOp === "search" ? image! : video!;
-      const rec = await runLocalFace(c, primary, {
+      const rec = await runLocalFace(scope, primary, {
         op: localOp,
         indexId: localEntries[0]?.id ?? "deepface-local",
         image,
@@ -306,8 +333,8 @@ export const faceVerb: VerbSpec = {
         thumbnails: false,
         signal: ctx.signal,
       });
-      stampProvenance(rec, provenanceFromCapture(c, video));
-      return [rec];
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, queryArchive, ctx.home), queryMedia));
+      return [stampArchive(rec, refBucket, ctx.case.dir)];
     }
     if (ctx.opts["max-frames"] != null) {
       return [err("--max-frames only applies to local face indexes")];
@@ -333,8 +360,8 @@ export const faceVerb: VerbSpec = {
         signal: ctx.signal,
       });
       rec.meta = { ...rec.meta, case: c.dir };
-      stampProvenance(rec, provenanceFromCapture(c, video));
-      return [rec];
+      stampProvenance(rec, provenanceFromCapture(provenanceCase(c, queryArchive, ctx.home), queryMedia));
+      return [stampArchive(rec, refBucket, ctx.case.dir)];
     }
 
     if (image) {
@@ -369,7 +396,7 @@ export const faceVerb: VerbSpec = {
       signal: ctx.signal,
     });
     rec.meta = { ...rec.meta, case: c.dir };
-    stampProvenance(rec, provenanceFromCapture(c, video));
-    return [rec];
+    stampProvenance(rec, provenanceFromCapture(provenanceCase(c, queryArchive, ctx.home), queryMedia));
+    return [stampArchive(rec, refBucket, ctx.case.dir)];
   },
 };
