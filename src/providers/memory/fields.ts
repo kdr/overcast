@@ -140,7 +140,20 @@ export function indexableFields(rec: OvercastRecord): IndexableField[] {
     seen.add(key);
     return true;
   });
-  return deduped.length ? deduped : fallbackFields(rec);
+  if (!deduped.length) return fallbackFields(rec);
+  // Honest-provenance caveat is always searchable, even when a verb's field
+  // policy omits it (e.g. enhance ela/panorama children, or a sense provider
+  // that attaches a caveat via senses passthrough). Policy-less verbs already
+  // index it through fallbackFields, so only the policy path needs this graft.
+  for (const value of valuesAt(p, "caveat")) {
+    const text = stringify(value);
+    if (!text) continue;
+    const key = `caveat\0${text}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push({ path: "caveat", text });
+  }
+  return deduped;
 }
 
 export function indexableDocument(rec: OvercastRecord): IndexableDocument | undefined {

@@ -44,6 +44,20 @@ test("indexable field policy prefers verb-specific fields, including notes", () 
   assert.match(fields.map((f) => f.text).join("\n"), /white van/);
 });
 
+test("indexable fields always graft the honest-provenance caveat, even when the verb policy omits it", () => {
+  // enhance's field policy lists summary/ops/etc but NOT caveat; an ela/panorama
+  // child carries payload.caveat, and ask/brief must be able to surface it.
+  const child = makeRecord({ verb: "enhance", payload: { summary: "ELA overlay", op: "ela", caveat: "ELA maps are heuristic — a lead, not proof." } });
+  const fields = indexableFields(child);
+  assert.ok(fields.some((f) => f.path === "caveat"), "caveat should be indexed");
+  assert.match(fields.map((f) => f.text).join("\n"), /heuristic — a lead, not proof/);
+  // no duplication when the caveat is already the only content, and policy-less
+  // verbs still fall through to fallbackFields (which indexes every field).
+  const chrono = makeRecord({ verb: "chronolocate", payload: { caveat: "a lead, not proof", other: "kept" } });
+  const chronoPaths = indexableFields(chrono).map((f) => f.path).sort();
+  assert.deepEqual(chronoPaths, ["caveat", "other"]);
+});
+
 test("local memory memo: repeated identical queries return byte-identical passages (cache-hit path)", async () => {
   await withCase((c) => {
     const mem = new LocalMemoryProvider(c);
