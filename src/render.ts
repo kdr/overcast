@@ -255,6 +255,20 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
 const TEXT_PAYLOAD_FIELDS = ["content", "text", "report", "chunk"];
 
 /**
+ * The format a record should default-render in when the user gave no explicit
+ * `--format`/`--json`. A record that IS a rendered report — `brief`, `case
+ * status`, the monitor mini-brief — declares format md|txt and carries its body
+ * in `payload.report` (or a bare string payload); print THAT by default, so the
+ * primary human artifact is what you read, not a truncated envelope. Every
+ * other record keeps the magnitude preview (undefined → caller default).
+ */
+export function nativeReportFormat(rec: OvercastRecord): string | undefined {
+  if (rec.format !== "md" && rec.format !== "txt") return undefined;
+  if (typeof rec.payload === "string") return rec.format;
+  return typeof (rec.payload as JsonMap).report === "string" ? rec.format : undefined;
+}
+
+/**
  * Format-aware single-record render, shared by the CLI and the TUI slash handler
  * so both honor `--format`/`--json` identically (a paged `chunk` shows in full
  * under txt/md, not a truncated preview):

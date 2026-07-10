@@ -815,14 +815,15 @@ test("brief synthesis: TL;DR note, sources-checked rollup, and findings surface 
     const payload = rec.payload as Record<string, unknown>;
     const report = payload.report as string;
     // markdown: newest tldr note wins, verdict line, rollup, and finding row
-    assert.match(report, /## TL;DR/);
+    assert.match(report, /## Verdict/);
     assert.match(report, /SWEEP_NARRATIVE: checked x \+ youtube/);
     // the newest tldr note heads the brief; the older one must not (it may still
     // appear later as an ordinary note in the record trail — it IS evidence)
     assert.ok(!/old narrative/.test(report.split("## Key findings")[0]), "older tldr note must not head the brief");
     assert.match(report, /2 sources checked \(3 hits\), 1 media check — 1 finding recorded/);
-    assert.match(report, /- \*\*x\*\* — 2 hits/);
-    assert.match(report, /- \*\*youtube\*\* — 1 hit/);
+    // swept sources land in the single coverage table (no configured sources here)
+    assert.match(report, /\| x \| — \| 2 \| — \| — \|/);
+    assert.match(report, /\| youtube \| — \| 1 \| — \| — \|/);
     assert.match(report, /## Key findings/);
     assert.match(report, /\[open\] \(confidence: high\) copycat: reskin by @codez/);
     // the finding's overlay (from its cited image-match record) is embedded in md
@@ -838,8 +839,9 @@ test("brief synthesis: TL;DR note, sources-checked rollup, and findings surface 
     assert.match(out, /data-csi-tldr/);
     assert.match(out, /SWEEP_NARRATIVE/);
     assert.match(out, /data-csi-synthesis/);
-    assert.match(out, /Sources checked/);
-    assert.match(out, /Matches &amp; findings/);
+    assert.match(out, /Coverage/);
+    assert.match(out, /data-csi-coverage="true"/);
+    assert.match(out, /Key findings/);
     // opsec default: a CSP blocks every remote load so an auto-opened report can't
     // beacon the analyst's IP to the investigated host (default-deny — no https:)
     assert.match(out, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: file:; media-src data: file:; style-src 'unsafe-inline'; font-src data:">/);
@@ -959,12 +961,13 @@ test("brief timeline: dated records sort chronologically, undated go last in ord
     c.writeRecord(makeRecord({ verb: "watch", payload: { content: "DATED-2020" }, meta: { time: "2020-01-01T00:00:00Z" } }));
     const [rec] = await briefVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile() });
     const report = (rec.payload as Record<string, unknown>).report as string;
-    const order = ["DATED-2020", "DATED-2026", "UNDATED-A", "UNDATED-B"].map((s) => report.indexOf(s));
+    // the short trail reads NEWEST-FIRST (catch-up order): undated records sort
+    // as newest (they can't be proven stale), then dated descending
+    const order = ["UNDATED-B", "UNDATED-A", "DATED-2026", "DATED-2020"].map((s) => report.indexOf(s));
     assert.ok(order.every((i) => i >= 0));
-    // dated ascending, then undated in insertion order
-    assert.ok(order[0] < order[1], "2020 before 2026");
-    assert.ok(order[1] < order[2], "dated before undated");
-    assert.ok(order[2] < order[3], "undated kept in insertion order");
+    assert.ok(order[0] < order[1], "undated reversed with the trail");
+    assert.ok(order[1] < order[2], "undated before dated");
+    assert.ok(order[2] < order[3], "2026 before 2020 (newest first)");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1075,10 +1078,10 @@ test("brief --scope: pulse (threads/coverage/triage) reflects the FULL case, not
     const report = (rec.payload as Record<string, unknown>).report as string;
     // the thread must read LEADS (the out-of-scope suggested finding links it),
     // not COLD, despite the --scope window excluding those records from the body
-    assert.match(report, /\*\*acme\*\* — \[LEADS\]/);
+    assert.match(report, /### acme — \[LEADS\]/);
     assert.match(report, /1 line active \(1 with leads\)/);
     // the old suggested lead must still appear in the case-wide triage backlog
-    assert.match(report, /## Triage — 1 suggestion awaiting review/);
+    assert.match(report, /## Triage — 1 awaiting review/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1162,8 +1165,9 @@ test("brief coverage shows sub-hour freshness via shared fmtAge (not '0h')", asy
     c.writeRecord(makeRecord({ verb: "scan", payload: { source: "web", source_id: src.id, url: "http://x/1" }, meta: { time: tenMinAgo } }));
     const [rec] = await briefVerb.run(ctx(c, undefined, {}));
     const report = (rec.payload as Record<string, unknown>).report as string;
-    assert.match(report, /last scan \d+m/);
-    assert.doesNotMatch(report, /last scan 0h/);
+    // the coverage table's last-scan cell reads "10m", never "0h"
+    assert.match(report, /\| \d+m \| 1 \|/);
+    assert.doesNotMatch(report, /\| 0h \|/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1178,7 +1182,7 @@ test("brief short mode leads with the story: threads, and a compact record trail
     const [rec] = await briefVerb.run(ctx(c, undefined, {}));
     const report = (rec.payload as Record<string, unknown>).report as string;
     assert.match(report, /## Lines of investigation/);
-    assert.match(report, /\*\*acme\*\* — \[COLLECTING\]/);
+    assert.match(report, /### acme — \[COLLECTING\]/);
     assert.match(report, /## Coverage/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

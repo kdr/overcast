@@ -822,7 +822,7 @@ Arguments:
 
 Options:
   --state <string>       list: open | suggested | accepted | dismissed | all | triage (open+suggested), or a comma-list
-  --target <string>      create: target/scope this finding supports
+  --target <string>      create/accept/dismiss: the target line this finding supports (id or value; stamps target_id so it renders in that line of investigation)
   --ref <string>         create: source record id, capture id, media path, or URL
   --at <string>          create: evidence timestamp seconds, hh:mm:ss, or start-end
   --confidence <string>  create: confidence marker or score

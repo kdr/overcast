@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
-import { buildThreads, threadsHeadline } from "../../src/signals/threads.ts";
+import { ACTIVITY_WINDOW_DAYS, buildThreads, threadsHeadline } from "../../src/signals/threads.ts";
 import { addTarget, listTargets, setTargetStatus, primaryTarget, isTargetClosed } from "../../src/state/target.ts";
 import { targetVerb } from "../../src/verbs/osint.ts";
 import type { TargetEntry } from "../../src/state/target.ts";
@@ -69,15 +69,20 @@ test("buildThreads: finding counts, funnel, and momentum", () => {
   assert.equal(th.stage, "leads");
   assert.equal(th.recent.day, 2); // watch + suggested finding within 24h
   assert.equal(th.recent.week, 4);
-  assert.equal(th.activityBins.length, 8);
+  // fixed daily window: one bin per day, all four records inside it
+  assert.equal(th.activityBins.length, ACTIVITY_WINDOW_DAYS);
   assert.ok(th.activityBins.reduce((a, b) => a + b, 0) === 4);
 });
 
-test("buildThreads: notes tagged thread:<id> link even without value match", () => {
+test("buildThreads: notes tagged thread:<id> feed the narrative, NOT evidence/activity", () => {
   const t = target({ id: "tgt_z", value: "acme" });
   const note = makeRecord({ verb: "note", format: "json", payload: { text: "this line is cold", tags: ["thread:tgt_z"] }, meta: { time: iso(100) } });
   const th = buildThreads([note], [t], NOW)[0];
-  assert.equal(th.evidence.note, 1);
+  // the analyst's own commentary must not make a line look active
+  assert.equal(th.narrative, "this line is cold");
+  assert.equal(th.evidence.note, undefined);
+  assert.equal(th.stage, "cold");
+  assert.equal(th.recent.day, 0);
 });
 
 test("buildThreads: newest thread:<id> note surfaces as the line narrative", () => {

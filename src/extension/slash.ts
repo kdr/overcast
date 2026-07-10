@@ -12,7 +12,7 @@ import { openCase } from "../case.js";
 import { loadProfile, resolveHome } from "../profile.js";
 import type { OvercastRecord } from "../record.js";
 import { persistRecords } from "../registry/persist.js";
-import { renderForFormat, renderRecord } from "../render.js";
+import { nativeReportFormat, renderForFormat, renderRecord } from "../render.js";
 import type { VerbContext } from "../registry/types.js";
 import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
 
@@ -25,7 +25,8 @@ function summarize(rec: OvercastRecord, format?: string): string {
   if (!format && rec.meta?.transient === true) {
     return `▶ ${renderRecord(rec, { mode: "full", force: true })}`;
   }
-  return `▶ ${renderForFormat(rec, format)}`;
+  // report-shaped records (/case status) show their md body, like the CLI
+  return `▶ ${renderForFormat(rec, format ?? nativeReportFormat(rec))}`;
 }
 
 export function emitResult(pi: ExtensionAPI, text: string): void {

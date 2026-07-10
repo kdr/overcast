@@ -3,12 +3,19 @@
  * findings, and notes linked to it. Pure derivation over the record store (no
  * I/O), so brief + status render the same struct.
  *
- * Linking (priority order, all derived — no new persisted links):
- *  1. findings by payload.target_id === target.id, or payload.target === value;
- *  2. name/prompt targets: evidence records whose text contains the value
- *     (targetMatchesEvidence — the same matcher the text-target trigger uses);
- *  3. image targets: face/image/similar/cluster records referencing the value;
- *  4. notes tagged `thread:<tgt_id>` (the /debrief convention).
+ * Linking (priority order):
+ *  1. findings by payload.target_id === target.id, or payload.target === value —
+ *     including a target_id stamped LATER by a review record (`finding accept
+ *     --target …`), which overrides the root's own link;
+ *  2. findings whose text names the target value (targetMatchesEvidence — so a
+ *     manual finding that says "white van …" lands on the white-van line without
+ *     an explicit stamp);
+ *  3. name/prompt targets: evidence records whose text contains the value
+ *     (the same matcher the text-target trigger uses);
+ *  4. image targets: face/image/similar/cluster records referencing the value;
+ *  5. notes tagged `thread:<tgt_id>` (the /debrief convention) — these feed the
+ *     `narrative` field ONLY: the analyst's own commentary must not count as
+ *     evidence/activity, or writing "this line is stale" would make it look active.
  *
  * Stage — the honest goal-progress ordinal (no fake %):
  *   answered / dead-end  ← analyst declared via `target close`
@@ -58,10 +65,14 @@ export interface TargetThread {
   lastActivity?: string;
   /** count of linked evidence records in the last 24h / 7d — the momentum read */
   recent: { day: number; week: number };
-  /** ≤8 activity bins (oldest→newest) of linked-record counts, for a sparkline */
+  /** fixed-window daily bins (oldest→newest, last N days) of linked-record
+   *  counts, for a sparkline — same window for every thread so cards compare */
   activityBins: number[];
   /** ids of the most recent linked records (evidence + findings), newest first */
   recentIds: string[];
+  /** ids of ALL linked root findings, newest first — the brief resolves + ranks
+   *  these per thread (and derives the "unattached findings" complement) */
+  findingIds: string[];
   /** a short "why" for a dead/answered line, else undefined */
   why?: string;
   /** newest `thread:<id>`-tagged note text — the analyst's line narrative from
@@ -103,17 +114,37 @@ function noteTaggedForThread(rec: OvercastRecord, targetId: string): boolean {
 
 /** Whether a (non-finding) evidence record links to a target. */
 function evidenceLinksTarget(rec: OvercastRecord, target: TargetEntry): boolean {
-  if (noteTaggedForThread(rec, target.id)) return true;
   if (target.kind === "image") {
     return MATCH_VERBS.has(rec.verb) && referencesImageTarget(rec, target.value);
   }
   return targetMatchesEvidence(target.value, payloadText(rec));
 }
 
-function findingLinksTarget(finding: OvercastRecord, target: TargetEntry): boolean {
+/** Latest target_id per root finding, from ANY finding row carrying one — the
+ *  root's own stamp, or a review record's `finding accept --target …` stamp
+ *  (keyed by finding_id). Append order = chronological, so last write wins,
+ *  mirroring findingStatusMap. */
+export function findingTargetMap(records: OvercastRecord[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const r of records) {
+    if (r.verb !== "finding") continue;
+    const p = payloadOf(r);
+    if (typeof p.target_id !== "string" || !p.target_id) continue;
+    const rootId = typeof p.finding_id === "string" ? p.finding_id : r.id;
+    map.set(rootId, p.target_id);
+  }
+  return map;
+}
+
+function findingLinksTarget(finding: OvercastRecord, target: TargetEntry, stampedTargetId: string | undefined): boolean {
+  // an explicit stamp (root or review row) is authoritative — for AND against:
+  // a finding stamped onto line A must not also text-match onto line B.
+  if (stampedTargetId) return stampedTargetId === target.id;
   const p = payloadOf(finding);
-  if (typeof p.target_id === "string" && p.target_id === target.id) return true;
-  return typeof p.target === "string" && p.target.length > 0 && p.target === target.value;
+  if (typeof p.target === "string" && p.target.length > 0 && p.target === target.value) return true;
+  // unstamped: fall back to the same text matcher evidence uses, so a manual
+  // finding that names the target value lands on its line.
+  return typeof p.text === "string" && targetMatchesEvidence(target.value, p.text);
 }
 
 function stageFor(status: "active" | "answered" | "dead-end", findings: ThreadFindingCounts, evidenceCount: number): ThreadStage {
@@ -128,15 +159,19 @@ function stageFor(status: "active" | "answered" | "dead-end", findings: ThreadFi
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 
-/** Bucket linked-record timestamps into `bins` bins spanning first→now. */
-function activityBins(times: number[], now: number, bins = 8): number[] {
+/** Days spanned by the activity sparkline — shared so renderers can label it. */
+export const ACTIVITY_WINDOW_DAYS = 7;
+
+/** Bucket linked-record timestamps into fixed DAILY bins over the last
+ *  `bins` days (oldest→newest). A fixed window makes two threads' sparklines
+ *  directly comparable — the old first-activity→now scaling didn't. Activity
+ *  older than the window simply doesn't show (a dormant line reads flat). */
+function activityBins(times: number[], now: number, bins = ACTIVITY_WINDOW_DAYS): number[] {
   const out = new Array(bins).fill(0);
-  const dated = times.filter((t) => t > 0);
-  if (!dated.length) return out;
-  const first = Math.min(...dated);
-  const span = Math.max(now - first, 1);
-  for (const t of dated) {
-    const idx = Math.min(bins - 1, Math.floor(((t - first) / span) * bins));
+  const start = now - bins * DAY_MS;
+  for (const t of times) {
+    if (t <= start || t > now) continue;
+    const idx = Math.min(bins - 1, Math.floor((t - start) / DAY_MS));
     out[idx] += 1;
   }
   return out;
@@ -145,14 +180,24 @@ function activityBins(times: number[], now: number, bins = 8): number[] {
 /** Build the per-target thread views. `now` is injectable for deterministic tests. */
 export function buildThreads(records: OvercastRecord[], targets: TargetEntry[], now = Date.now()): TargetThread[] {
   const statusMap = findingStatusMap(records);
+  const targetMap = findingTargetMap(records);
+  // a stamp is only authoritative when it resolves to a LIVE target — a stale
+  // stamp (target since removed) falls back to value/text matching.
+  const liveTargetIds = new Set(targets.map((t) => t.id));
   const findings = records.filter(isRootFindingRecord);
   // non-finding evidence candidates (memory-eligible, excludes operational/meta)
   const evidence = records.filter((r) => r.verb !== "finding" && isMemoryRecord(r));
 
   return targets.map((target) => {
     const status = targetStatus(target);
-    const linkedEvidence = evidence.filter((r) => evidenceLinksTarget(r, target));
-    const linkedFindings = findings.filter((f) => findingLinksTarget(f, target));
+    // thread-tagged notes are the analyst's narrative ABOUT the line — surfaced
+    // as `narrative`, but never counted as evidence/activity (see header).
+    const narrativeNotes = evidence.filter((r) => noteTaggedForThread(r, target.id));
+    const linkedEvidence = evidence.filter((r) => !noteTaggedForThread(r, target.id) && evidenceLinksTarget(r, target));
+    const linkedFindings = findings.filter((f) => {
+      const stamp = targetMap.get(f.id);
+      return findingLinksTarget(f, target, stamp && liveTargetIds.has(stamp) ? stamp : undefined);
+    });
 
     const counts: ThreadFindingCounts = { suggested: 0, open: 0, accepted: 0, dismissed: 0 };
     for (const f of linkedFindings) {
@@ -188,14 +233,15 @@ export function buildThreads(records: OvercastRecord[], targets: TargetEntry[], 
       : target.status_note ?? (status === "answered" ? "closed as answered" : "closed as dead end");
 
     // newest `thread:<id>` note = the analyst's line narrative (from /debrief)
-    const narrative = [...linkedEvidence]
-      .filter((r) => noteTaggedForThread(r, target.id))
+    const narrative = [...narrativeNotes]
       .sort((a, b) => timeOf(b) - timeOf(a))
       .map((r) => {
         const t = payloadOf(r).text;
         return typeof t === "string" && t.trim() ? t.trim() : undefined;
       })
       .find(Boolean);
+
+    const findingIds = [...linkedFindings].sort((a, b) => timeOf(b) - timeOf(a)).map((f) => f.id);
 
     return {
       id: target.id,
@@ -212,6 +258,7 @@ export function buildThreads(records: OvercastRecord[], targets: TargetEntry[], 
       recent: { day: recentDay, week: recentWeek },
       activityBins: activityBins(times, now),
       recentIds,
+      findingIds,
       why,
       narrative,
     };

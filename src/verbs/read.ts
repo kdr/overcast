@@ -4,11 +4,10 @@
 
 import { existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { makeRecord, memoryRecords, recordTimeMs, type OvercastRecord } from "../record.js";
+import { findingStatusMap, makeRecord, memoryRecords, PRIMARY_TEXT_FIELDS, recordStub, recordTimeMs, type OvercastRecord } from "../record.js";
 import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiTimelineReport, type TimelineRecord, type TimelineSynthesis } from "../report/html.js";
-import { sparkline, fmtAge } from "../report/components.js";
+import { briefDelta, coverageTableRows, rankFindings, renderCoverageMd, renderThreadsMd, renderTriageMd, renderVerdictMd, sweptSources, threadCard, triageRows, type ThreadRenderContext } from "../report/mission.js";
 import { casePulse, type CasePulse } from "../signals/pulse.js";
-import { THREAD_STAGE_LABEL, type TargetThread } from "../signals/threads.js";
 import { groupTimeline, groupSummary } from "../signals/rollup.js";
 import { listTargets } from "../state/target.js";
 import { listSources } from "../state/source.js";
@@ -295,34 +294,13 @@ export interface BriefSynthesis {
   findings: Array<{ id: string; status: string; text: string; confidence?: unknown; overlays?: string[] }>;
 }
 
-/** Effective (reviewed) status per root finding, computed from the FULL record
- *  set: the root's own status, overridden by the latest accept/dismiss review
- *  record (finding_id → status). Built before memoryRecords strips the review
- *  rows, so a brief shows `[accepted]`, not the stale `[open]`. Append order =
- *  chronological, so last write wins (mirrors latestFindingStatus). */
-function findingStatusMap(records: OvercastRecord[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const r of records) {
-    if (r.verb !== "finding" || typeof r.payload !== "object" || r.payload == null) continue;
-    const pay = r.payload as Record<string, unknown>;
-    if (typeof pay.status !== "string") continue;
-    const rootId = typeof pay.finding_id === "string" ? pay.finding_id : r.id;
-    map.set(rootId, pay.status);
-  }
-  return map;
-}
-
 function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, string>): BriefSynthesis {
   const p = (r: OvercastRecord): Record<string, unknown> =>
     typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {};
-  const scanHits = records.filter(
-    (r) => r.verb === "scan" && r.state !== "error" && typeof p(r).url === "string" && (p(r).url as string) !== "",
-  );
-  const bySource = new Map<string, number>();
-  for (const r of scanHits) {
-    const src = String(p(r).source ?? "unknown");
-    bySource.set(src, (bySource.get(src) ?? 0) + 1);
-  }
+  // swept-source rollup via the shared helper so the verdict's hit counts always
+  // reconcile with the coverage table's.
+  const sources = sweptSources(records);
+  const totalHits = sources.reduce((n, s) => n + s.hits, 0);
   const captures = records.filter((r) => r.verb === "capture" && r.state !== "error").length;
   // media checks = actual suspect analysis (image match / face / see), NOT the
   // `image add` fingerprint steps that build the reference index — counting those
@@ -362,125 +340,26 @@ function briefSynthesis(records: OvercastRecord[], statusByFinding: Map<string, 
     if (tags.includes("tldr") && typeof pay.text === "string" && pay.text.trim()) tldr = pay.text.trim();
   }
   const s = (n: number) => (n === 1 ? "" : "s");
-  const parts = [`${bySource.size} source${s(bySource.size)} checked (${scanHits.length} hit${s(scanHits.length)})`];
+  const parts = [`${sources.length} source${s(sources.length)} checked (${totalHits} hit${s(totalHits)})`];
   if (captures) parts.push(`${captures} capture${s(captures)}`);
   if (mediaChecks) parts.push(`${mediaChecks} media check${s(mediaChecks)}`);
   const verdict = findings.length
     ? `${parts.join(", ")} — ${findings.length} finding${s(findings.length)} recorded`
     : `${parts.join(", ")} — no findings recorded`;
-  return { tldr, verdict, sources: [...bySource].map(([source, hits]) => ({ source, hits })), captures, media_checks: mediaChecks, findings };
+  return { tldr, verdict, sources, captures, media_checks: mediaChecks, findings };
 }
 
-const CONFIDENCE_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+// thread / triage / coverage / verdict sections render through the SHARED
+// mission-board renderer (src/report/mission.ts) — one codepath for brief AND
+// case status, so the two reports can't drift.
 
-/** Key findings first: accepted before open, then by confidence, then recency
- *  (findings arrive chronological, so a stable sort by rank keeps newest-wins
- *  within a tier via the reversed index). Suggested/dismissed are already
- *  excluded upstream by memoryRecords. */
-function rankFindings(findings: BriefSynthesis["findings"]): BriefSynthesis["findings"] {
-  return findings
-    .map((f, i) => ({ f, i }))
-    .sort((a, b) => {
-      const statusRank = (s: string) => (s === "accepted" ? 2 : s === "open" ? 1 : 0);
-      const byStatus = statusRank(b.f.status) - statusRank(a.f.status);
-      if (byStatus) return byStatus;
-      const byConf = (CONFIDENCE_RANK[String(b.f.confidence ?? "").toLowerCase()] ?? 0) - (CONFIDENCE_RANK[String(a.f.confidence ?? "").toLowerCase()] ?? 0);
-      if (byConf) return byConf;
-      return b.i - a.i; // newer first
-    })
-    .map((x) => x.f);
-}
-
-/** One markdown line summarizing a thread's evidence funnel. */
-function threadFunnelLine(th: TargetThread): string {
-  const f = th.funnel;
-  const parts = [`scan ${f.scan}`, `cap ${f.captures}`, `sense ${f.senses}`, `match ${f.matches}`];
-  const findings: string[] = [];
-  if (th.findings.accepted) findings.push(`${th.findings.accepted} accepted`);
-  if (th.findings.open) findings.push(`${th.findings.open} open`);
-  if (th.findings.suggested) findings.push(`${th.findings.suggested} suggested`);
-  const fnd = findings.length ? ` · findings: ${findings.join(", ")}` : "";
-  return `${parts.join(" → ")}${fnd}`;
-}
-
-/** The "Lines of investigation" section — one block per target thread. */
-function renderThreadSection(threads: TargetThread[]): string[] {
-  const lines: string[] = ["## Lines of investigation", ""];
-  if (!threads.length) {
-    lines.push("- none — add a target with `overcast target add <value> --question \"…\"`", "");
-    return lines;
-  }
-  for (const th of threads) {
-    const spark = sparkline(th.activityBins);
-    const head = `- **${th.value}** — [${THREAD_STAGE_LABEL[th.stage]}]${spark ? ` \`${spark}\`` : ""}`;
-    lines.push(head);
-    if (th.question) lines.push(`  - question: ${th.question}`);
-    lines.push(`  - ${threadFunnelLine(th)}`);
-    // the analyst's line narrative (a `thread:<id>` note from /debrief)
-    if (th.narrative) lines.push(`  - ${th.narrative}`);
-    if (th.status !== "active" && th.why) {
-      lines.push(`  - closed: ${th.why}`);
-    } else if (th.stage === "cold") {
-      lines.push("  - NEXT: no evidence yet — scan/capture toward this line");
-    } else if (th.findings.suggested) {
-      lines.push(`  - NEXT: triage ${th.findings.suggested} suggested finding${th.findings.suggested === 1 ? "" : "s"} (\`overcast finding list --state suggested\`)`);
-    }
-  }
-  lines.push("");
-  return lines;
-}
-
-/** The triage queue — suggested leads awaiting accept/dismiss. Rendered from
- *  raw records (suggested findings are excluded from synthesis evidence). */
-function renderTriageSection(records: OvercastRecord[], statusByFinding: Map<string, string>): string[] {
-  const suggested = suggestedFindingRows(records, statusByFinding);
-  if (!suggested.length) return [];
-  const lines = [`## Triage — ${suggested.length} suggestion${suggested.length === 1 ? "" : "s"} awaiting review`, ""];
-  for (const r of suggested.slice(0, 5)) {
-    const conf = r.confidence != null ? ` [${r.confidence}]` : "";
-    lines.push(`- \`${r.id}\`${conf} ${r.text}`);
-    lines.push(`  - accept: \`overcast finding accept ${r.id}\` · dismiss: \`overcast finding dismiss ${r.id}\``);
-  }
-  if (suggested.length > 5) lines.push(`- …and ${suggested.length - 5} more (\`overcast finding list --state suggested\`)`);
-  lines.push("");
-  return lines;
-}
-
-function isRootFinding(r: OvercastRecord): boolean {
-  const pay = typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {};
-  return typeof pay.finding_id !== "string" && typeof pay.status === "string" && typeof pay.text === "string";
-}
-
-/** The coverage section — configured-source freshness funnel + what was actually
- *  swept (scan-hit rollup) + gaps. Both views matter: configured tells you what
- *  you meant to watch, swept tells you what you actually checked. */
-function renderCoverageSection(pulse: CasePulse, swept: BriefSynthesis["sources"]): string[] {
-  const lines: string[] = ["## Coverage", ""];
-  if (pulse.coverage.length) {
-    for (const c of pulse.coverage) {
-      const age = c.lastScanAgeSeconds != null ? ` · last scan ${fmtAge(c.lastScanAgeSeconds)}` : c.gap ? " · never scanned" : "";
-      lines.push(`- **${c.spec}**${c.enabled ? "" : " (disabled)"} — ${c.hits} hit${c.hits === 1 ? "" : "s"} → ${c.captured} captured → ${c.sensed} sensed${age}`);
-    }
-    lines.push("");
-  }
-  lines.push("**Sources checked:**");
-  if (swept.length) {
-    for (const src of swept) lines.push(`- **${src.source}** — ${src.hits} hit${src.hits === 1 ? "" : "s"}`);
-  } else {
-    lines.push("- none — no scan hits in scope");
-  }
-  if (pulse.gaps.length) {
-    lines.push("", "**Gaps:**");
-    for (const g of pulse.gaps.slice(0, 5)) lines.push(`- ${g}`);
-  }
-  lines.push("");
-  return lines;
-}
-
-/** Build a markdown brief from the case records. Short (default) leads with the
- *  story — verdict, key findings, lines of investigation, triage, coverage — and
- *  a compact appendix; `full` appends the verbatim record dump (audit artifact). */
-function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: CasePulse; full: boolean; caseRecords?: OvercastRecord[] }): BriefData {
+/** Build a markdown brief from the case records. Short (default) tells the
+ *  story — verdict, per-line-of-investigation threads (question → answer →
+ *  findings → latest evidence → next), triage with deciding context, ONE
+ *  coverage table — then a newest-first record trail; `full` swaps the trail
+ *  for the verbatim chronological record dump (audit artifact). */
+function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: CasePulse; full: boolean; caseRecords?: OvercastRecord[]; now?: number }): BriefData {
+  const now = opts.now ?? Date.now();
   // case-wide record set (unscoped): a --scope window must not hide pending
   // triage leads NOR drop out-of-window accept/dismiss review rows (which would
   // make an accepted finding read stale `[open]`). Falls back to `records` when
@@ -489,7 +368,6 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
   // reviewed finding statuses come from the FULL case (review rows can land
   // outside the scope window), captured BEFORE memoryRecords drops them.
   const statusByFinding = findingStatusMap(caseRecords);
-  const triageRecords = caseRecords;
   // Exclude read/meta and operational outputs (ask/brief/case/setup/doctor/etc.)
   // so briefs and memory search stay evidence-focused instead of citing setup
   // probes, doctor checks, or prior read envelopes as findings.
@@ -508,35 +386,48 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
     .map((x) => x.r);
 
   const synthesis = briefSynthesis(sorted, statusByFinding);
+  const overlaysByFinding = new Map(synthesis.findings.filter((f) => f.overlays?.length).map((f) => [f.id, f.overlays!]));
+  const threadCtx: ThreadRenderContext = { byId: new Map(caseRecords.map((r) => [r.id, r])), statusByFinding, overlaysByFinding, now };
+  const delta = briefDelta(caseRecords, now);
+
   const lines: string[] = [];
   lines.push(`# Brief — ${caseName}`, "");
-  lines.push(`**Records:** ${records.length}`, "");
-  lines.push("## TL;DR", "");
-  if (synthesis.tldr) lines.push(synthesis.tldr, "");
-  lines.push(`_${synthesis.verdict}_`, "");
-  lines.push(`**Status:** ${opts.pulse.headline}`, "");
+  lines.push(`_as of ${new Date(now).toISOString().replace("T", " ").replace(/\..*/, "Z")} · ${records.length} evidence record${records.length === 1 ? "" : "s"}_`, "");
+  lines.push(...renderVerdictMd({ tldr: synthesis.tldr, verdict: synthesis.verdict, headline: opts.pulse.headline, delta }));
 
-  // Key findings — ranked, capped, with visual proof. (Suggested leads live in
-  // the Triage section below; these are open + accepted evidence.)
-  lines.push("## Key findings", "");
-  if (synthesis.findings.length) {
-    for (const f of rankFindings(synthesis.findings).slice(0, 8)) {
-      const conf = f.confidence != null ? ` (confidence: ${f.confidence})` : "";
-      lines.push(`- \`${f.id}\` [${f.status}]${conf} ${f.text}`);
-      for (const ref of f.overlays ?? []) lines.push(`  ![match overlay](${ref})`);
+  lines.push(...renderThreadsMd(opts.pulse.threads, threadCtx));
+
+  // Findings not attached to any line of investigation (all of them, when no
+  // lines exist) — linked findings already render inside their thread above.
+  const linkedIds = new Set(opts.pulse.threads.flatMap((t) => t.findingIds));
+  const ranked = rankFindings(synthesis.findings);
+  const unattached = ranked.filter((f) => !linkedIds.has(f.id));
+  const heading = opts.pulse.threads.length ? "## Other findings" : "## Key findings";
+  if (unattached.length || !opts.pulse.threads.length) {
+    lines.push(heading, "");
+    if (opts.pulse.threads.length) {
+      lines.push("_not linked to a line of investigation — attribute with `overcast finding accept <id> --target <target>`_", "");
     }
-    if (synthesis.findings.length > 8) lines.push(`- …and ${synthesis.findings.length - 8} more`);
-  } else {
-    lines.push("- none recorded");
+    if (unattached.length) {
+      for (const f of unattached.slice(0, 8)) {
+        const conf = f.confidence != null ? ` (confidence: ${f.confidence})` : "";
+        lines.push(`- \`${f.id}\` [${f.status}]${conf} ${f.text}`);
+        for (const ref of f.overlays ?? []) lines.push(`  ![match overlay](${ref})`);
+      }
+      if (unattached.length > 8) lines.push(`- …and ${unattached.length - 8} more`);
+    } else {
+      lines.push("- none recorded");
+    }
+    lines.push("");
   }
-  lines.push("");
 
-  lines.push(...renderThreadSection(opts.pulse.threads));
-  lines.push(...renderTriageSection(triageRecords, statusByFinding));
-  lines.push(...renderCoverageSection(opts.pulse, synthesis.sources));
+  const triage = triageRows(caseRecords, statusByFinding);
+  lines.push(...renderTriageMd(triage, triage.length));
+  lines.push(...renderCoverageMd(opts.pulse.coverage, synthesis.sources, opts.pulse.gaps));
 
-  // Appendix: the record trail. Short = a compact index with page-it pointers;
-  // full = each record's primary field embedded verbatim (the audit dump).
+  // Appendix: the record trail. Short = a compact NEWEST-FIRST index with
+  // page-it pointers (catching up reads top-down); full = each record's primary
+  // field embedded verbatim, chronological (the audit dump).
   if (opts.full) {
     lines.push("## Timeline / findings", "");
     for (const r of sorted) {
@@ -556,26 +447,25 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
       lines.push(fence, body, fence, "");
     }
   } else {
-    lines.push("## Record trail", "");
-    lines.push(`_${sorted.length} evidence record${sorted.length === 1 ? "" : "s"} — read any in full with_ \`overcast case memory get <id>\` _· \`brief --full\` for the verbatim timeline_`, "");
+    lines.push(`## Record trail — ${sorted.length} evidence record${sorted.length === 1 ? "" : "s"}`, "");
+    lines.push("_newest first — read any in full with_ `overcast case memory get <id>` _· `brief --full` for the verbatim timeline_", "");
     // When a case fans out (many records per capture/sweep), group by media chain
     // so the trail reads as "one artifact, N looks" instead of dozens of rows.
     const byId = new Map(sorted.map((r) => [r.id, r]));
     const groups = groupTimeline(sorted);
     if (groups.length >= 12 && groups.length < sorted.length) {
-      for (const g of groups) {
+      for (const g of [...groups].reverse()) {
         const when = g.time ? g.time.replace("T", " ").replace(/\..*/, "") : "—";
         lines.push(`- **${g.title}** · ${when} — ${groupSummary(g)}`);
         // surface the group's most informative record inline as a one-liner
         const lead = g.recordIds.map((id) => byId.get(id)).find((r) => r && !r.error && r.verb !== "capture");
-        if (lead) lines.push(`  - \`${lead.id}\` ${lead.verb}: ${briefStub(lead)}`);
+        if (lead) lines.push(`  - \`${lead.id}\` ${lead.verb}: ${recordStub(lead)}`);
       }
     } else {
-      for (const r of sorted) {
+      for (const r of [...sorted].reverse()) {
         const when = r.meta?.time ? String(r.meta.time).replace("T", " ").replace(/\..*/, "") : "—";
         const at = r.media?.at != null ? ` @${Array.isArray(r.media.at) ? r.media.at.join("-") : r.media.at}s` : "";
-        const stub = r.error ? `error: ${r.error}` : briefStub(r);
-        lines.push(`- \`${r.id}\` **${r.verb}**${at} · ${when} — ${stub}`);
+        lines.push(`- \`${r.id}\` **${r.verb}**${at} · ${when} — ${recordStub(r)}`);
       }
     }
     lines.push("");
@@ -583,49 +473,31 @@ function buildBrief(records: OvercastRecord[], caseName: string, opts: { pulse: 
   return { md: lines.join("\n"), counts, total: records.length, records: sorted, synthesis };
 }
 
-/** A one-line stub of a record's primary field for the compact appendix. */
-function briefStub(rec: OvercastRecord): string {
-  const body = briefBody(rec).replace(/\s+/g, " ").trim();
-  return body.length > 160 ? body.slice(0, 157) + "…" : body || "(empty)";
-}
-
-/** Compact suggested-lead rows (id/text/confidence), newest first — shared by
- *  the markdown triage section and the CSI triage panel. */
-function suggestedFindingRows(records: OvercastRecord[], statusByFinding: Map<string, string>): Array<{ id: string; text: string; confidence?: unknown }> {
-  const p = (r: OvercastRecord): Record<string, unknown> => (typeof r.payload === "object" && r.payload != null ? (r.payload as Record<string, unknown>) : {});
-  return records
-    .filter((r) => r.verb === "finding" && r.state !== "error" && isRootFinding(r) && (statusByFinding.get(r.id) ?? "open") === "suggested")
-    .sort((a, b) => Date.parse(String(b.meta?.time ?? "")) - Date.parse(String(a.meta?.time ?? "")))
-    .map((r) => ({ id: r.id, text: String(p(r).text ?? ""), confidence: p(r).confidence }));
-}
-
-/** Fold the pulse's headline + threads + triage into the CSI synthesis header
- *  so the exported HTML tells the same story as the markdown. */
-function enrichSynthesis(syn: BriefSynthesis, pulse: CasePulse, records: OvercastRecord[]): TimelineSynthesis {
-  const triage = suggestedFindingRows(records, findingStatusMap(records));
+/** Fold the pulse's headline + thread cards + triage + coverage into the CSI
+ *  synthesis header so the exported HTML tells the same story as the markdown. */
+function enrichSynthesis(syn: BriefSynthesis, pulse: CasePulse, records: OvercastRecord[], now = Date.now()): TimelineSynthesis {
+  const statusByFinding = findingStatusMap(records);
+  const overlaysByFinding = new Map(syn.findings.filter((f) => f.overlays?.length).map((f) => [f.id, f.overlays!]));
+  const ctx: ThreadRenderContext = { byId: new Map(records.map((r) => [r.id, r])), statusByFinding, overlaysByFinding, now };
+  const triage = triageRows(records, statusByFinding);
+  const linkedIds = new Set(pulse.threads.flatMap((t) => t.findingIds));
   return {
     ...syn,
-    // rank + cap Key findings identically to the markdown brief (accepted first,
-    // then confidence, then recency, max 8) so --export and the terminal agree.
-    findings: rankFindings(syn.findings).slice(0, 8),
+    // unattached findings only (linked ones render inside their thread card),
+    // ranked + capped like the markdown so --export and the terminal agree.
+    findings: rankFindings(syn.findings).filter((f) => !linkedIds.has(f.id)).slice(0, 8),
     headline: pulse.headline,
-    threads: pulse.threads.map((th) => ({
-      value: th.value,
-      stage: THREAD_STAGE_LABEL[th.stage],
-      spark: sparkline(th.activityBins) || undefined,
-      funnel: threadFunnelLine(th),
-      question: th.question,
-      // the analyst's line narrative (thread note); the closed reason for a
-      // closed line with no note
-      note: th.narrative ?? (th.status !== "active" ? th.why : undefined),
-    })),
+    delta: briefDelta(records, now),
+    threads: pulse.threads.map((th) => threadCard(th, ctx)),
     triage: triage.length ? triage : undefined,
+    coverage: coverageTableRows(pulse.coverage, syn.sources),
   };
 }
 
 // Brief is an export artifact: embed each record's primary field IN FULL (not a
 // 160-char stub — the bug that made `brief --export` a useless record list).
-const BRIEF_PRIMARY_FIELDS = ["content", "transcript", "text", "caption", "ocr", "title", "snippet"];
+// PRIMARY_TEXT_FIELDS is the shared precedence list (record.ts) — `summary`
+// first, so match records embed their result line, not a key dump.
 
 /** A code fence longer than any backtick run in `body`, so the body can't close
  *  it prematurely (≥3 backticks). */
@@ -638,7 +510,7 @@ function fenceFor(body: string): string {
 function briefBody(rec: OvercastRecord): string {
   if (typeof rec.payload === "string") return rec.payload.trim() || "(empty)";
   const p = rec.payload as Record<string, unknown>;
-  for (const k of BRIEF_PRIMARY_FIELDS) {
+  for (const k of PRIMARY_TEXT_FIELDS) {
     const v = p[k];
     if (typeof v === "string" && v.trim()) return v;
     // a non-string primary value (number/boolean) must not be lost
