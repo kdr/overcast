@@ -258,7 +258,9 @@ Slash commands (TUI): `/target /source /index /case /prebrief /view /wall /setup
 /provider /finding` (extension commands), `/chair` (man in the chair: token-authed
 localhost/tailnet bridge + phone web console that remote-drives the live session —
 steer/follow-up/abort/case glance, typed or mic-dictated via the browser's Web
-Speech API (secure-context only — localhost or HTTPS, e.g. `tailscale serve`);
+Speech API (secure-context only — `/chair on --serve` fronts the QR with
+`tailscale serve` HTTPS so phone voice works; also auto-detects an existing
+serve, or `--url`/`OVERCAST_CHAIR_URL` for an explicit origin; `src/chair/serve.ts`);
 extension-only, no agent tool, emits no case records), and `/ask /brief /debrief` (prompt templates in `prompts/`), plus pi
 built-ins (`/model /tree /session /resume`).
 

@@ -259,11 +259,17 @@ appears, and the chair console opens in your phone browser — live assistant
 stream, steer / follow-up prompts (typed or spoken: the composer's `mic`
 button dictates via the browser's speech recognition), ABORT, and a read-only
 case glance. The bridge is a token-authed localhost/tailnet HTTP+SSE server
-(no TLS in v1 — pair it with Tailscale or an SSH tunnel; the pairing token
-rides in the QR URL's `#fragment` and rotates on `/chair off`). Browsers only
-allow the mic on secure origins, so dictation works on `localhost` out of the
-box but needs HTTPS in front of a tailnet bind (e.g. `tailscale serve`). See
-flow 23 in [`docs/flows.md`](docs/flows.md).
+(no TLS by itself — pair it with Tailscale or an SSH tunnel; the pairing token
+rides in the QR URL's `#fragment` and rotates on `/chair off`).
+
+Voice needs a **secure origin** — browsers only grant the mic over HTTPS or
+`localhost`, so a plain-HTTP tailnet URL can't dictate (the mic button shows a
+`🔒` "needs HTTPS" hint). For voice from a phone, run **`/chair on --serve`**:
+it fronts the bridge with `tailscale serve` (real HTTPS cert) and bakes that
+HTTPS origin into the QR, so scanning it lands on a secure page with voice
+working. `/chair on` also auto-detects an existing `tailscale serve`, and
+`/chair on --url https://host` (or `OVERCAST_CHAIR_URL`) sets the origin
+explicitly. See flow 23 in [`docs/flows.md`](docs/flows.md).
 
 Use the three report surfaces for different jobs:
 
@@ -621,7 +627,10 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 launch (same as `--chair`); `OVERCAST_CHAIR_BIND` (default `127.0.0.1` — keep it
 off public interfaces; `/chair on tailnet` binds your Tailscale address) /
 `OVERCAST_CHAIR_PORT` (default `7373`); `OVERCAST_CHAIR_TOKEN` pins the pairing
-token (default: a fresh random token every `/chair on`).
+token (default: a fresh random token every `/chair on`); `OVERCAST_CHAIR_URL`
+sets the public HTTPS origin the QR points at (same as `/chair on --url`, for
+voice over a reverse proxy); `OVERCAST_TAILSCALE_CMD` overrides the `tailscale`
+invocation used by `--serve` / auto-detect (custom path or offline tests).
 
 **Visual DBs** — `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`
 override the Python used by local `image-ransac` and `deepface-local` indexes. If

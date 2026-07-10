@@ -64,7 +64,12 @@ export function createDictation(handlers: {
     webkitSpeechRecognition?: SpeechRecCtor;
   };
   const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-  const support: DictationSupport = !Ctor ? "unsupported" : window.isSecureContext ? "ok" : "insecure";
+  // Browsers only expose the speech API on a SECURE context, so an insecure
+  // origin usually reports no `Ctor` at all — key the tier off the context, not
+  // the constructor, so a plain-HTTP page shows the "needs HTTPS" hint instead
+  // of silently hiding the button (which read as "feature missing"). Secure but
+  // no API ⇒ genuinely unsupported (e.g. Firefox).
+  const support: DictationSupport = window.isSecureContext ? (Ctor ? "ok" : "unsupported") : "insecure";
 
   // Two decoupled pieces of state:
   //  - `rec` — the recognizer whose onresult we still accept. It briefly

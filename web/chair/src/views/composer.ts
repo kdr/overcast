@@ -67,12 +67,20 @@ export function createComposer(handlers: {
     },
     onError: (message) => handlers.onNotice(message, "warning"),
   });
+  // Show the button whenever the API could work here — hidden only when the
+  // browser genuinely lacks it (secure context, no API: e.g. Firefox). On an
+  // insecure origin, show it blocked with a self-explaining label so it reads as
+  // "needs HTTPS", not "missing".
   if (dictation.support !== "unsupported") mic.hidden = false;
-  if (dictation.support === "insecure") mic.classList.add("blocked");
+  if (dictation.support === "insecure") {
+    mic.classList.add("blocked");
+    mic.textContent = "mic 🔒";
+    mic.title = "voice needs HTTPS — tap for details";
+  }
   mic.addEventListener("click", () => {
     if (dictation.support === "insecure") {
       handlers.onNotice(
-        "mic needs HTTPS (or localhost) — expose the chair with e.g. `tailscale serve` instead of the plain-HTTP tailnet bind",
+        "voice needs a secure page (HTTPS or localhost). You're on a plain-HTTP address — front the chair with HTTPS, e.g. `/chair on --serve` at the desk (Tailscale), then re-scan the QR.",
         "warning",
       );
       return;

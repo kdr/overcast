@@ -19,6 +19,7 @@ import { ChairBridge, type ChairAgent } from "../chair/bridge.js";
 import { buildCaseGlance } from "../chair/glance.js";
 import { chairConsoleDir } from "../chair/assets.js";
 import { detectTailnetAddr } from "../chair/net.js";
+import { detectServeUrl, enableServe, disableServe, serveCommandHint } from "../chair/serve.js";
 import { qrLines } from "../chair/qr.js";
 import type { TranscriptItem } from "../chair/wire.js";
 import { emitResult } from "./slash.js";
@@ -35,6 +36,32 @@ const DELTA_FLUSH_MS = 40;
 interface StartOptions {
   bind?: string;
   port?: number;
+  /** Explicit public HTTPS origin for the QR (`--url` / OVERCAST_CHAIR_URL). */
+  publicUrl?: string;
+  /** `--serve`: bring up `tailscale serve` so the QR is HTTPS (voice-capable). */
+  serve?: boolean;
+}
+
+/** Loopback / wildcard binds are reachable by a `tailscale serve` loopback
+ *  proxy target; a tailnet-only bind is not, so we don't claim its HTTPS URL. */
+function loopbackBind(bind: string): boolean {
+  return bind === "127.0.0.1" || bind === "localhost" || bind === "::1" || bind === "0.0.0.0" || bind === "::";
+}
+
+/** Normalize a public origin: drop any fragment/query, ensure a trailing slash
+ *  so `${base}#t=…` is well-formed. Returns undefined for empty input. */
+function normalizePublicUrl(raw: string | undefined): string | undefined {
+  const s = raw?.trim();
+  if (!s) return undefined;
+  try {
+    const u = new URL(s);
+    u.hash = "";
+    u.search = "";
+    if (!u.pathname || u.pathname === "") u.pathname = "/";
+    return u.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** Flatten a pi AgentMessage into plain text for the transcript snapshot. */
@@ -87,6 +114,9 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   // The in-flight bridge.stop() promise, so a restart waits for the port to be
   // released before rebinding (round 20). Resolved when no stop is pending.
   let stopping: Promise<void> = Promise.resolve();
+  // The port we brought up `tailscale serve` for via `--serve`, so /chair off
+  // tears down exactly that mapping (undefined = we didn't enable serve).
+  let serveEnabledPort: number | undefined;
   // exact "[chair] …" strings of injected prompts awaiting their message_start.
   // Matching a live user message against this queue (by content, FIFO) — rather
   // than a blind counter — means a desk message that merely starts with the
@@ -372,6 +402,12 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     // pin > reused-session-token > fresh. The extension owns the token so it can
     // reuse it across reload-restarts (a reload must not rotate it, round 17).
     const token = process.env.OVERCAST_CHAIR_TOKEN || sessionToken || randomBytes(32).toString("base64url");
+    // Resolve the public HTTPS origin (secure context → phone voice works):
+    // an explicit --url/env override wins; otherwise, when the bind is reachable
+    // by a loopback serve proxy, auto-detect an existing `tailscale serve`. The
+    // `--serve` enable itself happens in startChair (it emits progress/errors).
+    const explicitUrl = normalizePublicUrl(opts.publicUrl || process.env.OVERCAST_CHAIR_URL);
+    const publicUrl = explicitUrl || (loopbackBind(bind) ? await detectServeUrl(port) : undefined);
     const b = new ChairBridge({
       agent: buildAgent(), // caseName/caseDir are read live from the agent
       profile: profile.name ?? "default",
@@ -379,6 +415,7 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
       bind,
       port,
       token,
+      publicUrl,
       assetsDir: chairConsoleDir(),
     });
     try {
@@ -392,11 +429,29 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     // store the RESOLVED bind + the ACTUAL bound port, so a reload rebinds to the
     // same concrete address the phone is paired to (an ephemeral 0 became a real
     // port; a partial rebind kept the prior bind)
-    lastStartOpts = { bind, port: b.port };
+    // Persist the explicit --url override for reloads; an auto-detected serve
+    // URL is re-resolved on each bind (cheap) so it stays correct if serve moves.
+    lastStartOpts = { bind, port: b.port, publicUrl: opts.publicUrl };
     return undefined;
   }
 
   async function startChair(opts: StartOptions = {}): Promise<void> {
+    // --serve: front the chair with HTTPS via `tailscale serve` so the paired
+    // phone loads a SECURE context and voice dictation works. serve proxies to
+    // loopback, so force a loopback bind; enable it before binding, and record
+    // the port so /chair off tears exactly this mapping down.
+    if (opts.serve) {
+      if (opts.bind === undefined) opts.bind = "127.0.0.1";
+      const port = opts.port ?? lastStartOpts.port ?? envPort(process.env.OVERCAST_CHAIR_PORT) ?? 7373;
+      emitResult(pi, "▶ chair: enabling HTTPS via `tailscale serve`…");
+      const r = await enableServe(port);
+      if (r.url) {
+        opts.publicUrl = r.url;
+        serveEnabledPort = port;
+      } else {
+        emitResult(pi, `▶ chair: ${r.error} — continuing over HTTP (voice needs HTTPS)`);
+      }
+    }
     const wasRunning = bridge?.running === true;
     const prevOpts = lastStartOpts; // the opts the running bridge is using (concrete)
     if (wasRunning) {
@@ -448,12 +503,20 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
 
   function showQr(): void {
     if (!bridge || ctx?.mode !== "tui") return;
+    const b = bridge;
+    // Tell the operator whether the paired phone will be able to use voice: the
+    // mic only works on a secure (HTTPS) origin. Over plain HTTP, point them at
+    // `tailscale serve` (or /chair on --serve) to get an HTTPS QR.
+    const voiceLine = b.secure
+      ? "  🔒 HTTPS via Tailscale — voice dictation enabled on the phone"
+      : `  ⚠ HTTP — voice needs HTTPS: run \`${serveCommandHint(b.port)}\` then /chair qr, or /chair on --serve`;
     const lines = [
       "  ◉ CHAIR — scan to pair (token is in the QR only)",
       "",
-      ...qrLines(bridge.pairingUrl).map((l) => "  " + l),
+      ...qrLines(b.pairingUrl).map((l) => "  " + l),
       "",
-      `  ${bridge.url}   ·   /chair qr to hide`,
+      voiceLine,
+      `  ${b.displayUrl}   ·   /chair qr to hide`,
     ];
     // Render via a component FACTORY, not a string[]: pi caps array widgets at
     // MAX_WIDGET_LINES (10) and appends "... (widget truncated)", which chops a
@@ -482,9 +545,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
     emitResult(
       pi,
       [
-        `▶ chair: online at ${bridge.url}`,
+        `▶ chair: online at ${bridge.displayUrl}`,
         `  bind ${bridge.bind}:${bridge.port} · clients ${bridge.clientCount()} · case://${openCaseName(process.env.OVERCAST_CASE || ctx?.cwd || process.cwd())}`,
-        `  pair with the QR above (token is in the QR), or over Tailscale: /chair on tailnet`,
+        bridge.secure
+          ? "  🔒 HTTPS — phone voice dictation enabled · pair with the QR (token is in the QR)"
+          : `  ⚠ HTTP — voice needs HTTPS (\`${serveCommandHint(bridge.port)}\` or /chair on --serve) · pair with the QR, or over Tailscale: /chair on tailnet`,
       ].join("\n"),
     );
   }
@@ -494,9 +559,9 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
   pi.registerFlag("chair", { type: "boolean", description: "start the man-in-the-chair remote bridge on launch" });
 
   pi.registerCommand("chair", {
-    description: "man in the chair: remote-drive this session from your phone (on|off|status|qr)",
+    description: "man in the chair: remote-drive this session from your phone (on [tailnet|--serve|--url <u>]|off|status|qr)",
     getArgumentCompletions: (prefix: string): AutocompleteItem[] => {
-      return ["on", "off", "status", "qr", "on tailnet"]
+      return ["on", "off", "status", "qr", "on tailnet", "on --serve"]
         .filter((s) => s.startsWith(prefix.trim()))
         .map((value) => ({ value, label: value }));
     },
@@ -509,12 +574,20 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
         chairDesired = false;
         sessionToken = undefined; // rotate: the next /chair on mints a fresh token
         await stopChair();
+        // tear down the `tailscale serve` mapping we brought up (--serve), best
+        // effort — leaving it up would keep the HTTPS host proxying to a dead port
+        let served = "";
+        if (serveEnabledPort !== undefined) {
+          await disableServe(serveEnabledPort);
+          serveEnabledPort = undefined;
+          served = " · tailscale serve stopped";
+        }
         // honest about rotation: a pinned OVERCAST_CHAIR_TOKEN survives restarts
         emitResult(
           pi,
-          process.env.OVERCAST_CHAIR_TOKEN
+          (process.env.OVERCAST_CHAIR_TOKEN
             ? "▶ chair: offline (token pinned via OVERCAST_CHAIR_TOKEN — unset it to rotate)"
-            : "▶ chair: offline (token rotated)",
+            : "▶ chair: offline (token rotated)") + served,
         );
         return;
       }
@@ -542,6 +615,11 @@ export function registerChair(pi: ExtensionAPI): ChairHandle {
             const addr = detectTailnetAddr();
             if (!addr) return void emitResult(pi, "▶ chair: no tailnet (100.64.0.0/10) address found — is Tailscale up?");
             opts.bind = addr;
+          } else if (t === "--serve") opts.serve = true;
+          else if (t === "--url") {
+            const url = normalizePublicUrl(rest[++i]);
+            if (!url) return void emitResult(pi, "▶ chair: --url must be a full origin, e.g. https://mac.tailnet.ts.net");
+            opts.publicUrl = url;
           } else if (t === "--bind") opts.bind = rest[++i];
           else if (t === "--port") {
             const port = envPort(rest[++i]); // validates 0..65535 (0 = ephemeral, not falsy-dropped)

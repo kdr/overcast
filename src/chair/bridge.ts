@@ -64,6 +64,10 @@ export interface ChairBridgeOptions {
   token?: string;
   /** Built console dir; when absent the inline fallback page is served. */
   assetsDir?: string;
+  /** Externally-reachable base URL (e.g. an HTTPS `tailscale serve` origin).
+   *  When set, the pairing QR points here instead of the raw http bind — the
+   *  phone then loads a SECURE context, so browser voice dictation works. */
+  publicUrl?: string;
   ringSize?: number;
 }
 
@@ -125,14 +129,25 @@ export class ChairBridge {
     return this.opts.bind || DEFAULT_BIND;
   }
 
-  /** Base URL (no token). */
+  /** Raw bind URL (no token). */
   get url(): string {
     return `http://${this.bind}:${this.boundPort}/`;
   }
 
+  /** The URL the phone should open — the public HTTPS origin when one is
+   *  configured (secure context → voice works), else the raw http bind. */
+  get displayUrl(): string {
+    return this.opts.publicUrl || this.url;
+  }
+
+  /** True when pairing over a secure (HTTPS) origin — voice dictation available. */
+  get secure(): boolean {
+    return /^https:\/\//i.test(this.displayUrl);
+  }
+
   /** URL with the token in the FRAGMENT — never sent to any server or log. */
   get pairingUrl(): string {
-    return `${this.url}#t=${this.token}`;
+    return `${this.displayUrl}#t=${this.token}`;
   }
 
   async start(): Promise<{ url: string; pairingUrl: string; port: number }> {
