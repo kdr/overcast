@@ -335,7 +335,12 @@ surface + env vars.)
 | `voice` | speaker verification: enroll voices into a local `voice-print` index (`voice add`), rank members containing a reference speaker (`voice match <sample> --index`), or locate WHERE a speaker talks in a clip (`voice match <clip> <sample>`; `--diarize` for the overlap-aware pyannote tier). Rank scores, not liveness — clones can score high |
 | `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
 | `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
-| `enhance` | denoise / normalize / upscale via bundled ffmpeg, a bound restore model, or the split ops — `--ops separate` (per-speaker tracks, `--summarize` to transcribe each) and `--ops segment --prompt` (text-prompted masks + cutouts), bound local or fal, one evidence record per artifact |
+| `exif` | embedded metadata from an image or video (ExifTool) — GPS (`payload.gps`), capture time, camera make/model/serial/lens (the fingerprint `devices` groups by), editing software; `--geocode` reverse-geocodes via the opt-in geocode provider |
+| `verify` | C2PA / Content Credentials provenance check (c2patool) — `has_manifest`, signer, claim generator, validation state; no credentials is a clean record, not an error |
+| `screenshot` | render a web page or a local `.html` export to a PNG evidence record via headless Chromium (playwright optional dep); `--full-page`, `--viewport WxH`, `--wait ms` |
+| `enhance` | denoise / normalize / upscale via system ffmpeg, a bound restore model, or the provider ops — `--ops separate` (per-speaker tracks, `--summarize` to transcribe each), `--ops segment --prompt` (text-prompted masks + cutouts), `--ops ela` (ELA/noise/luminance forensic overlays), `--ops panorama` (stitch a panning video into one wide still) — one evidence record per artifact |
+| `reconstruct` | **speculative** camera reposition from a still — `--rotate`/`--elevate`/`--zoom`, `--ops sweep` (360° turntable), `--ops model` (image→3D GLB), `--ops depth` — via a bound fal provider; a hypothesis renderer, never evidence (`payload.caveat`, quarantined from ask/brief) |
+| `chronolocate` | chronolocation from the sun/shadows — pure offline solar math, no key: verify a claimed capture time (`--at-time`) or solve the time window a shadow bearing implies (`--shadow-azimuth`) |
 
 **Inspect** — look at the evidence
 | verb | does |
@@ -344,6 +349,8 @@ surface + env vars.)
 | `crop` | materialize face/object detections as cropped image records with provenance |
 | `grid` | tile timestamped frames into one contact sheet for single-call VLM triage (cell → timestamp map); `--view` for a clickable, numbered HTML board that seeks the clip |
 | `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
+| `map` | plot every case record carrying `payload.gps` on one self-contained HTML map — markers link back to their source records; `--offline` for a no-egress coordinate scatter |
+| `devices` | group case `exif` records by camera fingerprint (serial = strong link, make+model+lens = weak) into shared-device clusters; `--findings` emits serial-linked suggested findings |
 
 **OSINT** — search / capture / monitor
 | verb | does |
@@ -513,10 +520,10 @@ error, while pending/credential gaps remain retryable.
 Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`,
 `local-models`, `deepface-local`, `basic-clip`, `audio-fp`, `basic-clap`, and
 `voice-print`.
-Single choices use `--verb <watch|listen|see|face|similar|audio|voice|enhance> --choice <id>`,
+Single choices use `--verb <watch|listen|see|face|similar|audio|voice|enhance|screenshot|reconstruct> --choice <id>`,
 such as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
 `face:deepface-local`, `similar:basic-clip`, `audio:audio-fp`, `voice:voice-print`,
-or `enhance:ffmpeg`.
+`enhance:ffmpeg`, `screenshot:playwright`, or `reconstruct:fal`.
 
 The local image DB is selected by local index type. Local face detection/matching
 can be selected as a profile provider with `face:deepface-local`, while the searchable
@@ -548,8 +555,8 @@ for cadence, and add `--max-frames` when you want a hard cap.
 
 | class | verbs | shipped providers |
 |---|---|---|
-| **sense** | watch / listen / see / face / image / audio / similar / cluster / enhance / exif / verify / screenshot | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), Hugging Face, fal.ai, ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`), headless Chromium / Playwright (`screenshot`), Nominatim (opt-in `exif --geocode`) |
-| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), webcam (Windy Webcams), browser (headless Chromium page render), and the opt-in **identity** sources username / person / phone / property / plate (Apify — authorized use only) |
+| **sense** | watch / listen / see / face / image / audio / voice / similar / cluster / enhance / reconstruct / exif / verify / screenshot (`chronolocate` is pure local solar math — no provider) | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), local voice-print / wespeaker (`voice`), Hugging Face, fal.ai (see/enhance/`reconstruct`), ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`), headless Chromium / Playwright (`screenshot`), Nominatim (opt-in `exif --geocode`) |
+| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / yandeximg / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), wayback (Wayback Machine CDX, no key), overpass (OpenStreetMap features, no key), firms (NASA FIRMS active fires), flights (OpenSky ADS-B), webcam (Windy Webcams), browser (headless Chromium page render), and the opt-in **identity** sources username / person / phone / property / plate (Apify — authorized use only) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
@@ -564,10 +571,15 @@ Built-in source refs:
 - `x:video:<query>` / `x:image:<query>` — only X posts with native video / images (media targeting).
 - `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
 - `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
-- `dl:<url>` — capture-only generic fetcher: any yt-dlp-supported host (Rumble, BitChute, Odysee, VK, Bilibili, Vimeo, Dailymotion, Reddit, Facebook, …). `scan`/`monitor` enumerate returns nothing; it exists to route ad-hoc `capture <url>`.
+- `yandeximg:<image url or local path>` — Yandex reverse image search (Apify) — the reverse-image twin of `lens`, strongest for faces/places; ships a working default actor (`OVERCAST_YANDEX_ACTOR` / `OVERCAST_YANDEX_IMAGE_KEY` to override).
+- `dl:<url>` — generic yt-dlp fetcher for any supported host (Rumble, BitChute, Odysee, VK, Bilibili, Vimeo, Dailymotion, Reddit, Facebook, …). A channel/playlist/user URL enumerates via yt-dlp flat-playlist so `scan`/`monitor` work; a single-video URL stays capture-only (`[]`), routing ad-hoc `capture <url>`.
 - `instagram:@handle` / `instagram:#tag` / `instagram:<post URL>` — Instagram posts & reels (Apify); `--since` honored server-side.
 - `telegram:<channel>` / `telegram:<t.me URL>` — public Telegram channel posts (Apify, no login); stable `t.me/<channel>/<id>` per-post URL for clean monitor dedup.
 - `gdelttv:"<query>"` — GDELT 2.0 TV API broadcast-news clips (**no key**) → bounded Internet-Archive `.mp4?start=…&end=…` segments; `--since` maps to the GDELT date window.
+- `wayback:<url>` — Wayback Machine CDX snapshots (**no key**): recover deleted pages/posts (newest-first), with a `collapse=digest` "secret changes" view. Strong `monitor` fit for page-history stakeouts.
+- `overpass:key=value@around:<radius>,<lat>,<lng>` / `overpass:key=value@<south,west,north,east>` / raw OverpassQL — OpenStreetMap features via the Overpass API (**no key**); each element carries `payload.gps` so hits plot on `map`, and `media.ref` is the OSM element page.
+- `firms:<west,south,east,north>` — NASA FIRMS active-fire hotspots for a bbox (free `FIRMS_MAP_KEY`); `--since Nd` maps to dayrange 1–10; hits carry `payload.gps` + a FIRMS fire-map deep link.
+- `flights:<west,south,east,north>` / `flights:<icao24>` / `flights:<callsign>` — live ADS-B aircraft positions via OpenSky (**anonymous works**; optional `OPENSKY_CLIENT_ID`/`OPENSKY_CLIENT_SECRET` OAuth2 raises rate limits); hits carry `payload.gps` so they plot on `map` and `monitor --every` builds a track.
 - `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` / `webcam:category:<slug>` / `webcam:<id>` — live public webcams (Windy Webcams API); each hit's `media.ref` is the current still, re-captured every `monitor` pass (`recapture`).
 - `facesearch:<image url or local path>` — **opt-in** reverse **face** search (Apify); ToS/privacy-gated, never a default source.
 - `dork:<google dork>` — Google dorking via Serper.dev: real Google SERPs that **honor operators** (`site:`, `filetype:`, `inurl:`, `intitle:`, `ext:`, `-term`, `OR`), unlike `web`. The result page is captured as evidence. **Authorized recon only**, never a default source.
@@ -633,13 +645,14 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `TAVILY_API_KEY` (preferred) / `BRAVE_API_KEY` — the `web` search source
 - `SERPER_API_KEY` — the `dork` source (Google dorking via Serper.dev — real Google SERPs that honor operators). Authorized recon only
 - `SHODAN_API_KEY` — the `shodan` source (host/service/banner intelligence). Authorized recon only
-- `APIFY_TOKEN` — the `tiktok`, `x`, `instagram`, `telegram`, `lens`, `facesearch` sources AND the opt-in identity sources `username`/`person`/`phone`/`property`/`plate` (enumerate; fetch uses yt-dlp / direct CDN). Actor overrides: `OVERCAST_INSTAGRAM_ACTOR`, `OVERCAST_TELEGRAM_ACTOR`, `OVERCAST_LENS_ACTOR`, `OVERCAST_FACE_SEARCH_ACTOR`, `OVERCAST_MAIGRET_ACTOR`, `OVERCAST_PERSON_ACTOR`, `OVERCAST_PHONE_ACTOR`, `OVERCAST_PROPERTY_ACTOR`
+- `FIRMS_MAP_KEY` — the `firms` active-fire source (free NASA FIRMS map key)
+- `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` — optional OAuth2 for the `flights` ADS-B source (anonymous access works; creds raise rate limits)
+- `APIFY_TOKEN` — the `tiktok`, `x`, `instagram`, `telegram`, `lens`, `yandeximg`, `facesearch` sources AND the opt-in identity sources `username`/`person`/`phone`/`property`/`plate` (enumerate; fetch uses yt-dlp / direct CDN). Actor overrides: `OVERCAST_X_ACTOR`, `OVERCAST_INSTAGRAM_ACTOR`, `OVERCAST_TELEGRAM_ACTOR`, `OVERCAST_LENS_ACTOR`, `OVERCAST_YANDEX_ACTOR` (+ `OVERCAST_YANDEX_IMAGE_KEY`), `OVERCAST_FACE_SEARCH_ACTOR`, `OVERCAST_MAIGRET_ACTOR`, `OVERCAST_PERSON_ACTOR`, `OVERCAST_PHONE_ACTOR`, `OVERCAST_PROPERTY_ACTOR`
 - `OVERCAST_PLATE_ACTOR` — **required** for the `plate` source (no default — US plate data is DPPA-restricted; bind an Apify actor, or use `OVERCAST_SOURCE_PLATE_CMD` for a direct plate API). Vehicle spec only, not the owner
 - `WINDY_API_KEY` — the `webcam` source (Windy Webcams API; free tier covers scan + still capture + monitor). Base override: `OVERCAST_WEBCAM_API`
-- `gdelttv` needs **no key** (GDELT 2.0 TV API is open)
+- `gdelttv`, `wayback`, `overpass`, and `browser` need **no key**
 - `youtube` and `dl` need `yt-dlp` on `PATH` (no key)
 - `OVERCAST_SOURCE_<TYPE>_CMD` — override/add a source provider command
-- `APIFY_RUN_SYNC_TIMEOUT_MS` — Apify run-sync budget for the Apify-backed sources
 
 **Runtime / session** — `OVERCAST_HOME` (profiles, default `~/.overcast`),
 `OVERCAST_CASE` / `OVERCAST_PROFILE` (set by the launcher from `--case` / `--profile`),

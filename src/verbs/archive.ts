@@ -635,7 +635,7 @@ export const archiveVerb: VerbSpec = {
     "saves local files / URLs / case records into it (sha256-deduped capture records with tags/notes/origin provenance; " +
     "`--all` archives every captured/sensed media record of the active case); `list`/`show <bucket>` inspect; " +
     "`remove <item> --from <bucket>` retires an item. `setup <bucket>` is the index wizard (plan/--yes): stand up " +
-    "local DBs (deepface-local/basic-clip/image-ransac/audio-fp/basic-clap/face-cluster) and/or remote Cloudglue " +
+    "local DBs (deepface-local/basic-clip/image-ransac/audio-fp/basic-clap/voice-print/face-cluster) and/or remote Cloudglue " +
     "collections (media-descriptions/face-analysis/entities) plus a memory backend, backfilling existing bucket media. " +
     "From any case: sense media in place via `watch archive:<bucket>/<item>`, pull a copy via `capture archive:<bucket>/<item>`, " +
     "query bucket indexes via `--index archive:<bucket>/<index>` (face/similar/image/audio/voice/cluster/ask), " +

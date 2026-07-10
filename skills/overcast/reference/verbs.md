@@ -254,7 +254,7 @@ Emits `similar.match` records.
 
 ### `overcast exif`
 
-Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus GPS coordinates (signed decimals), capture time, camera make/model, editing software, MIME/dimensions/duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with `setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed. Pass `--geocode` to reverse-geocode the GPS into a place name via a bound (opt-in) `geocode` provider.
+Runs ExifTool over an image or video and emits a media.metadata record: a searchable summary plus GPS coordinates (signed decimals), capture time, camera make/model/serial/lens (the device-linking fingerprint `devices` groups by), editing software, MIME/dimensions/duration, and a total tag count. The default backend is the shipped ExifTool provider (system `exiftool` on PATH; install with `brew install exiftool` / `apt install libimage-exiftool-perl`); bind your own with `setup provider exif <spec>`. Accepts a path, a case record/capture id, or an http(s) URL (fetched into the case media dir first). The full raw tag dump stays in-provider — only the compact summary is indexed. Pass `--geocode` to reverse-geocode the GPS into a place name via a bound (opt-in) `geocode` provider.
 
 ```
 overcast exif <input> [options]
@@ -553,7 +553,7 @@ Options:
   --limit <number>       Max hits per source; with --local, max local visual DB candidates
   --local                Scan local case media/indexes instead of external sources
   --pull                 Auto-capture + sense each hit
-  --pipe <string>        Sense to run on pulled hits (watch|listen|face)
+  --pipe <string>        Sense to run on pulled hits (watch|listen|face|exif|verify)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
@@ -596,7 +596,7 @@ Options:
   --query <string>       Ad-hoc keyword search across sources
   --since <string>       Only items newer than e.g. 24h, 2026-06-01
   --limit <number>       Max hits per source
-  --pipe <string>        Sense to run on new items (watch|listen|face)
+  --pipe <string>        Sense to run on new items (watch|listen|face|exif|verify)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --once                 Single diff pass then exit
   --every <string>       Continuous loop cadence (e.g. 15m, 6h)
@@ -700,7 +700,7 @@ Emits `brief` records.
 
 ### `overcast archive`
 
-A bucket is a case-shaped folder reusable from ANY case: `init <bucket>` creates it; `add <ref...> --to <bucket>` saves local files / URLs / case records into it (sha256-deduped capture records with tags/notes/origin provenance; `--all` archives every captured/sensed media record of the active case); `list`/`show <bucket>` inspect; `remove <item> --from <bucket>` retires an item. `setup <bucket>` is the index wizard (plan/--yes): stand up local DBs (deepface-local/basic-clip/image-ransac/audio-fp/basic-clap/face-cluster) and/or remote Cloudglue collections (media-descriptions/face-analysis/entities) plus a memory backend, backfilling existing bucket media. From any case: sense media in place via `watch archive:<bucket>/<item>`, pull a copy via `capture archive:<bucket>/<item>`, query bucket indexes via `--index archive:<bucket>/<index>` (face/similar/image/audio/voice/cluster/ask), and ask over the bucket via `ask --archive <bucket>`.
+A bucket is a case-shaped folder reusable from ANY case: `init <bucket>` creates it; `add <ref...> --to <bucket>` saves local files / URLs / case records into it (sha256-deduped capture records with tags/notes/origin provenance; `--all` archives every captured/sensed media record of the active case); `list`/`show <bucket>` inspect; `remove <item> --from <bucket>` retires an item. `setup <bucket>` is the index wizard (plan/--yes): stand up local DBs (deepface-local/basic-clip/image-ransac/audio-fp/basic-clap/voice-print/face-cluster) and/or remote Cloudglue collections (media-descriptions/face-analysis/entities) plus a memory backend, backfilling existing bucket media. From any case: sense media in place via `watch archive:<bucket>/<item>`, pull a copy via `capture archive:<bucket>/<item>`, query bucket indexes via `--index archive:<bucket>/<index>` (face/similar/image/audio/voice/cluster/ask), and ask over the bucket via `ask --archive <bucket>`.
 
 ```
 overcast archive <action> [arg]... [options]
@@ -948,7 +948,7 @@ Options:
   --profile <string>     Profile name to write/read (default: active/default)
   --verb <string>        provider setup: verb to configure
   --choice <string>      provider setup: catalog choice id
-  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap|voice-print)
+  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap|voice-print|playwright)
   --yes                  provider setup apply: confirm profile changes
   --json                 JSON output
   --format <string>      json | md | txt

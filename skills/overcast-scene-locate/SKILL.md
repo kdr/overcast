@@ -55,10 +55,21 @@ overcast crop <detect-record-id> --all --class sign --pad 0.2 --json          # 
 
 ```bash
 overcast source add "lens:./.overcast/media/crops/<crop-file>.jpg" --json
+overcast source add "yandeximg:./.overcast/media/crops/<crop-file>.jpg" --json  # Yandex twin — strongest for faces/places
 overcast source add "web:<storefront name or sign text> location" --json
 overcast scan --source lens --json      # exact + visual page matches
+overcast scan --source yandeximg --json # second engine on the same crop
 overcast scan --source web --json       # corroborating pages
 ```
+
+Wide/skyline scenes: `overcast enhance ./pan.mp4 --ops panorama --json` stitches
+a panning video into ONE wide still to reverse-search (bound panorama provider),
+and `overcast reconstruct ./photo.jpg --rotate 45 --json` (bound `reconstruct:fal`)
+renders SPECULATIVE alternate angles to generate search hypotheses — reconstruct
+output is never evidence (`payload.caveat`), only a lead generator. Once you have
+a candidate lat/lng, cross-check WHEN with the offline sun/shadow solver:
+`overcast chronolocate <record-id> --at-time <claimed-iso>` flags a mis-dated
+image, `--shadow-azimuth <deg>` solves the local-time window a shadow implies.
 
 4. Record each clue and the location verdict. Point the finding's `--ref` at the
    `lens`/`scan` hit that carried the strongest match, and ALWAYS leave a `tldr`

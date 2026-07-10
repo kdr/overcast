@@ -5,8 +5,10 @@
 > authoring + binding reference.
 
 overcast binds verbs to backends through **providers**. There is one wire
-contract (the **record**) and three transports: `exec` (default), `http`,
-`in-proc`. Three provider classes share the same machinery — **sense**
+contract (the **record**) and one wired transport: `exec` (the default). The
+binding shape also declares `http` and `in-proc`, but those are **not yet
+wired** — `runBoundProvider` errors on them — so always bind an exec provider.
+Three provider classes share the same machinery — **sense**
 (`watch`/`listen`/`see`/`enhance`), **source** (scrapers), and **memory**
 (`write`/`recall`).
 
@@ -31,7 +33,8 @@ just needs to emit `{ verb, format, payload, media?, meta?, state? }`.
 overcast setup provider watch  "exec:./examples/providers/bash/watch.sh"
 overcast setup provider listen "exec:python3 examples/providers/python/listen.py"
 overcast setup provider see    "exec:node --import tsx examples/providers/ts/see.ts"
-overcast setup provider see    "http://localhost:8090"          # http transport
+# (an `http://…` spec parses into the binding shape, but the http transport is
+#  not wired yet — it errors at run time; wrap your endpoint in an exec script)
 overcast provider init see                                      # run the init hook
 
 # source provider (scraper) — bound by source type, enumerated by scan/capture
@@ -79,6 +82,7 @@ Catalog presets:
 | `audio-fp` | `audio:audio-fp` |
 | `basic-clap` | `similar:basic-clap` |
 | `voice-print` | `voice:voice-print` |
+| `playwright` | `screenshot:playwright` (headless-Chromium page render) |
 
 Common environment:
 
@@ -90,6 +94,8 @@ Common environment:
 | `elevenlabs` | `ELEVENLABS_API_KEY` |
 | `owl-local` | optional `DETECT_MODEL` |
 | `deepface-local` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY` |
+| `basic-clip` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`, `OC_CLIP_MODEL` |
+| `local-models` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`; `HF_TOKEN` for the gated pyannote `--ops separate` |
 | `audio-fp` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY` |
 | `basic-clap` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`, `OC_CLAP_MODEL` |
 | `voice-print` | optional `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`, `OVERCAST_VOICE_MODEL`; `HF_TOKEN` for `--diarize` only |
@@ -138,7 +144,7 @@ No extra key is needed beyond the brain you already use.
 
 Precedence when you run `see`:
 
-1. an explicit provider binding (`setup provider see <exec|http|inproc spec>`) — e.g. the OWLv2 detector;
+1. an explicit provider binding (`setup provider see <exec spec>` — http/in-proc specs parse but aren't wired yet) — e.g. the OWLv2 detector;
 2. the **brain LLM** when it's image-capable (the default);
 3. the Hugging Face captioner when `HF_TOKEN` is set;
 4. a `needs_credentials` placeholder with guidance.
@@ -198,7 +204,7 @@ overcast see ./scene.jpg --detect "person, hard hat" --json    # extract checkli
 overcast ships Hugging Face Inference API providers so the `see` captioner and
 model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 
-- **`see`** — the fallback captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--detect` / `--prompt`.
+- **`see`** — the fallback captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--prompt` (`--detect` is ignored — this captioner can't produce boxes; bind the OWLv2/fal detector for that).
 - **`enhance` (image)** — opt-in HF model ops ([`examples/providers/hf/enhance.py`](../examples/providers/hf/enhance.py), needs `huggingface_hub` + `pillow`). Image **upscale/unblur/restore works** via the **fal-ai** provider, routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; uses the free monthly credit then pay-as-you-go). The **default stays the internal ffmpeg toolkit**; bind to opt in:
   ```bash
   overcast setup provider enhance "exec:python3 examples/providers/hf/enhance.py {{input}}"
@@ -770,8 +776,8 @@ sample 8 frames.
 ## Samples (runnable, in this repo)
 
 - [`examples/providers/bash/watch.sh`](../examples/providers/bash/watch.sh) — the canonical tinycloud `watch` exec provider.
-- [`examples/providers/python/listen.py`](../examples/providers/python/listen.py) — a local-whisper `listen` provider (exec/http).
-- [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec/in-proc).
+- [`examples/providers/python/listen.py`](../examples/providers/python/listen.py) — a local-whisper `listen` provider (exec).
+- [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec).
 - [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
 - [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
 - [`examples/providers/fal/{see,enhance,reconstruct}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance (plus `--ops separate` sam-audio / `--ops segment` sam-3), and the speculative `reconstruct` toolbox (Qwen multi-angle reposition/sweep, Trellis image→3D via the queue API, Depth Anything V2).
@@ -799,8 +805,9 @@ surfaces:
   `brief --export` HTML into image evidence. Chain the PNG into `see` (describe/
   OCR), `exif`, `note --ref`, or `archive add`.
 - **`browser:<url>` source** — the standing scan/monitor surface (see below). Each
-  fetch re-renders the current page state, so `monitor --source browser --every N
-  --pull` is a page-watch.
+  fetch re-renders the current page state, so `monitor --source browser --every N`
+  is a page-watch (monitor captures + senses new items by itself; there is no
+  `--pull` flag on monitor).
 
 The engine is a small Node driver (`render.mjs`) that runs under **system `node`**
 (never the bun binary) and uses the **`playwright` optional dependency**
@@ -855,7 +862,7 @@ headless browser. Element (`--selector`) and video capture are not yet supported
 - **`dork`** — Google dorking via **Serper.dev** (`SERPER_API_KEY`). Real Google SERPs that **honor operators** (`site:`, `filetype:`, `inurl:`, `intitle:`, `ext:`, `-term`, `OR`) — unlike `web` (Tavily/Brave), which silently ignore them, so `dork` is the source for exposure/attack-surface discovery. Supported ref: `dork:<google dork string>` (passed verbatim to Google). Hits carry the result page (`payload.url`/`media.ref`), title, and snippet; `--since` buckets into Google's `tbs` recency window (day/week/month/year); `capture`/`--pull` downloads the result page like `web`. **Authorized recon only** — never a default binding; use only against targets you are permitted to investigate.
 - **`shodan`** — host/service/banner intelligence via the **Shodan REST API** (`SHODAN_API_KEY`). Supported refs: `shodan:<search query>` (filters like `org:"Acme" port:22`, `ssl:example.com`, `product:nginx country:DE` — 1 query credit per 100 results) and `shodan:<ip>` (a bare IPv4/IPv6 → full host lookup, one hit per exposed service). Each hit carries `ip`/`port`/`transport`/`org`/`isp`/`asn`/`product`/`hostnames`/`cpe`/`os`/`vulns` (CVE list) and geolocation (`lat`/`lng`/`country`/`city`) in the loose payload; `payload.url`/`media.ref` is the `shodan.io/host/<ip>` report page (with a `#<port>-<transport>` fragment so every service is a distinct record and `monitor` catches newly exposed ports), so `capture`/`--pull` stores a real evidence page. `--since` is ignored (Shodan search has no recency filter). Strong `monitor` fit for standing exposure watch. **Authorized recon only** — never a default binding.
   - **Opt-in screenshots / RTSP (sensitive).** Set `OVERCAST_SHODAN_SCREENSHOTS=1` (an explicit acknowledgement) to also decode the **screenshots** Shodan captures from exposed RDP/VNC/X11/HTTP/camera services into the case media dir — so `media.ref` becomes a real image `see`/`face`/`crop` can analyze — and surface RTSP (port 554) stream endpoints in `payload.stream`. These are the screens/camera views of **real, unwitting hosts**; enabling it carries privacy/ToS/legal weight and is authorized-use-only. Off by default (hits stay metadata + host page). Use `has_screenshot:true` / `screenshot.label:webcam` in the query to target hosts that have them.
-- **`browser`** — rendered-page capture via the shared headless-Chromium engine (`node` + the `playwright` optional dep; **no key**). Supported ref: `browser:<url>` (a page to screenshot; scheme-less refs assume `https://`). `enumerate` emits one ephemeral hit for the page; `fetch` renders the **current page state** to a PNG (`recapture: true`, so `monitor` re-renders every pass — a page-watch, webcam-style). The rendered PNG then flows into the case's image `auto_sense` chain (`see`/`exif`) on `scan --pull`/`monitor --pull`, exactly like a webcam still. Private/loopback targets are refused by default (`OVERCAST_ALLOW_PRIVATE_FETCH=1` to allow). This is the same engine the `screenshot` verb uses; the verb is the one-shot surface, the source is the standing scan/monitor surface. See the screenshot engine below.
+- **`browser`** — rendered-page capture via the shared headless-Chromium engine (`node` + the `playwright` optional dep; **no key**). Supported ref: `browser:<url>` (a page to screenshot; scheme-less refs assume `https://`). `enumerate` emits one ephemeral hit for the page; `fetch` renders the **current page state** to a PNG (`recapture: true`, so `monitor` re-renders every pass — a page-watch, webcam-style). The rendered PNG then flows into the case's image `auto_sense` chain (`see`/`exif`) on `scan --pull` (monitor does this on every pass by default), exactly like a webcam still. Private/loopback targets are refused by default (`OVERCAST_ALLOW_PRIVATE_FETCH=1` to allow). This is the same engine the `screenshot` verb uses; the verb is the one-shot surface, the source is the standing scan/monitor surface. See the screenshot engine below.
 
 ### Identity / records OSINT sources (opt-in, Apify-backed)
 

@@ -81,7 +81,7 @@ export function buildSystemPrompt(): string {
     "reference media reusable from any case: save with `overcast archive add <ref> --to <bucket>`,",
     "sense in place via `watch archive:<bucket>/<item>`, pull a copy via `capture archive:<bucket>/<item>`,",
     "query a bucket's indexes from inside a case via `--index archive:<bucket>/<index>` on",
-    "face/similar/image/audio/cluster/ask, and search a bucket's memory with",
+    "face/similar/image/audio/voice/cluster/ask, and search a bucket's memory with",
     "`overcast ask \"...\" --archive <bucket>`. For \"have I seen this before?\" questions, check",
     "`overcast archive list` for a relevant bucket first. Stand up bucket indexes with the",
     "`overcast archive setup <bucket>` wizard — agent-driven like case setup, one question at a time.",
@@ -113,8 +113,10 @@ export function buildSystemPrompt(): string {
     "",
     "Prerequisites (run `overcast doctor` to check): system `ffmpeg`/`ffprobe` (>= 4.4)",
     "on PATH for enhance/view/frame-extraction; the tinycloud CLI + CLOUDGLUE_API_KEY",
-    "for the default watch/listen; yt-dlp for youtube/tiktok capture. If a media op",
-    "fails because ffmpeg isn't found, tell the user to install it (`brew install ffmpeg`",
-    "/ `apt install ffmpeg`) and re-run `overcast doctor`.",
+    "for the default watch/listen; yt-dlp for youtube/tiktok capture; `exiftool` for",
+    "exif; `c2patool` for verify; the playwright optional dep (headless Chromium) for",
+    "screenshot and the `browser:` source. If a media op fails because ffmpeg isn't",
+    "found, tell the user to install it (`brew install ffmpeg` / `apt install ffmpeg`)",
+    "and re-run `overcast doctor`.",
   ].join("\n");
 }
