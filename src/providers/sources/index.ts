@@ -114,6 +114,20 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("wayback.sh");
       return script ? { type, base: ["bash", script], needs: "none (public Wayback CDX API)" } : undefined;
     }
+    case "overpass": {
+      // OpenStreetMap features via the Overpass API — geolocated map features
+      // (hospitals, cameras, fuel, named places, …). No API key; every hit carries
+      // top-level gps so scan records plot on `map`; media.ref is the OSM page.
+      const script = shippedSource("overpass.sh");
+      return script ? { type, base: ["bash", script], needs: "none (public Overpass API)" } : undefined;
+    }
+    case "firms": {
+      // NASA FIRMS active-fire / thermal-anomaly hotspots. FREE map key; hits carry
+      // top-level gps + an ISO capture time (plot on `map`); media.ref is a FIRMS
+      // fire-map deep link centered on the detection.
+      const script = shippedSource("firms.sh");
+      return script ? { type, base: ["bash", script], needs: "FIRMS_MAP_KEY" } : undefined;
+    }
     case "instagram": {
       // Instagram profiles/hashtags via Apify (apify/instagram-scraper).
       const script = shippedSource("instagram.sh");

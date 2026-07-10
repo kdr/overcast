@@ -71,7 +71,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 6. **Providers are pluggable.** Three classes share one machinery — **sense**
    (`watch/listen/see/face/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot`), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, dl, instagram, telegram,
-   gdelttv, wayback, webcam, facesearch, dork, shodan, browser,
+   gdelttv, wayback, overpass, firms, webcam, facesearch, dork, shodan, browser,
    username, person, phone, property, plate), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
    shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
@@ -202,8 +202,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   findings). `map` + `devices` are operational (out of `ask`/`brief` evidence).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens reverse-image / dl generic-yt-dlp capture / instagram / telegram /
-  gdelttv broadcast-TV / wayback deleted-web / webcam live-cams / facesearch reverse-face /
-  dork Google-dorking / shodan host-recon / browser rendered-page-capture /
+  gdelttv broadcast-TV / wayback deleted-web / overpass OSM-features / firms active-fires /
+  webcam live-cams / facesearch reverse-face / dork Google-dorking / shodan host-recon /
+  browser rendered-page-capture /
   username account-discovery / person people-search / phone reverse-phone /
   property assessor-records / plate license-plate;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
@@ -228,7 +229,14 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `.mp4`, **no key**); `wayback:<url>` (Wayback Machine CDX — recover deleted pages/
   posts + `collapse=digest` "secret changes" view, newest-first snapshots, **no key**;
   named `wayback` not `archive` to avoid the media-bucket collision; strong `monitor`
-  fit); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
+  fit); `overpass:key=value@around:<radius>,<lat>,<lng>` /
+  `overpass:key=value@<south,west,north,east>` / raw OverpassQL (OpenStreetMap
+  features via the Overpass API, **no key** — each element carries top-level
+  `payload.gps` so scan records plot on `map`; media.ref = the OSM element page);
+  `firms:<west,south,east,north>` (NASA FIRMS active-fire
+  hotspots — bbox/area only, no country endpoint; CSV parsed by header name →
+  `payload.gps` + ISO capture time; **free** `FIRMS_MAP_KEY`; `--since Nd` →
+  dayrange 1–10; media.ref = a FIRMS fire-map deep link); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
   `webcam:category:<slug>` / `webcam:<id>` (Windy Webcams — current still per poll,
   `recapture` ephemeral monitor fit); `facesearch:<image url|path>` (opt-in,
   ToS/privacy-gated reverse **face** search via Apify — never a default);
