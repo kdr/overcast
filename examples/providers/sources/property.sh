@@ -66,7 +66,10 @@ case "$op" in
         # anchored: drop only EXACT negative statuses (no substring supersets); an
         # empty/unknown status is kept and gated by the owner/assessed check below
         | select($st | test("^(not_covered|failed|error)$") | not)
-        | select(((.error // null) == null) or ((.error // "") == ""))
+        # keep unless .error is a real (non-empty) error indicator — explicit so
+        # boolean `error:false`/absent/"" all pass (avoids the `// null` falsy-coalesce
+        # trap where `false // null` == null); only a non-empty string or `true` drops
+        | select((.error == null) or (.error == false) or (.error == ""))
         | select(((.owner_name // .owner // "") | tostring | length) > 0 or (.assessed_value // null) != null)
         | ((.source_url // .url // "") | tostring) as $url
         | {

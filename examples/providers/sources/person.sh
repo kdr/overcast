@@ -70,7 +70,9 @@ case "$op" in
     # set, and require an identity (a name). Field names extracted defensively.
     jq -c --argjson n "$limit" '
       [ .[]
-        | select((.recordType // null) == null)
+        # keep only person rows (recordType absent/null); drop the notice/review rows.
+        # Explicit == null (not the `// null` idiom) so the intent is unambiguous.
+        | select(.recordType == null)
         | ((.name // .fullName // "") | tostring) as $nm
         | select(($nm | length) > 0)
         | ((.profileUrl // .url // "") | tostring) as $url
