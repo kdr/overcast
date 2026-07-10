@@ -101,6 +101,34 @@ test("fanOutEnhance keeps box + box_normalized on segment children (crop interop
   assert.equal(child.media?.ref, "/m/x_1.png");
 });
 
+test("fanOutEnhance copies the parent's honest-provenance caveat onto every child", () => {
+  // ela/panorama stamp payload.caveat on the ENVELOPE, not each artifact — so the
+  // "lead, not proof" disclaimer must travel onto the children (which chain into
+  // see/crop/memory), matching reconstruct's per-child stamping.
+  const parent = makeRecord({
+    verb: "enhance", format: "json",
+    payload: { op: "ela", caveat: "ELA maps are heuristic — a lead, not proof.", outputs: [
+      { kind: "ela", ref: "/m/x_ela.png" },
+      { kind: "noise", ref: "/m/x_noise.png", caveat: "child-specific note" },
+    ] },
+    media: { ref: "/m/photo.jpg" }, meta: { provider: "exec:python" }, state: "ready",
+  });
+  const [, c0, c1] = fanOutEnhance(parent);
+  assert.equal((c0.payload as Record<string, unknown>).caveat, "ELA maps are heuristic — a lead, not proof.");
+  // a child carrying its OWN caveat keeps it (parent doesn't clobber)
+  assert.equal((c1.payload as Record<string, unknown>).caveat, "child-specific note");
+});
+
+test("fanOutEnhance without a parent caveat leaves children caveat-free (separate/segment)", () => {
+  const parent = makeRecord({
+    verb: "enhance", format: "json",
+    payload: { op: "separate", outputs: [{ kind: "track", ref: "/m/a_S0.wav", speaker: "S0" }] },
+    media: { ref: "/m/a.mp4" }, state: "ready",
+  });
+  const [, child] = fanOutEnhance(parent);
+  assert.equal((child.payload as Record<string, unknown>).caveat, undefined);
+});
+
 // ---- enhance verb end-to-end (fixture providers) ----------------------------
 
 test("enhance --ops separate fans out one record per track", async () => {

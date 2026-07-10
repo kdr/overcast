@@ -82,6 +82,11 @@ export function fanOutEnhance(parent: OvercastRecord, opts: { caseDir?: string }
   const sourceName = sourceMedia ? sourceMedia.split("/").pop() || sourceMedia : "input";
   const provider = parent.meta?.provider;
   const caseDir = opts.caseDir ?? (typeof parent.meta?.case === "string" ? parent.meta.case : CASE_UNSET);
+  // honest-provenance caveat rides from the parent onto EVERY child (ela/panorama
+  // stamp it on the envelope, not each artifact) — so a "lead, not proof" overlay
+  // or stitched still carries the disclaimer wherever it chains (see/crop/memory),
+  // matching reconstruct's per-child stamping.
+  const parentCaveat = typeof payload.caveat === "string" && payload.caveat ? payload.caveat : undefined;
 
   const children = outputs.map((item) => {
     // everything the provider attached to the artifact rides on the child payload
@@ -98,6 +103,8 @@ export function fanOutEnhance(parent: OvercastRecord, opts: { caseDir?: string }
         op,
         source_record: parent.id,
         source_media: sourceMedia,
+        // parent caveat first so a child that carries its OWN caveat (in ...rest) wins
+        ...(parentCaveat ? { caveat: parentCaveat } : {}),
         ...rest,
       },
       media,
