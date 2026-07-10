@@ -132,14 +132,30 @@ def sample_frames(cv2, np, inp):
             if ok:
                 consider(frame)
     else:
-        # unknown/streaming length: read sequentially, keeping non-dup frames into a
-        # bounded buffer (still spanning the clip), then thin below.
-        cap_buf = TARGET_FRAMES * 3
-        while len(frames) < cap_buf:
+        # unreliable metadata (frame_count 0/1): COUNT frames with a cheap grab pass
+        # (no decode), then reopen and keep uniformly-spaced indices across the FULL
+        # clip by COUNTING (not seeking — unreliable metadata often means seeking is
+        # unreliable too). This spans the whole pan instead of just its opening slice.
+        count = 0
+        while cap.grab():
+            count += 1
+        cap.release()
+        cap = cv2.VideoCapture(inp)
+        if count > 1:
+            n = min(count, TARGET_FRAMES * 3)
+            want = {int(round(k * (count - 1) / (n - 1))) for k in range(n)}
+            idx = 0
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                if idx in want:
+                    consider(frame)
+                idx += 1
+        else:
             ok, frame = cap.read()
-            if not ok:
-                break
-            consider(frame)
+            if ok:
+                consider(frame)
     cap.release()
 
     # thin an oversampled set down to TARGET_FRAMES, evenly across its span, so the

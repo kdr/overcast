@@ -606,15 +606,17 @@ export const enhanceVerb: VerbSpec = {
 
     // no custom binding: the provider-only ops can't run on ffmpeg.
     if (providerOps.length) {
-      return [
-        errorRecord(
-          "enhance",
-          `--ops ${providerOps.join(",")} needs a bound enhance provider. ` +
-            `Bind one with \`overcast setup provider enhance "exec:python3 examples/providers/enhance/<op>.py"\` ` +
-            `(ela / panorama), or run \`overcast provider setup plan --preset local-models\` (or --preset fal) ` +
-            `then \`--yes\` for separate/segment; local-models needs \`scripts/visual-db-uv.sh --enhance\`.`,
-        ),
-      ];
+      const op = providerOps[0];
+      // tailor the remediation to the op family — ela/panorama ship as example
+      // Python scripts; separate/segment need the local-models (or fal) preset —
+      // so the hint isn't misleading for whichever op was actually requested.
+      const hint =
+        op === "ela" || op === "panorama"
+          ? `Bind one with \`overcast setup provider enhance "exec:python3 examples/providers/enhance/${op}.py"\` ` +
+            `(${op === "panorama" ? "opencv-python + numpy" : "pillow + numpy"}).`
+          : `Run \`overcast provider setup plan --preset local-models\` (or --preset fal) then \`--yes\`; ` +
+            `local-models needs \`scripts/visual-db-uv.sh --enhance\`.`;
+      return [errorRecord("enhance", `--ops ${providerOps.join(",")} needs a bound enhance provider. ${hint}`)];
     }
 
     const requested = rawOps.length ? (rawOps as EnhanceOp[]) : undefined;
