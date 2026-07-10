@@ -152,10 +152,10 @@ case "$op" in
     if [ -n "$since" ]; then
       now="$(date -u +%s)"; cutepoch=""
       case "$since" in
-        *[0-9]m) cutepoch=$(( now - ${since%m} * 60 )) ;;
-        *[0-9]h) cutepoch=$(( now - ${since%h} * 3600 )) ;;
-        *[0-9]d) cutepoch=$(( now - ${since%d} * 86400 )) ;;
-        *[0-9]w) cutepoch=$(( now - ${since%w} * 604800 )) ;;
+        *[0-9]m) cutepoch=$(( now - 10#${since%m} * 60 )) ;;
+        *[0-9]h) cutepoch=$(( now - 10#${since%h} * 3600 )) ;;
+        *[0-9]d) cutepoch=$(( now - 10#${since%d} * 86400 )) ;;
+        *[0-9]w) cutepoch=$(( now - 10#${since%w} * 604800 )) ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
           cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')" ;;
         *) echo "firms: could not parse --since '$since' (use Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
@@ -178,6 +178,9 @@ case "$op" in
     case "$query" in
       country:*)
         iso="${query#country:}"
+        # trim whitespace after the prefix so `firms:country: USA` doesn't send a
+        # leading space in the encoded country segment (the API rejects/misreads it).
+        iso="${iso#"${iso%%[![:space:]]*}"}"; iso="${iso%"${iso##*[![:space:]]}"}"
         [ -n "$iso" ] || { echo "firms: empty country code (expected firms:country:<ISO3>)" >&2; exit 1; }
         isoenc="$(jq -rn --arg v "$iso" '$v|@uri')"
         srcenc="$(jq -rn --arg v "$src" '$v|@uri')"
