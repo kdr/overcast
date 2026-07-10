@@ -233,10 +233,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `overpass:key=value@<south,west,north,east>` / raw OverpassQL (OpenStreetMap
   features via the Overpass API, **no key** — each element carries top-level
   `payload.gps` so scan records plot on `map`; media.ref = the OSM element page);
-  `firms:<west,south,east,north>` / `firms:country:<ISO3>` (NASA FIRMS active-fire
-  hotspots — CSV parsed by header name → `payload.gps` + ISO capture time; **free**
-  `FIRMS_MAP_KEY`; `--since Nd` → dayrange 1–10; media.ref = a FIRMS fire-map deep
-  link); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
+  `firms:<west,south,east,north>` (NASA FIRMS active-fire
+  hotspots — bbox/area only, no country endpoint; CSV parsed by header name →
+  `payload.gps` + ISO capture time; **free** `FIRMS_MAP_KEY`; `--since Nd` →
+  dayrange 1–10; media.ref = a FIRMS fire-map deep link); `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` /
   `webcam:category:<slug>` / `webcam:<id>` (Windy Webcams — current still per poll,
   `recapture` ephemeral monitor fit); `facesearch:<image url|path>` (opt-in,
   ToS/privacy-gated reverse **face** search via Apify — never a default);

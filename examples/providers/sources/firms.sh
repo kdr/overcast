@@ -4,14 +4,13 @@
 # `overcast map`). FREE map key (no cost): https://firms.modaps.eosdis.nasa.gov/api/
 #
 # Bind with:  overcast source add 'firms:-124.5,32.5,-114.0,42.0'   # bbox: W,S,E,N
-#             overcast source add 'firms:country:USA'                # ISO3 country
 #             overcast source add 'firms:2.0,48.5,2.6,49.0@MODIS_NRT' # pick a sensor
 #             overcast scan    --source firms --since 3d --limit 200
 #             overcast map     --no-open
 #             overcast monitor --source firms --every 6h
 # Refs / queries (enumerate --query):
-#   <west,south,east,north>   — an area (bbox) CSV query
-#   country:<ISO3>            — a whole country (ISO3 code, e.g. USA / FRA / AUS)
+#   <west,south,east,north>   — an area (bbox) CSV query (FIRMS is area-only; there
+#                               is no country endpoint — query a country by its bbox)
 #   append @<SENSOR>          — override the default source (VIIRS_SNPP_NRT)
 # Each detection row becomes one hit carrying top-level gps:{lat,lng} + an ISO
 # `published` (acq_date+acq_time, UTC) so the scan record plots on `map`;
@@ -35,7 +34,7 @@ need() {
 
 # CSV → hits mapper. Reads a FIRMS CSV on stdin, writes a JSON array on stdout.
 # Factored out (columns resolved BY HEADER NAME, not fixed position) so it survives
-# the sensor/endpoint differences (area vs country CSVs, VIIRS `bright_ti4` vs MODIS
+# the sensor differences (VIIRS `bright_ti4` vs MODIS
 # `brightness`) AND so the parse can be exercised with a fixture CSV and no live key.
 # Args: $1 = sensor label (for the snippet). Env: none.
 firms_csv_to_hits() { # <sensor-label>
@@ -126,10 +125,10 @@ case "$op" in
       *) shift ;;
     esac; done
     need
-    # trim surrounding whitespace so a padded bbox/country ref still parses (a
+    # trim surrounding whitespace so a padded bbox ref still parses (a
     # whitespace-only query then trips the empty check) — consistent with the others.
     query="${query#"${query%%[![:space:]]*}"}"; query="${query%"${query##*[![:space:]]}"}"
-    [ -n "$query" ] || { echo "firms enumerate needs an area: bind firms:<W,S,E,N> or firms:country:<ISO3>" >&2; exit 1; }
+    [ -n "$query" ] || { echo "firms enumerate needs an area: bind firms:<W,S,E,N> (west,south,east,north)" >&2; exit 1; }
     case "$limit" in ''|*[!0-9]*) limit=200 ;; esac
     [ "$limit" -lt 1 ] 2>/dev/null && limit=1
 
@@ -174,37 +173,23 @@ case "$op" in
       fi
     fi
 
-    # country:<ISO3> hits the country endpoint; anything else is a bbox (W,S,E,N).
-    case "$query" in
-      country:*)
-        iso="${query#country:}"
-        # trim whitespace after the prefix so `firms:country: USA` doesn't send a
-        # leading space in the encoded country segment (the API rejects/misreads it).
-        iso="${iso#"${iso%%[![:space:]]*}"}"; iso="${iso%"${iso##*[![:space:]]}"}"
-        [ -n "$iso" ] || { echo "firms: empty country code (expected firms:country:<ISO3>)" >&2; exit 1; }
-        isoenc="$(jq -rn --arg v "$iso" '$v|@uri')"
-        srcenc="$(jq -rn --arg v "$src" '$v|@uri')"
-        endpoint="$API/country/csv/$KEY/$srcenc/$isoenc/$dayrange"
-        ;;
-      *)
-        # bbox: west,south,east,north (Overpass/Leaflet order) — strip inner spaces
-        # then require FOUR NUMERIC parts, so "-124, 32, -114, 42" is accepted and a
-        # malformed/non-numeric ref fails fast (and never reaches the API).
-        bbox="${query// /}"
-        IFS=, read -r fw fs fe fn fx <<<"$bbox"
-        if [ -n "${fx:-}" ] || ! is_coord "$fw" || ! is_coord "$fs" || ! is_coord "$fe" || ! is_coord "$fn"; then
-          echo "firms: bbox needs four numbers west,south,east,north (got '$query')" >&2; exit 1
-        fi
-        # bbox parts are already validated numeric (is_coord above), so the string is
-        # URL-safe as-is — embed it RAW. The FIRMS area endpoint wants literal commas
-        # in the path segment and returns HTTP 400 when they're %2C-encoded.
-        srcenc="$(jq -rn --arg v "$src" '$v|@uri')"
-        endpoint="$API/area/csv/$KEY/$srcenc/$bbox/$dayrange"
-        ;;
-    esac
+    # bbox: west,south,east,north (Overpass/Leaflet order) — strip inner spaces then
+    # require FOUR NUMERIC parts, so "-124, 32, -114, 42" is accepted and a
+    # malformed/non-numeric ref fails fast (and never reaches the API). FIRMS has no
+    # country endpoint (their API is area-only) — query a country by its bbox.
+    bbox="${query// /}"
+    IFS=, read -r fw fs fe fn fx <<<"$bbox"
+    if [ -n "${fx:-}" ] || ! is_coord "$fw" || ! is_coord "$fs" || ! is_coord "$fe" || ! is_coord "$fn"; then
+      echo "firms: bbox needs four numbers west,south,east,north (got '$query')" >&2; exit 1
+    fi
+    # bbox parts are already validated numeric (is_coord above), so the string is
+    # URL-safe as-is — embed it RAW. The FIRMS area endpoint wants literal commas in
+    # the path segment and returns HTTP 400 when they're %2C-encoded.
+    srcenc="$(jq -rn --arg v "$src" '$v|@uri')"
+    endpoint="$API/area/csv/$KEY/$srcenc/$bbox/$dayrange"
 
     if ! resp="$(curl -fsS -m 60 "$endpoint")"; then
-      echo "firms enumerate request failed for '$query' (check bbox/ISO3 and key)" >&2; exit 1
+      echo "firms enumerate request failed for '$query' (check bbox and key)" >&2; exit 1
     fi
     # A valid response is CSV whose header carries BOTH latitude and longitude as
     # comma-separated fields. FIRMS reports bad keys / params as an HTTP-200 TEXT
