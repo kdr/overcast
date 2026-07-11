@@ -178,7 +178,14 @@ headless and lets Claude drive the overcast binary; **opt-in** behind
 different modes/flags and asserts the outputs actually DIFFER — `listen` plain vs
 `--describe` (adds an audio-scene field, or an audio-only fallback warning) vs
 `--diarize` (speaker labels); `see --ocr` vs `--prompt`; `brief --theme plain` vs
-`csi` — saving every raw output for inspection.
+`csi` — saving every raw output for inspection. `91_skill_scanner` drives the
+`overcast-scanner` chain against the REAL keyless SF Socrata CAD feed (source add
+`dispatch:sf` → line of investigation → live scan → `monitor --once` dedup pass →
+csi `map` export with the call coordinates → finding stamped onto the line;
+skips cleanly if the rolling window is empty). `92_skill_connect_dots` drives
+`overcast-connect-the-dots` with no creds at all (notes sharing an email/handle →
+finding on the line → `graph --theme csi` board asserting entity harvest + thread
+edges in the HTML → 2-hop `--focus` view on the shared email).
 
 The **offline suite** (`test/e2e/cases/phase*.sh`, run by `npm run test:e2e`)
 exercises the same CLI surface with fixture providers; the notes below
