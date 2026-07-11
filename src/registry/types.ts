@@ -43,6 +43,10 @@ export interface VerbContext {
   profileName?: string;
   /** abort signal (from the agent tool path) */
   signal?: AbortSignal;
+  /** which surface invoked the verb — lets an operator-only op (opening a
+   *  network listener, e.g. `situation` serve) refuse the agent tool while the
+   *  CLI runs it. Unset = unknown; treat as non-CLI. */
+  surface?: "cli" | "agent" | "slash";
 }
 
 export interface VerbSpec {

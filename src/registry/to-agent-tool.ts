@@ -282,6 +282,7 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
         home: deps.getHome?.(),
         profileName: deps.getProfileName?.(),
         signal,
+        surface: "agent",
       };
 
       let records: OvercastRecord[];

@@ -14,3 +14,4 @@ planning/
 overcast-session-*.html
 __pycache__/
 *.pyc
+assets/situation-console/

@@ -21,6 +21,7 @@ import { cropVerb } from "../verbs/crop.js";
 import { chronolocateVerb } from "../verbs/chronolocate.js";
 import { gridVerb } from "../verbs/grid.js";
 import { wallVerb } from "../verbs/wall.js";
+import { situationVerb } from "../verbs/situation.js";
 import { mapVerb } from "../verbs/map.js";
 import { devicesVerb } from "../verbs/devices.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
@@ -123,6 +124,7 @@ export const VERBS: VerbSpec[] = [
   chronolocateVerb,
   gridVerb,
   wallVerb,
+  situationVerb,
   mapVerb,
   devicesVerb,
   scanVerb,
