@@ -46,6 +46,9 @@ assert_scan_ready() {
 assert_export_has() { # <id> <casedir> <needle> <label>
   local id="$1" cd="$2" needle="$3" label="$4"
   ocrun "$cd" case records --export "$cd/records.html" --theme csi --json >/dev/null 2>&1
+  # the exporter HTML-escapes text, so match the needle as it appears in HTML
+  # (a URL with &query=params otherwise false-fails against &amp;)
+  needle="${needle//&/&amp;}"; needle="${needle//</&lt;}"; needle="${needle//>/&gt;}"
   if [ -s "$cd/records.html" ] && [ -n "$needle" ] && grep -qF "$needle" "$cd/records.html"; then
     ok "$id" "$label present in records html export"
   else
@@ -168,12 +171,20 @@ if require_cred "$C.lens" APIFY_TOKEN "skipping lens reverse image search"; then
   assert_scan_hits "$C.lens.query" "$out" "lens reverse image"
   match="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.match // empty' 2>/dev/null)"
   assert_nonempty "$C.lens.match" "$match" "lens hit carries a match kind (exact|visual)"
-  # exact-match thumbnails are materialized into the case media dir as evidence
-  thumb="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and .payload.match=="exact")][0].payload.thumbnail_path // empty' 2>/dev/null)"
-  if [ -n "$thumb" ] && [ -s "$thumb" ]; then
-    ok "$C.lens.thumb" "exact match thumbnail materialized: $(basename "$thumb")"
+  # exact-match thumbnails are materialized into the case media dir as evidence.
+  # Whether Lens returns an EXACT match at all is live-data variance (some runs
+  # are all-visual) — only the materialization of a returned exact match is ours
+  # to assert, so a no-exact-match run skips instead of false-failing.
+  exact="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and .payload.match=="exact")] | length' 2>/dev/null)"
+  if [ "${exact:-0}" -gt 0 ] 2>/dev/null; then
+    thumb="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and .payload.match=="exact")][0].payload.thumbnail_path // empty' 2>/dev/null)"
+    if [ -n "$thumb" ] && [ -s "$thumb" ]; then
+      ok "$C.lens.thumb" "exact match thumbnail materialized: $(basename "$thumb")"
+    else
+      fail "$C.lens.thumb" "exact lens match returned but no thumbnail materialized"
+    fi
   else
-    fail "$C.lens.thumb" "no materialized thumbnail for an exact lens match"
+    skip "$C.lens.thumb" "lens returned no exact match this run (all visual) — nothing to materialize"
   fi
   lensurl="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")][0].payload.url // empty' 2>/dev/null)"
   assert_export_has "$C.lens.export" "$CASE" "$lensurl" "lens image match url"
