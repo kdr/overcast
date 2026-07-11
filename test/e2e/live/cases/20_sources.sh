@@ -303,6 +303,11 @@ assert_nonempty "$C.dispatch.title" "$dtitle" "dispatch hit carries a call-type 
 # and which is why the row-hash fallback was removed.
 dref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("/resource/.*\\.json\\?") and (contains("#")|not)) then "ok" else "" end' 2>/dev/null)"
 assert_nonempty "$C.dispatch.ref" "$dref" "dispatch refs are per-row query deep links (no fragments)"
+# preset call times must carry an explicit zone (Z or ±HH:MM) — Socrata serves
+# FLOATING local datetimes, and a zone-less created/published is read as UTC
+# downstream (map/situation), shifting US call times by ~7-8h.
+dzone="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and .payload.published != null)|.payload.published] | if length > 0 and all(test("(Z|[+-][0-9]{2}:?[0-9]{2})$")) then "ok" else "" end' 2>/dev/null)"
+assert_nonempty "$C.dispatch.zone" "$dzone" "dispatch preset call times carry an explicit UTC offset"
 unset OVERCAST_SOURCE_DISPATCH_CMD
 
 # --- instagram + telegram (Apify) — small limits to keep cost low ---

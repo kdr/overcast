@@ -62,10 +62,10 @@ case "$op" in
     # the generic <domain>/<dataset> form defaults the date column to the SODA
     # system field :updated_at (works in $where AND $order on any dataset),
     # overridable with an @<datefield> suffix.
-    domain=""; ds=""; datefield=""
+    domain=""; ds=""; datefield=""; tz=""
     case "$query" in
-      sf)      domain="data.sfgov.org";   ds="gnap-fj3t"; datefield="received_datetime" ;;
-      seattle) domain="data.seattle.gov"; ds="kzjm-xkqj"; datefield="datetime" ;;
+      sf)      domain="data.sfgov.org";   ds="gnap-fj3t"; datefield="received_datetime"; tz="America/Los_Angeles" ;;
+      seattle) domain="data.seattle.gov"; ds="kzjm-xkqj"; datefield="datetime";          tz="America/Los_Angeles" ;;
       */*)
         rest="$query"; datefield=":updated_at"
         case "$rest" in *@*) datefield="${rest##*@}"; rest="${rest%@*}" ;; esac
@@ -82,13 +82,26 @@ case "$op" in
     [[ "$ds" =~ ^[A-Za-z0-9_-]+$ ]]       || { echo "dispatch: invalid dataset '$ds'" >&2; exit 1; }
     [[ "$datefield" =~ ^:?[A-Za-z0-9_]+$ ]] || { echo "dispatch: invalid date field '$datefield'" >&2; exit 1; }
 
+    # Socrata datetimes are FLOATING (no Z — the feed's LOCAL clock). Presets pin
+    # the feed's IANA zone; its CURRENT UTC offset (computed once per enumerate —
+    # worst case a row on the far side of a DST flip is 1h off, vs 7-8h if local
+    # were read as UTC) drives two corrections below: the --since cutoff is
+    # formatted in FEED-LOCAL time (an exact window, not one narrowed by the UTC
+    # offset), and emitted created/published carry an explicit ±HH:MM so
+    # downstream consumers that read zone-less as UTC (map/situation recency +
+    # --since) rank call times correctly. The generic form has no known zone →
+    # floating passthrough (documented; its :updated_at default is real UTC).
+    tzoff=""
+    if [ -n "$tz" ]; then
+      rawoff="$(TZ="$tz" date +%z 2>/dev/null || echo '')"
+      case "$rawoff" in [+-][0-9][0-9][0-9][0-9]) tzoff="${rawoff%??}:${rawoff#???}" ;; esac
+    fi
+
     # honor --since → $where=<datefield> > '<cutoff>'. Portable epoch→stamp: BSD
     # date uses `-r <epoch>`, GNU date uses `-d @<epoch>` (mirrors overpass.sh).
-    # Socrata datetimes are FLOATING (no Z, typically the feed's LOCAL clock), so
-    # the cutoff is formatted floating too — computed in UTC, so against a
-    # local-clock feed the effective window is skewed by that feed's UTC offset
-    # (a few hours for the US presets). Acceptable for a recency filter; prefer
-    # a window comfortably larger than the skew (e.g. --since 1d, not 1h).
+    # With a pinned zone the cutoff is feed-local (exact); otherwise UTC —
+    # against an unknown local-clock generic feed the window skews by that
+    # feed's UTC offset, so prefer a window comfortably larger (--since 1d).
     whereparam=""
     if [ -n "$since" ]; then
       now="$(date -u +%s)"; cutepoch=""
@@ -105,7 +118,11 @@ case "$op" in
         *) echo "dispatch: could not parse --since '$since' (use Ns/Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
       esac
       [ -n "$cutepoch" ] || { echo "dispatch: could not parse --since '$since'" >&2; exit 1; }
-      cutoff="$(date -u -r "$cutepoch" +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -d "@$cutepoch" +%Y-%m-%dT%H:%M:%S 2>/dev/null || echo '')"
+      if [ -n "$tz" ]; then
+        cutoff="$(TZ="$tz" date -r "$cutepoch" +%Y-%m-%dT%H:%M:%S 2>/dev/null || TZ="$tz" date -d "@$cutepoch" +%Y-%m-%dT%H:%M:%S 2>/dev/null || echo '')"
+      else
+        cutoff="$(date -u -r "$cutepoch" +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -d "@$cutepoch" +%Y-%m-%dT%H:%M:%S 2>/dev/null || echo '')"
+      fi
       [ -n "$cutoff" ] || { echo "dispatch: could not format --since '$since' into a timestamp" >&2; exit 1; }
       whereparam="$datefield > '$cutoff'"
     fi
@@ -127,7 +144,7 @@ case "$op" in
       echo "dispatch enumerate: unexpected response: $(printf '%s' "$run" | head -c 200)" >&2
       exit 1
     fi
-    printf '%s' "$run" | jq -c --arg domain "$domain" --arg ds "$ds" --arg df "$datefield" '
+    printf '%s' "$run" | jq -c --arg domain "$domain" --arg ds "$ds" --arg df "$datefield" --arg tzoff "$tzoff" '
       # gps auto-detect, per row: numeric latitude/longitude columns (Seattle
       # serves them as STRINGS — tonumber), else the first value that looks like
       # a GeoJSON point ({type:"Point",coordinates:[lng,lat]} — SF
@@ -174,8 +191,13 @@ case "$op" in
         # CAD date columns, then the always-selected :updated_at system field
         # (which covers the generic form — its default date column IS
         # :updated_at). map ranks by payload.created — same convention as
-        # overpass/firms.
+        # overpass/firms. A FLOATING (zone-less) value from a zone-pinned preset
+        # gets the feed'\''s explicit ±HH:MM appended — downstream (map/situation)
+        # reads zone-less as UTC, which would shift US call times by hours;
+        # values already carrying Z/an offset (:updated_at) pass through.
         | ($r[$df]? // $r.received_datetime? // $r.datetime? // $r[":updated_at"]? // null) as $when
+        | (if $when != null and $tzoff != "" and (($when|tostring) | test("(Z|[+-][0-9]{2}:?[0-9]{2})$") | not)
+           then ($when|tostring) + $tzoff else $when end) as $when
         | {
             title: (detect_title($r) // ($ds + " row #" + ($i|tostring))),
             url: $link,
