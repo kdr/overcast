@@ -29,8 +29,9 @@ export function reportRemoteMediaEnabled(): boolean {
  *  outbound load so an auto-opened report can't beacon the analyst to an
  *  investigated host; only inlined `data:` + local `file:` media (and, with the
  *  opt-in, remote http/https) are allowed. `style-src`/`script-src` cover the
- *  shells' inline `<style>`/`<script>` — `script` is passed only by the wall
- *  shell (the report shells run no scripts). One line guards every embed site. */
+ *  shells' inline `<style>`/`<script>` — `script` is passed only by the wall and
+ *  graph shells (the report shells run no scripts). One line guards every embed
+ *  site. */
 export function reportCsp(opts: { script?: boolean } = {}): string {
   const remote = reportRemoteMediaEnabled() ? " https: http:" : "";
   const directives = [

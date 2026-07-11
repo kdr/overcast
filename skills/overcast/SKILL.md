@@ -45,6 +45,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `wall` — Open a control-room monitor wall: case videos looping at their evidence moments.
 - `map` — Plot every case record carrying GPS coordinates on a self-contained HTML map.
 - `devices` — Correlate case media by camera fingerprint (make/model/serial/lens) and report shared-device clusters.
+- `graph` — Build the case knowledge graph and render it as a self-contained interactive HTML viewer.
 - `scan` — Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
 - `capture` — Fetch a resource (URL / scan.hit / local path) into the case as a capture record.
 - `monitor` — scan on a loop; diff against the seen-set; pipe new items into a sense. --once or --every <interval>.

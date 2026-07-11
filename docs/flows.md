@@ -907,6 +907,53 @@ failed C2PA `validation_state` ("provenance validation failed") emit suggested
 findings (`case setup --findings-forensics off` to silence them). GPS-present is
 deliberately not a lead — it feeds the map, not the queue.
 
+### 21b. Connect the dots — the case knowledge graph
+
+Once a case has some evidence, `graph` rolls the whole record store into ONE
+self-contained interactive HTML graph — the "connect the dots" board. It's a pure
+read over case memory (like `map`/`devices`), operational (never re-enters
+`ask`/`brief` evidence), and fully offline (hand-rolled inlined canvas force
+layout, `default-src 'none'` CSP, no CDN).
+
+```bash
+overcast graph --no-open                 # build .overcast/media/graph.html, emit the node/edge JSON
+overcast graph                           # + launch it in the browser
+overcast graph --focus rec_ab12…         # restrict to the 2-hop neighborhood of a node/record/entity
+overcast graph --focus "white van"       # focus by target/entity text or a media filename
+overcast graph --since 7d --limit 250    # recent slice; trim to 250 nodes (leaf entities go first)
+overcast graph --theme csi               # dark control-room palette
+overcast graph --extract                 # + opt-in brain-LLM entity/relation pass (BYO, text-only)
+```
+
+What lands on the board (all deterministic, always on): **record** nodes (the
+same `memoryRecords` evidence boundary as `ask`/`brief` — operational records,
+dismissed findings, and unreviewed suggested leads stay out), **media** hubs
+(multiple senses over one file link through it), **target** lines of
+investigation, accepted/open **finding**s, **person** nodes from `cluster`,
+**device** camera fingerprints (shared with `devices`), **place** nodes
+(`payload.place` + coarse GPS buckets), and typed **entity** nodes harvested by
+conservative regex over the same text index (email, phone, `@handle`,
+url/domain, hashtag) plus structural lifts (exif `serial`, scan handles/identity
+fields). Edges carry the provenance record id: record↔media, finding→source and
+finding→target, note→record, match-verb links (face/image/audio/voice/similar
+query↔matched media), device membership, entity mentions, and the SHARED
+target↔evidence thread matcher that `brief`/`case status` use.
+
+`--extract` is the only path that touches an LLM: it resolves the configured
+brain (BYO — never a hardcoded provider; text-only, no image check) and asks for
+strict-JSON entities/relations per evidence record, caching to
+`.overcast/graph/extract.jsonl` (re-runs skip cached records; delete the file to
+re-extract). Extracted nodes/edges are dashed and marked **leads, not proof** —
+the record carries `payload.caveat` and, like `reconstruct`, they never become
+`ask`/`brief` evidence. With no brain configured, extraction degrades to a note
+and the structural graph still renders.
+
+Click any node in the viewer to inspect its edges and get
+`overcast view <rec_id>` / `overcast case memory get <rec_id>` command hints (the
+CSP blocks navigation, so they're copyable text). Rendered evidence text is
+untrusted (invariant #10): both the viewer JSON embedding and the extraction
+prompt treat in-record imperatives as data, never instructions.
+
 ### 22. CSI / crime-trope skills (packaged flows)
 
 Several of the flows above are packaged as installable agent **skills** — a
@@ -1087,6 +1134,7 @@ packages this flow.
 | `wall` | inspect | `wall` | local HTML wall (file:// refs) | none | Control-room monitor wall |
 | `map` | inspect | `media.map` | local HTML map (OSM tiles / `--offline`) | none | Plot GPS-bearing records |
 | `devices` | inspect | `devices` | local rollup over `exif` records | none | Camera-fingerprint clusters (`--findings`) |
+| `graph` | inspect | `media.graph` | local rollup + HTML force-graph | brain LLM (only with `--extract`) | Case knowledge graph ("connect the dots") |
 | `scan` | osint | `scan.hit` / local summary | source providers; local fallback | `OVERCAST_SOURCE_*_CMD` | Discovery / local scan |
 | `capture` | osint | `capture` | local copy/stdin or source fetch | source provider | Acquire media/content |
 | `monitor` | osint | `scan.hit` + capture/sense | scan/capture/sense chain | source + sense overrides | Repeated discovery w/ dedupe |

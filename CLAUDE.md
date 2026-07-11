@@ -201,10 +201,25 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   online = inlined-JS OSM raster tiles at view time, `--offline` = coordinate
   scatter + openstreetmap.org deep links, no egress; `--since`/`--limit`/`--theme`/
   `--no-open`; recency uses exif capture time, not ingest),
-  `devices` (case-wide rollup grouping `exif` records by camera fingerprint —
-  serial-only strong link, make+model+lens weak fallback; one entry per file; a
-  pure read over case memory, `--min`, `--findings` emits serial-linked suggested
-  findings). `map` + `devices` are operational (out of `ask`/`brief` evidence).
+ `devices` (case-wide rollup grouping `exif` records by camera fingerprint —
+ serial-only strong link, make+model+lens weak fallback; one entry per file; a
+ pure read over case memory, `--min`, `--findings` emits serial-linked suggested
+ findings),
+ `graph` (case knowledge graph — "connect the dots": records (ask/brief evidence
+ boundary via `memoryRecords`), shared media hubs, targets, accepted/open findings,
+ cluster people, device fingerprints, places, and regex-harvested typed entities
+ (email/phone/@handle/url/domain/hashtag + exif serial / scan identity lifts)
+ rendered as ONE self-contained interactive HTML force-graph (hand-rolled canvas
+ JS, no CDN/egress; pan/zoom/drag, type toggles, text filter, node inspector with
+ `view`/`case memory get` hints); edges carry provenance record ids —
+ record↔media, finding→source/target, note→record, match-verb links, device
+ membership, entity mentions, and the SHARED thread matcher for target↔evidence;
+ `--extract` adds an opt-in brain-LLM entity/relation pass (BYO, text-only,
+ cached to `.overcast/graph/extract.jsonl`, delete to re-extract; results are
+ marked leads-not-proof with `payload.caveat`), `--focus` = 2-hop neighborhood,
+ `--limit` trims lowest-degree leaf entities first, `--since`, `--theme
+ plain|csi`, `--no-open`). `map` + `devices` + `graph` are operational (out of
+ `ask`/`brief` evidence).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens + yandeximg reverse-image / dl generic-yt-dlp capture / instagram / telegram /
   gdelttv broadcast-TV / wayback deleted-web / overpass OSM-features / firms active-fires /
@@ -356,7 +371,7 @@ exif verify screenshot chronolocate` + root `finding`s + `cluster` ingest/identi
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index archive target source
-prebrief wall grid map devices reconstruct` — reconstruct deliberately: synthesized pixels
+prebrief wall grid map devices graph reconstruct` — reconstruct deliberately: synthesized pixels
 stay out of evidence, `payload.caveat` on every record —, finding review-rows,
 dismissed **and suggested** findings (a
 suggested lead is quarantined until `finding accept` promotes it), cluster DB

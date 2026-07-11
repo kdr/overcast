@@ -535,6 +535,29 @@ Options:
 
 Emits `devices` records.
 
+### `overcast graph`
+
+Connects the dots across the case: evidence records (the same ask/brief evidence boundary), shared media, targets (lines of investigation), accepted/open findings, cluster people, camera-fingerprint devices, places (payload.place / GPS), and typed entities harvested by conservative regex from evidence text (email, phone, @handle, url/domain, hashtag) plus structured lifts (exif serial, scan handles/identity fields). Edges carry provenance record ids: record↔media, finding→source/target, note→record, match-verb links (face/image/audio/voice/similar), device membership, entity mentions, and the shared target↔evidence thread matcher. --extract additionally runs the configured brain LLM (BYO, text-only) over evidence text for entity/relation extraction — results cache to .overcast/graph/extract.jsonl (delete the file to re-extract) and are marked as leads, not proof. --focus restricts to the 2-hop neighborhood of a node/record/entity; --limit trims lowest-degree leaf entities first (never records with findings). The viewer is fully offline: inlined hand-rolled canvas force layout, pan/zoom, per-type toggles, text filter, and a node inspector with `overcast view` / `case memory get` command hints.
+
+```
+overcast graph  [options]
+
+  Build the case knowledge graph and render it as a self-contained interactive HTML viewer.
+
+Options:
+  --extract              Also run the brain LLM over evidence text for entity/relation extraction (cached)
+  --since <string>       Only evidence since (e.g. 24h, 7d, 2026-06-01)
+  --limit <number>       Max nodes (lowest-degree leaf entities trim first) (default: 400)
+  --focus <string>       Restrict to the 2-hop neighborhood of a node id, record id, media ref, or entity text
+  --export <string>      Graph HTML path (default: .overcast/media/graph.html)
+  --no-open              Write the viewer but don't launch it
+  --theme <string>       HTML theme: plain | csi (default: plain)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `media.graph` records.
+
 ## OSINT
 
 ### `overcast scan`

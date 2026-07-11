@@ -23,6 +23,7 @@ import { gridVerb } from "../verbs/grid.js";
 import { wallVerb } from "../verbs/wall.js";
 import { mapVerb } from "../verbs/map.js";
 import { devicesVerb } from "../verbs/devices.js";
+import { graphVerb } from "../verbs/graph.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
 import { provenanceFromCapture, stampProvenance } from "../verbs/provenance.js";
 import { provenanceCase, stampArchive } from "../archive.js";
@@ -125,6 +126,7 @@ export const VERBS: VerbSpec[] = [
   wallVerb,
   mapVerb,
   devicesVerb,
+  graphVerb,
   scanVerb,
   captureVerb,
   monitorVerb,

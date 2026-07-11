@@ -89,7 +89,7 @@ export interface BrainSeeCtx {
 /** Describe an image with the configured brain LLM. `imageRef` must be a local
  *  file path (frame:// refs are already resolved by the caller). */
 export async function seeWithBrain(imageRef: string, ctx: BrainSeeCtx): Promise<BrainSeeResult> {
-  const resolved = await resolveVisionModel(ctx.profile, ctx.signal);
+  const resolved = await resolveBrainModel(ctx.profile, { requireImage: true });
   if (resolved.kind !== "model") return { kind: "unavailable", reason: resolved.reason };
   const { models, model } = resolved;
 
@@ -130,16 +130,18 @@ export async function seeWithBrain(imageRef: string, ctx: BrainSeeCtx): Promise<
   }
 }
 
-// --- internals --------------------------------------------------------------
+// --- brain resolution (shared) -----------------------------------------------
 
-type ResolveResult =
+export type ResolveBrainResult =
   | { kind: "model"; models: MutableModels; model: Model<Api> }
   | { kind: "unavailable"; reason: string };
 
 /** Build a pi-ai Models with the builtin providers (auth auto-resolved from env)
- *  plus the turnkey Cloudglue provider, then resolve the chosen brain model and
- *  confirm it accepts image input. */
-async function resolveVisionModel(profile: Profile, _signal?: AbortSignal): Promise<ResolveResult> {
+ *  plus the turnkey Cloudglue provider, then resolve the chosen brain model.
+ *  `requireImage` additionally confirms the model accepts image input (the see
+ *  path); text-only consumers (graph --extract) skip that check. Shared so every
+ *  brain-bridge verb resolves the SAME BYO brain the profile/env points at. */
+export async function resolveBrainModel(profile: Profile, opts: { requireImage?: boolean } = {}): Promise<ResolveBrainResult> {
   const choice = resolveBrainChoice(profile);
   if (!choice) return { kind: "unavailable", reason: "no brain LLM is configured (set one with `setup llm`, or provide a Cloudglue key)" };
 
@@ -177,7 +179,7 @@ async function resolveVisionModel(profile: Profile, _signal?: AbortSignal): Prom
     await models.refresh(choice.provider).catch(() => {});
     model = choice.model
       ? models.getModel(choice.provider, choice.model)
-      : models.getModels(choice.provider).find((m) => supportsImage(m));
+      : models.getModels(choice.provider).find((m) => (opts.requireImage ? supportsImage(m) : true));
   }
   if (!model) {
     return {
@@ -185,7 +187,7 @@ async function resolveVisionModel(profile: Profile, _signal?: AbortSignal): Prom
       reason: `brain model ${choice.provider}${choice.model ? `/${choice.model}` : ""} not found (check \`setup llm\` / provider credentials)`,
     };
   }
-  if (!supportsImage(model)) {
+  if (opts.requireImage && !supportsImage(model)) {
     return { kind: "unavailable", reason: `brain model ${model.provider}/${model.id} has no image input` };
   }
   return { kind: "model", models, model };

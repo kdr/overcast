@@ -61,6 +61,9 @@ export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set([
   "collection",
   "devices",
   "doctor",
+  // graph restates evidence records as a rollup viewer (like map/devices) —
+  // its node/edge dump must never be re-cited as evidence itself.
+  "graph",
   "grid",
   "index",
   "map",
