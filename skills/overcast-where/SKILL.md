@@ -19,10 +19,10 @@ and the VLM only judges the crop. Use the broad `overcast` skill and
 `see --detect` needs a detection provider bound (boxes come from OWLv2, not the
 brain LLM):
 
-\`\`\`bash
+```bash
 scripts/visual-db-uv.sh --detect     # once: prints DETECT_PY (the venv python)
 export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # resolves detect.py's absolute path + venv python
-\`\`\`
+```
 
 ## Workflow
 
@@ -31,22 +31,22 @@ export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local 
 
 2. Detect the target in that frame, then materialize + verify the box:
 
-\`\`\`bash
+```bash
 overcast see frame://REC@T --detect "<target phrase>" --json      # -> see record with detections[]
 overcast crop <see-record-id> --all --class "<target phrase>" --pad 0.15 --json
 overcast see <crop-path> --prompt "Does this crop show <target>? yes/no + describe" --json
-\`\`\`
+```
 
    The re-`see` of each crop is what kills false positives — open-vocab detectors
    emit confident boxes for almost any phrase at low thresholds.
 
 3. Optionally sharpen the exhibit and record the finding:
 
-\`\`\`bash
+```bash
 overcast enhance <crop-path> --ops upscale,denoise --json
 overcast finding create "<target> located at T" --ref <see-record-id> --confidence medium --json
 overcast brief --export ./where.md --json
-\`\`\`
+```
 
 ## Output
 

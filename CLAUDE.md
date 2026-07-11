@@ -372,8 +372,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   creds), `skills` (generate/install).
 - **Base verbs from pi** (don't reimplement): `read write edit bash grep find ls`.
 
-Slash commands (TUI): `/target /source /index /archive /case /prebrief /view /wall /setup
-/provider /finding` (extension commands), `/chair` (man in the chair: token-authed
+Slash commands (TUI): `/target /source /index /archive /case /prebrief /view /wall /graph
+/map /setup /provider /finding` (extension commands), `/chair` (man in the chair: token-authed
 localhost/tailnet bridge + phone web console that remote-drives the live session —
 steer/follow-up/abort/case glance, typed or mic-dictated via the browser's Web
 Speech API (secure-context only — `/chair on --serve` fronts the QR with

@@ -15,12 +15,12 @@ broad `overcast` skill and `overcast/reference/verbs.md` for exact flags.
 
 ## Workflow
 
-\`\`\`bash
+```bash
 overcast doctor --json
 overcast case init --json
 overcast grid ./clip.mp4 --count 16 --json     # -> media.grid: payload.montage + payload.cells + payload.cols
 overcast see <montage-path> --prompt "Which numbered cells show <X>? Reply with cell numbers and why." --json
-\`\`\`
+```
 
 - If the grid record's `payload.labeled` is `false` (this ffmpeg build has no
   `drawtext`), tell `see` it's a `<cols>`-column grid numbered left-to-right,
@@ -34,12 +34,12 @@ overcast see <montage-path> --prompt "Which numbered cells show <X>? Reply with 
 Zoom in on the winning region (narrow the window, or hand the timestamp to
 `overcast-pinpoint`):
 
-\`\`\`bash
+```bash
 overcast grid ./clip.mp4 --start <a> --end <b> --count 16 --json   # finer sheet around the hit
 overcast see frame://<watch-record>@<t> --prompt "Is <X> here? yes/no + detail" --json
 overcast note "<X> first visible" --ref <record> --at <t1-t2> --json
 overcast brief --export ./grid-triage.md --json
-\`\`\`
+```
 
 Use `--at "s1,s2,s3"` instead of `--count` when you already have candidate
 timestamps to compare side by side; `--start/--end` to focus a window; `--cols`

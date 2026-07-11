@@ -71,7 +71,19 @@ a candidate lat/lng, cross-check WHEN with the offline sun/shadow solver:
 `overcast chronolocate <record-id> --at-time <claimed-iso>` flags a mis-dated
 image, `--shadow-azimuth <deg>` solves the local-time window a shadow implies.
 
-4. Record each clue and the location verdict. Point the finding's `--ref` at the
+4. Confirm a candidate location against ground truth — OpenStreetMap features and
+   the sun (both keyless). Once you have a lat/lng, `overpass:` pulls nearby OSM
+   features to check the scene actually contains what it should (a named café, a
+   fuel station, a fountain), and `chronolocate` cross-checks WHEN from shadows:
+
+```bash
+overcast source add "overpass:amenity=cafe@around:150,<lat>,<lng>" --json    # OSM features within 150m of the candidate
+overcast scan --source overpass --json                                        # each hit carries payload.gps → map
+overcast chronolocate <see-record-id> --lat <lat> --lng <lng> --shadow-azimuth <deg> --json  # solve the local-time window the shadow implies
+overcast chronolocate <exif-record-id> --at-time <claimed-iso> --json         # or verify a claimed capture time (needs the GPS)
+```
+
+5. Record each clue and the location verdict. Point the finding's `--ref` at the
    `lens`/`scan` hit that carried the strongest match, and ALWAYS leave a `tldr`
    note — even when the location stays undetermined:
 

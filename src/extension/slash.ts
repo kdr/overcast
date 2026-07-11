@@ -16,7 +16,7 @@ import { nativeReportFormat, renderForFormat, renderRecord } from "../render.js"
 import type { VerbContext } from "../registry/types.js";
 import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
 
-const SLASH_VERBS = ["target", "source", "index", "archive", "case", "prebrief", "view", "wall", "setup", "provider", "finding"];
+const SLASH_VERBS = ["target", "source", "index", "archive", "case", "prebrief", "view", "wall", "graph", "map", "setup", "provider", "finding"];
 const RESULT_TYPE = "overcast-result";
 
 function summarize(rec: OvercastRecord, format?: string): string {

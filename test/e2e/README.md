@@ -70,7 +70,12 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
 see/extract ≥ 0.3.7 + local OWLv2) ·
 `13_enhance_view` · `14_face` (real tinycloud face detect + `--match`) ·
 `15_crop` (materialize real detections as JPEGs) · `20_sources`
-(Tavily/Apify/yt-dlp) · `21_pipeline`
+(Tavily web / Serper `dork` / `shodan` / Apify tiktok·x·lens·yandeximg·instagram·
+telegram·identity / yt-dlp youtube, plus the keyless map/OSINT feeds
+gdelttv·dispatch·overpass·wayback·flights and the FIRMS_MAP_KEY-gated firms —
+each source's mapped-record contract asserted: top-level `payload.gps` for
+dispatch/overpass/firms/flights, snapshot URLs newest-first for wayback,
+per-row/element deep-link `media.ref` throughout) · `21_pipeline`
 (source→capture→sense) · `26_x_copycat` (x keyword text search + user-scoped
 video capture from the CDN + headless agent x sweep + headless
 overcast-copycat-sweep skill invocation with brief HTML export) ·
@@ -119,6 +124,35 @@ the target) ·
 (binary as artifact) · `70_headless` (agent `--mode json` event stream + `-p`
 tool use + watch/persist).
 
+The **findings / local-DB / split-op cases** fill in the middle of the range:
+`18_findings` (real `face --match` clears the threshold → an auto-`suggested`
+finding quarantined from evidence, then the triage queue, `accept` →
+corroborated/citable, a `thread:` narrative note on the mission-board line card, a
+dead-end line, and the short brief + `--full`; Cloudglue-gated) · `18_grid` (the
+`grid` contact-sheet trick — pure-ffmpeg tiling + the hardened variations
+(collision/blank-pad/`--at`/past-duration/audio reject), then a Cloudglue-gated
+frame-grid CoT loop: see the montage → cell→timestamp → `see frame://` verify) ·
+`18_separate` (`enhance --ops separate` → per-speaker tracks via fal sam-audio
+(FAL_KEY) and/or local pyannote, the one-record-per-track fan-out + `--summarize`)
+· `19_segment` (`enhance --ops segment` → text-prompted mask + cutout evidence via
+fal sam-3 and/or local GroundingDINO+SAM2, the per-instance fan-out + `crop`
+interop on the parent) · `28_audio_match_local` (the Shazam-style `audio-fp`
+fingerprint CORE, no creds — synth FM-chirp original into an index, then a
+transcoded+noised+clipped copy confirms at the right offset + an unrelated chirp is
+rejected, indexed AND clip-to-clip; ffmpeg + numpy/scipy) · `29_clap_db` (the
+local `basic-clap` CLAP DB — audio→audio + text→audio, HARD-GATED on `OC_CLAP_E2E=1`
+for the ~776MB weights) · `30_audio_match_realmedia` (fingerprinting a REAL video
+(OC_VIDEO_SPEECH) — self-location, transcode robustness, `--min-margin` speed-drift
+rejection, and a different-video negative) · `36_voice_match` (the local
+`voice-print` speaker-verification DB — enroll two speakers → same-speaker search →
+pairwise locate in a B-then-A concat; `say`/`OC_VOICE_*` fixtures, HARD-GATED on
+`OC_VOICE_E2E=1`, `--diarize` leg needs HF_TOKEN) · `37_voice_match_realmedia`
+(cross-segment speaker identity on a real single-speaker video — matches other
+non-overlapping segments, triggers across the clip, rejects a different speaker) ·
+`38_reconstruct` (real fal `reconstruct` — reposition + sweep + depth, the
+`outputs[]` fan-out + non-negotiable caveat + viewer routing; the `--ops model` 3D
+mesh lift gated on `OC_RECONSTRUCT_3D_E2E=1`).
+
 **Skill workflow cases (`80`–`89`)** — one per shipped CSI/crime-trope skill,
 each driving the skill's documented `overcast … --json` command chain against real
 media and asserting on the emitted records + saving the skill's artifact (brief /
@@ -144,9 +178,27 @@ headless and lets Claude drive the overcast binary; **opt-in** behind
 different modes/flags and asserts the outputs actually DIFFER — `listen` plain vs
 `--describe` (adds an audio-scene field, or an audio-only fallback warning) vs
 `--diarize` (speaker labels); `see --ocr` vs `--prompt`; `brief --theme plain` vs
-`csi` — saving every raw output for inspection.
+`csi` — saving every raw output for inspection. `91_skill_scanner` drives the
+`overcast-scanner` chain against the REAL keyless SF Socrata CAD feed (source add
+`dispatch:sf` → line of investigation → live scan → `monitor --once` dedup pass →
+csi `map` export with the call coordinates → finding stamped onto the line;
+skips cleanly if the rolling window is empty). `92_skill_connect_dots` drives
+`overcast-connect-the-dots` with no creds at all (notes sharing an email/handle →
+finding on the line → `graph --theme csi` board asserting entity harvest + thread
+edges in the HTML → 2-hop `--focus` view on the shared email).
 
-The offline suite also covers setup management (`phase4_setup`): `case setup
+The **offline suite** (`test/e2e/cases/phase*.sh`, run by `npm run test:e2e`)
+exercises the same CLI surface with fixture providers; the notes below
+**highlight the notable cases rather than list every one** — the full set lives
+in `test/e2e/cases/`. It runs the core senses over a generated clip
+(`phase2_senses`), the speculative `reconstruct` `outputs[]` fan-out + evidence
+quarantine via a fixture provider (`phase2_reconstruct`), the OSINT round-trip
+over a committed fixture source — `prebrief` → target/source → `scan --pull` →
+`monitor --once` diff (`phase3_osint`), the example providers' `describe` +
+profile-resolution contract (`phase8_providers`), and headless browser capture +
+the SSRF loopback guard via the fixture engine (`phase9_screenshot`).
+
+It also covers setup management (`phase4_setup`): `case setup
 plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
 and exclusion of setup history records from memory — plus the control-room wall
 (`phase6_wall`): empty-case pending guidance, then a themed wall over seeded
@@ -155,7 +207,13 @@ case knowledge graph (`phase6_graph`): empty-case pending guidance, then
 nodes/edges over seeded note/target/finding evidence (regex-harvested email
 entity, finding→source edge), `--focus` narrowing (an island note must drop
 out), focus-miss pending guidance, and a self-contained HTML viewer with no
-external assets — plus the
+external assets — plus the live monitoring page (`phase6_situation`):
+`situation status` on an empty case → not-running, then a BACKGROUNDED
+token-authed `serve` on an ephemeral port (discovered via `runtime.json`), the
+`/api/state` auth boundary (401 without the token, 200 + JSON snapshot with it) +
+the static console shell, a cross-process `situation set` the running server
+consumes (`control.json` swept on its ~2s tick), and a graceful `situation stop`
+that exits the serving process + sweeps `runtime.json` — plus the
 global archive (`phase9_archive`): bucket init/add/dedup/show under an isolated
 `OVERCAST_HOME`, `capture archive:…` pulls, `ask --archive`, the setup wizard
 plan/apply with a local index + backfill, and the doctor bucket check; and

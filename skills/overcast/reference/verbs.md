@@ -733,12 +733,12 @@ Emits `answer` records.
 
 ### `overcast brief`
 
-Produces a structured report from accumulated records. --export writes a shareable md/html artifact (format inferred from the file extension).
+Story-first case brief, short by default: Verdict (analyst tldr note leading; coverage/pulse/delta demoted to one meta line) → one story per line of investigation (question → answer-so-far → linked findings → latest evidence → NEXT) → unattached findings → triage queue → coverage table → newest-first record trail. --full swaps in the verbatim chronological record dump (audit). --export writes a shareable md/html artifact (format inferred from the file extension).
 
 ```
 overcast brief  [options]
 
-  Synthesize the case records into a report (timeline + findings); --export to md/html.
+  Mission brief: verdict + one story per line of investigation; short by default, --full for the audit dump; --export to md/html.
 
 Options:
   --scope <string>       Filter, e.g. since:24h or verb:watch
@@ -889,7 +889,7 @@ Emits `finding` records.
 
 ### `overcast case`
 
-A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case status` reports setup/store/memory health; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
+A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; `case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; `case status` prints the mission board (lines of investigation + triage + coverage) over setup/store/memory health; `case info` shows state; `case records [--verb] [--since]` lists records; `case memory <list|get|search|index> [q]` routes to the bound memory providers. `case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. `case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] [--limit M]` to page a large field (e.g. a watch `content`) in full — never head/tail the raw jsonl.
 
 ```
 overcast case <action> [sub] [arg] [options]

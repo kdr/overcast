@@ -26,6 +26,14 @@ import {
   generateEventBisectSkill,
   generateWhereSkill,
   generatePresenceWindowSkill,
+  generateSituationRoomSkill,
+  generateConnectTheDotsSkill,
+  generateScannerSkill,
+  generateVoiceprintSkill,
+  generateCameraBallisticsSkill,
+  generateVerifyMediaSkill,
+  generateSkipTraceSkill,
+  generateAudioMatchSkill,
 } from "../../src/skill-gen.ts";
 import { VERBS } from "../../src/registry/verbs.ts";
 
@@ -78,6 +86,8 @@ const generatedSkills = [
     name: "overcast-archive",
     body: generateArchiveSkill,
     verbs: ["archive init", "archive add", "archive show", "archive setup", "face", "similar", "image", "audio", "cluster", "watch", "capture", "ask"],
+  },
+  {
     name: "overcast-dork-recon",
     body: generateDorkReconSkill,
     verbs: ["doctor", "case init", "case setup", "source add", "scan", "finding", "note", "ask", "brief"],
@@ -166,6 +176,46 @@ const generatedSkills = [
     name: "overcast-presence-window",
     body: generatePresenceWindowSkill,
     verbs: ["doctor", "case init", "watch", "face", "grid", "see", "note", "view", "brief"],
+  },
+  {
+    name: "overcast-situation-room",
+    body: generateSituationRoomSkill,
+    verbs: ["doctor", "case init", "source", "monitor", "situation", "wall", "map"],
+  },
+  {
+    name: "overcast-connect-the-dots",
+    body: generateConnectTheDotsSkill,
+    verbs: ["doctor", "case init", "graph", "finding", "note", "brief"],
+  },
+  {
+    name: "overcast-scanner",
+    body: generateScannerSkill,
+    verbs: ["doctor", "case init", "source", "scan", "monitor", "map", "finding", "note", "brief"],
+  },
+  {
+    name: "overcast-voiceprint",
+    body: generateVoiceprintSkill,
+    verbs: ["doctor", "case init", "index", "voice", "listen", "finding", "note", "brief"],
+  },
+  {
+    name: "overcast-camera-ballistics",
+    body: generateCameraBallisticsSkill,
+    verbs: ["doctor", "case init", "exif", "devices", "graph", "map", "finding", "note", "brief"],
+  },
+  {
+    name: "overcast-verify-media",
+    body: generateVerifyMediaSkill,
+    verbs: ["doctor", "case init", "verify", "exif", "enhance", "chronolocate", "note", "finding", "brief"],
+  },
+  {
+    name: "overcast-skip-trace",
+    body: generateSkipTraceSkill,
+    verbs: ["doctor", "case init", "source", "scan", "graph", "note", "finding", "brief"],
+  },
+  {
+    name: "overcast-audio-match",
+    body: generateAudioMatchSkill,
+    verbs: ["doctor", "case init", "index", "audio", "similar", "finding", "note", "brief"],
   },
 ];
 

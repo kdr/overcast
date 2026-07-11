@@ -74,6 +74,14 @@ optional dep), then `monitor --every 30m` — each pass re-renders the current
 page state to a PNG that flows into image auto-sense. `wayback:<url>` is the
 retrospective twin (its `collapse=digest` view surfaces content changes).
 
+**Live watch surface.** `wall` is the static option (a written HTML snapshot you
+regenerate). For a LIVE self-updating page, an **operator** serves the situation
+room — `overcast situation` in its own pane, or `/situation on` in the TUI — with
+`--every` letting the page own the monitor cadence. Opening the listener is an
+operator action; the agent never runs `serve`. The agent then retunes it with
+`situation set`, reads `situation status`, and halts it with `situation stop` as
+leads accrue. Full drill: `overcast-situation-room`.
+
 ## Output
 
 A standing case that accrues cited findings over time: accepted matches with their

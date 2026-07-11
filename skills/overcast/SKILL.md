@@ -58,7 +58,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `finding` — Create and review findings (create|list|accept|dismiss).
 - `prebrief` — Stand up a case: name + target + source in one shot (non-interactive via flags).
 - `ask` — Natural-language query over the case memory; answers with record.id + media.at citations.
-- `brief` — Synthesize the case records into a report (timeline + findings); --export to md/html.
+- `brief` — Mission brief: verdict + one story per line of investigation; short by default, --full for the audit dump; --export to md/html.
 - `case` — Inspect/manage the current case: init | setup | status | info | records | memory | clear.
 - `setup` — Bind the brain LLM + per-verb providers and manage profiles (setup provider|llm|memory|show).
 - `provider` — Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).
@@ -243,6 +243,103 @@ unique people; use `--match <photo>` for a specific person and `crop` when
 you need durable cropped image evidence. If a local video lacks descriptive
 content evidence, add it to the index with `overcast index add ./clip.mp4 --to
 <id>`; overcast will create the missing `watch` record for local case memory.
+
+### Situation room (live monitoring page)
+
+Stand a self-updating multi-panel page over the case — wall tiles + a reverse-chron
+scan/monitor feed + a live GPS map (`flights` build tracks) + refreshing
+webcam/browser stills, panels auto-picked from the configured sources. Opening the
+listener is an **operator** action: a human runs `overcast situation` in its own
+pane (or `/situation on` in the TUI). The agent NEVER runs `serve` — it drives a
+running page through the control plane (`status` / `set` / `stop`):
+
+```bash
+overcast situation status --json                                   # is a page live? panels + filters
+overcast situation set --panels wall,feed,map --since 24h --json   # retune a running page cross-process
+overcast situation set --clear panels,since --json                 # drop filters back to auto
+overcast situation stop --json                                     # stop via the control file
+```
+
+`--every <interval>` (operator, at serve time) makes the serving process own the
+monitor cadence too. `OVERCAST_REPORT_REMOTE_MEDIA` gates remote embeds; local
+media streams over the token-authed `/media` Range route. `wall` is the static
+fallback when no listener should be opened. Full walkthrough:
+`overcast-situation-room`.
+
+### Connect the dots (case knowledge graph)
+
+`graph` renders the whole case as ONE self-contained interactive HTML force-graph —
+records, shared-media hubs, targets, accepted/open findings, cluster people, device
+fingerprints, places, and regex-harvested typed entities (email / phone / @handle /
+url / domain) — with every edge carrying its provenance record id. Read the hubs,
+then `--focus` a node for its 2-hop neighborhood:
+
+```bash
+overcast graph --no-open --json                                     # build + inspect the graph
+overcast graph --focus <target | finding | record-id | entity-text> --json   # 2-hop neighborhood
+overcast graph --since 7d --limit 400 --extract --json              # capture-time window + opt-in LLM pass
+```
+
+`--extract` runs an opt-in **brain-LLM** (BYO, text-only) entity/relation pass
+cached to `.overcast/graph/extract.jsonl` (delete the file to re-extract); its
+output is **leads-not-proof** (`payload.caveat`), never evidence. `--since` is
+capture-time-aware, `--limit` trims lowest-degree leaf entities first. `graph` is
+operational — out of ask/brief. Full walkthrough: `overcast-connect-the-dots`.
+
+### Ears (voice-print + audio fingerprint indexes)
+
+The audio counterpart to "Faces & indexes": two LOCAL audio DBs answer different
+questions. `voice` (speaker verification over a `voice-print` index) finds
+WHERE / WHICH a reference speaker talks; `audio` (Shazam-style fingerprint over an
+`audio-fp` index) finds the SAME recording surfacing again with time-offset
+alignment:
+
+```bash
+overcast index create voices --type voice-print --local --json
+overcast voice add ./ref.wav --index voices --json          # enroll the reference speaker
+overcast voice match ./clip.wav ./sample.wav --json         # rank WHERE the sample speaker talks (windowed)
+overcast voice match ./sample.wav --index voices --json     # rank WHICH members contain the speaker
+overcast index create audio --type audio-fp --local --json
+overcast audio add ./known.mp3 --index audio --json
+overcast audio match ./query.mp3 --index audio --min-margin 2 --draw --json  # exact-recording match + SVG proof
+```
+
+`voice` similarity is an anchored-cosine 0–100 RANK score (never 0–1); `--diarize`
+is the HF-gated overlap-aware tier (windowed fallback), `--min-margin` gates
+best-vs-runner-up. Neither verb is liveness — a clone / TTS scores high, so every
+record carries `payload.caveat`. `audio` is robust to transcode/noise but NOT to
+pitch/speed change; `--min-margin` rejects sped-up re-uploads. Both surface through
+`finding` triage. Walkthroughs: `overcast-voiceprint`, `overcast-audio-match`.
+
+### Camera ballistics (same-camera linking)
+
+Run `exif` over every case image/video to lift the device make/model/lens/serial +
+capture time + GPS, then `devices` rolls the case up by camera fingerprint:
+
+```bash
+overcast exif ./photo1.jpg --json          # device make/model/lens/serial, capture time, GPS
+overcast devices --min 2 --findings --json # group media that share a camera fingerprint
+```
+
+A shared `serial` is a STRONG link; make+model+lens is a WEAK fallback — `devices`
+labels which. `--findings` emits serial-linked `suggested` findings (triage them).
+The exif editing-software field is a manipulation lead; exif GPS feeds `map` and
+`chronolocate`. Full walkthrough: `overcast-camera-ballistics`.
+
+### When was this taken (sun/shadow chronolocation)
+
+`chronolocate` is pure offline solar math (no API/key) over a record's
+`payload.gps` (or `--lat`/`--lng`). Pass `--at-time` to CHECK a claimed capture
+time, or `--shadow-azimuth` to SOLVE the local-solar-time window a shadow bearing
+implies:
+
+```bash
+overcast chronolocate <record-id> --at-time 2026-07-04T15:00:00Z --json         # verify: shadow mismatch flags a mis-dated/staged image
+overcast chronolocate <record-id> --shadow-azimuth 300 --height-ratio 1.4 --json  # solve: local-time window(s)
+```
+
+The result carries `payload.gps` (plots on `map`) and `payload.caveat` — it is a
+lead, not proof.
 
 ### Reading large records
 
