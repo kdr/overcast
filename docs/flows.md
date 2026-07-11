@@ -920,7 +920,7 @@ overcast graph --no-open                 # build .overcast/media/graph.html, emi
 overcast graph                           # + launch it in the browser
 overcast graph --focus rec_ab12…         # restrict to the 2-hop neighborhood of a node/record/entity
 overcast graph --focus "white van"       # focus by target/entity text or a media filename
-overcast graph --since 7d --limit 250    # recent slice; trim to 250 nodes (leaf entities go first)
+overcast graph --since 7d --limit 250    # recent slice (capture-time-aware, like map); trim to 250 nodes (leaf entities go first)
 overcast graph --theme csi               # dark control-room palette
 overcast graph --extract                 # + opt-in brain-LLM entity/relation pass (BYO, text-only)
 ```

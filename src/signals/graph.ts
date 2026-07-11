@@ -9,7 +9,7 @@
  * suggested leads never enter the graph. Entity harvesting reads the SAME text
  * ask/brief index (`indexableDocument`), so raw boxes/vectors/dumps stay out.
  */
-import { memoryRecords, recordStub, recordTimeMs, type OvercastRecord } from "../record.js";
+import { memoryRecords, recordCaptureTimeMs, recordStub, type OvercastRecord } from "../record.js";
 import { indexableDocument } from "../providers/memory/fields.js";
 import { buildDeviceClusters } from "./devices.js";
 import { buildThreads } from "./threads.js";
@@ -302,8 +302,9 @@ function computeComponents(nodes: Map<string, GraphNode>, edges: GraphEdge[]): n
 }
 
 /** k-hop (k=2) neighborhood of the focused node. Match order: exact node id,
- *  record id, media ref/basename, then case-insensitive label/entity substring. */
-function focusSubgraph(nodes: Map<string, GraphNode>, edges: GraphEdge[], focus: string): Set<string> | undefined {
+ *  record id, media ref/basename, then case-insensitive label/entity substring.
+ *  Returns the matched anchor id too — --limit must never trim it. */
+function focusSubgraph(nodes: Map<string, GraphNode>, edges: GraphEdge[], focus: string): { anchorId: string; keep: Set<string> } | undefined {
   const needle = focus.trim().toLowerCase();
   if (!needle) return undefined;
   const all = [...nodes.values()];
@@ -333,7 +334,7 @@ function focusSubgraph(nodes: Map<string, GraphNode>, edges: GraphEdge[], focus:
     }
     frontier = next;
   }
-  return keep;
+  return { anchorId: hit.id, keep };
 }
 
 // ---- the builder ---------------------------------------------------------------
@@ -345,16 +346,35 @@ export function buildGraphModel(records: OvercastRecord[], opts: BuildGraphOptio
   const targets = opts.targets ?? [];
 
   // Evidence boundary identical to ask/brief. --since keeps undated records
-  // (matching map/wall).
-  let evidence = memoryRecords(records);
+  // (matching map/wall) and is capture-time-aware (matching map): an old
+  // geotagged photo ingested today is OLD.
+  const evidenceAll = memoryRecords(records);
+  let evidence = evidenceAll;
   if (opts.sinceCutoff != null) {
     evidence = evidence.filter((r) => {
-      const t = recordTimeMs(r);
+      const t = recordCaptureTimeMs(r);
       return Number.isNaN(t) || t >= opts.sinceCutoff!;
     });
   }
   const findings = evidence.filter((r) => r.verb === "finding");
   const plain = evidence.filter((r) => r.verb !== "finding");
+
+  // --since co-inclusion: an in-window finding pulls its out-of-window
+  // source record back in — a finding restates its source, so orphaning it
+  // from its provenance would misread as an unsourced claim.
+  if (opts.sinceCutoff != null && findings.length) {
+    const plainIds = new Set(plain.map((r) => r.id));
+    const byId = new Map(evidenceAll.filter((r) => r.verb !== "finding").map((r) => [r.id, r]));
+    for (const f of findings) {
+      const src = str(payloadOf(f).source_record);
+      if (!src || plainIds.has(src)) continue;
+      const source = byId.get(src);
+      if (source) {
+        plain.push(source);
+        plainIds.add(src);
+      }
+    }
+  }
 
   // record + media nodes, record→media edges
   for (const rec of plain) {
@@ -515,8 +535,11 @@ export function buildGraphModel(records: OvercastRecord[], opts: BuildGraphOptio
   // --focus: 2-hop neighborhood of the matched node. A miss empties the graph
   // (the verb turns that into pending guidance) rather than silently showing
   // the full, unfocused graph.
+  let focusAnchorId: string | undefined;
   if (opts.focus) {
-    const keep = focusSubgraph(b.nodes, b.edges, opts.focus) ?? new Set<string>();
+    const sub = focusSubgraph(b.nodes, b.edges, opts.focus);
+    const keep = sub?.keep ?? new Set<string>();
+    focusAnchorId = sub?.anchorId;
     for (const id of [...b.nodes.keys()]) if (!keep.has(id)) b.nodes.delete(id);
     b.edges = b.edges.filter((e) => keep.has(e.source) && keep.has(e.target));
     computeDegrees(b.nodes, b.edges);
@@ -524,7 +547,8 @@ export function buildGraphModel(records: OvercastRecord[], opts: BuildGraphOptio
 
   // --limit: trim lowest-degree leaf ENTITY nodes first, then places, then
   // orphan media — NEVER records with findings, targets, findings, persons,
-  // or devices.
+  // devices, or the --focus anchor (trimming the node the user asked for
+  // would defeat the focus).
   let truncated = 0;
   const limit = opts.limit != null && opts.limit > 0 ? Math.floor(opts.limit) : undefined;
   if (limit !== undefined && b.nodes.size > limit) {
@@ -536,6 +560,7 @@ export function buildGraphModel(records: OvercastRecord[], opts: BuildGraphOptio
       }
     }
     const trimRank = (n: GraphNode): number => {
+      if (n.id === focusAnchorId) return Infinity; // protected
       if (n.type === "entity") return 0;
       if (n.type === "place") return 1;
       if (n.type === "media" && n.degree <= 1) return 2;
@@ -569,7 +594,7 @@ export function buildGraphModel(records: OvercastRecord[], opts: BuildGraphOptio
       edges: b.edges.length,
       components,
       byType,
-      evidenceRecords: evidence.length,
+      evidenceRecords: plain.length + findings.length,
       truncated,
     },
   };

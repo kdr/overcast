@@ -191,6 +191,15 @@ test("buildGraphModel: --limit trims lowest-degree entities first, never finding
   assert.equal(m.nodes.filter((n) => n.type === "entity").length, 0, "entities trimmed first");
 });
 
+test("buildGraphModel: --limit never trims the --focus anchor", () => {
+  // several same-rank leaf entities around one record; focus on ONE entity —
+  // without the anchor pin it would trim among the first (lowest-degree entity).
+  const watch = rec("watch", { content: "mail anchor@spot.zz and w@q.rr and https://one.example and #tag1 and #tag2" }, { ref: "clip.mp4", id: "rec_w" });
+  const m = buildGraphModel([watch], { ...OPTS, focus: "anchor@spot.zz", limit: 2 });
+  assert.ok(m.stats.truncated > 0, "limit engaged");
+  assert.ok(nodeIds(m).includes("ent:email:anchor@spot.zz"), "focus anchor survives the trim");
+});
+
 test("buildGraphModel: --since drops old dated evidence, keeps undated", () => {
   const oldRec = rec("watch", { content: "old" }, { ref: "old.mp4", id: "rec_old" });
   (oldRec.meta as Record<string, unknown>).time = "2020-01-01T00:00:00Z";
@@ -201,6 +210,30 @@ test("buildGraphModel: --since drops old dated evidence, keeps undated", () => {
   const m = buildGraphModel([oldRec, newRec, undated], { ...OPTS, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") });
   const recNodes = m.nodes.filter((n) => n.type === "record").map((n) => n.recordId).sort();
   assert.deepEqual(recNodes, ["rec_new", "rec_und"]);
+});
+
+test("buildGraphModel: --since is capture-time-aware — exif payload.created beats ingest time (map parity)", () => {
+  // old geotagged photo ingested TODAY: capture time must exclude it
+  const oldPhoto = rec("exif", { created: "2020:03:01 12:00:00", gps: { lat: 1, lng: 2 } }, { ref: "old.jpg", id: "rec_oldphoto" });
+  (oldPhoto.meta as Record<string, unknown>).time = "2026-07-01T00:00:00Z";
+  // recent capture on an old-ingested record: capture time must keep it
+  const newPhoto = rec("exif", { created: "2026:06:30 12:00:00" }, { ref: "new.jpg", id: "rec_newphoto" });
+  (newPhoto.meta as Record<string, unknown>).time = "2020-01-01T00:00:00Z";
+  const m = buildGraphModel([oldPhoto, newPhoto], { ...OPTS, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") });
+  const recNodes = m.nodes.filter((n) => n.type === "record").map((n) => n.recordId);
+  assert.deepEqual(recNodes, ["rec_newphoto"]);
+});
+
+test("buildGraphModel: --since co-includes the out-of-window source record of an in-window finding", () => {
+  const oldWatch = rec("watch", { content: "old clip evidence" }, { ref: "old.mp4", id: "rec_src" });
+  (oldWatch.meta as Record<string, unknown>).time = "2020-01-01T00:00:00Z";
+  const finding = rec("finding", { text: "confirmed sighting", status: "open", source_record: "rec_src", source_verb: "watch", trigger: "human" }, { id: "rec_f" });
+  (finding.meta as Record<string, unknown>).time = "2026-07-01T00:00:00Z";
+  const m = buildGraphModel([oldWatch, finding], { ...OPTS, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") });
+  assert.ok(nodeIds(m).includes("fnd:rec_f"));
+  assert.ok(nodeIds(m).includes("rec:rec_src"), "finding provenance pulled back in");
+  assert.ok(hasEdge(m, "fnd:rec_f", "rec:rec_src", "finding-source"));
+  assert.equal(m.stats.evidenceRecords, 2, "co-included source counts as considered evidence");
 });
 
 test("buildGraphModel: connected components counted; stats byType populated", () => {
@@ -255,6 +288,19 @@ test("mergeExtractions: name normalization folds aliases into one node; relation
   assert.equal(merged.relations[0].targetType, "other"); // unseen endpoint lands as other
 });
 
+test("mergeExtractions: same name with different types stays two entities; same-type alias still folds", () => {
+  const lines: ExtractCacheLine[] = [
+    { recordId: "rec_1", time: "t", model: "m", entities: [{ name: "Jordan", type: "person", aliases: [] }], relations: [] },
+    { recordId: "rec_2", time: "t", model: "m", entities: [{ name: "Jordan", type: "location", aliases: [] }], relations: [] },
+    { recordId: "rec_3", time: "t", model: "m", entities: [{ name: "jordan", type: "person", aliases: [] }], relations: [] },
+  ];
+  const merged = mergeExtractions(lines);
+  const jordans = merged.entities.filter((e) => e.key === "jordan").map((e) => e.type).sort();
+  assert.deepEqual(jordans, ["location", "person"], "type is part of entity identity");
+  const person = merged.entities.find((e) => e.key === "jordan" && e.type === "person");
+  assert.deepEqual(person!.recordIds.sort(), ["rec_1", "rec_3"], "same-type mention still folds");
+});
+
 test("extraction merge lands in the graph as extracted entity nodes + relation edges", () => {
   const watch = rec("watch", { content: "surveillance footage" }, { ref: "c.mp4", id: "rec_w" });
   const lines: ExtractCacheLine[] = [
@@ -300,6 +346,29 @@ test("extract cache: load skips torn lines; runExtraction with no brain reports 
     assert.equal(run.cached, 1);
     assert.equal(run.ran, 0);
     assert.equal(run.lines.length, 1); // cached line still feeds the merge
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runExtraction: sinceCutoff co-filters the corpus — out-of-window cached lines stay out of the merge", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-graph-since-"));
+  try {
+    const file = extractCachePath(dir);
+    mkdirSync(dirname(file), { recursive: true });
+    const lineOld: ExtractCacheLine = { recordId: "rec_old", time: "t", model: "m", entities: [{ name: "Old Co", type: "org", aliases: [] }], relations: [] };
+    const lineNew: ExtractCacheLine = { recordId: "rec_new", time: "t", model: "m", entities: [{ name: "New Co", type: "org", aliases: [] }], relations: [] };
+    writeFileSync(file, JSON.stringify(lineOld) + "\n" + JSON.stringify(lineNew) + "\n", "utf8");
+
+    const oldRec = rec("watch", { content: "old text" }, { ref: "o.mp4", id: "rec_old" });
+    (oldRec.meta as Record<string, unknown>).time = "2020-01-01T00:00:00Z";
+    const newRec = rec("watch", { content: "new text" }, { ref: "n.mp4", id: "rec_new" });
+    (newRec.meta as Record<string, unknown>).time = "2026-07-01T00:00:00Z";
+    // both records cached → no brain resolution needed (offline-safe)
+    const profile = { name: "t", providers: {}, llm: { provider: "no-such-provider", model: "no-such-model" } };
+    const run = await runExtraction([oldRec, newRec], { profile: profile as never, caseDir: dir, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") });
+    assert.equal(run.cached, 1);
+    assert.deepEqual(run.lines.map((l) => l.recordId), ["rec_new"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/pi-ai";
 
 import type { OvercastRecord } from "../../record.js";
-import { memoryRecords } from "../../record.js";
+import { memoryRecords, recordCaptureTimeMs } from "../../record.js";
 import { indexableDocument } from "../memory/fields.js";
 import type { Profile } from "../../profile.js";
 import { resolveBrainModel } from "./vision.js";
@@ -151,13 +151,18 @@ export function mergeExtractions(lines: ExtractCacheLine[]): MergedExtraction {
     for (const ent of line.entities) {
       const norm = normName(ent.name);
       if (!norm) continue;
-      let mapKey = nameToKey.get(norm) ?? `${ent.type}\0${norm}`;
+      // Entity identity is type+name. A prior name/alias mapping only folds
+      // this entity in when the TYPES agree — "Jordan" the person and
+      // "Jordan" the location stay distinct nodes.
+      const aliasKey = nameToKey.get(norm);
+      const aliasEntity = aliasKey ? entities.get(aliasKey) : undefined;
+      const mapKey = aliasEntity && aliasEntity.type === ent.type ? aliasKey! : `${ent.type}\0${norm}`;
       let existing = entities.get(mapKey);
       if (!existing) {
         existing = { type: ent.type, key: norm, label: ent.name.trim(), recordIds: [] };
         entities.set(mapKey, existing);
       }
-      nameToKey.set(norm, mapKey);
+      if (!nameToKey.has(norm)) nameToKey.set(norm, mapKey);
       for (const alias of ent.aliases) {
         const aliasNorm = normName(alias);
         if (aliasNorm && !nameToKey.has(aliasNorm)) nameToKey.set(aliasNorm, mapKey);
@@ -232,6 +237,10 @@ function appendCacheLine(caseDir: string, line: ExtractCacheLine): void {
 export interface RunExtractionCtx {
   profile: Profile;
   caseDir: string;
+  /** graph --since cutoff — the extraction corpus must co-filter with the
+   *  structural graph (same capture-aware time + keep-undated rule), or
+   *  out-of-window entities would float in with no mention edges. */
+  sinceCutoff?: number;
   signal?: AbortSignal;
 }
 
@@ -266,6 +275,10 @@ export async function runExtraction(records: OvercastRecord[], ctx: RunExtractio
   const candidates: Array<{ rec: OvercastRecord; text: string }> = [];
   for (const rec of memoryRecords(records)) {
     if (rec.verb === "finding") continue; // finding text restates its source record
+    if (ctx.sinceCutoff != null) {
+      const t = recordCaptureTimeMs(rec);
+      if (!Number.isNaN(t) && t < ctx.sinceCutoff) continue;
+    }
     const doc = indexableDocument(rec);
     if (!doc || !doc.text.trim()) continue;
     candidates.push({ rec, text: doc.text.slice(0, EXTRACT_TEXT_CAP) });

@@ -10,7 +10,7 @@
 // coordinates (≈ the investigated location) to OpenStreetMap — --offline avoids it.
 
 import { basename } from "node:path";
-import { isReady, recordTimeMs, type OvercastRecord } from "../record.js";
+import { isReady, recordCaptureTimeMs, type OvercastRecord } from "../record.js";
 import { finiteNum, validLat, validLng } from "../geo.js";
 import { escapeHtml, summarizePayload, imageSrc, reportCsp, type HtmlTheme } from "./html.js";
 
@@ -99,20 +99,6 @@ function lngBounds(lngs: number[]): { minLng: number; maxLng: number } {
   return { minLng, maxLng };
 }
 
-/** Parse an ExifTool capture datetime ("YYYY:MM:DD HH:MM:SS[.sss][±HH:MM]") to
- *  epoch ms, or undefined when absent/unparseable (the date part uses colons, so
- *  Date.parse can't read it raw). A zone-less value is normalized to UTC (append
- *  "Z") — ES parses a zone-less date-time as HOST-LOCAL, which would skew --since /
- *  ranking against the UTC `meta.time` + absolute-date cutoffs; an explicit offset
- *  (Z or ±HH:MM) is left intact. */
-function captureMs(created: string | null): number | undefined {
-  if (!created) return undefined;
-  let iso = created.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3").replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) iso += "Z";
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? ms : undefined;
-}
-
 /** Gather every case record carrying numeric `payload.gps{lat,lng}` (primarily
  *  `exif`, but any record qualifies) into map points. Skips error records; keeps
  *  undated records under --since (matching wall); most-recent first under --limit. */
@@ -134,7 +120,7 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
     // not read as newest — falling back to the record's ingest time (meta.time).
     // NaN when neither is available (round-1 filter/sort keep undated points).
     const created = typeof p.created === "string" && p.created.trim() ? p.created.trim() : null;
-    const t = captureMs(created) ?? recordTimeMs(rec);
+    const t = recordCaptureTimeMs(rec);
     const ref = rec.media?.ref ?? null;
     const point: MapPoint = {
       recordId: rec.id,

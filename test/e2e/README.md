@@ -147,6 +147,11 @@ plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.jso
 and exclusion of setup history records from memory — plus the control-room wall
 (`phase6_wall`): empty-case pending guidance, then a themed wall over seeded
 case media and the `--infinite` endless-wall record + page marker — plus the
+case knowledge graph (`phase6_graph`): empty-case pending guidance, then
+nodes/edges over seeded note/target/finding evidence (regex-harvested email
+entity, finding→source edge), `--focus` narrowing (an island note must drop
+out), focus-miss pending guidance, and a self-contained HTML viewer with no
+external assets — plus the
 global archive (`phase9_archive`): bucket init/add/dedup/show under an isolated
 `OVERCAST_HOME`, `capture archive:…` pulls, `ask --archive`, the setup wizard
 plan/apply with a local index + backfill, and the doctor bucket check; and

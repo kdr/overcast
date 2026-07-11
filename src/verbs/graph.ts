@@ -85,7 +85,7 @@ export const graphVerb: VerbSpec = {
     let extraction: MergedExtraction | undefined;
     let extractStats: Record<string, unknown> | undefined;
     if (ctx.opts.extract === true) {
-      const run = await runExtraction(records, { profile: ctx.profile, caseDir: ctx.case.dir, signal: ctx.signal });
+      const run = await runExtraction(records, { profile: ctx.profile, caseDir: ctx.case.dir, sinceCutoff, signal: ctx.signal });
       extraction = mergeExtractions(run.lines);
       extractStats = {
         extracted_records: run.ran,
