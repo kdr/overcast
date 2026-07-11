@@ -27,7 +27,6 @@ import {
   clearStaleStop,
   parsePanels,
   readRuntime,
-  runtimeAlive,
   runtimeServing,
   writeRuntime,
   type SituationConfig,
@@ -83,11 +82,35 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
   let sessionToken: string | undefined;
   let lastStartOpts: StartOptions = {};
   let stopping: Promise<void> = Promise.resolve();
+  // the case dir the in-process server was bound to; if the session switches case
+  // (a `--case`/session change) while the page is up, we rebind to the new case
+  // so the page + control loop follow the session (Bugbot #98/med — otherwise the
+  // pinned server keeps serving the old store while set/stop write the new case).
+  let serverCaseDir: string | undefined;
+  let rebinding = false;
+
+  const caseCwd = (): string => process.env.OVERCAST_CASE || ctx?.cwd || process.cwd();
+
+  /** Rebind the running page when the session's case changed under it. */
+  const reconcileCase = (): void => {
+    if (!server?.running || !serverCaseDir || rebinding) return;
+    const cur = openCase(caseCwd()).dir;
+    if (cur === serverCaseDir) return;
+    rebinding = true;
+    void (async () => {
+      try {
+        await stopSituation();
+        await startSituation({ ...lastStartOpts, open: false });
+      } finally {
+        rebinding = false;
+      }
+    })();
+  };
 
   const capture = (c: ExtensionContext): void => {
     ctx = c;
+    reconcileCase();
   };
-  const caseCwd = (): string => process.env.OVERCAST_CASE || ctx?.cwd || process.cwd();
 
   async function startSituation(opts: StartOptions = {}): Promise<void> {
     const c = openCase(caseCwd());
@@ -104,7 +127,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
       // bare `/situation on` while running just reports; an explicit bind/port
       // rebinds (rotating nothing — the session token is reused).
       if (opts.bind === undefined && opts.port === undefined && opts.config === undefined) {
-        showStatus();
+        await showStatus();
         return;
       }
       await stopSituation();
@@ -142,6 +165,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
       return;
     }
     server = s;
+    serverCaseDir = c.dir; // track the bound case so a session case switch rebinds
     sessionToken = process.env.OVERCAST_SITUATION_TOKEN ? undefined : token;
     desired = true;
     lastStartOpts = { bind, port: s.port, config };
@@ -158,7 +182,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     });
     if (opts.open !== false) osOpen(s.pairingUrl);
     showQr();
-    showStatus();
+    await showStatus();
   }
 
   async function stopSituation(): Promise<void> {
@@ -166,13 +190,19 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     if (!s) return;
     server = undefined;
     hideQr();
+    // clear the runtime of the case the SERVER was bound to (serverCaseDir), NOT
+    // the session's current case — on a case-switch rebind those differ, and
+    // clearing caseCwd() would leave the old case's runtime dangling and wrongly
+    // wipe the new one.
+    const boundCase = serverCaseDir ?? caseCwd();
+    serverCaseDir = undefined;
     // Stop the LISTENER first, THEN clear runtime.json (Bugbot #98/med): clearing
     // it while the port is still open advertises "offline" to another
     // `situation`/glance for the shutdown window, which could race a rebind.
     stopping = s.stop();
     await stopping;
     try {
-      clearRuntime(openCase(caseCwd()));
+      clearRuntime(openCase(boundCase));
     } catch {
       /* best-effort */
     }
@@ -203,10 +233,13 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     qrVisible = false;
   }
 
-  function showStatus(): void {
+  async function showStatus(): Promise<void> {
     if (!server) {
+      // an EXTERNAL runtime is "live" only if its port is actually served (pid +
+      // port), not off a live/reused pid alone (Bugbot #98/med) — matching the
+      // verb's status/set/stop and the chair glance.
       const rt = readRuntime(openCase(caseCwd()));
-      if (runtimeAlive(rt)) {
+      if (await runtimeServing(rt)) {
         emitResult(pi, `▶ situation: live at ${rt!.displayUrl} (pid ${rt!.pid}, ${rt!.mode} — external to this session)`);
       } else {
         emitResult(pi, "▶ situation: offline — /situation on");
@@ -302,7 +335,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
         return;
       }
       if (sub === "status") {
-        showStatus();
+        await showStatus();
         return;
       }
       if (sub === "set" || sub === "stop") {
