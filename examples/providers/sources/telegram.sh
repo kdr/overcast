@@ -60,7 +60,7 @@ case "$op" in
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
           # absolute calendar date → whole days back from now (BSD/GNU date)
           now="$(date -u +%s)"
-          d="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')"
+          d="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d %H:%M:%S' "$since 00:00:00" +%s 2>/dev/null || echo '')"
           if [ -n "$d" ]; then days=$(( (now - d) / 86400 )); [ "$days" -lt 1 ] && days=1; fi ;;
         *) days="" ;;
       esac

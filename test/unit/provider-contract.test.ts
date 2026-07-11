@@ -125,3 +125,29 @@ test("provider stderr carrying a secret is redacted before it reaches the persis
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Bugbot (PR #100): parseSince (the CLI gate) accepts anything Date.parse reads
+// (full ISO datetimes, RFC dates), but every shipped source script parses only
+// the shared shell grammar (N[smhdw] / YYYY-MM-DD) — several fail closed, so a
+// CLI-valid `--since 2026-07-01T12:00:00Z` made the source look broken. The fix
+// is at the ONE seam all enumerates cross: normalizeSince rewrites surplus forms
+// to a ceiled relative duration (widening-only) and passes contract forms as-is.
+test("normalizeSince: contract forms pass through, datetimes become ceiled relative durations", async () => {
+  const { normalizeSince } = await import("../../src/providers/sources/index.ts");
+  // contract forms are untouched (bit-for-bit — providers own their parsing)
+  for (const s of ["30s", "45m", "12h", "2d", "1w", "2026-06-01"]) {
+    assert.equal(normalizeSince(s), s, `contract form ${s} must pass through`);
+  }
+  // unparseable input is also untouched: the provider's fail-closed error owns it
+  assert.equal(normalizeSince("bogus"), "bogus");
+  // datetimes → relative, in the coarsest unit every provider maps correctly:
+  // minutes under an hour, hours under a day, days beyond (web/dork/telegram
+  // collapse any Nh to one day, so multi-day cutoffs must travel as Nd).
+  const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+  assert.match(normalizeSince(iso(30 * 60e3)), /^(30|31)m$/, "30min-ago datetime → minutes");
+  assert.match(normalizeSince(iso(5 * 3600e3)), /^[56]h$/, "5h-ago datetime → hours");
+  assert.match(normalizeSince(iso(3.5 * 86400e3)), /^4d$/, "3.5d-ago datetime → ceiled days");
+  // ceiling only ever WIDENS the window (never narrows a recency filter); a
+  // future datetime clamps to the floor instead of going negative.
+  assert.equal(normalizeSince(iso(-3600e3)), "1m", "future datetime clamps to 1m");
+});

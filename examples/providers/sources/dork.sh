@@ -55,7 +55,7 @@ case "$op" in
         *[0-9]w) days=$(( ${since%w} * 7 )) ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
           # explicit date → its age in days, so it buckets by "newer than this date"
-          d="$(date -d "$since" +%s 2>/dev/null || date -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')"
+          d="$(date -d "$since" +%s 2>/dev/null || date -j -f '%Y-%m-%d %H:%M:%S' "$since 00:00:00" +%s 2>/dev/null || echo '')"
           if [ -n "$d" ]; then days=$(( ( $(date +%s) - d ) / 86400 )); [ "$days" -lt 0 ] && days=0; else days=31; fi ;;
         *) days=31 ;;   # unknown → month-ish bucket
       esac

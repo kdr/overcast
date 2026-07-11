@@ -72,7 +72,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    (`watch/listen/see/face/cluster/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot/chronolocate` —
    `cluster` shares the face provider, `chronolocate` is pure local math), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, yandeximg, dl, instagram, telegram,
-   gdelttv, wayback, overpass, firms, flights, webcam, facesearch, dork, shodan, browser,
+   gdelttv, wayback, overpass, firms, dispatch, flights, webcam, facesearch, dork, shodan, browser,
    username, person, phone, property, plate), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
    shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
@@ -227,7 +227,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens + yandeximg reverse-image / dl generic-yt-dlp capture / instagram / telegram /
   gdelttv broadcast-TV / wayback deleted-web / overpass OSM-features / firms active-fires /
-  flights ADS-B-aircraft / webcam live-cams / facesearch reverse-face /
+  dispatch police-CAD-calls / flights ADS-B-aircraft / webcam live-cams / facesearch reverse-face /
   dork Google-dorking / shodan host-recon / browser rendered-page-capture /
   username account-discovery / person people-search / phone reverse-phone /
   property assessor-records / plate license-plate;
@@ -265,6 +265,12 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   hotspots — bbox/area only, no country endpoint; CSV parsed by header name →
   `payload.gps` + ISO capture time; **free** `FIRMS_MAP_KEY`; `--since Nd` →
   dayrange 1–10; media.ref = a FIRMS fire-map deep link);
+  `dispatch:sf` / `dispatch:seattle` / `dispatch:<domain>/<dataset>[@<datefield>]`
+  (police CAD / calls-for-service feeds on the Socrata SODA API — **no key**,
+  optional `SOCRATA_APP_TOKEN` raises rate limits; gps/call-type/id columns
+  auto-detected per row, hits carry top-level `payload.gps` → `map`; media.ref = a
+  stable per-row SODA deep link, the monitor dedup key; the real-time feeds are
+  rolling windows (SF ~48h) → strong `monitor --every` fit);
   `flights:<west,south,east,north>` / `flights:<icao24>` /
   `flights:<callsign>` (live ADS-B aircraft positions via OpenSky — keyless-capable
   anonymous access, optional `OPENSKY_CLIENT_ID`/`OPENSKY_CLIENT_SECRET` OAuth2 to

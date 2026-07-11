@@ -161,7 +161,7 @@ case "$op" in
         *[0-9]d) cutepoch=$(( now - 10#${since%d} * 86400 )) ;;
         *[0-9]w) cutepoch=$(( now - 10#${since%w} * 604800 )) ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
-          cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')" ;;
+          cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d %H:%M:%S' "$since 00:00:00" +%s 2>/dev/null || echo '')" ;;
         *) echo "firms: could not parse --since '$since' (use Ns/Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
       esac
       [ -n "$cutepoch" ] || { echo "firms: could not parse --since '$since'" >&2; exit 1; }
