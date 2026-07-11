@@ -31,8 +31,16 @@ export interface SituationConfig {
   query?: string;
 }
 
+/** Config keys `situation set --clear` may drop from a running server's view
+ *  config (back to default/auto). Kept as a value so the verb can validate. */
+export const CLEARABLE_CONFIG_KEYS = ["panels", "source", "since", "limit", "theme", "query"] as const;
+export type ClearableConfigKey = (typeof CLEARABLE_CONFIG_KEYS)[number];
+
 export interface SituationControl extends SituationConfig {
   stop?: boolean;
+  /** keys to DROP from the live view config (applied before any assignments in
+   *  the same control) — the only way to remove a filter without a restart. */
+  clear?: ClearableConfigKey[];
 }
 
 export interface SituationRuntime {
@@ -133,10 +141,21 @@ export function parsePanels(raw: string | undefined): SituationPanel[] | undefin
 }
 
 /** Merge a control patch onto any pending (unconsumed) control and write it
- *  atomically. Two quick `situation set`s compose instead of clobbering. */
+ *  atomically. Two quick `situation set`s compose instead of clobbering. Clears
+ *  compose by ORDER: a clear in the patch drops the key from pending (so the
+ *  clear wins), and an assignment in the patch drops the key from pending.clear
+ *  (so the re-set wins) — the server can then apply clears before assignments
+ *  without reordering the operator's intent. */
 export function writeControl(c: Case, patch: SituationControl): SituationControl {
-  const pending = readControl(c)?.control ?? {};
+  const pending: SituationControl = { ...(readControl(c)?.control ?? {}) };
+  if (patch.clear?.length) for (const key of patch.clear) delete pending[key];
+  if (pending.clear?.length) {
+    const kept = pending.clear.filter((key) => patch[key] === undefined);
+    if (kept.length) pending.clear = kept;
+    else delete pending.clear;
+  }
   const merged: SituationControl = { ...pending, ...patch };
+  if (pending.clear?.length && patch.clear?.length) merged.clear = [...new Set([...pending.clear, ...patch.clear])];
   mkdirSync(situationDir(c), { recursive: true });
   writeFileAtomic(controlFile(c), JSON.stringify(merged, null, 2) + "\n");
   return merged;

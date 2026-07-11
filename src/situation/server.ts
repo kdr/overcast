@@ -29,7 +29,7 @@ import { listSources } from "../state/source.js";
 import { realpathContained } from "../fs-path.js";
 import type { Case } from "../case.js";
 import { buildSituationModel, type SituationMediaRef, type SituationModel } from "./model.js";
-import { consumeControl, readControl, type SituationConfig } from "./state.js";
+import { consumeControl, readControl, type SituationConfig, type SituationControl } from "./state.js";
 import type { SituationSnapshot, SituationWireEvent } from "./wire.js";
 
 type SituationEventInput = SituationWireEvent extends infer E
@@ -168,9 +168,17 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
   }
 
   /** Apply a config patch (from control.json), dropping invalid values rather
-   *  than failing the tick — the writer already validated; this is the belt. */
-  private applyConfig(patch: SituationConfig): void {
+   *  than failing the tick — the writer already validated; this is the belt.
+   *  `clear` keys are DROPPED first (back to default/auto) — the only way to
+   *  remove a filter from a long-running serve (Bugbot #98/med) — then any
+   *  assignments in the same control apply on top. */
+  private applyConfig(patch: Omit<SituationControl, "stop">): void {
     let changed = false;
+    for (const key of patch.clear ?? []) {
+      if (this.viewConfig[key] === undefined) continue;
+      delete this.viewConfig[key];
+      changed = true;
+    }
     const set = <K extends keyof SituationConfig>(key: K, value: SituationConfig[K] | undefined): void => {
       if (value === undefined) return;
       if (JSON.stringify(this.viewConfig[key]) === JSON.stringify(value)) return;

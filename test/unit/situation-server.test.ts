@@ -104,6 +104,14 @@ test("situation server: tick() applies control.json and fires onStopRequested on
     assert.equal(s.activeConfig.limit, 4);
     assert.equal(s.activeConfig.theme, "plain");
     assert.equal(s.activeConfig.source, "web");
+    // a clear DROPS a filter back to default/auto (the only removal path on a
+    // long-running serve) while assignments in the same control still apply
+    writeControl(c, { clear: ["source", "limit"], since: "24h" });
+    await s.tick();
+    assert.equal(s.activeConfig.source, undefined, "cleared filter removed");
+    assert.equal(s.activeConfig.limit, undefined, "cleared limit removed");
+    assert.equal(s.activeConfig.since, "24h", "assignment alongside clear applies");
+    assert.equal(s.activeConfig.theme, "plain", "untouched key survives");
     // a stop patch fires the owner callback
     writeControl(c, { stop: true });
     await s.tick();
@@ -206,6 +214,19 @@ test("situation state: clearStaleStop drops a leftover stop:true (keeps config)"
     // a config-only control is untouched
     clearStaleStop(c);
     assert.deepEqual(readControl(c)?.control.panels, ["map"]);
+    // clear-vs-set composition in PENDING control: a clear drops a pending
+    // assignment (clear wins over an older set) …
+    writeControl(c, { source: "web", limit: 4 });
+    writeControl(c, { clear: ["source"] });
+    let pending = readControl(c)?.control;
+    assert.equal(pending?.source, undefined, "pending assignment dropped by a later clear");
+    assert.deepEqual(pending?.clear, ["source"]);
+    assert.equal(pending?.limit, 4, "unrelated pending key kept");
+    // … and a later re-set drops the pending clear (the newest intent wins)
+    writeControl(c, { source: "youtube" });
+    pending = readControl(c)?.control;
+    assert.equal(pending?.source, "youtube");
+    assert.equal(pending?.clear, undefined, "pending clear cancelled by a re-set");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

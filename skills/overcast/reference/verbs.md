@@ -517,6 +517,7 @@ Options:
   --limit <number>       Max wall tiles (default 12; other panels have fixed caps)
   --theme <string>       Console theme: csi | plain (default: csi)
   --query <string>       Ad-hoc monitor query (used by the --every cadence)
+  --clear <string>       set: drop filters back to default/auto (comma list of panels,source,since,limit,theme,query)
   --poll <number>        serve: data-refresh cadence seconds (default 60; control stays ~2s; ⟳/monitor passes force now)
   --no-open              serve: don't launch the browser
   --force                stop: also SIGTERM the serving pid (when control isn't picked up)

@@ -27,6 +27,7 @@ import { OVERCAST_VERSION } from "../version.js";
 import { SituationServer } from "../situation/server.js";
 import { situationConsoleDir } from "../situation/assets.js";
 import {
+  CLEARABLE_CONFIG_KEYS,
   clearRuntime,
   clearStaleStop,
   parsePanels,
@@ -36,6 +37,7 @@ import {
   runtimeServing,
   writeControl,
   writeRuntime,
+  type ClearableConfigKey,
   type SituationConfig,
   type SituationControl,
 } from "../situation/state.js";
@@ -135,6 +137,7 @@ export const situationVerb: VerbSpec = {
     { name: "limit", summary: "Max wall tiles (default 12; other panels have fixed caps)", type: "number" },
     { name: "theme", summary: "Console theme: csi | plain", type: "string", choices: ["csi", "plain"], default: "csi" },
     { name: "query", summary: "Ad-hoc monitor query (used by the --every cadence)", type: "string" },
+    { name: "clear", summary: "set: drop filters back to default/auto (comma list of panels,source,since,limit,theme,query)", type: "string" },
     { name: "poll", summary: "serve: data-refresh cadence seconds (default 60; control stays ~2s; ⟳/monitor passes force now)", type: "number" },
     { name: "no-open", summary: "serve: don't launch the browser", type: "boolean" },
     { name: "force", summary: "stop: also SIGTERM the serving pid (when control isn't picked up)", type: "boolean" },
@@ -156,10 +159,20 @@ export const situationVerb: VerbSpec = {
     if (action === "set") {
       const parsed = parseConfigFlags(ctx);
       if ("error" in parsed) return [parsed.error];
-      if (!hasConfigFlags(parsed.config)) {
-        return [err("situation set: nothing to set (pass --panels/--source/--since/--limit/--theme/--query)")];
+      // --clear drops filters back to default/auto — without it, a running
+      // server has no way to REMOVE a source/since/query filter (Bugbot
+      // #98/med: applyConfig only assigns keys present in the patch).
+      let clear: ClearableConfigKey[] | undefined;
+      if (ctx.opts.clear != null) {
+        const keys = String(ctx.opts.clear).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+        const bad = keys.filter((k) => !(CLEARABLE_CONFIG_KEYS as readonly string[]).includes(k));
+        if (bad.length) return [err(`--clear: unknown key(s) ${bad.join(", ")} (expected ${CLEARABLE_CONFIG_KEYS.join(" | ")})`)];
+        if (keys.length) clear = [...new Set(keys)] as ClearableConfigKey[];
       }
-      const merged = writeControl(ctx.case, parsed.config);
+      if (!hasConfigFlags(parsed.config) && !clear) {
+        return [err("situation set: nothing to set (pass --panels/--source/--since/--limit/--theme/--query, or --clear <keys>)")];
+      }
+      const merged = writeControl(ctx.case, { ...parsed.config, ...(clear ? { clear } : {}) });
       const rt = readRuntime(ctx.case);
       // "running" must reflect a server actually SERVING (pid alive AND the port
       // is up), not just a live/reused pid (Bugbot #98/med) — else `set` tells
