@@ -259,7 +259,10 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     for (const tile of model.tiles) {
       if (tile.mode !== "still" || !tile.media?.local) continue;
       try {
-        const poster = await posterFrame(tile.media.local, this.case.mediaDir, tile.anchor.at);
+        // resolve the source frame against the CASE DIR, not the process CWD
+        // (Bugbot #98/med) — the same base toWire uses, so a relative ref finds
+        // the file wherever the serve was launched.
+        const poster = await posterFrame(resolve(this.case.dir, tile.media.local), this.case.mediaDir, tile.anchor.at);
         if (poster) tile.poster = { local: poster };
       } catch {
         /* non-fatal — the console renders the static cover */

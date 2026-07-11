@@ -236,8 +236,11 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
     now,
     fileExists,
   });
-  const tiles: SituationTileModel[] = wall.tiles
-    .filter((t) => matchesSourceFilter(t.sourceType, sourceIdByRef.get(t.ref) ?? null))
+  // the source-matching wall universe (before the tileLimit slice) — its length
+  // is the HUD's totalVideos so "X of Y feeds" reflects the FILTERED set, not the
+  // unfiltered wall.hud counts (Bugbot #98/med).
+  const wallMatching = wall.tiles.filter((t) => matchesSourceFilter(t.sourceType, sourceIdByRef.get(t.ref) ?? null));
+  const tiles: SituationTileModel[] = wallMatching
     .slice(0, tileLimit)
     .map((t) => ({
       ref: t.ref,
@@ -284,7 +287,16 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
     .slice(0, FEED_CAP);
 
   // --- map points (shared model with the map verb) + flight tracks ------------
-  const mapModel = buildMapModel(records, {
+  // Pre-filter the RECORDS by --source before buildMapModel, so its points AND
+  // its bounds are computed over the same filtered set — otherwise bounds would
+  // frame points the filter hid (Bugbot #98/med). No filter → all records.
+  const mapRecords = sourceFilter?.length
+    ? records.filter((r) => {
+        const src = str(payloadOf(r).source) ?? (r.verb === "scan" ? null : r.verb);
+        return matchesSourceFilter(src, sourceIdOf(r));
+      })
+    : records;
+  const mapModel = buildMapModel(mapRecords, {
     caseName: opts.caseName,
     caseDir: opts.caseDir,
     limit: POINTS_CAP,
@@ -302,12 +314,6 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
   }
   const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
   const points: SituationPointModel[] = mapModel.points
-    // apply the same --source filter the feed/wall/stills use (was unfiltered)
-    .filter((p) => {
-      const rec = recById.get(p.recordId);
-      const src = str(payloadOf(rec ?? ({} as OvercastRecord)).source) ?? (p.verb === "scan" ? null : p.verb);
-      return matchesSourceFilter(src, sourceIdOf(rec));
-    })
     .map((p) => {
       const pl = payloadOf(recById.get(p.recordId) ?? ({} as OvercastRecord));
       return {
@@ -403,8 +409,11 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
       lastScans: wall.hud.lastScans,
       monitor: wall.hud.monitor,
       briefAgeSeconds: wall.hud.briefAgeSeconds,
-      tilesShown: wall.hud.tilesShown,
-      totalVideos: wall.hud.totalVideos,
+      // "X of Y feeds" reflects the FILTERED wall: shown = the sliced tiles,
+      // total = the source-matching universe (Bugbot #98/med — not wall.hud's
+      // unfiltered counts).
+      tilesShown: tiles.length,
+      totalVideos: wallMatching.length,
     },
     tiles,
     feed,

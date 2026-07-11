@@ -207,6 +207,29 @@ test("situation model: media presence resolves relative refs against the case di
   }
 });
 
+test("situation model: filtered map bounds + wall counts reflect the FILTERED set", () => {
+  const cap = (ref: string) => makeRecord({ verb: "capture", format: "json", payload: { capture_id: `cap_${ref}`, source: "youtube" }, media: { ref }, meta: { time: "2026-07-10T10:00:00Z" } });
+  const wat = (ref: string) => makeRecord({ verb: "watch", format: "json", payload: { content: "x" }, media: { ref, at: 1 }, meta: { time: "2026-07-10T10:01:00Z" } });
+  const flight = (lat: number, lng: number, id: string) => makeRecord({ verb: "scan", format: "json", payload: { title: id, url: `https://sky/${id}`, source: "flights", gps: { lat, lng } }, meta: { time: "2026-07-10T10:02:00Z" } });
+  const recs = [cap("/tmp/tc/y1.mp4"), wat("/tmp/tc/y1.mp4"), cap("/tmp/tc/y2.mp4"), wat("/tmp/tc/y2.mp4"), flight(48, 2, "a"), flight(49, 3, "b")];
+
+  // filter to flights → bounds span ONLY the 2 flight points; wall counts are 0
+  let m = buildSituationModel(recs, opts({ config: { source: "flights" } }));
+  assert.equal(m.points.length, 2);
+  assert.ok(m.bounds, "bounds derived from the filtered points");
+  assert.equal(m.bounds!.minLat, 48);
+  assert.equal(m.bounds!.maxLat, 49);
+  assert.equal(m.hud.tilesShown, 0);
+  assert.equal(m.hud.totalVideos, 0, "totalVideos reflects the filtered (empty) wall universe");
+
+  // filter to youtube → totalVideos=2 (both match), no map points/bounds
+  m = buildSituationModel(recs, opts({ config: { source: "youtube" } }));
+  assert.equal(m.hud.tilesShown, 2);
+  assert.equal(m.hud.totalVideos, 2);
+  assert.equal(m.points.length, 0);
+  assert.equal(m.bounds, null, "no gps in the filtered set → no bounds");
+});
+
 test("situation model: theme defaults to csi on the wire; plain honored", () => {
   assert.equal(buildSituationModel([], opts()).config.theme, "csi");
   assert.equal(buildSituationModel([], opts({ config: { theme: "plain" } })).config.theme, "plain");
