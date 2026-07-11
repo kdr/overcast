@@ -146,11 +146,12 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["FIRMS_MAP_KEY", "NASA FIRMS map key (free) for the `firms` active-fire source"],
       ["OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET", "optional OpenSky OAuth2 for the `flights` ADS-B source (anonymous works; creds raise rate limits)"],
       ["WINDY_API_KEY", "Windy Webcams key for the `webcam` live-cam source"],
+      ["SOCRATA_APP_TOKEN", "optional Socrata app token for the `dispatch` police-CAD source (keyless works; a token raises rate limits)"],
       ["APIFY_TOKEN", "Apify token for the `tiktok`/`x`/`instagram`/`telegram`/`lens`/`yandeximg`/`facesearch` sources AND the identity sources `username`/`person`/`phone`/`property`/`plate` (all opt-in, authorized use only)"],
       ["OVERCAST_PLATE_ACTOR", "Apify actor id for the `plate` source (no default — US plate data is DPPA-restricted; you must bind one)"],
       ["OVERCAST_YANDEX_ACTOR / OVERCAST_YANDEX_IMAGE_KEY", "override the `yandeximg` Apify actor + its image-input field"],
       ["OVERCAST_SOURCE_<TYPE>_CMD", "Override/add a source provider command (e.g. OVERCAST_SOURCE_YOUTUBE_CMD)"],
-      ["(keyless sources)", "youtube/dl need yt-dlp on PATH; gdelttv/wayback/overpass/browser need no key"],
+      ["(keyless sources)", "youtube/dl need yt-dlp on PATH; gdelttv/wayback/overpass/dispatch/browser need no key"],
     ],
   },
   {

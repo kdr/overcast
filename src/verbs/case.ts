@@ -668,7 +668,8 @@ export const caseVerb: VerbSpec = {
   description:
     "A case is the cwd folder + its .overcast/ store. `case init [dir] --name` stands it up; " +
     "`case setup` runs/saves first-run setup and `case setup status|show|edit|plan` manages it; " +
-    "`case status` reports setup/store/memory health; `case info` shows state; `case records [--verb] [--since]` lists records; " +
+    "`case status` prints the mission board (lines of investigation + triage + coverage) over setup/store/memory health; " +
+    "`case info` shows state; `case records [--verb] [--since]` lists records; " +
     "`case memory <list|get|search|index> [q]` routes to the bound memory providers. " +
     "`case clear` previews what would be lost; add `--yes` to clear records/media/state and configured materialized memory indexes while preserving the case id. " +
     "`case memory get <id>` returns a field manifest (sizes); add `--field <name> [--offset N] " +

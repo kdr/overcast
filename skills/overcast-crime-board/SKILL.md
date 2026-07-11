@@ -49,7 +49,19 @@ overcast similar search "red backpack on a bicycle" --index <clip-index-id> --js
 overcast note "same man (cluster <person-id>) appears in clip.mp4 and cctv.mp4 carrying the red backpack" --ref <identify-record-id> --tag connection --confidence medium --json
 ```
 
-4. Render the two visual surfaces — the CSI brief is the corkboard, the wall is the
+4. String the RELATIONAL board — `graph` connects the same crops, cluster people,
+   device fingerprints, places, and typed entities across records into one
+   force-graph (the entity/relation companion to the visual corkboard):
+
+```bash
+overcast graph --no-open --json                 # the relational board: hubs + edges (each carries a record id)
+overcast graph --focus <person-id> --json       # everything tied to one cluster person
+```
+
+Deeper drill on the relational board (hubs, `--focus`, the opt-in `--extract`
+LLM pass): `overcast-connect-the-dots`.
+
+5. Render the two visual surfaces — the CSI brief is the corkboard, the wall is the
    live monitor bank:
 
 ```bash

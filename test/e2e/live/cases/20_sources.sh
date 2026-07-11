@@ -310,6 +310,80 @@ dzone="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" a
 assert_nonempty "$C.dispatch.zone" "$dzone" "dispatch preset call times carry an explicit UTC offset"
 unset OVERCAST_SOURCE_DISPATCH_CMD
 
+# --- overpass (OpenStreetMap features, no key) — geolocated map features ---
+export OVERCAST_SOURCE_OVERPASS_CMD="bash $SRCDIR/overpass.sh"
+CASE=$(case_dir src_overpass)
+ocrun "$CASE" source add 'overpass:amenity=hospital@around:5000,48.8584,2.2945' --json >/dev/null 2>&1
+out="$(OC_TIMEOUT=120 oc "$CASE" scan --source overpass --limit 5 --json)"
+save_json "20_scan_overpass" "$out" >/dev/null
+assert_scan_hits "$C.overpass.query" "$out" "overpass OSM features"
+# every overpass hit carries top-level gps so scan records plot on `map`
+olat="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))][0].payload.gps.lat // empty' 2>/dev/null)"
+assert_nonempty "$C.overpass.gps" "$olat" "overpass hit carries payload.gps"
+# media.ref is the openstreetmap.org element page (so `capture` can store it)
+oref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("openstreetmap\\.org/")) then "ok" else "" end' 2>/dev/null)"
+assert_nonempty "$C.overpass.ref" "$oref" "overpass refs are openstreetmap.org element pages"
+unset OVERCAST_SOURCE_OVERPASS_CMD
+
+# --- wayback (Internet Archive CDX, no key) — deleted-page snapshots newest-first ---
+export OVERCAST_SOURCE_WAYBACK_CMD="bash $SRCDIR/wayback.sh"
+CASE=$(case_dir src_wayback)
+ocrun "$CASE" source add 'wayback:https://www.example.com/' --json >/dev/null 2>&1
+out="$(OC_TIMEOUT=120 oc "$CASE" scan --source wayback --limit 5 --json)"
+save_json "20_scan_wayback" "$out" >/dev/null
+assert_scan_hits "$C.wayback.query" "$out" "wayback snapshots"
+# media.ref is a Wayback snapshot URL (web.archive.org/web/<ts>/<orig>)
+wref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("web\\.archive\\.org/web/")) then "ok" else "" end' 2>/dev/null)"
+assert_nonempty "$C.wayback.ref" "$wref" "wayback refs are archive snapshot URLs"
+# snapshots come back newest-first (payload.published descending)
+worder="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.payload.published] | if length >= 2 then (if .[0] >= .[-1] then "ok" else "bad" end) else "one" end' 2>/dev/null)"
+if [ "$worder" = "ok" ] || [ "$worder" = "one" ]; then
+  ok "$C.wayback.order" "wayback snapshots are newest-first ($worder)"
+else
+  fail "$C.wayback.order" "wayback snapshots not newest-first"
+fi
+unset OVERCAST_SOURCE_WAYBACK_CMD
+
+# --- flights (OpenSky ADS-B, keyless-capable) — live aircraft carrying gps ---
+export OVERCAST_SOURCE_FLIGHTS_CMD="bash $SRCDIR/flights.sh"
+CASE=$(case_dir src_flights)
+ocrun "$CASE" source add 'flights:2.0,48.5,2.8,49.0' --json >/dev/null 2>&1
+out="$(OC_TIMEOUT=120 oc "$CASE" scan --source flights --limit 10 --json)"
+save_json "20_scan_flights" "$out" >/dev/null
+fhits="$(echo "$out" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))]|length' 2>/dev/null)"
+if [ "${fhits:-0}" -ge 1 ]; then
+  ok "$C.flights.query" "flights returned $fhits airborne hit(s) with gps"
+  # media.ref is the OpenSky aircraft-profile page (with a per-fix fragment)
+  fref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("opensky-network\\.org/")) then "ok" else "" end' 2>/dev/null)"
+  assert_nonempty "$C.flights.ref" "$fref" "flights refs are OpenSky aircraft-profile pages"
+else
+  # anonymous OpenSky is heavily rate-limited (HTTP 429) and a bbox can be
+  # momentarily empty — either is a best-effort skip, not a failure.
+  ferr="$(echo "$out" | jq -s -r '[.[]|select(.state=="error" or .state=="needs_credentials")][0].error // "no aircraft in bbox"' 2>/dev/null)"
+  skip "$C.flights.query" "no usable flights hits this run ($ferr)"
+fi
+unset OVERCAST_SOURCE_FLIGHTS_CMD
+
+# --- firms (NASA FIRMS active fires, free key) — geolocated fire detections ---
+if require_cred "$C.firms" FIRMS_MAP_KEY "skipping firms (NASA active fires)"; then
+  CASE=$(case_dir src_firms)
+  export OVERCAST_SOURCE_FIRMS_CMD="bash $SRCDIR/firms.sh"
+  # a wide bbox (continental US) reliably has active fires over a few days
+  ocrun "$CASE" source add 'firms:-125,24,-66,50' --json >/dev/null 2>&1
+  out="$(OC_TIMEOUT=180 oc "$CASE" scan --source firms --since 3d --limit 20 --json)"
+  save_json "20_scan_firms" "$out" >/dev/null
+  assert_scan_hits "$C.firms.query" "$out" "firms active-fire detections"
+  # every detection carries top-level gps + a UTC (Z) acquisition time (plots on `map`)
+  flat="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))][0].payload.gps.lat // empty' 2>/dev/null)"
+  assert_nonempty "$C.firms.gps" "$flat" "firms hit carries payload.gps"
+  fzone="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and .payload.published != null)|.payload.published] | if length > 0 and all(endswith("Z")) then "ok" else "" end' 2>/dev/null)"
+  assert_nonempty "$C.firms.zone" "$fzone" "firms detection times are UTC (Z)"
+  # media.ref is a FIRMS fire-map deep link centered on the detection
+  fref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("firms.modaps.eosdis.nasa.gov/map")) then "ok" else "" end' 2>/dev/null)"
+  assert_nonempty "$C.firms.ref" "$fref" "firms refs are FIRMS fire-map deep links"
+  unset OVERCAST_SOURCE_FIRMS_CMD
+fi
+
 # --- instagram + telegram (Apify) — small limits to keep cost low ---
 if require_cred "$C.instagram" APIFY_TOKEN "skipping instagram"; then
   CASE=$(case_dir src_instagram)

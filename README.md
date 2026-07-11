@@ -127,6 +127,14 @@ focused workflows:
 | `overcast-event-bisect` | binary-search the exact instant of a one-way state change |
 | `overcast-where` | locate WHERE in a frame — detect box + VLM-verify the crop |
 | `overcast-presence-window` | find the interval a person/object is on screen |
+| `overcast-situation-room` | stand up the live monitoring page over the case ("monitor the situation") |
+| `overcast-connect-the-dots` | build + read the case knowledge graph to link people/media/entities |
+| `overcast-scanner` | police-CAD incident watch via the `dispatch` source → map + triage |
+| `overcast-voiceprint` | speaker-ID lineup via the `voice-print` index |
+| `overcast-camera-ballistics` | camera-fingerprint device linking via `exif` + `devices` |
+| `overcast-verify-media` | "is this real?" triage — C2PA + exif + ELA |
+| `overcast-skip-trace` | authorized identity dossier via username → person → phone → property |
+| `overcast-audio-match` | same-recording hunt via audio fingerprints |
 
 Each is generated from `src/skill-gen.ts` (one source of truth). The CSI/crime-trope
 skills (`lineup`…`crime-board`) are exercised end-to-end against real media in
@@ -356,8 +364,10 @@ surface + env vars.)
 | `crop` | materialize face/object detections as cropped image records with provenance |
 | `grid` | tile timestamped frames into one contact sheet for single-call VLM triage (cell → timestamp map); `--view` for a clickable, numbered HTML board that seeks the clip |
 | `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
+| `situation` | **monitor the situation** — a live, token-authed local page (default `127.0.0.1:7374`) over the case: wall tiles + reverse-chron scan/monitor feed + live gps map + refreshing webcam/browser stills, self-updating as records land; `serve` (default) is operator-only, `status`/`set`/`stop` are the agent-safe control plane, `--every` makes it own the monitor cadence |
 | `map` | plot every case record carrying `payload.gps` on one self-contained HTML map — markers link back to their source records; `--offline` for a no-egress coordinate scatter |
 | `devices` | group case `exif` records by camera fingerprint (serial = strong link, make+model+lens = weak) into shared-device clusters; `--findings` emits serial-linked suggested findings |
+| `graph` | **connect the dots** — build the case knowledge graph (records, media, targets, findings, cluster people, device fingerprints, places, typed entities) and render it as one self-contained interactive HTML force-graph; `--focus <node>` for a 2-hop view, `--extract` adds an opt-in brain-LLM entity pass (leads, not proof) |
 
 **OSINT** — search / capture / monitor
 | verb | does |
@@ -674,6 +684,15 @@ token (default: a fresh random token every `/chair on`); `OVERCAST_CHAIR_URL`
 sets the public HTTPS origin the QR points at (same as `/chair on --url`, for
 voice over a reverse proxy); `OVERCAST_TAILSCALE_CMD` overrides the `tailscale`
 invocation used by `--serve` / auto-detect (custom path or offline tests).
+
+**Situation** — `OVERCAST_SITUATION=1` auto-starts the live monitoring page on TUI
+launch (same as `--situation`); `OVERCAST_SITUATION_BIND` (default `127.0.0.1` —
+keep it off public interfaces) / `OVERCAST_SITUATION_PORT` (default `7374`);
+`OVERCAST_SITUATION_TOKEN` pins the pairing token (default: a fresh random token per
+serve); `OVERCAST_SITUATION_URL` sets the explicit public origin its QR points at;
+`OVERCAST_SITUATION_MAX_PASSES` caps `situation --every` monitor passes
+(testing/scheduling). Remote (scraped) thumbnails/video embed in the page only when
+`OVERCAST_REPORT_REMOTE_MEDIA=1` (off = no IP beacon to the investigated host).
 
 **Visual DBs** — `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`
 override the Python used by local `image-ransac` and `deepface-local` indexes. If

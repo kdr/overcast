@@ -11,8 +11,13 @@ description: >-
 Use this skill to answer "is this clip real / where did it come from?": given a
 suspect video, find the oldest copy and who posted it first. It is the inverse of
 `overcast-copycat-sweep` — searching backward toward the origin rather than forward
-for rips — and reuses its geometry-gating and verdict conventions. Use the broad
-`overcast` skill and `overcast/reference/verbs.md` for exact flags.
+for rips — and reuses its geometry-gating and verdict conventions. This skill answers
+WHERE a clip came from (origin / earliest copy); for whether it was ALTERED
+(manipulation/authenticity — C2PA, EXIF re-save, ELA overlays, a shadow check) use
+the complementary `overcast-verify-media`. Origin and authenticity are distinct,
+non-overlapping questions — the leading `verify`/`exif` pass below establishes
+provenance signals, not a fakery verdict. Use the broad `overcast` skill and
+`overcast/reference/verbs.md` for exact flags.
 
 ## Workflow
 

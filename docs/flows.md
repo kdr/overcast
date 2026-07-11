@@ -755,6 +755,33 @@ NO SIGNAL / STILL tiles (with an ffmpeg poster frame when extractable).
 to cover the viewport and the grid keeps extending as it scrolls (rows that
 scroll far out of view are recycled, so it stays cheap forever).
 
+### 17b. Monitor the situation (live page)
+
+The live twin of the wall: a token-authed local page (default `127.0.0.1:7374`)
+that self-updates as records land — wall tiles looping at their evidence moments,
+a reverse-chron scan/monitor feed, a live gps map (flights build tracks), and
+refreshing webcam/browser stills. Panels auto-pick from your configured sources.
+Opening a listener is an operator action, so `serve` (the default op) is
+CLI/operator-only and **blocking** — run it in its own pane. The agent (and the
+`/situation` slash) drive only the `status` / `set` / `stop` control plane, which
+retunes or stops a running page cross-process via `.overcast/situation/`.
+
+```bash
+# configure the feeds the page monitors, then let one command own the cadence:
+overcast source add dispatch:sf
+overcast situation --every 5m                 # operator pane: serve + run a monitor pass every 5m (blocking)
+# …meanwhile, from the agent / another shell:
+overcast situation status                     # is a page live? url, pid, cadence
+overcast situation set --panels wall,feed,map --theme csi   # retune the running page on the fly
+overcast situation stop                        # shut it down (applied within ~2s)
+```
+
+In the TUI, `/situation on` runs the same server in-process, bound to the session
+(the agent feeds it). Local media streams over an authenticated `/media` route
+with Range; remote (scraped) thumbnails/video embed only when
+`OVERCAST_REPORT_REMOTE_MEDIA=1`. `situation` is operational — it stays out of
+`ask` / `brief` evidence.
+
 ### 18. Copycat sweep (x + lens reverse-image)
 
 Find re-uploads of an original clip across X and Google Lens, confirm with the
@@ -822,6 +849,7 @@ overcast source add 'wayback:https://example.gov/page'         # Wayback Machine
 overcast source add 'overpass:amenity=hospital@around:2000,48.85,2.29'  # OSM features → payload.gps → map (no key)
 overcast source add 'firms:-124,32,-114,42'                    # NASA FIRMS active-fire hotspots (free FIRMS_MAP_KEY)
 overcast source add 'flights:2.0,48.5,2.8,49.0'                # live ADS-B aircraft (OpenSky; anon ok)
+overcast source add dispatch:sf                                # police CAD / calls-for-service (Socrata SODA, no key)
 overcast source add facesearch:./person.jpg                    # opt-in reverse FACE search (ToS-gated)
 overcast source add yandeximg:./crop.jpg                       # Yandex reverse-image (Apify) — strongest for faces/places
 
@@ -835,6 +863,7 @@ overcast scan --source wayback --pull                          # recover deleted
 overcast scan --source overpass                                # each hit carries payload.gps → map
 overcast scan --source firms --since 3d
 overcast monitor --source flights --every 5m                   # live positions → a track on the map
+overcast monitor --source dispatch --every 5m                  # rolling 911 feed → new incidents each pass → map
 overcast scan --source yandeximg --pull
 ```
 
@@ -844,11 +873,25 @@ after repeated failures). An unparseable `--since` fails closed on the
 recency-aware sources rather than silently widening the window. `facesearch` is
 never a default — you must bind it explicitly.
 
-`overpass` / `firms` / `flights` hits carry top-level `payload.gps`, so they plot
-directly on `overcast map` (turning `map` into "plot any open geodata layer"), and
-`monitor --source flights` builds a position track over time (each fix is a
-distinct record). `wayback` `collapse=digest` returns only captures whose content
+`overpass` / `firms` / `flights` / `dispatch` hits carry top-level `payload.gps`,
+so they plot directly on `overcast map` (turning `map` into "plot any open geodata
+layer"), and `monitor --source flights` builds a position track over time (each fix
+is a distinct record). `wayback` `collapse=digest` returns only captures whose content
 actually changed — the "secret changes" view — so `monitor`ing a URL surfaces edits.
+
+`dispatch` is a keyless police-CAD / calls-for-service feed on the Socrata SODA
+API — `dispatch:sf` / `dispatch:seattle` presets, or any `dispatch:<domain>/<dataset>[@<datefield>]`
+(an optional `SOCRATA_APP_TOKEN` only raises rate limits). Per-row gps / call-type /
+id columns are auto-detected; `media.ref` is a stable per-row SODA deep link (the
+`monitor` dedup key), and the real-time feeds are rolling windows (SF ~48h), so it
+is a strong `monitor --every` fit — a live incident watch:
+
+```bash
+overcast source add dispatch:sf                        # or dispatch:<domain>/<dataset>@<datefield>
+overcast monitor --source dispatch --every 5m          # new calls-for-service each pass (deduped by SODA row link)
+overcast map --since 6h                                 # plot the last 6h of incidents (each hit carries payload.gps)
+overcast finding list --state triage                   # promote a relevant incident onto a line of investigation
+```
 
 The **identity / records** sources ride the same machinery (all Apify-backed,
 `APIFY_TOKEN`; **opt-in — live PII on real people, authorized use only**, never
@@ -1132,6 +1175,7 @@ packages this flow.
 | `crop` | inspect | `media.crop` | local ffmpeg | none | Materialize detection crops |
 | `grid` | inspect | `media.grid` | local ffmpeg contact sheet | `OVERCAST_GRID_FONT` | Frame grid for one-shot VLM triage |
 | `wall` | inspect | `wall` | local HTML wall (file:// refs) | none | Control-room monitor wall |
+| `situation` | inspect | `situation` | local token-authed server (SSE + `/media`) | `OVERCAST_SITUATION_*` | Live monitoring page ("monitor the situation") |
 | `map` | inspect | `media.map` | local HTML map (OSM tiles / `--offline`) | none | Plot GPS-bearing records |
 | `devices` | inspect | `devices` | local rollup over `exif` records | none | Camera-fingerprint clusters (`--findings`) |
 | `graph` | inspect | `media.graph` | local rollup + HTML force-graph | brain LLM (only with `--extract`) | Case knowledge graph ("connect the dots") |

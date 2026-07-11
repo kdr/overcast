@@ -34,6 +34,14 @@ import {
   generateEventBisectSkill,
   generateWhereSkill,
   generatePresenceWindowSkill,
+  generateSituationRoomSkill,
+  generateConnectTheDotsSkill,
+  generateScannerSkill,
+  generateVoiceprintSkill,
+  generateCameraBallisticsSkill,
+  generateVerifyMediaSkill,
+  generateSkipTraceSkill,
+  generateAudioMatchSkill,
 } from "../skill-gen.js";
 import type { VerbSpec } from "../registry/types.js";
 
@@ -110,6 +118,14 @@ const SHIPPED_SKILLS = [
   "overcast-event-bisect",
   "overcast-where",
   "overcast-presence-window",
+  "overcast-situation-room",
+  "overcast-connect-the-dots",
+  "overcast-scanner",
+  "overcast-voiceprint",
+  "overcast-camera-ballistics",
+  "overcast-verify-media",
+  "overcast-skip-trace",
+  "overcast-audio-match",
 ] as const;
 
 /** Harnesses `skills install` knows how to target. */
@@ -167,6 +183,14 @@ function generateSkills(skillsDir: string): string[] {
     ["overcast-event-bisect", generateEventBisectSkill],
     ["overcast-where", generateWhereSkill],
     ["overcast-presence-window", generatePresenceWindowSkill],
+    ["overcast-situation-room", generateSituationRoomSkill],
+    ["overcast-connect-the-dots", generateConnectTheDotsSkill],
+    ["overcast-scanner", generateScannerSkill],
+    ["overcast-voiceprint", generateVoiceprintSkill],
+    ["overcast-camera-ballistics", generateCameraBallisticsSkill],
+    ["overcast-verify-media", generateVerifyMediaSkill],
+    ["overcast-skip-trace", generateSkipTraceSkill],
+    ["overcast-audio-match", generateAudioMatchSkill],
   ];
   for (const [name, generate] of focusedSkills) {
     const dir = join(skillsDir, name);

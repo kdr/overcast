@@ -28,21 +28,21 @@ Two rules that make the answer trustworthy:
    capture a remote clip first). `watch` also gives per-shot timestamped content
    to search:
 
-\`\`\`bash
+```bash
 overcast doctor --json
 overcast case init --json
 overcast watch ./clip.mp4 --json         # -> video.analysis record id (REC)
-\`\`\`
+```
 
 2. Get COARSE candidates cheaply (pick what's available):
 
-\`\`\`bash
+```bash
 overcast ask "moments where <X> happens, with timestamps" --json      # over watch shots/notes
 overcast grid ./clip.mp4 --count 16 --json                            # one contact sheet ...
 overcast see <montage-path> --prompt "which numbered cells show <X>? give cell numbers" --json
 overcast similar search "<X>" --index <basic-clip-id> --json          # if a local CLIP index exists
 overcast ask "moments <X> happens" --index <media-descriptions-id> --probe --json  # remote index
-\`\`\`
+```
 
    For `grid`, translate the chosen cell number to a time via the grid record's
    `payload.cells[n].at` (don't trust a model-guessed time). CLIP/shots only
@@ -50,20 +50,20 @@ overcast ask "moments <X> happens" --index <media-descriptions-id> --probe --jso
 
 3. VERIFY + zoom on each candidate time T (expensive, precise):
 
-\`\`\`bash
+```bash
 overcast see frame://REC@T --prompt "Is <X> happening here? answer yes/no and what you see" --json
 # refine: sample T-d and T+d, halve d each round until adjacent frames flip yes<->no
 overcast see frame://REC@<T-2> --prompt "Is <X> happening?" --json
 overcast see frame://REC@<T+2> --prompt "Is <X> happening?" --json
-\`\`\`
+```
 
 4. Record the verified window and eyeball it:
 
-\`\`\`bash
+```bash
 overcast note "<X> occurs" --ref REC --at <t1-t2> --confidence medium --json
 overcast view REC --at <t1-t2> --json
 overcast brief --export ./pinpoint.md --json
-\`\`\`
+```
 
 ## Output
 

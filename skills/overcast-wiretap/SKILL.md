@@ -62,6 +62,20 @@ overcast voice match ./voicemail.m4a --index voices --json        # which record
 overcast voice match ./call.wav ./known-sample.wav --diarize --json  # WHICH diarized speaker matches (HF_TOKEN)
 ```
 
+   `voice` answers WHO is speaking (enroll a reference, then rank where/which). To
+   ask whether two clips are the SAME RECORDING (a re-upload/leak of an identical
+   file — a different question), fingerprint them with the local `audio-fp` DB,
+   which matches exact audio through transcode/noise but NOT pitch/speed:
+
+```bash
+overcast index create clips --type audio-fp --local --json
+overcast audio add ./call.wav --index clips --json
+overcast audio match ./leaked.mp3 --index clips --min-margin 2 --json   # same recording? time-offset aligned
+```
+
+   Full drills: `overcast-voiceprint` (WHO is speaking) and `overcast-audio-match`
+   (same recording surfaced again).
+
 5. Record per-speaker and per-clue observations, then correlate across recordings.
    Cite the speaker-labeled `<diarize-record-id>` for who-said-what claims (not the
    step-1 transcript record):

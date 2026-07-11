@@ -17,19 +17,19 @@ flip back. Binary search finds it in about log2(window/precision) vision calls
 
 1. Local clip + record id (`see frame://` needs media on disk):
 
-\`\`\`bash
+```bash
 overcast doctor --json
 overcast case init --json
 overcast watch ./clip.mp4 --json        # -> record id REC (also gives shot context)
-\`\`\`
+```
 
 2. Confirm the transition is bracketed AND monotone — the two endpoints must
    disagree on the predicate:
 
-\`\`\`bash
+```bash
 overcast see frame://REC@<lo> --prompt "Is <predicate> true? answer only yes or no" --json
 overcast see frame://REC@<hi> --prompt "Is <predicate> true? answer only yes or no" --json
-\`\`\`
+```
 
    If both give the same answer, the flip isn't in `[lo,hi]`. If the predicate
    toggles more than once, it isn't monotone — use `overcast-pinpoint` instead.
@@ -37,19 +37,19 @@ overcast see frame://REC@<hi> --prompt "Is <predicate> true? answer only yes or 
 3. Bisect: test the midpoint, keep the half that still straddles the flip, repeat
    until `hi - lo` is within your precision:
 
-\`\`\`bash
+```bash
 overcast see frame://REC@<mid> --prompt "Is <predicate> true? answer only yes or no" --json
 # keep the straddling half: if mid's answer == lo's answer, set lo=mid; else hi=mid
 # (correct whichever way it flips — false->true OR true->false)
-\`\`\`
+```
 
 4. Report the transition window and show it:
 
-\`\`\`bash
+```bash
 overcast note "<predicate> flips" --ref REC --at <lo-hi> --confidence high --json
 overcast view REC --at <lo-hi> --json
 overcast brief --export ./transition.md --json
-\`\`\`
+```
 
 ## Output
 

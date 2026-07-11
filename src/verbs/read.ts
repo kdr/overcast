@@ -534,10 +534,13 @@ function briefBody(rec: OvercastRecord): string {
 export const briefVerb: VerbSpec = {
   name: "brief",
   group: "read",
-  summary: "Synthesize the case records into a report (timeline + findings); --export to md/html.",
+  summary: "Mission brief: verdict + one story per line of investigation; short by default, --full for the audit dump; --export to md/html.",
   description:
-    "Produces a structured report from accumulated records. --export writes a shareable md/html " +
-    "artifact (format inferred from the file extension).",
+    "Story-first case brief, short by default: Verdict (analyst tldr note leading; coverage/pulse/delta " +
+    "demoted to one meta line) → one story per line of investigation (question → answer-so-far → linked " +
+    "findings → latest evidence → NEXT) → unattached findings → triage queue → coverage table → " +
+    "newest-first record trail. --full swaps in the verbatim chronological record dump (audit). " +
+    "--export writes a shareable md/html artifact (format inferred from the file extension).",
   args: [],
   flags: [
     { name: "scope", summary: "Filter, e.g. since:24h or verb:watch", type: "string" },

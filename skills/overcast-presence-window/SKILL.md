@@ -17,35 +17,35 @@ temporal search. Use the broad `overcast` skill and
 
 1. Local clip + record id:
 
-\`\`\`bash
+```bash
 overcast doctor --json
 overcast case init --json
 overcast watch ./clip.mp4 --json        # -> record id REC
-\`\`\`
+```
 
 2. Anchor one appearance (whichever fits the target):
 
-\`\`\`bash
+```bash
 overcast face ./clip.mp4 --match ./person.jpg --json          # a specific person (similarity 0-100)
 overcast grid ./clip.mp4 --count 16 --json                    # then see the montage for an object
-\`\`\`
+```
 
 3. Sweep outward from the anchor until K consecutive misses on each side:
 
-\`\`\`bash
+```bash
 # person: widen the window; --fps controls sample density (precision vs cost)
 overcast face ./clip.mp4 --match ./person.jpg --start <a> --end <b> --fps 1 --min-similarity 55 --json
 # object: step frames outward and check presence
 overcast see frame://REC@<t> --prompt "Is <target> present? answer only yes or no" --json
-\`\`\`
+```
 
 4. Emit the presence interval(s) and show them:
 
-\`\`\`bash
+```bash
 overcast note "<target> present" --ref REC --at <first-last> --confidence medium --json
 overcast view REC --at <first-last> --json
 overcast brief --export ./presence.md --json
-\`\`\`
+```
 
 ## Output
 

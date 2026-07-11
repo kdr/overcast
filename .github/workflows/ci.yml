@@ -26,6 +26,16 @@ jobs:
       - run: npm run build
       # Phase 0 acceptance check: the built entrypoint must actually run.
       - run: node dist/bin/overcast.js --version --json
+      # skills/ is generated from the verb registry (src/verbs/skills.ts) — the
+      # CLI/tool/skill surfaces share one source of truth, so a registry/verb
+      # change must be regenerated + committed. Regenerate and fail on any drift
+      # (staged, so a NEW uncommitted skill file is caught too, not only edits to
+      # tracked ones).
+      - name: skills/ in sync with the verb registry
+        run: |
+          node dist/bin/overcast.js skills generate
+          git add -A skills/
+          git diff --cached --exit-code -- skills/
       - run: npm test
       # Offline e2e: fixture providers, no network/creds (test/e2e/README.md).
       # SKIP_BUILD=1 reuses the dist built two steps up.
