@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../../src/record.ts";
 import { buildSituationModel } from "../../src/situation/model.ts";
 import type { SourceEntry } from "../../src/state/source.ts";
@@ -183,6 +186,25 @@ test("situation model: --source filters ALL panels consistently (type + id)", ()
   assert.deepEqual(m.feed.map((f) => f.source), ["web"]);
   assert.equal(m.tiles.length, 0);
   assert.equal(m.stills.length, 0);
+});
+
+test("situation model: media presence resolves relative refs against the case dir (not CWD)", () => {
+  const caseDir = mkdtempSync(join(tmpdir(), "oc-sit-media-"));
+  mkdirSync(join(caseDir, ".overcast", "media"), { recursive: true });
+  writeFileSync(join(caseDir, ".overcast", "media", "clip.mp4"), Buffer.from("x"));
+  const relRef = ".overcast/media/clip.mp4"; // case-relative, not absolute
+  const cap = makeRecord({ verb: "capture", format: "json", payload: { capture_id: "cap_r", source: "youtube" }, media: { ref: relRef }, meta: { time: "2026-07-10T10:00:00Z" } });
+  const watch = makeRecord({ verb: "watch", format: "json", payload: { content: "x" }, media: { ref: relRef, at: 1 }, meta: { time: "2026-07-10T10:01:00Z" } });
+  try {
+    // NO injected fileExists → real existsSync, resolved against caseDir (not CWD)
+    const m = buildSituationModel([cap, watch], { caseName: "tc", caseDir, config: {}, sources: [], now: NOW });
+    const tile = m.tiles.find((t) => t.ref === relRef);
+    assert.ok(tile, "tile present");
+    assert.equal(tile!.mode, "video", "relative ref resolved against caseDir → found → video, not 'down'");
+    assert.deepEqual(tile!.media, { local: relRef }, "media servable (URL will be minted)");
+  } finally {
+    rmSync(caseDir, { recursive: true, force: true });
+  }
 });
 
 test("situation model: theme defaults to csi on the wire; plain honored", () => {

@@ -8,6 +8,7 @@
 // says WHERE each piece of media lives (local path vs remote URL).
 
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { isReady, recordTimeMs, type OvercastRecord } from "../record.js";
 import { buildWallModel, type WallTile } from "../report/wall.js";
 import { buildMapModel } from "../report/map.js";
@@ -152,7 +153,14 @@ function mediaRefFor(ref: string | null | undefined, fileExists: (p: string) => 
 
 export function buildSituationModel(records: OvercastRecord[], opts: BuildSituationOptions): SituationModel {
   const now = opts.now ?? Date.now();
-  const fileExists = opts.fileExists ?? existsSync;
+  // Resolve every media ref against the CASE DIR (not the process CWD) before
+  // checking presence, so a relative / case-relative ref is found regardless of
+  // where the serve process was launched — matching SituationServer.toWire
+  // (Bugbot #98/med). One wrapper feeds all media checks below (wall tile mode,
+  // feed/map thumbs, stills); the injectable fileExists (tests) is wrapped, not
+  // bypassed.
+  const rawExists = opts.fileExists ?? existsSync;
+  const fileExists = (p: string) => rawExists(resolve(opts.caseDir, p));
   const cfg = opts.config;
   const sinceCutoff = cfg.since ? parseSince(cfg.since) ?? undefined : undefined;
   const tileLimit = cfg.limit && cfg.limit > 0 ? Math.floor(cfg.limit) : DEFAULT_TILE_LIMIT;

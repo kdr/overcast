@@ -40,6 +40,29 @@ test("situation is registered + operational (out of ask/brief evidence)", () => 
   assert.ok(OPERATIONAL_VERBS.has("situation"));
 });
 
+test("situation with no action: CLI defaults to serve, agent/slash default to status", async () => {
+  const { dir } = tmpCase();
+  try {
+    // agent/slash with no action → status (a useful read-only op), NOT a serve error
+    for (const surface of ["agent", "slash"] as const) {
+      const [rec] = await situationVerb.run(ctx(dir, { input: undefined, surface }));
+      assert.equal(rec.state, "ready", `${surface} defaults to a non-error op`);
+      assert.equal((rec.payload as Record<string, unknown>).op, "status", `${surface} defaults to status`);
+    }
+    // CLI with no action still means serve → hits the port bind path (occupied → error,
+    // proving it routed to serve, not status)
+    const blocker = createServer();
+    await new Promise<void>((r) => blocker.listen(0, "127.0.0.1", () => r()));
+    const port = (blocker.address() as AddressInfo).port;
+    const [cli] = await situationVerb.run(ctx(dir, { input: undefined, surface: "cli", opts: { port, "no-open": true } }));
+    assert.equal(cli.state, "error");
+    assert.match(String(cli.error), /already in use/, "CLI no-action routed to serve");
+    await new Promise<void>((r) => blocker.close(() => r()));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("situation serve is operator-only: the agent tool surface is refused", async () => {
   const { dir } = tmpCase();
   try {

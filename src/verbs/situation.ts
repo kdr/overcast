@@ -144,7 +144,12 @@ export const situationVerb: VerbSpec = {
   outputKind: "situation",
   providerKey: "situation",
   run: async (ctx) => {
-    const action = (ctx.input ?? "serve").toLowerCase();
+    // Default action is surface-aware: a bare `situation` from the CLI opens the
+    // page (serve), but from the AGENT tool / TUI slash it defaults to `status`
+    // — a useful read-only op — rather than hitting the operator-only serve guard
+    // and returning an error (Bugbot #98/med). status/set/stop are the agent
+    // entrypoints; serve stays CLI-only.
+    const action = (ctx.input ?? (ctx.surface === "cli" ? "serve" : "status")).toLowerCase();
 
     if (action === "status") return [await statusRecord(ctx)];
 
