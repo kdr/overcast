@@ -102,6 +102,7 @@ Built-in source refs for `source add <type>:<ref>`:
 - `wayback:<url>` — Wayback Machine CDX snapshots (no key): recover deleted pages + a "secret changes" diff view; strong monitor fit.
 - `overpass:key=value@around:<radius>,<lat>,<lng>` (or `@<south,west,north,east>`, or raw OverpassQL) — OpenStreetMap features (no key); hits carry `payload.gps` → `map`.
 - `firms:<west,south,east,north>` — NASA FIRMS active-fire hotspots (free `FIRMS_MAP_KEY`); hits carry `payload.gps` → `map`.
+- `dispatch:sf` / `dispatch:seattle` / `dispatch:<domain>/<dataset>[@<datefield>]` — police CAD / calls-for-service feeds on the Socrata SODA API (no key); hits carry `payload.gps` → `map`; rolling real-time windows make it a strong `monitor --every` fit.
 - `flights:<west,south,east,north>` / `flights:<icao24>` / `flights:<callsign>` — live ADS-B aircraft via OpenSky (anonymous works); `monitor --every` builds a track.
 - `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` / `webcam:category:<slug>` / `webcam:<id>` — live public webcams (Windy); each monitor pass re-captures the current still.
 - `browser:<url>` — rendered-page capture via headless Chromium (no key; playwright optional dep): monitor as a page-watch; the `screenshot` verb is the one-shot surface.

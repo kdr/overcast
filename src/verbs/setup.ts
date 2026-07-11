@@ -688,6 +688,17 @@ export const doctorVerb: VerbSpec = {
         detail: "public GDELT TV API — no key needed (clipgallery corpus lags real time by weeks)",
       });
     }
+    if (ctx.opts.sources === true || sourceTypes.has("dispatch")) {
+      // Socrata calls-for-service needs no key; note the rolling real-time
+      // window (SF keeps ~48h) so an older --since scan coming back empty reads
+      // as expected rather than broken.
+      checks.push({
+        name: "source:dispatch",
+        ok: true,
+        detail:
+          "keyless Socrata SODA API — optional SOCRATA_APP_TOKEN raises rate limits (real-time feeds are a rolling window; SF keeps ~48h)",
+      });
+    }
     if (ctx.opts.sources === true || sourceTypes.has("webcam")) {
       checks.push({
         name: "source:webcam",

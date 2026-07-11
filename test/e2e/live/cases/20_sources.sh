@@ -274,6 +274,21 @@ save_json "20_scan_gdelttv" "$out" >/dev/null
 assert_scan_hits "$C.gdelttv.query" "$out" "gdelttv broadcast search"
 unset OVERCAST_SOURCE_GDELTTV_CMD
 
+# --- dispatch (Socrata calls-for-service, no key) — SF real-time CAD feed ---
+export OVERCAST_SOURCE_DISPATCH_CMD="bash $SRCDIR/dispatch.sh"
+CASE=$(case_dir src_dispatch)
+ocrun "$CASE" source add 'dispatch:sf' --json >/dev/null 2>&1
+out="$(OC_TIMEOUT=120 oc "$CASE" scan --source dispatch --since 2d --limit 10 --json)"
+save_json "20_scan_dispatch" "$out" >/dev/null
+assert_scan_hits "$C.dispatch.sf" "$out" "dispatch SF calls-for-service"
+# a dispatch hit must carry geolocation + a call-type title (the point of the
+# source); sensitive calls may omit the location, so assert on ANY one hit.
+dlat="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))][0].payload.gps.lat // empty' 2>/dev/null)"
+assert_nonempty "$C.dispatch.gps" "$dlat" "dispatch hit carries payload.gps"
+dtitle="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and ((.payload.title // "") != ""))][0].payload.title // empty' 2>/dev/null)"
+assert_nonempty "$C.dispatch.title" "$dtitle" "dispatch hit carries a call-type title"
+unset OVERCAST_SOURCE_DISPATCH_CMD
+
 # --- instagram + telegram (Apify) — small limits to keep cost low ---
 if require_cred "$C.instagram" APIFY_TOKEN "skipping instagram"; then
   CASE=$(case_dir src_instagram)

@@ -128,6 +128,16 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("firms.sh");
       return script ? { type, base: ["bash", script], needs: "FIRMS_MAP_KEY" } : undefined;
     }
+    case "dispatch": {
+      // Police CAD / calls-for-service feeds on the Socrata SODA API (sf/seattle
+      // presets, or any <domain>/<dataset>[@<datefield>]). No API key (optional
+      // SOCRATA_APP_TOKEN raises rate limits); hits carry top-level gps so scan
+      // records plot on `map`; media.ref is a stable per-row SODA deep link.
+      const script = shippedSource("dispatch.sh");
+      return script
+        ? { type, base: ["bash", script], needs: "none (public Socrata SODA API) — optional SOCRATA_APP_TOKEN raises rate limits" }
+        : undefined;
+    }
     case "instagram": {
       // Instagram profiles/hashtags via Apify (apify/instagram-scraper).
       const script = shippedSource("instagram.sh");
