@@ -304,6 +304,27 @@ export interface EnumerateOpts {
   timeoutMs?: number;
 }
 
+/** The provider `--since` contract is the shared shell grammar: a relative
+ *  `N[smhdw]` duration or a bare `YYYY-MM-DD` date. The CLI gate (parseSince)
+ *  is wider — anything Date.parse reads (ISO datetimes, RFC dates) — so the
+ *  surplus forms are narrowed HERE, at the one seam every enumerate crosses,
+ *  instead of teaching every shell provider to parse datetimes. The rewrite is
+ *  a ceiled relative duration in the coarsest unit every provider maps
+ *  correctly (minutes under an hour, hours under a day, else days —
+ *  web/dork/telegram collapse any `Nh` to one day, so multi-day cutoffs must
+ *  travel as `Nd`); ceiling means the window only ever WIDENS — a recency
+ *  filter may return slightly more than asked, never silently less. */
+export function normalizeSince(since: string): string {
+  if (/^\d+[smhdw]$/.test(since) || /^\d{4}-\d{2}-\d{2}$/.test(since)) return since;
+  const abs = Date.parse(since);
+  if (Number.isNaN(abs)) return since; // not parseable — the provider's fail-closed error owns it
+  const mins = Math.max(1, Math.ceil((Date.now() - abs) / 60_000));
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.ceil(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.ceil(hours / 24)}d`;
+}
+
 /** Enumerate a source → scan.hit records. Throws on spawn failure. */
 export async function enumerateSource(
   desc: SourceDescriptor,
@@ -314,7 +335,7 @@ export async function enumerateSource(
   const q = opts.query ?? opts.ref ?? "";
   if (q) args.push("--query", q);
   if (opts.limit != null) args.push("--limit", String(opts.limit));
-  if (opts.since) args.push("--since", opts.since);
+  if (opts.since) args.push("--since", normalizeSince(opts.since));
 
   const res = await execCapture(cmd, args, {
     env: opts.env,
