@@ -345,6 +345,7 @@ test("extract cache: load skips torn lines; runExtraction with no brain reports 
     assert.ok(run.unavailable, "missing brain surfaces as unavailable, not a throw");
     assert.equal(run.cached, 1);
     assert.equal(run.ran, 0);
+    assert.equal(run.failed, 1, "the uncached candidate is reported as failed, not silently dropped");
     assert.equal(run.lines.length, 1); // cached line still feeds the merge
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -369,6 +370,27 @@ test("runExtraction: sinceCutoff co-filters the corpus — out-of-window cached 
     const run = await runExtraction([oldRec, newRec], { profile: profile as never, caseDir: dir, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") });
     assert.equal(run.cached, 1);
     assert.deepEqual(run.lines.map((l) => l.recordId), ["rec_new"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runExtraction: corpus parity with the board — an in-window finding's co-included source is extracted too", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-graph-parity-"));
+  try {
+    const file = extractCachePath(dir);
+    mkdirSync(dirname(file), { recursive: true });
+    const lineSrc: ExtractCacheLine = { recordId: "rec_src", time: "t", model: "m", entities: [{ name: "Src Co", type: "org", aliases: [] }], relations: [] };
+    writeFileSync(file, JSON.stringify(lineSrc) + "\n", "utf8");
+
+    const oldWatch = rec("watch", { content: "old clip evidence" }, { ref: "old.mp4", id: "rec_src" });
+    (oldWatch.meta as Record<string, unknown>).time = "2020-01-01T00:00:00Z";
+    const finding = rec("finding", { text: "confirmed sighting", status: "open", source_record: "rec_src", source_verb: "watch", trigger: "human" }, { id: "rec_f" });
+    (finding.meta as Record<string, unknown>).time = "2026-07-01T00:00:00Z";
+    const profile = { name: "t", providers: {}, llm: { provider: "no-such-provider", model: "no-such-model" } };
+    const run = await runExtraction([oldWatch, finding], { profile: profile as never, caseDir: dir, sinceCutoff: Date.parse("2026-01-01T00:00:00Z") });
+    assert.deepEqual(run.lines.map((l) => l.recordId), ["rec_src"], "the finding's out-of-window source stays in the extraction corpus");
+    assert.equal(run.cached, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

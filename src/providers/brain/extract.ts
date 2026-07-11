@@ -13,8 +13,8 @@ import { dirname, join } from "node:path";
 import type { Context } from "@earendil-works/pi-ai";
 
 import type { OvercastRecord } from "../../record.js";
-import { memoryRecords, recordCaptureTimeMs } from "../../record.js";
 import { indexableDocument } from "../memory/fields.js";
+import { selectGraphEvidence } from "../../signals/graph.js";
 import type { Profile } from "../../profile.js";
 import { resolveBrainModel } from "./vision.js";
 
@@ -237,9 +237,10 @@ function appendCacheLine(caseDir: string, line: ExtractCacheLine): void {
 export interface RunExtractionCtx {
   profile: Profile;
   caseDir: string;
-  /** graph --since cutoff — the extraction corpus must co-filter with the
-   *  structural graph (same capture-aware time + keep-undated rule), or
-   *  out-of-window entities would float in with no mention edges. */
+  /** graph --since cutoff, applied via the SHARED selectGraphEvidence — the
+   *  extraction corpus must match the structural graph record-for-record
+   *  (capture-aware time, keep-undated, finding-source co-inclusion), or
+   *  extracted entities would float in with no mention edges. */
   sinceCutoff?: number;
   signal?: AbortSignal;
 }
@@ -273,12 +274,10 @@ function buildExtractContext(text: string): Context {
 export async function runExtraction(records: OvercastRecord[], ctx: RunExtractionCtx): Promise<ExtractionRunResult> {
   const cache = loadExtractCache(ctx.caseDir);
   const candidates: Array<{ rec: OvercastRecord; text: string }> = [];
-  for (const rec of memoryRecords(records)) {
-    if (rec.verb === "finding") continue; // finding text restates its source record
-    if (ctx.sinceCutoff != null) {
-      const t = recordCaptureTimeMs(rec);
-      if (!Number.isNaN(t) && t < ctx.sinceCutoff) continue;
-    }
+  // findings are excluded (their text restates the source record), but their
+  // co-included out-of-window sources ARE in `plain` — corpus parity with the board.
+  const { plain } = selectGraphEvidence(records, ctx.sinceCutoff);
+  for (const rec of plain) {
     const doc = indexableDocument(rec);
     if (!doc || !doc.text.trim()) continue;
     candidates.push({ rec, text: doc.text.slice(0, EXTRACT_TEXT_CAP) });
@@ -294,7 +293,9 @@ export async function runExtraction(records: OvercastRecord[], ctx: RunExtractio
   if (fresh.length) {
     resolved = await resolveBrainModel(ctx.profile, { requireImage: false });
     if (resolved.kind !== "model") {
-      // cached lines still count — a re-run without creds keeps the merged graph
+      // cached lines still count — a re-run without creds keeps the merged
+      // graph — and every UNCACHED candidate counts as failed, so the stats
+      // say how much extraction is missing rather than under-reporting it.
       for (const { rec } of candidates) {
         const hit = cache.get(rec.id);
         if (hit) {
@@ -302,7 +303,7 @@ export async function runExtraction(records: OvercastRecord[], ctx: RunExtractio
           cached++;
         }
       }
-      return { lines, ran: 0, cached, failed: 0, unavailable: resolved.reason };
+      return { lines, ran: 0, cached, failed: fresh.length, unavailable: resolved.reason };
     }
   }
 

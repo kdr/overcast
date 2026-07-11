@@ -339,30 +339,25 @@ function focusSubgraph(nodes: Map<string, GraphNode>, edges: GraphEdge[], focus:
 
 // ---- the builder ---------------------------------------------------------------
 
-/** Build the case knowledge graph from raw case records. Pure — records come
- *  from `ctx.case.records()`, targets from `listTargets`; no I/O here. */
-export function buildGraphModel(records: OvercastRecord[], opts: BuildGraphOptions): GraphModel {
-  const b: Builder = { nodes: new Map(), edges: [], edgeSeen: new Set() };
-  const targets = opts.targets ?? [];
-
-  // Evidence boundary identical to ask/brief. --since keeps undated records
-  // (matching map/wall) and is capture-time-aware (matching map): an old
-  // geotagged photo ingested today is OLD.
+/** The graph's evidence selection — the memoryRecords (ask/brief) boundary,
+ *  then --since (capture-aware like map, keep-undated like map/wall), then
+ *  finding-source co-inclusion: an in-window finding pulls its out-of-window
+ *  source record back in — a finding restates its source, so orphaning it from
+ *  its provenance would misread as an unsourced claim. Exported so
+ *  `runExtraction` (graph --extract) reads the IDENTICAL corpus the board
+ *  shows — anything less and extracted entities float without mention edges. */
+export function selectGraphEvidence(records: OvercastRecord[], sinceCutoff?: number): { plain: OvercastRecord[]; findings: OvercastRecord[] } {
   const evidenceAll = memoryRecords(records);
   let evidence = evidenceAll;
-  if (opts.sinceCutoff != null) {
+  if (sinceCutoff != null) {
     evidence = evidence.filter((r) => {
       const t = recordCaptureTimeMs(r);
-      return Number.isNaN(t) || t >= opts.sinceCutoff!;
+      return Number.isNaN(t) || t >= sinceCutoff;
     });
   }
   const findings = evidence.filter((r) => r.verb === "finding");
   const plain = evidence.filter((r) => r.verb !== "finding");
-
-  // --since co-inclusion: an in-window finding pulls its out-of-window
-  // source record back in — a finding restates its source, so orphaning it
-  // from its provenance would misread as an unsourced claim.
-  if (opts.sinceCutoff != null && findings.length) {
+  if (sinceCutoff != null && findings.length) {
     const plainIds = new Set(plain.map((r) => r.id));
     const byId = new Map(evidenceAll.filter((r) => r.verb !== "finding").map((r) => [r.id, r]));
     for (const f of findings) {
@@ -375,6 +370,16 @@ export function buildGraphModel(records: OvercastRecord[], opts: BuildGraphOptio
       }
     }
   }
+  return { plain, findings };
+}
+
+/** Build the case knowledge graph from raw case records. Pure — records come
+ *  from `ctx.case.records()`, targets from `listTargets`; no I/O here. */
+export function buildGraphModel(records: OvercastRecord[], opts: BuildGraphOptions): GraphModel {
+  const b: Builder = { nodes: new Map(), edges: [], edgeSeen: new Set() };
+  const targets = opts.targets ?? [];
+
+  const { plain, findings } = selectGraphEvidence(records, opts.sinceCutoff);
 
   // record + media nodes, record→media edges
   for (const rec of plain) {
