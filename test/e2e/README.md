@@ -101,6 +101,10 @@ exports with real visual targets and matches) · `32_headless_visualization`
 (headless agent `--mode json` export trace, default CSI HTML theme) · `33_wall`
 (control-room wall over real watch/face evidence: finding-anchored loop window,
 FND chip, CSI markers, plus the `--infinite` endless wall from the same case) ·
+`34_graph` (case knowledge graph over real watch/listen evidence: nodes/edges/
+finding→source provenance, harvested tipster entity, `--focus` narrowing with a
+real island feed, self-contained HTML, and the `--extract` live-brain pass with
+extraction stats + caveat + cache round-trip) ·
 `34_forensics` (real `exif` metadata/GPS/serial/lens + `verify` C2PA via system
 exiftool/c2patool, then GPS made actionable — `map` online OSM-tile + `--offline`
 scatter, opt-in live Nominatim `exif --geocode` place lookup, and `devices`
@@ -147,6 +151,11 @@ plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.jso
 and exclusion of setup history records from memory — plus the control-room wall
 (`phase6_wall`): empty-case pending guidance, then a themed wall over seeded
 case media and the `--infinite` endless-wall record + page marker — plus the
+case knowledge graph (`phase6_graph`): empty-case pending guidance, then
+nodes/edges over seeded note/target/finding evidence (regex-harvested email
+entity, finding→source edge), `--focus` narrowing (an island note must drop
+out), focus-miss pending guidance, and a self-contained HTML viewer with no
+external assets — plus the
 global archive (`phase9_archive`): bucket init/add/dedup/show under an isolated
 `OVERCAST_HOME`, `capture archive:…` pulls, `ask --archive`, the setup wizard
 plan/apply with a local index + backfill, and the doctor bucket check; and

@@ -61,6 +61,9 @@ export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set([
   "collection",
   "devices",
   "doctor",
+  // graph restates evidence records as a rollup viewer (like map/devices) —
+  // its node/edge dump must never be re-cited as evidence itself.
+  "graph",
   "grid",
   "index",
   "map",
@@ -303,6 +306,31 @@ export function recordStub(rec: Pick<OvercastRecord, "verb" | "payload"> & Parti
  *  the single reading of the timestamp convention for sorts and --since. */
 export function recordTimeMs(rec: Pick<OvercastRecord, "meta">): number {
   return rec.meta?.time ? Date.parse(String(rec.meta.time)) : NaN;
+}
+
+/** Parse an ExifTool capture datetime ("YYYY:MM:DD HH:MM:SS[.sss][±HH:MM]") to
+ *  epoch ms, or undefined when absent/unparseable (the date part uses colons, so
+ *  Date.parse can't read it raw). A zone-less value is normalized to UTC (append
+ *  "Z") — ES parses a zone-less date-time as HOST-LOCAL, which would skew --since /
+ *  ranking against the UTC `meta.time` + absolute-date cutoffs; an explicit offset
+ *  (Z or ±HH:MM) is left intact. */
+export function exifCaptureMs(created: unknown): number | undefined {
+  if (typeof created !== "string" || !created.trim()) return undefined;
+  let iso = created.trim().replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3").replace(" ", "T");
+  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) iso += "Z";
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/** Capture-aware record time for --since / recency on rollup viewers (map,
+ *  graph): the CAPTURE time (exif payload.created) when present — an old
+ *  geotagged photo ingested today must not read as new — else ingest time
+ *  (meta.time), NaN when neither parses. Activity surfaces (threads/pulse/wall
+ *  freshness) deliberately stay on recordTimeMs: they track investigation
+ *  activity, not media age. */
+export function recordCaptureTimeMs(rec: Pick<OvercastRecord, "meta" | "payload">): number {
+  const p = rec.payload && typeof rec.payload === "object" && !Array.isArray(rec.payload) ? (rec.payload as JsonMap) : undefined;
+  return exifCaptureMs(p?.created) ?? recordTimeMs(rec);
 }
 
 // --- JSONL persistence -------------------------------------------------------

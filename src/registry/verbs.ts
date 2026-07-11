@@ -24,6 +24,7 @@ import { wallVerb } from "../verbs/wall.js";
 import { situationVerb } from "../verbs/situation.js";
 import { mapVerb } from "../verbs/map.js";
 import { devicesVerb } from "../verbs/devices.js";
+import { graphVerb } from "../verbs/graph.js";
 import { resolveVideoArg } from "../verbs/media-ref.js";
 import { provenanceFromCapture, stampProvenance } from "../verbs/provenance.js";
 import { provenanceCase, stampArchive } from "../archive.js";
@@ -127,6 +128,7 @@ export const VERBS: VerbSpec[] = [
   situationVerb,
   mapVerb,
   devicesVerb,
+  graphVerb,
   scanVerb,
   captureVerb,
   monitorVerb,
