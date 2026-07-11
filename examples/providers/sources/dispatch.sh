@@ -19,10 +19,11 @@
 #                                       the system :updated_at orders/filters.
 # Each row becomes one hit; the gps/title/snippet columns are AUTO-DETECTED per
 # row (presets pin the date column), so hits carry top-level gps:{lat,lng} and
-# scan records plot on `map`. media.ref/url is a stable per-row SODA deep link
-# (https://<domain>/resource/<dataset>.json?<idfield>=<value>) — the monitor
-# seen-set dedup key. A sensitive call may carry no location; it is still a hit,
-# just without gps. Strong `monitor --every` fit (the feeds are rolling windows).
+# scan records plot on `map`. media.ref/url is a stable per-row SODA deep link —
+# ?<idfield>=<value> on a real id column, else ?$where=:id='…' on the Socrata
+# system row id (always requested via $select, so every row has one) — the
+# monitor seen-set dedup key. A sensitive call may carry no location; it is
+# still a hit, just without gps. Strong `monitor --every` fit (rolling windows).
 # Implements: enumerate --query <q> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
 
@@ -110,8 +111,11 @@ case "$op" in
     fi
 
     # GET with --data-urlencode so the SoQL params ($order's space, $where's
-    # quotes) encode correctly. Always newest first.
-    curlargs=(--get --data-urlencode "\$limit=$limit" --data-urlencode "\$order=$datefield DESC")
+    # quotes) encode correctly. Always newest first. $select pulls the Socrata
+    # system fields alongside the real columns (star first — SoQL requires it):
+    # :id guarantees a stable per-row dedup/deep-link key on ANY dataset, and
+    # :updated_at gives the generic form's rows a real timestamp.
+    curlargs=(--get --data-urlencode "\$select=*,:id,:updated_at" --data-urlencode "\$limit=$limit" --data-urlencode "\$order=$datefield DESC")
     [ -n "$whereparam" ] && curlargs+=(--data-urlencode "\$where=$whereparam")
     if ! run="$(curl -fsS -m 60 ${hdr[@]+"${hdr[@]}"} "${curlargs[@]}" "https://$domain/resource/$ds.json")"; then
       echo "dispatch enumerate request failed for '$query' (bad dataset / rate limit?)" >&2; exit 1
@@ -145,27 +149,33 @@ case "$op" in
                $r.typetext?, $r.type?, $r.call_type?, $r.description?, $r.title?)
               | select(type=="string" and . != "")) // null;
       # row id for the stable dedup deep link: first present of the common
-      # unique-id columns (returned as {k: field, v: value}).
+      # unique-id columns (returned as {k: field, v: value}), falling back to
+      # the :id system row id — always present because enumerate $selects it,
+      # so a missing one means the dataset broke the SODA contract (hard error,
+      # fail closed — not a full-dataset ref that fetch would mis-download).
       def detect_id($r):
         first(({k:"id", v:$r.id?}, {k:"cad_number", v:$r.cad_number?},
                {k:"incident_number", v:$r.incident_number?}, {k:"nopd_item", v:$r.nopd_item?},
-               {k:"objectid", v:$r.objectid?}, {k:"event_number", v:$r.event_number?})
+               {k:"objectid", v:$r.objectid?}, {k:"event_number", v:$r.event_number?},
+               {k:":id", v:$r[":id"]?})
               | select(.v != null and (.v|tostring) != "")) // null;
-      # tiny row fingerprint for the no-id-column fallback ref, so monitor dedup
-      # still works when a dataset has none of the known id fields.
-      def fp: tojson | explode | reduce .[] as $c (0; (. * 31 + $c) % 2147483647);
       to_entries | [ .[]
         | .key as $i | .value as $r
         | detect_gps($r) as $gps
-        | detect_id($r) as $idf
-        | (if $idf != null
-           then "https://\($domain)/resource/\($ds).json?\($idf.k)=\($idf.v|tostring|@uri)"
-           else "https://\($domain)/resource/\($ds).json#row-\($r|fp)" end) as $link
+        | (detect_id($r) // error("dispatch: row without :id (dataset did not honor $select)")) as $idf
+        # a real id column filters as ?<col>=<value>; a :system field only
+        # filters through $where (?:id=… is rejected as an unrecognized
+        # argument), so that form is ?$where=:id='row-…' (row ids are
+        # quote-free by format, so the SoQL string literal is safe).
+        | (if ($idf.k | startswith(":"))
+           then "https://\($domain)/resource/\($ds).json?%24where=\("\($idf.k)='\''\($idf.v|tostring)'\''" | @uri)"
+           else "https://\($domain)/resource/\($ds).json?\($idf.k)=\($idf.v|tostring|@uri)" end) as $link
         # published/created = the pinned date column, falling back to the common
-        # CAD date columns (the generic-form :updated_at system field is not in
-        # the row payload). map ranks by payload.created — same convention as
+        # CAD date columns, then the always-selected :updated_at system field
+        # (which covers the generic form — its default date column IS
+        # :updated_at). map ranks by payload.created — same convention as
         # overpass/firms.
-        | ($r[$df]? // $r.received_datetime? // $r.datetime? // null) as $when
+        | ($r[$df]? // $r.received_datetime? // $r.datetime? // $r[":updated_at"]? // null) as $when
         | {
             title: (detect_title($r) // ($ds + " row #" + ($i|tostring))),
             url: $link,
@@ -178,7 +188,7 @@ case "$op" in
                        $r.police_district?, $r.analysis_neighborhood?]
                       | map(select(type=="string" and . != "")) | join(" · ")),
             dataset: ($domain + "/" + $ds),
-            row_id: (if $idf != null then ($idf.v|tostring) else null end),
+            row_id: ($idf.v|tostring),
             media: { ref: $link }
           }
         + (if $gps != null then { gps: $gps } else {} end)

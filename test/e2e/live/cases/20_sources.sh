@@ -287,6 +287,11 @@ dlat="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" an
 assert_nonempty "$C.dispatch.gps" "$dlat" "dispatch hit carries payload.gps"
 dtitle="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and ((.payload.title // "") != ""))][0].payload.title // empty' 2>/dev/null)"
 assert_nonempty "$C.dispatch.title" "$dtitle" "dispatch hit carries a call-type title"
+# every ref must be a per-row QUERY deep link (?<col>=… or ?$where=:id='…') —
+# never a fragment, which curl drops (fetch would download the whole dataset)
+# and which is why the row-hash fallback was removed.
+dref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("/resource/.*\\.json\\?") and (contains("#")|not)) then "ok" else "" end' 2>/dev/null)"
+assert_nonempty "$C.dispatch.ref" "$dref" "dispatch refs are per-row query deep links (no fragments)"
 unset OVERCAST_SOURCE_DISPATCH_CMD
 
 # --- instagram + telegram (Apify) — small limits to keep cost low ---
