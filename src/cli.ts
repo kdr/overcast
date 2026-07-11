@@ -169,6 +169,11 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["OVERCAST_CHAIR_BIND / OVERCAST_CHAIR_PORT", "chair bridge bind address (default 127.0.0.1 — keep it off public ifaces) + port (default 7373)"],
       ["OVERCAST_CHAIR_TOKEN", "pin the chair pairing token (default: fresh random token per /chair on)"],
       ["OVERCAST_CHAIR_URL", "explicit public HTTPS origin for the chair QR (else auto-detects `tailscale serve`)"],
+      ["OVERCAST_SITUATION", "Set 1 to auto-start the live situation page on TUI launch (same as --situation)"],
+      ["OVERCAST_SITUATION_BIND / OVERCAST_SITUATION_PORT", "situation server bind address (default 127.0.0.1) + port (default 7374)"],
+      ["OVERCAST_SITUATION_TOKEN / OVERCAST_SITUATION_URL", "pin the situation pairing token / set an explicit public origin for its QR"],
+      ["OVERCAST_SITUATION_MAX_PASSES", "cap on `situation --every` monitor passes (testing/scheduling)"],
+      ["OVERCAST_REPORT_REMOTE_MEDIA", "Set 1 to embed remote (scraped) thumbnails/video in wall/map/situation (off = no IP-beacon to the investigated host)"],
       ["OVERCAST_ALLOW_PRIVATE_FETCH", "Set 1 to allow fetching private/loopback addresses (SSRF guard opt-out for capture/screenshot/browser)"],
     ],
   },
@@ -379,6 +384,7 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
       profile: loadProfile(homeOpts),
       home,
       profileName: profile,
+      surface: "cli",
     };
 
     let records: OvercastRecord[];

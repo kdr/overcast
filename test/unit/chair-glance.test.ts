@@ -9,7 +9,7 @@ import { addTarget } from "../../src/state/target.ts";
 import { addSource } from "../../src/state/source.ts";
 import { buildCaseGlance } from "../../src/chair/glance.ts";
 
-test("case glance: counts, open findings only, latest per verb, scope", () => {
+test("case glance: counts, open findings only, latest per verb, scope", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-glance-"));
   try {
     const c = openCase(dir);
@@ -50,7 +50,7 @@ test("case glance: counts, open findings only, latest per verb, scope", () => {
     addTarget(c, "@vanwatcher");
     addSource(c, "youtube:@cityfeed");
 
-    const glance = buildCaseGlance(c);
+    const glance = await buildCaseGlance(c);
     assert.equal(glance.records, 6);
     assert.equal(glance.counts.watch, 2);
     assert.equal(glance.counts.finding, 3);
@@ -78,10 +78,10 @@ test("case glance: counts, open findings only, latest per verb, scope", () => {
   }
 });
 
-test("case glance: empty/uninitialized case degrades to folder name", () => {
+test("case glance: empty/uninitialized case degrades to folder name", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-glance-empty-"));
   try {
-    const glance = buildCaseGlance(openCase(dir));
+    const glance = await buildCaseGlance(openCase(dir));
     assert.equal(glance.records, 0);
     assert.deepEqual(glance.openFindings, []);
     assert.deepEqual(glance.latest, []);

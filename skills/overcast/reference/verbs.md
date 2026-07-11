@@ -495,6 +495,38 @@ Options:
 
 Emits `wall` records.
 
+### `overcast situation`
+
+`serve` (default; operator/CLI only — run it in its own terminal pane) starts a token-authenticated local server (default 127.0.0.1:7374) and opens the live console: video-wall tiles looping at their evidence moments, a reverse-chron feed of scan hits, a live map of every gps-bearing record (flights build tracks), and the freshest webcam/browser stills — panels auto-picked from your configured sources unless --panels pins them. The page refreshes itself whenever case records land (from the agent, `scan --pull`, or a separate `monitor --every`); with --every the serving process runs the monitor cadence itself, so one command IS 'monitor the situation'. Local media streams over an authenticated /media route (remote embeds stay off unless OVERCAST_REPORT_REMOTE_MEDIA=1). `status`/`set`/`stop` are the agent-safe control plane via .overcast/situation/ — `set` retunes panels/filters/theme on the fly, `stop` shuts the page down (applied within ~2s). In the TUI, /situation on runs the server in-process instead.
+
+```
+overcast situation [action] [options]
+
+  Monitor the situation: a live web page over the case — wall + feed + map + stills, updating as records land (serve | status | set | stop).
+
+Arguments:
+  action           serve | status | set | stop (default: serve)
+
+Options:
+  --every <string>       serve: own the monitor cadence (e.g. 5m, 1h) — runs a monitor pass each interval
+  --port <number>        serve: listen port (default 7374; 0 = ephemeral)
+  --bind <string>        serve: bind address (default 127.0.0.1 — keep it off public ifaces)
+  --panels <string>      Panels to show: comma list of wall,feed,map,stills — or 'auto' (default: auto from sources)
+  --source <string>      Only content from these source ids/types (comma list)
+  --since <string>       Only content since (e.g. 24h, 7d, 2026-06-01)
+  --limit <number>       Max wall tiles (default 12; other panels have fixed caps)
+  --theme <string>       Console theme: csi | plain (default: csi)
+  --query <string>       Ad-hoc monitor query (used by the --every cadence)
+  --clear <string>       set: drop filters back to default/auto (comma list of panels,source,since,limit,theme,query)
+  --poll <number>        serve: data-refresh cadence seconds (default 60; control stays ~2s; ⟳/monitor passes force now)
+  --no-open              serve: don't launch the browser
+  --force                stop: also SIGTERM the serving pid (when control isn't picked up)
+  --format <string>      Output surface: json | md | txt
+  --json                 Shorthand for --format json
+```
+
+Emits `situation` records.
+
 ### `overcast map`
 
 Gathers all case records with payload.gps{lat,lng} (primarily `exif`; any record qualifies) and renders a self-contained HTML map — one marker per point with its record id, media thumbnail, geocoded place (when `exif --geocode` set it), and capture time, linking back to the source. Online mode fetches OSM raster tiles in the browser at view time (no CDN dependency; the map JS is inlined); --offline degrades to a coordinate scatter with per-point openstreetmap.org links and no network egress. --no-open writes the map and emits its path instead of launching. Live tiles reveal the viewer's IP + the investigated location to OpenStreetMap.

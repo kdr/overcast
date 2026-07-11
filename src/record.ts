@@ -76,6 +76,7 @@ export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set([
   // real pixels and stays evidence; reconstruct materializes hypotheses.
   "reconstruct",
   "setup",
+  "situation",
   "skills",
   "source",
   "target",
