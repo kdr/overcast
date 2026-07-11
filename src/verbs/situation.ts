@@ -190,11 +190,21 @@ export const situationVerb: VerbSpec = {
       const running = runtimeAlive(rt) && (await runtimeServing(rt));
       if (!running) {
         clearRuntime(ctx.case); // sweep a stale runtime from a crashed serve
+        // Still queue the stop (Bugbot #98/high): the in-process TUI page
+        // follows a session case switch by rebinding, and a stop issued in the
+        // window before that rebind sees no runtime here yet — the queued
+        // control is honored by the rebound server's first tick. A genuinely
+        // fresh serve is unaffected: every serve clears a stale stop at start.
+        writeControl(ctx.case, { stop: true } satisfies SituationControl);
         return [
           makeRecord({
             verb: "situation",
             format: "json",
-            payload: { op: "stop", running: false, note: "no situation is running" },
+            payload: {
+              op: "stop",
+              running: false,
+              note: "no situation is running — stop queued (honored by a server starting on this case; a fresh serve clears it)",
+            },
             meta: { provider: "situation", case: ctx.case.dir },
             state: "ready",
           }),

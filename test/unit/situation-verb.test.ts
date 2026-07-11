@@ -116,11 +116,15 @@ test("situation status reports offline / stale runtime; stop writes a stop contr
     const [stale] = await situationVerb.run(ctx(dir, { input: "status" }));
     assert.equal((stale.payload as Record<string, unknown>).running, false);
 
-    // stop on a not-running case is a clean ready record and sweeps the stale runtime
+    // stop on a not-running case is a clean ready record, sweeps the stale
+    // runtime, and QUEUES the stop — a server mid-start on this case (the TUI
+    // page rebinding after a session case switch) honors it on its first tick,
+    // while a genuinely fresh serve clears it at start.
     const [stopped] = await situationVerb.run(ctx(dir, { input: "stop" }));
     assert.equal(stopped.state, "ready");
     assert.equal((stopped.payload as Record<string, unknown>).running, false);
     assert.equal(readRuntime(openCase(dir)), undefined);
+    assert.equal(readControl(c)?.control.stop, true, "stop queued in control.json");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

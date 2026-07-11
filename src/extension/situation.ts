@@ -26,6 +26,7 @@ import {
   clearRuntime,
   clearStaleStop,
   parsePanels,
+  readControl,
   readRuntime,
   runtimeServing,
   writeRuntime,
@@ -51,6 +52,10 @@ interface StartOptions {
   config?: SituationConfig;
   /** open the browser on the desk after binding (default true for /situation on) */
   open?: boolean;
+  /** don't clearStaleStop before binding — a case-switch rebind already checked
+   *  for a pending stop, and one landing DURING the rebind is fresh intent that
+   *  the new server's first control tick must honor, not a stale leftover. */
+  preservePendingStop?: boolean;
 }
 
 export interface SituationHandle {
@@ -99,8 +104,27 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     rebinding = true;
     void (async () => {
       try {
+        // A stop already queued on the NEW case (a `situation stop` that landed
+        // in the window before this rebind) is fresh operator/agent intent —
+        // honor it instead of restarting over it (Bugbot #98/high: the restart
+        // used to clearStaleStop it away and bring the page straight back up).
+        const next = openCase(cur);
+        if (readControl(next)?.control.stop === true) {
+          optedOut = true;
+          desired = false;
+          sessionToken = undefined;
+          clearStaleStop(next); // consumed: the page goes down now
+          await stopSituation();
+          emitResult(pi, "▶ situation: stopped (a stop was pending on the switched-to case)");
+          return;
+        }
         await stopSituation();
-        await startSituation({ ...lastStartOpts, open: false });
+        // The view config is CASE-scoped — panels/source/since were tuned for
+        // the OLD case's content (Bugbot #98/med) — so reset it to auto on a
+        // case switch; bind/port/token stay session-scoped. A `situation set`
+        // already written to the new case still applies on the first tick, and
+        // a stop landing mid-rebind is preserved for the first tick to honor.
+        await startSituation({ ...lastStartOpts, config: {}, open: false, preservePendingStop: true });
       } finally {
         rebinding = false;
       }
@@ -133,7 +157,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
       await stopSituation();
     }
     await stopping; // wait for any in-flight stop to release the port
-    clearStaleStop(c); // drop a stale stop:true that would kill us on tick 1
+    if (!opts.preservePendingStop) clearStaleStop(c); // drop a stale stop:true that would kill us on tick 1
     const bind = opts.bind || lastStartOpts.bind || process.env.OVERCAST_SITUATION_BIND || "127.0.0.1";
     const port = opts.port ?? lastStartOpts.port ?? envPort(process.env.OVERCAST_SITUATION_PORT) ?? 7374;
     const token = process.env.OVERCAST_SITUATION_TOKEN || sessionToken || randomBytes(32).toString("base64url");
@@ -264,7 +288,11 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
       emitResult(pi, `▶ situation: ${parsed.errors.join("; ")}`);
       return;
     }
-    const c = openCase(caseCwd());
+    // While the in-process page is up, target the case the server is BOUND to —
+    // it may lag a session case switch until reconcileCase rebinds, and writing
+    // control to the session's new case would steer a case nothing is polling
+    // yet (Bugbot #98/high).
+    const c = openCase(server?.running && serverCaseDir ? serverCaseDir : caseCwd());
     c.ensure();
     const profileName = process.env.OVERCAST_PROFILE || "default";
     const vctx: VerbContext = {
@@ -300,12 +328,21 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     // next session_start restarts it and the open console stays paired.
     await stopSituation();
   });
+  // Follow a mid-session case switch promptly (Bugbot #98/high): capture (→
+  // reconcileCase) on the same live events the chair uses, not only at
+  // session_start / a slash command — so an agent-tool `situation set/stop`
+  // right after a switch finds the page already rebound (or its queued stop
+  // honored by the rebind).
+  pi.on("agent_start", (_e, c) => capture(c));
+  pi.on("turn_start", (_e, c) => capture(c));
+  pi.on("tool_execution_start", (_e, c) => capture(c));
+  pi.on("tool_execution_end", (_e, c) => capture(c));
 
   pi.registerFlag("situation", { type: "boolean", description: "start the live situation page on launch" });
 
   pi.registerCommand("situation", {
     description:
-      "monitor the situation: live wall/feed/map page over this case (on [tailnet|--bind|--port|--panels …]|off|status|qr|set …|stop)",
+      "monitor the situation: live wall/feed/map page over this case (on [tailnet|--bind|--port|--panels|--no-open …]|off|status|qr|set …|stop)",
     getArgumentCompletions: (prefix: string): AutocompleteItem[] => {
       return ["on", "off", "status", "qr", "set", "stop", "on tailnet"]
         .filter((s) => s.startsWith(prefix.trim()))
@@ -365,7 +402,8 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
             } catch (e) {
               return void emitResult(pi, `▶ situation: ${(e as Error).message}`);
             }
-          } else if (t === "--source") config.source = rest[++i];
+          } else if (t === "--no-open") opts.open = false;
+          else if (t === "--source") config.source = rest[++i];
           else if (t === "--since") config.since = rest[++i];
           else if (t === "--theme") {
             const theme = rest[++i];
