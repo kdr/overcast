@@ -28,6 +28,7 @@ import {
   parsePanels,
   readControl,
   readRuntime,
+  registerInProcessSituation,
   runtimeServing,
   writeRuntime,
   type SituationConfig,
@@ -50,6 +51,8 @@ interface StartOptions {
   bind?: string;
   port?: number;
   config?: SituationConfig;
+  /** data-refresh cadence override (ms) — mirrors the CLI serve --poll */
+  pollMs?: number;
   /** open the browser on the desk after binding (default true for /situation on) */
   open?: boolean;
   /** don't clearStaleStop before binding — a case-switch rebind already checked
@@ -93,6 +96,11 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
   // pinned server keeps serving the old store while set/stop write the new case).
   let serverCaseDir: string | undefined;
   let rebinding = false;
+
+  // In-process seam (Bugbot #98/med): the verb's status/set/stop — run by the
+  // agent tool / slash in THIS process — steer the case the live page is
+  // actually bound to, even while a session case switch hasn't rebound it yet.
+  registerInProcessSituation(() => (server?.running ? serverCaseDir : undefined));
 
   const caseCwd = (): string => process.env.OVERCAST_CASE || ctx?.cwd || process.cwd();
 
@@ -150,7 +158,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     if (server?.running) {
       // bare `/situation on` while running just reports; an explicit bind/port
       // rebinds (rotating nothing — the session token is reused).
-      if (opts.bind === undefined && opts.port === undefined && opts.config === undefined) {
+      if (opts.bind === undefined && opts.port === undefined && opts.config === undefined && opts.pollMs === undefined) {
         await showStatus();
         return;
       }
@@ -162,6 +170,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     const port = opts.port ?? lastStartOpts.port ?? envPort(process.env.OVERCAST_SITUATION_PORT) ?? 7374;
     const token = process.env.OVERCAST_SITUATION_TOKEN || sessionToken || randomBytes(32).toString("base64url");
     const config = opts.config ?? lastStartOpts.config ?? {};
+    const pollMs = opts.pollMs ?? lastStartOpts.pollMs;
     const s = new SituationServer({
       case: c,
       version: OVERCAST_VERSION,
@@ -171,6 +180,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
       assetsDir: situationConsoleDir(),
       publicUrl: process.env.OVERCAST_SITUATION_URL || undefined,
       config,
+      pollMs,
       every: null, // TUI server is a viewer; the agent (or a CLI pane) ingests
       onStopRequested: () => {
         // `situation stop` (agent/CLI) reached the in-process server — honor it
@@ -192,7 +202,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
     serverCaseDir = c.dir; // track the bound case so a session case switch rebinds
     sessionToken = process.env.OVERCAST_SITUATION_TOKEN ? undefined : token;
     desired = true;
-    lastStartOpts = { bind, port: s.port, config };
+    lastStartOpts = { bind, port: s.port, config, pollMs };
     writeRuntime(c, {
       pid: process.pid,
       port: s.port,
@@ -288,11 +298,10 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
       emitResult(pi, `▶ situation: ${parsed.errors.join("; ")}`);
       return;
     }
-    // While the in-process page is up, target the case the server is BOUND to —
-    // it may lag a session case switch until reconcileCase rebinds, and writing
-    // control to the session's new case would steer a case nothing is polling
-    // yet (Bugbot #98/high).
-    const c = openCase(server?.running && serverCaseDir ? serverCaseDir : caseCwd());
+    // The verb itself resolves the bound case via the in-process seam
+    // (registerInProcessSituation above), so the ctx case here is just the
+    // session case the record persists to.
+    const c = openCase(caseCwd());
     c.ensure();
     const profileName = process.env.OVERCAST_PROFILE || "default";
     const vctx: VerbContext = {
@@ -405,10 +414,22 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
           } else if (t === "--no-open") opts.open = false;
           else if (t === "--source") config.source = rest[++i];
           else if (t === "--since") config.since = rest[++i];
-          else if (t === "--theme") {
+          else if (t === "--limit") {
+            const n = Number(rest[++i]);
+            if (!Number.isFinite(n) || n <= 0) return void emitResult(pi, "▶ situation: --limit must be a positive number");
+            config.limit = Math.floor(n);
+          } else if (t === "--query") config.query = rest[++i];
+          else if (t === "--poll") {
+            const n = Number(rest[++i]);
+            if (!Number.isFinite(n) || n <= 0) return void emitResult(pi, "▶ situation: --poll must be seconds > 0");
+            opts.pollMs = Math.round(n * 1000);
+          } else if (t === "--theme") {
             const theme = rest[++i];
             if (theme !== "csi" && theme !== "plain") return void emitResult(pi, "▶ situation: --theme must be csi or plain");
             config.theme = theme;
+          } else {
+            // don't silently drop a flag the CLI serve documents (or a typo)
+            return void emitResult(pi, `▶ situation: unknown option "${t}" — on [tailnet] [--bind a] [--port n] [--panels p] [--source s] [--since t] [--limit n] [--query q] [--poll s] [--theme csi|plain] [--no-open]`);
           }
         }
         if (Object.keys(config).length) opts.config = config;

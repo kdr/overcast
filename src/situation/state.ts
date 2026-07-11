@@ -127,6 +127,23 @@ export function runtimeServing(rt: SituationRuntime | undefined, timeoutMs = 400
   });
 }
 
+/** In-process situation seam: when the TUI extension runs the server INSIDE
+ *  the session process (`/situation on`), it registers the bound case dir here
+ *  so the verb's status/set/stop — the agent tool and slash run in this same
+ *  process — steer the case the live page actually polls, even while a session
+ *  case switch hasn't rebound it yet (Bugbot #98/med). Cross-process callers
+ *  (a CLI `situation stop` in another terminal) never see this seam; their
+ *  discovery stays runtime.json. */
+let inprocBoundCaseDir: (() => string | undefined) | undefined;
+
+export function registerInProcessSituation(getter: (() => string | undefined) | undefined): void {
+  inprocBoundCaseDir = getter;
+}
+
+export function inProcessSituationCaseDir(): string | undefined {
+  return inprocBoundCaseDir?.();
+}
+
 /** Parse + validate a comma list of panel names. Returns undefined for empty
  *  input; throws on an unknown panel so callers surface a usable error. */
 export function parsePanels(raw: string | undefined): SituationPanel[] | undefined {

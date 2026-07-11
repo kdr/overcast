@@ -10,7 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerSituation } from "../../src/extension/situation.ts";
 import { openCase } from "../../src/case.ts";
+import { defaultProfile } from "../../src/profile.ts";
+import { situationVerb } from "../../src/verbs/situation.ts";
 import { readControl, readRuntime, writeControl } from "../../src/situation/state.ts";
+import type { VerbContext } from "../../src/registry/types.ts";
 
 type CommandHandler = (args: string, ctx: unknown) => Promise<void>;
 type EventHandler = (event: unknown, ctx: unknown) => unknown;
@@ -62,6 +65,22 @@ async function until(cond: () => boolean, ms = 8000): Promise<void> {
   }
 }
 
+function verbCtx(dir: string, over: Partial<VerbContext> = {}): VerbContext {
+  const c = openCase(dir);
+  c.ensure();
+  return {
+    input: undefined,
+    rest: [],
+    opts: {},
+    case: c,
+    profile: defaultProfile(),
+    home: dir,
+    profileName: "default",
+    surface: "agent",
+    ...over,
+  };
+}
+
 test("case-switch rebind honors a stop queued on the new case (no restart over it)", async () => {
   const dirA = tmpCase("oc-situation-ext-a-");
   const dirB = tmpCase("oc-situation-ext-b-");
@@ -86,6 +105,38 @@ test("case-switch rebind honors a stop queued on the new case (no restart over i
     assert.equal(readRuntime(openCase(dirB)), undefined, "no server restarted on case B");
   } finally {
     await emit("session_shutdown", {}, fakeCtx(dirB));
+    if (prevCase !== undefined) process.env.OVERCAST_CASE = prevCase;
+    rmSync(dirA, { recursive: true, force: true });
+    rmSync(dirB, { recursive: true, force: true });
+  }
+});
+
+test("agent-tool set/stop steer the in-process page's BOUND case, not the session case", async () => {
+  const dirA = tmpCase("oc-situation-ext-a-");
+  const dirB = tmpCase("oc-situation-ext-b-");
+  const prevCase = process.env.OVERCAST_CASE;
+  delete process.env.OVERCAST_CASE;
+  const { pi, commands, emit } = fakePi();
+  const handle = registerSituation(pi as never);
+  try {
+    await commands.get("situation")?.("on --port 0 --no-open", fakeCtx(dirA));
+    assert.ok(handle.server()?.running, "page up on case A");
+
+    // the agent runs `situation set` with the SESSION case (B) in the desync
+    // window — the in-process seam must steer the bound case (A) instead.
+    const [setRec] = await situationVerb.run(verbCtx(dirB, { input: "set", opts: { source: "webcam" } }));
+    assert.equal(setRec.state, "ready");
+    assert.equal((setRec.payload as Record<string, unknown>).steered_case, openCase(dirA).dir, "set reports the steered case");
+    assert.equal(readControl(openCase(dirA))?.control.source, "webcam", "control written to the bound case");
+    assert.equal(readControl(openCase(dirB)), undefined, "nothing written to the session case");
+    assert.equal((setRec.payload as Record<string, unknown>).running, true, "set sees the live page");
+
+    // `situation stop` from the agent (session case B) reaches the live page too
+    const [stopRec] = await situationVerb.run(verbCtx(dirB, { input: "stop" }));
+    assert.equal((stopRec.payload as Record<string, unknown>).running, true, "stop sees the live page");
+    await until(() => handle.server() === undefined && readRuntime(openCase(dirA)) === undefined);
+  } finally {
+    await emit("session_shutdown", {}, fakeCtx(dirA));
     if (prevCase !== undefined) process.env.OVERCAST_CASE = prevCase;
     rmSync(dirA, { recursive: true, force: true });
     rmSync(dirB, { recursive: true, force: true });

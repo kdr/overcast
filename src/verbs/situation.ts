@@ -26,10 +26,12 @@ import { qrLines } from "../chair/qr.js";
 import { OVERCAST_VERSION } from "../version.js";
 import { SituationServer } from "../situation/server.js";
 import { situationConsoleDir } from "../situation/assets.js";
+import { openCase, type Case } from "../case.js";
 import {
   CLEARABLE_CONFIG_KEYS,
   clearRuntime,
   clearStaleStop,
+  inProcessSituationCaseDir,
   parsePanels,
   readControl,
   readRuntime,
@@ -102,6 +104,17 @@ function parsePort(v: unknown): number | undefined {
 
 const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 
+/** The case whose control plane status/set/stop steer: normally the ctx case,
+ *  but when THIS process hosts the in-process TUI page bound to a different
+ *  case (the mid-case-switch window before reconcileCase rebinds), steer the
+ *  BOUND case — that's the store the live page actually polls (Bugbot #98/med:
+ *  agent/chair set/stop used to write control the server never read). */
+function controlCase(ctx: VerbContext): Case {
+  const bound = inProcessSituationCaseDir();
+  if (bound && bound !== ctx.case.dir) return openCase(bound);
+  return ctx.case;
+}
+
 export const situationVerb: VerbSpec = {
   name: "situation",
   group: "inspect",
@@ -154,7 +167,11 @@ export const situationVerb: VerbSpec = {
     // entrypoints; serve stays CLI-only.
     const action = (ctx.input ?? (ctx.surface === "cli" ? "serve" : "status")).toLowerCase();
 
-    if (action === "status") return [await statusRecord(ctx)];
+    // status/set/stop steer the control case (the in-process page's bound case
+    // when it lags a session case switch; else the ctx case).
+    const cc = controlCase(ctx);
+
+    if (action === "status") return [await statusRecord(ctx, cc)];
 
     if (action === "set") {
       const parsed = parseConfigFlags(ctx);
@@ -172,8 +189,8 @@ export const situationVerb: VerbSpec = {
       if (!hasConfigFlags(parsed.config) && !clear) {
         return [err("situation set: nothing to set (pass --panels/--source/--since/--limit/--theme/--query, or --clear <keys>)")];
       }
-      const merged = writeControl(ctx.case, { ...parsed.config, ...(clear ? { clear } : {}) });
-      const rt = readRuntime(ctx.case);
+      const merged = writeControl(cc, { ...parsed.config, ...(clear ? { clear } : {}) });
+      const rt = readRuntime(cc);
       // "running" must reflect a server actually SERVING (pid alive AND the port
       // is up), not just a live/reused pid (Bugbot #98/med) — else `set` tells
       // the operator "applied within ~2s" when nothing is listening.
@@ -189,6 +206,7 @@ export const situationVerb: VerbSpec = {
             note: running
               ? `applied by the live page within ~2s (${rt!.displayUrl})`
               : "no situation is running — the control applies when one starts",
+            ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
           },
           meta: { provider: "situation", case: ctx.case.dir },
           state: "ready",
@@ -197,18 +215,18 @@ export const situationVerb: VerbSpec = {
     }
 
     if (action === "stop") {
-      const rt = readRuntime(ctx.case);
+      const rt = readRuntime(cc);
       // a server is only "running" when its port is actually served (pid + port),
       // not off a live/reused pid alone (Bugbot #98/med).
       const running = runtimeAlive(rt) && (await runtimeServing(rt));
       if (!running) {
-        clearRuntime(ctx.case); // sweep a stale runtime from a crashed serve
+        clearRuntime(cc); // sweep a stale runtime from a crashed serve
         // Still queue the stop (Bugbot #98/high): the in-process TUI page
         // follows a session case switch by rebinding, and a stop issued in the
         // window before that rebind sees no runtime here yet — the queued
         // control is honored by the rebound server's first tick. A genuinely
         // fresh serve is unaffected: every serve clears a stale stop at start.
-        writeControl(ctx.case, { stop: true } satisfies SituationControl);
+        writeControl(cc, { stop: true } satisfies SituationControl);
         return [
           makeRecord({
             verb: "situation",
@@ -217,13 +235,14 @@ export const situationVerb: VerbSpec = {
               op: "stop",
               running: false,
               note: "no situation is running — stop queued (honored by a server starting on this case; a fresh serve clears it)",
+              ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
             },
             meta: { provider: "situation", case: ctx.case.dir },
             state: "ready",
           }),
         ];
       }
-      writeControl(ctx.case, { stop: true } satisfies SituationControl);
+      writeControl(cc, { stop: true } satisfies SituationControl);
       let delivered = "control";
       // --force SIGTERM is ONLY for a dedicated CLI serve pane. For a `/situation
       // on` (mode "tui") the runtime pid IS the whole TUI session, so signalling
@@ -249,7 +268,14 @@ export const situationVerb: VerbSpec = {
         makeRecord({
           verb: "situation",
           format: "json",
-          payload: { op: "stop", running: true, pid: rt!.pid, url: rt!.displayUrl, delivered },
+          payload: {
+            op: "stop",
+            running: true,
+            pid: rt!.pid,
+            url: rt!.displayUrl,
+            delivered,
+            ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
+          },
           meta: { provider: "situation", case: ctx.case.dir },
           state: "ready",
         }),
@@ -476,12 +502,12 @@ export const situationVerb: VerbSpec = {
   },
 };
 
-async function statusRecord(ctx: VerbContext): Promise<OvercastRecord> {
-  const rt = readRuntime(ctx.case);
+async function statusRecord(ctx: VerbContext, cc: Case = ctx.case): Promise<OvercastRecord> {
+  const rt = readRuntime(cc);
   // running = pid alive AND the recorded port is actually served (Bugbot #98/med:
   // a read-only surface must not report "live" off a reused pid alone).
   const running = runtimeAlive(rt) && (await runtimeServing(rt));
-  const pending = readControl(ctx.case)?.control ?? null;
+  const pending = readControl(cc)?.control ?? null;
   return makeRecord({
     verb: "situation",
     format: "json",
@@ -502,6 +528,7 @@ async function statusRecord(ctx: VerbContext): Promise<OvercastRecord> {
         : {}),
       ...(rt && !running ? { note: "stale runtime.json (server not alive) — start with `overcast situation`" } : {}),
       ...(pending ? { pending_control: pending } : {}),
+      ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
     },
     meta: { provider: "situation", case: ctx.case.dir, transient: true },
     state: "ready",
