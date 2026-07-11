@@ -112,7 +112,16 @@ case "$op" in
         *[0-9]d) cutepoch=$(( now - 10#${since%d} * 86400 )) ;;
         *[0-9]w) cutepoch=$(( now - 10#${since%w} * 604800 )) ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
-          cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo '')" ;;
+          # a bare date = MIDNIGHT of that calendar day — in the FEED's zone
+          # when pinned (parsing it as UTC midnight would start a US preset's
+          # window the previous local evening), else UTC. The explicit
+          # 00:00:00 also pins BSD date, which otherwise fills unspecified
+          # time fields from the current clock instead of zeroes.
+          if [ -n "$tz" ]; then
+            cutepoch="$(TZ="$tz" date -d "$since" +%s 2>/dev/null || TZ="$tz" date -j -f '%Y-%m-%d %H:%M:%S' "$since 00:00:00" +%s 2>/dev/null || echo '')"
+          else
+            cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d %H:%M:%S' "$since 00:00:00" +%s 2>/dev/null || echo '')"
+          fi ;;
         # an unparseable --since is a hard error (fail closed): don't silently drop
         # the recency filter and return the full, unfiltered call log.
         *) echo "dispatch: could not parse --since '$since' (use Ns/Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;

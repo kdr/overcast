@@ -59,7 +59,7 @@ case "$op" in
         *[0-9]d) cut=$(( now - ${since%d} * 86400 )) ;;
         *[0-9]w) cut=$(( now - ${since%w} * 604800 )) ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
-          cut="$(date -d "$since" +%s 2>/dev/null || date -j -f '%Y-%m-%d' "$since" +%s 2>/dev/null || echo 0)" ;;
+          cut="$(date -d "$since" +%s 2>/dev/null || date -j -f '%Y-%m-%d %H:%M:%S' "$since 00:00:00" +%s 2>/dev/null || echo 0)" ;;
         *) cut=0 ;;
       esac
       [ "$cut" -gt 0 ] && start_date="$(epoch_to_date "$cut")"
