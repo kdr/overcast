@@ -32,8 +32,16 @@ cond "scanner skill: scan --source dispatch pulls the live calls-for-service win
 out="$(OC_TIMEOUT=180 oc "$CASE" scan --source dispatch --since 2d --limit 8 --json)"
 save_json "91_scanner_scan" "$out" >/dev/null
 hits="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")]|length' 2>/dev/null)"
+# an ERROR record (broken feed / provider regression) is a FAILURE, not a clean
+# skip — only a genuinely empty window (no ready hits AND no error) is skippable,
+# else a regression passes the suite as "empty window" (Bugbot #102).
+serr="$(echo "$out" | jq -s -r '[.[]|select(.state=="error" or .state=="needs_credentials")][0].error // ""' 2>/dev/null)"
+if [ -n "$serr" ] && [ "$serr" != "null" ]; then
+  fail "$C.scan" "dispatch scan errored (not an empty window): $serr"
+  exit 0
+fi
 if [ -z "$hits" ] || [ "$hits" = "0" ]; then
-  skip "$C.scan" "live SF window returned 0 hits (rolling feed) — downstream asserts skipped"
+  skip "$C.scan" "live SF window returned 0 hits with no error (rolling feed) — downstream asserts skipped"
   exit 0
 fi
 ok "$C.scan" "live dispatch scan returned $hits calls-for-service hits"
