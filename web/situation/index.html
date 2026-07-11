@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#050708" />
+    <!-- Local media + API stay same-origin; https: allows OSM map tiles and the
+         (server-gated, off-by-default) remote thumbs — the server strips remote
+         URLs from the snapshot unless OVERCAST_REPORT_REMOTE_MEDIA=1. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self' data: https:; media-src 'self' https:; connect-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src data:"
+    />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='6' height='6' fill='%2338e8ff'/%3E%3Crect x='9' y='1' width='6' height='6' fill='%235cff96'/%3E%3Crect x='1' y='9' width='6' height='6' fill='%23ff4fd8'/%3E%3Crect x='9' y='9' width='6' height='6' fill='%23ffd166'/%3E%3C/svg%3E" />
+    <title>overcast — situation</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

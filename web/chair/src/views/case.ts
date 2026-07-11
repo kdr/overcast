@@ -61,6 +61,20 @@ export function openCaseDrawer(glance: CaseGlance): void {
     .join(" · ")}`;
   panel.appendChild(count);
 
+  // live situation page (pair from the desk QR — the URL carries no token)
+  if (glance.situation?.running) {
+    const s = glance.situation;
+    const live = document.createElement("div");
+    live.className = "muted";
+    const a = document.createElement("a");
+    a.href = s.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = s.url;
+    live.append(`◉ SITUATION LIVE${s.every ? ` · every ${s.every}` : ""} — `, a);
+    panel.appendChild(live);
+  }
+
   section(
     panel,
     "open findings",

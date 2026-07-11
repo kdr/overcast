@@ -76,6 +76,7 @@ export function registerSlashCommands(pi: ExtensionAPI): void {
           profile: loadProfile({ profile: profileName }),
           home: resolveHome(),
           profileName,
+          surface: "slash",
         };
         try {
           let recs = await spec.run(ctx);

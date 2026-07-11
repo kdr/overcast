@@ -108,6 +108,18 @@ export interface GlanceRecord {
   summary: string;
 }
 
+/** A live situation page (the `situation` verb / /situation on), read from
+ *  .overcast/situation/runtime.json — the URL never carries the pairing token
+ *  (pair from the desk QR). */
+export interface GlanceSituation {
+  running: boolean;
+  url: string;
+  port: number;
+  startedAt?: string;
+  every?: string | null;
+  mode?: string;
+}
+
 /** Read-only case summary: standing scope + open findings + latest evidence. */
 export interface CaseGlance {
   caseName: string;
@@ -119,6 +131,8 @@ export interface CaseGlance {
   openFindings: GlanceFinding[];
   /** newest record per verb, newest verbs first */
   latest: GlanceRecord[];
+  /** live situation page, when one is up for this case */
+  situation?: GlanceSituation | null;
 }
 
 // --- command bodies -----------------------------------------------------------

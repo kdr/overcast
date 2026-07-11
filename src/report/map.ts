@@ -59,6 +59,10 @@ export interface BuildMapOptions {
   limit?: number;
   sinceCutoff?: number;
   now?: number;
+  /** false skips the data-URI thumbnail inlining (imageSrc reads each file) —
+   *  the situation server rebuilds the model on every store change and serves
+   *  thumbs over HTTP instead, so inlining would be pure wasted I/O there. */
+  thumbs?: boolean;
 }
 
 function asObj(v: unknown): Record<string, unknown> | undefined {
@@ -141,7 +145,7 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
       place: typeof p.place === "string" && p.place.trim() ? p.place.trim() : null,
       at: atOf(rec.media?.at),
       ref,
-      thumb: ref ? imageSrc(ref) ?? null : null,
+      thumb: ref && opts.thumbs !== false ? imageSrc(ref) ?? null : null,
       summary: summarizePayload(rec.payload),
       time: created ?? (rec.meta?.time ? String(rec.meta.time) : null),
     };
