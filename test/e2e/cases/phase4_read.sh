@@ -111,6 +111,39 @@ else
   fail "brief.export_html" "export missing or incomplete"
 fi
 
+# short brief is the verdict-led mission board (shared renderer, report/mission.ts):
+# Verdict → Lines of investigation → Coverage (ONE table) → newest-first Record trail
+cond "brief short structure is the verdict-led mission board"
+brief_report="$(jq -r '.payload.report' <<<"$brief")"
+if grep -q "^## Verdict" <<<"$brief_report" && grep -q "^## Lines of investigation" <<<"$brief_report" \
+  && grep -q "^## Coverage" <<<"$brief_report" && grep -q "^## Record trail" <<<"$brief_report"; then
+  ok "brief.structure" "Verdict / Lines of investigation / Coverage / Record trail sections present"
+else
+  fail "brief.structure" "mission-board sections missing from the short brief"
+fi
+if grep -q "| source | last scan | hits | captured | sensed |" <<<"$brief_report"; then
+  ok "brief.coverage_table" "coverage renders as ONE table"
+else
+  fail "brief.coverage_table" "coverage table header missing"
+fi
+
+# report-shaped records print their md body by default in a terminal (the
+# envelope stays behind --json) — brief AND case status
+cond "brief default terminal output is the md report"
+brief_default="$($OVERCAST brief --case "$casedir" 2>/dev/null | head -1)"
+capture_cmd "overcast brief --case '$casedir' | head -1" "$brief_default"
+case "$brief_default" in
+  "# Brief — "*) ok "brief.terminal_md" "default output starts with the report heading" ;;
+  *) fail "brief.terminal_md" "default output is not the md report: $brief_default" ;;
+esac
+cond "case status default terminal output is the mission-board md"
+status_default="$($OVERCAST case status --case "$casedir" 2>/dev/null | head -1)"
+capture_cmd "overcast case status --case '$casedir' | head -1" "$status_default"
+case "$status_default" in
+  "# Case status — "*) ok "status.terminal_md" "default output starts with the status heading" ;;
+  *) fail "status.terminal_md" "default output is not the md board: $status_default" ;;
+esac
+
 # verb surface now lists ask + brief + note
 v="$($OVERCAST commands --json 2>/dev/null | jq -r '.verbs[].name')"
 echo "$v" | grep -qx ask && echo "$v" | grep -qx brief && echo "$v" | grep -qx note && ok "read.verb_surface" "ask + brief + note listed" || fail "read.verb_surface" "ask/brief/note missing"

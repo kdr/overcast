@@ -2,7 +2,19 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { envEnabled } from "../env.js";
-import type { OvercastRecord } from "../record.js";
+import { collectVisualRefs, PRIMARY_TEXT_FIELDS, recordStub, type OvercastRecord } from "../record.js";
+import { escapeHtml } from "./components.js";
+// mission is the shared model layer for thread cards / triage / coverage; the
+// graph is acyclic because escapeHtml + collectVisualRefs live below both
+// (components.ts / record.ts) and mission never imports html.
+import { coverageTableRows, threadCard, type CoverageTableRow, type ThreadCard, type TriageRow } from "./mission.js";
+import type { SourceCoverage } from "../signals/pulse.js";
+import type { TargetThread } from "../signals/threads.js";
+
+// re-exports: these historically lived here and are imported from "./html.js"
+// across verbs/reports; their homes moved for import-graph acyclicity.
+export { escapeHtml } from "./components.js";
+export { collectVisualRefs } from "../record.js";
 
 export type HtmlTheme = "plain" | "csi";
 
@@ -52,50 +64,29 @@ export interface TimelineRecord {
 }
 
 /** Record-derived brief header (see BriefSynthesis in verbs/read.ts): narrative
- *  TL;DR + coverage verdict + sources-checked + matches, rendered above the
- *  timeline so the export reads as a report, not a record dump. */
+ *  TL;DR + coverage verdict + thread cards + triage + the coverage table,
+ *  rendered above the timeline so the export tells the SAME story as the
+ *  markdown brief (both build from the shared mission models). */
 export interface TimelineSynthesis {
   tldr?: string;
   verdict: string;
   /** the honest goal-progress line (pulse headline), shown under the verdict */
   headline?: string;
+  /** "since last brief (2h ago): +N records …" catch-up line */
+  delta?: string;
   sources: Array<{ source: string; hits: number }>;
+  /** UNATTACHED findings — linked ones render inside their thread card */
   findings: Array<{ id: string; status: string; text: string; confidence?: unknown; overlays?: string[] }>;
-  /** lines of investigation — per-target thread cards */
-  threads?: Array<{ value: string; stage: string; spark?: string; funnel: string; question?: string; note?: string }>;
-  /** suggested leads awaiting triage */
-  triage?: Array<{ id: string; text: string; confidence?: unknown }>;
+  /** lines of investigation — per-target thread cards (shared mission model) */
+  threads?: ThreadCard[];
+  /** suggested leads awaiting triage, with their deciding context */
+  triage?: TriageRow[];
+  /** the single coverage table (configured funnel + ad-hoc swept rows) */
+  coverage?: CoverageTableRow[];
 }
 
+// (collectVisualRefs moved to record.ts — re-exported above.)
 const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
-// deliberately NOT a bare `path`/`img` — the image-match payload carries
-// `db_img_path` (the reference frame) and `query_path` (a temp frame that's
-// deleted after the run); only the rendered `match_draw_path` overlay and real
-// crop/thumbnail evidence should surface.
-const VISUAL_KEY_RE = /(?:draw|overlay|visual|thumbnail|thumb|crop|image)/i;
-
-/** Collect visualization image refs from a record payload — match-draw overlays,
- *  crops, thumbnails: data URIs, or image-extension paths under a visual-ish key
- *  (`match_draw_path`, `crop`, `thumbnail`, …). Shared by briefs and `case
- *  status` so overlays surface identically in both. */
-export function collectVisualRefs(value: unknown): string[] {
-  const refs = new Set<string>();
-  const visit = (v: unknown, key = ""): void => {
-    if (typeof v === "string") {
-      if (/^data:image\//i.test(v) || (VISUAL_EXT_RE.test(v) && VISUAL_KEY_RE.test(key))) refs.add(v);
-      return;
-    }
-    if (Array.isArray(v)) {
-      for (const item of v) visit(item, key);
-      return;
-    }
-    if (v && typeof v === "object") {
-      for (const [k, child] of Object.entries(v as Record<string, unknown>)) visit(child, k);
-    }
-  };
-  visit(value);
-  return [...refs];
-}
 
 export interface TimelineReport {
   title: string;
@@ -111,6 +102,13 @@ export interface StatusReport {
   title: string;
   subtitle?: string;
   payload: Record<string, unknown>;
+  /** shared mission models, prebuilt by the caller WITH the record store —
+   *  full thread cards (resolved findings + overlays), enriched triage rows,
+   *  and the coverage table incl. ad-hoc swept rows. When absent, degraded
+   *  fallbacks are derived from the payload alone. */
+  threads?: ThreadCard[];
+  triage?: TriageRow[];
+  coverage?: CoverageTableRow[];
 }
 
 export function normalizeHtmlTheme(value: unknown): HtmlTheme | undefined {
@@ -124,13 +122,8 @@ export function isHtmlExportPath(path: string): boolean {
   return extname(path).toLowerCase() === ".html";
 }
 
-export function escapeHtml(s: unknown): string {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+// escapeHtml moved to components.ts (import-graph acyclicity); re-exported
+// above so existing `from "./html.js"` importers keep working.
 
 export function mdToPlainHtml(md: string, title: string): string {
   const out: string[] = [];
@@ -184,48 +177,100 @@ export function renderCsiTimelineReport(report: TimelineReport): string {
   `);
 }
 
-/** The brief's narrative header: TL;DR banner (analyst note + coverage verdict)
- *  and sources-checked / matches panels. An explicit "none recorded" is rendered
- *  rather than omitting the panel — "we checked and found nothing" is a result. */
+/** One findings <ul> (id + status + confidence + text + overlay proofs). */
+function findingListHtml(findings: TimelineSynthesis["findings"]): string {
+  return `<ul class="findings">${findings.map((f) => {
+    const overlays = (f.overlays ?? []).map((ref) => imageTag(ref)).filter(Boolean).slice(0, 3).join("");
+    return `<li><span class="id">${escapeHtml(f.id)}</span> <span class="state">[${escapeHtml(f.status)}]</span>${f.confidence != null ? ` <span class="meta">(confidence: ${escapeHtml(String(f.confidence))})</span>` : ""} ${escapeHtml(f.text)}${overlays ? `<div class="overlays" data-csi-overlays="true">${overlays}</div>` : ""}</li>`;
+  }).join("")}</ul>`;
+}
+
+/** The coverage panel body: the single table (configured funnel + ad-hoc swept
+ *  rows), falling back to the swept-source list when nothing is configured. */
+function coverageTableHtml(coverage: CoverageTableRow[] | undefined, sources: TimelineSynthesis["sources"]): string {
+  if (coverage?.length) {
+    // the "(ad-hoc)" marker only means anything in CONTRAST to configured rows
+    const hasConfigured = coverage.some((r) => !r.adHoc);
+    const rows = coverage.map((r) => {
+      // labels are PLAIN in the model — each renderer adds its own emphasis
+      const label = r.adHoc
+        ? `${escapeHtml(r.label)}${hasConfigured ? ` <span class="meta">(ad-hoc)</span>` : ""}`
+        : `<strong>${escapeHtml(r.label)}</strong>${r.disabled ? ` <span class="meta">(disabled)</span>` : ""}`;
+      return `<tr><td>${label}</td><td${r.gap ? ` class="bad"` : ""}>${escapeHtml(r.lastScan)}</td><td>${escapeHtml(r.hits)}</td><td>${escapeHtml(r.captured)}</td><td>${escapeHtml(r.sensed)}</td></tr>`;
+    }).join("");
+    return `<table class="coverage" data-csi-coverage="true"><thead><tr><th>source</th><th>last scan</th><th>hits</th><th>captured</th><th>sensed</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  if (sources.length) {
+    return `<ul>${sources.map((s) => `<li><strong>${escapeHtml(s.source)}</strong> — ${s.hits} hit${s.hits === 1 ? "" : "s"}</li>`).join("")}</ul>`;
+  }
+  return `<p class="meta">none — no scan hits in scope</p>`;
+}
+
+/** The brief's narrative header: TL;DR banner (analyst note leading, machine
+ *  verdict + headline + delta demoted to meta lines), thread cards, triage, and
+ *  the coverage / unattached-findings panels. An explicit "none recorded" is
+ *  rendered rather than omitting a panel — "we checked and found nothing" is a
+ *  result. */
 function renderSynthesis(syn: TimelineSynthesis | undefined): string {
   if (!syn) return "";
-  const tldrNext = [syn.tldr ? syn.verdict : "", syn.headline ?? ""].filter(Boolean);
+  const tldrNext = [syn.tldr ? syn.verdict : "", syn.headline ?? "", syn.delta ?? ""].filter(Boolean);
   const tldr = renderTldr({
     headline: syn.tldr ?? syn.verdict,
     findings: tldrNext,
   });
-  const sources = syn.sources.length
-    ? `<ul>${syn.sources.map((s) => `<li><strong>${escapeHtml(s.source)}</strong> — ${s.hits} hit${s.hits === 1 ? "" : "s"}</li>`).join("")}</ul>`
-    : `<p class="meta">none — no scan hits in scope</p>`;
+  const hasThreads = !!syn.threads?.length;
+  // "every finding is linked" only when linked findings actually exist — with
+  // no findings anywhere the honest empty state is "none recorded" (same copy
+  // rule as the markdown brief)
+  const linkedAny = (syn.threads ?? []).some((t) => t.findingCounts.accepted + t.findingCounts.open + t.findingCounts.suggested > 0);
   const findings = syn.findings.length
-    ? `<ul class="findings">${syn.findings.map((f) => {
-        const overlays = (f.overlays ?? []).map((ref) => imageTag(ref)).filter(Boolean).slice(0, 3).join("");
-        return `<li><span class="id">${escapeHtml(f.id)}</span> <span class="state">[${escapeHtml(f.status)}]</span>${f.confidence != null ? ` <span class="meta">(confidence: ${escapeHtml(String(f.confidence))})</span>` : ""} ${escapeHtml(f.text)}${overlays ? `<div class="overlays" data-csi-overlays="true">${overlays}</div>` : ""}</li>`;
-      }).join("")}</ul>`
-    : `<p class="meta">none recorded</p>`;
+    ? `${hasThreads ? `<p class="meta">not linked to a line of investigation</p>` : ""}${findingListHtml(syn.findings)}`
+    : `<p class="meta">${hasThreads && linkedAny ? "none — every finding is linked to a line above" : "none recorded"}</p>`;
   return `${tldr}
     ${renderThreadCards(syn.threads)}
     ${renderTriagePanel(syn.triage)}
     <section class="grid" data-csi-synthesis="true" style="margin:0 0 18px">
-      <section class="panel"><h2>Sources checked</h2>${sources}</section>
-      <section class="panel"><h2>Matches &amp; findings</h2>${findings}</section>
+      <section class="panel"><h2>Coverage</h2>${coverageTableHtml(syn.coverage, syn.sources)}</section>
+      <section class="panel"><h2>${hasThreads ? "Other findings" : "Key findings"}</h2>${findings}</section>
     </section>`;
 }
 
-/** Lines of investigation — a card grid of target threads with stage chip,
- *  activity sparkline, evidence funnel, and next/why. Dead-end cards dim. */
+/** Lines of investigation — a card grid of target threads: stage chip, activity
+ *  sparkline (fixed window), question → answer-so-far → linked findings → latest
+ *  evidence → NEXT. Renders the SAME ThreadCard model as the markdown, so the
+ *  export and the terminal tell one story. Dead-end cards dim. */
 function renderThreadCards(threads: TimelineSynthesis["threads"]): string {
   if (!threads || !threads.length) return "";
   const toneFor = (stage: string) => (stage === "DEAD-END" ? "bad" : stage === "ANSWERED" ? "cyan" : stage === "CORROBORATED" || stage === "LEADS" ? "amber" : "");
   const cards = threads.map((t) => {
-    const dim = t.stage === "DEAD-END" ? ' style="opacity:.55"' : "";
+    const dim = t.dimmed ? ' style="opacity:.55"' : "";
     const chip = `<span class="chip ${toneFor(t.stage)}">${escapeHtml(t.stage)}</span>`;
+    const c = t.findingCounts;
+    const countBits = [c.accepted ? `${c.accepted} accepted` : "", c.open ? `${c.open} open` : "", c.suggested ? `${c.suggested} suggested` : ""].filter(Boolean).join(" · ");
+    // overlay proofs ride each finding row, exactly like the markdown path — the
+    // geometric evidence stays WITH its line of investigation
+    const findingRows = t.findings.map((f) => {
+      const overlays = (f.overlays ?? []).map((ref) => imageTag(ref)).filter(Boolean).slice(0, 3).join("");
+      const conf = f.confidence != null ? ` <span class="meta">(${escapeHtml(String(f.confidence))})</span>` : "";
+      return `<li><span class="id">${escapeHtml(f.id)}</span> <span class="state">[${escapeHtml(f.status)}]</span>${conf} ${escapeHtml(f.text)}${overlays ? `<div class="overlays" data-csi-overlays="true">${overlays}</div>` : ""}</li>`;
+    }).join("");
+    const latestRows = t.latest.map((l) => `<li><span class="id">${escapeHtml(l.id)}</span> ${escapeHtml(l.verb)}${l.at ? ` ${escapeHtml(l.at)}` : ""}${l.age ? ` <span class="meta">(${escapeHtml(l.age)} ago)</span>` : ""} — ${escapeHtml(l.stub)}</li>`).join("");
+    // counts render even without resolved rows — the status export builds cards
+    // from the raw payload (no record store), so counts are all it has
+    const findingsBlock = findingRows
+      ? `<p class="meta">findings${countBits ? ` (${escapeHtml(countBits)})` : ""}:</p><ul class="findings">${findingRows}</ul>`
+      : countBits
+        ? `<p class="meta">findings: ${escapeHtml(countBits)}</p>`
+        : "";
     return `<article class="context-card"${dim}>
       <span class="label">TARGET</span>
-      <p><strong>${escapeHtml(t.value)}</strong> ${chip}${t.spark ? ` <span class="cyan">${escapeHtml(t.spark)}</span>` : ""}</p>
+      <p><strong>${escapeHtml(t.value)}</strong> ${chip}${t.spark ? ` <span class="cyan">${escapeHtml(t.spark)}</span> <span class="meta">${escapeHtml(t.sparkWindow)}</span>` : ""}</p>
       ${t.question ? `<p class="meta">? ${escapeHtml(t.question)}</p>` : ""}
-      <p class="meta">${escapeHtml(t.funnel)}</p>
-      ${t.note ? `<p class="meta">${escapeHtml(t.note)}</p>` : ""}
+      ${t.answer ? `<p>${escapeHtml(t.answer)}</p>` : ""}
+      ${findingsBlock}
+      <p class="meta">${escapeHtml(t.funnel)}${t.lastActivityAge ? ` · last activity ${escapeHtml(t.lastActivityAge)} ago` : ""}</p>
+      ${latestRows ? `<ul class="findings">${latestRows}</ul>` : ""}
+      ${t.closed ? `<p class="meta">closed: ${escapeHtml(t.closed)}</p>` : t.next ? `<p class="meta">NEXT: ${escapeHtml(t.next)}</p>` : ""}
     </article>`;
   }).join("");
   return `<section style="margin:0 0 18px"><h2 style="margin:0 0 8px">Lines of investigation</h2><section class="context">${cards}</section></section>`;
@@ -233,14 +278,17 @@ function renderThreadCards(threads: TimelineSynthesis["threads"]): string {
 
 /** `total` is the true backlog count (may exceed the rows passed, which are
  *  capped for the payload); the heading and overflow line use it so the header
- *  never claims more than it lists without an "…and N more" hint. */
+ *  never claims more than it lists without an "…and N more" hint. Each row shows
+ *  its deciding context (score + provenance excerpt) inline. */
 function renderTriagePanel(triage: TimelineSynthesis["triage"], total?: number): string {
   if (!triage || !triage.length) return "";
   const count = total ?? triage.length;
   const shown = triage.slice(0, 5);
-  const rows = shown.map((t) =>
-    `<li><span class="id">${escapeHtml(t.id)}</span>${t.confidence != null ? ` <span class="amber">[${escapeHtml(String(t.confidence))}]</span>` : ""} ${escapeHtml(t.text)}<div class="meta">accept: overcast finding accept ${escapeHtml(t.id)}</div></li>`,
-  ).join("");
+  const rows = shown.map((t) => {
+    const score = t.score != null ? ` <span class="cyan">(score ${escapeHtml(String(t.score))})</span>` : "";
+    const excerpt = t.excerpt ? `<div class="meta">“${escapeHtml(t.excerpt)}”${t.url ? ` — ${escapeHtml(t.url)}` : ""}</div>` : t.url ? `<div class="meta">${escapeHtml(t.url)}</div>` : "";
+    return `<li><span class="id">${escapeHtml(t.id)}</span>${t.confidence != null ? ` <span class="amber">[${escapeHtml(String(t.confidence))}]</span>` : ""}${score} ${escapeHtml(t.text)}${excerpt}<div class="meta">accept: overcast finding accept ${escapeHtml(t.id)} [--target &lt;id&gt;] · dismiss: overcast finding dismiss ${escapeHtml(t.id)}</div></li>`;
+  }).join("");
   const more = count > shown.length
     ? `<li class="meta">…and ${count - shown.length} more (overcast finding list --state suggested)</li>`
     : "";
@@ -256,13 +304,12 @@ export function renderCsiStatusReport(report: StatusReport): string {
   const tldr = mission?.headline
     ? renderTldr({ headline: mission.headline, next: nextActions })
     : renderTldr(payload.tldr);
-  const missionThreads = statusThreads(payload);
-  const threads = renderThreadCards(missionThreads);
+  const threads = renderThreadCards(report.threads ?? statusThreads(payload));
   // the true backlog count (mission.progress.triage_pending) may exceed the
   // capped rows in payload.triage — pass it so the heading doesn't undercount.
   const triagePending = typeof mission?.progress?.triage_pending === "number" ? mission.progress.triage_pending : undefined;
-  const triage = renderTriagePanel(statusTriageRows(payload), triagePending);
-  const coverage = renderCoveragePanel(payload);
+  const triage = renderTriagePanel(report.triage ?? statusTriageRows(payload), triagePending);
+  const coverage = renderCoveragePanel(payload, report.coverage);
   const context = renderContextSections(payload);
   // demote operational detail (store/setup/memory/registries) into a collapsed
   // panel grid below the mission board.
@@ -282,51 +329,42 @@ export function renderCsiStatusReport(report: StatusReport): string {
   `);
 }
 
-/** Map status payload threads → the thread-card view model. */
-function statusThreads(payload: Record<string, unknown>): TimelineSynthesis["threads"] {
-  const threads = Array.isArray(payload.threads) ? (payload.threads as Array<Record<string, unknown>>) : [];
-  const label: Record<string, string> = { answered: "ANSWERED", "dead-end": "DEAD-END", corroborated: "CORROBORATED", leads: "LEADS", collecting: "COLLECTING", cold: "COLD" };
-  return threads.map((th) => {
-    const f = th.funnel as { scan: number; captures: number; senses: number; matches: number } | undefined;
-    const fnd = th.findings as { accepted: number; open: number; suggested: number } | undefined;
-    const funnel = f ? `scan ${f.scan} → cap ${f.captures} → sense ${f.senses} → match ${f.matches}${fnd ? ` · findings ${fnd.accepted}/${fnd.open}/${fnd.suggested}` : ""}` : "";
-    return {
-      value: String(th.value ?? ""),
-      stage: label[String(th.stage)] ?? String(th.stage ?? "").toUpperCase(),
-      spark: sparklineFrom(Array.isArray(th.activityBins) ? (th.activityBins as number[]) : []),
-      funnel,
-      question: typeof th.question === "string" ? th.question : undefined,
-      // analyst line narrative (thread note), else the closed reason
-      note: typeof th.narrative === "string" ? th.narrative
-        : th.status !== "active" && typeof th.why === "string" ? th.why : undefined,
-    };
-  });
+/** Payload-only fallback: map the raw TargetThread structs through the SHARED
+ *  threadCard model with an empty record context — resolved finding/latest rows
+ *  stay empty, but stage/spark/funnel/counts/NEXT all come from the one model
+ *  (no reimplemented card logic to drift). Production callers pass prebuilt
+ *  cards via StatusReport.threads instead. */
+function statusThreads(payload: Record<string, unknown>): ThreadCard[] {
+  const threads = Array.isArray(payload.threads) ? (payload.threads as unknown as TargetThread[]) : [];
+  const emptyCtx = { byId: new Map<string, OvercastRecord>(), statusByFinding: new Map<string, string>() };
+  return threads.map((th) => threadCard(th, emptyCtx));
 }
 
 function statusTriageRows(payload: Record<string, unknown>): TimelineSynthesis["triage"] {
   const triage = Array.isArray(payload.triage) ? (payload.triage as Array<Record<string, unknown>>) : [];
   if (!triage.length) return undefined;
-  return triage.map((t) => ({ id: String(t.id ?? ""), text: String(t.text ?? ""), confidence: t.confidence }));
+  return triage.map((t) => ({
+    id: String(t.id ?? ""),
+    text: String(t.text ?? ""),
+    confidence: t.confidence,
+    score: typeof t.score === "number" ? t.score : undefined,
+    excerpt: typeof t.excerpt === "string" ? t.excerpt : undefined,
+    url: typeof t.url === "string" ? t.url : undefined,
+  }));
 }
 
-function renderCoveragePanel(payload: Record<string, unknown>): string {
-  const coverage = Array.isArray(payload.coverage) ? (payload.coverage as Array<Record<string, unknown>>) : [];
+/** The status coverage panel — the SAME shared table as the brief. Prebuilt
+ *  rows (incl. ad-hoc swept sources) come from the caller; the payload-only
+ *  fallback derives rows from the configured SourceCoverage structs. */
+function renderCoveragePanel(payload: Record<string, unknown>, prebuilt?: CoverageTableRow[]): string {
   const gaps = Array.isArray(payload.gaps) ? (payload.gaps as string[]) : [];
-  if (!coverage.length && !gaps.length) return "";
-  const rows = coverage.length
-    ? `<ul>${coverage.map((c) => `<li><strong>${escapeHtml(String(c.spec))}</strong>${c.enabled ? "" : " <span class=\"meta\">(disabled)</span>"} — ${escapeHtml(String(c.hits))} → ${escapeHtml(String(c.captured))} → ${escapeHtml(String(c.sensed))}${c.gap ? ` <span class="bad">gap</span>` : ""}</li>`).join("")}</ul>`
-    : `<p class="meta">no sources configured</p>`;
-  const gapList = gaps.length ? `<p class="meta">Gaps:</p><ul class="findings">${gaps.slice(0, 5).map((g) => `<li class="amber">${escapeHtml(g)}</li>`).join("")}</ul>` : "";
-  return `<section class="panel"><h2>Coverage</h2>${rows}${gapList}</section>`;
-}
-
-/** Local sparkline (avoids a components import cycle in html.ts). */
-function sparklineFrom(bins: number[]): string | undefined {
-  if (!bins.length) return undefined;
-  const blocks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-  const max = Math.max(...bins);
-  if (max <= 0) return blocks[0].repeat(bins.length);
-  return bins.map((v) => blocks[Math.min(blocks.length - 1, Math.round((v / max) * (blocks.length - 1)))]).join("");
+  const configured = Array.isArray(payload.coverage) ? (payload.coverage as unknown as SourceCoverage[]) : [];
+  const rows = prebuilt ?? coverageTableRows(configured, []);
+  if (!rows.length && !gaps.length) return "";
+  const table = coverageTableHtml(rows, []);
+  const rest = gaps.filter((g) => !g.endsWith("enabled but never scanned")).slice(0, 5);
+  const gapList = rest.length ? `<p class="meta">Gaps:</p><ul class="findings">${rest.map((g) => `<li class="amber">${escapeHtml(g)}</li>`).join("")}</ul>` : "";
+  return `<section class="panel"><h2>Coverage</h2>${table}${gapList}</section>`;
 }
 
 export interface ClusterGalleryPerson {
@@ -576,6 +614,7 @@ details{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}summary{
 video.embed,img.embed,.embed-wrap img{display:block;width:100%;max-width:560px;max-height:340px;object-fit:contain;background:#020504;border:1px solid var(--line);border-radius:4px;margin:10px 0 2px}
 .overlay{margin:8px 0 2px}.overlay img{display:block;width:100%;max-width:640px;object-fit:contain;background:#020504;border:1px solid var(--magenta);border-radius:4px}.overlay figcaption{color:var(--magenta);font-size:11px;text-transform:uppercase;margin-top:3px}
 .findings li{margin:6px 0}.findings .overlays{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}.findings .overlays img{width:100%;max-width:320px;object-fit:contain;background:#020504;border:1px solid var(--magenta);border-radius:4px}
+table.coverage{width:100%;border-collapse:collapse;margin:4px 0}table.coverage th{color:var(--muted);font-size:10px;text-transform:uppercase;text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line)}table.coverage td{padding:5px 8px 5px 0;border-bottom:1px solid rgba(31,58,59,.5);word-break:break-word}table.coverage td+td,table.coverage th+th{text-align:right;white-space:nowrap}table.coverage td:first-child,table.coverage th:first-child{text-align:left}
 </style></head><body><div class="wrap" data-overcast-theme="csi"><header class="top"><h1>${escapeHtml(title)}</h1>${subtitle ? `<div class="subtitle">${escapeHtml(subtitle)}</div>` : ""}</header>${body}</div></body></html>`;
 }
 
@@ -657,7 +696,16 @@ function renderTldr(value: unknown): string {
 function renderTimelineCard(record: TimelineRecord, index: number): string {
   const state = record.state ?? "ready";
   const media = record.media?.ref ? `${record.media.ref}${record.media.at != null ? ` @${Array.isArray(record.media.at) ? record.media.at.join("-") : record.media.at}` : ""}` : "";
-  const summary = record.error ? `error: ${record.error}` : summarizePayload(record.payload);
+  // primary text (newlines preserved for the pre-wrap card), else the shared
+  // verb-aware stub — a capture card says "captured dock0.mp4", not a key dump
+  const text = summarizePayload(record.payload);
+  const stub = () => recordStub({
+    verb: record.verb,
+    payload: (record.payload ?? {}) as OvercastRecord["payload"],
+    media: typeof record.media?.ref === "string" ? { ref: record.media.ref } : undefined,
+    error: record.error,
+  }, 480);
+  const summary = record.error ? `error: ${record.error}` : text.startsWith("payload: ") ? stub() : text;
   const details = safeJson({ payload: record.payload, meta: record.meta, media: record.media });
   return `<article class="card" data-record-id="${escapeHtml(record.id)}">
     <div class="card-head">
@@ -758,7 +806,9 @@ export function summarizePayload(payload: unknown): string {
   if (typeof payload === "string") return payload.length > 480 ? `${payload.slice(0, 480)}...` : payload;
   if (typeof payload !== "object") return String(payload);
   const obj = payload as Record<string, unknown>;
-  for (const key of ["content", "transcript", "text", "caption", "ocr", "title", "snippet", "summary"]) {
+  // the SHARED primary-text precedence (record.ts) — summary first, so match
+  // records show their result line, not a key dump
+  for (const key of PRIMARY_TEXT_FIELDS) {
     const value = obj[key];
     if (typeof value === "string" && value.trim()) return value.length > 480 ? `${value.slice(0, 480)}...` : value;
   }

@@ -124,7 +124,7 @@ test("case status triage header shows the TRUE backlog count (not the capped row
     await caseVerb.run(ctx(dir, "status", [], { export: mdPath }));
     const md = readFileSync(mdPath, "utf8");
     assert.match(md, /## Triage — 11 awaiting review/);
-    assert.match(md, /…and 3 more/); // 11 total − 8 shown
+    assert.match(md, /…and 6 more/); // 11 total − 5 shown (shared renderer cap)
     // CSI html
     const htmlPath = join(dir, "s.html");
     await caseVerb.run(ctx(dir, "status", [], { export: htmlPath, theme: "csi" }));

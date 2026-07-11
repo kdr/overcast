@@ -135,6 +135,38 @@ export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
   });
 }
 
+const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
+// deliberately NOT a bare `path`/`img` — the image-match payload carries
+// `db_img_path` (the reference frame) and `query_path` (a temp frame that's
+// deleted after the run); only the rendered `match_draw_path` overlay and real
+// crop/thumbnail evidence should surface.
+const VISUAL_KEY_RE = /(?:draw|overlay|visual|thumbnail|thumb|crop|image)/i;
+
+/** Collect visualization image refs from a record payload — match-draw overlays,
+ *  crops, thumbnails: data URIs, or image-extension paths under a visual-ish key
+ *  (`match_draw_path`, `crop`, `thumbnail`, …). Shared by briefs, `case status`,
+ *  and the mission renderer so overlays surface identically everywhere. Lives
+ *  here (pure payload introspection) so report/mission.ts can use it without an
+ *  html.ts import cycle; html.ts re-exports it. */
+export function collectVisualRefs(value: unknown): string[] {
+  const refs = new Set<string>();
+  const visit = (v: unknown, key = ""): void => {
+    if (typeof v === "string") {
+      if (/^data:image\//i.test(v) || (VISUAL_EXT_RE.test(v) && VISUAL_KEY_RE.test(key))) refs.add(v);
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const item of v) visit(item, key);
+      return;
+    }
+    if (v && typeof v === "object") {
+      for (const [k, child] of Object.entries(v as Record<string, unknown>)) visit(child, k);
+    }
+  };
+  visit(value);
+  return [...refs];
+}
+
 const ID_PREFIX = "rec_";
 
 /** Stable-ish unique id; this IS the record's memory address. 8 random bytes
@@ -217,6 +249,54 @@ export function validateRecord(value: unknown): ValidationResult {
 /** Treat unknown/missing state as ready (consumer rule). */
 export function isReady(rec: Pick<OvercastRecord, "state">): boolean {
   return rec.state == null || rec.state === "ready";
+}
+
+/** Payload fields carrying a record's primary human-readable text, in precedence
+ *  order. `summary` first: match records (face/image/similar/audio/voice) put
+ *  their one-line result there — surfaces that skipped it rendered a useless
+ *  "payload: op, count, summary" key dump. The ONE list shared by the brief
+ *  trail, case-status summaries, and record stubs so they can't drift. */
+export const PRIMARY_TEXT_FIELDS: readonly string[] = ["summary", "content", "transcript", "text", "caption", "ocr", "title", "snippet"];
+
+/** The primary human-readable text of a record's payload ("" when none). */
+export function primaryText(rec: Pick<OvercastRecord, "payload">): string {
+  if (typeof rec.payload === "string") return rec.payload;
+  const p = rec.payload as JsonMap;
+  for (const k of PRIMARY_TEXT_FIELDS) {
+    const v = p[k];
+    if (typeof v === "string" && v.trim()) return v;
+  }
+  return "";
+}
+
+/** One-line human stub of a record — primary text, else a verb-aware summary
+ *  (capture → the pulled file, scan → the hit URL), else the payload keys.
+ *  Param is structural (verb/payload/media/error) so report view models
+ *  (TimelineRecord) can use it too. */
+export function recordStub(rec: Pick<OvercastRecord, "verb" | "payload"> & Partial<Pick<OvercastRecord, "media" | "error">>, max = 160): string {
+  const clip = (s: string) => {
+    const one = s.replace(/\s+/g, " ").trim();
+    return one.length > max ? one.slice(0, max - 3) + "…" : one;
+  };
+  if (rec.error) return clip(`error: ${rec.error}`);
+  const text = primaryText(rec);
+  if (text.trim()) return clip(text);
+  const p = typeof rec.payload === "object" && rec.payload != null ? (rec.payload as JsonMap) : {};
+  // a non-string primary value (number/boolean) must not be lost to a key dump
+  for (const k of PRIMARY_TEXT_FIELDS) {
+    const v = p[k];
+    if (typeof v === "number" || typeof v === "boolean") return clip(`${k}: ${v}`);
+  }
+  if (rec.verb === "capture") {
+    const path = typeof p.path === "string" ? p.path : rec.media?.ref;
+    if (path) return clip(`captured ${path.replace(/[?#].*$/, "").split(/[\\/]/).pop() || path}`);
+  }
+  if (rec.verb === "scan" && typeof p.url === "string" && p.url) return clip(p.url);
+  const op = typeof p.op === "string" ? p.op : undefined;
+  const count = typeof p.count === "number" ? p.count : undefined;
+  if (op || count != null) return clip(`${op ?? rec.verb}${count != null ? ` found ${count}` : ""}${rec.media?.ref ? ` in ${rec.media.ref}` : ""}`);
+  const keys = typeof rec.payload === "object" && rec.payload != null ? Object.keys(rec.payload as JsonMap) : [];
+  return clip(keys.length ? `payload: ${keys.join(", ")}` : "(empty)");
 }
 
 /** Epoch ms of a record's meta.time, or NaN when absent/unparseable —
