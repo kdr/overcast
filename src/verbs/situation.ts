@@ -156,7 +156,10 @@ export const situationVerb: VerbSpec = {
       }
       const merged = writeControl(ctx.case, parsed.config);
       const rt = readRuntime(ctx.case);
-      const running = runtimeAlive(rt);
+      // "running" must reflect a server actually SERVING (pid alive AND the port
+      // is up), not just a live/reused pid (Bugbot #98/med) — else `set` tells
+      // the operator "applied within ~2s" when nothing is listening.
+      const running = runtimeAlive(rt) && (await runtimeServing(rt));
       return [
         makeRecord({
           verb: "situation",
@@ -177,7 +180,9 @@ export const situationVerb: VerbSpec = {
 
     if (action === "stop") {
       const rt = readRuntime(ctx.case);
-      const running = runtimeAlive(rt);
+      // a server is only "running" when its port is actually served (pid + port),
+      // not off a live/reused pid alone (Bugbot #98/med).
+      const running = runtimeAlive(rt) && (await runtimeServing(rt));
       if (!running) {
         clearRuntime(ctx.case); // sweep a stale runtime from a crashed serve
         return [
@@ -239,13 +244,15 @@ export const situationVerb: VerbSpec = {
 
     // refuse a second serve only when a server is ACTUALLY up (pid alive AND the
     // port is being served) — a stale runtime.json from a crash, or a reused pid
-    // (Bugbot #98/med), must not block a fresh serve. A stale file is swept.
+    // (Bugbot #98/med), must not block a fresh serve. This is a soft pre-check;
+    // the REAL mutex is binding the port (below): two racing serves both pass
+    // here, but only one can listen(), and we defer every runtime.json write
+    // until AFTER a successful bind so the loser never clobbers the winner's
+    // runtime (Bugbot #98/med — the pre-bind clearRuntime used to do exactly that).
     const existing = readRuntime(ctx.case);
     if (runtimeAlive(existing) && (await runtimeServing(existing))) {
       return [err(`a situation is already live at ${existing!.displayUrl} (pid ${existing!.pid}) — \`overcast situation stop\` first`)];
     }
-    if (existing) clearRuntime(ctx.case); // sweep a stale/dead runtime before binding
-    clearStaleStop(ctx.case); // and a stale stop:true that would kill us on tick 1
 
     const parsed = parseConfigFlags(ctx);
     if ("error" in parsed) return [parsed.error];
@@ -294,6 +301,8 @@ export const situationVerb: VerbSpec = {
       await server.start();
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
+      // the loser of a bind race lands here and returns WITHOUT touching
+      // runtime.json/control.json, so it can't clobber the winner's state.
       return [
         err(
           code === "EADDRINUSE"
@@ -303,6 +312,10 @@ export const situationVerb: VerbSpec = {
       ];
     }
 
+    // bound successfully — NOW claim the case: drop a stale stop:true (so the
+    // first control tick doesn't stop us) and stamp runtime.json. Only the winner
+    // of the port race reaches this point.
+    clearStaleStop(ctx.case);
     writeRuntime(ctx.case, {
       pid: process.pid,
       port: server.port,

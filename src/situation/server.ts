@@ -277,7 +277,11 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     const urlFor = (ref: SituationMediaRef | null): string | null => {
       if (!ref) return null;
       if (ref.local) {
-        const abs = resolve(ref.local);
+        // resolve against the CASE DIR, not the process CWD (Bugbot #98/med) —
+        // a relative ref must be interpreted case-relative so both the file
+        // lookup and the containment check are correct regardless of where the
+        // serve process was launched. (Absolute refs ignore the base.)
+        const abs = resolve(this.case.dir, ref.local);
         // CONTAINMENT (Bugbot #98/high): only case-scoped media is servable.
         // The allowlist (model refs) already bounds it, but a record could
         // reference an absolute/symlinked path outside the case; refuse those so

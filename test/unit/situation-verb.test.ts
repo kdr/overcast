@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
@@ -98,6 +99,25 @@ test("situation status reports offline / stale runtime; stop writes a stop contr
     assert.equal((stopped.payload as Record<string, unknown>).running, false);
     assert.equal(readRuntime(openCase(dir)), undefined);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation serve losing a port race leaves runtime.json untouched", async () => {
+  const { dir } = tmpCase();
+  // occupy a port so a serve bind fails (the pre-check passes: no serving runtime)
+  const blocker = createServer();
+  await new Promise<void>((r) => blocker.listen(0, "127.0.0.1", () => r()));
+  const port = (blocker.address() as AddressInfo).port;
+  try {
+    const [rec] = await situationVerb.run(ctx(dir, { input: "serve", surface: "cli", opts: { port, "no-open": true } }));
+    assert.equal(rec.state, "error");
+    assert.match(String(rec.error), /already in use/);
+    // the loser must NOT have written (or cleared) runtime.json — that write is
+    // deferred until AFTER a successful bind, so it can't clobber a winner.
+    assert.equal(readRuntime(openCase(dir)), undefined, "loser wrote no runtime");
+  } finally {
+    await new Promise<void>((r) => blocker.close(() => r()));
     rmSync(dir, { recursive: true, force: true });
   }
 });
