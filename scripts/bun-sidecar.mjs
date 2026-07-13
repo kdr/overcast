@@ -66,6 +66,24 @@ try {
   console.error(`[build:bun] WARNING: could not copy shipped providers (${e.message}); builtin sources won't resolve on the binary`);
 }
 
+// 3b) the uv setup script → dist/bin/scripts/visual-db-uv.sh. The local-DB
+// catalog choices (deepface-local / basic-clip / audio-fp / basic-clap /
+// voice-print) bind an `init` command of `bash shipped:scripts/visual-db-uv.sh …`,
+// so the binary needs this script beside the executable for `provider init` (and
+// so doctor doesn't flag it as a missing shipped path). Any non-`providers/`
+// shipped: ref the catalog emits must be mirrored here.
+let vdbScript = 0;
+try {
+  const src = join(process.cwd(), "scripts", "visual-db-uv.sh");
+  if (existsSync(src)) {
+    mkdirSync(join(OUT, "scripts"), { recursive: true });
+    copyFileSync(src, join(OUT, "scripts", "visual-db-uv.sh"));
+    vdbScript = 1;
+  }
+} catch (e) {
+  console.error(`[build:bun] WARNING: could not copy visual-db-uv.sh (${e.message}); local-DB \`provider init\` won't resolve on the binary`);
+}
+
 // 4) branding audio (the sting) → dist/bin/assets/branding/, so shippedPath()
 // resolves it beside the compiled binary like the provider scripts above.
 let sting = 0;
@@ -114,5 +132,5 @@ try {
 
 console.error(
   `[build:bun] wrote ${OUT}/package.json + ${copied} builtin theme file(s)` +
-    `${providers ? " + shipped providers" : ""}${sting ? " + branding audio" : ""}${chair ? " + chair console" : ""}${situation ? " + situation console" : ""}`,
+    `${providers ? " + shipped providers" : ""}${vdbScript ? " + visual-db-uv.sh" : ""}${sting ? " + branding audio" : ""}${chair ? " + chair console" : ""}${situation ? " + situation console" : ""}`,
 );

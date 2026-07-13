@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { providerChoices, findProviderChoice, PROVIDER_PRESETS } from "../../src/providers/catalog.ts";
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** The `run` command of the owl-local (see) catalog choice, resolved now. */
 function owlLocalRun(): string {
@@ -79,5 +84,32 @@ test("NO catalog descriptor persists an absolute path — every script reference
   } finally {
     if (saved === undefined) delete process.env.DETECT_PY;
     else process.env.DETECT_PY = saved;
+  }
+});
+
+// Regression (Bugbot #104: "Sidecar omits visual-db script"): a `shipped:` ref
+// resolves beside the executable in the compiled bun binary, so EVERY ref target
+// must be copied there by scripts/bun-sidecar.mjs. The `providers/` tree is copied
+// wholesale; any ref OUTSIDE providers/ (e.g. shipped:scripts/visual-db-uv.sh)
+// needs its own copy step, or `provider init`/describe breaks on the binary.
+test("every non-providers/ shipped: ref the catalog emits is mirrored into the bun sidecar", () => {
+  const sidecar = readFileSync(join(REPO, "scripts", "bun-sidecar.mjs"), "utf8");
+  const copiesProvidersTree = /join\(OUT, "providers"\)/.test(sidecar);
+  const refs = new Set<string>();
+  for (const choice of providerChoices()) {
+    for (const cmd of [choice.descriptor?.run, choice.descriptor?.describe,
+      typeof choice.descriptor?.init === "string" ? choice.descriptor.init : choice.descriptor?.init?.command]) {
+      if (typeof cmd !== "string") continue;
+      for (const token of cmd.split(/\s+/)) if (token.startsWith("shipped:")) refs.add(token.slice("shipped:".length));
+    }
+  }
+  assert.ok(refs.size > 0, "sanity: the catalog emits shipped: refs");
+  for (const rel of refs) {
+    if (rel.startsWith("providers/")) {
+      assert.ok(copiesProvidersTree, "bun-sidecar must copy the providers/ tree");
+      continue;
+    }
+    const base = rel.split("/").pop()!;
+    assert.ok(sidecar.includes(base), `bun-sidecar.mjs must copy '${rel}' into the sidecar (ref won't resolve on the binary otherwise)`);
   }
 });
