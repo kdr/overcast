@@ -122,7 +122,7 @@ cat >"$stalehome/profiles/default.json" <<'JSON'
   "name": "default",
   "providers": {
     "enhance": { "type": "exec", "run": "python3 shipped:providers/senses/nope/missing.py --input {{input}}" },
-    "see": { "type": "exec", "run": "bash /gone/providers/senses/fal/does-not-exist.sh --input {{input}}" }
+    "see": { "type": "exec", "run": "bash /gone/providers/senses/fal/see.sh --input {{input}}" }
   }
 }
 JSON
@@ -131,7 +131,32 @@ save_json "phase8_doctor_refs" "$doc" >/dev/null
 assert_eq "doctor.provider_paths" "false" "$(jq -r '.payload.checks[]|select(.name=="provider-paths")|.ok' <<<"$doc")" "doctor flags broken shipped paths"
 jq -r '.payload.checks[]|select(.name=="provider-paths")|.detail' <<<"$doc" | grep -q 'unresolvable shipped:providers/senses/nope/missing.py' \
   && ok "doctor.unresolvable_ref" "unresolvable ref named in detail" || fail "doctor.unresolvable_ref" "detail missing the ref"
-jq -r '.payload.checks[]|select(.name=="provider-paths")|.detail' <<<"$doc" | grep -q 'stale path /gone/providers/senses/fal/does-not-exist.sh' \
+# stale = a gone absolute path whose shipped ref DOES resolve here (see.sh is a real
+# shipped filename) — re-apply fixes it. A gone path whose ref doesn't resolve is a
+# user's own provider and is NOT flagged (see unit coverage).
+jq -r '.payload.checks[]|select(.name=="provider-paths")|.detail' <<<"$doc" | grep -q 'stale path /gone/providers/senses/fal/see.sh' \
   && ok "doctor.stale_path" "stale absolute path named in detail" || fail "doctor.stale_path" "detail missing the stale path"
 jq -e '.payload.warnings[]|select(test("missing shipped provider files"))' >/dev/null 2>&1 <<<"$doc" \
   && ok "doctor.refs_warning" "shipped-path warning raised" || fail "doctor.refs_warning" "no warning"
+
+# case-policy heal (Bugbot: case policies skip heal on load) — a case setup.json
+# whose provider policy carries an OLD absolute path must NOT trip doctor's
+# provider-paths check, because loadSetup now heals it just like loadProfile.
+casepolhome="$SMOKE_DIR/home_casepol"; mkdir -p "$casepolhome/profiles"
+casepolcase="$SMOKE_DIR/case_policy_heal"; mkdir -p "$casepolcase/.overcast"
+cat >"$casepolcase/.overcast/setup.json" <<'JSON'
+{
+  "version": 1,
+  "providers": {
+    "enhance": {
+      "verb": "enhance", "choice": "ela",
+      "descriptor": { "type": "exec", "run": "python3 /opt/old-install/examples/providers/enhance/ela.py" }
+    }
+  }
+}
+JSON
+cpdoc="$($OVERCAST doctor --json --home "$casepolhome" --case "$casepolcase" 2>/dev/null)"
+cppaths="$(jq -r '.payload.checks[]|select(.name=="provider-paths")|.detail' <<<"$cpdoc")"
+[ -n "$(echo "$cppaths" | grep -F '/opt/old-install/examples/providers')" ] \
+  && fail "casepol.heal_no_false_positive" "doctor flagged a healable case-policy path: $cppaths" \
+  || ok "casepol.heal_no_false_positive" "case-policy old path heals on load, no doctor false positive"

@@ -17,8 +17,8 @@ export function providerBinding(ctx: VerbContext, verb: string): ProviderDescrip
   const profileDescriptor = ctx.profile.providers?.[verb];
   if (isProviderDescriptor(profileDescriptor)) return profileDescriptor;
   const descriptor = policy?.descriptor;
-  // heal at the read seam like loadProfile: a case policy saved by a
-  // pre-`shipped:`-ref build may carry a resolved absolute path.
+  // loadSetup already heals policy descriptors on load (like loadProfile); this
+  // heal is idempotent defense-in-depth for any descriptor reaching us another way.
   if (isProviderDescriptor(descriptor)) return healDescriptor(descriptor);
   return ctx.profile.providers?.[verb];
 }

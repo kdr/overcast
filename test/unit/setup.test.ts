@@ -257,8 +257,9 @@ test("doctor flags provider bindings with unresolvable shipped: refs or stale ab
   try {
     // an unresolvable ref survives healing (it never resolves) — doctor's case
     await setupVerb.run(ctx(dir, home, "provider", ["enhance", "exec:python3 shipped:providers/senses/nope/missing.py"]));
-    // a stale absolute shipped path whose new-layout target doesn't exist either
-    await setupVerb.run(ctx(dir, home, "provider", ["see", "exec:bash /gone/providers/senses/fal/does-not-exist.sh"]));
+    // a stale absolute shipped path: gone on disk, but its shipped ref DOES
+    // resolve here (a real shipped filename) — re-apply fixes it, so doctor flags it
+    await setupVerb.run(ctx(dir, home, "provider", ["see", "exec:bash /gone/providers/senses/fal/see.sh"]));
     // a healthy shipped ref and a custom path must NOT be flagged
     await setupVerb.run(ctx(dir, home, "provider", ["exif", "exec:bash shipped:providers/senses/exif/exif.sh"]));
     await setupVerb.run(ctx(dir, home, "provider", ["listen", "exec:bash /custom/listen.sh"]));
@@ -267,7 +268,7 @@ test("doctor flags provider bindings with unresolvable shipped: refs or stale ab
     const paths = checks.find((c) => c.name === "provider-paths");
     assert.equal(paths?.ok, false);
     assert.match(paths?.detail ?? "", /unresolvable shipped:providers\/senses\/nope\/missing\.py/);
-    assert.match(paths?.detail ?? "", /stale path \/gone\/providers\/senses\/fal\/does-not-exist\.sh/);
+    assert.match(paths?.detail ?? "", /stale path \/gone\/providers\/senses\/fal\/see\.sh/);
     assert.match(paths?.detail ?? "", /provider setup apply --verb <verb> --choice <id> --yes/);
     assert.doesNotMatch(paths?.detail ?? "", /exif\.sh/, "healthy shipped ref is not flagged");
     assert.doesNotMatch(paths?.detail ?? "", /\/custom\/listen\.sh/, "custom path is not doctor's business");

@@ -6,7 +6,7 @@
 // rename). Refs resolve through shippedPath() at SPAWN time; this module is the
 // one resolver + the profile-healing table for pre-ref absolute paths.
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { shippedPath } from "../pkg.js";
 import type { ProviderDescriptor } from "../profile.js";
 
@@ -78,11 +78,15 @@ export function shippedRefResolution(desc: ProviderDescriptor | undefined): Reco
 
 // ---- healing (old profiles + case policies) ---------------------------------
 //
-// Pre-Stage-B profiles persist RESOLVED absolute paths (the old catalog behavior)
-// under the OLD `examples/providers/` layout or the Stage-A `providers/` tree.
-// On load we rewrite recognized tokens to `shipped:` refs — but ONLY when the ref
-// resolves in this build; anything unrecognized (user-authored custom paths)
-// passes through untouched, and `doctor` flags what healing couldn't fix.
+// Pre-Stage-B profiles/case policies persist RESOLVED absolute paths (the old
+// catalog behavior) under the OLD `examples/providers/` layout or the Stage-A
+// `providers/` tree. On load we rewrite them to `shipped:` refs — but only when
+// the rewrite can't change which file runs: the ref must resolve here AND either
+// point at the very same file (a pure portability upgrade) or be an
+// overcast-specific shape we can't confuse with a user fork (the removed legacy
+// `examples/providers/` layout, `scripts/visual-db-uv.sh`). Everything else —
+// user-authored custom paths, a user fork reusing the `providers/<class>/`
+// layout — passes through untouched; `doctor` flags what healing couldn't fix.
 
 /** Stage-A move table: old `examples/providers/<sub>` → new repo-root relpath.
  *  Only entries that moved INTO the shipped providers/ tree heal to refs; the
@@ -101,23 +105,59 @@ function mapLegacyExamplesSubpath(sub: string): string | undefined {
   return undefined; // bash/python/ts demos + anything unknown → untouched
 }
 
-/** Heal ONE token: an absolute path that clearly points at shipped provider code
- *  (old examples layout, the providers/ tree, or scripts/visual-db-uv.sh) becomes
- *  a `shipped:` ref when that ref resolves in this build; else pass through. */
-export function healShippedToken(token: string): string {
-  if (!token.startsWith("/")) return token; // only absolute paths are healed
-  let rel: string | undefined;
+/** The `shipped:` ref an absolute path WOULD map to if it points at overcast's
+ *  shipped provider layout — the removed legacy `examples/providers/`, the current
+ *  `providers/{sources,senses,engines}/` tree, or `scripts/visual-db-uv.sh`.
+ *  Undefined for anything else. Pure mapping — does NOT check whether the ref
+ *  resolves in this build (callers decide that). One place both healing and the
+ *  doctor stale-path check agree on "is this one of ours". */
+function shippedRefCandidate(token: string): string | undefined {
+  if (!token.startsWith("/")) return undefined; // only absolute paths
   const legacy = token.match(/\/examples\/providers\/(.+)$/);
   if (legacy) {
-    rel = mapLegacyExamplesSubpath(legacy[1]);
-  } else {
-    const current = token.match(/\/providers\/(sources|senses|engines)\/(.+)$/);
-    if (current) rel = `providers/${current[1]}/${current[2]}`;
-    else if (/\/scripts\/visual-db-uv\.sh$/.test(token)) rel = "scripts/visual-db-uv.sh";
+    const rel = mapLegacyExamplesSubpath(legacy[1]);
+    return rel ? SHIPPED_REF_PREFIX + rel : undefined;
   }
-  if (!rel) return token;
-  const ref = SHIPPED_REF_PREFIX + rel;
-  return resolveShippedRefToken(ref) ? ref : token;
+  const current = token.match(/\/providers\/(sources|senses|engines)\/(.+)$/);
+  if (current) return `${SHIPPED_REF_PREFIX}providers/${current[1]}/${current[2]}`;
+  if (/\/scripts\/visual-db-uv\.sh$/.test(token)) return `${SHIPPED_REF_PREFIX}scripts/visual-db-uv.sh`;
+  return undefined;
+}
+
+/** True when two paths resolve (through symlinks) to the same real file. */
+function sameFile(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
+/** An absolute path shaped like overcast's OWN install (not something a user
+ *  would plausibly reuse for a fork): the removed legacy `examples/providers/`
+ *  layout, or the top-level `scripts/visual-db-uv.sh`. The current
+ *  `providers/{sources,senses,engines}/` layout is deliberately NOT here — a user
+ *  fork can reuse it, so those heal only as a same-file rewrite (below). */
+function isOvercastSpecificPath(token: string): boolean {
+  return /\/examples\/providers\//.test(token) || /\/scripts\/visual-db-uv\.sh$/.test(token);
+}
+
+/** Heal ONE token: an absolute path that points at shipped provider code becomes
+ *  a portable `shipped:` ref — but ONLY when the rewrite can't change which file
+ *  runs. If the path still exists we heal only when the ref resolves to the SAME
+ *  file (a pure portability upgrade), so a user fork that happens to reuse the
+ *  `providers/<class>/` layout but lives elsewhere is left untouched. If the path
+ *  is gone we heal only overcast-specific shapes (the removed legacy
+ *  `examples/providers/` layout, `scripts/visual-db-uv.sh`); a missing
+ *  current-layout `providers/<class>/` path is ambiguous (could be a user's moved
+ *  fork), so it's left for doctor to flag. */
+export function healShippedToken(token: string): string {
+  const ref = shippedRefCandidate(token);
+  if (!ref) return token;
+  const resolved = resolveShippedRefToken(ref);
+  if (!resolved) return token; // ref not shipped in this build → nothing to heal to
+  if (existsSync(token)) return sameFile(token, resolved) ? ref : token;
+  return isOvercastSpecificPath(token) ? ref : token;
 }
 
 /** Heal a descriptor command string token-wise, preserving the original text
@@ -153,29 +193,22 @@ export interface ShippedTokenIssue {
   token: string;
 }
 
-/** Does an absolute path look like it points at shipped provider code (the
- *  healing patterns)? Used by doctor to tell a stale shipped path from a
- *  user-authored custom one. */
-function looksLikeShippedPath(token: string): boolean {
-  if (!token.startsWith("/")) return false;
-  return (
-    /\/examples\/providers\//.test(token) ||
-    /\/providers\/(sources|senses|engines)\//.test(token) ||
-    /\/scripts\/visual-db-uv\.sh$/.test(token)
-  );
-}
-
 /** Scan a descriptor command string for (a) `shipped:` refs this build can't
- *  resolve and (b) stale absolute shipped-provider paths that no longer exist
- *  on disk (healing left them because the ref target didn't resolve either). */
+ *  resolve and (b) stale absolute shipped-provider paths — a path that maps to a
+ *  shipped ref which DOES resolve here, but the path itself is gone (install
+ *  moved / old layout). Both are re-applied away with `provider setup apply`. A
+ *  path with no resolvable shipped ref is NOT ours to flag — it may be a user's
+ *  own provider, so leave it (mirrors healShippedToken's conservatism). */
 export function findShippedTokenIssues(cmd: string): ShippedTokenIssue[] {
   const issues: ShippedTokenIssue[] = [];
   for (const token of cmd.split(/\s+/)) {
     if (isShippedRef(token)) {
       if (!resolveShippedRefToken(token)) issues.push({ kind: "unresolvable_ref", token });
-    } else if (looksLikeShippedPath(token) && !existsSync(token)) {
-      issues.push({ kind: "stale_path", token });
+      continue;
     }
+    if (existsSync(token)) continue; // present path — healing would (or already did) handle it
+    const ref = shippedRefCandidate(token);
+    if (ref && resolveShippedRefToken(ref)) issues.push({ kind: "stale_path", token });
   }
   return issues;
 }

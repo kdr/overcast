@@ -69,12 +69,31 @@ test("healShippedToken rewrites recognized old absolute paths to shipped: refs (
     ["/opt/old/examples/providers/visual-db/clip_match.py", "shipped:providers/engines/visual-db/clip_match.py"],
     ["/opt/old/examples/providers/audio-db/audio_match.py", "shipped:providers/engines/audio-db/audio_match.py"],
     ["/opt/old/examples/providers/screenshot/render.mjs", "shipped:providers/engines/screenshot/render.mjs"],
-    // Stage-A-era resolved providers/ paths + the uv setup script
-    ["/some/install/providers/senses/local/enhance.sh", "shipped:providers/senses/local/enhance.sh"],
-    ["/some/install/providers/sources/web.sh", "shipped:providers/sources/web.sh"],
-    ["/some/install/scripts/visual-db-uv.sh", "shipped:scripts/visual-db-uv.sh"],
   ];
   for (const [oldPath, ref] of cases) assert.equal(healShippedToken(oldPath), ref, oldPath);
+});
+
+test("healShippedToken heals a current-layout path ONLY as a same-file portability upgrade (not a user fork)", () => {
+  // A resolved absolute path that IS the shipped file → rewrite to the ref (pure
+  // portability; the very same file runs). This is the Stage-A-era resolved-path
+  // and same-install case.
+  const real = resolveShippedRefToken("shipped:providers/senses/enhance/ela.py");
+  assert.ok(real && existsSync(real), "precondition: ela.py resolves in this build");
+  assert.equal(healShippedToken(real!), "shipped:providers/senses/enhance/ela.py");
+
+  // A user fork that reuses the providers/<class>/ layout but is a DIFFERENT file
+  // (lives elsewhere) must be left untouched — never silently redirected to the
+  // packaged script. Regression for the Bugbot "healing rewrites custom paths".
+  const forkHome = mkdtempSync(join(tmpdir(), "oc-fork-"));
+  try {
+    const fork = join(forkHome, "providers", "senses", "fal", "see.sh");
+    mkdirSync(join(forkHome, "providers", "senses", "fal"), { recursive: true });
+    writeFileSync(fork, "#!/usr/bin/env bash\n# my own fork\n");
+    assert.ok(resolveShippedRefToken("shipped:providers/senses/fal/see.sh"), "packaged see.sh exists (would-be target)");
+    assert.equal(healShippedToken(fork), fork, "user fork left untouched, not redirected to the shipped script");
+  } finally {
+    rmSync(forkHome, { recursive: true, force: true });
+  }
 });
 
 test("healShippedToken leaves demos, intra-examples moves, unknowns, and unresolvable targets untouched", () => {
@@ -85,6 +104,7 @@ test("healShippedToken leaves demos, intra-examples moves, unknowns, and unresol
     "/custom/tools/mydetect.py", // user-authored custom path
     "/opt/old/examples/providers/enhance/does-not-exist.py", // maps, but the ref doesn't resolve
     "/gone/providers/senses/fal/does-not-exist.sh", // current-layout path with no shipped target
+    "/gone/providers/senses/fal/see.sh", // current-layout, gone, target resolves → ambiguous (moved fork?), left for doctor
     "providers/senses/enhance/ela.py", // relative — never healed
     "tinycloud", // bare command
   ];
@@ -151,12 +171,15 @@ test("findShippedTokenIssues flags unresolvable refs + stale shipped paths, igno
   assert.deepEqual(findShippedTokenIssues("bash shipped:providers/senses/nope/missing.sh"), [
     { kind: "unresolvable_ref", token: "shipped:providers/senses/nope/missing.sh" },
   ]);
-  assert.deepEqual(findShippedTokenIssues("bash /gone/providers/senses/fal/does-not-exist.sh --input {{input}}"), [
-    { kind: "stale_path", token: "/gone/providers/senses/fal/does-not-exist.sh" },
+  // stale = a gone absolute path whose shipped ref DOES resolve here (re-apply fixes it).
+  assert.deepEqual(findShippedTokenIssues("bash /gone/providers/senses/fal/see.sh --input {{input}}"), [
+    { kind: "stale_path", token: "/gone/providers/senses/fal/see.sh" },
   ]);
-  assert.deepEqual(findShippedTokenIssues("python3 /gone/examples/providers/enhance/does-not-exist.py"), [
-    { kind: "stale_path", token: "/gone/examples/providers/enhance/does-not-exist.py" },
+  assert.deepEqual(findShippedTokenIssues("python3 /gone/examples/providers/enhance/ela.py describe"), [
+    { kind: "stale_path", token: "/gone/examples/providers/enhance/ela.py" },
   ]);
+  // a gone path whose ref DOESN'T resolve is not ours to flag — may be a user's provider.
+  assert.deepEqual(findShippedTokenIssues("bash /gone/providers/senses/fal/does-not-exist.sh"), []);
 });
 
 test("shippedRefResolution maps each descriptor ref to its resolved path (null when missing)", () => {
