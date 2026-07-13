@@ -42,6 +42,22 @@ assert_scan_ready() {
   fi
 }
 
+# The LIVE Apify identity actors (username / person / property) spend credits on a
+# real actor run that can transiently time out (OC_TIMEOUT) or return an empty
+# result — same external-flakiness class as flights/overpass/firms. Returns 0 when
+# ready records exist (caller then runs assert_scan_* + its field checks), else
+# emits a best-effort SKIP (not a FAIL) and returns 1. Deliberately NOT used for
+# `phone` (offline libphonenumber parse — a legitimately strict check) or the
+# deterministic `plate` DPPA gate.
+apify_live_ready() { # <skip-id> <out> <label>
+  local n err
+  n="$(echo "$2" | jq -s '[.[]|select(.verb=="scan" and .state=="ready")]|length' 2>/dev/null)"
+  [ "${n:-0}" -ge 1 ] && return 0
+  err="$(echo "$2" | jq -s -r '[.[]|select(.state=="error" or .state=="needs_credentials")][0].error // "no records"' 2>/dev/null)"
+  skip "$1" "no usable $3 this run ($err) — live Apify actor slow/empty"
+  return 1
+}
+
 # scan evidence must surface in the case's records web export (the audit page)
 assert_export_has() { # <id> <casedir> <needle> <label>
   local id="$1" cd="$2" needle="$3" label="$4"
@@ -438,9 +454,11 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
   ocrun "$CASE" source add 'username:bellingcat' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source username --limit 6 --json)"
   save_json "20_scan_username" "$out" >/dev/null
-  assert_scan_hits "$C.username.accounts" "$out" "username account discovery"
-  purl="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and ((.payload.url // "")|test("^https?://")))][0].payload.url // empty' 2>/dev/null)"
-  assert_nonempty "$C.username.profileurl" "$purl" "username hit carries a profile URL"
+  if apify_live_ready "$C.username.accounts" "$out" "username account discovery"; then
+    assert_scan_hits "$C.username.accounts" "$out" "username account discovery"
+    purl="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and ((.payload.url // "")|test("^https?://")))][0].payload.url // empty' 2>/dev/null)"
+    assert_nonempty "$C.username.profileurl" "$purl" "username hit carries a profile URL"
+  fi
   unset OVERCAST_SOURCE_USERNAME_CMD
 
   # phone — PhoneInfoga on a public corporate line (offline parse + footprint)
@@ -460,9 +478,11 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
   ocrun "$CASE" source add "property:${OC_PROPERTY_QUERY:-1001 Preston St, Houston, TX 77002}" --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source property --json)"
   save_json "20_scan_property" "$out" >/dev/null
-  assert_scan_ready "$C.property.address" "$out" "property assessor records"   # source_url may be absent
-  powner="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.owner != null))][0].payload.owner // empty' 2>/dev/null)"
-  assert_nonempty "$C.property.owner" "$powner" "property hit carries an owner"
+  if apify_live_ready "$C.property.address" "$out" "property assessor records"; then
+    assert_scan_ready "$C.property.address" "$out" "property assessor records"   # source_url may be absent
+    powner="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.owner != null))][0].payload.owner // empty' 2>/dev/null)"
+    assert_nonempty "$C.property.owner" "$powner" "property hit carries an owner"
+  fi
   unset OVERCAST_SOURCE_PROPERTY_CMD
 
   # person — people-search / skip-trace for an overridable common name
@@ -471,9 +491,11 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
   ocrun "$CASE" source add "person:${OC_PERSON_QUERY:-Robert Williams}" --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source person --limit 3 --json)"
   save_json "20_scan_person" "$out" >/dev/null
-  assert_scan_ready "$C.person.name" "$out" "person people-search"   # profileUrl may be absent
-  pname="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and ((.payload.full_name // "") != ""))][0].payload.full_name // empty' 2>/dev/null)"
-  assert_nonempty "$C.person.record" "$pname" "person hit carries a resolved name"
+  if apify_live_ready "$C.person.name" "$out" "person people-search"; then
+    assert_scan_ready "$C.person.name" "$out" "person people-search"   # profileUrl may be absent
+    pname="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and ((.payload.full_name // "") != ""))][0].payload.full_name // empty' 2>/dev/null)"
+    assert_nonempty "$C.person.record" "$pname" "person hit carries a resolved name"
+  fi
   unset OVERCAST_SOURCE_PERSON_CMD
 
   # plate — deterministic DPPA gate: with no OVERCAST_PLATE_ACTOR it must report
