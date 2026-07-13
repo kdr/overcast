@@ -19,6 +19,9 @@
 # Implements: enumerate --query <q> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
 API="https://overpass-api.de/api/interpreter"
+# overpass-api.de rejects requests with no/blank User-Agent (HTTP 406, content
+# negotiation) — always send a real one. Override via OVERCAST_HTTP_UA.
+UA="${OVERCAST_HTTP_UA:-overcast-osint/0.0.8 (+https://github.com/kdr/overcast)}"
 
 # escape a tag key/value for safe embedding inside OverpassQL double quotes — an
 # OSM value containing `"` or `\` would otherwise break or alter the generated
@@ -135,7 +138,7 @@ case "$op" in
     fi
 
     # POST the QL as form field `data=` (Overpass's documented interface).
-    if ! run="$(curl -fsS -m 90 --data-urlencode "data=$ql" "$API")"; then
+    if ! run="$(curl -fsS -m 90 -H "User-Agent: $UA" --data-urlencode "data=$ql" "$API")"; then
       echo "overpass enumerate request failed for '$query'" >&2; exit 1
     fi
     # A valid response is a JSON object with an `elements` array; zero matches come
@@ -188,7 +191,7 @@ case "$op" in
     [ -n "$url" ] || { echo "overpass fetch needs --url" >&2; exit 1; }
     # a hit's ref is an openstreetmap.org element page — curl it as evidence and
     # report the kind by content type (overcast sniffs a missing extension).
-    if ! ct="$(curl -fsSL -m 60 -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+    if ! ct="$(curl -fsSL -m 60 -H "User-Agent: $UA" -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
       echo "overpass fetch failed for $url" >&2; rm -f "$out"; exit 1
     fi
     case "$ct" in

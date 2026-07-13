@@ -326,9 +326,10 @@ if [ "${ohits:-0}" -ge 1 ]; then
   oref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("openstreetmap\\.org/")) then "ok" else "" end' 2>/dev/null)"
   assert_nonempty "$C.overpass.ref" "$oref" "overpass refs are openstreetmap.org element pages"
 else
-  # the keyless Overpass API load-sheds (HTTP 429/504) and returns 406 under
-  # pressure; a transient outage or a momentarily empty area is a best-effort
-  # skip, not a failure (same treatment as flights above).
+  # overpass.sh now sends a User-Agent (the 406 was ours), so this normally hits
+  # the branch above. The keyless Overpass API can still genuinely load-shed
+  # (HTTP 429/504) — a transient outage is a best-effort skip, not a failure
+  # (same treatment as flights above).
   oerr="$(echo "$out" | jq -s -r '[.[]|select(.state=="error" or .state=="needs_credentials")][0].error // "no overpass hits"' 2>/dev/null)"
   skip "$C.overpass.query" "no usable overpass hits this run ($oerr)"
 fi
