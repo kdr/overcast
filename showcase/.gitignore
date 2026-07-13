@@ -1,0 +1,18 @@
+# Showcase workspace: keep the runbooks + HOWTO as committed documentation, but
+# ignore regenerable/bulky artifacts. Case stores (.overcast/) are already ignored
+# globally. Raw HTML exports here still carry local file:// + /Users refs — the
+# scrubbed, hostable copies live in the overcast.video repo (public/cases/).
+*.html
+*.mp4
+*.mov
+*.webm
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.glb
+*.svg
+*.wav
+*.m4a
+media/
