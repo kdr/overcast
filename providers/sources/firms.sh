@@ -143,6 +143,7 @@ case "$op" in
       *@*) src="${query##*@}"; query="${query%@*}" ;;
     esac
     [ -n "$src" ] || src="$DEFAULT_SOURCE"
+    srcenc="$(jq -rn --arg v "$src" '$v|@uri')"
 
     # --since → FIRMS dayrange (1–10; default 1). Portable epoch math (BSD/GNU date)
     # then ceil to whole days; fail closed on an unparseable window (don't silently
@@ -151,9 +152,9 @@ case "$op" in
     # client-side by its acquisition time (cutiso) so `--since` is honored exactly,
     # like overpass's `(newer:)` / gdelttv's STARTDATETIME. A detection we can't date
     # is dropped under an active window (can't confirm it falls inside it).
-    dayrange=1; cutiso=""
+    now="$(date -u +%s)"
+    dayrange=1; cutiso=""; cutepoch=""
     if [ -n "$since" ]; then
-      now="$(date -u +%s)"; cutepoch=""
       case "$since" in
         *[0-9]s) cutepoch=$(( now - 10#${since%s} )) ;;
         *[0-9]m) cutepoch=$(( now - 10#${since%m} * 60 )) ;;
@@ -178,6 +179,29 @@ case "$op" in
       fi
     fi
 
+    # Anchor the window to FIRMS's most-recent AVAILABLE date. NRT feeds lag the
+    # wall clock by ~1–3 days, and the area API's dayrange counts back from TODAY
+    # — so `--since 3d` asks for a window that mostly falls in the not-yet-
+    # published gap and returns an empty CSV. Query data_availability for the
+    # sensor's max_date and, when it trails now, pass it as the explicit end-date
+    # (the API's `/<dayrange>/<date>` form) AND shift the client-side cutiso back
+    # by the same amount, so `--since Nd` means "the N most recent PUBLISHED days".
+    # Best-effort: any failure falls back to the implicit today-anchored query.
+    enddate=""
+    avail="$(curl -fsS -m 30 "$API/data_availability/csv/$KEY/$srcenc" 2>/dev/null || true)"
+    maxdate="$(printf '%s' "$avail" | awk -F, -v s="$src" 'NR>1 && $1==s {gsub(/[[:space:]]/,"",$3); print $3; exit}')"
+    case "$maxdate" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+        maxepoch="$(date -u -d "$maxdate 23:59:59" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d %H:%M:%S' "$maxdate 23:59:59" +%s 2>/dev/null || echo '')"
+        if [ -n "$maxepoch" ] && [ "$maxepoch" -lt "$now" ]; then
+          enddate="$maxdate"
+          if [ -n "$cutepoch" ]; then
+            cutepoch=$(( cutepoch - (now - maxepoch) ))
+            cutiso="$(date -u -r "$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$cutiso")"
+          fi
+        fi ;;
+    esac
+
     # bbox: west,south,east,north (Overpass/Leaflet order) — strip inner spaces then
     # require FOUR NUMERIC parts, so "-124, 32, -114, 42" is accepted and a
     # malformed/non-numeric ref fails fast (and never reaches the API). FIRMS has no
@@ -190,8 +214,9 @@ case "$op" in
     # bbox parts are already validated numeric (is_coord above), so the string is
     # URL-safe as-is — embed it RAW. The FIRMS area endpoint wants literal commas in
     # the path segment and returns HTTP 400 when they're %2C-encoded.
-    srcenc="$(jq -rn --arg v "$src" '$v|@uri')"
     endpoint="$API/area/csv/$KEY/$srcenc/$bbox/$dayrange"
+    # explicit end-date (data-availability anchor) → the API's `/<dayrange>/<date>` form
+    [ -n "$enddate" ] && endpoint="$endpoint/$enddate"
 
     if ! resp="$(curl -fsS -m 60 "$endpoint")"; then
       echo "firms enumerate request failed for '$query' (check bbox and key)" >&2; exit 1

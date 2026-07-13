@@ -394,9 +394,10 @@ if require_cred "$C.firms" FIRMS_MAP_KEY "skipping firms (NASA active fires)"; t
     fref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("firms.modaps.eosdis.nasa.gov/map")) then "ok" else "" end' 2>/dev/null)"
     assert_nonempty "$C.firms.ref" "$fref" "firms refs are FIRMS fire-map deep links"
   else
-    # active fires are data-dependent — a bbox/window can legitimately have zero
-    # detections (or FIRMS can rate-limit), so no hits is a best-effort skip, not
-    # a failure (same treatment as flights/overpass above).
+    # firms.sh now anchors --since to FIRMS's data-availability max_date (NRT lags
+    # the wall clock), so CONUS normally hits the branch above. A bbox/window can
+    # still legitimately have zero detections (or FIRMS can rate-limit) — that's a
+    # best-effort skip, not a failure (same treatment as flights/overpass above).
     ferr="$(echo "$out" | jq -s -r '[.[]|select(.state=="error" or .state=="needs_credentials")][0].error // "no active-fire detections in bbox/window"' 2>/dev/null)"
     skip "$C.firms.query" "no usable firms hits this run ($ferr)"
   fi
