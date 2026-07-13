@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # overcast `enhance` provider — ElevenLabs Voice Isolator (audio). Strips
 # background noise/music, leaving clean speech. Bind to opt in:
-#   overcast setup provider enhance "exec:bash examples/providers/elevenlabs/enhance.sh {{input}}"
+#   overcast setup provider enhance "exec:bash providers/senses/elevenlabs/enhance.sh {{input}}"
 # Audio only (image enhance: use the fal or ffmpeg providers). Output -> $OVERCAST_MEDIA_DIR.
 set -uo pipefail
 

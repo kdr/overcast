@@ -7,7 +7,7 @@
 # bounding boxes — `crop` does not apply to these detections (bind the OWLv2
 # detector for boxes). Contract:
 #   init | describe | run --input <img> [--ocr] [--prompt "<focus>"] [--detect "a,b"]
-#   overcast setup provider see "exec:bash examples/providers/tinycloud/see.sh --input {{input}}"
+#   overcast setup provider see "exec:bash providers/senses/tinycloud/see.sh --input {{input}}"
 # NOTE: keep the run template a `bash …` wrapper — a template that starts with
 # `tinycloud` is treated as the built-in default binding and is skipped for `see`.
 # Override the tinycloud invocation with OVERCAST_TINYCLOUD_CMD (tokenized on

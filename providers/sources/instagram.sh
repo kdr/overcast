@@ -3,7 +3,7 @@
 # data only, no login.
 # Bind with:  overcast source add instagram:@nasa
 #             overcast source add instagram:#wildfire
-#             OVERCAST_SOURCE_INSTAGRAM_CMD="bash examples/providers/sources/instagram.sh"
+#             OVERCAST_SOURCE_INSTAGRAM_CMD="bash providers/sources/instagram.sh"
 # Refs: @handle | handle — a profile's posts/reels
 #       #tag              — a hashtag's posts
 #       https://instagram.com/… — a profile/post/reel URL

@@ -4,7 +4,7 @@
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
 C=profiles
 CASE=$(case_dir profiles)
-EX="$PWD/examples/providers"
+EX="$PWD/providers/senses"
 
 # a "recon" profile that binds three senses to opt-in providers
 ocrun "$CASE" --profile recon setup provider listen "exec:bash $EX/elevenlabs/listen.sh {{input}}" --json >/dev/null 2>&1

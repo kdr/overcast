@@ -38,7 +38,7 @@ SEE_ID="$(echo "$see" | jq -r '.id // empty')"
 LENS_URL=""; LENS_HIT_ID=""; lens_done=0; web_done=0
 if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
   cond "scene-locate skill: lens reverse-image-searches the still for matching pages"
-  export OVERCAST_SOURCE_LENS_CMD="bash $PWD/examples/providers/sources/lens.sh"
+  export OVERCAST_SOURCE_LENS_CMD="bash $PWD/providers/sources/lens.sh"
   cp "$FRAME" "$CASE/lens_query.${FRAME##*.}"
   ocrun "$CASE" source add "lens:lens_query.${FRAME##*.}" --json >/dev/null 2>&1   # register the lens source
   lout="$(OC_TIMEOUT=420 oc "$CASE" scan --source lens --query "lens_query.${FRAME##*.}" --limit 3 --json)"
@@ -64,7 +64,7 @@ fi
 # 3) skill step: corroborate an OCR'd clue on the open web
 if require_cred "$C.web" TAVILY_API_KEY "web corroboration tier needs Tavily"; then
   cond "scene-locate skill: web search corroborates a scene clue"
-  export OVERCAST_SOURCE_WEB_CMD="bash $PWD/examples/providers/sources/web.sh"
+  export OVERCAST_SOURCE_WEB_CMD="bash $PWD/providers/sources/web.sh"
   ocrun "$CASE" source add 'web:famous landmark location' --json >/dev/null 2>&1
   wout="$(OC_TIMEOUT=300 oc "$CASE" scan --source web --limit 3 --json)"
   save_json "82_web" "$wout" >/dev/null

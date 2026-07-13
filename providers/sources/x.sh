@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # overcast source provider: x / twitter (Apify tweet-scraper actors).
 # Bind with:  overcast source add x:@handle | x:#tag | "x:<advanced query>"
-#             OVERCAST_SOURCE_X_CMD="bash examples/providers/sources/x.sh"
+#             OVERCAST_SOURCE_X_CMD="bash providers/sources/x.sh"
 # Implements: enumerate --query <ref> [--limit N] [--since <s>]
 #             fetch --url <u> --out <p>  |  init | describe
 #

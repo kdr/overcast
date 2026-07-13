@@ -9,7 +9,7 @@
 # take your `--detect` list as candidate labels (no fixed COCO vocabulary).
 #
 # Bind it as the `see` provider, then drive detection with `see --detect`:
-#   overcast setup provider see "exec:python3 examples/providers/detect/detect.py"
+#   overcast setup provider see "exec:python3 providers/senses/detect/detect.py"
 #   overcast see ./scene.jpg --detect "car, person, license plate" --json
 #   overcast see ./clip.mp4  --detect "weapon, backpack" --json       # video → frames sampled
 #

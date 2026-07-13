@@ -1,4 +1,4 @@
-// Resolve a path to a shipped resource (examples/, skills/, ...) relative to the
+// Resolve a path to a shipped resource (providers/, skills/, ...) relative to the
 // package root. tsup bundles the source tree, so import.meta.url's depth isn't
 // fixed — we walk up to the dir that contains the resource. Returns undefined in
 // a bun-compiled binary (virtual /$bunfs) where these trees aren't embedded.
@@ -6,6 +6,12 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+
+/** Resolve a shipped provider script under the top-level `providers/` tree
+ *  (sources/, senses/, engines/) — the ONE root for shipped provider code. */
+export function shippedProviderPath(...segments: string[]): string | undefined {
+  return shippedPath("providers", ...segments);
+}
 
 export function shippedPath(...segments: string[]): string | undefined {
   try {

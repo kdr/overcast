@@ -112,8 +112,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--detect` — **default: the brain LLM** when image-capable, i.e. a direct
   "describe this image" call; falls back to the Hugging Face captioner,
   `builtin:hf`/`builtin:brain` + `OVERCAST_SEE_BRAIN=off` to switch; bindable fal
-  / local OWLv2 via `examples/providers/detect` for detection / opt-in Cloudglue
-  `see`+`extract` via `examples/providers/tinycloud/see.sh`, tinycloud ≥ 0.3.7,
+  / local OWLv2 via `providers/senses/detect` for detection / opt-in Cloudglue
+  `see`+`extract` via `providers/senses/tinycloud/see.sh`, tinycloud ≥ 0.3.7,
   boxless `--detect`), `face`
   (tinycloud ≥ 0.3.4 by default, or
   `face:deepface-local` locally: detect faces, `--match <jpeg|png>` to find/rank a
@@ -144,9 +144,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--ops separate` = per-speaker tracks + optional `--summarize`, `--ops segment
   --prompt` = text-prompted masks/cutouts (bound `local-models` or `fal`),
   `--ops ela` = ELA/noise/luminance forensic overlays from an image (heuristic
-  edit-detection leads; `examples/providers/enhance/ela.py`), and `--ops panorama`
+  edit-detection leads; `providers/senses/enhance/ela.py`), and `--ops panorama`
   = stitch a panning video into one wide still for skyline/landmark geolocation
-  (`examples/providers/enhance/panorama.py`) — each fanned out one record per artifact),
+  (`providers/senses/enhance/panorama.py`) — each fanned out one record per artifact),
   `reconstruct` (SPECULATIVE scene reconstruction from a still or `--at` video
   frame via a bound generative provider — fal toolbox: `--rotate/--elevate/--zoom`
   camera reposition + `--ops sweep` 360° stops → contact sheet + turntable mp4
@@ -166,7 +166,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   credentials is a clean `ready` record, not an error — distinct from source-post
   provenance in `src/verbs/provenance.ts`), `screenshot` (browser screen capture —
   render a web page **or a local `.html` export** to a PNG evidence record via
-  headless Chromium; the shared Playwright engine in `examples/providers/screenshot/`
+  headless Chromium; the shared Playwright engine in `providers/engines/screenshot/`
   also backs the `browser:` source, runs under system `node` with the playwright
   **optional dep** — missing → `needs_credentials`; `--full-page`, `--viewport WxH`,
   `--wait ms`; re-implements the fetch SSRF guard over HTTP **and** WebSocket

@@ -502,7 +502,7 @@ test("face with a deepface-local index does not turn list into fresh detect", as
 });
 
 test("deepface-local provider keeps min-similarity on the 0-100 CLI scale", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "visual-db", "face_match.py"), "utf8");
   assert.doesNotMatch(src, /threshold\s*\*=/);
   assert.match(src, /threshold\s*<\s*0\s+or\s+threshold\s*>\s*100/);
 });
@@ -510,7 +510,7 @@ test("deepface-local provider keeps min-similarity on the 0-100 CLI scale", () =
 test("deepface-local provider reports extraction failures instead of clean no-matches", () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-deepface-error-"));
   const img = join(cdir, "query.jpg");
-  const script = join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py");
+  const script = join(HERE, "..", "..", "providers", "engines", "visual-db", "face_match.py");
   writeFileSync(img, "x");
   writeFileSync(join(cdir, "numpy.py"), "");
   writeFileSync(join(cdir, "deepface.py"), `class DeepFace:
@@ -535,7 +535,7 @@ test("deepface-local provider reports extraction failures instead of clean no-ma
 });
 
 test("deepface-local provider has no broad exception-to-continue paths", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "face_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "visual-db", "face_match.py"), "utf8");
   assert.doesNotMatch(src, /except Exception(?: as \w+)?:\s*\n\s+continue/);
 });
 

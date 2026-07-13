@@ -34,7 +34,7 @@ import { providerEnv } from "../providers/provider-env.js";
 import { provenanceFromCapture, stampProvenance } from "./provenance.js";
 import { fanOutEnhance, hasFanOut } from "./enhance-fanout.js";
 import { maybeReconstructViewer } from "./reconstruct.js";
-import { shippedPath } from "../pkg.js";
+import { shippedProviderPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function hfToken(): string | undefined {
@@ -276,7 +276,7 @@ export const seeVerb: VerbSpec = {
                 payload: { caption: "", ocr: "", detections: [], detect: String(ctx.opts.detect) },
                 error:
                   "the bound see provider doesn't support --detect (its describe declares no detections); " +
-                  "bind a detector, e.g. `overcast setup provider see \"exec:python3 examples/providers/detect/detect.py\"`.",
+                  "bind a detector, e.g. `overcast setup provider see \"exec:python3 providers/senses/detect/detect.py\"`.",
                 state: "error",
               }),
             );
@@ -301,7 +301,7 @@ export const seeVerb: VerbSpec = {
           payload: { caption: "", ocr: "", detections: [], detect: String(ctx.opts.detect) },
           error:
             "see --detect needs a detection provider; bind one, e.g. " +
-            "`overcast setup provider see \"exec:python3 examples/providers/detect/detect.py\"` (OWLv2).",
+            "`overcast setup provider see \"exec:python3 providers/senses/detect/detect.py\"` (OWLv2).",
           state: "error",
         }),
       );
@@ -335,7 +335,7 @@ export const seeVerb: VerbSpec = {
     // "old implementation" (`builtin:hf` runs it even when a brain is available;
     // with no HF_TOKEN it self-reports needs_credentials).
     if (hfToken() || forceHf) {
-      const hf = shippedPath("examples", "providers", "hf", "see.sh");
+      const hf = shippedProviderPath("senses", "hf", "see.sh");
       if (hf) {
         // pass --input explicitly (like execDescriptor) so the media path is never
         // argv[1] and a file named "init"/"describe" can't trigger that subcommand.
@@ -386,7 +386,7 @@ const PROVIDER_ONLY_OPS: ReadonlySet<string> = new Set(["separate", "segment", "
  *  user is never told to bind a split preset for an op that doesn't use one. */
 function providerOpHint(op: string): string {
   return op === "ela" || op === "panorama"
-    ? `Bind one with \`overcast setup provider enhance "exec:python3 examples/providers/enhance/${op}.py"\` ` +
+    ? `Bind one with \`overcast setup provider enhance "exec:python3 providers/senses/enhance/${op}.py"\` ` +
         `(${op === "panorama" ? "opencv-python + numpy" : "pillow + numpy"}).`
     : `Run \`overcast provider setup plan --preset local-models\` (or --preset fal) then \`--yes\`; ` +
         `local-models needs \`scripts/visual-db-uv.sh --enhance\`.`;

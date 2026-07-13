@@ -45,7 +45,7 @@ fi
 # provider (exec), exactly like 15_crop.sh.
 if [ -n "${DETECT_PY:-}" ]; then
   cond "crime-board skill: bound OWLv2 detector runs see --detect, then crop materializes object cards"
-  DET="$PWD/examples/providers/detect/detect.py"
+  DET="$PWD/providers/senses/detect/detect.py"
   ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
   det="$(OC_TIMEOUT=300 oc "$CASE" see "$CLIP" --detect "person, car, bag" --json)"
   save_json "87_detect" "$det" >/dev/null

@@ -7,7 +7,7 @@
 # auto-resolve the shipped examples/).
 LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
 C=source
-SRCDIR="$PWD/examples/providers/sources"
+SRCDIR="$PWD/providers/sources"
 
 assert_scan_hits() {
   local id="$1" out="$2" label="$3"

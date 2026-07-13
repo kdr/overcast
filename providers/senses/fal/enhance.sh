@@ -5,7 +5,7 @@
 #   --ops separate    split an audio/video's voices/sounds by --prompt (SAM Audio) -> target + residual tracks
 #   --ops segment     cut requested objects out of an image by --prompt (SAM 3) -> mask + RGBA cutout per instance
 # The default `enhance` stays the internal ffmpeg toolkit; bind to opt in:
-#   overcast setup provider enhance "exec:bash examples/providers/fal/enhance.sh {{input}}"
+#   overcast setup provider enhance "exec:bash providers/senses/fal/enhance.sh {{input}}"
 # Models: $FAL_ENHANCE_IMAGE_MODEL, $FAL_ENHANCE_AUDIO_MODEL, $FAL_SEPARATE_MODEL
 # (fal-ai/sam-audio/separate), $FAL_SEGMENT_MODEL (fal-ai/sam-3/image). Split ops
 # emit ONE record whose payload.outputs[] is fanned out into a record per artifact

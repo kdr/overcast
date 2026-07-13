@@ -3,7 +3,7 @@
 # channels only, no login/phone.
 # Bind with:  overcast source add telegram:durov
 #             overcast source add telegram:https://t.me/some_channel
-#             OVERCAST_SOURCE_TELEGRAM_CMD="bash examples/providers/sources/telegram.sh"
+#             OVERCAST_SOURCE_TELEGRAM_CMD="bash providers/sources/telegram.sh"
 # Refs: <channel> | @channel | https://t.me/<channel>
 # Actor override: OVERCAST_TELEGRAM_ACTOR
 #   (default webfinity~telegram-channel-content-media-scraper-v2 — input:

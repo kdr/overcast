@@ -39,7 +39,7 @@ overcast provider init see                                      # run the init h
 
 # source provider (scraper) — bound by source type, enumerated by scan/capture
 overcast source add tiktok:@some_user
-OVERCAST_SOURCE_TIKTOK_CMD="bash examples/providers/sources/tiktok.sh" \
+OVERCAST_SOURCE_TIKTOK_CMD="bash providers/sources/tiktok.sh" \
   overcast scan --source tiktok --pull
 ```
 
@@ -158,7 +158,7 @@ OVERCAST_SEE_BRAIN=off overcast see shot.jpg # one-off: skip the brain default (
 ```
 
 `--detect` still needs a detection provider (the brain path produces a description,
-not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 examples/providers/detect/detect.py"`
+not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 providers/senses/detect/detect.py"`
 (boxes), or the opt-in Cloudglue tinycloud provider below (boxless presence facts).
 
 `see` also takes an **http(s) image URL** directly: the image is downloaded into
@@ -172,14 +172,14 @@ non-image response (login wall, expired signed URL returning HTML) errors clearl
 tinycloud 0.3.7 adds an image `see` verb (the file-level counterpart of `watch`:
 title + description + on-screen text) and **image sources for `extract`**
 (feature flags `see.v1` / `extract.images.v1`). The shipped wrapper
-([`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh))
+([`providers/senses/tinycloud/see.sh`](../providers/senses/tinycloud/see.sh))
 maps them onto overcast's `see` — bind to opt in; the defaults above are unchanged:
 
 ```bash
 overcast provider setup apply --verb see --choice tinycloud --profile default --yes
 # or bind directly — keep the `bash …` wrapper: a run template that starts with
 # `tinycloud` is treated as the built-in default binding and skipped for `see`.
-overcast setup provider see "exec:bash examples/providers/tinycloud/see.sh --input {{input}}"
+overcast setup provider see "exec:bash providers/senses/tinycloud/see.sh --input {{input}}"
 
 overcast see ./scene.jpg --ocr --json                          # tinycloud see → caption + on-screen text
 overcast see ./scene.jpg --prompt "what safety gear?" --json   # tinycloud extract → payload.extract facts
@@ -204,10 +204,10 @@ overcast see ./scene.jpg --detect "person, hard hat" --json    # extract checkli
 overcast ships Hugging Face Inference API providers so the `see` captioner and
 model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 
-- **`see`** — the fallback captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--prompt` (`--detect` is ignored — this captioner can't produce boxes; bind the OWLv2/fal detector for that).
-- **`enhance` (image)** — opt-in HF model ops ([`examples/providers/hf/enhance.py`](../examples/providers/hf/enhance.py), needs `huggingface_hub` + `pillow`). Image **upscale/unblur/restore works** via the **fal-ai** provider, routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; uses the free monthly credit then pay-as-you-go). The **default stays the internal ffmpeg toolkit**; bind to opt in:
+- **`see`** — the fallback captioner ([`providers/senses/hf/see.sh`](../providers/senses/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--prompt` (`--detect` is ignored — this captioner can't produce boxes; bind the OWLv2/fal detector for that).
+- **`enhance` (image)** — opt-in HF model ops ([`examples/providers/python/enhance.py`](../examples/providers/python/enhance.py), needs `huggingface_hub` + `pillow`). Image **upscale/unblur/restore works** via the **fal-ai** provider, routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; uses the free monthly credit then pay-as-you-go). The **default stays the internal ffmpeg toolkit**; bind to opt in:
   ```bash
-  overcast setup provider enhance "exec:python3 examples/providers/hf/enhance.py {{input}}"
+  overcast setup provider enhance "exec:python3 examples/providers/python/enhance.py {{input}}"
   overcast enhance ./blurry.jpg          # -> upscaled/unblurred media.enhanced record
   ```
   Default model `prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale` (override `HF_ENHANCE_IMAGE_MODEL`; provider `HF_ENHANCE_PROVIDER`, default `fal-ai`). **Caveat:** these are diffusion *editing* models — they synthesize plausible detail (not faithful super-resolution), so flag it for forensic use.
@@ -218,9 +218,9 @@ model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 Direct fal.ai providers (verified working) — bind to opt in:
 
 ```bash
-overcast setup provider see         "exec:bash examples/providers/fal/see.sh {{input}}"          # florence-2 caption / --ocr
-overcast setup provider enhance     "exec:bash examples/providers/fal/enhance.sh {{input}}"      # image: esrgan · audio: deepfilternet3
-overcast setup provider reconstruct "exec:bash examples/providers/fal/reconstruct.sh {{input}}"  # speculative camera reposition / 3D / depth
+overcast setup provider see         "exec:bash providers/senses/fal/see.sh {{input}}"          # florence-2 caption / --ocr
+overcast setup provider enhance     "exec:bash providers/senses/fal/enhance.sh {{input}}"      # image: esrgan · audio: deepfilternet3
+overcast setup provider reconstruct "exec:bash providers/senses/fal/reconstruct.sh {{input}}"  # speculative camera reposition / 3D / depth
 ```
 - **see** → `fal-ai/florence-2-large` (detailed caption; `--ocr` for text).
 - **enhance** is a **toolbox** dispatched by `--ops`: image → `fal-ai/esrgan`, audio → `fal-ai/deepfilternet3`; `--ops separate` → `fal-ai/sam-audio/separate`, `--ops segment` → `fal-ai/sam-3/image`. Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL` / `FAL_SEPARATE_MODEL` / `FAL_SEGMENT_MODEL`. See **Enhance split ops** below.
@@ -242,7 +242,7 @@ overcast exif <capture-id|record>  # a captured clip's metadata (video GPS track
 overcast exif ./photo.jpg --geocode  # + reverse-geocode GPS to a place (needs a bound geocode provider)
 ```
 
-Default backend: the shipped [`examples/providers/exif/exif.sh`](../examples/providers/exif/exif.sh)
+Default backend: the shipped [`providers/senses/exif/exif.sh`](../providers/senses/exif/exif.sh)
 (system `exiftool`; `exit 13` → `needs_credentials` when absent). Bind your own
 with `setup provider exif <spec>`. Only the compact
 `summary`/`gps`/`place`/device (`make`/`model`/`software`/`serial`/`lens`) fields
@@ -259,13 +259,13 @@ path/wrapper.
   ToS-gated `geocode` provider (never bound by default — reverse geocoding
   egresses the subject's coordinates to a third party, so it needs both the flag
   AND a bound provider). The shipped
-  [`examples/providers/geocode/geocode.sh`](../examples/providers/geocode/geocode.sh)
+  [`providers/senses/geocode/geocode.sh`](../providers/senses/geocode/geocode.sh)
   uses OSM **Nominatim** (no API key; sets a User-Agent and honors ~1 req/s —
   point `OVERCAST_GEOCODE_URL` at your own Nominatim/Photon for volume, override
   the agent with `OVERCAST_GEOCODE_UA`). Bind it with:
 
   ```bash
-  overcast setup provider geocode "exec:bash examples/providers/geocode/geocode.sh --input {{input}}"
+  overcast setup provider geocode "exec:bash providers/senses/geocode/geocode.sh --input {{input}}"
   overcast exif ./photo.jpg --geocode   # -> payload.place = "…, San Francisco, California, …"
   ```
 
@@ -305,7 +305,7 @@ brew install c2patool   # or: cargo install c2patool
 overcast verify ./photo.jpg        # -> media.provenance record (signer, validation state)
 ```
 
-Default backend: the shipped [`examples/providers/verify/verify.sh`](../examples/providers/verify/verify.sh)
+Default backend: the shipped [`providers/senses/verify/verify.sh`](../providers/senses/verify/verify.sh)
 (system `c2patool`; `exit 13` when absent). Bind your own with
 `setup provider verify <spec>`. `overcast doctor` reports whether `c2patool` is on
 PATH; set `OVERCAST_C2PATOOL_CMD` to point the shipped script (and doctor) at a
@@ -322,8 +322,8 @@ has it — it feeds the map instead). Toggle these off per case with
 ## ElevenLabs providers (`ELEVENLABS_API_KEY`)
 
 ```bash
-overcast setup provider listen  "exec:bash examples/providers/elevenlabs/listen.sh {{input}}"   # Scribe speech-to-text
-overcast setup provider enhance "exec:bash examples/providers/elevenlabs/enhance.sh {{input}}"  # voice isolator (audio)
+overcast setup provider listen  "exec:bash providers/senses/elevenlabs/listen.sh {{input}}"   # Scribe speech-to-text
+overcast setup provider enhance "exec:bash providers/senses/elevenlabs/enhance.sh {{input}}"  # voice isolator (audio)
 ```
 - **listen** → ElevenLabs Speech-to-Text (Scribe) → transcript + word-level `segments[]` with `media.at` anchors + language.
 - **enhance** → ElevenLabs Voice Isolator (strips background noise/music → clean speech).
@@ -348,7 +348,7 @@ exposes both ops:
 ```bash
 # on-device: pyannote diarization + GroundingDINO/SAM 2.1 (Apache-2.0, CPU-ok)
 scripts/visual-db-uv.sh --enhance          # installs both stacks into the uv venv
-overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
+overcast setup provider enhance "exec:bash providers/senses/local/enhance.sh {{input}}"
 #   ...or hosted on fal (FAL_KEY): sam-audio + sam-3
 overcast provider setup plan --preset fal && overcast provider setup apply --preset fal --yes
 
@@ -432,22 +432,22 @@ the script:
 
 ```bash
 # image forensics: ELA + noise residual + luminance-gradient overlays (pillow + numpy)
-overcast setup provider enhance "exec:python3 examples/providers/enhance/ela.py"
+overcast setup provider enhance "exec:python3 providers/senses/enhance/ela.py"
 overcast enhance suspect.jpg --ops ela          # -> parent + 3 overlay children
 #   ...or stitch a panning video into one wide still (opencv-python + numpy)
-overcast setup provider enhance "exec:python3 examples/providers/enhance/panorama.py"
+overcast setup provider enhance "exec:python3 providers/senses/enhance/panorama.py"
 overcast enhance pan_shot.mp4 --ops panorama    # -> parent + 1 stitched-still child
 overcast view <parent-id>                       # gallery of the overlays / the wide still
 ```
 
-- **ela** (`examples/providers/enhance/ela.py`, pillow + numpy) — from an image it
+- **ela** (`providers/senses/enhance/ela.py`, pillow + numpy) — from an image it
   writes three heuristic maps: **ELA** (re-save at JPEG q90, amplify the per-pixel
   abs difference so recompressed/pasted regions light up), **noise residual** (input
   minus a blurred copy, normalized), and a **luminance gradient** (Sobel edge
   magnitude). These are *leads, not proof* — compression, resizing, and texture also
   trigger them (`payload.caveat` says so). Image-only; run it on a `frame://` still of
   a video.
-- **panorama** (`examples/providers/enhance/panorama.py`, opencv-python + numpy) —
+- **panorama** (`providers/senses/enhance/panorama.py`, opencv-python + numpy) —
   samples ~18 frames uniformly across a video (dropping black + near-duplicate
   frames) and runs `cv2.Stitcher` in PANORAMA mode into one wide still, exposing a
   skyline/landmark strip for geolocation that no single frame shows. A failed stitch
@@ -463,7 +463,7 @@ vocabulary, no remote API:
 
 ```bash
 scripts/visual-db-uv.sh --detect                 # uv-installs torch + transformers + scipy + pillow (Grounding DINO also needs `timm`)
-overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"   # $DETECT_PY = the venv python printed above
+overcast setup provider see "exec:$DETECT_PY providers/senses/detect/detect.py"   # $DETECT_PY = the venv python printed above
 
 overcast see ./scene.jpg --detect "car, person, license plate" --json
 overcast see ./clip.mp4  --detect "weapon, hard hat" --json      # video → frames sampled, each box carries `at`
@@ -487,7 +487,7 @@ setup wizard via `case setup --index "<name>:<type>"` (e.g.
 `case setup --index people:face-cluster`; for `basic-clip`, an optional
 `@k=v;k=v` config suffix — pairs separated by `;` — pins sampling/pooling; see
 below). They use shipped Python providers under
-`examples/providers/visual-db/` and a uv-managed Python environment:
+`providers/engines/visual-db/` and a uv-managed Python environment:
 
 ```bash
 scripts/visual-db-uv.sh          # image matching: opencv-python + numpy
@@ -589,7 +589,7 @@ The record (`similar.match`) emits ranked `payload.matches[]` (`ref`, `similarit
 ## Audio DBs (`audio-fp`, `basic-clap`)
 
 The audio counterparts of `image-ransac` and `basic-clip`, under
-`examples/providers/audio-db/` and the same uv-managed Python (install with
+`providers/engines/audio-db/` and the same uv-managed Python (install with
 `scripts/visual-db-uv.sh --audio` and/or `--clap`; the `audio-db` doctor check
 reports both halves). Both decode a file's first audio stream via the system
 ffmpeg (so a **video** member's audio track is used automatically) and follow the
@@ -679,7 +679,7 @@ you want the full visual+audio stack.
 
 Speaker verification — the voice twin of `face --match`: given a **reference voice
 sample**, find/rank that speaker inside a clip or across enrolled members. Lives in
-`examples/providers/audio-db/voice_match.py` on the same uv venv as the other
+`providers/engines/audio-db/voice_match.py` on the same uv venv as the other
 audio DBs (`scripts/visual-db-uv.sh --voice` — the pyannote stack `enhance --ops
 separate` already uses; no extra deps). Distinct from its neighbors: `audio`
 (audio-fp) matches the *recording*, `similar` (basic-clap) matches the *content*,
@@ -761,7 +761,7 @@ to `cpu` (MPS is experimental for pyannote).
 speaker-embedding models (audio tasks are ASR/audio-classification only). If you
 need a hosted backend, deploy a dedicated HF Inference Endpoint with a custom
 handler and wrap it as an exec provider following the
-[`examples/providers/hf/enhance.sh`](../examples/providers/hf/enhance.sh) pattern.
+[`providers/senses/hf/enhance.sh`](../providers/senses/hf/enhance.sh) pattern.
 
 These emit ordinary Overcast records (`image.match`, `face.analysis`, `audio.match`,
 `voice.match`, or `similar.match`) and write
@@ -778,24 +778,24 @@ sample 8 frames.
 - [`examples/providers/bash/watch.sh`](../examples/providers/bash/watch.sh) — the canonical tinycloud `watch` exec provider.
 - [`examples/providers/python/listen.py`](../examples/providers/python/listen.py) — a local-whisper `listen` provider (exec).
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec).
-- [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
-- [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
-- [`examples/providers/fal/{see,enhance,reconstruct}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance (plus `--ops separate` sam-audio / `--ops segment` sam-3), and the speculative `reconstruct` toolbox (Qwen multi-angle reposition/sweep, Trellis image→3D via the queue API, Depth Anything V2).
-- [`examples/providers/local/enhance.sh`](../examples/providers/local/enhance.sh) + [`examples/providers/visual-db/enhance_{voice,segment}.py`](../examples/providers/visual-db/) — on-device `enhance --ops separate` (pyannote) and `--ops segment` (GroundingDINO + SAM 2.1).
-- [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
-- [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
-- [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
-- [`examples/providers/audio-db/{audio_match,clap_match,voice_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp), LAION CLAP audio embeddings (basic-clap), and wespeaker speaker verification (voice-print) for audio DB indexes.
-- [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,wayback,overpass,firms,dispatch,flights,instagram,telegram,webcam,facesearch,yandeximg,dork,shodan,browser,username,person,phone,property,plate}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch/yandeximg + the identity sources username/person/phone/property/plate) + web-search (Tavily/Brave) + Google dorking (Serper.dev) + Shodan host recon + Google Lens & Yandex reverse-image + GDELT TV broadcast-news + Wayback Machine archive recovery + Overpass OSM features + NASA FIRMS active-fire hotspots + Socrata calls-for-service dispatch + OpenSky ADS-B flights + Windy Webcams + headless-Chromium page render (`browser`, delegates to the screenshot engine) source providers.
-- [`examples/providers/screenshot/{screenshot.sh,render.mjs}`](../examples/providers/screenshot/) — the shared headless-Chromium page renderer (Playwright) behind the `screenshot` verb and the `browser` source.
-- [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
-- [`examples/providers/geocode/geocode.sh`](../examples/providers/geocode/geocode.sh) — opt-in OSM Nominatim reverse geocoder for `exif --geocode` (no key; never bound by default).
+- [`providers/senses/hf/{see,enhance}.sh`](../providers/senses/hf/) — Hugging Face captioner + model-enhance.
+- [`providers/senses/elevenlabs/{listen,enhance}.sh`](../providers/senses/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
+- [`providers/senses/fal/{see,enhance,reconstruct}.sh`](../providers/senses/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance (plus `--ops separate` sam-audio / `--ops segment` sam-3), and the speculative `reconstruct` toolbox (Qwen multi-angle reposition/sweep, Trellis image→3D via the queue API, Depth Anything V2).
+- [`providers/senses/local/enhance.sh`](../providers/senses/local/enhance.sh) + [`providers/engines/visual-db/enhance_{voice,segment}.py`](../providers/engines/visual-db/) — on-device `enhance --ops separate` (pyannote) and `--ops segment` (GroundingDINO + SAM 2.1).
+- [`providers/senses/detect/detect.py`](../providers/senses/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
+- [`providers/senses/tinycloud/see.sh`](../providers/senses/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
+- [`providers/engines/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../providers/engines/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
+- [`providers/engines/audio-db/{audio_match,clap_match,voice_match}.py`](../providers/engines/audio-db/) — local Shazam-style fingerprint matching (audio-fp), LAION CLAP audio embeddings (basic-clap), and wespeaker speaker verification (voice-print) for audio DB indexes.
+- [`providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,wayback,overpass,firms,dispatch,flights,instagram,telegram,webcam,facesearch,yandeximg,dork,shodan,browser,username,person,phone,property,plate}.sh`](../providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch/yandeximg + the identity sources username/person/phone/property/plate) + web-search (Tavily/Brave) + Google dorking (Serper.dev) + Shodan host recon + Google Lens & Yandex reverse-image + GDELT TV broadcast-news + Wayback Machine archive recovery + Overpass OSM features + NASA FIRMS active-fire hotspots + Socrata calls-for-service dispatch + OpenSky ADS-B flights + Windy Webcams + headless-Chromium page render (`browser`, delegates to the screenshot engine) source providers.
+- [`providers/engines/screenshot/{screenshot.sh,render.mjs}`](../providers/engines/screenshot/) — the shared headless-Chromium page renderer (Playwright) behind the `screenshot` verb and the `browser` source.
+- [`providers/senses/{exif,verify}/`](../providers/senses/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
+- [`providers/senses/geocode/geocode.sh`](../providers/senses/geocode/geocode.sh) — opt-in OSM Nominatim reverse geocoder for `exif --geocode` (no key; never bound by default).
 
 ## Screenshot engine (`screenshot` verb + `browser` source)
 
 Browser screen capture renders what a page **looks like** — the rendered pixels,
 not the raw HTML a plain `capture`/`web` fetch stores. One shipped engine
-([`examples/providers/screenshot/`](../examples/providers/screenshot/)) backs two
+([`providers/engines/screenshot/`](../providers/engines/screenshot/)) backs two
 surfaces:
 
 - **`screenshot <url>` verb** — one-shot render → a `web.screenshot` PNG evidence
@@ -895,7 +895,7 @@ Each responds to `describe` offline:
 ./examples/providers/bash/watch.sh describe
 python3 examples/providers/python/listen.py describe
 node --import tsx examples/providers/ts/see.ts describe
-bash examples/providers/sources/tiktok.sh describe
+bash providers/sources/tiktok.sh describe
 ```
 
 ### Consume an MCP server as a source (prototype/example)

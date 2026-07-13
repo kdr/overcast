@@ -5,7 +5,7 @@ The classic serverless image-to-image endpoint is gone; enhancement models are
 served by providers like fal-ai/replicate. The huggingface_hub InferenceClient
 handles provider routing, LoRA adapters, and async polling — so this is a Python
 provider (deps: huggingface_hub, pillow). Image upscale/unblur is verified working
-via fal-ai. Opt-in: `overcast setup provider enhance "exec:python3 .../hf/enhance.py"`
+via fal-ai. Opt-in: `overcast setup provider enhance "exec:python3 examples/providers/python/enhance.py"`
 (the default `enhance` stays the internal ffmpeg toolkit).
 
 Contract: init | describe | run --input <file> [--prompt "<edit>"]

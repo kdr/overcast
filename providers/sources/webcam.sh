@@ -4,7 +4,7 @@
 # camera feeds for real-time location monitoring.
 # Bind with:  overcast source add webcam:48.8584,2.2945,25
 #             overcast source add webcam:country:FR
-#             OVERCAST_SOURCE_WEBCAM_CMD="bash examples/providers/sources/webcam.sh"
+#             OVERCAST_SOURCE_WEBCAM_CMD="bash providers/sources/webcam.sh"
 # Refs / queries:
 #   <lat>,<lng>[,<radiusKm>]  — cams near a point (radius default 25, the API max)
 #   country:<ISO2>            — cams in a country (e.g. country:FR)

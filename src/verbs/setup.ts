@@ -614,7 +614,7 @@ export const doctorVerb: VerbSpec = {
       ok: true, // opt-in — never gates
       detail: geocodeBound
         ? `bound (exif --geocode enabled)${geocodeCurl.code === 0 ? "" : "; curl missing (the default Nominatim provider needs it)"}`
-        : "optional/off — bind to enable `exif --geocode` (`setup provider geocode \"exec:bash examples/providers/geocode/geocode.sh --input {{input}}\"`)",
+        : "optional/off — bind to enable `exif --geocode` (`setup provider geocode \"exec:bash providers/senses/geocode/geocode.sh --input {{input}}\"`)",
     });
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # overcast `see` provider — fal.ai (direct, FAL_KEY). Florence-2 vision:
 # detailed caption by default, OCR with --ocr. Contract: init|describe|run.
-#   overcast setup provider see "exec:bash examples/providers/fal/see.sh {{input}}"
+#   overcast setup provider see "exec:bash providers/senses/fal/see.sh {{input}}"
 # Model: $FAL_SEE_MODEL (default fal-ai/florence-2-large).
 set -uo pipefail
 

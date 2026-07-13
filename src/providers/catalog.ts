@@ -1,5 +1,5 @@
 import type { ProviderDescriptor } from "../profile.js";
-import { shippedPath } from "../pkg.js";
+import { shippedPath, shippedProviderPath } from "../pkg.js";
 
 export interface ProviderChoice {
   id: string;
@@ -19,26 +19,27 @@ const exec = (run: string, init?: string, describe?: string): ProviderDescriptor
   describe,
 });
 
+/** Resolved path to a shipped provider script under providers/ (sources/senses/engines). */
 function sidecar(...parts: string[]): string {
-  return shippedPath(...parts) ?? parts.join("/");
+  return shippedProviderPath(...parts) ?? ["providers", ...parts].join("/");
 }
 
 export function providerChoices(): ProviderChoice[] {
-  const hfSee = sidecar("examples", "providers", "hf", "see.sh");
-  const hfEnhance = sidecar("examples", "providers", "hf", "enhance.sh");
-  const falSee = sidecar("examples", "providers", "fal", "see.sh");
-  const tcSee = sidecar("examples", "providers", "tinycloud", "see.sh");
-  const falEnhance = sidecar("examples", "providers", "fal", "enhance.sh");
-  const falReconstruct = sidecar("examples", "providers", "fal", "reconstruct.sh");
-  const elListen = sidecar("examples", "providers", "elevenlabs", "listen.sh");
-  const elEnhance = sidecar("examples", "providers", "elevenlabs", "enhance.sh");
-  const detect = sidecar("examples", "providers", "detect", "detect.py");
+  const hfSee = sidecar("senses", "hf", "see.sh");
+  const hfEnhance = sidecar("senses", "hf", "enhance.sh");
+  const falSee = sidecar("senses", "fal", "see.sh");
+  const tcSee = sidecar("senses", "tinycloud", "see.sh");
+  const falEnhance = sidecar("senses", "fal", "enhance.sh");
+  const falReconstruct = sidecar("senses", "fal", "reconstruct.sh");
+  const elListen = sidecar("senses", "elevenlabs", "listen.sh");
+  const elEnhance = sidecar("senses", "elevenlabs", "enhance.sh");
+  const detect = sidecar("senses", "detect", "detect.py");
   // The OWLv2 detector needs the uv venv python (torch/transformers), not system
   // python3. Honor $DETECT_PY (printed by `scripts/visual-db-uv.sh --detect`) if
   // it's exported when the binding is applied; the resolved command is persisted.
   const detectPy = process.env.DETECT_PY || "python3";
-  const localEnhance = sidecar("examples", "providers", "local", "enhance.sh");
-  const localVisionSetup = sidecar("scripts", "visual-db-uv.sh");
+  const localEnhance = sidecar("senses", "local", "enhance.sh");
+  const localVisionSetup = shippedPath("scripts", "visual-db-uv.sh") ?? "scripts/visual-db-uv.sh";
   return [
     {
       id: "tinycloud",

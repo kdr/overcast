@@ -2934,7 +2934,7 @@ overcast exif ./suspect.jpg --json         # editing software, capture time, dev
 \`\`\`bash
 # --ops ela needs a bound enhance provider (once per profile). The shipped
 # standalone script needs only pillow + numpy — no fal key:
-overcast setup provider enhance "exec:python3 examples/providers/enhance/ela.py"
+overcast setup provider enhance "exec:python3 providers/senses/enhance/ela.py"
 overcast enhance ./suspect.jpg --ops ela --json   # ELA/noise/luminance overlays (or a bound local-models / fal provider)
 overcast view <ela-record-id> --json              # eyeball the overlays — inconsistent regions are the lead
 \`\`\`

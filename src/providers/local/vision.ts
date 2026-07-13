@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { runExecProvider } from "../run.js";
 import { providerEnv } from "../provider-env.js";
-import { shippedPath } from "../../pkg.js";
+import { shippedPath, shippedProviderPath } from "../../pkg.js";
 import type { Case } from "../../case.js";
 
 export type LocalFaceOp = "detect" | "match" | "search";
@@ -12,7 +12,7 @@ export type LocalClusterOp = "ingest" | "identify" | "recluster" | "list" | "sho
 export type LocalClipOp = "add" | "match" | "search";
 
 function script(name: string): string | undefined {
-  return shippedPath("examples", "providers", "visual-db", name);
+  return shippedProviderPath("engines", "visual-db", name);
 }
 
 export function localIndexDir(c: Case, indexId: string): string {
@@ -74,7 +74,7 @@ function missingScript(verb: string, input: string, name: string): OvercastRecor
     format: "json",
     payload: { input },
     media: { ref: input },
-    error: `visual DB provider script not found: examples/providers/visual-db/${name}`,
+    error: `visual DB provider script not found: providers/engines/visual-db/${name}`,
     state: "error",
   });
 }
@@ -181,7 +181,7 @@ export async function runLocalFace(
   return rec;
 }
 
-/** Run the local face-CLUSTER provider (examples/providers/visual-db/face_cluster.py).
+/** Run the local face-CLUSTER provider (providers/engines/visual-db/face_cluster.py).
  *  A face-cluster index is a persistent local face DB (embeddings + provenance +
  *  cluster assignments) under `.overcast/index/<id>/`. ingest/identify embed new
  *  media (deepface); recluster/list/show/label only read the store, so they run
@@ -234,7 +234,7 @@ export async function runLocalCluster(
 /**
  * Local CLIP semantic DB (`basic-clip`): embed + cache images/videos and query by
  * image (`match`) or text (`search`). Mirrors runLocalImage/runLocalFace — shells
- * out to examples/providers/visual-db/clip_match.py through the uv-managed Python.
+ * out to providers/engines/visual-db/clip_match.py through the uv-managed Python.
  * For `search`, `input` is the text query (Python treats the trailing positional
  * as text when --op search, as a media path otherwise).
  */

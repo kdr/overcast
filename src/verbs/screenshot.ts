@@ -1,11 +1,11 @@
 // Browser screen capture: render a web page (or a local .html export) to a PNG
 // evidence record via headless Chromium. The default backend is the shipped
-// Playwright engine (examples/providers/screenshot/) — the same engine behind
+// Playwright engine (providers/engines/screenshot/) — the same engine behind
 // the `browser:` source — resolved like every shipped provider and one binding
 // away from a custom renderer (invariant #6). Unlike the forensic senses, the
 // input URL passes through UNFETCHED: the browser is the fetcher here, so
 // there is no fetchMediaToCase step (and the engine re-implements its SSRF
-// guard — see examples/providers/screenshot/render.mjs).
+// guard — see providers/engines/screenshot/render.mjs).
 
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
@@ -14,7 +14,7 @@ import { isCustomBinding, runBoundProvider, runExecProvider } from "../providers
 import { providerBinding } from "../providers/bindings.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { isHttpUrl } from "../media/fetch.js";
-import { shippedPath } from "../pkg.js";
+import { shippedProviderPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 /** render budget: chromium launch + nav (≤30s) + settle wait (≤15s) + slack */
@@ -63,7 +63,7 @@ async function runScreenshot(ctx: VerbContext): Promise<OvercastRecord[]> {
   if (isCustomBinding(binding)) {
     rec = await runBoundProvider("screenshot", binding!, input, opts);
   } else {
-    const script = shippedPath("examples", "providers", "screenshot", "screenshot.sh");
+    const script = shippedProviderPath("engines", "screenshot", "screenshot.sh");
     if (!script) return [errorRecord("the screenshot provider script isn't available in this build")];
     // explicit --input placement so the target is never argv[1] (matches the
     // exif/see exec templates).

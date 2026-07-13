@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # overcast source provider: tiktok (Apify clockworks/tiktok-scraper).
 # Bind with:  overcast source add tiktok:@user
-#             OVERCAST_SOURCE_TIKTOK_CMD="bash examples/providers/sources/tiktok.sh"
+#             OVERCAST_SOURCE_TIKTOK_CMD="bash providers/sources/tiktok.sh"
 # Implements: enumerate --query <user|#tag> [--limit N]  |  fetch --url <u> --out <p>
 set -euo pipefail
 op="${1:-enumerate}"; shift || true

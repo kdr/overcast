@@ -24,7 +24,7 @@ import { renderClusterGallery } from "../../src/report/html.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CLUSTER_PY = join(HERE, "..", "..", "examples", "providers", "visual-db", "face_cluster.py");
+const CLUSTER_PY = join(HERE, "..", "..", "providers", "engines", "visual-db", "face_cluster.py");
 
 // a "python" stub: argv[1] is the real script path (ignored); it parses the
 // flags face_cluster.py would get and echoes them back inside a cluster record.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 8 e2e (offline, NO API calls): the example providers' `describe` contract
+# Phase 8 e2e (offline, NO API calls): the shipped providers' `describe` contract
 # + profile resolution. `describe`/`init`-less smoke needs no keys, so this runs
 # in the default suite. Real provider calls live in the gated live workflows.
 set -uo pipefail
@@ -8,7 +8,8 @@ REPO="$(cd "$DIR/../.." && pwd)"
 # shellcheck source=../lib.sh
 source "$DIR/lib.sh"
 
-P="$REPO/examples/providers"
+P="$REPO/providers"            # shipped providers (sources/senses/engines)
+EX="$REPO/examples/providers"  # authoring demos
 
 # every shipped provider script answers `describe` with valid JSON (no key)
 describe_ok() { # <label> <cmd...>
@@ -16,14 +17,14 @@ describe_ok() { # <label> <cmd...>
   local out; out="$("$@" describe 2>/dev/null)"
   if jq -e . >/dev/null 2>&1 <<<"$out"; then ok "$label" "describe -> valid JSON"; else fail "$label" "bad describe: $out"; fi
 }
-describe_ok "describe.hf_see"      bash "$P/hf/see.sh"
-describe_ok "describe.hf_enhance"  python3 "$P/hf/enhance.py"
-describe_ok "describe.fal_see"     bash "$P/fal/see.sh"
-describe_ok "describe.fal_enhance" bash "$P/fal/enhance.sh"
-describe_ok "describe.fal_reconstruct" bash "$P/fal/reconstruct.sh"
-describe_ok "describe.tinycloud_see" bash "$P/tinycloud/see.sh"
-describe_ok "describe.el_listen"   bash "$P/elevenlabs/listen.sh"
-describe_ok "describe.el_enhance"  bash "$P/elevenlabs/enhance.sh"
+describe_ok "describe.hf_see"      bash "$P/senses/hf/see.sh"
+describe_ok "describe.hf_enhance"  python3 "$EX/python/enhance.py"
+describe_ok "describe.fal_see"     bash "$P/senses/fal/see.sh"
+describe_ok "describe.fal_enhance" bash "$P/senses/fal/enhance.sh"
+describe_ok "describe.fal_reconstruct" bash "$P/senses/fal/reconstruct.sh"
+describe_ok "describe.tinycloud_see" bash "$P/senses/tinycloud/see.sh"
+describe_ok "describe.el_listen"   bash "$P/senses/elevenlabs/listen.sh"
+describe_ok "describe.el_enhance"  bash "$P/senses/elevenlabs/enhance.sh"
 describe_ok "describe.web"        bash "$P/sources/web.sh"
 describe_ok "describe.youtube"     bash "$P/sources/youtube.sh"
 describe_ok "describe.tiktok"      bash "$P/sources/tiktok.sh"

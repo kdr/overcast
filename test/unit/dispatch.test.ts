@@ -7,7 +7,7 @@
 //      provider, so a CLI-valid ISO datetime becomes a form dispatch.sh's parser
 //      accepts (rather than tripping its fail-closed error).
 // The ref→domain/dataset tokenization itself lives in the shell script
-// (examples/providers/sources/dispatch.sh) and is exercised end-to-end by the live
+// (providers/sources/dispatch.sh) and is exercised end-to-end by the live
 // 20_sources dispatch block; here we cover the TS seams the source crosses:
 // the built-in descriptor, the normalizeSince rewrite, and the enumerate→record
 // mapping boundary (media.ref stability + top-level gps).

@@ -351,7 +351,7 @@ test("index remove drops the cached voice embedding (shared emb/ layout)", async
 // ---- Python provider source invariants (cheap, offline) ---------------------
 
 test("voice_match.py: caveat, anchored scoring, read-only queries, deps hint", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "audio-db", "voice_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "audio-db", "voice_match.py"), "utf8");
   // every match/search payload carries the not-liveness caveat
   assert.match(src, /CAVEAT = \("speaker similarity is not liveness/);
   assert.match(src, /payload\["caveat"\] = CAVEAT/);
@@ -366,7 +366,7 @@ test("voice_match.py: caveat, anchored scoring, read-only queries, deps hint", (
 });
 
 test("voice_match.py: diarize tier is gated + falls back, and handles pyannote API drift", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "audio-db", "voice_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "audio-db", "voice_match.py"), "utf8");
   // no token → windowed fallback with a warning (record stays ready)
   assert.match(src, /diarization skipped: HF_TOKEN \+ accepted license required/);
   // token present but unaccepted license → needs_credentials

@@ -11,7 +11,7 @@ C=screenshot
 
 have_cmd node || { skip "$C" "no node on PATH (the screenshot engine runs under system node)"; exit 0; }
 # playwright resolvable + Chromium payload present?
-if ! (cd "$PWD/examples/providers/screenshot" && node -e '
+if ! (cd "$PWD/providers/engines/screenshot" && node -e '
   const { existsSync } = await import("node:fs");
   const { chromium } = await import("playwright");
   const p = chromium.executablePath();
@@ -22,7 +22,7 @@ if ! (cd "$PWD/examples/providers/screenshot" && node -e '
 fi
 
 CASE=$(case_dir screenshot)
-SHOT_SH="$PWD/examples/providers/screenshot/screenshot.sh"
+SHOT_SH="$PWD/providers/engines/screenshot/screenshot.sh"
 ocrun "$CASE" setup provider screenshot "exec:bash $SHOT_SH run --input {{input}} --json" >/dev/null 2>&1
 
 URL="${OC_SCREENSHOT_URL:-https://example.com}"
@@ -131,7 +131,7 @@ fi
 # --- 5) browser: source — scan --pull renders + captures a page image ---
 cond "browser source scan --pull renders the page into an image capture"
 SCASE=$(case_dir browser_src)
-export OVERCAST_SOURCE_BROWSER_CMD="bash $PWD/examples/providers/sources/browser.sh"
+export OVERCAST_SOURCE_BROWSER_CMD="bash $PWD/providers/sources/browser.sh"
 ocrun "$SCASE" source add "browser:$URL" >/dev/null 2>&1
 scan="$(OC_TIMEOUT=150 ocrun "$SCASE" scan --pull --json 2>/dev/null)"
 save_json "38_browser_scan" "$scan" >/dev/null

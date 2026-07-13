@@ -36,7 +36,7 @@ fi
 #     auto-resolve the shipped examples/ from its virtual FS) ---
 if require_cred "$C.hf" HF_TOKEN "skipping"; then
   CASE=$(case_dir see_hf)
-  HS="$PWD/examples/providers/hf/see.sh"
+  HS="$PWD/providers/senses/hf/see.sh"
   ocrun "$CASE" setup provider see "exec:bash $HS {{input}}" --json >/dev/null 2>&1
   cond "see (bound HF vision-LLM) captions a real frame → ready record with a caption"
   out="$(OC_TIMEOUT=180 oc "$CASE" see "$FRAME" --json)"
@@ -49,7 +49,7 @@ fi
 # --- fal florence-2 (bound), caption + OCR ---
 if require_cred "$C.fal" FAL_KEY "skipping"; then
   CASE=$(case_dir see_fal)
-  FS="$PWD/examples/providers/fal/see.sh"
+  FS="$PWD/providers/senses/fal/see.sh"
   ocrun "$CASE" setup provider see "exec:bash $FS {{input}}" --json >/dev/null 2>&1
   cond "see (bound fal florence-2) captions a real frame → ready record"
   out="$(OC_TIMEOUT=180 oc "$CASE" see "$FRAME" --json)"
@@ -63,7 +63,7 @@ if require_cred "$C.tinycloud" CLOUDGLUE_API_KEY "skipping"; then
   read -r -a TCV <<<"${OVERCAST_TINYCLOUD_CMD:-tinycloud}"
   if "${TCV[@]}" --version 2>/dev/null | tail -n 1 | jq -e '(.features // []) | index("see.v1")' >/dev/null 2>&1; then
     CASE=$(case_dir see_tinycloud)
-    TS="$PWD/examples/providers/tinycloud/see.sh"
+    TS="$PWD/providers/senses/tinycloud/see.sh"
     ocrun "$CASE" setup provider see "exec:bash $TS --input {{input}}" --json >/dev/null 2>&1
     cond "see (bound tinycloud see) describes a real image with on-screen text → ready record"
     out="$(OC_TIMEOUT=300 oc "$CASE" see "$FRAME" --ocr --json)"
@@ -107,7 +107,7 @@ if [ -z "$DETECT_PY" ]; then
 fi
 if [ -n "$DETECT_PY" ]; then
   CASE=$(case_dir see_detect)
-  DET="$PWD/examples/providers/detect/detect.py"
+  DET="$PWD/providers/senses/detect/detect.py"
   ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
   cond "see --detect (bound local OWLv2) returns open-vocab bounding boxes on a real frame"
   out="$(OC_TIMEOUT=300 oc "$CASE" see "$FRAME" --detect "person, hard hat, helmet" --json)"

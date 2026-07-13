@@ -4,11 +4,11 @@
 # CURRENT state of the page to a PNG, so `monitor` becomes a page-watch:
 # every pass re-captures the live render (webcam-style ephemeral hits).
 # Bind with:  overcast source add browser:https://example.com/status
-#             OVERCAST_SOURCE_BROWSER_CMD="bash examples/providers/sources/browser.sh"
+#             OVERCAST_SOURCE_BROWSER_CMD="bash providers/sources/browser.sh"
 # Refs / queries:
 #   <url>  — the page to render (https:// assumed when no scheme is given)
 # Needs: node + the playwright optional dep + Chromium payload — see
-# examples/providers/screenshot/screenshot.sh (missing deps exit 13). No API
+# providers/engines/screenshot/screenshot.sh (missing deps exit 13). No API
 # key. Private/loopback targets are refused by default
 # (OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow). One-shot captures are the
 # `screenshot` verb's job; this source is the standing scan/monitor surface.
@@ -16,7 +16,7 @@
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-engine="$here/../screenshot/screenshot.sh"
+engine="$here/../engines/screenshot/screenshot.sh"
 
 op="${1:-enumerate}"; shift || true
 

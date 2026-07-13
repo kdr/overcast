@@ -4,14 +4,14 @@
 #   --ops separate   pyannote diarization -> per-speaker tracks  (enhance_voice.py)
 #   --ops segment    GroundingDINO + SAM 2.1 text-prompted masks (enhance_segment.py)
 # The default `enhance` stays the internal ffmpeg toolkit; bind to opt in:
-#   overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
+#   overcast setup provider enhance "exec:bash providers/senses/local/enhance.sh {{input}}"
 # Set up the env with:  scripts/visual-db-uv.sh --enhance   (or --voice / --segment)
 # Voice separation additionally needs HF_TOKEN + accepted pyannote license.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-VDB="$HERE/../visual-db"
+VDB="$HERE/../../engines/visual-db"
 
 resolve_py() {
   if [ -n "${OVERCAST_VISUAL_DB_PY:-}" ]; then echo "$OVERCAST_VISUAL_DB_PY"; return; fi

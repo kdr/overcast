@@ -5,7 +5,7 @@
 # volume, point OVERCAST_GEOCODE_URL at your own Nominatim/Photon endpoint.
 #
 # NEVER bound by default: it egresses the subject's coordinates to a third party.
-# Bind it explicitly (`setup provider geocode "exec:bash examples/providers/geocode/geocode.sh --input {{input}}"`)
+# Bind it explicitly (`setup provider geocode "exec:bash providers/senses/geocode/geocode.sh --input {{input}}"`)
 # and opt in per call with `exif --geocode`.
 #
 # Contract: init | describe | run --input "<lat>,<lng>"

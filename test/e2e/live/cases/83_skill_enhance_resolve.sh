@@ -56,7 +56,7 @@ fi
 cropped_ok=0   # set to 1 only when the detector cropped a real region
 if [ -n "${DETECT_PY:-}" ] && [ -n "${ENH_ID:-}" ]; then
   cond "enhance skill: see --detect on the enhanced frame, then crop the resolved region"
-  DET="$PWD/examples/providers/detect/detect.py"
+  DET="$PWD/providers/senses/detect/detect.py"
   ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
   det="$(OC_TIMEOUT=240 oc "$CASE" see "frame://$ENH_ID@2" --detect "license plate, text, sign" --json)"
   save_json "83_detect" "$det" >/dev/null
@@ -111,7 +111,7 @@ fi
 if require_cred "$C.fal" FAL_KEY "AI-restoration caveat leg needs fal"; then
   cond "enhance skill caveat: a bound fal esrgan provider does real restoration (not interpolation)"
   FRAME="$SMOKE_DIR/enhance_frame.jpg"; frame_jpg "$CLIP" 1 "$FRAME"
-  FE="$PWD/examples/providers/fal/enhance.sh"
+  FE="$PWD/providers/senses/fal/enhance.sh"
   ocrun "$CASE" setup provider enhance "exec:bash $FE {{input}}" --json >/dev/null 2>&1
   fo="$(OC_TIMEOUT=240 oc "$CASE" enhance "$FRAME" --json)"
   st="$(echo "$fo" | jq -r '.state')"

@@ -28,7 +28,7 @@ if [ -f "$vpath" ] && grep -q "<video" "$vpath"; then ok "$C.view.html" "HTML pl
 # --- fal esrgan enhance (bound) on a real frame ---
 if require_cred "$C.fal" FAL_KEY "skipping"; then
   FRAME="$SMOKE_DIR/enh_frame.jpg"; frame_jpg "$CLIP" 1 "$FRAME"
-  FE="$PWD/examples/providers/fal/enhance.sh"
+  FE="$PWD/providers/senses/fal/enhance.sh"
   ocrun "$CASE" setup provider enhance "exec:bash $FE {{input}}" --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=240 oc "$CASE" enhance "$FRAME" --json)"
   save_json "13_enhance_fal" "$out" >/dev/null

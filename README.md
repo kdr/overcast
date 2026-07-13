@@ -198,7 +198,7 @@ overcast crop <face-record-id> --all --class face --json # write cropped face im
 
 # 6) objects: bind the OWLv2 detector, find boxes, and crop them
 scripts/visual-db-uv.sh --detect     # uv-installs torch + transformers + scipy (sets DETECT_PY)
-overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"
+overcast setup provider see "exec:$DETECT_PY providers/senses/detect/detect.py"
 overcast see ./clip.mp4 --detect "person, car, license plate" --json
 overcast crop <see-record-id> --all --class person --json
 
@@ -470,15 +470,16 @@ overcast binds verbs to backends through **providers** over one wire contract
 a verb with **no code changes**:
 
 ```bash
-overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input}}"
-overcast setup provider listen  "exec:bash examples/providers/elevenlabs/listen.sh {{input}}"
+overcast setup provider see     "exec:bash providers/senses/fal/see.sh {{input}}"
+overcast setup provider listen  "exec:bash providers/senses/elevenlabs/listen.sh {{input}}"
 overcast setup memory qmd       # optional local semantic case search
 overcast case memory index rebuild --memory qmd --json
 overcast ask "where did we see the white van?" --deep --json
 ```
 
-Shipped, runnable samples live in [`examples/providers/`](examples/providers);
-authoring guide in [`docs/providers.md`](docs/providers.md).
+Shipped provider scripts live in [`providers/`](providers) (sources / senses /
+engines); the authoring demos stay in [`examples/providers/`](examples/providers),
+with the guide in [`docs/providers.md`](docs/providers.md).
 
 Provider setup has two levels:
 
@@ -620,7 +621,7 @@ into it, then select it per command (or for the whole session):
 
 ```bash
 # build / extend a profile named "fal"
-overcast setup provider see  "exec:bash examples/providers/fal/see.sh {{input}}" --profile fal
+overcast setup provider see  "exec:bash providers/senses/fal/see.sh {{input}}" --profile fal
 overcast setup provider watch "exec:bash examples/providers/bash/watch.sh {{input}}" --profile fal
 overcast setup llm anthropic claude-sonnet-4-6                                   --profile fal
 

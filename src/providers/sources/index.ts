@@ -14,12 +14,12 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, st
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
-import { shippedPath } from "../../pkg.js";
+import { shippedProviderPath } from "../../pkg.js";
 
 /** Path to a shipped source-provider script — resolves the package root (dev) or
- *  beside the executable (bun binary) via the shared shippedPath(). */
+ *  beside the executable (bun binary) via the shared shippedProviderPath(). */
 function shippedSource(file: string): string | undefined {
-  return shippedPath("examples", "providers", "sources", file);
+  return shippedProviderPath("sources", file);
 }
 
 export interface SourceDescriptor {

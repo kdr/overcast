@@ -424,7 +424,7 @@ test("index remove drops the cached fingerprint / embedding", async () => {
 // ---- Python provider source invariants (cheap, offline) --------------------
 
 test("audio_match.py anchors media on the query and never persists at query time", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "audio-db", "audio_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "audio-db", "audio_match.py"), "utf8");
   // media anchors the QUERY input (member offsets live in matches[])
   assert.match(src, /"media": \{"ref": args\.input\}/);
   // query-time member rebuilds must not write the cache
@@ -434,7 +434,7 @@ test("audio_match.py anchors media on the query and never persists at query time
 });
 
 test("audio_match.py gates confirmation on margin and warns on a 0-hash (silent) add", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "audio-db", "audio_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "audio-db", "audio_match.py"), "utf8");
   // the confirm criterion must include the margin gate (rejects speed-drift
   // partial alignments the raw vote floor would otherwise confirm)…
   assert.match(src, /aligned_votes >= min_votes and match_ratio >= min_ratio and margin >= min_margin/);
@@ -444,7 +444,7 @@ test("audio_match.py gates confirmation on margin and warns on a 0-hash (silent)
 });
 
 test("audio_match.py --draw renders a dependency-free SVG under audio-matches/", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "audio-db", "audio_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "audio-db", "audio_match.py"), "utf8");
   // the alignment visualization is hand-rolled SVG (no matplotlib dep) written to
   // the case media store, surfaced to the record as match_draw_path
   assert.match(src, /def render_match_svg\(/);
@@ -454,14 +454,14 @@ test("audio_match.py --draw renders a dependency-free SVG under audio-matches/",
 });
 
 test("clap_match.py uses the basic-clip emb/ cache layout and clap deps hint", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "audio-db", "clap_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "audio-db", "clap_match.py"), "utf8");
   assert.match(src, /emb_dir = Path\(index_dir\) \/ "emb"/);
   assert.match(src, /"%s\.npy" % key/);
   assert.match(src, /run scripts\/visual-db-uv\.sh --clap/);
 });
 
 test("clap_match.py handles the transformers v4↔v5 CLAP API differences", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "audio-db", "clap_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "audio-db", "clap_match.py"), "utf8");
   // v5 renamed the processor kwarg audios→audio (fall back for pinned v4)…
   assert.match(src, /processor\(audio=batch/);
   assert.match(src, /processor\(audios=batch/);

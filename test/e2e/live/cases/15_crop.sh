@@ -57,7 +57,7 @@ if [ -z "$DETECT_PY" ]; then
 fi
 if [ -n "$DETECT_PY" ]; then
   CASE=$(case_dir crop_object)
-  DET="$PWD/examples/providers/detect/detect.py"
+  DET="$PWD/providers/senses/detect/detect.py"
   ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
   if have_media "$VIDEO_OBJECTS"; then
     OBJ_INPUT="$VIDEO_OBJECTS"

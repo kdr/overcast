@@ -12,7 +12,7 @@
 # overlay by the enhance verb (parent + 3 children, each a viewable image).
 #
 # Bind, then run:
-#   overcast setup provider enhance "exec:python3 examples/providers/enhance/ela.py"
+#   overcast setup provider enhance "exec:python3 providers/senses/enhance/ela.py"
 #   overcast enhance suspect.jpg --ops ela
 #   overcast view <parent-id>            # gallery of the three overlays
 #

@@ -2,7 +2,7 @@
 # overcast `listen` provider — ElevenLabs Speech-to-Text (Scribe). Emits an
 # audio.analysis record: transcript, word-level segments[] with media.at anchors,
 # detected language. Bind:
-#   overcast setup provider listen "exec:bash examples/providers/elevenlabs/listen.sh {{input}}"
+#   overcast setup provider listen "exec:bash providers/senses/elevenlabs/listen.sh {{input}}"
 # Model: $ELEVENLABS_STT_MODEL (default scribe_v1).
 set -uo pipefail
 

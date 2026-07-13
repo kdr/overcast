@@ -43,7 +43,7 @@ if [ -n "${REC:-}" ] && [ -f "$REC" ]; then
 
   # speaker separation is a diarize-capable-provider variation (ElevenLabs)
   if require_cred "$C.diarize" ELEVENLABS_API_KEY "the --diarize variation needs ElevenLabs"; then
-    EL="$PWD/examples/providers/elevenlabs/listen.sh"
+    EL="$PWD/providers/senses/elevenlabs/listen.sh"
     ocrun "$CASE" setup provider listen "exec:bash $EL {{input}}" --json >/dev/null 2>&1
     lz="$(OC_TIMEOUT=240 oc "$CASE" listen "$REC" --diarize --json)"; save_json "90_listen_diarize" "$lz" >/dev/null
     nsp="$(echo "$lz" | jq -r '[.payload.segments[]?.speaker | select(. != null)] | unique | length')"
@@ -70,7 +70,7 @@ if [ -n "$FRAME" ] && [ -f "$FRAME" ]; then
   # a completely different payload shape from the free-text --ocr/--prompt. Bind the
   # detector LAST so it doesn't affect the brain-see calls above.
   if [ -n "${DETECT_PY:-}" ]; then
-    DET="$PWD/examples/providers/detect/detect.py"
+    DET="$PWD/providers/senses/detect/detect.py"
     ocrun "$CASE" setup provider see "exec:$DETECT_PY $DET" --json >/dev/null 2>&1
     sd="$(OC_TIMEOUT=300 oc "$CASE" see "$FRAME" --detect "person, helmet, safety vest, truck" --json)"; save_json "90_see_detect" "$sd" >/dev/null
     sdstate="$(echo "$sd" | jq -r '.state')"; nd="$(echo "$sd" | jq -r '.payload.detections | length')"

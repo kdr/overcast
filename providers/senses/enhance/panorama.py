@@ -7,7 +7,7 @@
 # Emits ONE record whose payload.outputs[] is fanned out by the enhance verb.
 #
 # Bind, then run:
-#   overcast setup provider enhance "exec:python3 examples/providers/enhance/panorama.py"
+#   overcast setup provider enhance "exec:python3 providers/senses/enhance/panorama.py"
 #   overcast enhance pan_shot.mp4 --ops panorama
 #   overcast view <parent-id>            # the stitched wide still
 #
