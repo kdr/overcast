@@ -28,13 +28,33 @@ test("owl-local detector honors $DETECT_PY (venv python), else falls back to pyt
   const saved = process.env.DETECT_PY;
   try {
     delete process.env.DETECT_PY;
-    assert.match(owlLocalRun(), /^python3 .*detect\.py$/, "no DETECT_PY → python3");
+    assert.match(owlLocalRun(), /^python3 .*detect\.py --input \{\{input\}\}$/, "no DETECT_PY → python3");
 
     process.env.DETECT_PY = "/venv/bin/python";
     const run = owlLocalRun();
     assert.ok(run.startsWith("/venv/bin/python "), `DETECT_PY should win, got: ${run}`);
-    // the interpreter is persisted as given; the script travels as a shipped: ref
-    assert.match(run, /shipped:providers\/senses\/detect\/detect\.py$/);
+    // the interpreter is persisted as given; the script travels as a shipped: ref,
+    // with explicit --input like the other sense providers
+    assert.match(run, /shipped:providers\/senses\/detect\/detect\.py --input \{\{input\}\}$/);
+  } finally {
+    if (saved === undefined) delete process.env.DETECT_PY;
+    else process.env.DETECT_PY = saved;
+  }
+});
+
+test("every catalog run template places {{input}} explicitly — media is never a bare positional (Bugbot #104 footgun)", () => {
+  // The shipped scripts dispatch describe/init/run off the FIRST token, so a media
+  // path appended as a bare positional could be misread as a subcommand. Requiring
+  // an explicit {{input}} placeholder in every run template forecloses the whole
+  // class (this is why ela/panorama/owl-local were fixed).
+  const saved = process.env.DETECT_PY;
+  try {
+    delete process.env.DETECT_PY;
+    for (const choice of providerChoices()) {
+      const run = choice.descriptor?.run;
+      if (!run) continue; // inproc/local-DB + clearsBinding (ffmpeg/playwright) have no run
+      assert.ok(run.includes("{{input}}"), `${choice.verb}:${choice.id} run must place {{input}} explicitly: ${run}`);
+    }
   } finally {
     if (saved === undefined) delete process.env.DETECT_PY;
     else process.env.DETECT_PY = saved;

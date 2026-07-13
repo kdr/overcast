@@ -277,7 +277,11 @@ export function providerChoices(): ProviderChoice[] {
       verb: "see",
       label: "OWLv2 open-vocabulary detection",
       summary: "Local OWLv2/Grounding DINO object detection provider.",
-      descriptor: exec(`${detectPy} ${detect}`, `${detectPy} ${detect} init`, `${detectPy} ${detect} describe`),
+      // explicit --input (like every other script sense provider) so the media
+      // path is never argv[0] — detect.py dispatches its subcommand off the first
+      // token, so a file basename of describe/init/run would otherwise misfire
+      // (contract: [run] --input <ref> --detect "a,b").
+      descriptor: exec(`${detectPy} ${detect} --input {{input}}`, `${detectPy} ${detect} init`, `${detectPy} ${detect} describe`),
       env: ["DETECT_MODEL"],
       indexableDefault: true,
     },
