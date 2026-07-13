@@ -15,6 +15,7 @@ import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
 import { shippedProviderPath } from "../../pkg.js";
+import { resolveShippedArgv, ShippedRefError } from "../shipped-ref.js";
 
 /** Path to a shipped source-provider script — resolves the package root (dev) or
  *  beside the executable (bun binary) via the shared shippedProviderPath(). */
@@ -330,7 +331,18 @@ export async function enumerateSource(
   desc: SourceDescriptor,
   opts: EnumerateOpts,
 ): Promise<OvercastRecord[]> {
-  const [cmd, ...lead] = desc.base;
+  // resolve any `shipped:` tokens in the base argv at spawn time — an
+  // OVERCAST_SOURCE_*_CMD override (or a healed source path) can carry the same
+  // portable ref the sense providers use (plan 07 Stage B). Builtins pre-resolve
+  // via shippedProviderPath, so this is a no-op for them.
+  let base: string[];
+  try {
+    base = resolveShippedArgv(desc.base);
+  } catch (e) {
+    if (!(e instanceof ShippedRefError)) throw e;
+    return [makeRecord({ verb: "scan", format: "json", payload: { source: desc.type }, error: e.message, state: "error" })];
+  }
+  const [cmd, ...lead] = base;
   const args = [...lead, "enumerate"];
   const q = opts.query ?? opts.ref ?? "";
   if (q) args.push("--query", q);
@@ -433,7 +445,15 @@ export async function fetchSource(
   desc: SourceDescriptor,
   opts: FetchOpts,
 ): Promise<OvercastRecord> {
-  const [cmd, ...lead] = desc.base;
+  // resolve any `shipped:` tokens in the base argv (see enumerateSource).
+  let base: string[];
+  try {
+    base = resolveShippedArgv(desc.base);
+  } catch (e) {
+    if (!(e instanceof ShippedRefError)) throw e;
+    return makeRecord({ verb: "capture", format: "json", payload: { url: opts.url, source: desc.type }, error: e.message, state: "error" });
+  }
+  const [cmd, ...lead] = base;
   const args = [...lead, "fetch", "--url", opts.url, "--out", opts.out];
   const res = await execCapture(cmd, args, {
     env: opts.env,

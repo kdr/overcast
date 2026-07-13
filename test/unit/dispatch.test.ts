@@ -41,6 +41,27 @@ test("builtinDescriptor resolves the shipped dispatch source (keyless, default b
   assert.notEqual(d!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
 });
 
+test("enumerateSource resolves shipped: refs in the base argv (Bugbot #104: sources skip ref resolution)", async () => {
+  // an UNRESOLVABLE shipped: ref → a clean error record, not an uncaught throw
+  const missing = await enumerateSource(
+    { type: "web", base: ["bash", "shipped:providers/sources/nope-missing.sh"] },
+    { query: "x" },
+  );
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].state, "error");
+  assert.match(missing[0].error ?? "", /lacks the shipped provider files/);
+
+  // a RESOLVABLE ref is rewritten to an absolute path BEFORE spawn: `true` ignores
+  // its args and exits 0, so we get the no-JSON "unexpected response" error — NOT
+  // the shipped-ref error — proving the token resolved instead of running literally.
+  const resolved = await enumerateSource(
+    { type: "web", base: ["true", "shipped:providers/sources/dispatch.sh"] },
+    { query: "x" },
+  );
+  assert.equal(resolved.length, 1);
+  assert.doesNotMatch(resolved[0].error ?? "", /lacks the shipped provider files/);
+});
+
 test("builtinDescriptor: OVERCAST_SOURCE_DISPATCH_CMD rebinds the command, keeps type semantics", () => {
   process.env.OVERCAST_SOURCE_DISPATCH_CMD = 'bash "/x y/dispatch.sh"';
   try {
