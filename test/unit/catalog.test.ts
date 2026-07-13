@@ -28,7 +28,54 @@ test("owl-local detector honors $DETECT_PY (venv python), else falls back to pyt
     process.env.DETECT_PY = "/venv/bin/python";
     const run = owlLocalRun();
     assert.ok(run.startsWith("/venv/bin/python "), `DETECT_PY should win, got: ${run}`);
-    assert.match(run, /detect\.py$/); // the script path is resolved via shippedPath (absolute where installed)
+    // the interpreter is persisted as given; the script travels as a shipped: ref
+    assert.match(run, /shipped:providers\/senses\/detect\/detect\.py$/);
+  } finally {
+    if (saved === undefined) delete process.env.DETECT_PY;
+    else process.env.DETECT_PY = saved;
+  }
+});
+
+test("ela / panorama / nominatim are catalog choices with shipped: ref descriptors", () => {
+  const ela = findProviderChoice("enhance", "ela");
+  assert.ok(ela, "ela choice exists");
+  assert.equal(ela!.descriptor?.run, "python3 shipped:providers/senses/enhance/ela.py");
+  assert.equal(ela!.descriptor?.describe, "python3 shipped:providers/senses/enhance/ela.py describe");
+  assert.equal(ela!.indexableDefault, true, "matches fal enhance");
+  assert.ok(!ela!.descriptor!.run!.includes("{{input}}"), "no {{input}} → input appended last (documented bind semantics)");
+
+  const panorama = findProviderChoice("enhance", "panorama");
+  assert.ok(panorama, "panorama choice exists");
+  assert.equal(panorama!.descriptor?.run, "python3 shipped:providers/senses/enhance/panorama.py");
+  assert.equal(panorama!.indexableDefault, true);
+
+  const nominatim = findProviderChoice("geocode", "nominatim");
+  assert.ok(nominatim, "nominatim choice exists");
+  assert.equal(nominatim!.descriptor?.run, "bash shipped:providers/senses/geocode/geocode.sh --input {{input}}");
+  assert.equal(nominatim!.indexableDefault, false, "geocode is opt-in enrichment, not indexable evidence");
+});
+
+test("NO catalog descriptor persists an absolute path — every script reference is a shipped: ref", () => {
+  const saved = process.env.DETECT_PY;
+  try {
+    delete process.env.DETECT_PY; // DETECT_PY deliberately persists the venv interpreter path when set
+    for (const choice of providerChoices()) {
+      const d = choice.descriptor;
+      if (!d) continue;
+      const commands = [
+        d.run,
+        d.describe,
+        typeof d.init === "string" ? d.init : d.init?.command,
+      ].filter((c): c is string => typeof c === "string");
+      for (const cmd of commands) {
+        for (const token of cmd.split(/\s+/)) {
+          assert.ok(!token.startsWith("/"), `${choice.verb}:${choice.id} persists an absolute path token: ${token}`);
+          if (/\.(sh|py|mjs)$/.test(token)) {
+            assert.ok(token.startsWith("shipped:"), `${choice.verb}:${choice.id} script reference must be a shipped: ref: ${token}`);
+          }
+        }
+      }
+    }
   } finally {
     if (saved === undefined) delete process.env.DETECT_PY;
     else process.env.DETECT_PY = saved;

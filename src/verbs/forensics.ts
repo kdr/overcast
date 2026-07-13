@@ -152,7 +152,7 @@ async function enrichWithPlace(ctx: VerbContext, records: OvercastRecord[]): Pro
     if (!bound) {
       p.place = null;
       p.geocode_status =
-        'no geocode provider bound — `setup provider geocode "exec:bash providers/senses/geocode/geocode.sh --input {{input}}"` (opt-in)';
+        "no geocode provider bound — `overcast provider setup apply --verb geocode --choice nominatim --yes` (opt-in)";
       continue;
     }
     try {

@@ -1,5 +1,6 @@
 import { loadSetup } from "../state/setup.js";
 import { findProviderChoice } from "./catalog.js";
+import { healDescriptor } from "./shipped-ref.js";
 import type { ProviderDescriptor } from "../profile.js";
 import type { VerbContext } from "../registry/types.js";
 
@@ -16,6 +17,8 @@ export function providerBinding(ctx: VerbContext, verb: string): ProviderDescrip
   const profileDescriptor = ctx.profile.providers?.[verb];
   if (isProviderDescriptor(profileDescriptor)) return profileDescriptor;
   const descriptor = policy?.descriptor;
-  if (isProviderDescriptor(descriptor)) return descriptor;
+  // heal at the read seam like loadProfile: a case policy saved by a
+  // pre-`shipped:`-ref build may carry a resolved absolute path.
+  if (isProviderDescriptor(descriptor)) return healDescriptor(descriptor);
   return ctx.profile.providers?.[verb];
 }

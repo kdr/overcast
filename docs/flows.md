@@ -616,7 +616,7 @@ fans out one evidence record per track / masked instance.
 
 ```bash
 scripts/visual-db-uv.sh --enhance                       # on-device stacks (or use --preset fal)
-overcast setup provider enhance "exec:bash providers/senses/local/enhance.sh {{input}}"
+overcast provider setup apply --preset local-models --yes
 
 overcast enhance ./interview.mp4 --ops separate --summarize   # per-speaker tracks, each transcribed
 overcast view <separate-parent-id>                             # gallery: audition each track + spectrograms + cross-talk
@@ -671,7 +671,7 @@ Turn face/object boxes into durable, citable, searchable images.
 overcast face ./clip.mp4 --thumbnails
 overcast crop <face-record-id> --all --class face --square --pad 0.1
 
-overcast setup provider see "exec:python3 providers/senses/detect/detect.py"
+overcast provider setup apply --preset owl-local --yes   # OWLv2 detector (export DETECT_PY from scripts/visual-db-uv.sh --detect first)
 overcast see ./clip.mp4 --detect "person, car, license plate"
 overcast crop <see-record-id> --all --class person
 overcast ask "Which cropped people or vehicles do we have?"
@@ -921,11 +921,11 @@ overcast devices --findings           # link media shot on the same camera (seri
 # chronolocation — WHEN was it taken (offline sun/shadow math, no key):
 overcast chronolocate <exif-record-id> --at-time 2024-06-01T14:30:00Z   # VERIFY: do the sun/shadow match the claimed time?
 overcast chronolocate --lat 48.85 --lng 2.29 --shadow-azimuth 250 --date 2024-06-01  # SOLVE: what time could cast that shadow?
-# pixel forensics — heuristic tamper overlays (bind a provider, one record → 3 children):
-overcast setup provider enhance "exec:python3 providers/senses/enhance/ela.py"
+# pixel forensics — heuristic tamper overlays (bind the shipped choice, one record → 3 children):
+overcast provider setup apply --verb enhance --choice ela --yes
 overcast enhance ./photo.jpg --ops ela --json   # ELA + noise + luminance overlays → view <parent> renders the gallery
 # panorama — stitch a panning video into ONE wide still for skyline/landmark geolocation:
-overcast setup provider enhance "exec:python3 providers/senses/enhance/panorama.py"
+overcast provider setup apply --verb enhance --choice panorama --yes
 overcast enhance ./pan.mp4 --ops panorama --json
 overcast ask "what GPS coordinates or camera devices appear?"
 ```

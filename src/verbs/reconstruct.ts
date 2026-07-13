@@ -183,8 +183,7 @@ export const reconstructVerb: VerbSpec = {
     if (!isCustomBinding(binding)) {
       return [errorRecord(
         "reconstruct has no built-in backend — bind a provider first: " +
-          "`overcast provider setup apply --verb reconstruct --choice fal --yes` (needs FAL_KEY), " +
-          'or `overcast setup provider reconstruct "exec:bash providers/senses/fal/reconstruct.sh --input {{input}}"`.',
+          "`overcast provider setup apply --verb reconstruct --choice fal --yes` (needs FAL_KEY).",
       )];
     }
     const extraArgs: string[] = ["--ops", op];

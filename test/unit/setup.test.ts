@@ -251,6 +251,34 @@ test("doctor warns when configured qmd is missing", async () => {
   }
 });
 
+test("doctor flags provider bindings with unresolvable shipped: refs or stale absolute paths", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-refs-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-refs-"));
+  try {
+    // an unresolvable ref survives healing (it never resolves) — doctor's case
+    await setupVerb.run(ctx(dir, home, "provider", ["enhance", "exec:python3 shipped:providers/senses/nope/missing.py"]));
+    // a stale absolute shipped path whose new-layout target doesn't exist either
+    await setupVerb.run(ctx(dir, home, "provider", ["see", "exec:bash /gone/providers/senses/fal/does-not-exist.sh"]));
+    // a healthy shipped ref and a custom path must NOT be flagged
+    await setupVerb.run(ctx(dir, home, "provider", ["exif", "exec:bash shipped:providers/senses/exif/exif.sh"]));
+    await setupVerb.run(ctx(dir, home, "provider", ["listen", "exec:bash /custom/listen.sh"]));
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    const paths = checks.find((c) => c.name === "provider-paths");
+    assert.equal(paths?.ok, false);
+    assert.match(paths?.detail ?? "", /unresolvable shipped:providers\/senses\/nope\/missing\.py/);
+    assert.match(paths?.detail ?? "", /stale path \/gone\/providers\/senses\/fal\/does-not-exist\.sh/);
+    assert.match(paths?.detail ?? "", /provider setup apply --verb <verb> --choice <id> --yes/);
+    assert.doesNotMatch(paths?.detail ?? "", /exif\.sh/, "healthy shipped ref is not flagged");
+    assert.doesNotMatch(paths?.detail ?? "", /\/custom\/listen\.sh/, "custom path is not doctor's business");
+    const warnings = (rec.payload as Record<string, unknown>).warnings as string[];
+    assert.ok(warnings.some((w) => /missing shipped provider files/.test(w)), `expected shipped-path warning; got ${JSON.stringify(warnings)}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_EXIFTOOL = join(HERE, "..", "fixtures", "fake-exiftool.sh");
 const FAKE_C2PATOOL = join(HERE, "..", "fixtures", "fake-c2patool.sh");

@@ -39,7 +39,7 @@ overcast enhance ./raw.mp4 --ops denoise,upscale,stabilize --json
 ```bash
 overcast see frame://<enhanced-record-id>@<seconds> --ocr --json                 # -> <ocr-record-id> (text, no boxes)
 scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
-export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local resolves detect.py's ABSOLUTE path (a relative one fails from a case dir) + uses $DETECT_PY (the venv python; system python3 lacks the deps)
+export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local persists a portable shipped: ref for detect.py + uses $DETECT_PY (the venv python; system python3 lacks the deps)
 overcast see frame://<enhanced-record-id>@<seconds> --detect "license plate, text" --json  # -> <detect-record-id> (boxes)
 ```
 

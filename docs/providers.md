@@ -24,22 +24,38 @@ An exec provider is a command invoked three ways:
 
 A non-zero exit is a hint; the record's `state`/`error` is authoritative.
 overcast maps stdout to the loose record at the exec boundary — your provider
-just needs to emit `{ verb, format, payload, media?, meta?, state? }`.
+just needs to emit `{ verb, format, payload, media?, meta?, state? }`. The
+runnable authoring demos live under
+[`examples/providers/`](../examples/providers) (bash / python / TypeScript, one
+per class) — copy one to start a provider of your own.
 
 ## Binding a provider
 
+For anything overcast **ships**, bind through the catalog wizard — it persists a
+location-independent descriptor (a `shipped:` ref, next section) instead of a
+filesystem path:
+
+```bash
+overcast provider setup show --json                              # catalog: choices + presets (+ resolved paths)
+overcast provider setup plan --verb enhance --choice ela --json  # inspect the descriptor before writing
+overcast provider setup apply --verb enhance --choice ela --yes  # write it to the profile
+overcast provider setup apply --preset fal --yes                 # or a whole preset
+overcast provider init enhance                                   # run the init hook
+```
+
+For a provider **you wrote**, bind a raw `exec:` spec — the escape hatch for
+user-authored code the catalog doesn't know (the demos exercise exactly this):
+
 ```bash
 # sense provider (per verb)
-overcast setup provider watch  "exec:./examples/providers/bash/watch.sh"
-overcast setup provider listen "exec:python3 examples/providers/python/listen.py"
-overcast setup provider see    "exec:node --import tsx examples/providers/ts/see.ts"
+overcast setup provider watch "exec:bash ./examples/providers/bash/watch.sh"
 # (an `http://…` spec parses into the binding shape, but the http transport is
 #  not wired yet — it errors at run time; wrap your endpoint in an exec script)
-overcast provider init see                                      # run the init hook
+overcast provider init watch                                    # run the init hook
 
 # source provider (scraper) — bound by source type, enumerated by scan/capture
 overcast source add tiktok:@some_user
-OVERCAST_SOURCE_TIKTOK_CMD="bash providers/sources/tiktok.sh" \
+OVERCAST_SOURCE_TIKTOK_CMD="bash my-tiktok.sh" \
   overcast scan --source tiktok --pull
 ```
 
@@ -47,6 +63,33 @@ Bindings live in the active profile (`~/.overcast/profiles/<name>.json`), so the
 travel with `--profile`. **Rebinding a verb requires no overcast code changes** —
 the default tinycloud `watch`/`listen` and the default `see` backend are just the
 out-of-the-box descriptors.
+
+## Shipped providers and `shipped:` refs
+
+The shipped, supported provider scripts live in the top-level
+[`providers/`](../providers) tree, grouped by role:
+
+- `providers/sources/` — the scan/capture/monitor scrapers (exec argv contract);
+- `providers/senses/` — the bindable sense/enhance/forensics providers
+  (hf / fal / elevenlabs / tinycloud / detect / geocode / exif / verify /
+  local / enhance ela+panorama);
+- `providers/engines/` — internal engines called only through TS shims
+  (visual-db, audio-db, the screenshot renderer) — never user-bound.
+
+Catalog descriptors reference these as **`shipped:<relpath>`** tokens (relpath
+from the package root, e.g. `shipped:providers/senses/enhance/ela.py`,
+`shipped:scripts/visual-db-uv.sh`). The profile persists the *ref*; it resolves
+to this install's absolute path at spawn time — so a binding survives the
+install moving (an nvm switch, a binary relocation, a folder rename).
+`provider setup show`/`plan` include the resolved absolute path per choice
+(`resolved`) for transparency. Profiles and case-setup policies written by older
+builds (absolute `examples/providers/…` or `providers/…` paths) are **healed on
+load**: recognized paths rewrite to `shipped:` refs in memory and persist on the
+next profile write; `overcast doctor` (the `provider-paths` check) flags any
+`shipped:` ref or stale shipped path that doesn't resolve in this build — re-run
+`overcast provider setup apply --verb <verb> --choice <id> --yes` to fix.
+`examples/providers/` holds only authoring demos: teaching code for the wire
+contract, bound by raw `exec:` path.
 
 ## Provider setup wizard and non-interactive profiles
 
@@ -158,7 +201,7 @@ OVERCAST_SEE_BRAIN=off overcast see shot.jpg # one-off: skip the brain default (
 ```
 
 `--detect` still needs a detection provider (the brain path produces a description,
-not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 providers/senses/detect/detect.py"`
+not bounding boxes) — bind one, e.g. `provider setup apply --preset owl-local --yes`
 (boxes), or the opt-in Cloudglue tinycloud provider below (boxless presence facts).
 
 `see` also takes an **http(s) image URL** directly: the image is downloaded into
@@ -177,9 +220,9 @@ maps them onto overcast's `see` — bind to opt in; the defaults above are uncha
 
 ```bash
 overcast provider setup apply --verb see --choice tinycloud --profile default --yes
-# or bind directly — keep the `bash …` wrapper: a run template that starts with
-# `tinycloud` is treated as the built-in default binding and skipped for `see`.
-overcast setup provider see "exec:bash providers/senses/tinycloud/see.sh --input {{input}}"
+# (the catalog descriptor keeps a `bash …` wrapper deliberately: a run template
+#  that starts with `tinycloud` is treated as the built-in default binding and
+#  skipped for `see`.)
 
 overcast see ./scene.jpg --ocr --json                          # tinycloud see → caption + on-screen text
 overcast see ./scene.jpg --prompt "what safety gear?" --json   # tinycloud extract → payload.extract facts
@@ -218,9 +261,8 @@ model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 Direct fal.ai providers (verified working) — bind to opt in:
 
 ```bash
-overcast setup provider see         "exec:bash providers/senses/fal/see.sh {{input}}"          # florence-2 caption / --ocr
-overcast setup provider enhance     "exec:bash providers/senses/fal/enhance.sh {{input}}"      # image: esrgan · audio: deepfilternet3
-overcast setup provider reconstruct "exec:bash providers/senses/fal/reconstruct.sh {{input}}"  # speculative camera reposition / 3D / depth
+overcast provider setup apply --preset fal --yes   # see (florence-2) + enhance (esrgan/deepfilternet3) + reconstruct
+# or individually: overcast provider setup apply --verb see|enhance|reconstruct --choice fal --yes
 ```
 - **see** → `fal-ai/florence-2-large` (detailed caption; `--ocr` for text).
 - **enhance** is a **toolbox** dispatched by `--ops`: image → `fal-ai/esrgan`, audio → `fal-ai/deepfilternet3`; `--ops separate` → `fal-ai/sam-audio/separate`, `--ops segment` → `fal-ai/sam-3/image`. Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL` / `FAL_SEPARATE_MODEL` / `FAL_SEGMENT_MODEL`. See **Enhance split ops** below.
@@ -265,7 +307,7 @@ path/wrapper.
   the agent with `OVERCAST_GEOCODE_UA`). Bind it with:
 
   ```bash
-  overcast setup provider geocode "exec:bash providers/senses/geocode/geocode.sh --input {{input}}"
+  overcast provider setup apply --verb geocode --choice nominatim --yes
   overcast exif ./photo.jpg --geocode   # -> payload.place = "…, San Francisco, California, …"
   ```
 
@@ -322,8 +364,7 @@ has it — it feeds the map instead). Toggle these off per case with
 ## ElevenLabs providers (`ELEVENLABS_API_KEY`)
 
 ```bash
-overcast setup provider listen  "exec:bash providers/senses/elevenlabs/listen.sh {{input}}"   # Scribe speech-to-text
-overcast setup provider enhance "exec:bash providers/senses/elevenlabs/enhance.sh {{input}}"  # voice isolator (audio)
+overcast provider setup apply --preset elevenlabs --yes   # listen (Scribe STT) + enhance (voice isolator)
 ```
 - **listen** → ElevenLabs Speech-to-Text (Scribe) → transcript + word-level `segments[]` with `media.at` anchors + language.
 - **enhance** → ElevenLabs Voice Isolator (strips background noise/music → clean speech).
@@ -348,7 +389,7 @@ exposes both ops:
 ```bash
 # on-device: pyannote diarization + GroundingDINO/SAM 2.1 (Apache-2.0, CPU-ok)
 scripts/visual-db-uv.sh --enhance          # installs both stacks into the uv venv
-overcast setup provider enhance "exec:bash providers/senses/local/enhance.sh {{input}}"
+overcast provider setup apply --preset local-models --yes
 #   ...or hosted on fal (FAL_KEY): sam-audio + sam-3
 overcast provider setup plan --preset fal && overcast provider setup apply --preset fal --yes
 
@@ -427,15 +468,15 @@ overcast view <parent-id>                                        # gallery / emb
 
 Two more provider-only `enhance` ops derive analysis artifacts from ONE input and
 fan out the same way (parent + children, gallery-able via `overcast view <parent>`).
-Both ship as shell-free example providers — no fal/local-models preset, just bind
-the script:
+Both are shipped local Python providers with their own catalog choices — no
+fal/local-models preset or API key needed:
 
 ```bash
 # image forensics: ELA + noise residual + luminance-gradient overlays (pillow + numpy)
-overcast setup provider enhance "exec:python3 providers/senses/enhance/ela.py"
+overcast provider setup apply --verb enhance --choice ela --yes
 overcast enhance suspect.jpg --ops ela          # -> parent + 3 overlay children
 #   ...or stitch a panning video into one wide still (opencv-python + numpy)
-overcast setup provider enhance "exec:python3 providers/senses/enhance/panorama.py"
+overcast provider setup apply --verb enhance --choice panorama --yes
 overcast enhance pan_shot.mp4 --ops panorama    # -> parent + 1 stitched-still child
 overcast view <parent-id>                       # gallery of the overlays / the wide still
 ```
@@ -462,8 +503,8 @@ returns bounding boxes. It runs **locally** via `transformers` — no fixed COCO
 vocabulary, no remote API:
 
 ```bash
-scripts/visual-db-uv.sh --detect                 # uv-installs torch + transformers + scipy + pillow (Grounding DINO also needs `timm`)
-overcast setup provider see "exec:$DETECT_PY providers/senses/detect/detect.py"   # $DETECT_PY = the venv python printed above
+scripts/visual-db-uv.sh --detect                 # uv-installs torch + transformers + scipy + pillow (Grounding DINO also needs `timm`); prints DETECT_PY
+export DETECT_PY=…; overcast provider setup apply --preset owl-local --yes   # persists $DETECT_PY (the venv python) + a shipped: ref for detect.py
 
 overcast see ./scene.jpg --detect "car, person, license plate" --json
 overcast see ./clip.mp4  --detect "weapon, hard hat" --json      # video → frames sampled, each box carries `at`
@@ -775,21 +816,20 @@ sample 8 frames.
 
 ## Samples (runnable, in this repo)
 
+The authoring **demos** — minimal providers that teach the exec wire contract,
+one per language, meant to be copied as the starting point for your own:
+
 - [`examples/providers/bash/watch.sh`](../examples/providers/bash/watch.sh) — the canonical tinycloud `watch` exec provider.
 - [`examples/providers/python/listen.py`](../examples/providers/python/listen.py) — a local-whisper `listen` provider (exec).
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec).
-- [`providers/senses/hf/{see,enhance}.sh`](../providers/senses/hf/) — Hugging Face captioner + model-enhance.
-- [`providers/senses/elevenlabs/{listen,enhance}.sh`](../providers/senses/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
-- [`providers/senses/fal/{see,enhance,reconstruct}.sh`](../providers/senses/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance (plus `--ops separate` sam-audio / `--ops segment` sam-3), and the speculative `reconstruct` toolbox (Qwen multi-angle reposition/sweep, Trellis image→3D via the queue API, Depth Anything V2).
-- [`providers/senses/local/enhance.sh`](../providers/senses/local/enhance.sh) + [`providers/engines/visual-db/enhance_{voice,segment}.py`](../providers/engines/visual-db/) — on-device `enhance --ops separate` (pyannote) and `--ops segment` (GroundingDINO + SAM 2.1).
-- [`providers/senses/detect/detect.py`](../providers/senses/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
-- [`providers/senses/tinycloud/see.sh`](../providers/senses/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
-- [`providers/engines/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../providers/engines/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
-- [`providers/engines/audio-db/{audio_match,clap_match,voice_match}.py`](../providers/engines/audio-db/) — local Shazam-style fingerprint matching (audio-fp), LAION CLAP audio embeddings (basic-clap), and wespeaker speaker verification (voice-print) for audio DB indexes.
-- [`providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,wayback,overpass,firms,dispatch,flights,instagram,telegram,webcam,facesearch,yandeximg,dork,shodan,browser,username,person,phone,property,plate}.sh`](../providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch/yandeximg + the identity sources username/person/phone/property/plate) + web-search (Tavily/Brave) + Google dorking (Serper.dev) + Shodan host recon + Google Lens & Yandex reverse-image + GDELT TV broadcast-news + Wayback Machine archive recovery + Overpass OSM features + NASA FIRMS active-fire hotspots + Socrata calls-for-service dispatch + OpenSky ADS-B flights + Windy Webcams + headless-Chromium page render (`browser`, delegates to the screenshot engine) source providers.
-- [`providers/engines/screenshot/{screenshot.sh,render.mjs}`](../providers/engines/screenshot/) — the shared headless-Chromium page renderer (Playwright) behind the `screenshot` verb and the `browser` source.
-- [`providers/senses/{exif,verify}/`](../providers/senses/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
-- [`providers/senses/geocode/geocode.sh`](../providers/senses/geocode/geocode.sh) — opt-in OSM Nominatim reverse geocoder for `exif --geocode` (no key; never bound by default).
+- [`examples/providers/python/enhance.py`](../examples/providers/python/enhance.py) — an HF-token-routed image-enhance provider (the Python variant of the shipped hf enhance).
+- [`examples/providers/sources/mcp-bridge.ts`](../examples/providers/sources/mcp-bridge.ts) — the MCP-server-as-source prototype (below).
+
+The **shipped, supported** provider code lives under [`providers/`](../providers)
+(`sources/` scrapers, `senses/` bindable providers, `engines/` internal engines)
+— see "Shipped providers and `shipped:` refs" above. It exercises the same
+public exec contract, so it doubles as reference reading, but bind it through
+the catalog wizard rather than by path.
 
 ## Screenshot engine (`screenshot` verb + `browser` source)
 

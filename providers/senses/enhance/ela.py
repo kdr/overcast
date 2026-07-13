@@ -11,8 +11,8 @@
 # Emits ONE record whose payload.outputs[] is fanned out into a record per
 # overlay by the enhance verb (parent + 3 children, each a viewable image).
 #
-# Bind, then run:
-#   overcast setup provider enhance "exec:python3 providers/senses/enhance/ela.py"
+# Bind (the `ela` catalog choice), then run:
+#   overcast provider setup apply --verb enhance --choice ela --yes
 #   overcast enhance suspect.jpg --ops ela
 #   overcast view <parent-id>            # gallery of the three overlays
 #

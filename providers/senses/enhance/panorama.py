@@ -6,8 +6,8 @@
 # it exposes a skyline/landmark strip for geolocation that no single frame shows.
 # Emits ONE record whose payload.outputs[] is fanned out by the enhance verb.
 #
-# Bind, then run:
-#   overcast setup provider enhance "exec:python3 providers/senses/enhance/panorama.py"
+# Bind (the `panorama` catalog choice), then run:
+#   overcast provider setup apply --verb enhance --choice panorama --yes
 #   overcast enhance pan_shot.mp4 --ops panorama
 #   overcast view <parent-id>            # the stitched wide still
 #

@@ -197,8 +197,8 @@ overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/P
 overcast crop <face-record-id> --all --class face --json # write cropped face images as evidence
 
 # 6) objects: bind the OWLv2 detector, find boxes, and crop them
-scripts/visual-db-uv.sh --detect     # uv-installs torch + transformers + scipy (sets DETECT_PY)
-overcast setup provider see "exec:$DETECT_PY providers/senses/detect/detect.py"
+scripts/visual-db-uv.sh --detect     # uv-installs torch + transformers + scipy (prints DETECT_PY)
+export DETECT_PY=…; overcast provider setup apply --preset owl-local --yes   # binds see:owl-local ($DETECT_PY + a portable shipped: ref)
 overcast see ./clip.mp4 --detect "person, car, license plate" --json
 overcast crop <see-record-id> --all --class person --json
 
@@ -470,16 +470,19 @@ overcast binds verbs to backends through **providers** over one wire contract
 a verb with **no code changes**:
 
 ```bash
-overcast setup provider see     "exec:bash providers/senses/fal/see.sh {{input}}"
-overcast setup provider listen  "exec:bash providers/senses/elevenlabs/listen.sh {{input}}"
+overcast provider setup apply --verb see --choice fal --yes           # fal.ai Florence-2 caption/OCR (FAL_KEY)
+overcast provider setup apply --verb listen --choice elevenlabs --yes # ElevenLabs Scribe STT (ELEVENLABS_API_KEY)
 overcast setup memory qmd       # optional local semantic case search
 overcast case memory index rebuild --memory qmd --json
 overcast ask "where did we see the white van?" --deep --json
 ```
 
 Shipped provider scripts live in [`providers/`](providers) (sources / senses /
-engines); the authoring demos stay in [`examples/providers/`](examples/providers),
-with the guide in [`docs/providers.md`](docs/providers.md).
+engines); catalog bindings reference them as location-independent
+`shipped:<relpath>` refs resolved at run time, so profiles survive the install
+moving. The authoring demos stay in [`examples/providers/`](examples/providers)
+(bind those by raw `exec:` path), with the guide in
+[`docs/providers.md`](docs/providers.md).
 
 Provider setup has two levels:
 
@@ -621,9 +624,9 @@ into it, then select it per command (or for the whole session):
 
 ```bash
 # build / extend a profile named "fal"
-overcast setup provider see  "exec:bash providers/senses/fal/see.sh {{input}}" --profile fal
-overcast setup provider watch "exec:bash examples/providers/bash/watch.sh {{input}}" --profile fal
-overcast setup llm anthropic claude-sonnet-4-6                                   --profile fal
+overcast provider setup apply --verb see --choice fal --yes --profile fal        # catalog choice → shipped: ref
+overcast setup provider watch "exec:bash examples/providers/bash/watch.sh {{input}}" --profile fal  # raw bind (your own script)
+overcast setup llm anthropic claude-sonnet-4-6 --profile fal
 
 # use it: per command …
 overcast see ./img.jpg --json --profile fal

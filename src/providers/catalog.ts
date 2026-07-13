@@ -1,5 +1,4 @@
 import type { ProviderDescriptor } from "../profile.js";
-import { shippedPath, shippedProviderPath } from "../pkg.js";
 
 export interface ProviderChoice {
   id: string;
@@ -19,9 +18,13 @@ const exec = (run: string, init?: string, describe?: string): ProviderDescriptor
   describe,
 });
 
-/** Resolved path to a shipped provider script under providers/ (sources/senses/engines). */
+/** Location-independent `shipped:` ref to a provider script under providers/
+ *  (sources/senses/engines). NOT resolved at catalog-build time: descriptors
+ *  persist the ref into profiles/case policies and it resolves through
+ *  shippedPath() at spawn time (src/providers/shipped-ref.ts), so bindings
+ *  survive the install moving. */
 function sidecar(...parts: string[]): string {
-  return shippedProviderPath(...parts) ?? ["providers", ...parts].join("/");
+  return "shipped:providers/" + parts.join("/");
 }
 
 export function providerChoices(): ProviderChoice[] {
@@ -36,10 +39,14 @@ export function providerChoices(): ProviderChoice[] {
   const detect = sidecar("senses", "detect", "detect.py");
   // The OWLv2 detector needs the uv venv python (torch/transformers), not system
   // python3. Honor $DETECT_PY (printed by `scripts/visual-db-uv.sh --detect`) if
-  // it's exported when the binding is applied; the resolved command is persisted.
+  // it's exported when the binding is applied; the interpreter is persisted
+  // as-is while the script travels as a `shipped:` ref.
   const detectPy = process.env.DETECT_PY || "python3";
   const localEnhance = sidecar("senses", "local", "enhance.sh");
-  const localVisionSetup = shippedPath("scripts", "visual-db-uv.sh") ?? "scripts/visual-db-uv.sh";
+  const ela = sidecar("senses", "enhance", "ela.py");
+  const panorama = sidecar("senses", "enhance", "panorama.py");
+  const geocode = sidecar("senses", "geocode", "geocode.sh");
+  const localVisionSetup = "shipped:scripts/visual-db-uv.sh";
   return [
     {
       id: "tinycloud",
@@ -226,6 +233,24 @@ export function providerChoices(): ProviderChoice[] {
       indexableDefault: true,
     },
     {
+      id: "ela",
+      verb: "enhance",
+      label: "Local ELA forensics (image)",
+      summary:
+        "Local `--ops ela` provider: ELA / noise-residual / luminance-gradient forensic overlays from an image (pillow + numpy; no key). Heuristic edit-detection LEADS, not proof — every record carries payload.caveat.",
+      descriptor: exec(`python3 ${ela}`, `python3 ${ela} init`, `python3 ${ela} describe`),
+      indexableDefault: true,
+    },
+    {
+      id: "panorama",
+      verb: "enhance",
+      label: "Local panorama stitch (video)",
+      summary:
+        "Local `--ops panorama` provider: stitch a panning video into ONE wide still (opencv-python + numpy; no key) — exposes a skyline/landmark strip for geolocation that no single frame shows.",
+      descriptor: exec(`python3 ${panorama}`, `python3 ${panorama} init`, `python3 ${panorama} describe`),
+      indexableDefault: true,
+    },
+    {
       id: "elevenlabs",
       verb: "listen",
       label: "ElevenLabs Scribe",
@@ -251,6 +276,15 @@ export function providerChoices(): ProviderChoice[] {
       descriptor: exec(`${detectPy} ${detect}`, `${detectPy} ${detect} init`, `${detectPy} ${detect} describe`),
       env: ["DETECT_MODEL"],
       indexableDefault: true,
+    },
+    {
+      id: "nominatim",
+      verb: "geocode",
+      label: "OSM Nominatim reverse geocoder",
+      summary:
+        "OPT-IN reverse geocoding for `exif --geocode` (OSM Nominatim; no key, curl+jq, ~1 req/s usage policy — point OVERCAST_GEOCODE_URL at your own Nominatim/Photon for volume). Egresses the subject's coordinates to a third party, so it is never a default.",
+      descriptor: exec(`bash ${geocode} --input {{input}}`, `bash ${geocode} init`, `bash ${geocode} describe`),
+      indexableDefault: false,
     },
   ];
 }

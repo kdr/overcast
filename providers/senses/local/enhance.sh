@@ -67,5 +67,5 @@ elif [ "$want_sep" = 1 ]; then
 elif [ "$want_seg" = 1 ]; then
   exec "$PY" "$VDB/enhance_segment.py" "$@"
 else
-  jq -nc --arg o "$ops" '{verb:"enhance",format:"json",payload:{},error:("local-models handles --ops separate|segment (got ops=\"" + $o + "\"); for denoise/normalize/upscale bind the internal ffmpeg toolkit: overcast setup provider enhance ffmpeg"),state:"error"}'
+  jq -nc --arg o "$ops" '{verb:"enhance",format:"json",payload:{},error:("local-models handles --ops separate|segment (got ops=\"" + $o + "\"); for denoise/normalize/upscale switch back to the internal ffmpeg toolkit: overcast provider setup apply --verb enhance --choice ffmpeg --yes"),state:"error"}'
 fi

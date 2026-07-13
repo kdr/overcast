@@ -12,6 +12,7 @@ import { providerBinding } from "../providers/bindings.js";
 import { seeWithBrain, brainSeeDisabled } from "../providers/brain/vision.js";
 import { fetchMediaToCase, isHttpUrl, kindForExt } from "../media/fetch.js";
 import { execCapture, parseFirstJson } from "../providers/exec.js";
+import { resolveShippedArgv } from "../providers/shipped-ref.js";
 import { tokenizeCommand } from "../providers/sources/index.js";
 import { resolveMediaRef, resolveVideoArg } from "./media-ref.js";
 import { provenanceCase, stampArchive } from "../archive.js";
@@ -262,8 +263,18 @@ export const seeVerb: VerbSpec = {
       // it and returns a caption. Lenient: an unavailable/unparseable describe just
       // proceeds (don't block a working provider on a describe hiccup).
       if (ctx.opts.detect && binding!.describe) {
-        const dp = tokenizeCommand(binding!.describe);
-        const dres = await execCapture(dp[0], dp.slice(1), { signal: ctx.signal, timeoutMs: 30_000 }).catch(() => undefined);
+        // resolve `shipped:` refs in the describe command; an unresolvable ref
+        // skips the preflight (lenient, like an unavailable describe) — the run
+        // itself surfaces the clear "build lacks shipped provider files" record.
+        let dp: string[] | undefined;
+        try {
+          dp = resolveShippedArgv(tokenizeCommand(binding!.describe));
+        } catch {
+          dp = undefined;
+        }
+        const dres = dp
+          ? await execCapture(dp[0], dp.slice(1), { signal: ctx.signal, timeoutMs: 30_000 }).catch(() => undefined)
+          : undefined;
         if (dres && dres.code === 0) {
           const d = parseFirstJson(dres.stdout) as Record<string, unknown> | undefined;
           const payload = d && Array.isArray(d.payload) ? (d.payload as unknown[]) : [];
@@ -276,7 +287,9 @@ export const seeVerb: VerbSpec = {
                 payload: { caption: "", ocr: "", detections: [], detect: String(ctx.opts.detect) },
                 error:
                   "the bound see provider doesn't support --detect (its describe declares no detections); " +
-                  "bind a detector, e.g. `overcast setup provider see \"exec:python3 providers/senses/detect/detect.py\"`.",
+                  "bind a detector: `overcast provider setup apply --preset owl-local --yes` (run " +
+                  "`scripts/visual-db-uv.sh --detect` once and export the printed DETECT_PY — the venv " +
+                  "python; system python3 lacks the deps).",
                 state: "error",
               }),
             );
@@ -300,8 +313,9 @@ export const seeVerb: VerbSpec = {
           format: "json",
           payload: { caption: "", ocr: "", detections: [], detect: String(ctx.opts.detect) },
           error:
-            "see --detect needs a detection provider; bind one, e.g. " +
-            "`overcast setup provider see \"exec:python3 providers/senses/detect/detect.py\"` (OWLv2).",
+            "see --detect needs a detection provider; bind one: " +
+            "`overcast provider setup apply --preset owl-local --yes` (OWLv2 — run " +
+            "`scripts/visual-db-uv.sh --detect` once and export the printed DETECT_PY venv python first).",
           state: "error",
         }),
       );
@@ -380,13 +394,13 @@ export const seeVerb: VerbSpec = {
 // into tracks/cutouts; ela overlays forensic maps; panorama stitches a wide still.
 const PROVIDER_ONLY_OPS: ReadonlySet<string> = new Set(["separate", "segment", "ela", "panorama"]);
 
-/** Remediation hint tailored to the provider-only op family — ela/panorama ship as
- *  example Python scripts; separate/segment need the local-models (or fal) preset.
+/** Remediation hint tailored to the provider-only op family — ela/panorama are
+ *  shipped catalog choices; separate/segment need the local-models (or fal) preset.
  *  Shared by the no-binding and the wrong-provider (single-output) error paths so a
  *  user is never told to bind a split preset for an op that doesn't use one. */
 function providerOpHint(op: string): string {
   return op === "ela" || op === "panorama"
-    ? `Bind one with \`overcast setup provider enhance "exec:python3 providers/senses/enhance/${op}.py"\` ` +
+    ? `Bind one with \`overcast provider setup apply --verb enhance --choice ${op} --yes\` ` +
         `(${op === "panorama" ? "opencv-python + numpy" : "pillow + numpy"}).`
     : `Run \`overcast provider setup plan --preset local-models\` (or --preset fal) then \`--yes\`; ` +
         `local-models needs \`scripts/visual-db-uv.sh --enhance\`.`;
@@ -445,8 +459,8 @@ export const enhanceVerb: VerbSpec = {
     "cuts requested objects out of an image as mask + cutout evidence, `--ops ela` derives ELA/noise/" +
     "luminance forensic overlays from an image (heuristic edit-detection leads), `--ops panorama` stitches " +
     "a panning video into one wide still (skyline/landmark exposure for geolocation). These ops need a bound " +
-    "provider (local-models = pyannote + GroundingDINO/SAM2, fal = sam-audio + sam-3, or a shipped example " +
-    "script — enhance/ela.py, enhance/panorama.py); image segmentation/ela of a video is out of scope " +
+    "provider (local-models = pyannote + GroundingDINO/SAM2, fal = sam-audio + sam-3, or the shipped " +
+    "ela/panorama catalog choices); image segmentation/ela of a video is out of scope " +
     "(run on a frame:// still). Emits a media.enhanced record per output — for the fan-out ops, one child " +
     "record per track/mask/overlay whose media.ref chains into watch/listen/see/view/crop.",
   args: [{ name: "input", summary: "Media file path", required: true }],

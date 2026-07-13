@@ -52,3 +52,86 @@ done
 # listen --describe flag is on the verb surface (commands --json)
 $OVERCAST commands --json 2>/dev/null | jq -e '.verbs[]|select(.name=="listen")|.flags[]|select(.name=="describe")' >/dev/null \
   && ok "listen.describe_flag" "listen --describe in registry" || fail "listen.describe_flag" "missing"
+
+# --- shipped: refs (plan 07 Stage B): catalog persists location-independent ----
+# refs, `plan` shows the resolved path, describe/init resolve at exec time,
+# old absolute-path profiles heal on load, and doctor flags what healing can't fix.
+refhome="$SMOKE_DIR/home_refs"; mkdir -p "$refhome"
+refcase="$SMOKE_DIR/case_refs"; mkdir -p "$refcase"
+
+# plan: descriptor carries the ref; the resolved map points at a real file
+plan="$($OVERCAST provider setup plan --verb enhance --choice ela --json --home "$refhome" --case "$refcase" 2>/dev/null)"
+save_json "phase8_ela_plan" "$plan" >/dev/null
+run_tpl="$(jq -r '.payload.changes[0].descriptor.run' <<<"$plan")"
+assert_eq "refs.ela_plan_run" "python3 shipped:providers/senses/enhance/ela.py" "$run_tpl" "ela plan descriptor is a shipped: ref"
+resolved="$(jq -r '.payload.changes[0].resolved["shipped:providers/senses/enhance/ela.py"]' <<<"$plan")"
+[ -f "$resolved" ] && ok "refs.ela_plan_resolved" "plan resolves the ref to a real file" || fail "refs.ela_plan_resolved" "unresolved: $resolved"
+
+# apply: the profile persists the REF, never an absolute path
+$OVERCAST provider setup apply --verb enhance --choice ela --yes --json --home "$refhome" --case "$refcase" >/dev/null 2>&1
+prof="$refhome/profiles/default.json"
+grep -q 'shipped:providers/senses/enhance/ela.py' "$prof" \
+  && ok "refs.ela_profile_ref" "profile stores the shipped: ref" || fail "refs.ela_profile_ref" "ref missing from $prof"
+grep -q "$REPO/providers" "$prof" \
+  && fail "refs.no_abs_path" "profile leaked an absolute provider path" || ok "refs.no_abs_path" "no absolute provider path persisted"
+
+# provider describe resolves the ref and runs the real script (python3 stdlib, offline)
+d="$($OVERCAST provider describe enhance --json --home "$refhome" --case "$refcase" 2>/dev/null)"
+save_json "phase8_ela_describe" "$d" >/dev/null
+assert_eq "refs.ela_describe_state" "ready" "$(jq -r '.state' <<<"$d")" "describe resolved + ran"
+jq -e '.payload.describe|fromjson|.ops[0]=="ela"' >/dev/null 2>&1 <<<"$d" \
+  && ok "refs.ela_describe_json" "ela describe JSON round-trips" || fail "refs.ela_describe_json" "bad describe: $(jq -r '.payload.describe' <<<"$d")"
+
+# geocode: the nominatim catalog choice binds end-to-end (no more raw-path hint)
+$OVERCAST provider setup apply --verb geocode --choice nominatim --yes --json --home "$refhome" --case "$refcase" >/dev/null 2>&1
+geo_run="$(jq -r '.providers.geocode.run' "$prof")"
+assert_eq "refs.geocode_ref" "bash shipped:providers/senses/geocode/geocode.sh --input {{input}}" "$geo_run" "nominatim persists the shipped: ref"
+gd="$($OVERCAST provider describe geocode --json --home "$refhome" --case "$refcase" 2>/dev/null)"
+jq -e '.payload.describe|fromjson|.verb=="geocode"' >/dev/null 2>&1 <<<"$gd" \
+  && ok "refs.geocode_describe" "geocode describe resolves + runs" || fail "refs.geocode_describe" "bad describe: $(jq -rc '.payload' <<<"$gd")"
+
+# healing: an old-style absolute-path profile heals on load; the next profile
+# write persists the ref; a custom path passes through untouched
+healhome="$SMOKE_DIR/home_heal"; mkdir -p "$healhome/profiles"
+cat >"$healhome/profiles/default.json" <<'JSON'
+{
+  "name": "default",
+  "providers": {
+    "enhance": {
+      "type": "exec",
+      "run": "python3 /opt/old-install/examples/providers/enhance/ela.py --input {{input}}",
+      "init": { "command": "python3 /opt/old-install/examples/providers/enhance/ela.py init" },
+      "describe": "python3 /opt/old-install/examples/providers/enhance/ela.py describe"
+    },
+    "see": { "type": "exec", "run": "bash /custom/see.sh --input {{input}}" }
+  }
+}
+JSON
+$OVERCAST setup llm cloudglue tinycloud:advanced --json --home "$healhome" --case "$refcase" >/dev/null 2>&1
+grep -q 'shipped:providers/senses/enhance/ela.py' "$healhome/profiles/default.json" \
+  && ok "heal.rewritten" "old examples/providers path healed to a shipped: ref" || fail "heal.rewritten" "no ref in healed profile"
+grep -q '/opt/old-install/examples/providers' "$healhome/profiles/default.json" \
+  && fail "heal.old_path_gone" "old absolute path survived the save" || ok "heal.old_path_gone" "old absolute path rewritten"
+grep -q '/custom/see.sh' "$healhome/profiles/default.json" \
+  && ok "heal.custom_untouched" "user-authored custom path untouched" || fail "heal.custom_untouched" "custom path was mangled"
+
+# doctor: flags an unresolvable shipped: ref + a stale absolute path healing can't fix
+stalehome="$SMOKE_DIR/home_stale_refs"; mkdir -p "$stalehome/profiles"
+cat >"$stalehome/profiles/default.json" <<'JSON'
+{
+  "name": "default",
+  "providers": {
+    "enhance": { "type": "exec", "run": "python3 shipped:providers/senses/nope/missing.py --input {{input}}" },
+    "see": { "type": "exec", "run": "bash /gone/providers/senses/fal/does-not-exist.sh --input {{input}}" }
+  }
+}
+JSON
+doc="$($OVERCAST doctor --json --home "$stalehome" --case "$refcase" 2>/dev/null)"
+save_json "phase8_doctor_refs" "$doc" >/dev/null
+assert_eq "doctor.provider_paths" "false" "$(jq -r '.payload.checks[]|select(.name=="provider-paths")|.ok' <<<"$doc")" "doctor flags broken shipped paths"
+jq -r '.payload.checks[]|select(.name=="provider-paths")|.detail' <<<"$doc" | grep -q 'unresolvable shipped:providers/senses/nope/missing.py' \
+  && ok "doctor.unresolvable_ref" "unresolvable ref named in detail" || fail "doctor.unresolvable_ref" "detail missing the ref"
+jq -r '.payload.checks[]|select(.name=="provider-paths")|.detail' <<<"$doc" | grep -q 'stale path /gone/providers/senses/fal/does-not-exist.sh' \
+  && ok "doctor.stale_path" "stale absolute path named in detail" || fail "doctor.stale_path" "detail missing the stale path"
+jq -e '.payload.warnings[]|select(test("missing shipped provider files"))' >/dev/null 2>&1 <<<"$doc" \
+  && ok "doctor.refs_warning" "shipped-path warning raised" || fail "doctor.refs_warning" "no warning"

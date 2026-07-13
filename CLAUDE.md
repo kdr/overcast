@@ -85,7 +85,15 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `basic-clap` is the local LAION CLAP DB for `similar` audio↔audio + text→audio
    search, and `voice-print` is the local pyannote/wespeaker speaker-verification
    DB for `voice` (find a reference speaker; ungated windowed default, HF-gated
-   `--diarize` tier).
+   `--diarize` tier). Shipped provider scripts live in the top-level `providers/`
+   tree (`sources/`/`senses/`/`engines/`); catalog descriptors reference them as
+   **`shipped:<relpath>` refs** (never resolved absolute paths — `src/providers/
+   shipped-ref.ts` resolves at spawn time, so profiles survive install moves),
+   old absolute-path profiles/case policies are **healed on load**, and `doctor`
+   (`provider-paths`) flags refs/paths that don't resolve. The catalog covers
+   every shipped bindable (incl. `enhance:ela`/`enhance:panorama` and
+   `geocode:nominatim`) — hints/docs teach `provider setup apply`, never a raw
+   script path; raw `exec:` binds are the user-authored escape hatch.
 7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `crop`, `view`,
    and frame extraction shell out to the **system** `ffmpeg`/`ffprobe` (PATH or
    `OVERCAST_FFMPEG`/`OVERCAST_FFPROBE`); `overcast doctor` checks it's installed.
@@ -112,9 +120,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--detect` — **default: the brain LLM** when image-capable, i.e. a direct
   "describe this image" call; falls back to the Hugging Face captioner,
   `builtin:hf`/`builtin:brain` + `OVERCAST_SEE_BRAIN=off` to switch; bindable fal
-  / local OWLv2 via `providers/senses/detect` for detection / opt-in Cloudglue
-  `see`+`extract` via `providers/senses/tinycloud/see.sh`, tinycloud ≥ 0.3.7,
-  boxless `--detect`), `face`
+  / local OWLv2 detection via `provider setup apply --preset owl-local` (DETECT_PY
+  venv python) / opt-in Cloudglue `see`+`extract` via `--verb see --choice
+  tinycloud`, tinycloud ≥ 0.3.7, boxless `--detect`), `face`
   (tinycloud ≥ 0.3.4 by default, or
   `face:deepface-local` locally: detect faces, `--match <jpeg|png>` to find/rank a
   person in a clip, or `--index` to search a face-analysis / deepface-local index),
@@ -144,9 +152,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--ops separate` = per-speaker tracks + optional `--summarize`, `--ops segment
   --prompt` = text-prompted masks/cutouts (bound `local-models` or `fal`),
   `--ops ela` = ELA/noise/luminance forensic overlays from an image (heuristic
-  edit-detection leads; `providers/senses/enhance/ela.py`), and `--ops panorama`
+  edit-detection leads; catalog choice `enhance:ela`), and `--ops panorama`
   = stitch a panning video into one wide still for skyline/landmark geolocation
-  (`providers/senses/enhance/panorama.py`) — each fanned out one record per artifact),
+  (catalog choice `enhance:panorama`) — each fanned out one record per artifact),
   `reconstruct` (SPECULATIVE scene reconstruction from a still or `--at` video
   frame via a bound generative provider — fal toolbox: `--rotate/--elevate/--zoom`
   camera reposition + `--ops sweep` 360° stops → contact sheet + turntable mp4
@@ -160,8 +168,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   (WGS84-validated at the provider), capture time, device, editing software,
   camera `serial`/`lens` (device-linking fingerprint), dimensions; shipped
   `exiftool` provider, raw tag dump stays in-provider; `--geocode` reverse-geocodes
-  the GPS to `payload.place` via an **opt-in** bound `geocode` provider — Nominatim,
-  no key, never default), `verify` (C2PA / Content Credentials provenance
+  the GPS to `payload.place` via an **opt-in** bound `geocode` provider — catalog
+  choice `geocode:nominatim`, no key, never default), `verify` (C2PA / Content Credentials provenance
   via `c2patool` → `has_manifest`, signer, claim generator, validation state; no
   credentials is a clean `ready` record, not an error — distinct from source-post
   provenance in `src/verbs/provenance.ts`), `screenshot` (browser screen capture —
