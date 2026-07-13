@@ -238,7 +238,10 @@ export function providerChoices(): ProviderChoice[] {
       label: "Local ELA forensics (image)",
       summary:
         "Local `--ops ela` provider: ELA / noise-residual / luminance-gradient forensic overlays from an image (pillow + numpy; no key). Heuristic edit-detection LEADS, not proof — every record carries payload.caveat.",
-      descriptor: exec(`python3 ${ela}`, `python3 ${ela} init`, `python3 ${ela} describe`),
+      // explicit --input (like the fal/hf/local enhance choices) so the media path
+      // is never argv[1] — a file basename of run/describe/init can't be mistaken
+      // for a subcommand (ela.py's documented contract: [run] --input <img>).
+      descriptor: exec(`python3 ${ela} --input {{input}}`, `python3 ${ela} init`, `python3 ${ela} describe`),
       indexableDefault: true,
     },
     {
@@ -247,7 +250,8 @@ export function providerChoices(): ProviderChoice[] {
       label: "Local panorama stitch (video)",
       summary:
         "Local `--ops panorama` provider: stitch a panning video into ONE wide still (opencv-python + numpy; no key) — exposes a skyline/landmark strip for geolocation that no single frame shows.",
-      descriptor: exec(`python3 ${panorama}`, `python3 ${panorama} init`, `python3 ${panorama} describe`),
+      // explicit --input (see the ela choice above) — keeps the media path off argv[1].
+      descriptor: exec(`python3 ${panorama} --input {{input}}`, `python3 ${panorama} init`, `python3 ${panorama} describe`),
       indexableDefault: true,
     },
     {

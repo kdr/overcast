@@ -44,14 +44,14 @@ test("owl-local detector honors $DETECT_PY (venv python), else falls back to pyt
 test("ela / panorama / nominatim are catalog choices with shipped: ref descriptors", () => {
   const ela = findProviderChoice("enhance", "ela");
   assert.ok(ela, "ela choice exists");
-  assert.equal(ela!.descriptor?.run, "python3 shipped:providers/senses/enhance/ela.py");
+  assert.equal(ela!.descriptor?.run, "python3 shipped:providers/senses/enhance/ela.py --input {{input}}");
   assert.equal(ela!.descriptor?.describe, "python3 shipped:providers/senses/enhance/ela.py describe");
   assert.equal(ela!.indexableDefault, true, "matches fal enhance");
-  assert.ok(!ela!.descriptor!.run!.includes("{{input}}"), "no {{input}} → input appended last (documented bind semantics)");
+  assert.ok(ela!.descriptor!.run!.includes("--input {{input}}"), "explicit --input keeps the media path off argv[1] (like fal/hf/local enhance)");
 
   const panorama = findProviderChoice("enhance", "panorama");
   assert.ok(panorama, "panorama choice exists");
-  assert.equal(panorama!.descriptor?.run, "python3 shipped:providers/senses/enhance/panorama.py");
+  assert.equal(panorama!.descriptor?.run, "python3 shipped:providers/senses/enhance/panorama.py --input {{input}}");
   assert.equal(panorama!.indexableDefault, true);
 
   const nominatim = findProviderChoice("geocode", "nominatim");

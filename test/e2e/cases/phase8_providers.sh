@@ -63,7 +63,7 @@ refcase="$SMOKE_DIR/case_refs"; mkdir -p "$refcase"
 plan="$($OVERCAST provider setup plan --verb enhance --choice ela --json --home "$refhome" --case "$refcase" 2>/dev/null)"
 save_json "phase8_ela_plan" "$plan" >/dev/null
 run_tpl="$(jq -r '.payload.changes[0].descriptor.run' <<<"$plan")"
-assert_eq "refs.ela_plan_run" "python3 shipped:providers/senses/enhance/ela.py" "$run_tpl" "ela plan descriptor is a shipped: ref"
+assert_eq "refs.ela_plan_run" "python3 shipped:providers/senses/enhance/ela.py --input {{input}}" "$run_tpl" "ela plan descriptor is a shipped: ref"
 resolved="$(jq -r '.payload.changes[0].resolved["shipped:providers/senses/enhance/ela.py"]' <<<"$plan")"
 [ -f "$resolved" ] && ok "refs.ela_plan_resolved" "plan resolves the ref to a real file" || fail "refs.ela_plan_resolved" "unresolved: $resolved"
 
