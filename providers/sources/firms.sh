@@ -153,7 +153,7 @@ case "$op" in
     # like overpass's `(newer:)` / gdelttv's STARTDATETIME. A detection we can't date
     # is dropped under an active window (can't confirm it falls inside it).
     now="$(date -u +%s)"
-    dayrange=1; cutiso=""; cutepoch=""
+    dayrange=1; cutiso=""; cutepoch=""; since_abs=""
     if [ -n "$since" ]; then
       case "$since" in
         *[0-9]s) cutepoch=$(( now - 10#${since%s} )) ;;
@@ -162,6 +162,8 @@ case "$op" in
         *[0-9]d) cutepoch=$(( now - 10#${since%d} * 86400 )) ;;
         *[0-9]w) cutepoch=$(( now - 10#${since%w} * 604800 )) ;;
         [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+          # an ABSOLUTE floor — must NOT be slid by the data-availability anchor below
+          since_abs=1
           cutepoch="$(date -u -d "$since" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d %H:%M:%S' "$since 00:00:00" +%s 2>/dev/null || echo '')" ;;
         *) echo "firms: could not parse --since '$since' (use Ns/Nm/Nh/Nd/Nw or YYYY-MM-DD)" >&2; exit 1 ;;
       esac
@@ -195,7 +197,10 @@ case "$op" in
         maxepoch="$(date -u -d "$maxdate 23:59:59" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d %H:%M:%S' "$maxdate 23:59:59" +%s 2>/dev/null || echo '')"
         if [ -n "$maxepoch" ] && [ "$maxepoch" -lt "$now" ]; then
           enddate="$maxdate"
-          if [ -n "$cutepoch" ]; then
+          # slide the client-side floor back by the same offset ONLY for a RELATIVE
+          # window (Nd/Nh/…) — an absolute `--since YYYY-MM-DD` is a fixed floor and
+          # must stay put (shifting it would admit detections older than requested).
+          if [ -n "$cutepoch" ] && [ -z "$since_abs" ]; then
             cutepoch=$(( cutepoch - (now - maxepoch) ))
             cutiso="$(date -u -r "$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$cutepoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$cutiso")"
           fi
