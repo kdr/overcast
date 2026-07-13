@@ -160,10 +160,15 @@ Invoke the skill above for this BOUNDED task (sweep + triage tiers only — step
       else
         fail "$C.skill.tldr" "brief HTML lacks the TL;DR narrative banner"
       fi
-      if grep -q 'Sources checked' "$BRIEF_HTML" && grep -qi 'Matches &amp; findings' "$BRIEF_HTML"; then
-        ok "$C.skill.synthesis" "brief carries sources-checked + matches/findings sections"
+      # Match the mission renderer's STABLE structural markers (data-csi-*), not
+      # human-readable heading text that the mission-board redesign reworded: the
+      # brief must carry the coverage table + the synthesis section (which holds
+      # the findings panel — "none recorded" is correct for a clean no-match
+      # sweep, so we don't require a populated matches list here).
+      if grep -q 'data-csi-coverage' "$BRIEF_HTML" && grep -q 'data-csi-synthesis' "$BRIEF_HTML"; then
+        ok "$C.skill.synthesis" "brief carries coverage + synthesis sections (data-csi markers)"
       else
-        fail "$C.skill.synthesis" "brief HTML lacks sources-checked / matches sections"
+        fail "$C.skill.synthesis" "brief HTML lacks coverage / synthesis sections"
       fi
     else
       fail "$C.skill.html" "no brief HTML exported at $BRIEF_HTML"

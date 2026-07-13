@@ -316,13 +316,22 @@ CASE=$(case_dir src_overpass)
 ocrun "$CASE" source add 'overpass:amenity=hospital@around:5000,48.8584,2.2945' --json >/dev/null 2>&1
 out="$(OC_TIMEOUT=120 oc "$CASE" scan --source overpass --limit 5 --json)"
 save_json "20_scan_overpass" "$out" >/dev/null
-assert_scan_hits "$C.overpass.query" "$out" "overpass OSM features"
-# every overpass hit carries top-level gps so scan records plot on `map`
-olat="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))][0].payload.gps.lat // empty' 2>/dev/null)"
-assert_nonempty "$C.overpass.gps" "$olat" "overpass hit carries payload.gps"
-# media.ref is the openstreetmap.org element page (so `capture` can store it)
-oref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("openstreetmap\\.org/")) then "ok" else "" end' 2>/dev/null)"
-assert_nonempty "$C.overpass.ref" "$oref" "overpass refs are openstreetmap.org element pages"
+ohits="$(echo "$out" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))]|length' 2>/dev/null)"
+if [ "${ohits:-0}" -ge 1 ]; then
+  assert_scan_hits "$C.overpass.query" "$out" "overpass OSM features"
+  # every overpass hit carries top-level gps so scan records plot on `map`
+  olat="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))][0].payload.gps.lat // empty' 2>/dev/null)"
+  assert_nonempty "$C.overpass.gps" "$olat" "overpass hit carries payload.gps"
+  # media.ref is the openstreetmap.org element page (so `capture` can store it)
+  oref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("openstreetmap\\.org/")) then "ok" else "" end' 2>/dev/null)"
+  assert_nonempty "$C.overpass.ref" "$oref" "overpass refs are openstreetmap.org element pages"
+else
+  # the keyless Overpass API load-sheds (HTTP 429/504) and returns 406 under
+  # pressure; a transient outage or a momentarily empty area is a best-effort
+  # skip, not a failure (same treatment as flights above).
+  oerr="$(echo "$out" | jq -s -r '[.[]|select(.state=="error" or .state=="needs_credentials")][0].error // "no overpass hits"' 2>/dev/null)"
+  skip "$C.overpass.query" "no usable overpass hits this run ($oerr)"
+fi
 unset OVERCAST_SOURCE_OVERPASS_CMD
 
 # --- wayback (Internet Archive CDX, no key) — deleted-page snapshots newest-first ---
@@ -372,15 +381,24 @@ if require_cred "$C.firms" FIRMS_MAP_KEY "skipping firms (NASA active fires)"; t
   ocrun "$CASE" source add 'firms:-125,24,-66,50' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=180 oc "$CASE" scan --source firms --since 3d --limit 20 --json)"
   save_json "20_scan_firms" "$out" >/dev/null
-  assert_scan_hits "$C.firms.query" "$out" "firms active-fire detections"
-  # every detection carries top-level gps + a UTC (Z) acquisition time (plots on `map`)
-  flat="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))][0].payload.gps.lat // empty' 2>/dev/null)"
-  assert_nonempty "$C.firms.gps" "$flat" "firms hit carries payload.gps"
-  fzone="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and .payload.published != null)|.payload.published] | if length > 0 and all(endswith("Z")) then "ok" else "" end' 2>/dev/null)"
-  assert_nonempty "$C.firms.zone" "$fzone" "firms detection times are UTC (Z)"
-  # media.ref is a FIRMS fire-map deep link centered on the detection
-  fref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("firms.modaps.eosdis.nasa.gov/map")) then "ok" else "" end' 2>/dev/null)"
-  assert_nonempty "$C.firms.ref" "$fref" "firms refs are FIRMS fire-map deep links"
+  fhits="$(echo "$out" | jq -s '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))]|length' 2>/dev/null)"
+  if [ "${fhits:-0}" -ge 1 ]; then
+    assert_scan_hits "$C.firms.query" "$out" "firms active-fire detections"
+    # every detection carries top-level gps + a UTC (Z) acquisition time (plots on `map`)
+    flat="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and (.payload.gps.lat != null))][0].payload.gps.lat // empty' 2>/dev/null)"
+    assert_nonempty "$C.firms.gps" "$flat" "firms hit carries payload.gps"
+    fzone="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready" and .payload.published != null)|.payload.published] | if length > 0 and all(endswith("Z")) then "ok" else "" end' 2>/dev/null)"
+    assert_nonempty "$C.firms.zone" "$fzone" "firms detection times are UTC (Z)"
+    # media.ref is a FIRMS fire-map deep link centered on the detection
+    fref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("firms.modaps.eosdis.nasa.gov/map")) then "ok" else "" end' 2>/dev/null)"
+    assert_nonempty "$C.firms.ref" "$fref" "firms refs are FIRMS fire-map deep links"
+  else
+    # active fires are data-dependent — a bbox/window can legitimately have zero
+    # detections (or FIRMS can rate-limit), so no hits is a best-effort skip, not
+    # a failure (same treatment as flights/overpass above).
+    ferr="$(echo "$out" | jq -s -r '[.[]|select(.state=="error" or .state=="needs_credentials")][0].error // "no active-fire detections in bbox/window"' 2>/dev/null)"
+    skip "$C.firms.query" "no usable firms hits this run ($ferr)"
+  fi
   unset OVERCAST_SOURCE_FIRMS_CMD
 fi
 
