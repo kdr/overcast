@@ -165,9 +165,8 @@ test("loadProfile heals an old-style profile in memory; save persists the refs; 
   }
 });
 
-test("findShippedTokenIssues flags unresolvable refs + stale shipped paths, ignores healthy/custom tokens", () => {
+test("findShippedTokenIssues flags unresolvable refs + stale shipped paths, ignores healthy/PATH tokens", () => {
   assert.deepEqual(findShippedTokenIssues("python3 shipped:providers/senses/enhance/ela.py describe"), []);
-  assert.deepEqual(findShippedTokenIssues("bash /custom/gone/see.sh --input {{input}}"), [], "custom paths are not doctor's business");
   assert.deepEqual(findShippedTokenIssues("bash shipped:providers/senses/nope/missing.sh"), [
     { kind: "unresolvable_ref", token: "shipped:providers/senses/nope/missing.sh" },
   ]);
@@ -178,8 +177,29 @@ test("findShippedTokenIssues flags unresolvable refs + stale shipped paths, igno
   assert.deepEqual(findShippedTokenIssues("python3 /gone/examples/providers/enhance/ela.py describe"), [
     { kind: "stale_path", token: "/gone/examples/providers/enhance/ela.py" },
   ]);
-  // a gone path whose ref DOESN'T resolve is not ours to flag — may be a user's provider.
-  assert.deepEqual(findShippedTokenIssues("bash /gone/providers/senses/fal/does-not-exist.sh"), []);
+  // A PATH-resolved command (no separator) or a `{{input}}` placeholder is never a
+  // file we can judge — left alone even though existsSync is false.
+  assert.deepEqual(findShippedTokenIssues("tinycloud watch {{input}} --json"), []);
+});
+
+test("findShippedTokenIssues flags a gone absolute script path even when it's NOT a shipped ref (Bugbot #104: moved demo / deleted fork breaks silently)", () => {
+  // The demo moved examples/providers/hf/enhance.py -> python/enhance.py, so an old
+  // absolute bind to the former neither heals (no shipped ref) nor resolved — it
+  // would fail silently at spawn. Doctor now surfaces it as `missing_script`.
+  assert.deepEqual(findShippedTokenIssues("python3 /repo/examples/providers/hf/enhance.py {{input}}"), [
+    { kind: "missing_script", token: "/repo/examples/providers/hf/enhance.py" },
+  ]);
+  // A user's own moved/deleted custom provider is the same class — also flagged.
+  assert.deepEqual(findShippedTokenIssues("bash /custom/gone/see.sh --input {{input}}"), [
+    { kind: "missing_script", token: "/custom/gone/see.sh" },
+  ]);
+  // A shipped-shaped path whose ref doesn't resolve either is still a broken bind → flagged.
+  assert.deepEqual(findShippedTokenIssues("bash /gone/providers/senses/fal/does-not-exist.sh"), [
+    { kind: "missing_script", token: "/gone/providers/senses/fal/does-not-exist.sh" },
+  ]);
+  // Guard against false positives: a RELATIVE path is cwd-dependent, so a gone one
+  // says nothing reliable — left alone (only absolute script paths are judged).
+  assert.deepEqual(findShippedTokenIssues("python3 examples/providers/hf/enhance.py {{input}}"), []);
 });
 
 test("shippedRefResolution maps each descriptor ref to its resolved path (null when missing)", () => {

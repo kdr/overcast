@@ -189,16 +189,30 @@ export function healDescriptor<T extends ProviderDescriptor>(desc: T): T {
 // ---- doctor support ----------------------------------------------------------
 
 export interface ShippedTokenIssue {
-  kind: "unresolvable_ref" | "stale_path";
+  kind: "unresolvable_ref" | "stale_path" | "missing_script";
   token: string;
 }
 
+/** True for a token that is unambiguously a script FILE path (absolute, ending in
+ *  a known interpreter suffix) — not a PATH-resolved command (`tinycloud`,
+ *  `python3`), a flag, or a `{{input}}` placeholder. Used to decide whether a
+ *  non-existent token is a broken binding worth flagging vs. something we can't
+ *  judge. Absolute only: a relative path is cwd-dependent, so its (non-)existence
+ *  here says nothing reliable. */
+function looksLikeScriptPath(token: string): boolean {
+  return token.startsWith("/") && /\.(sh|py|mjs|cjs|js|ts)$/.test(token);
+}
+
 /** Scan a descriptor command string for (a) `shipped:` refs this build can't
- *  resolve and (b) stale absolute shipped-provider paths — a path that maps to a
+ *  resolve, (b) stale absolute shipped-provider paths — a path that maps to a
  *  shipped ref which DOES resolve here, but the path itself is gone (install
- *  moved / old layout). Both are re-applied away with `provider setup apply`. A
- *  path with no resolvable shipped ref is NOT ours to flag — it may be a user's
- *  own provider, so leave it (mirrors healShippedToken's conservatism). */
+ *  moved / old layout) — and (c) any other absolute script path that simply
+ *  doesn't exist (a moved/renamed demo like examples/providers/hf/enhance.py ->
+ *  python/enhance.py, or a deleted fork). (a)/(b) are re-applied away with
+ *  `provider setup apply`; (c) isn't ours to heal (no shipped ref — it may be a
+ *  user's own provider), but it WILL fail at spawn, so we surface it rather than
+ *  let it break silently. A non-existent NON-script token (a bare command, a
+ *  relative path) is still left alone, mirroring healShippedToken's conservatism. */
 export function findShippedTokenIssues(cmd: string): ShippedTokenIssue[] {
   const issues: ShippedTokenIssue[] = [];
   for (const token of cmd.split(/\s+/)) {
@@ -208,7 +222,11 @@ export function findShippedTokenIssues(cmd: string): ShippedTokenIssue[] {
     }
     if (existsSync(token)) continue; // present path — healing would (or already did) handle it
     const ref = shippedRefCandidate(token);
-    if (ref && resolveShippedRefToken(ref)) issues.push({ kind: "stale_path", token });
+    if (ref && resolveShippedRefToken(ref)) {
+      issues.push({ kind: "stale_path", token });
+      continue;
+    }
+    if (looksLikeScriptPath(token)) issues.push({ kind: "missing_script", token });
   }
   return issues;
 }

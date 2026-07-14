@@ -859,9 +859,13 @@ export const doctorVerb: VerbSpec = {
         if (!desc || typeof desc !== "object") continue;
         for (const cmd of descriptorCommandStrings(desc)) {
           for (const issue of findShippedTokenIssues(cmd)) {
-            pathIssues.push(
-              `${source} ${verb}: ${issue.kind === "unresolvable_ref" ? "unresolvable" : "stale path"} ${issue.token}`,
-            );
+            const label =
+              issue.kind === "unresolvable_ref"
+                ? "unresolvable"
+                : issue.kind === "missing_script"
+                  ? "missing script"
+                  : "stale path";
+            pathIssues.push(`${source} ${verb}: ${label} ${issue.token}`);
           }
         }
       }
@@ -878,7 +882,7 @@ export const doctorVerb: VerbSpec = {
       name: "provider-paths",
       ok: pathIssues.length === 0,
       detail: pathIssues.length
-        ? `${pathIssues.join("; ")} — re-run \`overcast provider setup apply --verb <verb> --choice <id> --yes\` (recognized old install paths heal automatically on load)`
+        ? `${pathIssues.join("; ")} — re-run \`overcast provider setup apply --verb <verb> --choice <id> --yes\` (recognized old install paths heal automatically on load), or re-bind a moved custom/demo script to an existing path`
         : "bindings resolve (shipped: refs OK, no stale provider paths)",
     });
 

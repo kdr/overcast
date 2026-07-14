@@ -122,7 +122,8 @@ cat >"$stalehome/profiles/default.json" <<'JSON'
   "name": "default",
   "providers": {
     "enhance": { "type": "exec", "run": "python3 shipped:providers/senses/nope/missing.py --input {{input}}" },
-    "see": { "type": "exec", "run": "bash /gone/providers/senses/fal/see.sh --input {{input}}" }
+    "see": { "type": "exec", "run": "bash /gone/providers/senses/fal/see.sh --input {{input}}" },
+    "listen": { "type": "exec", "run": "python3 /gone/examples/providers/hf/enhance.py --input {{input}}" }
   }
 }
 JSON
@@ -132,10 +133,14 @@ assert_eq "doctor.provider_paths" "false" "$(jq -r '.payload.checks[]|select(.na
 jq -r '.payload.checks[]|select(.name=="provider-paths")|.detail' <<<"$doc" | grep -q 'unresolvable shipped:providers/senses/nope/missing.py' \
   && ok "doctor.unresolvable_ref" "unresolvable ref named in detail" || fail "doctor.unresolvable_ref" "detail missing the ref"
 # stale = a gone absolute path whose shipped ref DOES resolve here (see.sh is a real
-# shipped filename) — re-apply fixes it. A gone path whose ref doesn't resolve is a
-# user's own provider and is NOT flagged (see unit coverage).
+# shipped filename) — re-apply fixes it.
 jq -r '.payload.checks[]|select(.name=="provider-paths")|.detail' <<<"$doc" | grep -q 'stale path /gone/providers/senses/fal/see.sh' \
   && ok "doctor.stale_path" "stale absolute path named in detail" || fail "doctor.stale_path" "detail missing the stale path"
+# missing_script = a gone absolute script with NO resolvable shipped ref — a moved
+# demo (hf/enhance.py -> python/enhance.py) or a deleted fork. Can't heal, but it
+# fails at spawn, so doctor surfaces it instead of letting it break silently (Bugbot #104).
+jq -r '.payload.checks[]|select(.name=="provider-paths")|.detail' <<<"$doc" | grep -q 'missing script /gone/examples/providers/hf/enhance.py' \
+  && ok "doctor.missing_script" "gone non-shipped script named in detail" || fail "doctor.missing_script" "detail missing the broken script"
 jq -e '.payload.warnings[]|select(test("missing shipped provider files"))' >/dev/null 2>&1 <<<"$doc" \
   && ok "doctor.refs_warning" "shipped-path warning raised" || fail "doctor.refs_warning" "no warning"
 
