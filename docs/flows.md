@@ -1018,7 +1018,8 @@ numbered `## Workflow` funnel each agent can follow. They ship generated from
 Speaker separation (`listen --diarize`) needs a diarize-capable provider — the
 default tinycloud path is speech-transcript only; bind ElevenLabs. Object crops
 (`see --detect` → `crop`) need a bound OWLv2 detector (`scripts/visual-db-uv.sh
---detect`, then `setup provider see "exec:$DETECT_PY …/detect.py"`).
+--detect`, then `overcast provider setup apply --preset owl-local --yes` — persists
+`$DETECT_PY` + a `shipped:` ref for `detect.py`).
 
 ### 23. Man in the chair: drive the desk from the field
 

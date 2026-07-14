@@ -638,7 +638,7 @@ overcast setup show --profile fal     # inspect a profile's bindings
 
 The default profile is `default`. Point `--home <dir>` at a different store to
 keep profiles per-case or per-project. To build ready-made presets (e.g. `fal`,
-`cloudglue`, `recon`) from the shipped example providers:
+`cloudglue`, `recon`) from the bundled providers:
 
 ```bash
 bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profile <name>

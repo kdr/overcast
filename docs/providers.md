@@ -248,12 +248,18 @@ overcast ships Hugging Face Inference API providers so the `see` captioner and
 model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 
 - **`see`** — the fallback captioner ([`providers/senses/hf/see.sh`](../providers/senses/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--prompt` (`--detect` is ignored — this captioner can't produce boxes; bind the OWLv2/fal detector for that).
-- **`enhance` (image)** — opt-in HF model ops ([`examples/providers/python/enhance.py`](../examples/providers/python/enhance.py), needs `huggingface_hub` + `pillow`). Image **upscale/unblur/restore works** via the **fal-ai** provider, routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; uses the free monthly credit then pay-as-you-go). The **default stays the internal ffmpeg toolkit**; bind to opt in:
-  ```bash
-  overcast setup provider enhance "exec:python3 examples/providers/python/enhance.py {{input}}"
-  overcast enhance ./blurry.jpg          # -> upscaled/unblurred media.enhanced record
-  ```
-  Default model `prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale` (override `HF_ENHANCE_IMAGE_MODEL`; provider `HF_ENHANCE_PROVIDER`, default `fal-ai`). **Caveat:** these are diffusion *editing* models — they synthesize plausible detail (not faithful super-resolution), so flag it for forensic use.
+- **`enhance` (image)** — two opt-in HF paths (the **default stays the internal ffmpeg toolkit**):
+  - **Shipped, catalog-backed** ([`providers/senses/hf/enhance.sh`](../providers/senses/hf/enhance.sh)) — a curl HF Inference-Endpoint enhance; bind with the wizard, no raw path:
+    ```bash
+    overcast provider setup apply --verb enhance --choice hf --yes   # persists a shipped: ref
+    ```
+    Point it at your endpoint with `HF_ENHANCE_ENDPOINT`.
+  - **Python demo** ([`examples/providers/python/enhance.py`](../examples/providers/python/enhance.py), needs `huggingface_hub` + `pillow`) — image **upscale/unblur/restore** via the **fal-ai** provider routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; free monthly credit then pay-as-you-go). This is an authoring demo (the sanctioned raw-`exec:` escape hatch), a *different* backend from the shipped script above:
+    ```bash
+    overcast setup provider enhance "exec:python3 examples/providers/python/enhance.py {{input}}"
+    overcast enhance ./blurry.jpg          # -> upscaled/unblurred media.enhanced record
+    ```
+    Default model `prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale` (override `HF_ENHANCE_IMAGE_MODEL`; provider `HF_ENHANCE_PROVIDER`, default `fal-ai`). **Caveat:** these are diffusion *editing* models — they synthesize plausible detail (not faithful super-resolution), so flag it for forensic use.
 - **`enhance` (audio)** — **not available via HF** (audio-to-audio isn't a HF Inference-Providers task; 0 hosted models). Use ffmpeg (`enhance --ops denoise,normalize`) or bind a Replicate-direct provider (`resemble-ai/resemble-enhance`) / self-host. `enhance.sh` (curl) remains for a dedicated HF Inference Endpoint via `HF_ENHANCE_ENDPOINT`.
 
 ## fal.ai providers (`FAL_KEY`)
