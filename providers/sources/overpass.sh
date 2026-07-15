@@ -80,7 +80,7 @@ case "$op" in
 
     # honor --since → an OSM `(newer:"<ISO>")` filter (only elements edited after the
     # cutoff). Portable epoch→stamp: BSD date uses `-r <epoch>`, GNU date uses
-    # `-d @<epoch>` (mirrors wayback.sh/gdelttv.sh). Applied only to the friendly
+    # `-d @<epoch>` (mirrors gdelttv.sh). Applied only to the friendly
     # form (raw OverpassQL is passed through untouched — the author owns its filters).
     newer=""
     if [ -n "$since" ]; then
@@ -177,7 +177,7 @@ case "$op" in
       ]
       # newest-edited first (payload.created = OSM last-edit meta), THEN cap — so a
       # capped scan keeps the most recent features, not the lowest-id ones. Undated
-      # elements (no timestamp/start_date) sort last. Same shape as firms/wayback.
+      # elements (no timestamp/start_date) sort last. Same shape as firms.
       | sort_by(.created // "") | reverse | .[0:$n]'
     ;;
 

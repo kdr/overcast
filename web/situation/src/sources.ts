@@ -24,7 +24,6 @@ const STYLES: Record<string, SourceStyle> = {
   // metadata → feed
   web: { color: "#38e8ff", emoji: "🌐", label: "Web", at: false },
   dork: { color: "#22d3ee", emoji: "🔍", label: "Dork", at: false },
-  wayback: { color: "#94a3b8", emoji: "🕰️", label: "Wayback", at: false },
   shodan: { color: "#ef4444", emoji: "🛰️", label: "Shodan", at: false },
   // gps → map
   overpass: { color: "#ffd166", emoji: "📍", label: "OSM", at: false },

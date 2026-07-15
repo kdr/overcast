@@ -107,14 +107,6 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       const script = shippedSource("gdelttv.sh");
       return script ? { type, base: ["bash", script], needs: "none (public GDELT API)" } : undefined;
     }
-    case "wayback": {
-      // Internet Archive Wayback Machine — recover deleted pages/posts and surface
-      // changes over time via the CDX API. No API key; hits' media.ref is a
-      // snapshot URL. Named `wayback` (not `archive`) to avoid colliding with the
-      // media-bucket verb + `archive:<bucket>/<item>` ref scheme.
-      const script = shippedSource("wayback.sh");
-      return script ? { type, base: ["bash", script], needs: "none (public Wayback CDX API)" } : undefined;
-    }
     case "overpass": {
       // OpenStreetMap features via the Overpass API — geolocated map features
       // (hospitals, cameras, fuel, named places, …). No API key; every hit carries

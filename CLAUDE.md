@@ -72,7 +72,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    (`watch/listen/see/face/cluster/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot/chronolocate` —
    `cluster` shares the face provider, `chronolocate` is pure local math), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, yandeximg, dl, instagram, telegram,
-   gdelttv, wayback, overpass, firms, dispatch, flights, webcam, facesearch, dork, shodan, browser,
+   gdelttv, overpass, firms, dispatch, flights, webcam, facesearch, dork, shodan, browser,
    username, person, phone, property, plate), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
    shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
@@ -251,7 +251,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
  `ask`/`brief` evidence).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens + yandeximg reverse-image / dl generic-yt-dlp capture / instagram / telegram /
-  gdelttv broadcast-TV / wayback deleted-web / overpass OSM-features / firms active-fires /
+  gdelttv broadcast-TV / overpass OSM-features / firms active-fires /
   dispatch police-CAD-calls / flights ADS-B-aircraft / webcam live-cams / facesearch reverse-face /
   dork Google-dorking / shodan host-recon / browser rendered-page-capture /
   username account-discovery / person people-search / phone reverse-phone /
@@ -279,10 +279,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `instagram:#tag` / a post URL
   (Apify); `telegram:<channel>` or a `t.me` URL (Apify, public channels);
   `gdelttv:"<query>"` (GDELT 2.0 TV broadcast-news clips → bounded Internet-Archive
-  `.mp4`, **no key**); `wayback:<url>` (Wayback Machine CDX — recover deleted pages/
-  posts + `collapse=digest` "secret changes" view, newest-first snapshots, **no key**;
-  named `wayback` not `archive` to avoid the media-bucket collision; strong `monitor`
-  fit); `overpass:key=value@around:<radius>,<lat>,<lng>` /
+  `.mp4`, **no key**); `overpass:key=value@around:<radius>,<lat>,<lng>` /
   `overpass:key=value@<south,west,north,east>` / raw OverpassQL (OpenStreetMap
   features via the Overpass API, **no key** — each element carries top-level
   `payload.gps` so scan records plot on `map`; media.ref = the OSM element page);

@@ -72,10 +72,10 @@ see/extract ≥ 0.3.7 + local OWLv2) ·
 `15_crop` (materialize real detections as JPEGs) · `20_sources`
 (Tavily web / Serper `dork` / `shodan` / Apify tiktok·x·lens·yandeximg·instagram·
 telegram·identity / yt-dlp youtube, plus the keyless map/OSINT feeds
-gdelttv·dispatch·overpass·wayback·flights and the FIRMS_MAP_KEY-gated firms —
+gdelttv·dispatch·overpass·flights and the FIRMS_MAP_KEY-gated firms —
 each source's mapped-record contract asserted: top-level `payload.gps` for
-dispatch/overpass/firms/flights, snapshot URLs newest-first for wayback,
-per-row/element deep-link `media.ref` throughout) · `21_pipeline`
+dispatch/overpass/firms/flights, per-row/element deep-link `media.ref`
+throughout) · `21_pipeline`
 (source→capture→sense) · `26_x_copycat` (x keyword text search + user-scoped
 video capture from the CDN + headless agent x sweep + headless
 overcast-copycat-sweep skill invocation with brief HTML export) ·

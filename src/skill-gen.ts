@@ -120,7 +120,6 @@ Built-in source refs for \`source add <type>:<ref>\`:
 - \`instagram:@handle\` / \`instagram:#tag\` / a post URL — Instagram posts & reels (Apify).
 - \`telegram:<channel>\` or a \`t.me\` URL — public Telegram channel posts (Apify).
 - \`gdelttv:"<query>"\` — GDELT 2.0 TV broadcast-news clips → bounded Internet-Archive mp4 segments (no key).
-- \`wayback:<url>\` — Wayback Machine CDX snapshots (no key): recover deleted pages + a "secret changes" diff view; strong monitor fit.
 - \`overpass:key=value@around:<radius>,<lat>,<lng>\` (or \`@<south,west,north,east>\`, or raw OverpassQL) — OpenStreetMap features (no key); hits carry \`payload.gps\` → \`map\`.
 - \`firms:<west,south,east,north>\` — NASA FIRMS active-fire hotspots (free \`FIRMS_MAP_KEY\`); hits carry \`payload.gps\` → \`map\`.
 - \`dispatch:sf\` / \`dispatch:seattle\` / \`dispatch:<domain>/<dataset>[@<datefield>]\` — police CAD / calls-for-service feeds on the Socrata SODA API (no key); hits carry \`payload.gps\` → \`map\`; rolling real-time windows make it a strong \`monitor --every\` fit.
@@ -1364,8 +1363,7 @@ and search it (\`face --match ./suspect.jpg --index <id>\`).
 **Page-watch stakeout.** To sit on a WEB PAGE instead of a feed, register the
 rendered-page source: \`overcast source add browser:<url>\` (no key; playwright
 optional dep), then \`monitor --every 30m\` — each pass re-renders the current
-page state to a PNG that flows into image auto-sense. \`wayback:<url>\` is the
-retrospective twin (its \`collapse=digest\` view surfaces content changes).
+page state to a PNG that flows into image auto-sense.
 
 **Live watch surface.** \`wall\` is the static option (a written HTML snapshot you
 regenerate). For a LIVE self-updating page, an **operator** serves the situation

@@ -351,25 +351,6 @@ else
 fi
 unset OVERCAST_SOURCE_OVERPASS_CMD
 
-# --- wayback (Internet Archive CDX, no key) — deleted-page snapshots newest-first ---
-export OVERCAST_SOURCE_WAYBACK_CMD="bash $SRCDIR/wayback.sh"
-CASE=$(case_dir src_wayback)
-ocrun "$CASE" source add 'wayback:https://www.example.com/' --json >/dev/null 2>&1
-out="$(OC_TIMEOUT=120 oc "$CASE" scan --source wayback --limit 5 --json)"
-save_json "20_scan_wayback" "$out" >/dev/null
-assert_scan_hits "$C.wayback.query" "$out" "wayback snapshots"
-# media.ref is a Wayback snapshot URL (web.archive.org/web/<ts>/<orig>)
-wref="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.media.ref // ""] | if length > 0 and all(test("web\\.archive\\.org/web/")) then "ok" else "" end' 2>/dev/null)"
-assert_nonempty "$C.wayback.ref" "$wref" "wayback refs are archive snapshot URLs"
-# snapshots come back newest-first (payload.published descending)
-worder="$(echo "$out" | jq -s -r '[.[]|select(.verb=="scan" and .state=="ready")|.payload.published] | if length >= 2 then (if .[0] >= .[-1] then "ok" else "bad" end) else "one" end' 2>/dev/null)"
-if [ "$worder" = "ok" ] || [ "$worder" = "one" ]; then
-  ok "$C.wayback.order" "wayback snapshots are newest-first ($worder)"
-else
-  fail "$C.wayback.order" "wayback snapshots not newest-first"
-fi
-unset OVERCAST_SOURCE_WAYBACK_CMD
-
 # --- flights (OpenSky ADS-B, keyless-capable) — live aircraft carrying gps ---
 export OVERCAST_SOURCE_FLIGHTS_CMD="bash $SRCDIR/flights.sh"
 CASE=$(case_dir src_flights)

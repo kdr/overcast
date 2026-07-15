@@ -52,7 +52,6 @@ const PROVIDERS: Prov[] = [
   sh("providers/sources/tiktok.sh", "source"),
   sh("providers/sources/x.sh", "source"),
   sh("providers/sources/web.sh", "source"),
-  sh("providers/sources/wayback.sh", "source"),
   sh("providers/sources/username.sh", "source"),
   sh("providers/sources/person.sh", "source"),
   sh("providers/sources/phone.sh", "source"),

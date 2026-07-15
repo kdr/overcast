@@ -64,7 +64,7 @@ export interface SituationTile {
 export interface SituationFeedItem {
   recordId: string;
   time: string | null;
-  /** source type (youtube | web | dork | wayback | …) */
+  /** source type (youtube | web | dork | overpass | …) */
   source: string | null;
   sourceId: string | null;
   title: string;
