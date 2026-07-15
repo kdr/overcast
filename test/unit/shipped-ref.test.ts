@@ -19,6 +19,41 @@ import {
 } from "../../src/providers/shipped-ref.ts";
 import { runExecProvider } from "../../src/providers/run.ts";
 import { loadProfile, saveProfile } from "../../src/profile.ts";
+import { resolveInstalledRefToken, InstalledRefError } from "../../src/providers/installed-ref.ts";
+
+// installed: ref scheme (manifests plan, Stage B) — resolved at the same spawn
+// seam as shipped:, but authored by `provider install`, NEVER by healing.
+test("installed: refs resolve at spawn, error when the package is gone, and are NEVER healed", () => {
+  const home = mkdtempSync(join(tmpdir(), "oc-installed-ref-"));
+  const savedHome = process.env.OVERCAST_HOME;
+  process.env.OVERCAST_HOME = home;
+  try {
+    const pkgDir = join(home, "providers", "acme");
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(join(pkgDir, "run.sh"), "echo hi\n");
+
+    // resolves through the shared spawn seam
+    assert.equal(resolveInstalledRefToken("installed:acme/run.sh"), join(pkgDir, "run.sh"));
+    assert.deepEqual(resolveShippedArgv(["bash", "installed:acme/run.sh"]), ["bash", join(pkgDir, "run.sh")]);
+    // a missing package throws the installed-specific error at the seam
+    assert.throws(() => resolveShippedArgv(["bash", "installed:gone/run.sh"]), InstalledRefError);
+    // doctor surfaces the stale binding
+    assert.deepEqual(
+      findShippedTokenIssues("bash installed:gone/run.sh").map((i) => i.kind),
+      ["unresolvable_ref"],
+    );
+    // healing is shipped-only: an installed: token passes through untouched
+    // (healCommandString only rewrites absolute paths), honoring locked decision 4.
+    const desc = { type: "exec" as const, run: "bash installed:acme/run.sh --input {{input}}" };
+    healDescriptor(desc);
+    assert.equal(desc.run, "bash installed:acme/run.sh --input {{input}}");
+    assert.equal(healShippedToken("installed:acme/run.sh"), "installed:acme/run.sh");
+  } finally {
+    if (savedHome === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test("resolveShippedRefToken resolves shipped provider files to absolute existing paths", () => {
   const abs = resolveShippedRefToken("shipped:providers/senses/enhance/ela.py");

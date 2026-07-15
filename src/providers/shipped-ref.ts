@@ -8,6 +8,7 @@
 
 import { existsSync, realpathSync } from "node:fs";
 import { shippedPath } from "../pkg.js";
+import { isInstalledRef, resolveInstalledRefToken, InstalledRefError } from "./installed-ref.js";
 import type { ProviderDescriptor } from "../profile.js";
 
 export const SHIPPED_REF_PREFIX = "shipped:";
@@ -55,11 +56,17 @@ export function resolveShippedRefToken(token: string): string | undefined {
   return undefined;
 }
 
-/** Replace every `shipped:` token in an argv with its resolved absolute path.
- *  Resolution happens POST-tokenization so a resolved path containing spaces
- *  stays one argv token. Throws ShippedRefError on an unresolvable ref. */
+/** Replace every `shipped:`/`installed:` token in an argv with its resolved
+ *  absolute path. Resolution happens POST-tokenization so a resolved path
+ *  containing spaces stays one argv token. Throws ShippedRefError /
+ *  InstalledRefError on an unresolvable ref. */
 export function resolveShippedArgv(argv: string[]): string[] {
   return argv.map((token) => {
+    if (isInstalledRef(token)) {
+      const abs = resolveInstalledRefToken(token);
+      if (!abs) throw new InstalledRefError(token);
+      return abs;
+    }
     if (!isShippedRef(token)) return token;
     const abs = resolveShippedRefToken(token);
     if (!abs) throw new ShippedRefError(token);
@@ -87,6 +94,7 @@ export function shippedRefResolution(desc: ProviderDescriptor | undefined): Reco
   for (const cmd of descriptorCommandStrings(desc)) {
     for (const token of cmd.split(/\s+/)) {
       if (isShippedRef(token)) out[token] = resolveShippedRefToken(token) ?? null;
+      else if (isInstalledRef(token)) out[token] = resolveInstalledRefToken(token) ?? null;
     }
   }
   return Object.keys(out).length ? out : undefined;
@@ -234,6 +242,12 @@ export function findShippedTokenIssues(cmd: string): ShippedTokenIssue[] {
   for (const token of cmd.split(/\s+/)) {
     if (isShippedRef(token)) {
       if (!resolveShippedRefToken(token)) issues.push({ kind: "unresolvable_ref", token });
+      continue;
+    }
+    if (isInstalledRef(token)) {
+      // a removed/renamed installed package leaves a stale binding — surface it
+      // (same kind; the token text `installed:<pkg>/…` disambiguates in doctor).
+      if (!resolveInstalledRefToken(token)) issues.push({ kind: "unresolvable_ref", token });
       continue;
     }
     if (existsSync(token)) continue; // present path — healing would (or already did) handle it

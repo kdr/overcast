@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import {
   scanManifests,
   manifestChoices,
@@ -96,6 +98,27 @@ test("source doctor descriptors are well-formed (env checks carry env, probes ca
       assert.ok(d.missingNote, `${e.type} needs a missingNote`);
     }
     assert.ok(d.okNote, `${e.type} doctor needs an okNote`);
+  }
+});
+
+// Drift guards: the curated prose surfaces (cli.ts ENV_GROUPS, the skill-gen
+// "Built-in source refs" block) stay hand-written for quality, but must never
+// silently omit a shipped source. These fail when a new source manifest lands
+// without its env row / ref bullet — the no-generation way to kill drift.
+const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+test("every shipped source manifest env key is documented in cli.ts ENV_GROUPS", () => {
+  const cli = readFileSync(join(REPO, "src", "cli.ts"), "utf8");
+  const keys = new Set(manifestSourceEntries().filter((e) => e.origin === "shipped").flatMap((e) => e.env ?? []));
+  for (const key of keys) {
+    assert.ok(cli.includes(key), `ENV_GROUPS (src/cli.ts) is missing source env var ${key}`);
+  }
+});
+
+test("every shipped source type has a ref-form bullet in the skill-gen source list", () => {
+  const skillGen = readFileSync(join(REPO, "src", "skill-gen.ts"), "utf8");
+  for (const e of manifestSourceEntries().filter((e) => e.origin === "shipped")) {
+    assert.ok(skillGen.includes(`\`${e.type}:`), `skill-gen "Built-in source refs" is missing a \`${e.type}:\` bullet`);
   }
 });
 

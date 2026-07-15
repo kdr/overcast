@@ -12,6 +12,7 @@ import {
   enumerateSource,
   fetchSource,
 } from "../providers/sources/index.js";
+import { manifestHostRoutes } from "../providers/manifests.js";
 import {
   resolveSources,
   enabledSources,
@@ -583,6 +584,13 @@ export function hostSourceType(url: string): string {
       /* malformed → web */
     }
     return "web";
+  }
+  // Manifest-declared source hosts (the installed-package extension point): a
+  // source that claims a host routes ad-hoc `capture <url>` to it. The dedicated
+  // shipped routes above win (they encode conditional logic a flat host list
+  // can't); this beats the generic dl/web fallbacks below.
+  for (const { host: h, type } of manifestHostRoutes()) {
+    if (host === h || host.endsWith(`.${h}`)) return type;
   }
   // video hosts yt-dlp handles but that lack a dedicated source → the generic
   // `dl` downloader, so `capture <url>` pulls the video instead of curling an

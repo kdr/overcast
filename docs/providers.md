@@ -91,6 +91,40 @@ next profile write; `overcast doctor` (the `provider-paths` check) flags any
 `examples/providers/` holds only authoring demos: teaching code for the wire
 contract, bound by raw `exec:` path.
 
+Each shipped provider directory carries a **`provider.json` manifest** declaring
+its entries (sense choices and/or source types), env vars, and preset
+contributions. The catalog + source registry are built by scanning these at
+runtime, so adding a provider is a matter of dropping in a directory — see
+installable packages below.
+
+## Installable provider packages (`provider install`)
+
+A provider **package** is a directory (or a `.tgz`/`.tar.gz` tarball) shaped like
+a shipped provider dir: a `provider.json` manifest plus its exec scripts. Install
+one from a local path — there is no registry fetch (a package runs unsandboxed on
+untrusted media, so the source must be something you already have on disk):
+
+```bash
+overcast provider create myfeed --kind source     # scaffold ./myfeed (provider.json + myfeed.sh)
+overcast provider install ./myfeed                 # dry-run: prints what it would register
+overcast provider install ./myfeed --yes           # installs into <home>/providers/myfeed/
+overcast provider list --installed                 # name, version, entries, provenance, tamper flag
+overcast provider install ./myfeed --upgrade --yes # replace an installed package of the same name
+overcast provider remove myfeed --yes              # uninstall
+```
+
+Installed packages resolve through **`installed:<pkg>/<relpath>`** refs (the
+sibling of `shipped:`), against `<home>/providers/<pkg>/`. Once installed, a
+source type is usable everywhere a shipped one is (`source add <type>:<ref>`,
+`scan`, `monitor`, `doctor --sources`); a sense choice appears in `provider setup
+apply --verb <verb> --choice <id>`. Install **rejects collisions** with a shipped
+(or already-installed) choice id / source type / preset name, and the package
+names `sources`/`senses`/`engines` are reserved. Install stamps
+`.overcast-install.json` (origin + a sha256 tree hash); `provider list
+--installed` and `doctor` flag a package whose files changed since install
+(`tampered`). A manifest's `presets` and `hosts` extend the preset map and the
+`capture <url>` host router respectively.
+
 ## Provider setup wizard and non-interactive profiles
 
 Use `provider setup` when you want a catalog-backed, scriptable profile setup

@@ -996,15 +996,19 @@ overcast provider [action] [verb] [options]
   Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).
 
 Arguments:
-  action           setup | init | list | describe (default: list)
-  verb             setup subcommand, or verb whose provider to init/describe
+  action           setup | install | remove | create | init | list | describe (default: list)
+  verb             setup subcommand, verb to init/describe, or the install path / package name
 
 Options:
   --profile <string>     Profile name to write/read (default: active/default)
   --verb <string>        provider setup: verb to configure
   --choice <string>      provider setup: catalog choice id
-  --preset <string>      provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap|voice-print|playwright)
-  --yes                  provider setup apply: confirm profile changes
+  --preset <string>      provider setup: preset id (owl-local|elevenlabs|fal|hf|local-models|cloudglue|deepface-local|basic-clip|audio-fp|basic-clap|voice-print|playwright)
+  --yes                  confirm a mutating action (setup apply / install / remove)
+  --installed            provider list: show installed provider packages
+  --upgrade              provider install: replace an already-installed package of the same name
+  --kind <string>        provider create: sense | source (default: sense)
+  --out <string>         provider create: output directory (default: ./)
   --json                 JSON output
   --format <string>      json | md | txt
 ```

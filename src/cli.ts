@@ -290,6 +290,11 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // first remaining token as the command.
   const { rest: tokens, caseDir, home, profile, errors: globalErrors } =
     extractGlobals(argv);
+  // Spawn-time ref resolution (installed:<pkg>/… → <home>/providers/<pkg>/…) reads
+  // the home from $OVERCAST_HOME via resolveHome({}), with no --home context at the
+  // spawn seam. Export an explicit --home into the environment so installed-package
+  // resolution + the manifest scan agree with ctx.home instead of ~/.overcast.
+  if (home) process.env.OVERCAST_HOME = home;
   // Base load: launcher cwd secrets (mirrors bin/overcast.ts run()), so runCli is
   // self-contained for harnesses that call it without the bin preamble. The case
   // dir then overlays case-specific values on top.

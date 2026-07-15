@@ -18,14 +18,6 @@
       ],
       "needs": "APIFY_TOKEN",
       "timeoutMs": 360000,
-      "doctor": {
-        "check": "env_all",
-        "env": [
-          "APIFY_TOKEN"
-        ],
-        "okNote": "APIFY_TOKEN present",
-        "missingNote": "APIFY_TOKEN missing for yandeximg scans"
-      },
       "refForms": [
         {
           "form": "yandeximg:<image url|path>"
