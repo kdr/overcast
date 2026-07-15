@@ -1,0 +1,45 @@
+{
+  "manifest_version": 1,
+  "name": "instagram",
+  "version": "1.0.0",
+  "description": "Instagram profiles / hashtags / post URLs via Apify (apify/instagram-scraper).",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "instagram",
+      "label": "Instagram (Apify)",
+      "summary": "Instagram profiles / hashtags / post URLs via Apify (apify/instagram-scraper).",
+      "env": [
+        "APIFY_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/instagram/instagram.sh"
+      ],
+      "needs": "APIFY_TOKEN",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "APIFY_TOKEN"
+        ],
+        "okNote": "APIFY_TOKEN present",
+        "missingNote": "APIFY_TOKEN missing for instagram scans"
+      },
+      "hosts": [
+        "instagram.com"
+      ],
+      "refForms": [
+        {
+          "form": "instagram:@handle"
+        },
+        {
+          "form": "instagram:#tag"
+        },
+        {
+          "form": "<post url>"
+        }
+      ]
+    }
+  ]
+}

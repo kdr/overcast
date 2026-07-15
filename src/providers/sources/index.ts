@@ -14,14 +14,8 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, st
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
-import { shippedProviderPath } from "../../pkg.js";
 import { resolveShippedArgv, ShippedRefError } from "../shipped-ref.js";
-
-/** Path to a shipped source-provider script — resolves the package root (dev) or
- *  beside the executable (bun binary) via the shared shippedProviderPath(). */
-function shippedSource(file: string): string | undefined {
-  return shippedProviderPath("sources", file);
-}
+import { manifestSourceDescriptor } from "../manifests.js";
 
 export interface SourceDescriptor {
   type: string;
@@ -67,173 +61,12 @@ export function builtinDescriptor(type: string): SourceDescriptor | undefined {
 }
 
 function shippedDescriptor(type: string): SourceDescriptor | undefined {
-  switch (type) {
-    case "youtube": {
-      // yt-dlp drives both enumerate (flat) and fetch (download). No API key.
-      const script = shippedSource("youtube.sh");
-      return script ? { type, base: ["bash", script], needs: "yt-dlp on PATH" } : undefined;
-    }
-    case "tiktok": {
-      const script = shippedSource("tiktok.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "x":
-    case "twitter": {
-      // one script serves both spellings; hits normalize to source "x".
-      // Apify run-sync (like tiktok/lens) → needs the longer exec budget.
-      const script = shippedSource("x.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "web": {
-      const script = shippedSource("web.sh");
-      return script ? { type, base: ["bash", script], needs: "TAVILY_API_KEY|BRAVE_API_KEY" } : undefined;
-    }
-    case "lens": {
-      // Google Lens reverse image search (Apify actor); ref/query = image URL
-      // or local image path.
-      const script = shippedSource("lens.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "dl": {
-      // generic yt-dlp downloader: capture-only fetch for any yt-dlp-supported
-      // host without a dedicated source (Rumble/BitChute/Odysee/VK/Bilibili/…).
-      // No API key; default (non-Apify) exec budget.
-      const script = shippedSource("dl.sh");
-      return script ? { type, base: ["bash", script], needs: "yt-dlp on PATH" } : undefined;
-    }
-    case "gdelttv": {
-      // GDELT 2.0 TV API — broadcast news video search over the Internet Archive
-      // TV News Archive. No API key; hits' media.ref is a bounded IA clip mp4.
-      const script = shippedSource("gdelttv.sh");
-      return script ? { type, base: ["bash", script], needs: "none (public GDELT API)" } : undefined;
-    }
-    case "overpass": {
-      // OpenStreetMap features via the Overpass API — geolocated map features
-      // (hospitals, cameras, fuel, named places, …). No API key; every hit carries
-      // top-level gps so scan records plot on `map`; media.ref is the OSM page.
-      const script = shippedSource("overpass.sh");
-      return script ? { type, base: ["bash", script], needs: "none (public Overpass API)" } : undefined;
-    }
-    case "firms": {
-      // NASA FIRMS active-fire / thermal-anomaly hotspots. FREE map key; hits carry
-      // top-level gps + an ISO capture time (plot on `map`); media.ref is a FIRMS
-      // fire-map deep link centered on the detection.
-      const script = shippedSource("firms.sh");
-      return script ? { type, base: ["bash", script], needs: "FIRMS_MAP_KEY" } : undefined;
-    }
-    case "dispatch": {
-      // Police CAD / calls-for-service feeds on the Socrata SODA API (sf/seattle
-      // presets, or any <domain>/<dataset>[@<datefield>]). No API key (optional
-      // SOCRATA_APP_TOKEN raises rate limits); hits carry top-level gps so scan
-      // records plot on `map`; media.ref is a stable per-row SODA deep link.
-      const script = shippedSource("dispatch.sh");
-      return script
-        ? { type, base: ["bash", script], needs: "none (public Socrata SODA API) — optional SOCRATA_APP_TOKEN raises rate limits" }
-        : undefined;
-    }
-    case "instagram": {
-      // Instagram profiles/hashtags via Apify (apify/instagram-scraper).
-      const script = shippedSource("instagram.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "telegram": {
-      // Public Telegram channels via Apify. Stable per-post t.me URLs → strong
-      // monitor fit.
-      const script = shippedSource("telegram.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "facesearch": {
-      // Opt-in reverse FACE search via Apify (nkactors/face-search). Sensitive:
-      // never a default binding. Query/ref = a face image (url or local path).
-      const script = shippedSource("facesearch.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "webcam": {
-      // Live public webcams via the Windy Webcams API (geolocated cams). Fast
-      // HTTP GET → default exec budget. Hits' media.ref is the current still.
-      const script = shippedSource("webcam.sh");
-      return script ? { type, base: ["bash", script], needs: "WINDY_API_KEY" } : undefined;
-    }
-    case "dork": {
-      // Google dorking via Serper.dev — real Google SERPs that HONOR operators
-      // (site:/filetype:/inurl:/intitle:/…), unlike `web` (Tavily/Brave), which
-      // ignore them. Fast HTTP → default exec budget. Authorized recon only.
-      const script = shippedSource("dork.sh");
-      return script ? { type, base: ["bash", script], needs: "SERPER_API_KEY" } : undefined;
-    }
-    case "shodan": {
-      // Host / service / banner intelligence via the Shodan REST API. Search
-      // filters or a bare IP (host lookup); media.ref = the shodan.io host report
-      // page. Fast HTTP → default exec budget. Authorized recon only.
-      const script = shippedSource("shodan.sh");
-      return script ? { type, base: ["bash", script], needs: "SHODAN_API_KEY" } : undefined;
-    }
-    case "username": {
-      // Social/forum account discovery via Apify (Maigret): username → accounts
-      // across 3000+ sites. Opt-in / sensitive (person OSINT) — never a default.
-      const script = shippedSource("username.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "person": {
-      // People-search / skip-trace via Apify (apivault skip-trace): name(+location)
-      // → public records (addresses/phones/emails/relatives/age). Opt-in /
-      // sensitive, NOT an FCRA report.
-      const script = shippedSource("person.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "phone": {
-      // Reverse phone / number OSINT via Apify (PhoneInfoga): number → offline
-      // parse (carrier guess / country / validity) + web footprint. APIFY_TOKEN
-      // only. Opt-in / sensitive — never a default.
-      const script = shippedSource("phone.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "property": {
-      // Address → county assessor / tax / recorder records via Apify
-      // (county-property-records): owner / value / tax / sale history. Opt-in /
-      // sensitive — never a default.
-      const script = shippedSource("property.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "plate": {
-      // License plate → vehicle spec via a BOUND Apify actor. DPPA-restricted and
-      // deliberately unbound by default: needs APIFY_TOKEN + OVERCAST_PLATE_ACTOR.
-      // Vehicle spec only (no owner). Opt-in / sensitive — never a default.
-      const script = shippedSource("plate.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN + OVERCAST_PLATE_ACTOR", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    case "browser": {
-      // Rendered-page capture via the shared screenshot engine (headless
-      // Chromium / Playwright — the same engine behind the `screenshot` verb).
-      // ref = a page URL; each fetch renders the CURRENT page state to a PNG
-      // (recapture:true → monitor re-renders every pass). No API key; needs the
-      // playwright optional dep. Default budgets fit (enumerate is instant, a
-      // render finishes well inside the 5-min fetch budget).
-      const script = shippedSource("browser.sh");
-      return script ? { type, base: ["bash", script], needs: "node + playwright optional dep (npx playwright install chromium)" } : undefined;
-    }
-    case "flights": {
-      // Live ADS-B aircraft positions via the OpenSky Network REST API. KEYLESS-
-      // CAPABLE: anonymous works (rate-limited), optional OAuth2 client creds
-      // raise limits. Every hit carries top-level gps so scan records plot on
-      // `map` and `monitor --every` builds a track; media.ref is the aircraft
-      // profile page. Fast HTTP → default exec budget. Public data, but opt-in
-      // (never a default binding).
-      const script = shippedSource("flights.sh");
-      return script
-        ? { type, base: ["bash", script], needs: "none (anonymous OpenSky) — optional OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET raise rate limits" }
-        : undefined;
-    }
-    case "yandeximg": {
-      // Yandex reverse image search via Apify — the reverse-image counterpart of
-      // `lens` (Google), strongest for faces/places. Ref/query = image URL or
-      // local image path. Apify run-sync (like lens/tiktok) → longer exec budget.
-      const script = shippedSource("yandeximg.sh");
-      return script ? { type, base: ["bash", script], needs: "APIFY_TOKEN", timeoutMs: APIFY_RUN_SYNC_TIMEOUT_MS } : undefined;
-    }
-    default:
-      return undefined;
-  }
+  // Built-in source descriptors now come from the per-directory provider.json
+  // manifests under providers/sources/<type>/ (scanned at runtime). The manifest
+  // layer resolves the script's shipped:/installed: ref to an absolute base argv
+  // (aliases like x→twitter honored), returning undefined when the type is
+  // unknown or its script isn't in this build — same contract as the old switch.
+  return manifestSourceDescriptor(type);
 }
 
 export interface ScanHit {

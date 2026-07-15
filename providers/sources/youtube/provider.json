@@ -1,0 +1,37 @@
+{
+  "manifest_version": 1,
+  "name": "youtube",
+  "version": "1.0.0",
+  "description": "YouTube channel/handle, playlist, or keyword-search enumeration + video download via yt-dlp. No API key.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "youtube",
+      "label": "YouTube (yt-dlp)",
+      "summary": "YouTube channel/handle, playlist, or keyword-search enumeration + video download via yt-dlp. No API key.",
+      "base": [
+        "bash",
+        "shipped:providers/sources/youtube/youtube.sh"
+      ],
+      "needs": "yt-dlp on PATH",
+      "hosts": [
+        "youtube.com",
+        "youtu.be"
+      ],
+      "refForms": [
+        {
+          "form": "youtube:@handle"
+        },
+        {
+          "form": "youtube:playlist:<id>"
+        },
+        {
+          "form": "youtube:search:<q>"
+        },
+        {
+          "form": "<video url>"
+        }
+      ]
+    }
+  ]
+}

@@ -30,13 +30,29 @@ export function isShippedRef(token: string): boolean {
   return token.startsWith(SHIPPED_REF_PREFIX) && token.length > SHIPPED_REF_PREFIX.length;
 }
 
+/** A flat (pre-reshuffle) source-script relpath → its per-directory home:
+ *  `providers/sources/tiktok.sh` → `providers/sources/tiktok/tiktok.sh`. Any
+ *  other relpath (already nested, senses/engines, non-.sh) passes through. The
+ *  source scripts moved into per-type dirs with the provider.json manifests, so
+ *  old persisted refs / OVERCAST_SOURCE_*_CMD values must remap to still resolve. */
+function nestFlatSourceRelpath(rel: string): string {
+  const m = rel.match(/^providers\/sources\/([^/]+)\.sh$/);
+  return m ? `providers/sources/${m[1]}/${m[1]}.sh` : rel;
+}
+
 /** Resolve ONE `shipped:<relpath>` token to an absolute path, or undefined when
- *  this build doesn't carry the file (or the token isn't a ref). */
+ *  this build doesn't carry the file (or the token isn't a ref). A flat
+ *  pre-reshuffle source ref that no longer resolves is retried at its nested home. */
 export function resolveShippedRefToken(token: string): string | undefined {
   if (!isShippedRef(token)) return undefined;
-  const segments = token.slice(SHIPPED_REF_PREFIX.length).split("/").filter(Boolean);
+  const rel = token.slice(SHIPPED_REF_PREFIX.length);
+  const segments = rel.split("/").filter(Boolean);
   if (!segments.length) return undefined;
-  return shippedPath(...segments);
+  const direct = shippedPath(...segments);
+  if (direct) return direct;
+  const nested = nestFlatSourceRelpath(rel);
+  if (nested !== rel) return shippedPath(...nested.split("/").filter(Boolean));
+  return undefined;
 }
 
 /** Replace every `shipped:` token in an argv with its resolved absolute path.
@@ -95,7 +111,7 @@ function mapLegacyExamplesSubpath(sub: string): string | undefined {
   // moved WITHIN examples/ (still demos, not shipped):
   if (sub === "sources/mcp-bridge.ts" || sub === "hf/enhance.py") return undefined;
   const head = sub.split("/")[0];
-  if (head === "sources") return `providers/${sub}`;
+  if (head === "sources") return nestFlatSourceRelpath(`providers/${sub}`);
   if (
     ["hf", "fal", "elevenlabs", "tinycloud", "detect", "geocode", "exif", "verify", "local", "enhance"].includes(head)
   ) {
@@ -119,7 +135,7 @@ function shippedRefCandidate(token: string): string | undefined {
     return rel ? SHIPPED_REF_PREFIX + rel : undefined;
   }
   const current = token.match(/\/providers\/(sources|senses|engines)\/(.+)$/);
-  if (current) return `${SHIPPED_REF_PREFIX}providers/${current[1]}/${current[2]}`;
+  if (current) return `${SHIPPED_REF_PREFIX}${nestFlatSourceRelpath(`providers/${current[1]}/${current[2]}`)}`;
   if (/\/scripts\/visual-db-uv\.sh$/.test(token)) return `${SHIPPED_REF_PREFIX}scripts/visual-db-uv.sh`;
   return undefined;
 }

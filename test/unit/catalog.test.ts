@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { providerChoices, findProviderChoice, PROVIDER_PRESETS } from "../../src/providers/catalog.ts";
+import { providerChoices, findProviderChoice, providerPresets } from "../../src/providers/catalog.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -21,7 +21,7 @@ test("voice-print catalog choice + preset are registered for the voice verb", ()
   const init = (choice!.descriptor as { init?: { command?: string } }).init?.command ?? "";
   assert.match(init, /visual-db-uv\.sh --voice/);
   assert.ok(choice!.env?.includes("OVERCAST_VOICE_MODEL"));
-  assert.deepEqual(PROVIDER_PRESETS["voice-print"], [{ verb: "voice", choice: "voice-print" }]);
+  assert.deepEqual(providerPresets()["voice-print"], [{ verb: "voice", choice: "voice-print" }]);
 });
 
 test("owl-local detector honors $DETECT_PY (venv python), else falls back to python3", () => {

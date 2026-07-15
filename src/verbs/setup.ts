@@ -19,7 +19,7 @@ import { tokenizeCommand, builtinDescriptor } from "../providers/sources/index.j
 import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
 import { loadSetup, saveSetup, emptySetup } from "../state/setup.js";
-import { findProviderChoice, providerChoices, PROVIDER_PRESETS, type ProviderChoice } from "../providers/catalog.js";
+import { findProviderChoice, providerChoices, providerPresets, type ProviderChoice } from "../providers/catalog.js";
 import {
   resolveShippedArgv,
   shippedRefResolution,
@@ -140,8 +140,9 @@ function providerSetupRequests(ctx: VerbContext): { items: Array<{ verb: string;
   const verb = ctx.opts.verb ? String(ctx.opts.verb).trim() : "";
   const choice = ctx.opts.choice ? String(ctx.opts.choice).trim() : "";
   if (preset) {
-    const items = PROVIDER_PRESETS[preset];
-    if (!items) return { items: [], error: `unknown provider preset '${preset}' (expected ${Object.keys(PROVIDER_PRESETS).join(" | ")})` };
+    const presets = providerPresets();
+    const items = presets[preset];
+    if (!items) return { items: [], error: `unknown provider preset '${preset}' (expected ${Object.keys(presets).join(" | ")})` };
     return { items: items.map((i) => ({ ...i, choiceName: i.choice })) };
   }
   if (!verb || !choice) {
@@ -364,7 +365,7 @@ export const providerVerb: VerbSpec = {
         // choices carry a `resolved` map (shipped: ref → absolute path in this
         // build) for transparency; the descriptor itself keeps the portable ref.
         const choices = providerChoices().map((c) => ({ ...c, resolved: shippedRefResolution(c.descriptor) }));
-        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices, presets: PROVIDER_PRESETS, providers }, meta: { transient: true }, state: "ready" })];
+        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices, presets: providerPresets(), providers }, meta: { transient: true }, state: "ready" })];
       }
       if (sub !== "plan" && sub !== "apply") {
         return [err("provider", "usage: provider setup [show|plan|apply] [--verb <verb> --choice <choice> | --preset <preset>] [--profile <name>] [--yes]")];

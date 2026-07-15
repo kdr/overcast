@@ -65,7 +65,7 @@ test("healShippedToken rewrites recognized old absolute paths to shipped: refs (
     ["/opt/old/examples/providers/fal/enhance.sh", "shipped:providers/senses/fal/enhance.sh"],
     ["/opt/old/examples/providers/detect/detect.py", "shipped:providers/senses/detect/detect.py"],
     ["/opt/old/examples/providers/geocode/geocode.sh", "shipped:providers/senses/geocode/geocode.sh"],
-    ["/opt/old/examples/providers/sources/tiktok.sh", "shipped:providers/sources/tiktok.sh"],
+    ["/opt/old/examples/providers/sources/tiktok.sh", "shipped:providers/sources/tiktok/tiktok.sh"],
     ["/opt/old/examples/providers/visual-db/clip_match.py", "shipped:providers/engines/visual-db/clip_match.py"],
     ["/opt/old/examples/providers/audio-db/audio_match.py", "shipped:providers/engines/audio-db/audio_match.py"],
     ["/opt/old/examples/providers/screenshot/render.mjs", "shipped:providers/engines/screenshot/render.mjs"],

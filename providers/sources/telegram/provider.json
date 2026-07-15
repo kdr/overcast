@@ -1,0 +1,42 @@
+{
+  "manifest_version": 1,
+  "name": "telegram",
+  "version": "1.0.0",
+  "description": "Public Telegram channels via Apify (stable per-post t.me URLs → strong monitor fit).",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "telegram",
+      "label": "Telegram (Apify)",
+      "summary": "Public Telegram channels via Apify (stable per-post t.me URLs → strong monitor fit).",
+      "env": [
+        "APIFY_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/telegram/telegram.sh"
+      ],
+      "needs": "APIFY_TOKEN",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "APIFY_TOKEN"
+        ],
+        "okNote": "APIFY_TOKEN present",
+        "missingNote": "APIFY_TOKEN missing for telegram scans"
+      },
+      "hosts": [
+        "t.me"
+      ],
+      "refForms": [
+        {
+          "form": "telegram:<channel>"
+        },
+        {
+          "form": "<t.me url>"
+        }
+      ]
+    }
+  ]
+}

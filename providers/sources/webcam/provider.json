@@ -1,0 +1,44 @@
+{
+  "manifest_version": 1,
+  "name": "webcam",
+  "version": "1.0.0",
+  "description": "Live public webcams via the Windy Webcams API (geolocated cams). Hits' media.ref is the current still.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "webcam",
+      "label": "Windy Webcams",
+      "summary": "Live public webcams via the Windy Webcams API (geolocated cams). Hits' media.ref is the current still.",
+      "env": [
+        "WINDY_API_KEY"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/webcam/webcam.sh"
+      ],
+      "needs": "WINDY_API_KEY",
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "WINDY_API_KEY"
+        ],
+        "okNote": "WINDY_API_KEY present",
+        "missingNote": "WINDY_API_KEY missing for webcam (Windy Webcams) scans (https://api.windy.com/webcams)"
+      },
+      "refForms": [
+        {
+          "form": "webcam:<lat>,<lng>[,radius]"
+        },
+        {
+          "form": "webcam:country:<ISO2>"
+        },
+        {
+          "form": "webcam:category:<slug>"
+        },
+        {
+          "form": "webcam:<id>"
+        }
+      ]
+    }
+  ]
+}

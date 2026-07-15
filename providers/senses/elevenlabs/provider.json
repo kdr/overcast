@@ -1,0 +1,44 @@
+{
+  "manifest_version": 1,
+  "name": "elevenlabs",
+  "version": "1.0.0",
+  "description": "ElevenLabs hosted senses: Scribe speech-to-text (listen) and voice isolation (enhance).",
+  "entries": [
+    {
+      "kind": "sense",
+      "id": "elevenlabs",
+      "verb": "listen",
+      "label": "ElevenLabs Scribe",
+      "summary": "ElevenLabs speech-to-text provider.",
+      "env": ["ELEVENLABS_API_KEY"],
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/elevenlabs/listen.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/elevenlabs/listen.sh init",
+        "describe": "bash shipped:providers/senses/elevenlabs/listen.sh describe"
+      }
+    },
+    {
+      "kind": "sense",
+      "id": "elevenlabs",
+      "verb": "enhance",
+      "label": "ElevenLabs Voice Isolator",
+      "summary": "ElevenLabs audio voice isolation provider.",
+      "env": ["ELEVENLABS_API_KEY"],
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/elevenlabs/enhance.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/elevenlabs/enhance.sh init",
+        "describe": "bash shipped:providers/senses/elevenlabs/enhance.sh describe"
+      }
+    }
+  ],
+  "presets": {
+    "elevenlabs": [
+      { "verb": "listen", "choice": "elevenlabs" },
+      { "verb": "enhance", "choice": "elevenlabs" }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "manifest_version": 1,
+  "name": "browser",
+  "version": "1.0.0",
+  "description": "Rendered-page capture via the shared headless-Chromium screenshot engine. ref = a page URL; each fetch renders the current page to a PNG. No API key; needs the playwright optional dep.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "browser",
+      "label": "Rendered-page capture (headless Chromium)",
+      "summary": "Rendered-page capture via the shared headless-Chromium screenshot engine. ref = a page URL; each fetch renders the current page to a PNG. No API key; needs the playwright optional dep.",
+      "base": [
+        "bash",
+        "shipped:providers/sources/browser/browser.sh"
+      ],
+      "needs": "node + playwright optional dep (npx playwright install chromium)",
+      "doctor": {
+        "check": "reuse_playwright",
+        "okNote": "Playwright + Chromium renderer available (rendered-page capture)",
+        "missingNote": "Playwright renderer missing — run `npm install --include=optional` and `npx playwright install chromium`"
+      },
+      "refForms": [
+        {
+          "form": "browser:<url>"
+        }
+      ]
+    }
+  ]
+}

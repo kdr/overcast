@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "name": "yandeximg",
+  "version": "1.0.0",
+  "description": "Yandex reverse image search via Apify — the reverse-image counterpart of lens (Google), strongest for faces/places. Ref/query = image URL or local image path.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "yandeximg",
+      "label": "Yandex reverse image (Apify)",
+      "summary": "Yandex reverse image search via Apify — the reverse-image counterpart of lens (Google), strongest for faces/places. Ref/query = image URL or local image path.",
+      "env": [
+        "APIFY_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/yandeximg/yandeximg.sh"
+      ],
+      "needs": "APIFY_TOKEN",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "APIFY_TOKEN"
+        ],
+        "okNote": "APIFY_TOKEN present",
+        "missingNote": "APIFY_TOKEN missing for yandeximg scans"
+      },
+      "refForms": [
+        {
+          "form": "yandeximg:<image url|path>"
+        }
+      ]
+    }
+  ]
+}

@@ -940,7 +940,7 @@ Each responds to `describe` offline:
 ./examples/providers/bash/watch.sh describe
 python3 examples/providers/python/listen.py describe
 node --import tsx examples/providers/ts/see.ts describe
-bash providers/sources/tiktok.sh describe
+bash providers/sources/tiktok/tiktok.sh describe
 ```
 
 ### Consume an MCP server as a source (prototype/example)

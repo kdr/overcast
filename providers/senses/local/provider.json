@@ -1,0 +1,28 @@
+{
+  "manifest_version": 1,
+  "name": "local",
+  "version": "1.0.0",
+  "description": "On-device enhance toolbox: source separation + text-prompted segmentation (local-models).",
+  "entries": [
+    {
+      "kind": "sense",
+      "id": "local-models",
+      "verb": "enhance",
+      "label": "Local separation & segmentation",
+      "summary": "On-device enhance toolbox: --ops separate (pyannote per-speaker tracks) + --ops segment (GroundingDINO + SAM 2.1 text-prompted masks/cutouts). Set up with scripts/visual-db-uv.sh --enhance.",
+      "env": ["OC_VISUAL_DB_PY", "HF_TOKEN"],
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/local/enhance.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/local/enhance.sh init",
+        "describe": "bash shipped:providers/senses/local/enhance.sh describe"
+      }
+    }
+  ],
+  "presets": {
+    "local-models": [
+      { "verb": "enhance", "choice": "local-models" }
+    ]
+  }
+}

@@ -13,6 +13,17 @@ export function shippedProviderPath(...segments: string[]): string | undefined {
   return shippedPath("providers", ...segments);
 }
 
+/** Resolve the shipped `providers/` ROOT directory (for the manifest scanner).
+ *  The bare-directory walk-up can't use `shippedPath("providers")`: in dev the
+ *  source dir `src/providers/` shadows the real top-level tree (both are named
+ *  `providers`). `providers/senses/` exists ONLY in the shipped tree (src/providers
+ *  has no senses/ subdir), so we key on it and take its parent — resolving to the
+ *  real tree in dev and to `<execDir>/providers` in the bun sidecar. */
+export function shippedProvidersRoot(): string | undefined {
+  const senses = shippedPath("providers", "senses");
+  return senses ? dirname(senses) : undefined;
+}
+
 export function shippedPath(...segments: string[]): string | undefined {
   try {
     let dir = dirname(fileURLToPath(import.meta.url));
