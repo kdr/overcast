@@ -14,12 +14,13 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, st
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
-import { shippedPath } from "../../pkg.js";
+import { shippedProviderPath } from "../../pkg.js";
+import { resolveShippedArgv, ShippedRefError } from "../shipped-ref.js";
 
 /** Path to a shipped source-provider script — resolves the package root (dev) or
- *  beside the executable (bun binary) via the shared shippedPath(). */
+ *  beside the executable (bun binary) via the shared shippedProviderPath(). */
 function shippedSource(file: string): string | undefined {
-  return shippedPath("examples", "providers", "sources", file);
+  return shippedProviderPath("sources", file);
 }
 
 export interface SourceDescriptor {
@@ -105,14 +106,6 @@ function shippedDescriptor(type: string): SourceDescriptor | undefined {
       // TV News Archive. No API key; hits' media.ref is a bounded IA clip mp4.
       const script = shippedSource("gdelttv.sh");
       return script ? { type, base: ["bash", script], needs: "none (public GDELT API)" } : undefined;
-    }
-    case "wayback": {
-      // Internet Archive Wayback Machine — recover deleted pages/posts and surface
-      // changes over time via the CDX API. No API key; hits' media.ref is a
-      // snapshot URL. Named `wayback` (not `archive`) to avoid colliding with the
-      // media-bucket verb + `archive:<bucket>/<item>` ref scheme.
-      const script = shippedSource("wayback.sh");
-      return script ? { type, base: ["bash", script], needs: "none (public Wayback CDX API)" } : undefined;
     }
     case "overpass": {
       // OpenStreetMap features via the Overpass API — geolocated map features
@@ -330,7 +323,18 @@ export async function enumerateSource(
   desc: SourceDescriptor,
   opts: EnumerateOpts,
 ): Promise<OvercastRecord[]> {
-  const [cmd, ...lead] = desc.base;
+  // resolve any `shipped:` tokens in the base argv at spawn time — an
+  // OVERCAST_SOURCE_*_CMD override (or a healed source path) can carry the same
+  // portable ref the sense providers use (plan 07 Stage B). Builtins pre-resolve
+  // via shippedProviderPath, so this is a no-op for them.
+  let base: string[];
+  try {
+    base = resolveShippedArgv(desc.base);
+  } catch (e) {
+    if (!(e instanceof ShippedRefError)) throw e;
+    return [makeRecord({ verb: "scan", format: "json", payload: { source: desc.type }, error: e.message, state: "error" })];
+  }
+  const [cmd, ...lead] = base;
   const args = [...lead, "enumerate"];
   const q = opts.query ?? opts.ref ?? "";
   if (q) args.push("--query", q);
@@ -433,7 +437,15 @@ export async function fetchSource(
   desc: SourceDescriptor,
   opts: FetchOpts,
 ): Promise<OvercastRecord> {
-  const [cmd, ...lead] = desc.base;
+  // resolve any `shipped:` tokens in the base argv (see enumerateSource).
+  let base: string[];
+  try {
+    base = resolveShippedArgv(desc.base);
+  } catch (e) {
+    if (!(e instanceof ShippedRefError)) throw e;
+    return makeRecord({ verb: "capture", format: "json", payload: { url: opts.url, source: desc.type }, error: e.message, state: "error" });
+  }
+  const [cmd, ...lead] = base;
   const args = [...lead, "fetch", "--url", opts.url, "--out", opts.out];
   const res = await execCapture(cmd, args, {
     env: opts.env,

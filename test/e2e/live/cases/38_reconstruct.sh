@@ -20,7 +20,7 @@ fi
 have_media "$IMG" || { skip "$C" "no OC_IMAGE / video to frame"; exit 0; }
 
 CASE=$(case_dir reconstruct)
-RP="$PWD/examples/providers/fal/reconstruct.sh"
+RP="$PWD/providers/senses/fal/reconstruct.sh"
 ocrun "$CASE" setup provider reconstruct "exec:bash $RP --input {{input}}" --json >/dev/null 2>&1
 
 # --- camera reposition: --rotate 90 → parent + one synthesized view child ----

@@ -21,7 +21,7 @@ fi
 have_cmd exiftool || { skip "$C" "no exiftool on PATH (brew install exiftool / apt install libimage-exiftool-perl)"; exit 0; }
 
 CASE=$(case_dir forensics)
-EXIF_SH="$PWD/examples/providers/exif/exif.sh"
+EXIF_SH="$PWD/providers/senses/exif/exif.sh"
 ocrun "$CASE" setup provider exif "exec:bash $EXIF_SH --input {{input}}" --json >/dev/null 2>&1
 
 # --- exif: real embedded metadata ---
@@ -70,7 +70,7 @@ fi
 
 # --- geocode: opt-in LIVE Nominatim reverse geocode ---
 if [ "$HAS_GPS" = "true" ] && have_cmd curl; then
-  GEO_SH="$PWD/examples/providers/geocode/geocode.sh"
+  GEO_SH="$PWD/providers/senses/geocode/geocode.sh"
   ocrun "$CASE" setup provider geocode "exec:bash $GEO_SH --input {{input}}" --json >/dev/null 2>&1
   cond "exif --geocode resolves real GPS to a place name via OSM Nominatim"
   gout="$(OC_TIMEOUT=90 oc "$CASE" exif "$PHOTO" --geocode --json | primary_rec)"
@@ -97,7 +97,7 @@ ok "$C.devices.summary" "total_exif=$(jq -r '.payload.total_exif' <<<"$drep") cl
 
 # --- verify: real C2PA provenance ---
 if have_cmd c2patool; then
-  VER_SH="$PWD/examples/providers/verify/verify.sh"
+  VER_SH="$PWD/providers/senses/verify/verify.sh"
   ocrun "$CASE" setup provider verify "exec:bash $VER_SH --input {{input}}" --json >/dev/null 2>&1
   cond "verify reads real C2PA provenance → ready media.provenance record"
   vout="$(oc "$CASE" verify "$PHOTO" --json | primary_rec)"

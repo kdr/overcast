@@ -390,7 +390,7 @@ test("shots reuse skips a segmentless ready watch in favor of one with segments 
 });
 
 test("clip_match.py invalidates a cached member when explicit frames_at changed (#B2-1)", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "visual-db", "clip_match.py"), "utf8");
   // frames_at is not part of config_hash, so the freshness check must compare
   // an explicit marker list against the sidecar's recorded markers.
   assert.match(src, /frames_at is not None and meta\.get\("frames_at"\) != frames_at/);
@@ -401,7 +401,7 @@ test("visual-db scripts recognize every video extension the TS intake gate accep
   // be misrouted to a script's image path because its VIDEO_EXTS tuple is narrower.
   const avVideoExts = ["mp4", "m4v", "mov", "webm", "mkv", "avi", "mpeg", "mpg", "m2ts", "mts", "ts", "wmv", "flv", "3gp", "3g2", "ogv", "mxf"];
   for (const script of ["clip_match.py", "image_match.py", "face_match.py", "face_cluster.py"]) {
-    const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", script), "utf8");
+    const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "visual-db", script), "utf8");
     const tuple = src.match(/VIDEO_EXTS = \(([^)]*)\)/)?.[1] ?? "";
     for (const ext of avVideoExts) {
       assert.ok(tuple.includes(`".${ext}"`), `${script} VIDEO_EXTS is missing .${ext}`);
@@ -410,7 +410,7 @@ test("visual-db scripts recognize every video extension the TS intake gate accep
 });
 
 test("clip_match.py queries never re-key or persist member embeddings (#B4-1)", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "visual-db", "clip_match.py"), "utf8");
   // member-side rebuilds during a query must use the PERSISTED index config
   // (config.json), not the per-query CLI flags…
   assert.match(src, /member_args = index_config_args\(args\)/);
@@ -434,14 +434,14 @@ test("similar add rejects per-add config overrides (#B5-1)", async () => {
 });
 
 test("clip_match.py add embeds with the persisted index config, like queries (#B5-1)", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "visual-db", "clip_match.py"), "utf8");
   // add and query must key the member cache identically, or add persists a
   // config_hash searches never reuse.
   assert.match(src, /build_member\(ref, member_args, args\.index_dir, frames_at=frames_at\)/);
 });
 
 test("clip_match.py stops reusing shot markers once the config says uniform (#B5-2)", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "visual-db", "clip_match.py"), "utf8");
   assert.match(src, /frames_at is None and args\.sampling == "shots"/);
 });
 
@@ -495,7 +495,7 @@ test("case status counts similar records as evidence (#B6-1)", async () => {
 });
 
 test("clip_match.py does not anchor the query record on a matched member's timestamp (#B3-2)", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "visual-db", "clip_match.py"), "utf8");
   // a member's `at` lives in payload.matches[]; media anchors the QUERY only.
   assert.doesNotMatch(src, /media\["at"\]\s*=\s*results/);
 });
@@ -547,7 +547,7 @@ printf '{"verb":"watch","format":"json","payload":{"content":"x","detailed":{"se
 });
 
 test("clip_match.py persists + reuses shot markers across cache rebuilds (#B1-2)", () => {
-  const src = readFileSync(join(HERE, "..", "..", "examples", "providers", "visual-db", "clip_match.py"), "utf8");
+  const src = readFileSync(join(HERE, "..", "..", "providers", "engines", "visual-db", "clip_match.py"), "utf8");
   // the sidecar must record the markers a member was embedded with…
   assert.match(src, /"frames_at":\s*frames_at/);
   // …and a stale query-time rebuild must reuse them instead of a uniform grid.

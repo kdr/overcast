@@ -89,7 +89,7 @@ DIARIZED=0; el_attempted=0
 if require_cred "$C.diarize" ELEVENLABS_API_KEY "speaker separation needs a diarize-capable provider (ElevenLabs)"; then
   el_attempted=1
   cond "wiretap skill: a bound ElevenLabs provider does listen --diarize (speaker separation)"
-  EL="$PWD/examples/providers/elevenlabs/listen.sh"
+  EL="$PWD/providers/senses/elevenlabs/listen.sh"
   ocrun "$CASE" setup provider listen "exec:bash $EL {{input}}" --json >/dev/null 2>&1
   dz="$(OC_TIMEOUT=240 oc "$CASE" listen "$REC" --diarize --json)"
   save_json "84_diarize" "$dz" >/dev/null

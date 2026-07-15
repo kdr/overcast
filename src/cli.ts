@@ -151,7 +151,7 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["OVERCAST_PLATE_ACTOR", "Apify actor id for the `plate` source (no default — US plate data is DPPA-restricted; you must bind one)"],
       ["OVERCAST_YANDEX_ACTOR / OVERCAST_YANDEX_IMAGE_KEY", "override the `yandeximg` Apify actor + its image-input field"],
       ["OVERCAST_SOURCE_<TYPE>_CMD", "Override/add a source provider command (e.g. OVERCAST_SOURCE_YOUTUBE_CMD)"],
-      ["(keyless sources)", "youtube/dl need yt-dlp on PATH; gdelttv/wayback/overpass/dispatch/browser need no key"],
+      ["(keyless sources)", "youtube/dl need yt-dlp on PATH; gdelttv/overpass/dispatch/browser need no key"],
     ],
   },
   {

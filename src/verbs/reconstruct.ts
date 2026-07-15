@@ -11,7 +11,7 @@
 // pixels — a hypothesis to steer the investigation, not proof.
 //
 // There is NO built-in backend (unlike enhance's ffmpeg default): novel-view
-// synthesis needs a bound model provider (`examples/providers/fal/reconstruct.sh`).
+// synthesis needs a bound model provider (`providers/senses/fal/reconstruct.sh`).
 
 import { join } from "node:path";
 import { existsSync, writeFileSync } from "node:fs";
@@ -183,8 +183,7 @@ export const reconstructVerb: VerbSpec = {
     if (!isCustomBinding(binding)) {
       return [errorRecord(
         "reconstruct has no built-in backend — bind a provider first: " +
-          "`overcast provider setup apply --verb reconstruct --choice fal --yes` (needs FAL_KEY), " +
-          'or `overcast setup provider reconstruct "exec:bash examples/providers/fal/reconstruct.sh --input {{input}}"`.',
+          "`overcast provider setup apply --verb reconstruct --choice fal --yes` (needs FAL_KEY).",
       )];
     }
     const extraArgs: string[] = ["--ops", op];

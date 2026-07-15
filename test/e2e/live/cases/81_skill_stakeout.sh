@@ -59,7 +59,7 @@ fi
 # 5) skill step (source tier): monitor a public source, pipe new media to watch
 if require_cred "$C.monitor" APIFY_TOKEN "source-monitor tier needs Apify"; then
   cond "stakeout skill: monitor --once sweeps a real x source and pipes a new hit into watch"
-  export OVERCAST_SOURCE_X_CMD="bash $PWD/examples/providers/sources/x.sh"
+  export OVERCAST_SOURCE_X_CMD="bash $PWD/providers/sources/x.sh"
   ocrun "$CASE" source add 'x:video:from:NASA' --json >/dev/null 2>&1
   # snapshot the watch count BEFORE monitor so we can prove a NEW feed was piped
   # (the seed feed already makes the count 1, so a bare >=1 check proves nothing).

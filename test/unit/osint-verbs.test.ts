@@ -1724,10 +1724,8 @@ test("hostSourceType routes instagram/telegram to their dedicated sources", () =
   assert.equal(hostSourceType("https://archive.org/download/X/X.jpg"), "gdelttv");
   assert.equal(hostSourceType("https://archive.org/details/some-book"), "web");
   assert.equal(hostSourceType("https://archive.org/download/X/X.pdf"), "web");
-  // a Wayback snapshot (web.archive.org/web/<ts>/<url>) → wayback fetch, so an
-  // archived HTTP error page is kept as evidence and labeled source:wayback
-  assert.equal(hostSourceType("https://web.archive.org/web/20230101000000/https://example.com/gone"), "wayback");
-  assert.equal(hostSourceType("https://web.archive.org/web/2id_/https://example.com/a.jpg"), "wayback");
+  // Wayback snapshots (web.archive.org/web/<ts>/<url>) stay on the web fetcher
+  assert.equal(hostSourceType("https://web.archive.org/web/20230101000000/https://example.com/gone"), "web");
   // a lookalike host that merely contains the string stays web
   assert.equal(hostSourceType("https://notinstagram.com/x"), "web");
   assert.equal(hostSourceType("https://example.com/t.me/x"), "web");

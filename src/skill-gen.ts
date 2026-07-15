@@ -120,7 +120,6 @@ Built-in source refs for \`source add <type>:<ref>\`:
 - \`instagram:@handle\` / \`instagram:#tag\` / a post URL — Instagram posts & reels (Apify).
 - \`telegram:<channel>\` or a \`t.me\` URL — public Telegram channel posts (Apify).
 - \`gdelttv:"<query>"\` — GDELT 2.0 TV broadcast-news clips → bounded Internet-Archive mp4 segments (no key).
-- \`wayback:<url>\` — Wayback Machine CDX snapshots (no key): recover deleted pages + a "secret changes" diff view; strong monitor fit.
 - \`overpass:key=value@around:<radius>,<lat>,<lng>\` (or \`@<south,west,north,east>\`, or raw OverpassQL) — OpenStreetMap features (no key); hits carry \`payload.gps\` → \`map\`.
 - \`firms:<west,south,east,north>\` — NASA FIRMS active-fire hotspots (free \`FIRMS_MAP_KEY\`); hits carry \`payload.gps\` → \`map\`.
 - \`dispatch:sf\` / \`dispatch:seattle\` / \`dispatch:<domain>/<dataset>[@<datefield>]\` — police CAD / calls-for-service feeds on the Socrata SODA API (no key); hits carry \`payload.gps\` → \`map\`; rolling real-time windows make it a strong \`monitor --every\` fit.
@@ -1031,8 +1030,8 @@ overcast brief --export ./visual-search.md --json      # short by default; --ful
 For an object or open-vocabulary target (\`--detect\` needs a bound OWLv2 detector —
 build it once with \`scripts/visual-db-uv.sh --detect\` (it prints \`DETECT_PY\`), then
 \`export DETECT_PY=…\` and bind via the preset: \`overcast provider setup apply --preset
-owl-local --yes\`, which resolves detect.py's ABSOLUTE path and uses the venv python,
-NOT system \`python3\` which lacks torch/transformers):
+owl-local --yes\`, which persists a portable \`shipped:\` ref for detect.py and uses the
+venv python, NOT system \`python3\` which lacks torch/transformers):
 
 \`\`\`bash
 overcast see ./clip.mp4 --detect "red backpack" --json
@@ -1364,8 +1363,7 @@ and search it (\`face --match ./suspect.jpg --index <id>\`).
 **Page-watch stakeout.** To sit on a WEB PAGE instead of a feed, register the
 rendered-page source: \`overcast source add browser:<url>\` (no key; playwright
 optional dep), then \`monitor --every 30m\` — each pass re-renders the current
-page state to a PNG that flows into image auto-sense. \`wayback:<url>\` is the
-retrospective twin (its \`collapse=digest\` view surfaces content changes).
+page state to a PNG that flows into image auto-sense.
 
 **Live watch surface.** \`wall\` is the static option (a written HTML snapshot you
 regenerate). For a LIVE self-updating page, an **operator** serves the situation
@@ -1441,7 +1439,7 @@ overcast see frame://<watch-record-id>@<seconds> --ocr --json     # street signs
 
 \`\`\`bash
 scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
-export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local resolves detect.py's ABSOLUTE path (a relative one fails from a case dir) + uses $DETECT_PY (the venv python; system python3 lacks the deps)
+export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local persists a portable shipped: ref for detect.py + uses $DETECT_PY (the venv python; system python3 lacks the deps)
 # detect on the SAME still from step 1 (a photo, or frame://<watch-record-id>@<seconds> for video):
 overcast see ./photo.jpg --detect "sign, storefront, logo, landmark" --json   # -> <detect-record-id>
 overcast crop <detect-record-id> --all --class sign --pad 0.2 --json          # crop the --detect record (it has boxes)
@@ -1660,7 +1658,7 @@ overcast enhance ./raw.mp4 --ops denoise,upscale,stabilize --json
 \`\`\`bash
 overcast see frame://<enhanced-record-id>@<seconds> --ocr --json                 # -> <ocr-record-id> (text, no boxes)
 scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
-export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local resolves detect.py's ABSOLUTE path (a relative one fails from a case dir) + uses $DETECT_PY (the venv python; system python3 lacks the deps)
+export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local persists a portable shipped: ref for detect.py + uses $DETECT_PY (the venv python; system python3 lacks the deps)
 overcast see frame://<enhanced-record-id>@<seconds> --detect "license plate, text" --json  # -> <detect-record-id> (boxes)
 \`\`\`
 
@@ -2024,7 +2022,7 @@ overcast doctor --json
 overcast face ./clip.mp4 --thumbnails --json
 overcast crop <face-record-id> --all --class face --square --pad 0.1 --json
 scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
-export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local resolves detect.py's ABSOLUTE path (a relative one fails from a case dir) + uses $DETECT_PY (the venv python; system python3 lacks the deps)
+export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local persists a portable shipped: ref for detect.py + uses $DETECT_PY (the venv python; system python3 lacks the deps)
 overcast see ./clip.mp4 --detect "car, bag, weapon, phone" --json
 overcast crop <detect-record-id> --all --kind object --json   # crop the --detect record (it has boxes)
 \`\`\`
@@ -2331,7 +2329,7 @@ brain LLM):
 
 \`\`\`bash
 scripts/visual-db-uv.sh --detect     # once: prints DETECT_PY (the venv python)
-export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # resolves detect.py's absolute path + venv python
+export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # persists a portable shipped: ref for detect.py + the venv python
 \`\`\`
 
 ## Workflow
@@ -2932,9 +2930,9 @@ overcast exif ./suspect.jpg --json         # editing software, capture time, dev
    pasted region — a heuristic, so view the output, don't trust the label:
 
 \`\`\`bash
-# --ops ela needs a bound enhance provider (once per profile). The shipped
-# standalone script needs only pillow + numpy — no fal key:
-overcast setup provider enhance "exec:python3 examples/providers/enhance/ela.py"
+# --ops ela needs a bound enhance provider (once per profile). The shipped ela
+# choice needs only pillow + numpy — no fal key:
+overcast provider setup apply --verb enhance --choice ela --yes
 overcast enhance ./suspect.jpg --ops ela --json   # ELA/noise/luminance overlays (or a bound local-models / fal provider)
 overcast view <ela-record-id> --json              # eyeball the overlays — inconsistent regions are the lead
 \`\`\`

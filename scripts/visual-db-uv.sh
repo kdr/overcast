@@ -102,7 +102,7 @@ case "$MODE" in
   DETECT_PY=$VENV/bin/python          # OWLv2 open-vocab detector for \`see --detect\`
 
 Bind the detector as the see provider, then detect + crop:
-  overcast setup provider see "exec:$VENV/bin/python $ROOT/examples/providers/detect/detect.py"
+  overcast setup provider see "exec:$VENV/bin/python $ROOT/providers/senses/detect/detect.py"
   overcast see ./scene.jpg --detect "person, helmet, truck" --json
 EOF
     ;;

@@ -197,8 +197,8 @@ overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/P
 overcast crop <face-record-id> --all --class face --json # write cropped face images as evidence
 
 # 6) objects: bind the OWLv2 detector, find boxes, and crop them
-scripts/visual-db-uv.sh --detect     # uv-installs torch + transformers + scipy (sets DETECT_PY)
-overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"
+scripts/visual-db-uv.sh --detect     # uv-installs torch + transformers + scipy (prints DETECT_PY)
+export DETECT_PY=…; overcast provider setup apply --preset owl-local --yes   # binds see:owl-local ($DETECT_PY + a portable shipped: ref)
 overcast see ./clip.mp4 --detect "person, car, license plate" --json
 overcast crop <see-record-id> --all --class person --json
 
@@ -470,15 +470,19 @@ overcast binds verbs to backends through **providers** over one wire contract
 a verb with **no code changes**:
 
 ```bash
-overcast setup provider see     "exec:bash examples/providers/fal/see.sh {{input}}"
-overcast setup provider listen  "exec:bash examples/providers/elevenlabs/listen.sh {{input}}"
+overcast provider setup apply --verb see --choice fal --yes           # fal.ai Florence-2 caption/OCR (FAL_KEY)
+overcast provider setup apply --verb listen --choice elevenlabs --yes # ElevenLabs Scribe STT (ELEVENLABS_API_KEY)
 overcast setup memory qmd       # optional local semantic case search
 overcast case memory index rebuild --memory qmd --json
 overcast ask "where did we see the white van?" --deep --json
 ```
 
-Shipped, runnable samples live in [`examples/providers/`](examples/providers);
-authoring guide in [`docs/providers.md`](docs/providers.md).
+Shipped provider scripts live in [`providers/`](providers) (sources / senses /
+engines); catalog bindings reference them as location-independent
+`shipped:<relpath>` refs resolved at run time, so profiles survive the install
+moving. The authoring demos stay in [`examples/providers/`](examples/providers)
+(bind those by raw `exec:` path), with the guide in
+[`docs/providers.md`](docs/providers.md).
 
 Provider setup has two levels:
 
@@ -573,7 +577,7 @@ for cadence, and add `--max-frames` when you want a hard cap.
 | class | verbs | shipped providers |
 |---|---|---|
 | **sense** | watch / listen / see / face / image / audio / voice / similar / cluster / enhance / reconstruct / exif / verify / screenshot (`chronolocate` is pure local solar math — no provider) | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), local voice-print / wespeaker (`voice`), Hugging Face, fal.ai (see/enhance/`reconstruct`), ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`), headless Chromium / Playwright (`screenshot`), Nominatim (opt-in `exif --geocode`) |
-| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / yandeximg / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), wayback (Wayback Machine CDX, no key), overpass (OpenStreetMap features, no key), firms (NASA FIRMS active fires), dispatch (Socrata police calls-for-service, no key), flights (OpenSky ADS-B), webcam (Windy Webcams), browser (headless Chromium page render), and the opt-in **identity** sources username / person / phone / property / plate (Apify — authorized use only) |
+| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / yandeximg / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), overpass (OpenStreetMap features, no key), firms (NASA FIRMS active fires), dispatch (Socrata police calls-for-service, no key), flights (OpenSky ADS-B), webcam (Windy Webcams), browser (headless Chromium page render), and the opt-in **identity** sources username / person / phone / property / plate (Apify — authorized use only) |
 | **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
 
 Built-in source refs:
@@ -593,7 +597,6 @@ Built-in source refs:
 - `instagram:@handle` / `instagram:#tag` / `instagram:<post URL>` — Instagram posts & reels (Apify); `--since` honored server-side.
 - `telegram:<channel>` / `telegram:<t.me URL>` — public Telegram channel posts (Apify, no login); stable `t.me/<channel>/<id>` per-post URL for clean monitor dedup.
 - `gdelttv:"<query>"` — GDELT 2.0 TV API broadcast-news clips (**no key**) → bounded Internet-Archive `.mp4?start=…&end=…` segments; `--since` maps to the GDELT date window.
-- `wayback:<url>` — Wayback Machine CDX snapshots (**no key**): recover deleted pages/posts (newest-first), with a `collapse=digest` "secret changes" view. Strong `monitor` fit for page-history stakeouts.
 - `overpass:key=value@around:<radius>,<lat>,<lng>` / `overpass:key=value@<south,west,north,east>` / raw OverpassQL — OpenStreetMap features via the Overpass API (**no key**); each element carries `payload.gps` so hits plot on `map`, and `media.ref` is the OSM element page.
 - `firms:<west,south,east,north>` — NASA FIRMS active-fire hotspots for a bbox (free `FIRMS_MAP_KEY`); `--since Nd` maps to dayrange 1–10; hits carry `payload.gps` + a FIRMS fire-map deep link.
 - `dispatch:sf` / `dispatch:seattle` / `dispatch:<domain>/<dataset>[@<datefield>]` — police CAD / calls-for-service feeds on the Socrata SODA API (**no key**; optional `SOCRATA_APP_TOKEN` raises rate limits): real-time dispatched 911 calls with auto-detected gps/call-type/id columns; hits carry `payload.gps` (→ `map`) and a stable per-row deep link, and the rolling real-time windows (SF ~48h) make it a strong `monitor --every` fit.
@@ -620,9 +623,9 @@ into it, then select it per command (or for the whole session):
 
 ```bash
 # build / extend a profile named "fal"
-overcast setup provider see  "exec:bash examples/providers/fal/see.sh {{input}}" --profile fal
-overcast setup provider watch "exec:bash examples/providers/bash/watch.sh {{input}}" --profile fal
-overcast setup llm anthropic claude-sonnet-4-6                                   --profile fal
+overcast provider setup apply --verb see --choice fal --yes --profile fal        # catalog choice → shipped: ref
+overcast setup provider watch "exec:bash examples/providers/bash/watch.sh {{input}}" --profile fal  # raw bind (your own script)
+overcast setup llm anthropic claude-sonnet-4-6 --profile fal
 
 # use it: per command …
 overcast see ./img.jpg --json --profile fal
@@ -634,7 +637,7 @@ overcast setup show --profile fal     # inspect a profile's bindings
 
 The default profile is `default`. Point `--home <dir>` at a different store to
 keep profiles per-case or per-project. To build ready-made presets (e.g. `fal`,
-`cloudglue`, `recon`) from the shipped example providers:
+`cloudglue`, `recon`) from the bundled providers:
 
 ```bash
 bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profile <name>
@@ -668,7 +671,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `APIFY_TOKEN` — the `tiktok`, `x`, `instagram`, `telegram`, `lens`, `yandeximg`, `facesearch` sources AND the opt-in identity sources `username`/`person`/`phone`/`property`/`plate` (enumerate; fetch uses yt-dlp / direct CDN). Actor overrides: `OVERCAST_X_ACTOR`, `OVERCAST_INSTAGRAM_ACTOR`, `OVERCAST_TELEGRAM_ACTOR`, `OVERCAST_LENS_ACTOR`, `OVERCAST_YANDEX_ACTOR` (+ `OVERCAST_YANDEX_IMAGE_KEY`), `OVERCAST_FACE_SEARCH_ACTOR`, `OVERCAST_MAIGRET_ACTOR`, `OVERCAST_PERSON_ACTOR`, `OVERCAST_PHONE_ACTOR`, `OVERCAST_PROPERTY_ACTOR`
 - `OVERCAST_PLATE_ACTOR` — **required** for the `plate` source (no default — US plate data is DPPA-restricted; bind an Apify actor, or use `OVERCAST_SOURCE_PLATE_CMD` for a direct plate API). Vehicle spec only, not the owner
 - `WINDY_API_KEY` — the `webcam` source (Windy Webcams API; free tier covers scan + still capture + monitor). Base override: `OVERCAST_WEBCAM_API`
-- `gdelttv`, `wayback`, `overpass`, `dispatch`, and `browser` need **no key** (`dispatch` optionally takes a `SOCRATA_APP_TOKEN` to raise rate limits)
+- `gdelttv`, `overpass`, `dispatch`, and `browser` need **no key** (`dispatch` optionally takes a `SOCRATA_APP_TOKEN` to raise rate limits)
 - `youtube` and `dl` need `yt-dlp` on `PATH` (no key)
 - `OVERCAST_SOURCE_<TYPE>_CMD` — override/add a source provider command
 

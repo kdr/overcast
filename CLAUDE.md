@@ -72,7 +72,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    (`watch/listen/see/face/cluster/image/audio/voice/similar/enhance/reconstruct/exif/verify/screenshot/chronolocate` —
    `cluster` shares the face provider, `chronolocate` is pure local math), **source**
    (`scan/capture/monitor`; youtube, tiktok, x, web, lens, yandeximg, dl, instagram, telegram,
-   gdelttv, wayback, overpass, firms, dispatch, flights, webcam, facesearch, dork, shodan, browser,
+   gdelttv, overpass, firms, dispatch, flights, webcam, facesearch, dork, shodan, browser,
    username, person, phone, property, plate), and **memory** (`ask/brief`; local-grep, optional qmd). Bindings live in the profile;
    the transport is `exec` (default) — `http`/`in-proc` are declared in the binding
    shape but **not yet wired** (`runBoundProvider` errors on them). Default sense binding =
@@ -85,7 +85,15 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    `basic-clap` is the local LAION CLAP DB for `similar` audio↔audio + text→audio
    search, and `voice-print` is the local pyannote/wespeaker speaker-verification
    DB for `voice` (find a reference speaker; ungated windowed default, HF-gated
-   `--diarize` tier).
+   `--diarize` tier). Shipped provider scripts live in the top-level `providers/`
+   tree (`sources/`/`senses/`/`engines/`); catalog descriptors reference them as
+   **`shipped:<relpath>` refs** (never resolved absolute paths — `src/providers/
+   shipped-ref.ts` resolves at spawn time, so profiles survive install moves),
+   old absolute-path profiles/case policies are **healed on load**, and `doctor`
+   (`provider-paths`) flags refs/paths that don't resolve. The catalog covers
+   every shipped bindable (incl. `enhance:ela`/`enhance:panorama` and
+   `geocode:nominatim`) — hints/docs teach `provider setup apply`, never a raw
+   script path; raw `exec:` binds are the user-authored escape hatch.
 7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `crop`, `view`,
    and frame extraction shell out to the **system** `ffmpeg`/`ffprobe` (PATH or
    `OVERCAST_FFMPEG`/`OVERCAST_FFPROBE`); `overcast doctor` checks it's installed.
@@ -112,9 +120,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--detect` — **default: the brain LLM** when image-capable, i.e. a direct
   "describe this image" call; falls back to the Hugging Face captioner,
   `builtin:hf`/`builtin:brain` + `OVERCAST_SEE_BRAIN=off` to switch; bindable fal
-  / local OWLv2 via `examples/providers/detect` for detection / opt-in Cloudglue
-  `see`+`extract` via `examples/providers/tinycloud/see.sh`, tinycloud ≥ 0.3.7,
-  boxless `--detect`), `face`
+  / local OWLv2 detection via `provider setup apply --preset owl-local` (DETECT_PY
+  venv python) / opt-in Cloudglue `see`+`extract` via `--verb see --choice
+  tinycloud`, tinycloud ≥ 0.3.7, boxless `--detect`), `face`
   (tinycloud ≥ 0.3.4 by default, or
   `face:deepface-local` locally: detect faces, `--match <jpeg|png>` to find/rank a
   person in a clip, or `--index` to search a face-analysis / deepface-local index),
@@ -144,9 +152,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `--ops separate` = per-speaker tracks + optional `--summarize`, `--ops segment
   --prompt` = text-prompted masks/cutouts (bound `local-models` or `fal`),
   `--ops ela` = ELA/noise/luminance forensic overlays from an image (heuristic
-  edit-detection leads; `examples/providers/enhance/ela.py`), and `--ops panorama`
+  edit-detection leads; catalog choice `enhance:ela`), and `--ops panorama`
   = stitch a panning video into one wide still for skyline/landmark geolocation
-  (`examples/providers/enhance/panorama.py`) — each fanned out one record per artifact),
+  (catalog choice `enhance:panorama`) — each fanned out one record per artifact),
   `reconstruct` (SPECULATIVE scene reconstruction from a still or `--at` video
   frame via a bound generative provider — fal toolbox: `--rotate/--elevate/--zoom`
   camera reposition + `--ops sweep` 360° stops → contact sheet + turntable mp4
@@ -160,13 +168,13 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   (WGS84-validated at the provider), capture time, device, editing software,
   camera `serial`/`lens` (device-linking fingerprint), dimensions; shipped
   `exiftool` provider, raw tag dump stays in-provider; `--geocode` reverse-geocodes
-  the GPS to `payload.place` via an **opt-in** bound `geocode` provider — Nominatim,
-  no key, never default), `verify` (C2PA / Content Credentials provenance
+  the GPS to `payload.place` via an **opt-in** bound `geocode` provider — catalog
+  choice `geocode:nominatim`, no key, never default), `verify` (C2PA / Content Credentials provenance
   via `c2patool` → `has_manifest`, signer, claim generator, validation state; no
   credentials is a clean `ready` record, not an error — distinct from source-post
   provenance in `src/verbs/provenance.ts`), `screenshot` (browser screen capture —
   render a web page **or a local `.html` export** to a PNG evidence record via
-  headless Chromium; the shared Playwright engine in `examples/providers/screenshot/`
+  headless Chromium; the shared Playwright engine in `providers/engines/screenshot/`
   also backs the `browser:` source, runs under system `node` with the playwright
   **optional dep** — missing → `needs_credentials`; `--full-page`, `--viewport WxH`,
   `--wait ms`; re-implements the fetch SSRF guard over HTTP **and** WebSocket
@@ -243,7 +251,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
  `ask`/`brief` evidence).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens + yandeximg reverse-image / dl generic-yt-dlp capture / instagram / telegram /
-  gdelttv broadcast-TV / wayback deleted-web / overpass OSM-features / firms active-fires /
+  gdelttv broadcast-TV / overpass OSM-features / firms active-fires /
   dispatch police-CAD-calls / flights ADS-B-aircraft / webcam live-cams / facesearch reverse-face /
   dork Google-dorking / shodan host-recon / browser rendered-page-capture /
   username account-discovery / person people-search / phone reverse-phone /
@@ -271,10 +279,7 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `instagram:#tag` / a post URL
   (Apify); `telegram:<channel>` or a `t.me` URL (Apify, public channels);
   `gdelttv:"<query>"` (GDELT 2.0 TV broadcast-news clips → bounded Internet-Archive
-  `.mp4`, **no key**); `wayback:<url>` (Wayback Machine CDX — recover deleted pages/
-  posts + `collapse=digest` "secret changes" view, newest-first snapshots, **no key**;
-  named `wayback` not `archive` to avoid the media-bucket collision; strong `monitor`
-  fit); `overpass:key=value@around:<radius>,<lat>,<lng>` /
+  `.mp4`, **no key**); `overpass:key=value@around:<radius>,<lat>,<lng>` /
   `overpass:key=value@<south,west,north,east>` / raw OverpassQL (OpenStreetMap
   features via the Overpass API, **no key** — each element carries top-level
   `payload.gps` so scan records plot on `map`; media.ref = the OSM element page);

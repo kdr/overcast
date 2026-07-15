@@ -21,7 +21,7 @@ brain LLM):
 
 ```bash
 scripts/visual-db-uv.sh --detect     # once: prints DETECT_PY (the venv python)
-export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # resolves detect.py's absolute path + venv python
+export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # persists a portable shipped: ref for detect.py + the venv python
 ```
 
 ## Workflow

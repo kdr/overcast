@@ -1,5 +1,6 @@
 import { loadSetup } from "../state/setup.js";
 import { findProviderChoice } from "./catalog.js";
+import { healDescriptor } from "./shipped-ref.js";
 import type { ProviderDescriptor } from "../profile.js";
 import type { VerbContext } from "../registry/types.js";
 
@@ -16,6 +17,8 @@ export function providerBinding(ctx: VerbContext, verb: string): ProviderDescrip
   const profileDescriptor = ctx.profile.providers?.[verb];
   if (isProviderDescriptor(profileDescriptor)) return profileDescriptor;
   const descriptor = policy?.descriptor;
-  if (isProviderDescriptor(descriptor)) return descriptor;
+  // loadSetup already heals policy descriptors on load (like loadProfile); this
+  // heal is idempotent defense-in-depth for any descriptor reaching us another way.
+  if (isProviderDescriptor(descriptor)) return healDescriptor(descriptor);
   return ctx.profile.providers?.[verb];
 }

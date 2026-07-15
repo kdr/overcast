@@ -8,17 +8,18 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OC="node $REPO/dist/bin/overcast.js"
-P="$REPO/examples/providers"
+P="$REPO/providers/senses"     # shipped sense providers
+EX="$REPO/examples/providers"  # authoring demos (python variant)
 HOME_ARG=()
 if [ "${1:-}" = "--home" ]; then
   [ -n "${2:-}" ] || { echo "usage: install-profiles.sh [--home <dir>]" >&2; exit 2; }
   HOME_ARG=(--home "$2")
 fi
 
-bind() { # <profile> <verb> <script-relpath> [interpreter=bash]
+bind() { # <profile> <verb> <script-path> [interpreter=bash]
   local interp="${4:-bash}"   # .py scripts must run under python3, not bash
-  $OC setup provider "$2" "exec:$interp $P/$3 {{input}}" --profile "$1" "${HOME_ARG[@]}" >/dev/null
-  echo "  $1: $2 -> $interp $3"
+  $OC setup provider "$2" "exec:$interp $3 {{input}}" --profile "$1" "${HOME_ARG[@]}" >/dev/null
+  echo "  $1: $2 -> $interp ${3#"$REPO"/}"
 }
 
 echo "Building profiles in ${2:-~/.overcast}:"
@@ -28,22 +29,22 @@ $OC setup llm cloudglue tinycloud:advanced --profile cloudglue "${HOME_ARG[@]}" 
 echo "  cloudglue: defaults (watch/listen=tinycloud, enhance=ffmpeg, see=brain LLM)"
 
 # 2. fal — fal.ai everything pluggable.
-bind fal see     fal/see.sh
-bind fal enhance fal/enhance.sh        # image=esrgan, audio=deepfilternet3
+bind fal see     "$P/fal/see.sh"
+bind fal enhance "$P/fal/enhance.sh"        # image=esrgan, audio=deepfilternet3
 
 # 3. elevenlabs — speech-focused.
-bind elevenlabs listen  elevenlabs/listen.sh    # Scribe STT
-bind elevenlabs enhance elevenlabs/enhance.sh   # voice isolator (audio)
+bind elevenlabs listen  "$P/elevenlabs/listen.sh"    # Scribe STT
+bind elevenlabs enhance "$P/elevenlabs/enhance.sh"   # voice isolator (audio)
 
 # 4. hf — Hugging Face.
-bind hf see     hf/see.sh              # gemma vision-LLM caption
-bind hf enhance hf/enhance.py python3  # image upscale via fal-routed HF token (Python)
+bind hf see     "$P/hf/see.sh"                 # gemma vision-LLM caption
+bind hf enhance "$EX/python/enhance.py" python3  # image upscale via fal-routed HF token (Python demo)
 
 # 5. recon — best-of-breed mix for an OSINT case.
 $OC setup llm cloudglue tinycloud:advanced --profile recon "${HOME_ARG[@]}" >/dev/null
-bind recon listen  elevenlabs/listen.sh   # crisp word-timed transcript
-bind recon see     fal/see.sh             # florence-2 caption + OCR
-bind recon enhance fal/enhance.sh         # esrgan (faithful) + deepfilternet3
+bind recon listen  "$P/elevenlabs/listen.sh"   # crisp word-timed transcript
+bind recon see     "$P/fal/see.sh"             # florence-2 caption + OCR
+bind recon enhance "$P/fal/enhance.sh"         # esrgan (faithful) + deepfilternet3
 echo "  recon: watch=tinycloud · listen=elevenlabs · see=fal · enhance=fal"
 
 echo

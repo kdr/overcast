@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { writeFileAtomic } from "../fs-atomic.js";
+import { healDescriptor } from "../providers/shipped-ref.js";
 import type { Case } from "../case.js";
+import type { ProviderDescriptor } from "../profile.js";
 import type { IndexType } from "./index.js";
 
 /** Optional per-index config carried in the saved setup (basic-clip only today:
@@ -133,6 +135,16 @@ export function loadSetup(c: Case): CaseSetup | undefined {
       parsed.automation ??= { auto_sense: [], auto_index_new: false };
       parsed.findings ??= { mode: "suggest" };
       parsed.providers ??= {};
+      // Heal case-policy descriptors on load, exactly like loadProfile heals
+      // profile bindings — an old absolute-path policy (pre-`shipped:`-ref build)
+      // becomes a portable ref in-memory (persisted on the next saveSetup). Keeps
+      // every reader (providerBinding, doctor's provider-paths check) consistent
+      // instead of only the exec seam healing.
+      for (const policy of Object.values(parsed.providers)) {
+        if (policy && typeof policy.descriptor === "object" && policy.descriptor) {
+          healDescriptor(policy.descriptor as ProviderDescriptor);
+        }
+      }
       return parsed;
     }
   } catch {

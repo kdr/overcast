@@ -39,6 +39,31 @@ test("case setup --memory preserves a prior cloudglue opt-in (Bugbot #72)", asyn
   });
 });
 
+test("loadSetup heals case-policy descriptors like loadProfile (Bugbot: case policies skip heal)", async () => {
+  await withCase(async (dir) => {
+    const c = openCase(dir);
+    const setup = emptySetup("cg");
+    // a policy saved by a pre-`shipped:`-ref build carries a resolved absolute path
+    setup.providers = {
+      enhance: {
+        verb: "enhance",
+        choice: "ela",
+        descriptor: {
+          type: "exec",
+          run: "python3 /opt/old/examples/providers/enhance/ela.py",
+          describe: "python3 /opt/old/examples/providers/enhance/ela.py describe",
+        },
+      },
+    };
+    saveSetup(c, setup);
+    // loadSetup must return the healed ref (so doctor's provider-paths check +
+    // any reader agree with the exec seam — no false "stale path" positives)
+    const healed = loadSetup(c)?.providers?.enhance.descriptor as { run: string; describe: string };
+    assert.equal(healed.run, "python3 shipped:providers/senses/enhance/ela.py");
+    assert.equal(healed.describe, "python3 shipped:providers/senses/enhance/ela.py describe");
+  });
+});
+
 test("case info reports record count + per-verb counts", async () => {
   await withCase(async (dir) => {
     const [rec] = await caseVerb.run(ctx(dir, "info"));

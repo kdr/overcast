@@ -7,6 +7,7 @@
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { redactSecrets } from "../env.js";
 import { execCapture, renderCommand, parseFirstJson } from "./exec.js";
+import { resolveShippedArgv, ShippedRefError } from "./shipped-ref.js";
 import type { ProviderDescriptor } from "../profile.js";
 
 /** Does a run template look like the default tinycloud binding? */
@@ -90,6 +91,24 @@ export async function runExecProvider(
     [cmd, ...args] = argv;
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
     args.push(input);
+  }
+  // resolve `shipped:<relpath>` tokens to absolute paths at spawn time (the
+  // catalog persists location-independent refs; plan 07 Stage B). Post-render so
+  // a resolved path containing spaces stays one argv token. An unresolvable ref
+  // (build without the providers/ sidecar) is an error record, not a throw.
+  try {
+    [cmd, ...args] = resolveShippedArgv([cmd, ...args]);
+  } catch (e) {
+    if (!(e instanceof ShippedRefError)) throw e;
+    return makeRecord({
+      verb,
+      format: "json",
+      payload: { input },
+      media: { ref: input },
+      meta: { provider: `exec:${cmd}` },
+      error: e.message,
+      state: "error",
+    });
   }
 
   const res = await execCapture(cmd, args, {

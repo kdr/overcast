@@ -44,7 +44,7 @@ overcast see frame://<watch-record-id>@<seconds> --ocr --json     # street signs
 
 ```bash
 scripts/visual-db-uv.sh --detect     # once: uv-installs torch+transformers+scipy, prints DETECT_PY
-export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local resolves detect.py's ABSOLUTE path (a relative one fails from a case dir) + uses $DETECT_PY (the venv python; system python3 lacks the deps)
+export DETECT_PY="$DETECT_PY"; overcast provider setup apply --preset owl-local --yes --json  # owl-local persists a portable shipped: ref for detect.py + uses $DETECT_PY (the venv python; system python3 lacks the deps)
 # detect on the SAME still from step 1 (a photo, or frame://<watch-record-id>@<seconds> for video):
 overcast see ./photo.jpg --detect "sign, storefront, logo, landmark" --json   # -> <detect-record-id>
 overcast crop <detect-record-id> --all --class sign --pad 0.2 --json          # crop the --detect record (it has boxes)

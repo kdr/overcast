@@ -20,7 +20,7 @@ fi
 # ---- fal sam-audio (text-prompted) -----------------------------------------
 if require_cred "$C.fal" FAL_KEY "skipping fal separate"; then
   CASE=$(case_dir separate_fal)
-  FE="$PWD/examples/providers/fal/enhance.sh"
+  FE="$PWD/providers/senses/fal/enhance.sh"
   ocrun "$CASE" setup provider enhance "exec:bash $FE {{input}}" --json >/dev/null 2>&1
   cond "fal sam-audio splits a prompted voice into target + residual tracks"
   out="$(OC_TIMEOUT=420 oc "$CASE" enhance "$CLIP" --ops separate --prompt "the main speaker" --json)"
@@ -48,7 +48,7 @@ fi
 if ! require_cred "$C.local" HF_TOKEN "pyannote is gated — accept the license + set HF_TOKEN"; then exit 0; fi
 
 CASE=$(case_dir separate_local)
-LE="$PWD/examples/providers/local/enhance.sh"
+LE="$PWD/providers/senses/local/enhance.sh"
 ocrun "$CASE" setup provider enhance "exec:bash $LE {{input}}" --json >/dev/null 2>&1
 cond "local pyannote diarization renders one timeline-preserving track per speaker (+ --summarize)"
 out="$(OC_TIMEOUT=600 oc "$CASE" enhance "$CLIP" --ops separate --summarize --json)"

@@ -460,7 +460,7 @@ printf '{"status":"error","data":null,"error":{"code":"upstream","message":"enab
 });
 
 test("see (tinycloud wrapper) maps see/extract envelopes; --detect passes the describe gate with boxless detections", async () => {
-  const wrapper = join(HERE, "..", "..", "examples", "providers", "tinycloud", "see.sh");
+  const wrapper = join(HERE, "..", "..", "providers", "senses", "tinycloud", "see.sh");
   const fake = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
   const frame = join(dir, "tc-frame.jpg");
   execFileSync(FFMPEG_PATH, ["-y", "-i", clip, "-frames:v", "1", frame], { stdio: "ignore" });
@@ -501,7 +501,7 @@ test("see (tinycloud wrapper) maps see/extract envelopes; --detect passes the de
 });
 
 test("see (tinycloud wrapper) maps credential exits and tinycloud status aliases like the shared mapper", async () => {
-  const wrapper = join(HERE, "..", "..", "examples", "providers", "tinycloud", "see.sh");
+  const wrapper = join(HERE, "..", "..", "providers", "senses", "tinycloud", "see.sh");
   const fake = join(HERE, "..", "fixtures", "fake-tinycloud.sh");
   const frame = join(dir, "tc-status-frame.jpg");
   execFileSync(FFMPEG_PATH, ["-y", "-i", clip, "-frames:v", "1", frame], { stdio: "ignore" });

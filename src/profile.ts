@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { healDescriptor } from "./providers/shipped-ref.js";
 
 export const HOME_ENV = "OVERCAST_HOME";
 
@@ -91,7 +92,13 @@ export function defaultProfile(name = "default"): Profile {
   };
 }
 
-/** Load a profile by name; falls back to the built-in default if missing. */
+/** Load a profile by name; falls back to the built-in default if missing.
+ *  Provider descriptors are HEALED on every load (in-memory; persisted naturally
+ *  on the next save): absolute paths from pre-`shipped:`-ref installs — old
+ *  `examples/providers/…` layouts, resolved `providers/…` paths, the absolute
+ *  `scripts/visual-db-uv.sh` — rewrite to location-independent `shipped:` refs
+ *  when the target exists in this build. User-authored custom paths pass
+ *  through untouched (doctor flags anything stale healing couldn't fix). */
 export function loadProfile(opts: HomeOptions = {}): Profile {
   const home = resolveHome(opts);
   const name = opts.profile ?? "default";
@@ -99,6 +106,9 @@ export function loadProfile(opts: HomeOptions = {}): Profile {
   if (existsSync(path)) {
     const p = JSON.parse(readFileSync(path, "utf8")) as Profile;
     p.name = p.name ?? name;
+    for (const desc of Object.values(p.providers ?? {})) {
+      if (desc && typeof desc === "object") healDescriptor(desc);
+    }
     return p;
   }
   return defaultProfile(name);

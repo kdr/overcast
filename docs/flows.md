@@ -83,7 +83,7 @@ Provider classes:
   `voice-print` index types.
 - **source providers** — external discovery and URL fetching (youtube / tiktok /
   x / web / lens + yandeximg reverse-image / dl generic-yt-dlp / instagram /
-  telegram / gdelttv broadcast-TV / wayback deleted-web / overpass OSM-features /
+  telegram / gdelttv broadcast-TV / overpass OSM-features /
   firms active-fires / flights ADS-B / webcam live-cams / browser page-render /
   facesearch opt-in reverse-face / dork Google-dorking / shodan host-recon / and
   the opt-in identity sources username / person / phone / property / plate).
@@ -616,7 +616,7 @@ fans out one evidence record per track / masked instance.
 
 ```bash
 scripts/visual-db-uv.sh --enhance                       # on-device stacks (or use --preset fal)
-overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
+overcast provider setup apply --preset local-models --yes
 
 overcast enhance ./interview.mp4 --ops separate --summarize   # per-speaker tracks, each transcribed
 overcast view <separate-parent-id>                             # gallery: audition each track + spectrograms + cross-talk
@@ -671,7 +671,7 @@ Turn face/object boxes into durable, citable, searchable images.
 overcast face ./clip.mp4 --thumbnails
 overcast crop <face-record-id> --all --class face --square --pad 0.1
 
-overcast setup provider see "exec:python3 examples/providers/detect/detect.py"
+overcast provider setup apply --preset owl-local --yes   # OWLv2 detector (export DETECT_PY from scripts/visual-db-uv.sh --detect first)
 overcast see ./clip.mp4 --detect "person, car, license plate"
 overcast crop <see-record-id> --all --class person
 overcast ask "Which cropped people or vehicles do we have?"
@@ -832,7 +832,7 @@ resolved lines, refresh the `tldr` note, and `brief --export`.
 
 ### 20. New OSINT sources: broadcast, social, geodata, tracking, reverse-image
 
-Broadcast TV, more social platforms, deleted-web recovery, open geodata, live
+Broadcast TV, more social platforms, open geodata, live
 webcams, moving-object tracking, and reverse-image lookups — same `scan` /
 `capture` / `monitor` verbs, one loose record shape. All discover via
 `enumerate`; add `--pull` to capture + sense each hit.
@@ -845,7 +845,6 @@ overcast source add 'gdelttv:"climate summit"'                 # GDELT TV → bo
 overcast source add instagram:@nasa                            # Instagram posts/reels (Apify)
 overcast source add telegram:durov                             # public Telegram channel (Apify)
 overcast source add 'webcam:48.8584,2.2945,25'                 # live Paris cams (Windy)
-overcast source add 'wayback:https://example.gov/page'         # Wayback Machine deleted-web recovery (no key)
 overcast source add 'overpass:amenity=hospital@around:2000,48.85,2.29'  # OSM features → payload.gps → map (no key)
 overcast source add 'firms:-124,32,-114,42'                    # NASA FIRMS active-fire hotspots (free FIRMS_MAP_KEY)
 overcast source add 'flights:2.0,48.5,2.8,49.0'                # live ADS-B aircraft (OpenSky; anon ok)
@@ -859,7 +858,6 @@ overcast scan --source telegram --since 30d
 overcast monitor --source webcam --every 30m                   # re-captures the CURRENT still each pass
 overcast capture "https://rumble.com/v123.html"                # any yt-dlp host auto-routes to `dl` by host (single video; scan a channel/playlist URL to enumerate)
 overcast scan --source facesearch --pull
-overcast scan --source wayback --pull                          # recover deleted pages / changes over time
 overcast scan --source overpass                                # each hit carries payload.gps → map
 overcast scan --source firms --since 3d
 overcast monitor --source flights --every 5m                   # live positions → a track on the map
@@ -876,8 +874,7 @@ never a default — you must bind it explicitly.
 `overpass` / `firms` / `flights` / `dispatch` hits carry top-level `payload.gps`,
 so they plot directly on `overcast map` (turning `map` into "plot any open geodata
 layer"), and `monitor --source flights` builds a position track over time (each fix
-is a distinct record). `wayback` `collapse=digest` returns only captures whose content
-actually changed — the "secret changes" view — so `monitor`ing a URL surfaces edits.
+is a distinct record).
 
 `dispatch` is a keyless police-CAD / calls-for-service feed on the Socrata SODA
 API — `dispatch:sf` / `dispatch:seattle` presets, or any `dispatch:<domain>/<dataset>[@<datefield>]`
@@ -921,11 +918,11 @@ overcast devices --findings           # link media shot on the same camera (seri
 # chronolocation — WHEN was it taken (offline sun/shadow math, no key):
 overcast chronolocate <exif-record-id> --at-time 2024-06-01T14:30:00Z   # VERIFY: do the sun/shadow match the claimed time?
 overcast chronolocate --lat 48.85 --lng 2.29 --shadow-azimuth 250 --date 2024-06-01  # SOLVE: what time could cast that shadow?
-# pixel forensics — heuristic tamper overlays (bind a provider, one record → 3 children):
-overcast setup provider enhance "exec:python3 examples/providers/enhance/ela.py"
+# pixel forensics — heuristic tamper overlays (bind the shipped choice, one record → 3 children):
+overcast provider setup apply --verb enhance --choice ela --yes
 overcast enhance ./photo.jpg --ops ela --json   # ELA + noise + luminance overlays → view <parent> renders the gallery
 # panorama — stitch a panning video into ONE wide still for skyline/landmark geolocation:
-overcast setup provider enhance "exec:python3 examples/providers/enhance/panorama.py"
+overcast provider setup apply --verb enhance --choice panorama --yes
 overcast enhance ./pan.mp4 --ops panorama --json
 overcast ask "what GPS coordinates or camera devices appear?"
 ```
@@ -1018,7 +1015,8 @@ numbered `## Workflow` funnel each agent can follow. They ship generated from
 Speaker separation (`listen --diarize`) needs a diarize-capable provider — the
 default tinycloud path is speech-transcript only; bind ElevenLabs. Object crops
 (`see --detect` → `crop`) need a bound OWLv2 detector (`scripts/visual-db-uv.sh
---detect`, then `setup provider see "exec:$DETECT_PY …/detect.py"`).
+--detect`, then `overcast provider setup apply --preset owl-local --yes` — persists
+`$DETECT_PY` + a `shipped:` ref for `detect.py`).
 
 ### 23. Man in the chair: drive the desk from the field
 

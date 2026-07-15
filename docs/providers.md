@@ -24,22 +24,38 @@ An exec provider is a command invoked three ways:
 
 A non-zero exit is a hint; the record's `state`/`error` is authoritative.
 overcast maps stdout to the loose record at the exec boundary — your provider
-just needs to emit `{ verb, format, payload, media?, meta?, state? }`.
+just needs to emit `{ verb, format, payload, media?, meta?, state? }`. The
+runnable authoring demos live under
+[`examples/providers/`](../examples/providers) (bash / python / TypeScript, one
+per class) — copy one to start a provider of your own.
 
 ## Binding a provider
 
+For anything overcast **ships**, bind through the catalog wizard — it persists a
+location-independent descriptor (a `shipped:` ref, next section) instead of a
+filesystem path:
+
+```bash
+overcast provider setup show --json                              # catalog: choices + presets (+ resolved paths)
+overcast provider setup plan --verb enhance --choice ela --json  # inspect the descriptor before writing
+overcast provider setup apply --verb enhance --choice ela --yes  # write it to the profile
+overcast provider setup apply --preset fal --yes                 # or a whole preset
+overcast provider init enhance                                   # run the init hook
+```
+
+For a provider **you wrote**, bind a raw `exec:` spec — the escape hatch for
+user-authored code the catalog doesn't know (the demos exercise exactly this):
+
 ```bash
 # sense provider (per verb)
-overcast setup provider watch  "exec:./examples/providers/bash/watch.sh"
-overcast setup provider listen "exec:python3 examples/providers/python/listen.py"
-overcast setup provider see    "exec:node --import tsx examples/providers/ts/see.ts"
+overcast setup provider watch "exec:bash ./examples/providers/bash/watch.sh"
 # (an `http://…` spec parses into the binding shape, but the http transport is
 #  not wired yet — it errors at run time; wrap your endpoint in an exec script)
-overcast provider init see                                      # run the init hook
+overcast provider init watch                                    # run the init hook
 
 # source provider (scraper) — bound by source type, enumerated by scan/capture
 overcast source add tiktok:@some_user
-OVERCAST_SOURCE_TIKTOK_CMD="bash examples/providers/sources/tiktok.sh" \
+OVERCAST_SOURCE_TIKTOK_CMD="bash my-tiktok.sh" \
   overcast scan --source tiktok --pull
 ```
 
@@ -47,6 +63,33 @@ Bindings live in the active profile (`~/.overcast/profiles/<name>.json`), so the
 travel with `--profile`. **Rebinding a verb requires no overcast code changes** —
 the default tinycloud `watch`/`listen` and the default `see` backend are just the
 out-of-the-box descriptors.
+
+## Shipped providers and `shipped:` refs
+
+The shipped, supported provider scripts live in the top-level
+[`providers/`](../providers) tree, grouped by role:
+
+- `providers/sources/` — the scan/capture/monitor scrapers (exec argv contract);
+- `providers/senses/` — the bindable sense/enhance/forensics providers
+  (hf / fal / elevenlabs / tinycloud / detect / geocode / exif / verify /
+  local / enhance ela+panorama);
+- `providers/engines/` — internal engines called only through TS shims
+  (visual-db, audio-db, the screenshot renderer) — never user-bound.
+
+Catalog descriptors reference these as **`shipped:<relpath>`** tokens (relpath
+from the package root, e.g. `shipped:providers/senses/enhance/ela.py`,
+`shipped:scripts/visual-db-uv.sh`). The profile persists the *ref*; it resolves
+to this install's absolute path at spawn time — so a binding survives the
+install moving (an nvm switch, a binary relocation, a folder rename).
+`provider setup show`/`plan` include the resolved absolute path per choice
+(`resolved`) for transparency. Profiles and case-setup policies written by older
+builds (absolute `examples/providers/…` or `providers/…` paths) are **healed on
+load**: recognized paths rewrite to `shipped:` refs in memory and persist on the
+next profile write; `overcast doctor` (the `provider-paths` check) flags any
+`shipped:` ref or stale shipped path that doesn't resolve in this build — re-run
+`overcast provider setup apply --verb <verb> --choice <id> --yes` to fix.
+`examples/providers/` holds only authoring demos: teaching code for the wire
+contract, bound by raw `exec:` path.
 
 ## Provider setup wizard and non-interactive profiles
 
@@ -158,7 +201,7 @@ OVERCAST_SEE_BRAIN=off overcast see shot.jpg # one-off: skip the brain default (
 ```
 
 `--detect` still needs a detection provider (the brain path produces a description,
-not bounding boxes) — bind one, e.g. `setup provider see "exec:python3 examples/providers/detect/detect.py"`
+not bounding boxes) — bind one, e.g. `provider setup apply --preset owl-local --yes`
 (boxes), or the opt-in Cloudglue tinycloud provider below (boxless presence facts).
 
 `see` also takes an **http(s) image URL** directly: the image is downloaded into
@@ -172,14 +215,14 @@ non-image response (login wall, expired signed URL returning HTML) errors clearl
 tinycloud 0.3.7 adds an image `see` verb (the file-level counterpart of `watch`:
 title + description + on-screen text) and **image sources for `extract`**
 (feature flags `see.v1` / `extract.images.v1`). The shipped wrapper
-([`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh))
+([`providers/senses/tinycloud/see.sh`](../providers/senses/tinycloud/see.sh))
 maps them onto overcast's `see` — bind to opt in; the defaults above are unchanged:
 
 ```bash
 overcast provider setup apply --verb see --choice tinycloud --profile default --yes
-# or bind directly — keep the `bash …` wrapper: a run template that starts with
-# `tinycloud` is treated as the built-in default binding and skipped for `see`.
-overcast setup provider see "exec:bash examples/providers/tinycloud/see.sh --input {{input}}"
+# (the catalog descriptor keeps a `bash …` wrapper deliberately: a run template
+#  that starts with `tinycloud` is treated as the built-in default binding and
+#  skipped for `see`.)
 
 overcast see ./scene.jpg --ocr --json                          # tinycloud see → caption + on-screen text
 overcast see ./scene.jpg --prompt "what safety gear?" --json   # tinycloud extract → payload.extract facts
@@ -204,13 +247,19 @@ overcast see ./scene.jpg --detect "person, hard hat" --json    # extract checkli
 overcast ships Hugging Face Inference API providers so the `see` captioner and
 model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 
-- **`see`** — the fallback captioner ([`examples/providers/hf/see.sh`](../examples/providers/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--prompt` (`--detect` is ignored — this captioner can't produce boxes; bind the OWLv2/fal detector for that).
-- **`enhance` (image)** — opt-in HF model ops ([`examples/providers/hf/enhance.py`](../examples/providers/hf/enhance.py), needs `huggingface_hub` + `pillow`). Image **upscale/unblur/restore works** via the **fal-ai** provider, routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; uses the free monthly credit then pay-as-you-go). The **default stays the internal ffmpeg toolkit**; bind to opt in:
-  ```bash
-  overcast setup provider enhance "exec:python3 examples/providers/hf/enhance.py {{input}}"
-  overcast enhance ./blurry.jpg          # -> upscaled/unblurred media.enhanced record
-  ```
-  Default model `prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale` (override `HF_ENHANCE_IMAGE_MODEL`; provider `HF_ENHANCE_PROVIDER`, default `fal-ai`). **Caveat:** these are diffusion *editing* models — they synthesize plausible detail (not faithful super-resolution), so flag it for forensic use.
+- **`see`** — the fallback captioner ([`providers/senses/hf/see.sh`](../providers/senses/hf/see.sh)), used when the brain LLM has no vision (or when forced via `setup provider see builtin:hf` / `OVERCAST_SEE_BRAIN=off`). Override the model with `HF_SEE_MODEL` (default `google/gemma-3-27b-it`). Forwards `--ocr` / `--prompt` (`--detect` is ignored — this captioner can't produce boxes; bind the OWLv2/fal detector for that).
+- **`enhance` (image)** — two opt-in HF paths (the **default stays the internal ffmpeg toolkit**):
+  - **Shipped, catalog-backed** ([`providers/senses/hf/enhance.sh`](../providers/senses/hf/enhance.sh)) — a curl HF Inference-Endpoint enhance; bind with the wizard, no raw path:
+    ```bash
+    overcast provider setup apply --verb enhance --choice hf --yes   # persists a shipped: ref
+    ```
+    Point it at your endpoint with `HF_ENHANCE_ENDPOINT`.
+  - **Python demo** ([`examples/providers/python/enhance.py`](../examples/providers/python/enhance.py), needs `huggingface_hub` + `pillow`) — image **upscale/unblur/restore** via the **fal-ai** provider routed through your `HF_TOKEN` (the HF way — billed to your HF account, no fal key needed; free monthly credit then pay-as-you-go). This is an authoring demo (the sanctioned raw-`exec:` escape hatch), a *different* backend from the shipped script above:
+    ```bash
+    overcast setup provider enhance "exec:python3 examples/providers/python/enhance.py {{input}}"
+    overcast enhance ./blurry.jpg          # -> upscaled/unblurred media.enhanced record
+    ```
+    Default model `prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale` (override `HF_ENHANCE_IMAGE_MODEL`; provider `HF_ENHANCE_PROVIDER`, default `fal-ai`). **Caveat:** these are diffusion *editing* models — they synthesize plausible detail (not faithful super-resolution), so flag it for forensic use.
 - **`enhance` (audio)** — **not available via HF** (audio-to-audio isn't a HF Inference-Providers task; 0 hosted models). Use ffmpeg (`enhance --ops denoise,normalize`) or bind a Replicate-direct provider (`resemble-ai/resemble-enhance`) / self-host. `enhance.sh` (curl) remains for a dedicated HF Inference Endpoint via `HF_ENHANCE_ENDPOINT`.
 
 ## fal.ai providers (`FAL_KEY`)
@@ -218,9 +267,8 @@ model-based `enhance` work once `HF_TOKEN` (or `HUGGING_FACE_HUB_TOKEN`) is set:
 Direct fal.ai providers (verified working) — bind to opt in:
 
 ```bash
-overcast setup provider see         "exec:bash examples/providers/fal/see.sh {{input}}"          # florence-2 caption / --ocr
-overcast setup provider enhance     "exec:bash examples/providers/fal/enhance.sh {{input}}"      # image: esrgan · audio: deepfilternet3
-overcast setup provider reconstruct "exec:bash examples/providers/fal/reconstruct.sh {{input}}"  # speculative camera reposition / 3D / depth
+overcast provider setup apply --preset fal --yes   # see (florence-2) + enhance (esrgan/deepfilternet3) + reconstruct
+# or individually: overcast provider setup apply --verb see|enhance|reconstruct --choice fal --yes
 ```
 - **see** → `fal-ai/florence-2-large` (detailed caption; `--ocr` for text).
 - **enhance** is a **toolbox** dispatched by `--ops`: image → `fal-ai/esrgan`, audio → `fal-ai/deepfilternet3`; `--ops separate` → `fal-ai/sam-audio/separate`, `--ops segment` → `fal-ai/sam-3/image`. Models override via `FAL_ENHANCE_IMAGE_MODEL` / `FAL_ENHANCE_AUDIO_MODEL` / `FAL_SEPARATE_MODEL` / `FAL_SEGMENT_MODEL`. See **Enhance split ops** below.
@@ -242,7 +290,7 @@ overcast exif <capture-id|record>  # a captured clip's metadata (video GPS track
 overcast exif ./photo.jpg --geocode  # + reverse-geocode GPS to a place (needs a bound geocode provider)
 ```
 
-Default backend: the shipped [`examples/providers/exif/exif.sh`](../examples/providers/exif/exif.sh)
+Default backend: the shipped [`providers/senses/exif/exif.sh`](../providers/senses/exif/exif.sh)
 (system `exiftool`; `exit 13` → `needs_credentials` when absent). Bind your own
 with `setup provider exif <spec>`. Only the compact
 `summary`/`gps`/`place`/device (`make`/`model`/`software`/`serial`/`lens`) fields
@@ -259,13 +307,13 @@ path/wrapper.
   ToS-gated `geocode` provider (never bound by default — reverse geocoding
   egresses the subject's coordinates to a third party, so it needs both the flag
   AND a bound provider). The shipped
-  [`examples/providers/geocode/geocode.sh`](../examples/providers/geocode/geocode.sh)
+  [`providers/senses/geocode/geocode.sh`](../providers/senses/geocode/geocode.sh)
   uses OSM **Nominatim** (no API key; sets a User-Agent and honors ~1 req/s —
   point `OVERCAST_GEOCODE_URL` at your own Nominatim/Photon for volume, override
   the agent with `OVERCAST_GEOCODE_UA`). Bind it with:
 
   ```bash
-  overcast setup provider geocode "exec:bash examples/providers/geocode/geocode.sh --input {{input}}"
+  overcast provider setup apply --verb geocode --choice nominatim --yes
   overcast exif ./photo.jpg --geocode   # -> payload.place = "…, San Francisco, California, …"
   ```
 
@@ -305,7 +353,7 @@ brew install c2patool   # or: cargo install c2patool
 overcast verify ./photo.jpg        # -> media.provenance record (signer, validation state)
 ```
 
-Default backend: the shipped [`examples/providers/verify/verify.sh`](../examples/providers/verify/verify.sh)
+Default backend: the shipped [`providers/senses/verify/verify.sh`](../providers/senses/verify/verify.sh)
 (system `c2patool`; `exit 13` when absent). Bind your own with
 `setup provider verify <spec>`. `overcast doctor` reports whether `c2patool` is on
 PATH; set `OVERCAST_C2PATOOL_CMD` to point the shipped script (and doctor) at a
@@ -322,8 +370,7 @@ has it — it feeds the map instead). Toggle these off per case with
 ## ElevenLabs providers (`ELEVENLABS_API_KEY`)
 
 ```bash
-overcast setup provider listen  "exec:bash examples/providers/elevenlabs/listen.sh {{input}}"   # Scribe speech-to-text
-overcast setup provider enhance "exec:bash examples/providers/elevenlabs/enhance.sh {{input}}"  # voice isolator (audio)
+overcast provider setup apply --preset elevenlabs --yes   # listen (Scribe STT) + enhance (voice isolator)
 ```
 - **listen** → ElevenLabs Speech-to-Text (Scribe) → transcript + word-level `segments[]` with `media.at` anchors + language.
 - **enhance** → ElevenLabs Voice Isolator (strips background noise/music → clean speech).
@@ -348,7 +395,7 @@ exposes both ops:
 ```bash
 # on-device: pyannote diarization + GroundingDINO/SAM 2.1 (Apache-2.0, CPU-ok)
 scripts/visual-db-uv.sh --enhance          # installs both stacks into the uv venv
-overcast setup provider enhance "exec:bash examples/providers/local/enhance.sh {{input}}"
+overcast provider setup apply --preset local-models --yes
 #   ...or hosted on fal (FAL_KEY): sam-audio + sam-3
 overcast provider setup plan --preset fal && overcast provider setup apply --preset fal --yes
 
@@ -427,27 +474,27 @@ overcast view <parent-id>                                        # gallery / emb
 
 Two more provider-only `enhance` ops derive analysis artifacts from ONE input and
 fan out the same way (parent + children, gallery-able via `overcast view <parent>`).
-Both ship as shell-free example providers — no fal/local-models preset, just bind
-the script:
+Both are shipped local Python providers with their own catalog choices — no
+fal/local-models preset or API key needed:
 
 ```bash
 # image forensics: ELA + noise residual + luminance-gradient overlays (pillow + numpy)
-overcast setup provider enhance "exec:python3 examples/providers/enhance/ela.py"
+overcast provider setup apply --verb enhance --choice ela --yes
 overcast enhance suspect.jpg --ops ela          # -> parent + 3 overlay children
 #   ...or stitch a panning video into one wide still (opencv-python + numpy)
-overcast setup provider enhance "exec:python3 examples/providers/enhance/panorama.py"
+overcast provider setup apply --verb enhance --choice panorama --yes
 overcast enhance pan_shot.mp4 --ops panorama    # -> parent + 1 stitched-still child
 overcast view <parent-id>                       # gallery of the overlays / the wide still
 ```
 
-- **ela** (`examples/providers/enhance/ela.py`, pillow + numpy) — from an image it
+- **ela** (`providers/senses/enhance/ela.py`, pillow + numpy) — from an image it
   writes three heuristic maps: **ELA** (re-save at JPEG q90, amplify the per-pixel
   abs difference so recompressed/pasted regions light up), **noise residual** (input
   minus a blurred copy, normalized), and a **luminance gradient** (Sobel edge
   magnitude). These are *leads, not proof* — compression, resizing, and texture also
   trigger them (`payload.caveat` says so). Image-only; run it on a `frame://` still of
   a video.
-- **panorama** (`examples/providers/enhance/panorama.py`, opencv-python + numpy) —
+- **panorama** (`providers/senses/enhance/panorama.py`, opencv-python + numpy) —
   samples ~18 frames uniformly across a video (dropping black + near-duplicate
   frames) and runs `cv2.Stitcher` in PANORAMA mode into one wide still, exposing a
   skyline/landmark strip for geolocation that no single frame shows. A failed stitch
@@ -462,8 +509,8 @@ returns bounding boxes. It runs **locally** via `transformers` — no fixed COCO
 vocabulary, no remote API:
 
 ```bash
-scripts/visual-db-uv.sh --detect                 # uv-installs torch + transformers + scipy + pillow (Grounding DINO also needs `timm`)
-overcast setup provider see "exec:$DETECT_PY examples/providers/detect/detect.py"   # $DETECT_PY = the venv python printed above
+scripts/visual-db-uv.sh --detect                 # uv-installs torch + transformers + scipy + pillow (Grounding DINO also needs `timm`); prints DETECT_PY
+export DETECT_PY=…; overcast provider setup apply --preset owl-local --yes   # persists $DETECT_PY (the venv python) + a shipped: ref for detect.py
 
 overcast see ./scene.jpg --detect "car, person, license plate" --json
 overcast see ./clip.mp4  --detect "weapon, hard hat" --json      # video → frames sampled, each box carries `at`
@@ -487,7 +534,7 @@ setup wizard via `case setup --index "<name>:<type>"` (e.g.
 `case setup --index people:face-cluster`; for `basic-clip`, an optional
 `@k=v;k=v` config suffix — pairs separated by `;` — pins sampling/pooling; see
 below). They use shipped Python providers under
-`examples/providers/visual-db/` and a uv-managed Python environment:
+`providers/engines/visual-db/` and a uv-managed Python environment:
 
 ```bash
 scripts/visual-db-uv.sh          # image matching: opencv-python + numpy
@@ -589,7 +636,7 @@ The record (`similar.match`) emits ranked `payload.matches[]` (`ref`, `similarit
 ## Audio DBs (`audio-fp`, `basic-clap`)
 
 The audio counterparts of `image-ransac` and `basic-clip`, under
-`examples/providers/audio-db/` and the same uv-managed Python (install with
+`providers/engines/audio-db/` and the same uv-managed Python (install with
 `scripts/visual-db-uv.sh --audio` and/or `--clap`; the `audio-db` doctor check
 reports both halves). Both decode a file's first audio stream via the system
 ffmpeg (so a **video** member's audio track is used automatically) and follow the
@@ -679,7 +726,7 @@ you want the full visual+audio stack.
 
 Speaker verification — the voice twin of `face --match`: given a **reference voice
 sample**, find/rank that speaker inside a clip or across enrolled members. Lives in
-`examples/providers/audio-db/voice_match.py` on the same uv venv as the other
+`providers/engines/audio-db/voice_match.py` on the same uv venv as the other
 audio DBs (`scripts/visual-db-uv.sh --voice` — the pyannote stack `enhance --ops
 separate` already uses; no extra deps). Distinct from its neighbors: `audio`
 (audio-fp) matches the *recording*, `similar` (basic-clap) matches the *content*,
@@ -761,7 +808,7 @@ to `cpu` (MPS is experimental for pyannote).
 speaker-embedding models (audio tasks are ASR/audio-classification only). If you
 need a hosted backend, deploy a dedicated HF Inference Endpoint with a custom
 handler and wrap it as an exec provider following the
-[`examples/providers/hf/enhance.sh`](../examples/providers/hf/enhance.sh) pattern.
+[`providers/senses/hf/enhance.sh`](../providers/senses/hf/enhance.sh) pattern.
 
 These emit ordinary Overcast records (`image.match`, `face.analysis`, `audio.match`,
 `voice.match`, or `similar.match`) and write
@@ -775,27 +822,26 @@ sample 8 frames.
 
 ## Samples (runnable, in this repo)
 
+The authoring **demos** — minimal providers that teach the exec wire contract,
+one per language, meant to be copied as the starting point for your own:
+
 - [`examples/providers/bash/watch.sh`](../examples/providers/bash/watch.sh) — the canonical tinycloud `watch` exec provider.
 - [`examples/providers/python/listen.py`](../examples/providers/python/listen.py) — a local-whisper `listen` provider (exec).
 - [`examples/providers/ts/see.ts`](../examples/providers/ts/see.ts) — a VLM `see` provider (exec).
-- [`examples/providers/hf/{see,enhance}.sh`](../examples/providers/hf/) — Hugging Face captioner + model-enhance.
-- [`examples/providers/elevenlabs/{listen,enhance}.sh`](../examples/providers/elevenlabs/) — ElevenLabs Scribe STT + Voice Isolator audio enhance.
-- [`examples/providers/fal/{see,enhance,reconstruct}.sh`](../examples/providers/fal/) — fal.ai Florence-2, ESRGAN/DeepFilterNet3 enhance (plus `--ops separate` sam-audio / `--ops segment` sam-3), and the speculative `reconstruct` toolbox (Qwen multi-angle reposition/sweep, Trellis image→3D via the queue API, Depth Anything V2).
-- [`examples/providers/local/enhance.sh`](../examples/providers/local/enhance.sh) + [`examples/providers/visual-db/enhance_{voice,segment}.py`](../examples/providers/visual-db/) — on-device `enhance --ops separate` (pyannote) and `--ops segment` (GroundingDINO + SAM 2.1).
-- [`examples/providers/detect/detect.py`](../examples/providers/detect/detect.py) — OWLv2 open-vocabulary `see` object detector (OWLv2 / Grounding DINO), image + video.
-- [`examples/providers/tinycloud/see.sh`](../examples/providers/tinycloud/see.sh) — Cloudglue tinycloud image `see`/`extract` provider (describe + on-screen text; boxless `--prompt`/`--detect` facts; tinycloud ≥ 0.3.7).
-- [`examples/providers/visual-db/{image_match,face_match,clip_match,face_cluster}.py`](../examples/providers/visual-db/) — local image RANSAC, DeepFace, CLIP (basic-clip), and face-cluster DB matching for visual DB indexes.
-- [`examples/providers/audio-db/{audio_match,clap_match,voice_match}.py`](../examples/providers/audio-db/) — local Shazam-style fingerprint matching (audio-fp), LAION CLAP audio embeddings (basic-clap), and wespeaker speaker verification (voice-print) for audio DB indexes.
-- [`examples/providers/sources/{youtube,tiktok,x,web,lens,dl,gdelttv,wayback,overpass,firms,dispatch,flights,instagram,telegram,webcam,facesearch,yandeximg,dork,shodan,browser,username,person,phone,property,plate}.sh`](../examples/providers/sources/) — yt-dlp (youtube/dl) + Apify (tiktok/x/lens/instagram/telegram/facesearch/yandeximg + the identity sources username/person/phone/property/plate) + web-search (Tavily/Brave) + Google dorking (Serper.dev) + Shodan host recon + Google Lens & Yandex reverse-image + GDELT TV broadcast-news + Wayback Machine archive recovery + Overpass OSM features + NASA FIRMS active-fire hotspots + Socrata calls-for-service dispatch + OpenSky ADS-B flights + Windy Webcams + headless-Chromium page render (`browser`, delegates to the screenshot engine) source providers.
-- [`examples/providers/screenshot/{screenshot.sh,render.mjs}`](../examples/providers/screenshot/) — the shared headless-Chromium page renderer (Playwright) behind the `screenshot` verb and the `browser` source.
-- [`examples/providers/{exif,verify}/`](../examples/providers/) — forensic senses: ExifTool metadata/GPS (`exif`), C2PA provenance (`verify`).
-- [`examples/providers/geocode/geocode.sh`](../examples/providers/geocode/geocode.sh) — opt-in OSM Nominatim reverse geocoder for `exif --geocode` (no key; never bound by default).
+- [`examples/providers/python/enhance.py`](../examples/providers/python/enhance.py) — an HF-token-routed image-enhance provider (the Python variant of the shipped hf enhance).
+- [`examples/providers/sources/mcp-bridge.ts`](../examples/providers/sources/mcp-bridge.ts) — the MCP-server-as-source prototype (below).
+
+The **shipped, supported** provider code lives under [`providers/`](../providers)
+(`sources/` scrapers, `senses/` bindable providers, `engines/` internal engines)
+— see "Shipped providers and `shipped:` refs" above. It exercises the same
+public exec contract, so it doubles as reference reading, but bind it through
+the catalog wizard rather than by path.
 
 ## Screenshot engine (`screenshot` verb + `browser` source)
 
 Browser screen capture renders what a page **looks like** — the rendered pixels,
 not the raw HTML a plain `capture`/`web` fetch stores. One shipped engine
-([`examples/providers/screenshot/`](../examples/providers/screenshot/)) backs two
+([`providers/engines/screenshot/`](../providers/engines/screenshot/)) backs two
 surfaces:
 
 - **`screenshot <url>` verb** — one-shot render → a `web.screenshot` PNG evidence
@@ -855,7 +901,6 @@ grammar. Built-in types resolve to shipped scripts:
 - **`yandeximg`** — Yandex reverse image search via Apify (`APIFY_TOKEN`; actor override `OVERCAST_YANDEX_ACTOR`). The reverse-image counterpart of `lens` (Google) — Yandex is the strongest engine for faces/places, so it fills the gap where only `lens` existed. Supported ref: `yandeximg:<image url>` or `yandeximg:<local image path>` (relative paths resolve against the cwd, then the case media dir, then the case root; local files upload to the account's `overcast-yandeximg` key-value store so the actor can fetch them). Hits carry the matched page (`payload.url`), `match` ("exact"|"visual"), and a thumbnail/page `media.ref` (a base64 thumbnail is materialized into the case media dir; a plain image URL passes straight through for `capture`). `--limit` caps hits (default 8); `--since` is ignored (no recency filter). **Ships a working default** — actor `johnvc~yandex-reverse-image-search` with its `image_url` input key — so it runs on just `APIFY_TOKEN` with no extra config; both are plain overrides for a different actor (`OVERCAST_YANDEX_ACTOR`, `OVERCAST_YANDEX_IMAGE_KEY`). Output field extraction stays defensive (tries several common field names) since each actor's schema may differ.
 - **`dl`** — generic yt-dlp source (no key). `fetch` downloads any of yt-dlp's ~1800 supported hosts; `enumerate` flat-lists a **channel / playlist / user** URL (path matching `/c/`, `/channel/`, `/user/`, `/@handle`, `/playlist`, or `?list=`) into `scan.hit` records via `yt-dlp --flat-playlist` (`--limit`→`--playlist-end`, `--since`→`--dateafter`), while a **single-video / unclassifiable** URL returns `[]` (capture-only — a no-op scan, never a failure) and a yt-dlp failure surfaces as an enumerate **error**, not a fake-clean `[]`. `overcast capture <url>` auto-routes video hosts without a dedicated source (Rumble/BitChute/Odysee/VK/Bilibili/Vimeo/Dailymotion/Reddit/Twitch/Kick/Facebook/…) to `dl` instead of the `web` page fetcher, and a scan.hit stamped `source:dl` captures back through it. Bind `dl:<channel url>` to stake out a channel with `scan`/`monitor`, or `dl:<video url>` for capture-only.
 - **`gdelttv`** — GDELT 2.0 TV API: broadcast-news video search over the Internet Archive TV News Archive (**no key**). Supported ref/query: `gdelttv:<phrase>`, optionally with GDELT operators (`station:CNN`, `market:"National"`); a query naming neither a station nor a market gets `market:"National"` appended (the API requires one). Hits carry the station/show/air-date title, the archive.org page (`payload.url`), snippet, thumbnail, and a **bounded clip** `media.ref` (`…/<show>.mp4?start=S&end=E`, ~30s) that `capture` downloads directly (full-show download is copyright-restricted; the clip service and thumbnails are public). `--since` maps to `STARTDATETIME`/`ENDDATETIME`, but the clipgallery corpus lags real time by weeks — a very recent window can return zero clips. Strong `monitor` fit (each clip has a stable page URL for dedup).
-- **`wayback`** — Internet Archive **Wayback Machine** via the CDX API (**no key**) — recover deleted pages/posts and surface changes over time (OSINT At Home #26/#28). Supported ref: `wayback:<url>` (or a bare host/path). `enumerate` returns one hit per **distinct archived capture** (`collapse=digest` → only versions whose content actually changed — the "secret changes" view), newest first; each hit carries the snapshot page (`payload.url`), the capture datetime (`payload.published`/`timestamp`), HTTP `status`, `mimetype`, content `digest`, and a snapshot `media.ref` so `capture`/`--pull` downloads the archived page. `--limit` maps to the CDX `limit=-N` (most-recent N), `--since` to `from=<stamp>`. A never-archived URL is a clean `[]` (not an error). Named `wayback` (not `archive`) to avoid colliding with the media-bucket verb + `archive:<bucket>/<item>` ref scheme. Strong `monitor` fit — `monitor wayback:<url> --every` surfaces a NEW capture only when the page changed.
 - **`overpass`** — OpenStreetMap features via the **Overpass API** (**no key**) — turn "every hospital / surveillance camera / fuel station / named place in this area" into geolocated case records. Supported refs: `overpass:key=value@around:<radius_m>,<lat>,<lng>` (a point + radius), `overpass:key=value@<south,west,north,east>` (a bbox), or **raw OverpassQL** (any query containing `[out:` or `;`, passed through verbatim). The friendly forms expand to QL over `node`/`way`/`relation` with `out center`, so ways/relations get a centroid. Each element becomes a hit carrying top-level `payload.gps` (node lat/lon, or the way/relation centroid) so scan records plot on `overcast map`; `payload.tags` holds the full OSM tag set, `payload.url`/`media.ref` is the `openstreetmap.org/<type>/<id>` element page (so `capture` stores it). `--limit` caps the QL `out center N`; `--since` adds an OSM `newer:"<ISO>"` recency filter (friendly forms only — raw QL owns its filters). Zero matches → clean `[]`. Strong "map anything" multiplier and a solid `monitor` fit for watching an area for new features.
 - **`firms`** — NASA **FIRMS** active-fire / thermal-anomaly hotspots (**free** `FIRMS_MAP_KEY` from <https://firms.modaps.eosdis.nasa.gov/api/>) — satellite-detected fires as geolocated records. Supported ref: `firms:<west,south,east,north>` (a bbox → area CSV endpoint) with an optional `@<SENSOR>` suffix to override the default source (`VIIRS_SNPP_NRT`; e.g. `firms:2.0,48.5,2.6,49.0@MODIS_NRT`). FIRMS is **area-only** — there is no country endpoint in their API, so query a country by its bounding box. The response CSV is parsed **by header name** (so it survives VIIRS `bright_ti4` vs MODIS `brightness` column differences); each detection row becomes a hit carrying top-level `payload.gps`, an ISO `payload.published` from `acq_date`+`acq_time` (UTC), plus `frp`/`confidence`/`brightness`/`daynight`/`sensor`, so scan records plot on `overcast map`; `payload.url`/`media.ref` is a FIRMS fire-map deep link centered on the point. `--since Nd` maps to the FIRMS dayrange (1–10, default 1); `--limit` caps rows client-side. A header-only CSV (no fires) → clean `[]`; a non-CSV body (e.g. an `Invalid MAP_KEY` text response, which FIRMS returns HTTP-200) is a hard error, not a fake-clean scan. Strong `monitor` fit for a standing wildfire/thermal watch over an area.
 - **`dispatch`** — police CAD / **calls-for-service** feeds on the **Socrata SODA API** (**no key**; an optional `SOCRATA_APP_TOKEN` is sent as `X-App-Token` to raise rate limits) — real-time dispatched 911 calls as geolocated case records. Supported refs: `dispatch:sf` (San Francisco real-time law-enforcement dispatched calls, `data.sfgov.org/gnap-fj3t` — ~10-min lag, **rolling ~48h window**), `dispatch:seattle` (Seattle real-time 911 fire/EMS dispatch, `data.seattle.gov/kzjm-xkqj`), and the generic escape hatch `dispatch:<domain>/<dataset>[@<datefield>]` for any Socrata calls-for-service dataset (e.g. `dispatch:data.sfgov.org/gnap-fj3t`); the `@<datefield>` suffix pins the date column, else the generic form orders/filters on the SODA system field `:updated_at`. The gps / title / row-id / snippet columns are **auto-detected per row** — gps from numeric `latitude`/`longitude` columns (string or number), any GeoJSON point value (`{type:"Point",coordinates:[lng,lat]}`), or a nested Socrata location object; title from the common call-type columns (`call_type_final_desc`, `type`, `description`, …); row id from the common unique-id columns (`id`, `cad_number`, `incident_number`, …), falling back to the Socrata `:id` system row id — always requested via `$select=*,:id,:updated_at`, so every row has a stable id (and generic-form rows a real timestamp). Hits carry top-level `payload.gps` so scan records plot on `overcast map` (a sensitive call with no location is still a hit, just without `gps`), `payload.published`/`created` from the date column, and a snippet of address/priority/agency/disposition. `payload.url`/`media.ref` is a **stable per-row SODA deep link** (`https://<domain>/resource/<dataset>.json?<idfield>=<value>`, or `…?$where=:id='row-…'` when only the system id exists) — the monitor dedup key, and what `capture` stores; never a URL fragment, which `fetch` would drop. `--limit` maps to `$limit` (default 50, cap 1000); `--since` maps to `$where=<datefield> > '<cutoff>'`. Socrata datetimes are **floating** (zone-less, the feed's local clock): the presets pin the feed's IANA zone, so their `--since` cutoff is formatted in feed-local time (an exact window) and their emitted `published`/`created` carry an explicit `±HH:MM` offset (downstream `map`/`situation` read zone-less as UTC, which would shift US call times by hours; worst case a row on the far side of a DST flip is 1h off). The generic form has no known zone — its `:updated_at` default is real UTC, but a pinned local `@<datefield>` keeps the floating skew, so prefer windows comfortably larger than the feed's UTC offset (e.g. `--since 1d`, not `1h`). Always `$order=<datefield> DESC` (newest first). The real-time feeds are **rolling windows** (SF keeps ~48h), which makes `monitor --source dispatch --every 15m` the natural standing surface.
@@ -895,7 +940,7 @@ Each responds to `describe` offline:
 ./examples/providers/bash/watch.sh describe
 python3 examples/providers/python/listen.py describe
 node --import tsx examples/providers/ts/see.ts describe
-bash examples/providers/sources/tiktok.sh describe
+bash providers/sources/tiktok.sh describe
 ```
 
 ### Consume an MCP server as a source (prototype/example)

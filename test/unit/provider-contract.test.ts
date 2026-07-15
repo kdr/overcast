@@ -1,7 +1,8 @@
-// Contract guard for the shipped example providers. The same handful of bugs kept
-// recurring across these ~14 near-identical scripts (Bugbot reported each file
-// separately): describe emitting invalid JSON, and a value-less trailing flag
-// crashing the interpreter (bash `set -u` "unbound variable" / Python IndexError).
+// Contract guard for the shipped providers (providers/) and the authoring demos
+// (examples/providers/). The same handful of bugs kept recurring across these
+// near-identical scripts (Bugbot reported each file separately): describe emitting
+// invalid JSON, and a value-less trailing flag crashing the interpreter (bash
+// `set -u` "unbound variable" / Python IndexError).
 // This locks the contract for ALL of them at once. Add new providers to PROVIDERS.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -14,7 +15,9 @@ import { runExecProvider } from "../../src/providers/run.ts";
 import { enumerateSource } from "../../src/providers/sources/index.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const P = (rel: string) => join(ROOT, "examples/providers", rel);
+// shipped providers live under providers/ (sources/senses/engines); the
+// authoring demos stay under examples/providers/ — cover both roots.
+const P = (rel: string) => join(ROOT, rel);
 
 type Kind = "sense" | "source";
 interface Prov {
@@ -28,37 +31,36 @@ const py = (file: string): Prov => ({ file, kind: "sense", cmd: "python3", base:
 const ts = (file: string): Prov => ({ file, kind: "sense", cmd: "node", base: ["--import", "tsx", P(file)] });
 
 const PROVIDERS: Prov[] = [
-  sh("bash/watch.sh"),
-  sh("fal/see.sh"),
-  sh("fal/enhance.sh"),
-  sh("fal/reconstruct.sh"),
-  sh("hf/see.sh"),
-  sh("hf/enhance.sh"),
-  sh("elevenlabs/listen.sh"),
-  sh("elevenlabs/enhance.sh"),
-  sh("local/enhance.sh"),
-  py("python/listen.py"),
-  py("hf/enhance.py"),
-  py("detect/detect.py"),
-  py("visual-db/enhance_voice.py"),
-  py("visual-db/enhance_segment.py"),
-  py("enhance/ela.py"),
-  py("enhance/panorama.py"),
-  ts("ts/see.ts"),
-  sh("sources/youtube.sh", "source"),
-  sh("sources/tiktok.sh", "source"),
-  sh("sources/x.sh", "source"),
-  sh("sources/web.sh", "source"),
-  sh("sources/wayback.sh", "source"),
-  sh("sources/username.sh", "source"),
-  sh("sources/person.sh", "source"),
-  sh("sources/phone.sh", "source"),
-  sh("sources/property.sh", "source"),
-  sh("sources/plate.sh", "source"),
-  sh("sources/overpass.sh", "source"),
-  sh("sources/firms.sh", "source"),
-  sh("sources/flights.sh", "source"),
-  sh("sources/yandeximg.sh", "source"),
+  sh("examples/providers/bash/watch.sh"),
+  sh("providers/senses/fal/see.sh"),
+  sh("providers/senses/fal/enhance.sh"),
+  sh("providers/senses/fal/reconstruct.sh"),
+  sh("providers/senses/hf/see.sh"),
+  sh("providers/senses/hf/enhance.sh"),
+  sh("providers/senses/elevenlabs/listen.sh"),
+  sh("providers/senses/elevenlabs/enhance.sh"),
+  sh("providers/senses/local/enhance.sh"),
+  py("examples/providers/python/listen.py"),
+  py("examples/providers/python/enhance.py"),
+  py("providers/senses/detect/detect.py"),
+  py("providers/engines/visual-db/enhance_voice.py"),
+  py("providers/engines/visual-db/enhance_segment.py"),
+  py("providers/senses/enhance/ela.py"),
+  py("providers/senses/enhance/panorama.py"),
+  ts("examples/providers/ts/see.ts"),
+  sh("providers/sources/youtube.sh", "source"),
+  sh("providers/sources/tiktok.sh", "source"),
+  sh("providers/sources/x.sh", "source"),
+  sh("providers/sources/web.sh", "source"),
+  sh("providers/sources/username.sh", "source"),
+  sh("providers/sources/person.sh", "source"),
+  sh("providers/sources/phone.sh", "source"),
+  sh("providers/sources/property.sh", "source"),
+  sh("providers/sources/plate.sh", "source"),
+  sh("providers/sources/overpass.sh", "source"),
+  sh("providers/sources/firms.sh", "source"),
+  sh("providers/sources/flights.sh", "source"),
+  sh("providers/sources/yandeximg.sh", "source"),
 ];
 
 function run(p: Prov, args: string[]) {

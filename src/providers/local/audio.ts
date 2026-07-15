@@ -1,7 +1,7 @@
 // Local audio DB shims: `audio-fp` (Wang-2003 constellation fingerprint, exact
 // match) and `basic-clap` (CLAP audio embeddings, semantic similarity). Both are
 // deliberately local-only and shell out to uv-managed Python under
-// examples/providers/audio-db/, reusing the same venv + Python locator as the
+// providers/engines/audio-db/, reusing the same venv + Python locator as the
 // visual DBs (localVisionPython / localIndexDir live in vision.ts). The wire
 // contract (one loose record on stdout, members read from indexes.json) matches
 // the visual-db scripts exactly.
@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { runExecProvider } from "../run.js";
 import { providerEnv } from "../provider-env.js";
-import { shippedPath } from "../../pkg.js";
+import { shippedProviderPath } from "../../pkg.js";
 import { localIndexDir, localVisionPython, type ClipConfig } from "./vision.js";
 import type { Case } from "../../case.js";
 
@@ -21,7 +21,7 @@ export type LocalClapOp = "add" | "match" | "search";
 export type LocalVoiceOp = "add" | "match" | "search";
 
 function script(name: string): string | undefined {
-  return shippedPath("examples", "providers", "audio-db", name);
+  return shippedProviderPath("engines", "audio-db", name);
 }
 
 function missingScript(verb: string, input: string, name: string): OvercastRecord {
@@ -30,7 +30,7 @@ function missingScript(verb: string, input: string, name: string): OvercastRecor
     format: "json",
     payload: { input },
     media: { ref: input },
-    error: `audio DB provider script not found: examples/providers/audio-db/${name}`,
+    error: `audio DB provider script not found: providers/engines/audio-db/${name}`,
     state: "error",
   });
 }
@@ -208,7 +208,7 @@ export async function runLocalAudio(
 /**
  * Local CLAP semantic DB (`basic-clap`): embed + cache audio (or video audio
  * tracks) and query by audio (`match`) or text (`search`). Mirrors runLocalClip;
- * shells out to examples/providers/audio-db/clap_match.py. For `search`, `input`
+ * shells out to providers/engines/audio-db/clap_match.py. For `search`, `input`
  * is the text query.
  */
 export async function runLocalClap(
@@ -252,7 +252,7 @@ export async function runLocalClap(
  * members that contain the speaker. Pairwise `match` compares clip vs sample
  * directly and MUST NOT touch any index — no index id, no OVERCAST_INDEX_DIR
  * (the runLocalAudio pairwise invariant). Shells out to
- * examples/providers/audio-db/voice_match.py.
+ * providers/engines/audio-db/voice_match.py.
  */
 export async function runLocalVoice(
   c: Case,

@@ -25,7 +25,7 @@ assert_eq "doctor.ffprobe" "true" "$fp_ok" "doctor: system ffprobe runnable"
 for d in \
   "bash $REPO/examples/providers/bash/watch.sh describe" \
   "python3 $REPO/examples/providers/python/listen.py describe" \
-  "bash $REPO/examples/providers/sources/tiktok.sh describe"; do
+  "bash $REPO/providers/sources/tiktok.sh describe"; do
   out="$($d 2>/dev/null)"
   if jq -e . >/dev/null 2>&1 <<<"$out"; then ok "sample.describe" "describe ok: ${d##*/}"; else fail "sample.describe" "bad describe: $d"; fi
 done

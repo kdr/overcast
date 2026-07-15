@@ -28,7 +28,7 @@ fi
 # --- ElevenLabs Scribe (bound provider) ---
 if require_cred "$C.elevenlabs" ELEVENLABS_API_KEY "skipping"; then
   CASE=$(case_dir listen_el)
-  EL="$PWD/examples/providers/elevenlabs/listen.sh"
+  EL="$PWD/providers/senses/elevenlabs/listen.sh"
   ocrun "$CASE" setup provider listen "exec:bash $EL {{input}}" --json >/dev/null 2>&1
   cond "a bound ElevenLabs Scribe provider transcribes the clip via the exec contract"
   out="$(OC_TIMEOUT=240 oc "$CASE" listen "$CLIP" --json)"

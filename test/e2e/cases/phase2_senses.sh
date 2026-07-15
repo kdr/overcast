@@ -106,7 +106,7 @@ execFileSync(FFMPEG_PATH,['-y','-i','$clip','-frames:v','1','$frame'],{stdio:'ig
 " 2>/dev/null
 if [ -f "$frame" ]; then
   tchome="$SMOKE_DIR/senses-tc-home"; mkdir -p "$tchome"
-  $OVERCAST setup provider see "exec:bash $REPO/examples/providers/tinycloud/see.sh --input {{input}}" --home "$tchome" --json >/dev/null 2>&1
+  $OVERCAST setup provider see "exec:bash $REPO/providers/senses/tinycloud/see.sh --input {{input}}" --home "$tchome" --json >/dev/null 2>&1
   tsout="$(env OVERCAST_NO_DOTENV=1 CLOUDGLUE_API_KEY=fixture OVERCAST_TINYCLOUD_CMD="bash $REPO/test/fixtures/fake-tinycloud.sh" \
     $OVERCAST see "$frame" --ocr --json --case "$casedir" --home "$tchome" 2>/dev/null)"
   save_json "phase2_see_tinycloud" "$tsout" >/dev/null

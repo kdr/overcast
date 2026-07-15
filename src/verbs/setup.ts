@@ -20,6 +20,13 @@ import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
 import { loadSetup, saveSetup, emptySetup } from "../state/setup.js";
 import { findProviderChoice, providerChoices, PROVIDER_PRESETS, type ProviderChoice } from "../providers/catalog.js";
+import {
+  resolveShippedArgv,
+  shippedRefResolution,
+  descriptorCommandStrings,
+  findShippedTokenIssues,
+  ShippedRefError,
+} from "../providers/shipped-ref.js";
 import { localVisionPython } from "../providers/local/vision.js";
 import { PI_VERSION } from "../version.js";
 import { envPresent, redactSecrets } from "../env.js";
@@ -149,6 +156,9 @@ interface ProviderSetupChange {
   label: string;
   summary: string;
   descriptor?: ProviderDescriptor;
+  /** transparency: each `shipped:` ref in the descriptor → its resolved absolute
+   *  path in THIS build (null = unresolvable). The stored descriptor keeps the ref. */
+  resolved?: Record<string, string | null>;
   clears_binding: boolean;
   env: string[];
   missing_env: string[];
@@ -162,6 +172,7 @@ function providerSetupChange(verb: string, choice: ProviderChoice): ProviderSetu
     label: choice.label,
     summary: choice.summary,
     descriptor: choice.descriptor,
+    resolved: shippedRefResolution(choice.descriptor),
     clears_binding: choice.clearsBinding === true,
     env: choice.env ?? [],
     missing_env: (choice.env ?? []).filter((name) => !process.env[name]),
@@ -350,7 +361,10 @@ export const providerVerb: VerbSpec = {
     if (action === "setup") {
       const sub = ctx.rest[0] ?? "show";
       if (sub === "show") {
-        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices: providerChoices(), presets: PROVIDER_PRESETS, providers }, meta: { transient: true }, state: "ready" })];
+        // choices carry a `resolved` map (shipped: ref → absolute path in this
+        // build) for transparency; the descriptor itself keeps the portable ref.
+        const choices = providerChoices().map((c) => ({ ...c, resolved: shippedRefResolution(c.descriptor) }));
+        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices, presets: PROVIDER_PRESETS, providers }, meta: { transient: true }, state: "ready" })];
       }
       if (sub !== "plan" && sub !== "apply") {
         return [err("provider", "usage: provider setup [show|plan|apply] [--verb <verb> --choice <choice> | --preset <preset>] [--profile <name>] [--yes]")];
@@ -393,7 +407,14 @@ export const providerVerb: VerbSpec = {
 
     if (action === "describe") {
       if (desc.describe) {
-        const parts = tokenizeCommand(desc.describe);
+        let parts: string[];
+        try {
+          // descriptor commands may carry `shipped:` refs — resolve at exec time.
+          parts = resolveShippedArgv(tokenizeCommand(desc.describe));
+        } catch (e) {
+          if (!(e instanceof ShippedRefError)) throw e;
+          return [err("provider", e.message)];
+        }
         const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
         // exit 13 = needs credentials (the exec contract), like provider init + the exec boundary
         const dstate = res.code === 0 ? "ready" : res.code === 13 ? "needs_credentials" : "error";
@@ -412,7 +433,14 @@ export const providerVerb: VerbSpec = {
     }
     const cmd = typeof init === "string" ? init : init.command;
     if (!cmd) return [makeRecord({ verb: "provider", format: "json", payload: { verb }, state: "ready" })];
-    const parts = tokenizeCommand(cmd);
+    let parts: string[];
+    try {
+      // descriptor init commands may carry `shipped:` refs — resolve at exec time.
+      parts = resolveShippedArgv(tokenizeCommand(cmd));
+    } catch (e) {
+      if (!(e instanceof ShippedRefError)) throw e;
+      return [err("provider", e.message)];
+    }
     const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 5 * 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
     // exec contract (providers.md): exit 13 = needs credentials, not a hard error.
     const state = res.code === 0 ? "ready" : res.code === 13 ? "needs_credentials" : "error";
@@ -614,7 +642,7 @@ export const doctorVerb: VerbSpec = {
       ok: true, // opt-in — never gates
       detail: geocodeBound
         ? `bound (exif --geocode enabled)${geocodeCurl.code === 0 ? "" : "; curl missing (the default Nominatim provider needs it)"}`
-        : "optional/off — bind to enable `exif --geocode` (`setup provider geocode \"exec:bash examples/providers/geocode/geocode.sh --input {{input}}\"`)",
+        : "optional/off — bind to enable `exif --geocode` (`overcast provider setup apply --verb geocode --choice nominatim --yes`)",
     });
 
 
@@ -821,6 +849,43 @@ export const doctorVerb: VerbSpec = {
     const bound = Object.keys(ctx.profile.providers ?? {});
     checks.push({ name: "providers", ok: bound.length > 0, detail: bound.length ? bound.join(", ") : "none bound (defaults apply)" });
 
+    // provider paths: flag bindings whose `shipped:` ref doesn't resolve in this
+    // build, or that still carry a stale absolute shipped-provider path healing
+    // couldn't rewrite (loadProfile heals recognized old paths on load — what
+    // remains here is genuinely broken).
+    const pathIssues: string[] = [];
+    const scanDescriptors = (source: string, providers: Record<string, ProviderDescriptor | undefined>) => {
+      for (const [verb, desc] of Object.entries(providers)) {
+        if (!desc || typeof desc !== "object") continue;
+        for (const cmd of descriptorCommandStrings(desc)) {
+          for (const issue of findShippedTokenIssues(cmd)) {
+            const label =
+              issue.kind === "unresolvable_ref"
+                ? "unresolvable"
+                : issue.kind === "missing_script"
+                  ? "missing script"
+                  : "stale path";
+            pathIssues.push(`${source} ${verb}: ${label} ${issue.token}`);
+          }
+        }
+      }
+    };
+    scanDescriptors("profile", ctx.profile.providers ?? {});
+    const casePolicies = loadSetup(ctx.case)?.providers ?? {};
+    scanDescriptors(
+      "case-setup",
+      Object.fromEntries(
+        Object.entries(casePolicies).map(([verb, policy]) => [verb, policy?.descriptor as ProviderDescriptor | undefined]),
+      ),
+    );
+    checks.push({
+      name: "provider-paths",
+      ok: pathIssues.length === 0,
+      detail: pathIssues.length
+        ? `${pathIssues.join("; ")} — re-run \`overcast provider setup apply --verb <verb> --choice <id> --yes\` (recognized old install paths heal automatically on load), or re-bind a moved custom/demo script to an existing path`
+        : "bindings resolve (shipped: refs OK, no stale provider paths)",
+    });
+
     const coreOk = checks.filter((c) => ["pi", "ffmpeg", "ffprobe"].includes(c.name)).every((c) => c.ok);
     // non-core but important: the default sense backend (tinycloud) + creds. If
     // tinycloud is missing AND no custom watch provider is bound, the headline
@@ -853,6 +918,11 @@ export const doctorVerb: VerbSpec = {
     }
     if (qmdConfigured && !checks.find((c) => c.name === "qmd")?.ok) {
       warnings.push("qmd memory is configured but qmd is not available — install with `npm install -g @tobilu/qmd` or update OVERCAST_QMD_CMD");
+    }
+    if (pathIssues.length) {
+      warnings.push(
+        "provider bindings point at missing shipped provider files (unresolvable shipped: ref or stale absolute path) — re-bind with `overcast provider setup apply --verb <verb> --choice <id> --yes`",
+      );
     }
     const ok = coreOk && warnings.length === 0;
     return [

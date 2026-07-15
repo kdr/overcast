@@ -15,7 +15,7 @@ import { validLatLng, gpsIssue } from "../geo.js";
 import { resolveMediaRef } from "./media-ref.js";
 import { provenanceFromCapture, scanHitProvenance, stampProvenance } from "./provenance.js";
 import { provenanceCase } from "../archive.js";
-import { shippedPath } from "../pkg.js";
+import { shippedProviderPath } from "../pkg.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
 function errorRecord(verb: string, message: string): OvercastRecord {
@@ -24,7 +24,7 @@ function errorRecord(verb: string, message: string): OvercastRecord {
 
 interface SenseConfig {
   verb: string;
-  /** shipped default provider script, as shippedPath() segments */
+  /** shipped default provider script, as shippedProviderPath() segments */
   shipped: string[];
 }
 
@@ -111,7 +111,7 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
   if (isCustomBinding(binding)) {
     return stamp(await runBoundProvider(cfg.verb, binding!, ref, { env, signal: ctx.signal }));
   }
-  const script = shippedPath(...cfg.shipped);
+  const script = shippedProviderPath(...cfg.shipped);
   if (!script) return stamp(errorRecord(cfg.verb, `the ${cfg.verb} provider script isn't available in this build`));
   // explicit --input placement so the media path is never argv[1] (a file named
   // "run"/"describe" can't trigger that subcommand), matching the see/HF path.
@@ -152,7 +152,7 @@ async function enrichWithPlace(ctx: VerbContext, records: OvercastRecord[]): Pro
     if (!bound) {
       p.place = null;
       p.geocode_status =
-        'no geocode provider bound — `setup provider geocode "exec:bash examples/providers/geocode/geocode.sh --input {{input}}"` (opt-in)';
+        "no geocode provider bound — `overcast provider setup apply --verb geocode --choice nominatim --yes` (opt-in)";
       continue;
     }
     try {
@@ -206,7 +206,7 @@ export const exifVerb: VerbSpec = {
   outputKind: "media.metadata",
   providerKey: "exif",
   run: async (ctx) => {
-    const records = await runForensicSense(ctx, { verb: "exif", shipped: ["examples", "providers", "exif", "exif.sh"] });
+    const records = await runForensicSense(ctx, { verb: "exif", shipped: ["senses", "exif", "exif.sh"] });
     if (ctx.opts.geocode === true) await enrichWithPlace(ctx, records);
     return records;
   },
@@ -234,5 +234,5 @@ export const verifyVerb: VerbSpec = {
   ],
   outputKind: "media.provenance",
   providerKey: "verify",
-  run: (ctx) => runForensicSense(ctx, { verb: "verify", shipped: ["examples", "providers", "verify", "verify.sh"] }),
+  run: (ctx) => runForensicSense(ctx, { verb: "verify", shipped: ["senses", "verify", "verify.sh"] }),
 };

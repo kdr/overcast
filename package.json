@@ -41,6 +41,7 @@
     "assets/situation-console",
     "skills",
     "prompts",
+    "providers",
     "examples",
     "scripts/brand-pi.mjs",
     "scripts/visual-db-uv.sh"

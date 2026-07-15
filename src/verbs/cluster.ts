@@ -5,7 +5,7 @@
 // embeddings + provenance, and maintains cluster assignments under
 // `.overcast/index/<id>/`. Always LOCAL — the tinycloud face path returns no
 // embeddings, so clustering rides exclusively on the deepface provider
-// (examples/providers/visual-db/face_cluster.py).
+// (providers/engines/visual-db/face_cluster.py).
 //
 //   cluster add <video|image> --index <id>   ingest: detect → embed → assign-or-create
 //   cluster identify <image|video> --index <id>  most-similar person for a probe (no writes)

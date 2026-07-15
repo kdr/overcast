@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -245,6 +245,41 @@ test("doctor warns when configured qmd is missing", async () => {
     assert.match(qmd?.detail ?? "", /npm install -g @tobilu\/qmd/);
     const warnings = (rec.payload as Record<string, unknown>).warnings as string[];
     assert.ok(warnings.some((w) => /qmd memory is configured/.test(w)), `expected qmd warning; got ${JSON.stringify(warnings)}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor flags provider bindings with unresolvable shipped: refs or stale absolute paths", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-refs-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-refs-"));
+  try {
+    // an unresolvable ref survives healing (it never resolves) — doctor's case
+    await setupVerb.run(ctx(dir, home, "provider", ["enhance", "exec:python3 shipped:providers/senses/nope/missing.py"]));
+    // a stale absolute shipped path: gone on disk, but its shipped ref DOES
+    // resolve here (a real shipped filename) — re-apply fixes it, so doctor flags it
+    await setupVerb.run(ctx(dir, home, "provider", ["see", "exec:bash /gone/providers/senses/fal/see.sh"]));
+    // a gone absolute CUSTOM/demo script (no shipped ref): now flagged as
+    // `missing script` — it can't heal but WILL fail at spawn (Bugbot #104).
+    await setupVerb.run(ctx(dir, home, "provider", ["listen", "exec:bash /custom/gone/listen.sh"]));
+    // a healthy shipped ref and a healthy EXISTING custom path must NOT be flagged
+    await setupVerb.run(ctx(dir, home, "provider", ["exif", "exec:bash shipped:providers/senses/exif/exif.sh"]));
+    const okScript = join(dir, "my-voice.sh");
+    writeFileSync(okScript, "#!/usr/bin/env bash\n");
+    await setupVerb.run(ctx(dir, home, "provider", ["voice", `exec:bash ${okScript}`]));
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    const paths = checks.find((c) => c.name === "provider-paths");
+    assert.equal(paths?.ok, false);
+    assert.match(paths?.detail ?? "", /unresolvable shipped:providers\/senses\/nope\/missing\.py/);
+    assert.match(paths?.detail ?? "", /stale path \/gone\/providers\/senses\/fal\/see\.sh/);
+    assert.match(paths?.detail ?? "", /missing script \/custom\/gone\/listen\.sh/);
+    assert.match(paths?.detail ?? "", /provider setup apply --verb <verb> --choice <id> --yes/);
+    assert.doesNotMatch(paths?.detail ?? "", /exif\.sh/, "healthy shipped ref is not flagged");
+    assert.doesNotMatch(paths?.detail ?? "", /my-voice\.sh/, "an existing custom path is not flagged");
+    const warnings = (rec.payload as Record<string, unknown>).warnings as string[];
+    assert.ok(warnings.some((w) => /missing shipped provider files/.test(w)), `expected shipped-path warning; got ${JSON.stringify(warnings)}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });

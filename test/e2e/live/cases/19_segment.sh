@@ -56,7 +56,7 @@ run_segment() {  # <case> <label>
 # ---- fal sam-3 --------------------------------------------------------------
 if require_cred "$C.fal" FAL_KEY "skipping fal segment"; then
   CASE=$(case_dir segment_fal)
-  FE="$PWD/examples/providers/fal/enhance.sh"
+  FE="$PWD/providers/senses/fal/enhance.sh"
   ocrun "$CASE" setup provider enhance "exec:bash $FE {{input}}" --json >/dev/null 2>&1
   run_segment "$CASE" fal
 fi
@@ -71,6 +71,6 @@ then
   exit 0
 fi
 CASE=$(case_dir segment_local)
-LE="$PWD/examples/providers/local/enhance.sh"
+LE="$PWD/providers/senses/local/enhance.sh"
 ocrun "$CASE" setup provider enhance "exec:bash $LE {{input}}" --json >/dev/null 2>&1
 run_segment "$CASE" local

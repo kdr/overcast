@@ -71,8 +71,7 @@ and search it (`face --match ./suspect.jpg --index <id>`).
 **Page-watch stakeout.** To sit on a WEB PAGE instead of a feed, register the
 rendered-page source: `overcast source add browser:<url>` (no key; playwright
 optional dep), then `monitor --every 30m` — each pass re-renders the current
-page state to a PNG that flows into image auto-sense. `wayback:<url>` is the
-retrospective twin (its `collapse=digest` view surfaces content changes).
+page state to a PNG that flows into image auto-sense.
 
 **Live watch surface.** `wall` is the static option (a written HTML snapshot you
 regenerate). For a LIVE self-updating page, an **operator** serves the situation
