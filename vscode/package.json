@@ -127,6 +127,150 @@
       { "command": "overcast.cancelRun", "category": "Overcast", "title": "Cancel Run", "icon": "$(stop-circle)" },
       { "command": "overcast.clearRuns", "category": "Overcast", "title": "Clear Finished Runs", "icon": "$(clear-all)" }
     ],
+    "chatParticipants": [
+      {
+        "id": "overcast.chat",
+        "name": "overcast",
+        "fullName": "Overcast",
+        "description": "Ask, scan, capture, sense, and note over your overcast OSINT/perception case.",
+        "isSticky": true,
+        "commands": [
+          { "name": "ask", "description": "Answer a question over the case memory, with citations" },
+          { "name": "scan", "description": "Sweep the configured OSINT sources for a query (reaches the network)" },
+          { "name": "status", "description": "Summarize case threads, suggested leads, and source freshness" },
+          { "name": "brief", "description": "Render the mission brief for this case" },
+          { "name": "capture", "description": "Pull a URL or scan-hit id into the case (reaches the network)" },
+          { "name": "sense", "description": "Run a sense verb (watch/listen/see/face/exif) on a media file" },
+          { "name": "note", "description": "Record an analyst observation into the case" }
+        ]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "overcast_case_status",
+        "displayName": "Overcast: Case Status",
+        "modelDescription": "Get a compact JSON summary of the active overcast investigation case: its lines of investigation (each with status/stage, linked-evidence count, and finding count), the number of suggested leads awaiting review, the configured OSINT sources with freshness (last-scan age, hit count, coverage gaps), and the total record count. Read-only: reaches no network and changes nothing. Use this first to orient on a case before asking, scanning, or capturing. Takes no input.",
+        "userDescription": "Summarize the active overcast case (threads, leads, sources).",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastStatus",
+        "icon": "$(pulse)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_ask",
+        "displayName": "Overcast: Ask",
+        "modelDescription": "Answer a natural-language question over the overcast case's evidence memory (watch/listen/see/face/exif/scan/capture/note records and accepted findings). Returns the answer text plus citations to the record ids and media timestamps it drew from. Read-only over local case memory: no network, no changes. Set deep=true for slower qmd-backed semantic retrieval (requires qmd memory to be set up). Use this to interrogate what is already in the case; use overcast_scan to find NEW material.",
+        "userDescription": "Ask a cited question over the case memory.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastAsk",
+        "icon": "$(comment-discussion)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "question": { "type": "string", "description": "The natural-language question to answer over the case memory." },
+            "deep": { "type": "boolean", "description": "Use qmd-backed semantic retrieval (slower, requires qmd memory set up). Default false = local-grep." }
+          },
+          "required": ["question"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_scan",
+        "displayName": "Overcast: Scan Sources",
+        "modelDescription": "Sweep the case's configured OSINT sources (YouTube/TikTok/X/web/Telegram/etc.) and return a list of scan hits (each with a record id, title, url, snippet, and source). REACHES THE NETWORK. Every hit is persisted as a scan.hit record whose id can be passed to overcast_capture to pull the underlying media into the case. Optional query narrows the sweep; source restricts to specific source ids/types (comma list); since filters recency (e.g. '24h', '7d'); limit caps hits per source. This finds NEW external material; use overcast_ask to query material already in the case.",
+        "userDescription": "Sweep the case's OSINT sources (reaches the network).",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastScan",
+        "icon": "$(radio-tower)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "description": "Ad-hoc keyword to search; omit to sweep each source's bound ref." },
+            "source": { "type": "string", "description": "Restrict to source ids/types (comma list), e.g. 'youtube,web' or a source id." },
+            "since": { "type": "string", "description": "Recency filter, e.g. '24h', '7d', '30d'." },
+            "limit": { "type": "number", "description": "Max hits per source." }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_capture",
+        "displayName": "Overcast: Capture",
+        "modelDescription": "Fetch a resource into the case as a capture record and return its summary (id, state, compact payload). The ref is a URL, a scan-hit record id (from overcast_scan), or a local path. REACHES THE NETWORK for URLs. The resulting capture record id can then be sensed (overcast_sense) or asked about (overcast_ask). Use after overcast_scan to pull a promising hit into the case for analysis.",
+        "userDescription": "Pull a URL or scan-hit id into the case (reaches the network).",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastCapture",
+        "icon": "$(cloud-download)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "ref": { "type": "string", "description": "A URL, a scan-hit record id, or a local file path to capture into the case." }
+          },
+          "required": ["ref"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_sense",
+        "displayName": "Overcast: Sense Media",
+        "modelDescription": "Run a perception 'sense' verb on a media file and return the resulting evidence record summary (id, state, compact payload). verb is one of: watch (describe a video into time-anchored content/transcript), listen (transcribe audio), see (caption/OCR an image), face (detect faces), exif (extract metadata/GPS/capture-time). file is a path (absolute, or relative to the workspace/case folder) — it is validated to exist before running. May reach a cloud perception backend (e.g. tinycloud) depending on the bound provider. The record persists in the case and is citable by overcast_ask.",
+        "userDescription": "Run watch/listen/see/face/exif on a media file.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastSense",
+        "icon": "$(eye)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "verb": {
+              "type": "string",
+              "enum": ["watch", "listen", "see", "face", "exif"],
+              "description": "The sense verb: watch (video), listen (audio), see (image), face (faces), exif (metadata)."
+            },
+            "file": { "type": "string", "description": "Path to the media file — absolute, or relative to the workspace/case folder." }
+          },
+          "required": ["verb", "file"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_note",
+        "displayName": "Overcast: Add Note",
+        "modelDescription": "Record an analyst observation as a note in the case and return the note record summary (id, state). Notes are evidence: searchable by overcast_ask and shown in the brief. Optional confidence is 'low' | 'medium' | 'high'. No network. Use this to persist a conclusion or observation you want to keep in the case record.",
+        "userDescription": "Record an analyst observation into the case.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastNote",
+        "icon": "$(note)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string", "description": "The observation/finding text to record." },
+            "confidence": {
+              "type": "string",
+              "enum": ["low", "medium", "high"],
+              "description": "Optional confidence level for the observation."
+            }
+          },
+          "required": ["text"],
+          "additionalProperties": false
+        }
+      }
+    ],
     "submenus": [
       {
         "id": "overcast.mediaSubmenu",

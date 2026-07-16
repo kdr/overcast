@@ -3,6 +3,8 @@
 // panels display the CLI's own generated HTML, and every mutation goes through
 // a spawned `overcast …` (never a library import — see CLAUDE.md invariants).
 import * as vscode from "vscode";
+import { registerChatParticipant } from "./chat/participant.ts";
+import { registerChatTools } from "./chat/tools.ts";
 import { registerCaseCommands } from "./commands/caseCommands.ts";
 import { registerContextVerbs } from "./commands/contextVerbs.ts";
 import { registerExportCommands } from "./commands/exportCommands.ts";
@@ -144,6 +146,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("overcast.situationOpen", () => openSituationPanel(deps, situation)),
     vscode.commands.registerCommand("overcast.situationStop", () => situation.stop()),
   );
+
+  // ---- chat: @overcast participant + overcast_* language-model tools ----
+  // Both APIs are stable in VS Code ≥1.96; guard the whole wiring so exotic hosts
+  // that lack the chat / language-model-tool API skip it cleanly.
+  if (
+    typeof vscode.chat?.createChatParticipant === "function" &&
+    typeof (vscode as { lm?: { registerTool?: unknown } }).lm?.registerTool === "function"
+  ) {
+    registerChatTools(deps);
+    registerChatParticipant(deps);
+  }
 
   // ---- boot ----
   context.subscriptions.push(locator.onDidChangeCase(() => void model.refresh()));

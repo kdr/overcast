@@ -71,9 +71,38 @@ output parsing) with plain `node --test` — no VS Code required.
   **editor tabs** (title-bar button + tab right-click) when an image/video/audio
   file is open in the built-in preview.
 
+## Chat
+
+When a chat provider (e.g. GitHub Copilot) is installed, Overcast adds two chat
+surfaces — both **thin clients**: every action spawns `overcast …` and the
+results are ordinary case records with ids (never a library import).
+
+- **`@overcast` chat participant** (ask-mode front door). Free text (or `/ask`)
+  answers a question over the case memory with citations; slash commands map to
+  verbs: `/scan` (sweep sources), `/status` (threads + leads + source
+  freshness), `/brief` (mission brief), `/capture <id|url>`, `/sense <verb>
+  <file>`, `/note <text>`. Answers stream as markdown with **Open Record**
+  buttons for produced/cited record ids. Each request is single-shot against the
+  CLI (the case store is the memory — no multi-turn history is replayed). With no
+  case or no CLI it streams a short pointer instead of erroring.
+- **Six `#`-referenceable language-model tools** (agent-mode). In an agent chat
+  you can reference `#overcastStatus`, `#overcastAsk`, `#overcastScan`,
+  `#overcastCapture`, `#overcastSense`, `#overcastNote`, or let the model pick
+  them: `overcast_case_status`, `overcast_ask`, `overcast_scan`,
+  `overcast_capture`, `overcast_sense`, `overcast_note`. They appear only once the
+  CLI is found (`when: overcast.cliFound`).
+
+**Network + confirmation.** `scan` and `capture` (and `/scan` `/capture`) reach
+the network — scan sweeps the configured OSINT sources, capture fetches the ref.
+Every language-model **tool invocation shows a confirmation dialog** carrying the
+exact `overcast …` argv (network-reaching and case-mutating tools are worded
+clearly; `case_status`/`ask` are read-only). A `needs_credentials` failure is
+relayed verbatim so the model can tell you what to run (`overcast setup`).
+
 ## Future: registry-generated contributions
 
-`contributes.commands`/`menus` for the curated context verbs are hand-written
+`contributes.commands`/`menus` for the curated context verbs — and
+`contributes.languageModelTools` for the six chat tools — are hand-written
 today. When the surface stabilizes, generate them from
 `overcast commands --json` the same way `skills/` is generated from the verb
 registry (src/skill-gen.ts), with an identical CI no-diff regen gate — making
