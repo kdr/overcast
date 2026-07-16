@@ -234,6 +234,33 @@ test("doctor reports core checks (pi/ffmpeg/ffprobe runnable) with structured re
   }
 });
 
+test("provider setup show lists an installed choice at the target home (Bugbot #110)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-show-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-showhome-"));
+  const savedHome = process.env.OVERCAST_HOME;
+  delete process.env.OVERCAST_HOME; // prove ctx.home is used, not $OVERCAST_HOME
+  try {
+    const src = join(dir, "vlm");
+    mkdirSync(src, { recursive: true });
+    writeFileSync(join(src, "provider.json"), JSON.stringify({
+      manifest_version: 1, name: "vlm", version: "1.0.0",
+      entries: [{ kind: "sense", id: "vlm", verb: "see", label: "a", summary: "b",
+        descriptor: { type: "exec", run: "bash installed:vlm/run.sh --input {{input}}" } }],
+    }));
+    writeFileSync(join(src, "run.sh"), "echo '{}'\n");
+    assert.equal(installProvider(src, { yes: true }, home)[0].state, "ready");
+    invalidateManifestCache();
+    const [rec] = await providerVerb.run(ctx(dir, home, "setup", ["show"]));
+    const choices = (rec.payload as Record<string, unknown>).choices as Array<{ id: string; verb: string }>;
+    assert.ok(choices.some((c) => c.id === "vlm" && c.verb === "see"), "installed choice shown for the target home");
+  } finally {
+    if (savedHome === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedHome;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor flags a tampered installed provider package (Bugbot #110)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-doc-tamper-"));
   const home = mkdtempSync(join(tmpdir(), "oc-dhome-tamper-"));

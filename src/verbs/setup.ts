@@ -142,7 +142,7 @@ function providerSetupRequests(ctx: VerbContext): { items: Array<{ verb: string;
   const verb = ctx.opts.verb ? String(ctx.opts.verb).trim() : "";
   const choice = ctx.opts.choice ? String(ctx.opts.choice).trim() : "";
   if (preset) {
-    const presets = providerPresets();
+    const presets = providerPresets(ctx.home);
     const items = presets[preset];
     if (!items) return { items: [], error: `unknown provider preset '${preset}' (expected ${Object.keys(presets).join(" | ")})` };
     return { items: items.map((i) => ({ ...i, choiceName: i.choice })) };
@@ -372,8 +372,8 @@ export const providerVerb: VerbSpec = {
       if (sub === "show") {
         // choices carry a `resolved` map (shipped: ref → absolute path in this
         // build) for transparency; the descriptor itself keeps the portable ref.
-        const choices = providerChoices().map((c) => ({ ...c, resolved: shippedRefResolution(c.descriptor) }));
-        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices, presets: providerPresets(), providers }, meta: { transient: true }, state: "ready" })];
+        const choices = providerChoices(ctx.home).map((c) => ({ ...c, resolved: shippedRefResolution(c.descriptor) }));
+        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices, presets: providerPresets(ctx.home), providers }, meta: { transient: true }, state: "ready" })];
       }
       if (sub !== "plan" && sub !== "apply") {
         return [err("provider", "usage: provider setup [show|plan|apply] [--verb <verb> --choice <choice> | --preset <preset>] [--profile <name>] [--yes]")];
@@ -683,7 +683,7 @@ export const doctorVerb: VerbSpec = {
     // yandeximg) emit no check, exactly as before. Detail strings live verbatim in
     // the manifests, so the output is unchanged from the old hardcoded cascade.
     const seenSourceCheck = new Set<string>();
-    for (const entry of manifestSourceEntries()) {
+    for (const entry of manifestSourceEntries(ctx.home)) {
       const d = entry.doctor;
       if (!d) continue;
       const names = [entry.type, ...(entry.aliases ?? [])];

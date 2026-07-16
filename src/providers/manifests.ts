@@ -11,7 +11,7 @@
 // old catalog.ts reading process.env.DETECT_PY per invocation).
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { shippedProvidersRoot } from "../pkg.js";
 import { resolveShippedRefToken } from "./shipped-ref.js";
 import { installedProvidersRoot, isInstalledRef, resolveInstalledRefToken } from "./installed-ref.js";
@@ -76,7 +76,7 @@ function loadOne(manifestPath: string, dir: string, origin: "shipped" | "install
   const manifest = raw as ProviderManifest;
   // installed package identity = its directory name (the `installed:<pkg>/…`
   // namespace); shipped identity = the manifest's declared name.
-  const pkg = origin === "installed" ? dir.split("/").filter(Boolean).pop()! : manifest.name;
+  const pkg = origin === "installed" ? basename(dir) : manifest.name;
   out.push({ manifest, dir, origin, pkg });
 }
 

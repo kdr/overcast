@@ -231,7 +231,8 @@ function stageSource(src: string): { staged: string; cleanup: () => void; error?
     const unsafe = list.stdout
       .split("\n")
       .map((e) => e.trim())
-      .find((e) => e && (e.startsWith("/") || e.startsWith("~") || e.split("/").includes("..")));
+      // reject absolute (POSIX / Windows drive), ~, and `..` traversal with EITHER separator
+      .find((e) => e && (e.startsWith("/") || e.startsWith("~") || /^[a-zA-Z]:/.test(e) || e.split(/[/\\]/).includes("..")));
     if (unsafe) {
       cleanup();
       return { staged: "", cleanup: () => {}, error: `tarball has an unsafe member '${unsafe}' — refused (path traversal / absolute path)` };
