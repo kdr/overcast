@@ -75,7 +75,7 @@ assert_export_has() { # <id> <casedir> <needle> <label>
 # --- web (Tavily) ---
 if require_cred "$C.web" TAVILY_API_KEY "skipping web search"; then
   CASE=$(case_dir src_web)
-  export OVERCAST_SOURCE_WEB_CMD="bash $SRCDIR/web.sh"
+  export OVERCAST_SOURCE_WEB_CMD="bash $SRCDIR/web/web.sh"
   ocrun "$CASE" source add 'web:overcast weather app' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=120 oc "$CASE" scan --source web --limit 3 --json)"
   save_json "20_scan_web" "$out" >/dev/null
@@ -88,7 +88,7 @@ fi
 # --- dork (Serper.dev Google dorking) — operators honored; small limit ---
 if require_cred "$C.dork" SERPER_API_KEY "skipping dork (Google dorking)"; then
   CASE=$(case_dir src_dork)
-  export OVERCAST_SOURCE_DORK_CMD="bash $SRCDIR/dork.sh"
+  export OVERCAST_SOURCE_DORK_CMD="bash $SRCDIR/dork/dork.sh"
   ocrun "$CASE" source add 'dork:site:nasa.gov filetype:pdf' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=120 oc "$CASE" scan --source dork --limit 3 --json)"
   save_json "20_scan_dork" "$out" >/dev/null
@@ -100,7 +100,7 @@ fi
 
 # --- shodan (host/service recon) — search + single-host lookup, small limits ---
 if require_cred "$C.shodan" SHODAN_API_KEY "skipping shodan"; then
-  export OVERCAST_SOURCE_SHODAN_CMD="bash $SRCDIR/shodan.sh"
+  export OVERCAST_SOURCE_SHODAN_CMD="bash $SRCDIR/shodan/shodan.sh"
 
   CASE=$(case_dir src_shodan_search)
   ocrun "$CASE" source add 'shodan:product:nginx' --json >/dev/null 2>&1
@@ -141,7 +141,7 @@ fi
 
 # --- tiktok (Apify) — profile + hashtag; small limits to keep cost low ---
 if require_cred "$C.tiktok" APIFY_TOKEN "skipping tiktok"; then
-  export OVERCAST_SOURCE_TIKTOK_CMD="bash $SRCDIR/tiktok.sh"
+  export OVERCAST_SOURCE_TIKTOK_CMD="bash $SRCDIR/tiktok/tiktok.sh"
 
   CASE=$(case_dir src_tiktok_user)
   ocrun "$CASE" source add 'tiktok:@chefreactions' --json >/dev/null 2>&1
@@ -160,7 +160,7 @@ fi
 
 # --- x (Apify) — profile + video-targeted search; small limits to keep cost low ---
 if require_cred "$C.x" APIFY_TOKEN "skipping x"; then
-  export OVERCAST_SOURCE_X_CMD="bash $SRCDIR/x.sh"
+  export OVERCAST_SOURCE_X_CMD="bash $SRCDIR/x/x.sh"
 
   CASE=$(case_dir src_x_handle)
   ocrun "$CASE" source add 'x:@NASA' --json >/dev/null 2>&1
@@ -180,7 +180,7 @@ fi
 # --- lens (Apify Google Lens reverse image) — stable public image, small limit ---
 if require_cred "$C.lens" APIFY_TOKEN "skipping lens reverse image search"; then
   CASE=$(case_dir src_lens)
-  export OVERCAST_SOURCE_LENS_CMD="bash $SRCDIR/lens.sh"
+  export OVERCAST_SOURCE_LENS_CMD="bash $SRCDIR/lens/lens.sh"
   ocrun "$CASE" source add 'lens:https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg/330px-Mona_Lisa%2C_by_Leonardo_da_Vinci%2C_from_C2RMF_retouched.jpg' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=420 oc "$CASE" scan --source lens --limit 2 --json)"
   save_json "20_scan_lens" "$out" >/dev/null
@@ -220,7 +220,7 @@ fi
 # --- yandeximg (Apify Yandex reverse image) — built-in actor + image_url key ---
 if require_cred "$C.yandeximg" APIFY_TOKEN "skipping yandeximg reverse image search"; then
   CASE=$(case_dir src_yandeximg)
-  export OVERCAST_SOURCE_YANDEXIMG_CMD="bash $SRCDIR/yandeximg.sh"
+  export OVERCAST_SOURCE_YANDEXIMG_CMD="bash $SRCDIR/yandeximg/yandeximg.sh"
   # stable public image; the built-in default actor (johnvc~yandex-reverse-image-search)
   # is invoked with the image under its `image_url` input key — asserts the shipped
   # default actor + input key work end to end with only APIFY_TOKEN set (no
@@ -238,7 +238,7 @@ fi
 
 # --- youtube (yt-dlp) — channel + playlist URL + keyword search ---
 if have_cmd yt-dlp; then
-  export OVERCAST_SOURCE_YOUTUBE_CMD="bash $SRCDIR/youtube.sh"
+  export OVERCAST_SOURCE_YOUTUBE_CMD="bash $SRCDIR/youtube/youtube.sh"
 
   CASE=$(case_dir src_youtube_handle)
   ocrun "$CASE" source add 'youtube:@aiDotEngineer' --json >/dev/null 2>&1
@@ -266,7 +266,7 @@ fi
 # --- webcam (Windy Webcams API) — geolocated cams near a point + still capture ---
 if require_cred "$C.webcam" WINDY_API_KEY "skipping webcam (Windy)"; then
   CASE=$(case_dir src_webcam)
-  export OVERCAST_SOURCE_WEBCAM_CMD="bash $SRCDIR/webcam.sh"
+  export OVERCAST_SOURCE_WEBCAM_CMD="bash $SRCDIR/webcam/webcam.sh"
   ocrun "$CASE" source add 'webcam:48.8584,2.2945,50' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=120 oc "$CASE" scan --source webcam --limit 3 --json)"
   save_json "20_scan_webcam" "$out" >/dev/null
@@ -293,7 +293,7 @@ if require_cred "$C.webcam" WINDY_API_KEY "skipping webcam (Windy)"; then
 fi
 
 # --- gdelttv (GDELT 2.0 TV, no key) — broadcast-news clip search ---
-export OVERCAST_SOURCE_GDELTTV_CMD="bash $SRCDIR/gdelttv.sh"
+export OVERCAST_SOURCE_GDELTTV_CMD="bash $SRCDIR/gdelttv/gdelttv.sh"
 CASE=$(case_dir src_gdelttv)
 ocrun "$CASE" source add 'gdelttv:climate change' --json >/dev/null 2>&1
 out="$(OC_TIMEOUT=120 oc "$CASE" scan --source gdelttv --limit 3 --json)"
@@ -302,7 +302,7 @@ assert_scan_hits "$C.gdelttv.query" "$out" "gdelttv broadcast search"
 unset OVERCAST_SOURCE_GDELTTV_CMD
 
 # --- dispatch (Socrata calls-for-service, no key) — SF real-time CAD feed ---
-export OVERCAST_SOURCE_DISPATCH_CMD="bash $SRCDIR/dispatch.sh"
+export OVERCAST_SOURCE_DISPATCH_CMD="bash $SRCDIR/dispatch/dispatch.sh"
 CASE=$(case_dir src_dispatch)
 ocrun "$CASE" source add 'dispatch:sf' --json >/dev/null 2>&1
 out="$(OC_TIMEOUT=120 oc "$CASE" scan --source dispatch --since 2d --limit 10 --json)"
@@ -327,7 +327,7 @@ assert_nonempty "$C.dispatch.zone" "$dzone" "dispatch preset call times carry an
 unset OVERCAST_SOURCE_DISPATCH_CMD
 
 # --- overpass (OpenStreetMap features, no key) — geolocated map features ---
-export OVERCAST_SOURCE_OVERPASS_CMD="bash $SRCDIR/overpass.sh"
+export OVERCAST_SOURCE_OVERPASS_CMD="bash $SRCDIR/overpass/overpass.sh"
 CASE=$(case_dir src_overpass)
 ocrun "$CASE" source add 'overpass:amenity=hospital@around:5000,48.8584,2.2945' --json >/dev/null 2>&1
 out="$(OC_TIMEOUT=120 oc "$CASE" scan --source overpass --limit 5 --json)"
@@ -352,7 +352,7 @@ fi
 unset OVERCAST_SOURCE_OVERPASS_CMD
 
 # --- flights (OpenSky ADS-B, keyless-capable) — live aircraft carrying gps ---
-export OVERCAST_SOURCE_FLIGHTS_CMD="bash $SRCDIR/flights.sh"
+export OVERCAST_SOURCE_FLIGHTS_CMD="bash $SRCDIR/flights/flights.sh"
 CASE=$(case_dir src_flights)
 ocrun "$CASE" source add 'flights:2.0,48.5,2.8,49.0' --json >/dev/null 2>&1
 out="$(OC_TIMEOUT=120 oc "$CASE" scan --source flights --limit 10 --json)"
@@ -374,7 +374,7 @@ unset OVERCAST_SOURCE_FLIGHTS_CMD
 # --- firms (NASA FIRMS active fires, free key) — geolocated fire detections ---
 if require_cred "$C.firms" FIRMS_MAP_KEY "skipping firms (NASA active fires)"; then
   CASE=$(case_dir src_firms)
-  export OVERCAST_SOURCE_FIRMS_CMD="bash $SRCDIR/firms.sh"
+  export OVERCAST_SOURCE_FIRMS_CMD="bash $SRCDIR/firms/firms.sh"
   # a wide bbox (continental US) reliably has active fires over a few days
   ocrun "$CASE" source add 'firms:-125,24,-66,50' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=180 oc "$CASE" scan --source firms --since 3d --limit 20 --json)"
@@ -404,7 +404,7 @@ fi
 # --- instagram + telegram (Apify) — small limits to keep cost low ---
 if require_cred "$C.instagram" APIFY_TOKEN "skipping instagram"; then
   CASE=$(case_dir src_instagram)
-  export OVERCAST_SOURCE_INSTAGRAM_CMD="bash $SRCDIR/instagram.sh"
+  export OVERCAST_SOURCE_INSTAGRAM_CMD="bash $SRCDIR/instagram/instagram.sh"
   ocrun "$CASE" source add 'instagram:@nasa' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source instagram --limit 2 --json)"
   save_json "20_scan_instagram" "$out" >/dev/null
@@ -414,7 +414,7 @@ fi
 
 if require_cred "$C.telegram" APIFY_TOKEN "skipping telegram"; then
   CASE=$(case_dir src_telegram)
-  export OVERCAST_SOURCE_TELEGRAM_CMD="bash $SRCDIR/telegram.sh"
+  export OVERCAST_SOURCE_TELEGRAM_CMD="bash $SRCDIR/telegram/telegram.sh"
   ocrun "$CASE" source add 'telegram:durov' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source telegram --limit 2 --since 30d --json)"
   save_json "20_scan_telegram" "$out" >/dev/null
@@ -431,7 +431,7 @@ fi
 if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; then
   # username — Maigret account discovery for a public org handle
   CASE=$(case_dir src_username)
-  export OVERCAST_SOURCE_USERNAME_CMD="bash $SRCDIR/username.sh"
+  export OVERCAST_SOURCE_USERNAME_CMD="bash $SRCDIR/username/username.sh"
   ocrun "$CASE" source add 'username:bellingcat' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source username --limit 6 --json)"
   save_json "20_scan_username" "$out" >/dev/null
@@ -444,7 +444,7 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
 
   # phone — PhoneInfoga on a public corporate line (offline parse + footprint)
   CASE=$(case_dir src_phone)
-  export OVERCAST_SOURCE_PHONE_CMD="bash $SRCDIR/phone.sh"
+  export OVERCAST_SOURCE_PHONE_CMD="bash $SRCDIR/phone/phone.sh"
   ocrun "$CASE" source add 'phone:+14089961010' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source phone --json)"
   save_json "20_scan_phone" "$out" >/dev/null
@@ -455,7 +455,7 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
 
   # property — county assessor lookup for a government building (reliably covered)
   CASE=$(case_dir src_property)
-  export OVERCAST_SOURCE_PROPERTY_CMD="bash $SRCDIR/property.sh"
+  export OVERCAST_SOURCE_PROPERTY_CMD="bash $SRCDIR/property/property.sh"
   ocrun "$CASE" source add "property:${OC_PROPERTY_QUERY:-1001 Preston St, Houston, TX 77002}" --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source property --json)"
   save_json "20_scan_property" "$out" >/dev/null
@@ -468,7 +468,7 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
 
   # person — people-search / skip-trace for an overridable common name
   CASE=$(case_dir src_person)
-  export OVERCAST_SOURCE_PERSON_CMD="bash $SRCDIR/person.sh"
+  export OVERCAST_SOURCE_PERSON_CMD="bash $SRCDIR/person/person.sh"
   ocrun "$CASE" source add "person:${OC_PERSON_QUERY:-Robert Williams}" --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=300 oc "$CASE" scan --source person --limit 3 --json)"
   save_json "20_scan_person" "$out" >/dev/null
@@ -482,7 +482,7 @@ if require_cred "$C.identity" APIFY_TOKEN "skipping identity/records sources"; t
   # plate — deterministic DPPA gate: with no OVERCAST_PLATE_ACTOR it must report
   # needs_credentials (a setup gap), NOT a fake-clean empty scan. Costs nothing.
   CASE=$(case_dir src_plate_gate)
-  export OVERCAST_SOURCE_PLATE_CMD="bash $SRCDIR/plate.sh"
+  export OVERCAST_SOURCE_PLATE_CMD="bash $SRCDIR/plate/plate.sh"
   unset OVERCAST_PLATE_ACTOR
   ocrun "$CASE" source add 'plate:CA:7ABC123' --json >/dev/null 2>&1
   out="$(OC_TIMEOUT=60 oc "$CASE" scan --source plate --json 2>/dev/null)"

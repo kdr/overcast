@@ -86,14 +86,25 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
    search, and `voice-print` is the local pyannote/wespeaker speaker-verification
    DB for `voice` (find a reference speaker; ungated windowed default, HF-gated
    `--diarize` tier). Shipped provider scripts live in the top-level `providers/`
-   tree (`sources/`/`senses/`/`engines/`); catalog descriptors reference them as
-   **`shipped:<relpath>` refs** (never resolved absolute paths — `src/providers/
-   shipped-ref.ts` resolves at spawn time, so profiles survive install moves),
-   old absolute-path profiles/case policies are **healed on load**, and `doctor`
-   (`provider-paths`) flags refs/paths that don't resolve. The catalog covers
-   every shipped bindable (incl. `enhance:ela`/`enhance:panorama` and
-   `geocode:nominatim`) — hints/docs teach `provider setup apply`, never a raw
-   script path; raw `exec:` binds are the user-authored escape hatch.
+   tree (`sources/`/`senses/`/`engines/`), each provider dir carrying a
+   **`provider.json` manifest**; the catalog + source registry are **built by
+   scanning those manifests at runtime** (`src/providers/manifests.ts`) — a
+   provider is declared once in its manifest, not hand-listed in `catalog.ts`
+   (the invariant-#5 pattern, for providers). Manifest descriptors reference
+   scripts as **`shipped:<relpath>` refs** (never absolute paths — `src/providers/
+   shipped-ref.ts` resolves at spawn, so profiles survive install moves); old
+   absolute-path profiles/case policies are **healed on load**, and `doctor`
+   (`provider-paths`) flags refs that don't resolve. Third parties add a provider
+   by authoring a manifest package and `overcast provider install <path|tarball>`
+   (→ `<home>/providers/<pkg>/`, resolved via the **`installed:<pkg>/…`** ref
+   sibling; `provider create` scaffolds one, `list --installed`/`remove` manage
+   them) — the sanctioned extension path; a raw `exec:` bind or
+   `OVERCAST_SOURCE_<TYPE>_CMD` is the un-manifested one-off escape hatch. Only
+   EXEC providers are manifest-described — the inproc DBs
+   (deepface/clip/clap/audio-fp/voice-print), ffmpeg/playwright, brain-vision
+   `see`, and the tinycloud-CLI watch/listen/face stay hardcoded core choices.
+   Install rejects collisions with shipped ids/types + reserved names, stamps
+   sha256 provenance, and healing is never extended to `installed:` refs.
 7. **ffmpeg is internal**, not a pluggable provider — `enhance`, `crop`, `view`,
    and frame extraction shell out to the **system** `ffmpeg`/`ffprobe` (PATH or
    `OVERCAST_FFMPEG`/`OVERCAST_FFPROBE`); `overcast doctor` checks it's installed.

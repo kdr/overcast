@@ -1,0 +1,24 @@
+{
+  "manifest_version": 1,
+  "name": "dl",
+  "version": "1.0.0",
+  "description": "Generic yt-dlp capture for any supported host (Rumble/BitChute/Odysee/Vimeo/Reddit/…). A channel/playlist URL enumerates; a single-video URL is capture-only.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "dl",
+      "label": "Generic yt-dlp download",
+      "summary": "Generic yt-dlp capture for any supported host (Rumble/BitChute/Odysee/Vimeo/Reddit/…). A channel/playlist URL enumerates; a single-video URL is capture-only.",
+      "base": [
+        "bash",
+        "shipped:providers/sources/dl/dl.sh"
+      ],
+      "needs": "yt-dlp on PATH",
+      "refForms": [
+        {
+          "form": "dl:<url>"
+        }
+      ]
+    }
+  ]
+}

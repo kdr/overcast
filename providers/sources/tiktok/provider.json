@@ -1,0 +1,45 @@
+{
+  "manifest_version": 1,
+  "name": "tiktok",
+  "version": "1.0.0",
+  "description": "TikTok profile (@user) / hashtag (#tag) / keyword enumeration + video fetch via Apify.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "tiktok",
+      "label": "TikTok (Apify)",
+      "summary": "TikTok profile (@user) / hashtag (#tag) / keyword enumeration + video fetch via Apify.",
+      "env": [
+        "APIFY_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/tiktok/tiktok.sh"
+      ],
+      "needs": "APIFY_TOKEN",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "APIFY_TOKEN"
+        ],
+        "okNote": "APIFY_TOKEN present",
+        "missingNote": "APIFY_TOKEN missing; put it in .env before launching overcast or export it in the shell"
+      },
+      "hosts": [
+        "tiktok.com"
+      ],
+      "refForms": [
+        {
+          "form": "tiktok:@user"
+        },
+        {
+          "form": "tiktok:#tag"
+        },
+        {
+          "form": "tiktok:search:<q>"
+        }
+      ]
+    }
+  ]
+}

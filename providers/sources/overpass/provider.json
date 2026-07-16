@@ -1,0 +1,30 @@
+{
+  "manifest_version": 1,
+  "name": "overpass",
+  "version": "1.0.0",
+  "description": "OpenStreetMap features via the Overpass API. No key; every hit carries top-level gps so scan records plot on `map`; media.ref is the OSM element page.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "overpass",
+      "label": "OpenStreetMap features (Overpass)",
+      "summary": "OpenStreetMap features via the Overpass API. No key; every hit carries top-level gps so scan records plot on `map`; media.ref is the OSM element page.",
+      "base": [
+        "bash",
+        "shipped:providers/sources/overpass/overpass.sh"
+      ],
+      "needs": "none (public Overpass API)",
+      "refForms": [
+        {
+          "form": "overpass:key=value@around:<radius>,<lat>,<lng>"
+        },
+        {
+          "form": "overpass:key=value@<south,west,north,east>"
+        },
+        {
+          "form": "<raw OverpassQL>"
+        }
+      ]
+    }
+  ]
+}

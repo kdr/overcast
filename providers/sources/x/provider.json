@@ -1,0 +1,52 @@
+{
+  "manifest_version": 1,
+  "name": "x",
+  "version": "1.0.0",
+  "description": "X (Twitter) handle / advanced-query / media-targeted enumeration via Apify. One script serves x + twitter; hits normalize to source \"x\".",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "x",
+      "aliases": [
+        "twitter"
+      ],
+      "label": "X / Twitter (Apify)",
+      "summary": "X (Twitter) handle / advanced-query / media-targeted enumeration via Apify. One script serves x + twitter; hits normalize to source \"x\".",
+      "env": [
+        "APIFY_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/x/x.sh"
+      ],
+      "needs": "APIFY_TOKEN",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "APIFY_TOKEN"
+        ],
+        "okNote": "APIFY_TOKEN present",
+        "missingNote": "APIFY_TOKEN missing; put it in .env before launching overcast or export it in the shell"
+      },
+      "hosts": [
+        "x.com",
+        "twitter.com"
+      ],
+      "refForms": [
+        {
+          "form": "x:@handle"
+        },
+        {
+          "form": "x:<advanced query>"
+        },
+        {
+          "form": "x:video:<q>"
+        },
+        {
+          "form": "x:image:<q>"
+        }
+      ]
+    }
+  ]
+}

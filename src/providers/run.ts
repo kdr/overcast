@@ -7,7 +7,8 @@
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { redactSecrets } from "../env.js";
 import { execCapture, renderCommand, parseFirstJson } from "./exec.js";
-import { resolveShippedArgv, ShippedRefError } from "./shipped-ref.js";
+import { resolveShippedArgv } from "./shipped-ref.js";
+import { ProviderRefError } from "./ref-error.js";
 import type { ProviderDescriptor } from "../profile.js";
 
 /** Does a run template look like the default tinycloud binding? */
@@ -60,6 +61,8 @@ export async function runBoundProvider(
 
 export interface RunExecOpts {
   env?: NodeJS.ProcessEnv;
+  /** ctx.home for resolving installed:<pkg>/… refs (defaults to $OVERCAST_HOME) */
+  home?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
   /** extra CLI args appended after the rendered command (e.g. --diarize) */
@@ -97,9 +100,9 @@ export async function runExecProvider(
   // a resolved path containing spaces stays one argv token. An unresolvable ref
   // (build without the providers/ sidecar) is an error record, not a throw.
   try {
-    [cmd, ...args] = resolveShippedArgv([cmd, ...args]);
+    [cmd, ...args] = resolveShippedArgv([cmd, ...args], opts.home);
   } catch (e) {
-    if (!(e instanceof ShippedRefError)) throw e;
+    if (!(e instanceof ProviderRefError)) throw e;
     return makeRecord({
       verb,
       format: "json",

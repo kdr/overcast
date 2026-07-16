@@ -201,7 +201,7 @@ export const reconstructVerb: VerbSpec = {
     // stranding partial artifacts. Give reconstruct 30 min so the outer exec
     // timeout comfortably clears the provider's own longest bounded work (the
     // 600s queue poll + downloads, or a full sweep).
-    const rec = await runBoundProvider("reconstruct", binding!, input, {
+    const rec = await runBoundProvider("reconstruct", binding!, input, { home: ctx.home,
       env: providerEnv(ctx.case.mediaDir),
       extraArgs,
       timeoutMs: 30 * 60_000,

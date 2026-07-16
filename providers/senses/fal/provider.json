@@ -1,0 +1,60 @@
+{
+  "manifest_version": 1,
+  "name": "fal",
+  "version": "1.0.0",
+  "description": "fal.ai hosted senses: Florence caption/OCR, enhance toolbox, speculative reconstruct.",
+  "entries": [
+    {
+      "kind": "sense",
+      "id": "fal",
+      "verb": "see",
+      "label": "fal.ai Florence",
+      "summary": "fal.ai caption/OCR provider.",
+      "env": ["FAL_KEY"],
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/fal/see.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/fal/see.sh init",
+        "describe": "bash shipped:providers/senses/fal/see.sh describe"
+      }
+    },
+    {
+      "kind": "sense",
+      "id": "fal",
+      "verb": "enhance",
+      "label": "fal.ai enhance",
+      "summary": "fal.ai enhance toolbox: image/audio restore, plus --ops separate (sam-audio voice split) and --ops segment (sam-3 text-prompted masks).",
+      "env": ["FAL_KEY"],
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/fal/enhance.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/fal/enhance.sh init",
+        "describe": "bash shipped:providers/senses/fal/enhance.sh describe"
+      }
+    },
+    {
+      "kind": "sense",
+      "id": "fal",
+      "verb": "reconstruct",
+      "label": "fal.ai reconstruct",
+      "summary": "fal.ai speculative scene reconstruction: camera reposition + --ops sweep (Qwen multi-angle), --ops model (Trellis image→3D GLB, queue-polled), --ops depth (Depth Anything V2). Synthesized imagery — quarantined from evidence, every record carries payload.caveat.",
+      "env": ["FAL_KEY"],
+      "indexableDefault": false,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/fal/reconstruct.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/fal/reconstruct.sh init",
+        "describe": "bash shipped:providers/senses/fal/reconstruct.sh describe"
+      }
+    }
+  ],
+  "presets": {
+    "fal": [
+      { "verb": "see", "choice": "fal" },
+      { "verb": "enhance", "choice": "fal" },
+      { "verb": "reconstruct", "choice": "fal" }
+    ]
+  }
+}

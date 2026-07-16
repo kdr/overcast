@@ -225,7 +225,7 @@ export async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Pro
   ) return undefined;
   const binding = providerBinding(ctx, "watch");
   const rec = isCustomBinding(binding)
-    ? await runBoundProvider("watch", binding!, ref, {
+    ? await runBoundProvider("watch", binding!, ref, { home: ctx.home,
         env: providerEnv(ctx.case.mediaDir),
         timeoutMs: 15 * 60_000,
         signal: ctx.signal,

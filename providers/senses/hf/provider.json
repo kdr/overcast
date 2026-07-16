@@ -1,0 +1,44 @@
+{
+  "manifest_version": 1,
+  "name": "hf",
+  "version": "1.0.0",
+  "description": "Hugging Face hosted senses: vision caption/OCR (see) and image enhancement.",
+  "entries": [
+    {
+      "kind": "sense",
+      "id": "hf",
+      "verb": "see",
+      "label": "Hugging Face captioner",
+      "summary": "Hosted HF vision caption/OCR provider.",
+      "env": ["HF_TOKEN"],
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/hf/see.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/hf/see.sh init",
+        "describe": "bash shipped:providers/senses/hf/see.sh describe"
+      }
+    },
+    {
+      "kind": "sense",
+      "id": "hf",
+      "verb": "enhance",
+      "label": "Hugging Face enhance",
+      "summary": "Hosted image enhancement through HF inference providers.",
+      "env": ["HF_TOKEN"],
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/hf/enhance.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/hf/enhance.sh init",
+        "describe": "bash shipped:providers/senses/hf/enhance.sh describe"
+      }
+    }
+  ],
+  "presets": {
+    "hf": [
+      { "verb": "see", "choice": "hf" },
+      { "verb": "enhance", "choice": "hf" }
+    ]
+  }
+}

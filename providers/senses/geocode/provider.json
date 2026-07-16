@@ -1,0 +1,22 @@
+{
+  "manifest_version": 1,
+  "name": "geocode",
+  "version": "1.0.0",
+  "description": "OPT-IN reverse geocoding for `exif --geocode` via OSM Nominatim (no key).",
+  "entries": [
+    {
+      "kind": "sense",
+      "id": "nominatim",
+      "verb": "geocode",
+      "label": "OSM Nominatim reverse geocoder",
+      "summary": "OPT-IN reverse geocoding for `exif --geocode` (OSM Nominatim; no key, curl+jq, ~1 req/s usage policy — point OVERCAST_GEOCODE_URL at your own Nominatim/Photon for volume). Egresses the subject's coordinates to a third party, so it is never a default.",
+      "indexableDefault": false,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/geocode/geocode.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/geocode/geocode.sh init",
+        "describe": "bash shipped:providers/senses/geocode/geocode.sh describe"
+      }
+    }
+  ]
+}

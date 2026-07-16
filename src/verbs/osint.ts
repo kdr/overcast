@@ -12,6 +12,7 @@ import {
   enumerateSource,
   fetchSource,
 } from "../providers/sources/index.js";
+import { manifestHostRoutes } from "../providers/manifests.js";
 import {
   resolveSources,
   enabledSources,
@@ -183,13 +184,14 @@ async function enumerateAll(ctx: VerbContext, verb = "scan"): Promise<OvercastRe
 
   const out: OvercastRecord[] = [];
   for (const s of sources) {
-    const desc = builtinDescriptor(s.type);
+    const desc = builtinDescriptor(s.type, ctx.home);
     if (!desc) {
       out.push(err("scan", `unknown source type '${s.type}' (no provider)`));
       continue;
     }
     try {
       const hits = await enumerateSource(desc, {
+        home: ctx.home,
         query: adhocQuery ?? (s.ref || targetValue),
         ref: s.ref,
         limit,
@@ -545,7 +547,7 @@ function uniqueName(url: string): string {
 
 /** Best-effort source provider for an ad-hoc URL by host. Video hosts map to
  *  their downloaders; anything else to the generic `web` page fetcher. */
-export function hostSourceType(url: string): string {
+export function hostSourceType(url: string, home?: string): string {
   // match on the parsed hostname — a substring regex over the whole URL misses
   // bare apex domains (x.com has no subdomain, so `(^|\.)x\.com` never fired)
   let host = "";
@@ -583,6 +585,13 @@ export function hostSourceType(url: string): string {
       /* malformed → web */
     }
     return "web";
+  }
+  // Manifest-declared source hosts (the installed-package extension point): a
+  // source that claims a host routes ad-hoc `capture <url>` to it. The dedicated
+  // shipped routes above win (they encode conditional logic a flat host list
+  // can't); this beats the generic dl/web fallbacks below.
+  for (const { host: h, type } of manifestHostRoutes(home)) {
+    if (host === h || host.endsWith(`.${h}`)) return type;
   }
   // video hosts yt-dlp handles but that lack a dedicated source → the generic
   // `dl` downloader, so `capture <url>` pulls the video instead of curling an
@@ -647,14 +656,14 @@ export async function captureRef(
   // Prefer the originating source provider (from the scan.hit); only fall back
   // to host-sniffing for ad-hoc URLs with no known source. A generic host maps
   // to the `web` page fetcher, not yt-dlp.
-  const type = opts.sourceType ?? hostSourceType(ref);
-  const desc = builtinDescriptor(type);
+  const type = opts.sourceType ?? hostSourceType(ref, ctx.home);
+  const desc = builtinDescriptor(type, ctx.home);
   if (!desc) {
     return err("capture", `no source provider can fetch ${ref} (source type '${type}')`);
   }
   const dest = opts.out ? opts.out : join(outDir, uniqueName(ref));
   mkdirSync(dirname(dest), { recursive: true }); // a nested --out needs its parent first
-  return fetchSource(desc, { url: ref, out: dest, signal: ctx.signal });
+  return fetchSource(desc, { url: ref, out: dest, home: ctx.home, signal: ctx.signal });
 }
 
 async function pipeSense(
@@ -676,7 +685,7 @@ async function pipeSense(
     if (isCustomBinding(binding)) {
       // pass the case media dir + system ffmpeg/ffprobe (like see/enhance), so a
       // bound provider can extract frames / write into .overcast/media here too.
-      r = await runBoundProvider(verb, binding!, ref, {
+      r = await runBoundProvider(verb, binding!, ref, { home: ctx.home,
         env: providerEnv(ctx.case.mediaDir),
         extraArgs,
         signal: ctx.signal,

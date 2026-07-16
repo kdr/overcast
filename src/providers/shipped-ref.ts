@@ -8,21 +8,22 @@
 
 import { existsSync, realpathSync } from "node:fs";
 import { shippedPath } from "../pkg.js";
+import { isInstalledRef, resolveInstalledRefToken, InstalledRefError } from "./installed-ref.js";
+import { ProviderRefError } from "./ref-error.js";
 import type { ProviderDescriptor } from "../profile.js";
 
 export const SHIPPED_REF_PREFIX = "shipped:";
 
 /** Raised when a `shipped:` token can't resolve in this build (e.g. a bun binary
  *  without the providers/ sidecar next to the executable). */
-export class ShippedRefError extends Error {
-  ref: string;
+export class ShippedRefError extends ProviderRefError {
   constructor(ref: string) {
     super(
       `cannot resolve '${ref}': this build lacks the shipped provider files (providers/ sidecar missing) — ` +
         `reinstall, or rebind a provider you have (\`overcast provider setup apply --verb <verb> --choice <id> --yes\`)`,
+      ref,
+      "ShippedRefError",
     );
-    this.name = "ShippedRefError";
-    this.ref = ref;
   }
 }
 
@@ -30,20 +31,42 @@ export function isShippedRef(token: string): boolean {
   return token.startsWith(SHIPPED_REF_PREFIX) && token.length > SHIPPED_REF_PREFIX.length;
 }
 
-/** Resolve ONE `shipped:<relpath>` token to an absolute path, or undefined when
- *  this build doesn't carry the file (or the token isn't a ref). */
-export function resolveShippedRefToken(token: string): string | undefined {
-  if (!isShippedRef(token)) return undefined;
-  const segments = token.slice(SHIPPED_REF_PREFIX.length).split("/").filter(Boolean);
-  if (!segments.length) return undefined;
-  return shippedPath(...segments);
+/** A flat (pre-reshuffle) source-script relpath → its per-directory home:
+ *  `providers/sources/tiktok.sh` → `providers/sources/tiktok/tiktok.sh`. Any
+ *  other relpath (already nested, senses/engines, non-.sh) passes through. The
+ *  source scripts moved into per-type dirs with the provider.json manifests, so
+ *  old persisted refs / OVERCAST_SOURCE_*_CMD values must remap to still resolve. */
+function nestFlatSourceRelpath(rel: string): string {
+  const m = rel.match(/^providers\/sources\/([^/]+)\.sh$/);
+  return m ? `providers/sources/${m[1]}/${m[1]}.sh` : rel;
 }
 
-/** Replace every `shipped:` token in an argv with its resolved absolute path.
- *  Resolution happens POST-tokenization so a resolved path containing spaces
- *  stays one argv token. Throws ShippedRefError on an unresolvable ref. */
-export function resolveShippedArgv(argv: string[]): string[] {
+/** Resolve ONE `shipped:<relpath>` token to an absolute path, or undefined when
+ *  this build doesn't carry the file (or the token isn't a ref). A flat
+ *  pre-reshuffle source ref that no longer resolves is retried at its nested home. */
+export function resolveShippedRefToken(token: string): string | undefined {
+  if (!isShippedRef(token)) return undefined;
+  const rel = token.slice(SHIPPED_REF_PREFIX.length);
+  const segments = rel.split("/").filter(Boolean);
+  if (!segments.length) return undefined;
+  const direct = shippedPath(...segments);
+  if (direct) return direct;
+  const nested = nestFlatSourceRelpath(rel);
+  if (nested !== rel) return shippedPath(...nested.split("/").filter(Boolean));
+  return undefined;
+}
+
+/** Replace every `shipped:`/`installed:` token in an argv with its resolved
+ *  absolute path. Resolution happens POST-tokenization so a resolved path
+ *  containing spaces stays one argv token. Throws ShippedRefError /
+ *  InstalledRefError on an unresolvable ref. */
+export function resolveShippedArgv(argv: string[], home?: string): string[] {
   return argv.map((token) => {
+    if (isInstalledRef(token)) {
+      const abs = resolveInstalledRefToken(token, home);
+      if (!abs) throw new InstalledRefError(token);
+      return abs;
+    }
     if (!isShippedRef(token)) return token;
     const abs = resolveShippedRefToken(token);
     if (!abs) throw new ShippedRefError(token);
@@ -66,11 +89,12 @@ export function descriptorCommandStrings(desc: ProviderDescriptor | undefined): 
 /** Every distinct `shipped:` ref in a descriptor mapped to its resolved absolute
  *  path (null = unresolvable in this build). Transparency for `provider setup
  *  show/plan` — the STORED descriptor keeps the ref. */
-export function shippedRefResolution(desc: ProviderDescriptor | undefined): Record<string, string | null> | undefined {
+export function shippedRefResolution(desc: ProviderDescriptor | undefined, home?: string): Record<string, string | null> | undefined {
   const out: Record<string, string | null> = {};
   for (const cmd of descriptorCommandStrings(desc)) {
     for (const token of cmd.split(/\s+/)) {
       if (isShippedRef(token)) out[token] = resolveShippedRefToken(token) ?? null;
+      else if (isInstalledRef(token)) out[token] = resolveInstalledRefToken(token, home) ?? null;
     }
   }
   return Object.keys(out).length ? out : undefined;
@@ -95,7 +119,7 @@ function mapLegacyExamplesSubpath(sub: string): string | undefined {
   // moved WITHIN examples/ (still demos, not shipped):
   if (sub === "sources/mcp-bridge.ts" || sub === "hf/enhance.py") return undefined;
   const head = sub.split("/")[0];
-  if (head === "sources") return `providers/${sub}`;
+  if (head === "sources") return nestFlatSourceRelpath(`providers/${sub}`);
   if (
     ["hf", "fal", "elevenlabs", "tinycloud", "detect", "geocode", "exif", "verify", "local", "enhance"].includes(head)
   ) {
@@ -119,7 +143,7 @@ function shippedRefCandidate(token: string): string | undefined {
     return rel ? SHIPPED_REF_PREFIX + rel : undefined;
   }
   const current = token.match(/\/providers\/(sources|senses|engines)\/(.+)$/);
-  if (current) return `${SHIPPED_REF_PREFIX}providers/${current[1]}/${current[2]}`;
+  if (current) return `${SHIPPED_REF_PREFIX}${nestFlatSourceRelpath(`providers/${current[1]}/${current[2]}`)}`;
   if (/\/scripts\/visual-db-uv\.sh$/.test(token)) return `${SHIPPED_REF_PREFIX}scripts/visual-db-uv.sh`;
   return undefined;
 }
@@ -213,11 +237,17 @@ function looksLikeScriptPath(token: string): boolean {
  *  user's own provider), but it WILL fail at spawn, so we surface it rather than
  *  let it break silently. A non-existent NON-script token (a bare command, a
  *  relative path) is still left alone, mirroring healShippedToken's conservatism. */
-export function findShippedTokenIssues(cmd: string): ShippedTokenIssue[] {
+export function findShippedTokenIssues(cmd: string, home?: string): ShippedTokenIssue[] {
   const issues: ShippedTokenIssue[] = [];
   for (const token of cmd.split(/\s+/)) {
     if (isShippedRef(token)) {
       if (!resolveShippedRefToken(token)) issues.push({ kind: "unresolvable_ref", token });
+      continue;
+    }
+    if (isInstalledRef(token)) {
+      // a removed/renamed installed package leaves a stale binding — surface it
+      // (same kind; the token text `installed:<pkg>/…` disambiguates in doctor).
+      if (!resolveInstalledRefToken(token, home)) issues.push({ kind: "unresolvable_ref", token });
       continue;
     }
     if (existsSync(token)) continue; // present path — healing would (or already did) handle it

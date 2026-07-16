@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "name": "phone",
+  "version": "1.0.0",
+  "description": "Reverse phone / number OSINT via Apify (PhoneInfoga): number → offline parse + web footprint. Opt-in / sensitive; never a default.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "phone",
+      "label": "Reverse phone OSINT (Apify)",
+      "summary": "Reverse phone / number OSINT via Apify (PhoneInfoga): number → offline parse + web footprint. Opt-in / sensitive; never a default.",
+      "env": [
+        "APIFY_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/phone/phone.sh"
+      ],
+      "needs": "APIFY_TOKEN",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "APIFY_TOKEN"
+        ],
+        "okNote": "APIFY_TOKEN present (opt-in phone OSINT — authorized use only)",
+        "missingNote": "APIFY_TOKEN missing for phone (reverse phone / number OSINT) scans"
+      },
+      "refForms": [
+        {
+          "form": "phone:<E.164>"
+        }
+      ]
+    }
+  ]
+}

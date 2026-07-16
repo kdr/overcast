@@ -2,7 +2,7 @@
 # overcast `screenshot` provider — render a web page (or a local .html export)
 # to a PNG via headless Chromium (Playwright). Default backend for the
 # `screenshot` verb AND the engine behind the `browser:` source
-# (providers/sources/browser.sh delegates here).
+# (providers/sources/browser/browser.sh delegates here).
 # Contract: init | describe | run --input <url|path.html> [--out <png>]
 #             [--full-page] [--viewport WxH] [--wait ms] [--timeout ms] --json
 #           | fetch --url <u> --out <p>       (the source capture path)

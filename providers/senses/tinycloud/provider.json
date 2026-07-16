@@ -1,0 +1,23 @@
+{
+  "manifest_version": 1,
+  "name": "tinycloud",
+  "version": "1.0.0",
+  "description": "Cloudglue / tinycloud file-level image analysis (see). watch/listen/face are built-in tinycloud CLI bindings.",
+  "entries": [
+    {
+      "kind": "sense",
+      "id": "tinycloud",
+      "verb": "see",
+      "label": "Cloudglue / tinycloud see",
+      "summary": "File-level image analysis (describe + on-screen text; --prompt/--detect via extract, no boxes) through tinycloud see (>= 0.3.7).",
+      "env": ["CLOUDGLUE_API_KEY"],
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "bash shipped:providers/senses/tinycloud/see.sh --input {{input}}",
+        "init": "bash shipped:providers/senses/tinycloud/see.sh init",
+        "describe": "bash shipped:providers/senses/tinycloud/see.sh describe"
+      }
+    }
+  ]
+}

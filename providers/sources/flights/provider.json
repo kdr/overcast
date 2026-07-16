@@ -1,0 +1,34 @@
+{
+  "manifest_version": 1,
+  "name": "flights",
+  "version": "1.0.0",
+  "description": "Live ADS-B aircraft positions via the OpenSky Network REST API. Keyless-capable (anonymous works, rate-limited). Every hit carries top-level gps; monitor --every builds a track. Opt-in; never a default.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "flights",
+      "label": "Live ADS-B aircraft (OpenSky)",
+      "summary": "Live ADS-B aircraft positions via the OpenSky Network REST API. Keyless-capable (anonymous works, rate-limited). Every hit carries top-level gps; monitor --every builds a track. Opt-in; never a default.",
+      "env": [
+        "OPENSKY_CLIENT_ID",
+        "OPENSKY_CLIENT_SECRET"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/flights/flights.sh"
+      ],
+      "needs": "none (anonymous OpenSky) — optional OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET raise rate limits",
+      "refForms": [
+        {
+          "form": "flights:<west,south,east,north>"
+        },
+        {
+          "form": "flights:<icao24>"
+        },
+        {
+          "form": "flights:<callsign>"
+        }
+      ]
+    }
+  ]
+}

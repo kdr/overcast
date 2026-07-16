@@ -131,7 +131,7 @@ fi
 # --- 5) browser: source — scan --pull renders + captures a page image ---
 cond "browser source scan --pull renders the page into an image capture"
 SCASE=$(case_dir browser_src)
-export OVERCAST_SOURCE_BROWSER_CMD="bash $PWD/providers/sources/browser.sh"
+export OVERCAST_SOURCE_BROWSER_CMD="bash $PWD/providers/sources/browser/browser.sh"
 ocrun "$SCASE" source add "browser:$URL" >/dev/null 2>&1
 scan="$(OC_TIMEOUT=150 ocrun "$SCASE" scan --pull --json 2>/dev/null)"
 save_json "38_browser_scan" "$scan" >/dev/null

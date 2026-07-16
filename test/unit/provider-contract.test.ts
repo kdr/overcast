@@ -13,6 +13,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runExecProvider } from "../../src/providers/run.ts";
 import { enumerateSource } from "../../src/providers/sources/index.ts";
+import { manifestSourceDescriptor, manifestSourceEntries } from "../../src/providers/manifests.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 // shipped providers live under providers/ (sources/senses/engines); the
@@ -29,6 +30,18 @@ interface Prov {
 const sh = (file: string, kind: Kind = "sense"): Prov => ({ file, kind, cmd: "bash", base: [P(file)] });
 const py = (file: string): Prov => ({ file, kind: "sense", cmd: "python3", base: [P(file)] });
 const ts = (file: string): Prov => ({ file, kind: "sense", cmd: "node", base: ["--import", "tsx", P(file)] });
+
+// Source rows are DERIVED from the shipped manifests (self-maintaining: a new
+// providers/sources/<type>/ with a provider.json is covered automatically, and
+// the per-directory reshuffle can't leave a stale path here). Each entry's base
+// argv is resolved from its shipped: ref by the manifest layer.
+const sourceProviders = (): Prov[] =>
+  manifestSourceEntries()
+    .filter((e) => e.origin === "shipped")
+    .map((e) => {
+      const [cmd, ...base] = manifestSourceDescriptor(e.type)!.base;
+      return { file: `providers/sources/${e.type}/${e.type}.sh`, kind: "source" as const, cmd, base };
+    });
 
 const PROVIDERS: Prov[] = [
   sh("examples/providers/bash/watch.sh"),
@@ -48,19 +61,7 @@ const PROVIDERS: Prov[] = [
   py("providers/senses/enhance/ela.py"),
   py("providers/senses/enhance/panorama.py"),
   ts("examples/providers/ts/see.ts"),
-  sh("providers/sources/youtube.sh", "source"),
-  sh("providers/sources/tiktok.sh", "source"),
-  sh("providers/sources/x.sh", "source"),
-  sh("providers/sources/web.sh", "source"),
-  sh("providers/sources/username.sh", "source"),
-  sh("providers/sources/person.sh", "source"),
-  sh("providers/sources/phone.sh", "source"),
-  sh("providers/sources/property.sh", "source"),
-  sh("providers/sources/plate.sh", "source"),
-  sh("providers/sources/overpass.sh", "source"),
-  sh("providers/sources/firms.sh", "source"),
-  sh("providers/sources/flights.sh", "source"),
-  sh("providers/sources/yandeximg.sh", "source"),
+  ...sourceProviders(),
 ];
 
 function run(p: Prov, args: string[]) {

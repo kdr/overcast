@@ -1197,7 +1197,21 @@ packages this flow.
 
 ## Provider override patterns
 
-### Bind a custom sense provider
+### Install a provider package (reusable — new sense choice or source type)
+
+```bash
+overcast provider create acme --kind source    # scaffold ./acme (provider.json + acme.sh)
+# edit acme/acme.sh (enumerate/fetch) — see providers.md "Authoring a new provider"
+overcast provider install ./acme --yes          # register: source add acme:…, scan, doctor all see it
+overcast source add acme:some-query && overcast scan --source acme --pull
+overcast provider list --installed              # or `provider remove acme --yes`
+```
+
+A sense package is the same with `--kind sense`, then `provider setup apply
+--verb <verb> --choice <id> --yes`. This is the sanctioned way to *add* a
+provider; the raw binds below are one-off overrides.
+
+### Bind a custom sense provider (one-off escape hatch)
 
 ```bash
 overcast setup provider listen "exec:python3 examples/providers/python/listen.py"
@@ -1230,7 +1244,7 @@ export OVERCAST_TINYCLOUD_CMD="/opt/tinycloud/bin/tinycloud"
 overcast doctor
 ```
 
-### Override a source provider
+### Override a source provider (one-off — to add a persistent type, install a package above)
 
 ```bash
 export OVERCAST_SOURCE_YOUTUBE_CMD="bash ./my-youtube-provider.sh"

@@ -1,0 +1,28 @@
+{
+  "manifest_version": 1,
+  "name": "detect",
+  "version": "1.0.0",
+  "description": "Local OWLv2 / Grounding DINO open-vocabulary object detection for `see --detect`.",
+  "entries": [
+    {
+      "kind": "sense",
+      "id": "owl-local",
+      "verb": "see",
+      "label": "OWLv2 open-vocabulary detection",
+      "summary": "Local OWLv2/Grounding DINO object detection provider.",
+      "env": ["DETECT_MODEL"],
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "{{env:DETECT_PY|python3}} shipped:providers/senses/detect/detect.py --input {{input}}",
+        "init": "{{env:DETECT_PY|python3}} shipped:providers/senses/detect/detect.py init",
+        "describe": "{{env:DETECT_PY|python3}} shipped:providers/senses/detect/detect.py describe"
+      }
+    }
+  ],
+  "presets": {
+    "owl-local": [
+      { "verb": "see", "choice": "owl-local" }
+    ]
+  }
+}

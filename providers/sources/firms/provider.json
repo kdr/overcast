@@ -1,0 +1,27 @@
+{
+  "manifest_version": 1,
+  "name": "firms",
+  "version": "1.0.0",
+  "description": "NASA FIRMS active-fire / thermal-anomaly hotspots (bbox/area). Free map key; hits carry top-level gps + ISO capture time; media.ref is a FIRMS fire-map deep link.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "firms",
+      "label": "NASA FIRMS active fires",
+      "summary": "NASA FIRMS active-fire / thermal-anomaly hotspots (bbox/area). Free map key; hits carry top-level gps + ISO capture time; media.ref is a FIRMS fire-map deep link.",
+      "env": [
+        "FIRMS_MAP_KEY"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/firms/firms.sh"
+      ],
+      "needs": "FIRMS_MAP_KEY",
+      "refForms": [
+        {
+          "form": "firms:<west,south,east,north>"
+        }
+      ]
+    }
+  ]
+}

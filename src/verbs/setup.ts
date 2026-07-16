@@ -16,17 +16,19 @@ import { listBuckets } from "../archive.js";
 import { FFMPEG_PATH, FFPROBE_PATH, probeTool, MIN_FFMPEG } from "../media/ffmpeg.js";
 import { execCapture } from "../providers/exec.js";
 import { tokenizeCommand, builtinDescriptor } from "../providers/sources/index.js";
+import { manifestSourceEntries } from "../providers/manifests.js";
 import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
 import { loadSetup, saveSetup, emptySetup } from "../state/setup.js";
-import { findProviderChoice, providerChoices, PROVIDER_PRESETS, type ProviderChoice } from "../providers/catalog.js";
+import { findProviderChoice, providerChoices, providerPresets, type ProviderChoice } from "../providers/catalog.js";
+import { installProvider, removeProvider, listInstalled, createProviderScaffold, invalidInstalledPackages } from "./provider-install.js";
 import {
   resolveShippedArgv,
   shippedRefResolution,
   descriptorCommandStrings,
   findShippedTokenIssues,
-  ShippedRefError,
 } from "../providers/shipped-ref.js";
+import { ProviderRefError } from "../providers/ref-error.js";
 import { localVisionPython } from "../providers/local/vision.js";
 import { PI_VERSION } from "../version.js";
 import { envPresent, redactSecrets } from "../env.js";
@@ -140,8 +142,9 @@ function providerSetupRequests(ctx: VerbContext): { items: Array<{ verb: string;
   const verb = ctx.opts.verb ? String(ctx.opts.verb).trim() : "";
   const choice = ctx.opts.choice ? String(ctx.opts.choice).trim() : "";
   if (preset) {
-    const items = PROVIDER_PRESETS[preset];
-    if (!items) return { items: [], error: `unknown provider preset '${preset}' (expected ${Object.keys(PROVIDER_PRESETS).join(" | ")})` };
+    const presets = providerPresets(ctx.home);
+    const items = presets[preset];
+    if (!items) return { items: [], error: `unknown provider preset '${preset}' (expected ${Object.keys(presets).join(" | ")})` };
     return { items: items.map((i) => ({ ...i, choiceName: i.choice })) };
   }
   if (!verb || !choice) {
@@ -165,14 +168,14 @@ interface ProviderSetupChange {
   indexable_default: boolean;
 }
 
-function providerSetupChange(verb: string, choice: ProviderChoice): ProviderSetupChange {
+function providerSetupChange(verb: string, choice: ProviderChoice, home?: string): ProviderSetupChange {
   return {
     verb,
     choice: choice.id,
     label: choice.label,
     summary: choice.summary,
     descriptor: choice.descriptor,
-    resolved: shippedRefResolution(choice.descriptor),
+    resolved: shippedRefResolution(choice.descriptor, home),
     clears_binding: choice.clearsBinding === true,
     env: choice.env ?? [],
     missing_env: (choice.env ?? []).filter((name) => !process.env[name]),
@@ -335,18 +338,24 @@ export const providerVerb: VerbSpec = {
   summary: "Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).",
   description:
     "`provider setup plan|apply|show` configures catalog-backed provider choices for a profile. " +
-    "`provider init <verb>` runs the bound provider's init step — a command, or guidance for a " +
-    "skill-based init (not wired yet). `provider list` shows the active bindings.",
+    "`provider install <path|tarball>` installs a third-party provider package (a provider.json " +
+    "manifest + scripts) — `provider create <name> --kind sense|source` scaffolds one, " +
+    "`list --installed` / `remove <name>` manage them. `provider init <verb>` runs the bound " +
+    "provider's init step; `provider list` shows the active bindings.",
   args: [
-    { name: "action", summary: "setup | init | list | describe (default: list)", choices: ["setup", "init", "list", "describe"] },
-    { name: "verb", summary: "setup subcommand, or verb whose provider to init/describe" },
+    { name: "action", summary: "setup | install | remove | create | init | list | describe (default: list)", choices: ["setup", "install", "remove", "create", "init", "list", "describe"] },
+    { name: "verb", summary: "setup subcommand, verb to init/describe, or the install path / package name" },
   ],
   flags: [
     { name: "profile", summary: "Profile name to write/read (default: active/default)", type: "string" },
     { name: "verb", summary: "provider setup: verb to configure", type: "string" },
     { name: "choice", summary: "provider setup: catalog choice id", type: "string" },
-    { name: "preset", summary: "provider setup: preset id (cloudglue|hf|fal|elevenlabs|owl-local|local-models|deepface-local|basic-clip|audio-fp|basic-clap|voice-print|playwright)", type: "string" },
-    { name: "yes", summary: "provider setup apply: confirm profile changes", type: "boolean" },
+    { name: "preset", summary: `provider setup: preset id (${Object.keys(providerPresets()).join("|")})`, type: "string" },
+    { name: "yes", summary: "confirm a mutating action (setup apply / install / remove)", type: "boolean" },
+    { name: "installed", summary: "provider list: show installed provider packages", type: "boolean" },
+    { name: "upgrade", summary: "provider install: replace an already-installed package of the same name", type: "boolean" },
+    { name: "kind", summary: "provider create: sense | source (default: sense)", type: "string", choices: ["sense", "source"] },
+    { name: "out", summary: "provider create: output directory (default: ./)", type: "string" },
     { name: "json", summary: "JSON output", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
   ],
@@ -363,18 +372,18 @@ export const providerVerb: VerbSpec = {
       if (sub === "show") {
         // choices carry a `resolved` map (shipped: ref → absolute path in this
         // build) for transparency; the descriptor itself keeps the portable ref.
-        const choices = providerChoices().map((c) => ({ ...c, resolved: shippedRefResolution(c.descriptor) }));
-        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices, presets: PROVIDER_PRESETS, providers }, meta: { transient: true }, state: "ready" })];
+        const choices = providerChoices(ctx.home).map((c) => ({ ...c, resolved: shippedRefResolution(c.descriptor, ctx.home) }));
+        return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices, presets: providerPresets(ctx.home), providers }, meta: { transient: true }, state: "ready" })];
       }
       if (sub !== "plan" && sub !== "apply") {
         return [err("provider", "usage: provider setup [show|plan|apply] [--verb <verb> --choice <choice> | --preset <preset>] [--profile <name>] [--yes]")];
       }
       const requested = providerSetupRequests(ctx);
       if (requested.error) return [err("provider", requested.error)];
-      const selected = requested.items.map((i) => ({ ...i, choice: findProviderChoice(i.verb, i.choice) }));
+      const selected = requested.items.map((i) => ({ ...i, choice: findProviderChoice(i.verb, i.choice, ctx.home) }));
       const missing = selected.find((i) => !i.choice);
       if (missing) return [err("provider", `unknown provider choice '${missing.choiceName}' for verb '${missing.verb}'`)];
-      const changes = selected.map((i) => providerSetupChange(i.verb, i.choice!));
+      const changes = selected.map((i) => providerSetupChange(i.verb, i.choice!, ctx.home));
       const payload = {
         op: "provider_setup",
         profile: profileName,
@@ -394,11 +403,30 @@ export const providerVerb: VerbSpec = {
       const path = saveProfile(profile, { home: ctx.home, profile: profileName });
       return [makeRecord({ verb: "provider", format: "json", payload: { ...payload, path, providers: profile.providers }, state: "ready" })];
     }
+    if (action === "install") {
+      const src = ctx.rest[0];
+      if (!src) return [err("provider", "usage: provider install <path|tarball> [--upgrade] [--yes]")];
+      return installProvider(src, { yes: ctx.opts.yes === true, upgrade: ctx.opts.upgrade === true }, ctx.home);
+    }
+    if (action === "remove") {
+      const name = ctx.rest[0];
+      if (!name) return [err("provider", "usage: provider remove <package-name> [--yes]")];
+      return removeProvider(name, { yes: ctx.opts.yes === true }, ctx.home);
+    }
+    if (action === "create") {
+      const name = ctx.rest[0];
+      if (!name) return [err("provider", "usage: provider create <name> [--kind sense|source] [--out <dir>]")];
+      const kind = ctx.opts.kind === "source" ? "source" : "sense";
+      return createProviderScaffold(name, kind, ctx.opts.out ? String(ctx.opts.out) : ".");
+    }
     if (action === "list") {
+      if (ctx.opts.installed === true) {
+        return [makeRecord({ verb: "provider", format: "json", payload: { installed: listInstalled(ctx.home) }, meta: { transient: true }, state: "ready" })];
+      }
       return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, providers, effective: effectiveProviders(profile) }, meta: { transient: true }, state: "ready" })];
     }
     if (action !== "describe" && action !== "init") {
-      return [err("provider", `unknown provider action '${action}' (expected setup | init | list | describe)`)];
+      return [err("provider", `unknown provider action '${action}' (expected setup | install | remove | create | init | list | describe)`)];
     }
     const verb = ctx.rest[0];
     if (!verb) return [err("provider", `usage: provider ${action} <verb>`)];
@@ -410,9 +438,9 @@ export const providerVerb: VerbSpec = {
         let parts: string[];
         try {
           // descriptor commands may carry `shipped:` refs — resolve at exec time.
-          parts = resolveShippedArgv(tokenizeCommand(desc.describe));
+          parts = resolveShippedArgv(tokenizeCommand(desc.describe), ctx.home);
         } catch (e) {
-          if (!(e instanceof ShippedRefError)) throw e;
+          if (!(e instanceof ProviderRefError)) throw e;
           return [err("provider", e.message)];
         }
         const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
@@ -436,9 +464,9 @@ export const providerVerb: VerbSpec = {
     let parts: string[];
     try {
       // descriptor init commands may carry `shipped:` refs — resolve at exec time.
-      parts = resolveShippedArgv(tokenizeCommand(cmd));
+      parts = resolveShippedArgv(tokenizeCommand(cmd), ctx.home);
     } catch (e) {
-      if (!(e instanceof ShippedRefError)) throw e;
+      if (!(e instanceof ProviderRefError)) throw e;
       return [err("provider", e.message)];
     }
     const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 5 * 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
@@ -648,185 +676,47 @@ export const doctorVerb: VerbSpec = {
 
     const configuredSources = listSources(ctx.case);
     const sourceTypes = new Set(configuredSources.map((s) => s.type));
-    if (ctx.opts.sources === true || sourceTypes.has("tiktok")) {
-      checks.push({
-        name: "source:tiktok",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN")
-          ? "APIFY_TOKEN present"
-          : "APIFY_TOKEN missing; put it in .env before launching overcast or export it in the shell",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("x") || sourceTypes.has("twitter")) {
-      checks.push({
-        name: "source:x",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN")
-          ? "APIFY_TOKEN present"
-          : "APIFY_TOKEN missing; put it in .env before launching overcast or export it in the shell",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("web")) {
-      checks.push({
-        name: "source:web",
-        ok: envPresent("TAVILY_API_KEY") || envPresent("BRAVE_API_KEY"),
-        detail: envPresent("TAVILY_API_KEY") || envPresent("BRAVE_API_KEY")
-          ? "web source key present"
-          : "TAVILY_API_KEY or BRAVE_API_KEY missing for web source scans",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("lens")) {
-      checks.push({
-        name: "source:lens",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN")
-          ? "APIFY_TOKEN present"
-          : "APIFY_TOKEN missing for lens (Google Lens reverse image) scans",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("instagram")) {
-      checks.push({
-        name: "source:instagram",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN") ? "APIFY_TOKEN present" : "APIFY_TOKEN missing for instagram scans",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("telegram")) {
-      checks.push({
-        name: "source:telegram",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN") ? "APIFY_TOKEN present" : "APIFY_TOKEN missing for telegram scans",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("facesearch")) {
-      checks.push({
-        name: "source:facesearch",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN")
-          ? "APIFY_TOKEN present (opt-in face search — mind ToS/privacy)"
-          : "APIFY_TOKEN missing for facesearch scans",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("gdelttv")) {
-      // GDELT TV needs no key; note the corpus lag so an empty recent scan reads
-      // as expected rather than broken.
-      checks.push({
-        name: "source:gdelttv",
-        ok: true,
-        detail: "public GDELT TV API — no key needed (clipgallery corpus lags real time by weeks)",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("dispatch")) {
-      // Socrata calls-for-service needs no key; note the rolling real-time
-      // window (SF keeps ~48h) so an older --since scan coming back empty reads
-      // as expected rather than broken.
-      checks.push({
-        name: "source:dispatch",
-        ok: true,
-        detail:
-          "keyless Socrata SODA API — optional SOCRATA_APP_TOKEN raises rate limits (real-time feeds are a rolling window; SF keeps ~48h)",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("webcam")) {
-      checks.push({
-        name: "source:webcam",
-        ok: envPresent("WINDY_API_KEY"),
-        detail: envPresent("WINDY_API_KEY")
-          ? "WINDY_API_KEY present"
-          : "WINDY_API_KEY missing for webcam (Windy Webcams) scans (https://api.windy.com/webcams)",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("dork")) {
-      checks.push({
-        name: "source:dork",
-        ok: envPresent("SERPER_API_KEY"),
-        detail: envPresent("SERPER_API_KEY")
-          ? "SERPER_API_KEY present (Google dorking — authorized recon only)"
-          : "SERPER_API_KEY missing for dork (Google dorking) scans (https://serper.dev)",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("shodan")) {
-      checks.push({
-        name: "source:shodan",
-        ok: envPresent("SHODAN_API_KEY"),
-        detail: envPresent("SHODAN_API_KEY")
-          ? "SHODAN_API_KEY present (host/service recon — authorized recon only)"
-          : "SHODAN_API_KEY missing for shodan scans (https://account.shodan.io)",
-      });
-    }
-    // Identity / records OSINT sources (Apify-backed) — opt-in, never default,
-    // authorized use only. All gate on APIFY_TOKEN; `plate` additionally needs
-    // OVERCAST_PLATE_ACTOR (no default actor — US plate data is DPPA-restricted).
-    if (ctx.opts.sources === true || sourceTypes.has("username")) {
-      checks.push({
-        name: "source:username",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN")
-          ? "APIFY_TOKEN present (opt-in username→accounts OSINT — authorized use only)"
-          : "APIFY_TOKEN missing for username (Maigret account discovery) scans",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("person")) {
-      checks.push({
-        name: "source:person",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN")
-          ? "APIFY_TOKEN present (opt-in people-search — NOT an FCRA report; authorized use only)"
-          : "APIFY_TOKEN missing for person (people-search / skip-trace) scans",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("phone")) {
-      checks.push({
-        name: "source:phone",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN")
-          ? "APIFY_TOKEN present (opt-in phone OSINT — authorized use only)"
-          : "APIFY_TOKEN missing for phone (reverse phone / number OSINT) scans",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("property")) {
-      checks.push({
-        name: "source:property",
-        ok: envPresent("APIFY_TOKEN"),
-        detail: envPresent("APIFY_TOKEN")
-          ? "APIFY_TOKEN present (opt-in property/assessor records — authorized use only)"
-          : "APIFY_TOKEN missing for property (address→assessor/tax records) scans",
-      });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("plate")) {
-      // plate has no default actor (DPPA) and can be bound two ways — the Apify path
-      // (APIFY_TOKEN + OVERCAST_PLATE_ACTOR) or a custom OVERCAST_SOURCE_PLATE_CMD
-      // (e.g. a direct plate API). Neither can be judged from env alone: a rebound
-      // *shipped* plate.sh still needs the actor, while a self-contained custom
-      // command needs nothing. So probe the provider's own `init` health check
-      // (exit 0 = ready, 13 = missing creds/actor) — the definitive signal for both.
-      // (plate is the only source with this override-vs-actor ambiguity; the rest
-      // are a single env key, checked directly above.)
-      const plateDesc = builtinDescriptor("plate");
-      let plateOk = false;
-      let plateDetail = "plate provider unavailable (shipped plate.sh not found)";
-      if (plateDesc) {
-        const [pcmd, ...plead] = plateDesc.base;
-        const res = await execCapture(pcmd, [...plead, "init"], { signal: ctx.signal, timeoutMs: 15_000 }).catch(
-          () => ({ code: 1, stdout: "", stderr: "" }),
-        );
-        plateOk = res.code === 0;
-        plateDetail = plateOk
-          ? "plate provider ready (vehicle SPEC only — owner is DPPA-restricted)"
-          : "plate not ready — set APIFY_TOKEN + OVERCAST_PLATE_ACTOR (no default actor — DPPA), or a self-contained OVERCAST_SOURCE_PLATE_CMD";
+    // Source credential checks are driven by each source manifest's `doctor`
+    // descriptor (providers/sources/<type>/provider.json). A type is checked when
+    // --sources is passed OR it's configured in this case (via its type or an
+    // alias). Sources with no `doctor` field (youtube/dl/overpass/firms/flights/
+    // yandeximg) emit no check, exactly as before. Detail strings live verbatim in
+    // the manifests, so the output is unchanged from the old hardcoded cascade.
+    const seenSourceCheck = new Set<string>();
+    for (const entry of manifestSourceEntries(ctx.home)) {
+      const d = entry.doctor;
+      if (!d) continue;
+      const names = [entry.type, ...(entry.aliases ?? [])];
+      const wanted = ctx.opts.sources === true || names.some((n) => sourceTypes.has(n));
+      if (!wanted) continue;
+      if (seenSourceCheck.has(entry.type)) continue;
+      seenSourceCheck.add(entry.type);
+      const name = `source:${entry.type}`;
+      if (d.check === "keyless") {
+        checks.push({ name, ok: true, detail: d.okNote });
+      } else if (d.check === "reuse_playwright") {
+        checks.push({ name, ok: playwright.code === 0, detail: playwright.code === 0 ? d.okNote : (d.missingNote ?? d.okNote) });
+      } else if (d.check === "probe_init") {
+        // can't be judged from env alone (e.g. plate: actor-or-override). Probe the
+        // provider's own `init` health check (exit 0 = ready, 13 = missing creds).
+        const desc = builtinDescriptor(entry.type, ctx.home);
+        let pok = false;
+        let detail = d.unavailableNote ?? d.missingNote ?? `${entry.type} provider unavailable`;
+        if (desc) {
+          const [pcmd, ...plead] = desc.base;
+          const res = await execCapture(pcmd, [...plead, "init"], { signal: ctx.signal, timeoutMs: 15_000 }).catch(
+            () => ({ code: 1, stdout: "", stderr: "" }),
+          );
+          pok = res.code === 0;
+          detail = pok ? d.okNote : (d.missingNote ?? detail);
+        }
+        checks.push({ name, ok: pok, detail });
+      } else {
+        // env_all (all present) / env_any (any present)
+        const keys = d.env ?? [];
+        const present = d.check === "env_any" ? keys.some(envPresent) : keys.every(envPresent);
+        checks.push({ name, ok: present, detail: present ? d.okNote : (d.missingNote ?? `${keys.join("/")} missing`) });
       }
-      checks.push({ name: "source:plate", ok: plateOk, detail: plateDetail });
-    }
-    if (ctx.opts.sources === true || sourceTypes.has("browser")) {
-      // no API key — the browser source needs the same Playwright renderer the
-      // `screenshot` verb uses (probed above as the `playwright` check).
-      checks.push({
-        name: "source:browser",
-        ok: playwright.code === 0,
-        detail: playwright.code === 0
-          ? "Playwright + Chromium renderer available (rendered-page capture)"
-          : "Playwright renderer missing — run `npm install --include=optional` and `npx playwright install chromium`",
-      });
     }
 
     // home / profiles
@@ -849,6 +739,27 @@ export const doctorVerb: VerbSpec = {
     const bound = Object.keys(ctx.profile.providers ?? {});
     checks.push({ name: "providers", ok: bound.length > 0, detail: bound.length ? bound.join(", ") : "none bound (defaults apply)" });
 
+    // installed provider packages: flag any whose files changed since install
+    // (sha256 mismatch vs .overcast-install.json) OR whose provider.json no longer
+    // scans (invalid/unreadable — the scanner drops these silently, so an operator
+    // never learns why a package vanished from the catalog). Elevated to doctor so
+    // neither goes unnoticed. Only emitted when packages are present.
+    const installedPkgs = listInstalled(ctx.home);
+    const invalidPkgs = invalidInstalledPackages(ctx.home);
+    if (installedPkgs.length || invalidPkgs.length) {
+      const problems = [
+        ...installedPkgs.filter((p) => p.tampered).map((p) => `${p.name} (tampered)`),
+        ...invalidPkgs.map((n) => `${n} (invalid manifest)`),
+      ];
+      checks.push({
+        name: "installed-providers",
+        ok: problems.length === 0,
+        detail: problems.length
+          ? `${problems.length} package(s) need attention: ${problems.join(", ")} — \`provider install --upgrade\` to re-stamp, fix the manifest, or \`provider remove\``
+          : `${installedPkgs.length} installed: ${installedPkgs.map((p) => p.name).join(", ")}`,
+      });
+    }
+
     // provider paths: flag bindings whose `shipped:` ref doesn't resolve in this
     // build, or that still carry a stale absolute shipped-provider path healing
     // couldn't rewrite (loadProfile heals recognized old paths on load — what
@@ -858,7 +769,7 @@ export const doctorVerb: VerbSpec = {
       for (const [verb, desc] of Object.entries(providers)) {
         if (!desc || typeof desc !== "object") continue;
         for (const cmd of descriptorCommandStrings(desc)) {
-          for (const issue of findShippedTokenIssues(cmd)) {
+          for (const issue of findShippedTokenIssues(cmd, ctx.home)) {
             const label =
               issue.kind === "unresolvable_ref"
                 ? "unresolvable"

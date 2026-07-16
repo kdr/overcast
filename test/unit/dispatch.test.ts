@@ -60,6 +60,17 @@ test("enumerateSource resolves shipped: refs in the base argv (Bugbot #104: sour
   );
   assert.equal(resolved.length, 1);
   assert.doesNotMatch(resolved[0].error ?? "", /lacks the shipped provider files/);
+
+  // Bugbot (PR #110): resolveShippedArgv can now throw InstalledRefError too — an
+  // uninstalled `installed:` source must also degrade to a clean error record
+  // (the catch sweeps the whole ProviderRefError class, not just shipped:).
+  const gone = await enumerateSource(
+    { type: "web", base: ["bash", "installed:no-such-pkg/run.sh"] },
+    { query: "x" },
+  );
+  assert.equal(gone.length, 1);
+  assert.equal(gone[0].state, "error");
+  assert.match(gone[0].error ?? "", /is not installed or was removed/);
 });
 
 test("builtinDescriptor: OVERCAST_SOURCE_DISPATCH_CMD rebinds the command, keeps type semantics", () => {

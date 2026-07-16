@@ -13,7 +13,7 @@ function isProviderDescriptor(value: unknown): value is ProviderDescriptor {
 
 export function providerBinding(ctx: VerbContext, verb: string): ProviderDescriptor | undefined {
   const policy = loadSetup(ctx.case)?.providers?.[verb];
-  if (policy?.choice && findProviderChoice(verb, policy.choice)?.clearsBinding === true) return undefined;
+  if (policy?.choice && findProviderChoice(verb, policy.choice, ctx.home)?.clearsBinding === true) return undefined;
   const profileDescriptor = ctx.profile.providers?.[verb];
   if (isProviderDescriptor(profileDescriptor)) return profileDescriptor;
   const descriptor = policy?.descriptor;

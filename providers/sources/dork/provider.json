@@ -1,0 +1,35 @@
+{
+  "manifest_version": 1,
+  "name": "dork",
+  "version": "1.0.0",
+  "description": "Google dorking via Serper.dev — real Google SERPs that HONOR operators (site:/filetype:/inurl:/…). Authorized recon only.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "dork",
+      "label": "Google dorking (Serper.dev)",
+      "summary": "Google dorking via Serper.dev — real Google SERPs that HONOR operators (site:/filetype:/inurl:/…). Authorized recon only.",
+      "env": [
+        "SERPER_API_KEY"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/dork/dork.sh"
+      ],
+      "needs": "SERPER_API_KEY",
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "SERPER_API_KEY"
+        ],
+        "okNote": "SERPER_API_KEY present (Google dorking — authorized recon only)",
+        "missingNote": "SERPER_API_KEY missing for dork (Google dorking) scans (https://serper.dev)"
+      },
+      "refForms": [
+        {
+          "form": "dork:<google dork>"
+        }
+      ]
+    }
+  ]
+}

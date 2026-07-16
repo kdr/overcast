@@ -1,0 +1,37 @@
+{
+  "manifest_version": 1,
+  "name": "dispatch",
+  "version": "1.0.0",
+  "description": "Police CAD / calls-for-service feeds on the Socrata SODA API (sf/seattle presets, or any <domain>/<dataset>[@<datefield>]). No key; hits carry top-level gps; media.ref is a stable per-row SODA deep link.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "dispatch",
+      "label": "Police dispatch / CAD (Socrata)",
+      "summary": "Police CAD / calls-for-service feeds on the Socrata SODA API (sf/seattle presets, or any <domain>/<dataset>[@<datefield>]). No key; hits carry top-level gps; media.ref is a stable per-row SODA deep link.",
+      "env": [
+        "SOCRATA_APP_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/dispatch/dispatch.sh"
+      ],
+      "needs": "none (public Socrata SODA API) — optional SOCRATA_APP_TOKEN raises rate limits",
+      "doctor": {
+        "check": "keyless",
+        "okNote": "keyless Socrata SODA API — optional SOCRATA_APP_TOKEN raises rate limits (real-time feeds are a rolling window; SF keeps ~48h)"
+      },
+      "refForms": [
+        {
+          "form": "dispatch:sf"
+        },
+        {
+          "form": "dispatch:seattle"
+        },
+        {
+          "form": "dispatch:<domain>/<dataset>[@<datefield>]"
+        }
+      ]
+    }
+  ]
+}

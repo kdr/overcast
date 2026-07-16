@@ -15,8 +15,13 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { healDescriptor } from "./providers/shipped-ref.js";
+import { HOME_ENV, type HomeOptions, profilePath, profilesDir, resolveHome } from "./home.js";
 
-export const HOME_ENV = "OVERCAST_HOME";
+// Re-exported from ./home.js (extracted to break the manifest-scanner import
+// cycle) so existing `import { resolveHome, HOME_ENV, HomeOptions } from
+// "./profile.js"` call sites keep working unchanged.
+export { HOME_ENV, resolveHome, profilesDir, profilePath };
+export type { HomeOptions };
 
 /** A provider binding descriptor (per verb or source). Loose by design. */
 export interface ProviderDescriptor {
@@ -53,26 +58,6 @@ export interface Profile {
   /** MCP server configs */
   mcp?: unknown[];
   preferences?: Record<string, unknown>;
-}
-
-export interface HomeOptions {
-  home?: string;
-  profile?: string;
-}
-
-/** Resolve the overcast home directory (where profiles live). */
-export function resolveHome(opts: HomeOptions = {}): string {
-  if (opts.home) return opts.home;
-  if (process.env[HOME_ENV]) return process.env[HOME_ENV] as string;
-  return join(homedir(), ".overcast");
-}
-
-export function profilesDir(home: string): string {
-  return join(home, "profiles");
-}
-
-export function profilePath(home: string, name: string): string {
-  return join(profilesDir(home), `${name}.json`);
 }
 
 /** The built-in default profile: tinycloud exec binding for watch, BYO brain. */

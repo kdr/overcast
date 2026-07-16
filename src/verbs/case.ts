@@ -550,7 +550,7 @@ function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup"
   if (providerSelections.length) {
     setup.providers ??= {};
     for (const selection of providerSelections) {
-      const choice = findProviderChoice(selection.verb, selection.choice);
+      const choice = findProviderChoice(selection.verb, selection.choice, ctx.home);
       if (!selection.verb || !selection.choice || !choice) {
         operations.push(`provider selection invalid: ${selection.verb || "(missing verb)"}:${selection.choice || "(missing choice)"}`);
         continue;
@@ -887,7 +887,7 @@ export const caseVerb: VerbSpec = {
         if (!normalizeSetupMemory(memory)) return [err(`case setup needs one local memory backend: local-grep or qmd (got '${memory}')`)];
       }
       for (const selection of parseProviderSelections(ctx.opts.provider)) {
-        if (!selection.verb || !selection.choice || !findProviderChoice(selection.verb, selection.choice)) {
+        if (!selection.verb || !selection.choice || !findProviderChoice(selection.verb, selection.choice, ctx.home)) {
           return [err(`unknown provider choice '${selection.choice || "(missing)"}' for verb '${selection.verb || "(missing)"}'`)];
         }
       }
