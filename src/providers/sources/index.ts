@@ -126,6 +126,8 @@ export interface EnumerateOpts {
   ref?: string;
   limit?: number;
   since?: string;
+  /** ctx.home for resolving installed:<pkg>/… in an OVERCAST_SOURCE_*_CMD override base */
+  home?: string;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -163,7 +165,7 @@ export async function enumerateSource(
   // via shippedProviderPath, so this is a no-op for them.
   let base: string[];
   try {
-    base = resolveShippedArgv(desc.base);
+    base = resolveShippedArgv(desc.base, opts.home);
   } catch (e) {
     if (!(e instanceof ProviderRefError)) throw e;
     return [makeRecord({ verb: "scan", format: "json", payload: { source: desc.type }, error: e.message, state: "error" })];
@@ -213,6 +215,7 @@ export async function enumerateSource(
 export interface FetchOpts {
   url: string;
   out: string;
+  home?: string;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -274,7 +277,7 @@ export async function fetchSource(
   // resolve any `shipped:` tokens in the base argv (see enumerateSource).
   let base: string[];
   try {
-    base = resolveShippedArgv(desc.base);
+    base = resolveShippedArgv(desc.base, opts.home);
   } catch (e) {
     if (!(e instanceof ProviderRefError)) throw e;
     return makeRecord({ verb: "capture", format: "json", payload: { url: opts.url, source: desc.type }, error: e.message, state: "error" });

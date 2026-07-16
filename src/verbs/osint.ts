@@ -191,6 +191,7 @@ async function enumerateAll(ctx: VerbContext, verb = "scan"): Promise<OvercastRe
     }
     try {
       const hits = await enumerateSource(desc, {
+        home: ctx.home,
         query: adhocQuery ?? (s.ref || targetValue),
         ref: s.ref,
         limit,
@@ -662,7 +663,7 @@ export async function captureRef(
   }
   const dest = opts.out ? opts.out : join(outDir, uniqueName(ref));
   mkdirSync(dirname(dest), { recursive: true }); // a nested --out needs its parent first
-  return fetchSource(desc, { url: ref, out: dest, signal: ctx.signal });
+  return fetchSource(desc, { url: ref, out: dest, home: ctx.home, signal: ctx.signal });
 }
 
 async function pipeSense(
