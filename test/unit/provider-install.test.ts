@@ -196,9 +196,14 @@ test("install: refuses a tarball whose members escape via .. / absolute path (Bu
   writeFileSync(join(work, "escape.txt"), "evil");
   writeFileSync(join(work, "sub", "provider.json"), "{}");
   const tgz = join(work, "evil.tgz");
-  const made = spawnSync("tar", ["-czf", tgz, "-C", join(work, "sub"), "provider.json", "../escape.txt"], { encoding: "utf8" });
-  if (made.status !== 0) {
-    // tar unavailable / refused to build the crafted member — skip, don't false-pass
+  // -P preserves the `../` member (GNU tar strips leading `../` on create by
+  // default; BSD tar keeps it). Then VERIFY the crafted member actually survived —
+  // if this env's tar sanitized it away, we can't exercise the guard, so skip
+  // rather than assert against a tarball that isn't actually malicious.
+  const made = spawnSync("tar", ["-Pczf", tgz, "-C", join(work, "sub"), "provider.json", "../escape.txt"], { encoding: "utf8" });
+  const listed = (spawnSync("tar", ["-tzf", tgz], { encoding: "utf8" }).stdout || "").split("\n").map((e) => e.trim());
+  const hasUnsafeMember = listed.some((e) => e.startsWith("/") || e.split("/").includes(".."));
+  if (made.status !== 0 || !hasUnsafeMember) {
     rmSync(work, { recursive: true, force: true });
     rmSync(HOME, { recursive: true, force: true });
     return;
