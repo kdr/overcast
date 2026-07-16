@@ -207,6 +207,33 @@ test("install/remove honor an explicit home, not the process default (Bugbot #11
   }
 });
 
+test("collision check is scoped to the target home — no false collision across homes (Bugbot #110)", () => {
+  const savedEnv = process.env.OVERCAST_HOME;
+  const defHome = mkdtempSync(join(tmpdir(), "oc-defhome-"));
+  const custHome = mkdtempSync(join(tmpdir(), "oc-custhome-"));
+  const work = mkdtempSync(join(tmpdir(), "oc-install-src-"));
+  try {
+    process.env.OVERCAST_HOME = defHome;
+    installProvider(writeSourcePkg(work, "pkga", "foo"), { yes: true }); // → default home
+    invalidateManifestCache();
+    // a DIFFERENT-named package with the same type, into a CUSTOM home, must NOT
+    // be false-flagged by the conflict in the default home.
+    const r = rec(installProvider(writeSourcePkg(work, "pkgb", "foo"), { yes: true }, custHome));
+    assert.equal(r.state, "ready", `cross-home install should not collide: ${r.error}`);
+    // but the same type INTO the default home (where it exists) still collides.
+    invalidateManifestCache();
+    const r2 = rec(installProvider(writeSourcePkg(work, "pkgc", "foo"), { yes: true }));
+    assert.equal(r2.state, "error");
+    assert.match(r2.error ?? "", /source type 'foo' already provided/);
+  } finally {
+    if (savedEnv === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedEnv;
+    rmSync(defHome, { recursive: true, force: true });
+    rmSync(custHome, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
 test("collision check reserves types of an invalid installed package the scan dropped (Bugbot #110)", () => {
   HOME = freshHome();
   const work = mkdtempSync(join(tmpdir(), "oc-install-src-"));

@@ -158,13 +158,16 @@ export function invalidInstalledPackages(home?: string): string[] {
 /** Find what a candidate manifest collides with in the live corpus (shipped +
  *  other installed). `excludePkg` skips a package being replaced (upgrade). */
 function findCollisions(m: ProviderManifest, home?: string, excludePkg?: string): string[] {
-  const choiceKeys = new Set(providerChoices().map((c) => `${c.verb}:${c.id}`));
+  // All corpus reads use the TARGET home so installing to a custom home isn't
+  // false-flagged by a conflict in the default home (the accessors default to
+  // $OVERCAST_HOME for every other caller).
+  const choiceKeys = new Set(providerChoices(home).map((c) => `${c.verb}:${c.id}`));
   const sourceTypes = new Set<string>();
-  for (const e of manifestSourceEntries()) {
+  for (const e of manifestSourceEntries(home)) {
     if (excludePkg && e.pkg === excludePkg) continue;
     for (const t of [e.type, ...(e.aliases ?? [])]) sourceTypes.add(t);
   }
-  const presetNames = new Set(Object.keys(providerPresets()));
+  const presetNames = new Set(Object.keys(providerPresets(home)));
   // Fold in on-disk installed packages at the target home — INCLUDING any whose
   // provider.json is invalid/unreadable (the scan silently drops those, so their
   // declared type/choice would otherwise look free and a different-named package

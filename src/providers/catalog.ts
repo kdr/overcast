@@ -154,8 +154,8 @@ function coreChoices(): ProviderChoice[] {
 /** All catalog provider choices: hardcoded core + manifest-scanned exec providers.
  *  Materialized per call (manifestChoices() re-reads env for `{{env:…}}` tokens,
  *  matching the old catalog's per-call `process.env.DETECT_PY` read). */
-export function providerChoices(): ProviderChoice[] {
-  return [...coreChoices(), ...manifestChoices()];
+export function providerChoices(home?: string): ProviderChoice[] {
+  return [...coreChoices(), ...manifestChoices(home)];
 }
 
 /** Core presets that bind hardcoded (non-manifest) choices. Manifest-contributed
@@ -179,8 +179,8 @@ function corePresets(): Record<string, Array<{ verb: string; choice: string }>> 
 
 /** The full preset map: core presets + manifest-contributed presets. A core
  *  preset name wins over a manifest one of the same name (shipped authority). */
-export function providerPresets(): Record<string, Array<{ verb: string; choice: string }>> {
-  return { ...manifestPresets(), ...corePresets() };
+export function providerPresets(home?: string): Record<string, Array<{ verb: string; choice: string }>> {
+  return { ...manifestPresets(home), ...corePresets() };
 }
 
 export function findProviderChoice(verb: string, choice: string): ProviderChoice | undefined {
