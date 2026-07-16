@@ -183,6 +183,6 @@ export function providerPresets(home?: string): Record<string, Array<{ verb: str
   return { ...manifestPresets(home), ...corePresets() };
 }
 
-export function findProviderChoice(verb: string, choice: string): ProviderChoice | undefined {
-  return providerChoices().find((c) => c.verb === verb && c.id === choice);
+export function findProviderChoice(verb: string, choice: string, home?: string): ProviderChoice | undefined {
+  return providerChoices(home).find((c) => c.verb === verb && c.id === choice);
 }

@@ -380,7 +380,7 @@ export const providerVerb: VerbSpec = {
       }
       const requested = providerSetupRequests(ctx);
       if (requested.error) return [err("provider", requested.error)];
-      const selected = requested.items.map((i) => ({ ...i, choice: findProviderChoice(i.verb, i.choice) }));
+      const selected = requested.items.map((i) => ({ ...i, choice: findProviderChoice(i.verb, i.choice, ctx.home) }));
       const missing = selected.find((i) => !i.choice);
       if (missing) return [err("provider", `unknown provider choice '${missing.choiceName}' for verb '${missing.verb}'`)];
       const changes = selected.map((i) => providerSetupChange(i.verb, i.choice!));

@@ -22,8 +22,8 @@ const {
   createProviderScaffold,
   hashProviderTree,
 } = await import("../../src/verbs/provider-install.ts");
-const { invalidateManifestCache, manifestSourceDescriptor } = await import("../../src/providers/manifests.ts");
-const { providerChoices } = await import("../../src/providers/catalog.ts");
+const { invalidateManifestCache, manifestSourceDescriptor, scanManifests } = await import("../../src/providers/manifests.ts");
+const { providerChoices, findProviderChoice } = await import("../../src/providers/catalog.ts");
 const { resolveInstalledRefToken } = await import("../../src/providers/installed-ref.ts");
 
 /** Write a minimal valid source package to <dir>/<name>/ and return its path. */
@@ -280,6 +280,51 @@ test("install: refuses a tarball whose members escape via .. / absolute path (Bu
 
   rmSync(work, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
+});
+
+test("findProviderChoice honors the target home for an installed choice (Bugbot #110)", () => {
+  const savedEnv = process.env.OVERCAST_HOME;
+  delete process.env.OVERCAST_HOME;
+  const home = mkdtempSync(join(tmpdir(), "oc-fpc-home-"));
+  const work = mkdtempSync(join(tmpdir(), "oc-install-src-"));
+  try {
+    const vlm = join(work, "vlm");
+    mkdirSync(vlm, { recursive: true });
+    writeFileSync(join(vlm, "provider.json"), JSON.stringify({
+      manifest_version: 1, name: "vlm", version: "1.0.0",
+      entries: [{ kind: "sense", id: "vlm", verb: "see", label: "a", summary: "b",
+        descriptor: { type: "exec", run: "bash installed:vlm/run.sh --input {{input}}" } }],
+    }));
+    writeFileSync(join(vlm, "run.sh"), "echo '{}'\n");
+    installProvider(vlm, { yes: true }, home);
+    assert.ok(findProviderChoice("see", "vlm", home), "installed choice found via the target home");
+    assert.equal(findProviderChoice("see", "vlm"), undefined, "not found via the default home");
+  } finally {
+    if (savedEnv === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedEnv;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("scanManifests reflects on-disk installed changes with no explicit invalidation (Bugbot #110)", () => {
+  const savedEnv = process.env.OVERCAST_HOME;
+  delete process.env.OVERCAST_HOME;
+  const home = mkdtempSync(join(tmpdir(), "oc-fresh-home-"));
+  const work = mkdtempSync(join(tmpdir(), "oc-install-src-"));
+  try {
+    installProvider(writeSourcePkg(work, "acme"), { yes: true }, home);
+    assert.ok(scanManifests(home).some((l) => l.pkg === "acme"), "installed package is scanned");
+    // remove the package dir directly (no invalidateManifestCache) — a stale cache
+    // would keep serving it; the installed root is scanned fresh every call.
+    rmSync(join(home, "providers", "acme"), { recursive: true, force: true });
+    assert.ok(!scanManifests(home).some((l) => l.pkg === "acme"), "removed package no longer served");
+  } finally {
+    if (savedEnv === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedEnv;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  }
 });
 
 test("hashProviderTree ignores the provenance file (stable across stamping)", () => {
