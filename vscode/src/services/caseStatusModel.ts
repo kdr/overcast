@@ -18,10 +18,21 @@ import type { CaseLocator } from "./caseLocator.ts";
 import type { CliBridge } from "./cliBridge.ts";
 
 const DEBOUNCE_MS = 500;
+// How many recent notes the Investigation "Notes & leads" section surfaces (and
+// the cap on note-body fetches per refresh). The full trail lives in Records.
+const NOTE_LIMIT = 30;
 
 export interface FindingSummary {
   text: string;
   status: string;
+}
+
+/** A recent note surfaced in the Investigation "Notes & leads" section. `text`
+ *  is filled in asynchronously (compact `case records` rows carry no body), so
+ *  it may be undefined on the first render pass. */
+export interface NoteEntry {
+  id: string;
+  text?: string;
 }
 
 export class CaseStatusModel implements vscode.Disposable {
@@ -32,6 +43,12 @@ export class CaseStatusModel implements vscode.Disposable {
   recordsPayload: CaseRecordsPayload | undefined;
   /** finding root id → {text, effective status} (from finding list --state all) */
   findings = new Map<string, FindingSummary>();
+  /** newest-first recent notes (≤ NOTE_LIMIT), bodies lazily enriched below. */
+  notes: NoteEntry[] = [];
+  // note id → body. Notes are immutable, so a fetched body is cached for the
+  // life of the case and never re-read (cleared on case switch).
+  private noteText = new Map<string, string>();
+  private lastCaseDir: string | undefined;
 
   private watcher: vscode.FileSystemWatcher | undefined;
   private debounceTimer: NodeJS.Timeout | undefined;
@@ -103,11 +120,16 @@ export class CaseStatusModel implements vscode.Disposable {
 
   private async doRefresh(): Promise<void> {
     const caseDir = this.locator.caseDir;
+    if (caseDir !== this.lastCaseDir) {
+      this.noteText.clear(); // ids are per-case; don't carry a body across a switch
+      this.lastCaseDir = caseDir;
+    }
     if (!caseDir) {
       this.status = undefined;
       this.records = [];
       this.recordsPayload = undefined;
       this.findings = new Map();
+      this.notes = [];
       this.emitter.fire();
       return;
     }
@@ -154,6 +176,47 @@ export class CaseStatusModel implements vscode.Disposable {
       }
     }
 
+    // Render the main sidebar immediately with whatever note bodies are already
+    // cached, then fill the rest in and fire again — threads never wait on notes.
+    this.rebuildNotes();
+    this.emitter.fire();
+    await this.enrichNotes(caseDir);
+  }
+
+  /** Newest-first recent note ids, capped — the compact record trail is oldest-first. */
+  private recentNoteIds(): string[] {
+    const out: string[] = [];
+    for (let i = this.records.length - 1; i >= 0 && out.length < NOTE_LIMIT; i--) {
+      if (this.records[i].verb === "note") out.push(this.records[i].id);
+    }
+    return out;
+  }
+
+  private rebuildNotes(): void {
+    this.notes = this.recentNoteIds().map((id) => ({ id, text: this.noteText.get(id) }));
+  }
+
+  /** Fetch bodies for surfaced notes not yet cached (`case memory get --field text`
+   *  — the sanctioned full read; compact `case records` rows carry no body). */
+  private async enrichNotes(caseDir: string): Promise<void> {
+    const missing = this.recentNoteIds().filter((id) => !this.noteText.has(id));
+    if (missing.length === 0) return;
+    try {
+      const fetched = await Promise.all(
+        missing.map(async (id) => {
+          const res = await this.bridge.run(["case", "memory", "get", id, "--field", "text"], { caseDir });
+          const chunk = (res.records[0]?.payload as { chunk?: unknown } | undefined)?.chunk;
+          return [id, typeof chunk === "string" ? chunk : ""] as const;
+        }),
+      );
+      for (const [id, text] of fetched) this.noteText.set(id, text);
+    } finally {
+      // these reads append a case audit record too — mute the watcher fallout
+      this.suppressUntil = Date.now() + 1500;
+    }
+    // stale if the case changed mid-fetch; the newer refresh already owns state
+    if (this.locator.caseDir !== caseDir) return;
+    this.rebuildNotes();
     this.emitter.fire();
   }
 

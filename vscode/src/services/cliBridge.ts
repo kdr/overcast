@@ -88,6 +88,13 @@ export class CliBridge implements vscode.Disposable {
     );
   }
 
+  /** True once the CLI has resolved successfully (mirrors the overcast.cliFound
+   *  context key; false while unresolved or missing). Cheap synchronous read for
+   *  UI that can't await, e.g. the command deck's status dot. */
+  get cliFound(): boolean {
+    return !!this.resolved;
+  }
+
   /** Drop the cached resolution and re-resolve (the "Restart CLI" command). */
   async restart(): Promise<ResolvedCli | undefined> {
     this.resolved = undefined;

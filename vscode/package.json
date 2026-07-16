@@ -46,13 +46,14 @@
     "views": {
       "overcast": [
         {
-          "id": "overcast.investigation",
-          "name": "Investigation",
+          "id": "overcast.deck",
+          "type": "webview",
+          "name": "Case",
           "icon": "media/overcast.svg"
         },
         {
-          "id": "overcast.triage",
-          "name": "Triage",
+          "id": "overcast.investigation",
+          "name": "Investigation",
           "icon": "media/overcast.svg"
         },
         {
@@ -77,10 +78,6 @@
         "view": "overcast.investigation",
         "contents": "No overcast case in this workspace.\n[Initialize Case Here](command:overcast.initCase)\n[Select a Case…](command:overcast.selectCase)\nA case is a folder with an `.overcast/` store — records, media, targets, findings.",
         "when": "overcast.cliFound && !overcast.hasCase"
-      },
-      {
-        "view": "overcast.triage",
-        "contents": "No leads to review.\nTriage is the review queue for **suggested findings** — automatic leads raised when a match crosses a threshold (a face/similar/voice/audio hit, an EXIF or provenance flag, a target-phrase match). Leads stay out of ask/brief until you review them here: accept one to promote it to evidence, or dismiss it.\nRun senses (face / similar / exif / …) and matches will surface here.\n[New Note…](command:overcast.addNote)"
       }
     ],
     "commands": [
@@ -160,7 +157,7 @@
         { "command": "overcast.viewBrief", "when": "view == overcast.investigation", "group": "navigation@1" },
         { "command": "overcast.addNote", "when": "view == overcast.investigation", "group": "navigation@2" },
         { "command": "overcast.openAgentTerminal", "when": "view == overcast.investigation", "group": "navigation@3" },
-        { "command": "overcast.refresh", "when": "view == overcast.investigation || view == overcast.triage || view == overcast.sources || view == overcast.records", "group": "navigation@4" },
+        { "command": "overcast.refresh", "when": "view == overcast.investigation || view == overcast.sources || view == overcast.records", "group": "navigation@4" },
         { "command": "overcast.selectCase", "when": "view == overcast.investigation", "group": "1_overflow@1" },
         { "command": "overcast.restartCli", "when": "view == overcast.investigation", "group": "1_overflow@2" },
         { "command": "overcast.showWall", "when": "view == overcast.sources", "group": "navigation@1" },

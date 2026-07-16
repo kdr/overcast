@@ -22,7 +22,7 @@ import { VerbRegistry } from "./services/verbRegistry.ts";
 import { InvestigationTreeProvider } from "./trees/investigationTree.ts";
 import { RecordsTreeProvider } from "./trees/recordsTree.ts";
 import { SourcesTreeProvider } from "./trees/sourcesTree.ts";
-import { TriageTreeProvider } from "./trees/triageTree.ts";
+import { CommandDeckProvider } from "./views/commandDeck.ts";
 import type { ExtDeps, PanelRouter } from "./types.ts";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -45,10 +45,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const deps: ExtDeps = { context, output, bridge, locator, model, registry, router };
   const artifacts = registerArtifactPanels(deps);
 
+  // ---- command deck (webview view, pinned at the top of the container) ----
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider("overcast.deck", new CommandDeckProvider(deps)),
+  );
+
   // ---- sidebar trees ----
   const trees: [string, vscode.TreeDataProvider<vscode.TreeItem>][] = [
     ["overcast.investigation", new InvestigationTreeProvider(deps)],
-    ["overcast.triage", new TriageTreeProvider(deps)],
     ["overcast.sources", new SourcesTreeProvider(deps)],
     ["overcast.records", new RecordsTreeProvider(deps)],
   ];
@@ -58,12 +62,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     views.set(id, view);
     context.subscriptions.push(view);
   }
+  // The triage-count badge lives on Investigation now (Triage merged into it).
   context.subscriptions.push(
     model.onDidChange(() => {
       const count = deps.model.status?.triage?.length ?? 0;
-      const triageView = views.get("overcast.triage");
-      if (triageView) {
-        triageView.badge =
+      const investigationBadgeView = views.get("overcast.investigation");
+      if (investigationBadgeView) {
+        investigationBadgeView.badge =
           count > 0
             ? { value: count, tooltip: `${count} suggested finding(s) awaiting review` }
             : undefined;
