@@ -19,9 +19,12 @@ import { ProviderRefError } from "./ref-error.js";
 
 export const INSTALLED_REF_PREFIX = "installed:";
 
-/** Root dir where installed provider packages live: `<home>/providers/`. */
-export function installedProvidersRoot(): string {
-  return join(resolveHome(), "providers");
+/** Root dir where installed provider packages live: `<home>/providers/`.
+ *  Verb-level operations (install/remove/list, doctor) pass the caller's
+ *  `ctx.home` so they act on the active profile's home; the spawn-seam ref
+ *  resolver has no ctx and falls back to `$OVERCAST_HOME` (set by cli.ts). */
+export function installedProvidersRoot(home?: string): string {
+  return join(resolveHome(home ? { home } : {}), "providers");
 }
 
 export class InstalledRefError extends ProviderRefError {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -265,6 +265,19 @@ test("doctor flags a tampered installed provider package (Bugbot #110)", async (
     ip = checks.find((c) => c.name === "installed-providers");
     assert.ok(ip && !ip.ok, "tampered package → installed-providers not ok");
     assert.match(ip!.detail, /acme/);
+
+    // corrupt the manifest to valid-JSON-but-schema-invalid → the scan drops it;
+    // doctor must still surface it as an invalid installed package (not silent).
+    const mp = join(home, "providers", "acme", "provider.json");
+    const bad = JSON.parse(readFileSync(mp, "utf8"));
+    delete bad.version;
+    writeFileSync(mp, JSON.stringify(bad));
+    invalidateManifestCache();
+    [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    ip = checks.find((c) => c.name === "installed-providers");
+    assert.ok(ip && !ip.ok, "invalid installed manifest → installed-providers not ok");
+    assert.match(ip!.detail, /acme \(invalid manifest\)/);
   } finally {
     if (savedHome === undefined) delete process.env.OVERCAST_HOME;
     else process.env.OVERCAST_HOME = savedHome;

@@ -187,6 +187,44 @@ test("create: scaffolds a package that validates + installs cleanly", () => {
   rmSync(HOME, { recursive: true, force: true });
 });
 
+test("install/remove honor an explicit home, not the process default (Bugbot #110)", () => {
+  const savedEnv = process.env.OVERCAST_HOME;
+  delete process.env.OVERCAST_HOME; // prove it uses the arg, not $OVERCAST_HOME
+  const homeA = mkdtempSync(join(tmpdir(), "oc-homeA-"));
+  const work = mkdtempSync(join(tmpdir(), "oc-install-src-"));
+  try {
+    const pkg = writeSourcePkg(work, "acme");
+    assert.equal(rec(installProvider(pkg, { yes: true }, homeA)).state, "ready");
+    assert.ok(existsSync(join(homeA, "providers", "acme", "provider.json")), "installed under the passed home");
+    // remove also targets the passed home
+    assert.equal(rec(removeProvider("acme", { yes: true }, homeA)).state, "ready");
+    assert.equal(existsSync(join(homeA, "providers", "acme")), false);
+  } finally {
+    if (savedEnv === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedEnv;
+    rmSync(homeA, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("collision check reserves types of an invalid installed package the scan dropped (Bugbot #110)", () => {
+  HOME = freshHome();
+  const work = mkdtempSync(join(tmpdir(), "oc-install-src-"));
+  installProvider(writeSourcePkg(work, "acme", "acme"), { yes: true }, HOME);
+  // corrupt to valid JSON but schema-invalid (drop required version) → the scan
+  // drops it, but its type is still recoverable from disk for the collision check.
+  const mp = join(HOME, "providers", "acme", "provider.json");
+  const bad = JSON.parse(readFileSync(mp, "utf8"));
+  delete bad.version;
+  writeFileSync(mp, JSON.stringify(bad));
+  invalidateManifestCache();
+  const r = rec(installProvider(writeSourcePkg(work, "other", "acme"), { yes: true }, HOME));
+  assert.equal(r.state, "error");
+  assert.match(r.error ?? "", /source type 'acme' already provided/);
+  rmSync(work, { recursive: true, force: true });
+  rmSync(HOME, { recursive: true, force: true });
+});
+
 test("install: refuses a tarball whose members escape via .. / absolute path (Bugbot #110)", () => {
   HOME = freshHome();
   const work = mkdtempSync(join(tmpdir(), "oc-install-tar-"));

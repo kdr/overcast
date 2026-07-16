@@ -16,6 +16,25 @@ function capture(): { io: CliIO; out: () => string; err: () => string } {
   return { io: { out: (s) => (o += s), err: (s) => (e += s) }, out: () => o, err: () => e };
 }
 
+test("runCli restores $OVERCAST_HOME after a --home invocation (no leak between calls) (Bugbot #110)", async () => {
+  const prior = process.env.OVERCAST_HOME;
+  const tmp = mkdtempSync(join(tmpdir(), "oc-cli-home-"));
+  const { io } = capture();
+  try {
+    delete process.env.OVERCAST_HOME;
+    await runCli(["--home", tmp, "version"], io);
+    assert.equal(process.env.OVERCAST_HOME, undefined, "env restored to unset after a --home run");
+
+    process.env.OVERCAST_HOME = "/preexisting";
+    await runCli(["--home", tmp, "version"], io);
+    assert.equal(process.env.OVERCAST_HOME, "/preexisting", "env restored to its prior value, not left at --home");
+  } finally {
+    if (prior === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = prior;
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("parseVerbArgs: a known string flag with no value is an error, not boolean true", () => {
   const p = parseVerbArgs(watchVerb, ["v.mp4", "--format"]);
   assert.ok(p.errors.some((e) => /--format requires a value/.test(e)));

@@ -122,6 +122,33 @@ test("every shipped source type has a ref-form bullet in the skill-gen source li
   }
 });
 
+test("validateManifest rejects duplicate entries within one manifest (Bugbot #110)", () => {
+  const senseDesc = (s: string) => ({ type: "exec", run: `bash installed:d/${s}.sh --input {{input}}` });
+  const dupSense = validateManifest({
+    manifest_version: 1, name: "d", version: "1.0.0", entries: [
+      { kind: "sense", id: "x", verb: "see", label: "a", summary: "b", descriptor: senseDesc("x") },
+      { kind: "sense", id: "x", verb: "see", label: "a2", summary: "b2", descriptor: senseDesc("y") },
+    ],
+  });
+  assert.ok(!dupSense.ok && dupSense.errors.some((e) => /duplicate sense choice see:x/.test(e)), dupSense.errors.join("; "));
+
+  const dupType = validateManifest({
+    manifest_version: 1, name: "d", version: "1.0.0", entries: [
+      { kind: "source", type: "foo", label: "a", summary: "b", base: ["bash", "installed:d/x.sh"] },
+      { kind: "source", type: "foo", label: "a2", summary: "b2", base: ["bash", "installed:d/y.sh"] },
+    ],
+  });
+  assert.ok(!dupType.ok && dupType.errors.some((e) => /duplicate source type 'foo'/.test(e)), dupType.errors.join("; "));
+
+  const dupAlias = validateManifest({
+    manifest_version: 1, name: "d", version: "1.0.0", entries: [
+      { kind: "source", type: "a", label: "x", summary: "y", base: ["bash", "installed:d/x.sh"] },
+      { kind: "source", type: "b", aliases: ["a"], label: "x", summary: "y", base: ["bash", "installed:d/y.sh"] },
+    ],
+  });
+  assert.ok(!dupAlias.ok && dupAlias.errors.some((e) => /duplicate source type\/alias 'a'/.test(e)), dupAlias.errors.join("; "));
+});
+
 test("manifest presets + host routes are consistent", () => {
   const presets = manifestPresets();
   // hf/fal/elevenlabs/owl-local/local-models presets come from manifests

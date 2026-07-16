@@ -94,9 +94,70 @@ function manifestSummary(m: ProviderManifest): {
   return { senses, sources, presets: Object.keys(m.presets ?? {}) };
 }
 
+/** Best-effort read of every installed package's DECLARED entries at `home`,
+ *  including packages whose provider.json fails validation or is unreadable — so
+ *  the collision check reserves their types/choices even though the scan drops
+ *  them (an unparseable manifest still occupies its package-name slot). */
+function installedDeclaredAt(home?: string): Array<{ pkg: string; choices: string[]; types: string[]; presets: string[] }> {
+  const root = installedProvidersRoot(home);
+  const out: Array<{ pkg: string; choices: string[]; types: string[]; presets: string[] }> = [];
+  let dirs: string[];
+  try {
+    dirs = readdirSync(root);
+  } catch {
+    return out;
+  }
+  for (const pkg of dirs) {
+    if (pkg.startsWith(".")) continue;
+    const mp = join(root, pkg, "provider.json");
+    if (!existsSync(mp)) continue;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(mp, "utf8"));
+    } catch {
+      out.push({ pkg, choices: [], types: [], presets: [] }); // dir occupies the name
+      continue;
+    }
+    const r = raw as { entries?: unknown[]; presets?: Record<string, unknown> };
+    const choices: string[] = [];
+    const types: string[] = [];
+    for (const e of Array.isArray(r?.entries) ? r.entries : []) {
+      const x = e as { kind?: string; verb?: string; id?: string; type?: string; aliases?: unknown[] };
+      if (x?.kind === "sense" && typeof x.verb === "string" && typeof x.id === "string") choices.push(`${x.verb}:${x.id}`);
+      else if (x?.kind === "source" && typeof x.type === "string") {
+        types.push(x.type);
+        for (const a of Array.isArray(x.aliases) ? x.aliases : []) if (typeof a === "string") types.push(a);
+      }
+    }
+    const presets = r?.presets && typeof r.presets === "object" ? Object.keys(r.presets) : [];
+    out.push({ pkg, choices, types, presets });
+  }
+  return out;
+}
+
+/** Installed package dirs whose provider.json is present but doesn't scan (invalid
+ *  schema or unparseable JSON) — the scanner drops these silently, so doctor
+ *  surfaces them (they still occupy their package-name slot on disk). */
+export function invalidInstalledPackages(home?: string): string[] {
+  const scanned = new Set(scanManifests(home).filter((l) => l.origin === "installed").map((l) => l.pkg));
+  const root = installedProvidersRoot(home);
+  const out: string[] = [];
+  let dirs: string[];
+  try {
+    dirs = readdirSync(root);
+  } catch {
+    return out;
+  }
+  for (const pkg of dirs) {
+    if (pkg.startsWith(".")) continue;
+    if (existsSync(join(root, pkg, "provider.json")) && !scanned.has(pkg)) out.push(pkg);
+  }
+  return out;
+}
+
 /** Find what a candidate manifest collides with in the live corpus (shipped +
  *  other installed). `excludePkg` skips a package being replaced (upgrade). */
-function findCollisions(m: ProviderManifest, excludePkg?: string): string[] {
+function findCollisions(m: ProviderManifest, home?: string, excludePkg?: string): string[] {
   const choiceKeys = new Set(providerChoices().map((c) => `${c.verb}:${c.id}`));
   const sourceTypes = new Set<string>();
   for (const e of manifestSourceEntries()) {
@@ -104,9 +165,20 @@ function findCollisions(m: ProviderManifest, excludePkg?: string): string[] {
     for (const t of [e.type, ...(e.aliases ?? [])]) sourceTypes.add(t);
   }
   const presetNames = new Set(Object.keys(providerPresets()));
+  // Fold in on-disk installed packages at the target home — INCLUDING any whose
+  // provider.json is invalid/unreadable (the scan silently drops those, so their
+  // declared type/choice would otherwise look free and a different-named package
+  // could reuse it, leaving duplicate on-disk entries with nondeterministic
+  // resolution).
+  for (const decl of installedDeclaredAt(home)) {
+    if (excludePkg && decl.pkg === excludePkg) continue;
+    decl.choices.forEach((c) => choiceKeys.add(c));
+    decl.types.forEach((t) => sourceTypes.add(t));
+    decl.presets.forEach((pn) => presetNames.add(pn));
+  }
   // exclude the replaced package's own contributions on upgrade
   if (excludePkg) {
-    const own = scanManifests().find((l) => l.pkg === excludePkg && l.origin === "installed");
+    const own = scanManifests(home).find((l) => l.pkg === excludePkg && l.origin === "installed");
     for (const e of own?.manifest.entries ?? []) {
       if (e.kind === "sense") choiceKeys.delete(`${e.verb}:${e.id}`);
     }
@@ -203,7 +275,7 @@ export interface InstallOpts {
   upgrade?: boolean;
 }
 
-export function installProvider(src: string, opts: InstallOpts): OvercastRecord[] {
+export function installProvider(src: string, opts: InstallOpts, home?: string): OvercastRecord[] {
   invalidateManifestCache();
   const { staged, cleanup, error } = stageSource(src);
   if (error) return [fail(error)];
@@ -221,13 +293,13 @@ export function installProvider(src: string, opts: InstallOpts): OvercastRecord[
     if (!res.ok) return [fail(`invalid provider.json:\n- ${res.errors.join("\n- ")}`)];
     const manifest = raw as ProviderManifest;
 
-    const target = join(installedProvidersRoot(), manifest.name);
+    const target = join(installedProvidersRoot(home), manifest.name);
     const alreadyInstalled = existsSync(target);
     if (alreadyInstalled && !opts.upgrade) {
       return [fail(`provider package '${manifest.name}' is already installed — reinstall with --upgrade, or \`provider remove ${manifest.name}\` first`)];
     }
 
-    const collisions = findCollisions(manifest, opts.upgrade ? manifest.name : undefined);
+    const collisions = findCollisions(manifest, home, opts.upgrade ? manifest.name : undefined);
     if (collisions.length) {
       return [fail(`'${manifest.name}' collides with existing providers:\n- ${collisions.join("\n- ")}`)];
     }
@@ -259,7 +331,7 @@ export function installProvider(src: string, opts: InstallOpts): OvercastRecord[
     };
     writeFileSync(join(staged, PROVENANCE_FILE), JSON.stringify(prov, null, 2) + "\n");
 
-    mkdirSync(installedProvidersRoot(), { recursive: true });
+    mkdirSync(installedProvidersRoot(home), { recursive: true });
     if (alreadyInstalled) {
       const backup = `${target}.bak-${process.pid}`;
       renameSync(target, backup);
@@ -290,11 +362,11 @@ export function installProvider(src: string, opts: InstallOpts): OvercastRecord[
   }
 }
 
-export function removeProvider(name: string, opts: { yes?: boolean }): OvercastRecord[] {
-  const target = join(installedProvidersRoot(), name);
+export function removeProvider(name: string, opts: { yes?: boolean }, home?: string): OvercastRecord[] {
+  const target = join(installedProvidersRoot(home), name);
   if (!existsSync(target)) return [fail(`provider package '${name}' is not installed`)];
   // warn about bindings that reference this package
-  const boundRefs = referencesToPackage(name);
+  const boundRefs = referencesToPackage(name, home);
   if (opts.yes !== true) {
     return [ok({
       op: "provider_remove",
@@ -310,7 +382,7 @@ export function removeProvider(name: string, opts: { yes?: boolean }): OvercastR
 }
 
 /** Scan installed packages for `provider list --installed` / doctor. */
-export function listInstalled(): Array<{
+export function listInstalled(home?: string): Array<{
   name: string;
   version: string;
   dir: string;
@@ -318,7 +390,7 @@ export function listInstalled(): Array<{
   provenance?: Provenance;
   tampered: boolean;
 }> {
-  return scanManifests()
+  return scanManifests(home)
     .filter((l) => l.origin === "installed")
     .map((l) => {
       const prov = readProvenance(l.dir);
@@ -345,11 +417,11 @@ export function listInstalled(): Array<{
 
 /** Descriptor command strings across an installed package that some profile /
  *  case still binds (best-effort; drives the remove warning). */
-function referencesToPackage(name: string): string[] {
+function referencesToPackage(name: string, home?: string): string[] {
   // A shallow scan: any installed:<name>/ token in the scanned manifests is
   // self-referential; the meaningful bindings live in profiles/case policies,
   // surfaced by `doctor` provider-paths after removal. Kept minimal here.
-  return scanManifests()
+  return scanManifests(home)
     .filter((l) => l.origin === "installed" && l.pkg === name)
     .flatMap((l) => l.manifest.entries.map((e) => (e.kind === "sense" ? `${e.verb}:${e.id}` : `source:${e.type}`)));
 }

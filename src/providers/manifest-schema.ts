@@ -167,7 +167,11 @@ function validateEntry(
 
   if (e.kind === "sense") {
     if (typeof e.id !== "string" || !ID_RE.test(e.id)) push(`${at}.id must match ${ID_RE}`);
-    else senseIds.add(`${String(e.verb)}:${e.id}`);
+    else {
+      const key = `${String(e.verb)}:${e.id}`;
+      if (senseIds.has(key)) push(`${at} duplicate sense choice ${key} (already declared in this manifest)`);
+      else senseIds.add(key);
+    }
     if (typeof e.verb !== "string" || !e.verb) push(`${at}.verb must be a non-empty string`);
     const d = e.descriptor as Record<string, unknown> | undefined;
     if (!d || typeof d !== "object") return push(`${at}.descriptor is required`);
@@ -184,10 +188,14 @@ function validateEntry(
     if (e.indexableDefault !== undefined && typeof e.indexableDefault !== "boolean") push(`${at}.indexableDefault must be a boolean`);
   } else {
     if (typeof e.type !== "string" || !ID_RE.test(e.type)) push(`${at}.type must match ${ID_RE}`);
+    else if (sourceTypes.has(e.type)) push(`${at} duplicate source type '${e.type}' (already declared in this manifest)`);
     else sourceTypes.add(e.type);
     if (e.aliases !== undefined) {
       if (!isStringArray(e.aliases)) push(`${at}.aliases must be a string[]`);
-      else for (const a of e.aliases) sourceTypes.add(a);
+      else for (const a of e.aliases) {
+        if (sourceTypes.has(a)) push(`${at} duplicate source type/alias '${a}' (already declared in this manifest)`);
+        else sourceTypes.add(a);
+      }
     }
     if (!isStringArray(e.base) || (e.base as string[]).length === 0) push(`${at}.base must be a non-empty string[]`);
     else for (const bad of (e.base as string[]).filter(isAbsoluteScriptToken)) push(`${at}.base has an absolute script path '${bad}' (use a shipped:/installed: ref)`);

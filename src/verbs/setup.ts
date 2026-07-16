@@ -21,7 +21,7 @@ import { tinycloudBase } from "../providers/tinycloud/envelope.js";
 import { DEFAULT_QMD_MODEL } from "../providers/memory/qmd.js";
 import { loadSetup, saveSetup, emptySetup } from "../state/setup.js";
 import { findProviderChoice, providerChoices, providerPresets, type ProviderChoice } from "../providers/catalog.js";
-import { installProvider, removeProvider, listInstalled, createProviderScaffold } from "./provider-install.js";
+import { installProvider, removeProvider, listInstalled, createProviderScaffold, invalidInstalledPackages } from "./provider-install.js";
 import {
   resolveShippedArgv,
   shippedRefResolution,
@@ -406,12 +406,12 @@ export const providerVerb: VerbSpec = {
     if (action === "install") {
       const src = ctx.rest[0];
       if (!src) return [err("provider", "usage: provider install <path|tarball> [--upgrade] [--yes]")];
-      return installProvider(src, { yes: ctx.opts.yes === true, upgrade: ctx.opts.upgrade === true });
+      return installProvider(src, { yes: ctx.opts.yes === true, upgrade: ctx.opts.upgrade === true }, ctx.home);
     }
     if (action === "remove") {
       const name = ctx.rest[0];
       if (!name) return [err("provider", "usage: provider remove <package-name> [--yes]")];
-      return removeProvider(name, { yes: ctx.opts.yes === true });
+      return removeProvider(name, { yes: ctx.opts.yes === true }, ctx.home);
     }
     if (action === "create") {
       const name = ctx.rest[0];
@@ -421,7 +421,7 @@ export const providerVerb: VerbSpec = {
     }
     if (action === "list") {
       if (ctx.opts.installed === true) {
-        return [makeRecord({ verb: "provider", format: "json", payload: { installed: listInstalled() }, meta: { transient: true }, state: "ready" })];
+        return [makeRecord({ verb: "provider", format: "json", payload: { installed: listInstalled(ctx.home) }, meta: { transient: true }, state: "ready" })];
       }
       return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, providers, effective: effectiveProviders(profile) }, meta: { transient: true }, state: "ready" })];
     }
@@ -740,17 +740,22 @@ export const doctorVerb: VerbSpec = {
     checks.push({ name: "providers", ok: bound.length > 0, detail: bound.length ? bound.join(", ") : "none bound (defaults apply)" });
 
     // installed provider packages: flag any whose files changed since install
-    // (sha256 mismatch vs .overcast-install.json) — the integrity check that
-    // `provider list --installed` surfaces, elevated to doctor so a tampered
-    // package doesn't go unnoticed. Only emitted when packages are installed.
-    const installedPkgs = listInstalled();
-    if (installedPkgs.length) {
-      const tampered = installedPkgs.filter((p) => p.tampered).map((p) => p.name);
+    // (sha256 mismatch vs .overcast-install.json) OR whose provider.json no longer
+    // scans (invalid/unreadable — the scanner drops these silently, so an operator
+    // never learns why a package vanished from the catalog). Elevated to doctor so
+    // neither goes unnoticed. Only emitted when packages are present.
+    const installedPkgs = listInstalled(ctx.home);
+    const invalidPkgs = invalidInstalledPackages(ctx.home);
+    if (installedPkgs.length || invalidPkgs.length) {
+      const problems = [
+        ...installedPkgs.filter((p) => p.tampered).map((p) => `${p.name} (tampered)`),
+        ...invalidPkgs.map((n) => `${n} (invalid manifest)`),
+      ];
       checks.push({
         name: "installed-providers",
-        ok: tampered.length === 0,
-        detail: tampered.length
-          ? `${tampered.length} tampered package(s): ${tampered.join(", ")} — files changed since install; \`provider install --upgrade\` to re-stamp or \`provider remove\``
+        ok: problems.length === 0,
+        detail: problems.length
+          ? `${problems.length} package(s) need attention: ${problems.join(", ")} — \`provider install --upgrade\` to re-stamp, fix the manifest, or \`provider remove\``
           : `${installedPkgs.length} installed: ${installedPkgs.map((p) => p.name).join(", ")}`,
       });
     }
