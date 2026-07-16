@@ -168,14 +168,14 @@ interface ProviderSetupChange {
   indexable_default: boolean;
 }
 
-function providerSetupChange(verb: string, choice: ProviderChoice): ProviderSetupChange {
+function providerSetupChange(verb: string, choice: ProviderChoice, home?: string): ProviderSetupChange {
   return {
     verb,
     choice: choice.id,
     label: choice.label,
     summary: choice.summary,
     descriptor: choice.descriptor,
-    resolved: shippedRefResolution(choice.descriptor),
+    resolved: shippedRefResolution(choice.descriptor, home),
     clears_binding: choice.clearsBinding === true,
     env: choice.env ?? [],
     missing_env: (choice.env ?? []).filter((name) => !process.env[name]),
@@ -372,7 +372,7 @@ export const providerVerb: VerbSpec = {
       if (sub === "show") {
         // choices carry a `resolved` map (shipped: ref → absolute path in this
         // build) for transparency; the descriptor itself keeps the portable ref.
-        const choices = providerChoices(ctx.home).map((c) => ({ ...c, resolved: shippedRefResolution(c.descriptor) }));
+        const choices = providerChoices(ctx.home).map((c) => ({ ...c, resolved: shippedRefResolution(c.descriptor, ctx.home) }));
         return [makeRecord({ verb: "provider", format: "json", payload: { profile: profileName, choices, presets: providerPresets(ctx.home), providers }, meta: { transient: true }, state: "ready" })];
       }
       if (sub !== "plan" && sub !== "apply") {
@@ -383,7 +383,7 @@ export const providerVerb: VerbSpec = {
       const selected = requested.items.map((i) => ({ ...i, choice: findProviderChoice(i.verb, i.choice, ctx.home) }));
       const missing = selected.find((i) => !i.choice);
       if (missing) return [err("provider", `unknown provider choice '${missing.choiceName}' for verb '${missing.verb}'`)];
-      const changes = selected.map((i) => providerSetupChange(i.verb, i.choice!));
+      const changes = selected.map((i) => providerSetupChange(i.verb, i.choice!, ctx.home));
       const payload = {
         op: "provider_setup",
         profile: profileName,
@@ -438,7 +438,7 @@ export const providerVerb: VerbSpec = {
         let parts: string[];
         try {
           // descriptor commands may carry `shipped:` refs — resolve at exec time.
-          parts = resolveShippedArgv(tokenizeCommand(desc.describe));
+          parts = resolveShippedArgv(tokenizeCommand(desc.describe), ctx.home);
         } catch (e) {
           if (!(e instanceof ProviderRefError)) throw e;
           return [err("provider", e.message)];
@@ -464,7 +464,7 @@ export const providerVerb: VerbSpec = {
     let parts: string[];
     try {
       // descriptor init commands may carry `shipped:` refs — resolve at exec time.
-      parts = resolveShippedArgv(tokenizeCommand(cmd));
+      parts = resolveShippedArgv(tokenizeCommand(cmd), ctx.home);
     } catch (e) {
       if (!(e instanceof ProviderRefError)) throw e;
       return [err("provider", e.message)];
@@ -769,7 +769,7 @@ export const doctorVerb: VerbSpec = {
       for (const [verb, desc] of Object.entries(providers)) {
         if (!desc || typeof desc !== "object") continue;
         for (const cmd of descriptorCommandStrings(desc)) {
-          for (const issue of findShippedTokenIssues(cmd)) {
+          for (const issue of findShippedTokenIssues(cmd, ctx.home)) {
             const label =
               issue.kind === "unresolvable_ref"
                 ? "unresolvable"

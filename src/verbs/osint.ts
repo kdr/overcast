@@ -546,7 +546,7 @@ function uniqueName(url: string): string {
 
 /** Best-effort source provider for an ad-hoc URL by host. Video hosts map to
  *  their downloaders; anything else to the generic `web` page fetcher. */
-export function hostSourceType(url: string): string {
+export function hostSourceType(url: string, home?: string): string {
   // match on the parsed hostname — a substring regex over the whole URL misses
   // bare apex domains (x.com has no subdomain, so `(^|\.)x\.com` never fired)
   let host = "";
@@ -589,7 +589,7 @@ export function hostSourceType(url: string): string {
   // source that claims a host routes ad-hoc `capture <url>` to it. The dedicated
   // shipped routes above win (they encode conditional logic a flat host list
   // can't); this beats the generic dl/web fallbacks below.
-  for (const { host: h, type } of manifestHostRoutes()) {
+  for (const { host: h, type } of manifestHostRoutes(home)) {
     if (host === h || host.endsWith(`.${h}`)) return type;
   }
   // video hosts yt-dlp handles but that lack a dedicated source → the generic
@@ -655,7 +655,7 @@ export async function captureRef(
   // Prefer the originating source provider (from the scan.hit); only fall back
   // to host-sniffing for ad-hoc URLs with no known source. A generic host maps
   // to the `web` page fetcher, not yt-dlp.
-  const type = opts.sourceType ?? hostSourceType(ref);
+  const type = opts.sourceType ?? hostSourceType(ref, ctx.home);
   const desc = builtinDescriptor(type, ctx.home);
   if (!desc) {
     return err("capture", `no source provider can fetch ${ref} (source type '${type}')`);
@@ -684,7 +684,7 @@ async function pipeSense(
     if (isCustomBinding(binding)) {
       // pass the case media dir + system ffmpeg/ffprobe (like see/enhance), so a
       // bound provider can extract frames / write into .overcast/media here too.
-      r = await runBoundProvider(verb, binding!, ref, {
+      r = await runBoundProvider(verb, binding!, ref, { home: ctx.home,
         env: providerEnv(ctx.case.mediaDir),
         extraArgs,
         signal: ctx.signal,

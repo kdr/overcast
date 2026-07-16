@@ -21,6 +21,32 @@ import { runExecProvider } from "../../src/providers/run.ts";
 import { loadProfile, saveProfile } from "../../src/profile.ts";
 import { resolveInstalledRefToken, InstalledRefError } from "../../src/providers/installed-ref.ts";
 
+// installed: refs resolve against the TARGET home (Bugbot #110): transparency
+// (shippedRefResolution) and doctor (findShippedTokenIssues) must use the passed
+// home, not $OVERCAST_HOME, so setup show/plan don't display null and doctor
+// doesn't false-flag a valid custom-home binding.
+test("shippedRefResolution + findShippedTokenIssues honor the passed home for installed: refs (Bugbot #110)", () => {
+  const home = mkdtempSync(join(tmpdir(), "oc-refhome-"));
+  const savedHome = process.env.OVERCAST_HOME;
+  delete process.env.OVERCAST_HOME;
+  try {
+    const pkgDir = join(home, "providers", "vlm");
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(join(pkgDir, "run.sh"), "echo hi\n");
+    const desc = { type: "exec" as const, run: "bash installed:vlm/run.sh --input {{input}}", describe: "bash installed:vlm/run.sh describe" };
+    // transparency resolves at the target home, null at the default
+    assert.ok(shippedRefResolution(desc, home)?.["installed:vlm/run.sh"], "resolved path at target home");
+    assert.equal(shippedRefResolution(desc)?.["installed:vlm/run.sh"], null, "null at the default home");
+    // doctor doesn't false-flag a valid binding at the target home
+    assert.equal(findShippedTokenIssues("bash installed:vlm/run.sh describe", home).length, 0, "no issue at target home");
+    assert.equal(findShippedTokenIssues("bash installed:vlm/run.sh describe").length, 1, "flagged at the default home");
+  } finally {
+    if (savedHome === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 // installed: ref scheme (manifests plan, Stage B) — resolved at the same spawn
 // seam as shipped:, but authored by `provider install`, NEVER by healing.
 test("installed: refs resolve at spawn, error when the package is gone, and are NEVER healed", () => {

@@ -58,7 +58,7 @@ async function runScreenshot(ctx: VerbContext): Promise<OvercastRecord[]> {
   // dispatch: a bound provider wins; else the shipped Playwright engine.
   const binding = providerBinding(ctx, "screenshot");
   const env = providerEnv(ctx.case.mediaDir, ctx.case.dir);
-  const opts = { env, extraArgs, signal: ctx.signal, timeoutMs: RENDER_TIMEOUT_MS };
+  const opts = { env, extraArgs, signal: ctx.signal, timeoutMs: RENDER_TIMEOUT_MS, home: ctx.home };
   let rec: OvercastRecord;
   if (isCustomBinding(binding)) {
     rec = await runBoundProvider("screenshot", binding!, input, opts);

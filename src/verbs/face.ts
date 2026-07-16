@@ -353,7 +353,7 @@ export const faceVerb: VerbSpec = {
         if (ctx.opts[f] != null) extraArgs.push(`--${f}`, String(ctx.opts[f]));
       }
       if (ctx.opts.thumbnails === true) extraArgs.push("--thumbnails");
-      const rec = await runBoundProvider("face", binding!, primary, {
+      const rec = await runBoundProvider("face", binding!, primary, { home: ctx.home,
         env: providerEnv(c.mediaDir),
         extraArgs,
         timeoutMs: TINYCLOUD_TIMEOUT_MS,

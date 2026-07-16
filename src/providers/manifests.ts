@@ -226,9 +226,9 @@ function resolveBase(base: string[], home?: string): string[] | undefined {
 }
 
 /** Host → source type routes contributed by manifests (for ad-hoc capture). */
-export function manifestHostRoutes(): Array<{ host: string; type: string }> {
+export function manifestHostRoutes(home?: string): Array<{ host: string; type: string }> {
   const out: Array<{ host: string; type: string }> = [];
-  for (const entry of manifestSourceEntries()) {
+  for (const entry of manifestSourceEntries(home)) {
     for (const host of entry.hosts ?? []) out.push({ host: host.toLowerCase(), type: entry.type });
   }
   return out;

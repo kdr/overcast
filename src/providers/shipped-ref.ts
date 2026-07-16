@@ -60,10 +60,10 @@ export function resolveShippedRefToken(token: string): string | undefined {
  *  absolute path. Resolution happens POST-tokenization so a resolved path
  *  containing spaces stays one argv token. Throws ShippedRefError /
  *  InstalledRefError on an unresolvable ref. */
-export function resolveShippedArgv(argv: string[]): string[] {
+export function resolveShippedArgv(argv: string[], home?: string): string[] {
   return argv.map((token) => {
     if (isInstalledRef(token)) {
-      const abs = resolveInstalledRefToken(token);
+      const abs = resolveInstalledRefToken(token, home);
       if (!abs) throw new InstalledRefError(token);
       return abs;
     }
@@ -89,12 +89,12 @@ export function descriptorCommandStrings(desc: ProviderDescriptor | undefined): 
 /** Every distinct `shipped:` ref in a descriptor mapped to its resolved absolute
  *  path (null = unresolvable in this build). Transparency for `provider setup
  *  show/plan` — the STORED descriptor keeps the ref. */
-export function shippedRefResolution(desc: ProviderDescriptor | undefined): Record<string, string | null> | undefined {
+export function shippedRefResolution(desc: ProviderDescriptor | undefined, home?: string): Record<string, string | null> | undefined {
   const out: Record<string, string | null> = {};
   for (const cmd of descriptorCommandStrings(desc)) {
     for (const token of cmd.split(/\s+/)) {
       if (isShippedRef(token)) out[token] = resolveShippedRefToken(token) ?? null;
-      else if (isInstalledRef(token)) out[token] = resolveInstalledRefToken(token) ?? null;
+      else if (isInstalledRef(token)) out[token] = resolveInstalledRefToken(token, home) ?? null;
     }
   }
   return Object.keys(out).length ? out : undefined;
@@ -237,7 +237,7 @@ function looksLikeScriptPath(token: string): boolean {
  *  user's own provider), but it WILL fail at spawn, so we surface it rather than
  *  let it break silently. A non-existent NON-script token (a bare command, a
  *  relative path) is still left alone, mirroring healShippedToken's conservatism. */
-export function findShippedTokenIssues(cmd: string): ShippedTokenIssue[] {
+export function findShippedTokenIssues(cmd: string, home?: string): ShippedTokenIssue[] {
   const issues: ShippedTokenIssue[] = [];
   for (const token of cmd.split(/\s+/)) {
     if (isShippedRef(token)) {
@@ -247,7 +247,7 @@ export function findShippedTokenIssues(cmd: string): ShippedTokenIssue[] {
     if (isInstalledRef(token)) {
       // a removed/renamed installed package leaves a stale binding — surface it
       // (same kind; the token text `installed:<pkg>/…` disambiguates in doctor).
-      if (!resolveInstalledRefToken(token)) issues.push({ kind: "unresolvable_ref", token });
+      if (!resolveInstalledRefToken(token, home)) issues.push({ kind: "unresolvable_ref", token });
       continue;
     }
     if (existsSync(token)) continue; // present path — healing would (or already did) handle it
