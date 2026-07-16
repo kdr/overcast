@@ -1,14 +1,21 @@
 # `examples/providers/` — provider-authoring demos
 
-Minimal, worked examples of writing your **own** overcast provider — one per
-language, plus an MCP-source prototype. Read or copy these when you want to plug a
-new backend in **without touching `src/`**.
+Minimal, worked examples of the exec **wire contract**, one per language, plus an
+MCP-source prototype. Read these to learn the contract, or bind one by hand as the
+un-manifested escape hatch.
 
-These are *not* the shipped providers (those live in [`../../providers/`](../../providers/)
-and are wired up by the catalog). Nothing here is catalog-listed and no
-`shipped:<relpath>` ref resolves to it — you bind them by hand, as the
-user-authored escape hatch (invariant #6). The full authoring guide is
-[`docs/providers.md`](../../docs/providers.md).
+> **Building a provider you want to install or share?** Prefer a **manifest
+> package**: `overcast provider create <name> --kind sense|source` scaffolds a
+> `provider.json` + a runnable script that you edit and `overcast provider
+> install`. That path gets you catalog listing, `source add`, `doctor`, presets,
+> and portable `installed:` refs — the full walkthrough + schema is in
+> [`docs/providers.md`](../../docs/providers.md). The demos below are the
+> manifest-*less* path: teaching code for the contract, and the bind-by-hand
+> escape hatch (invariant #6).
+
+These are *not* the shipped providers (those live in [`../../providers/`](../../providers/),
+each with a `provider.json` the catalog scans). Nothing here is catalog-listed and
+no `shipped:<relpath>` ref resolves to it — you bind them by hand.
 
 ## The exec wire contract
 

@@ -338,8 +338,10 @@ export const providerVerb: VerbSpec = {
   summary: "Run provider setup/init hooks, or list/describe bound providers (provider setup|init|list|describe).",
   description:
     "`provider setup plan|apply|show` configures catalog-backed provider choices for a profile. " +
-    "`provider init <verb>` runs the bound provider's init step — a command, or guidance for a " +
-    "skill-based init (not wired yet). `provider list` shows the active bindings.",
+    "`provider install <path|tarball>` installs a third-party provider package (a provider.json " +
+    "manifest + scripts) — `provider create <name> --kind sense|source` scaffolds one, " +
+    "`list --installed` / `remove <name>` manage them. `provider init <verb>` runs the bound " +
+    "provider's init step; `provider list` shows the active bindings.",
   args: [
     { name: "action", summary: "setup | install | remove | create | init | list | describe (default: list)", choices: ["setup", "install", "remove", "create", "init", "list", "describe"] },
     { name: "verb", summary: "setup subcommand, verb to init/describe, or the install path / package name" },
