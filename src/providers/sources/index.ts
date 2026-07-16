@@ -50,24 +50,24 @@ export function tokenizeCommand(s: string): string[] {
   return out;
 }
 
-export function builtinDescriptor(type: string): SourceDescriptor | undefined {
+export function builtinDescriptor(type: string, home?: string): SourceDescriptor | undefined {
   const envOverride = process.env[`OVERCAST_SOURCE_${type.toUpperCase()}_CMD`];
   if (envOverride) {
     // an override rebinds the COMMAND, not the type's semantics — keep the
     // built-in exec budget so a rebound lens/tiktok (e.g. the live e2e binding
     // the shipped script by absolute path) isn't killed at the generic default.
-    return { type, base: tokenizeCommand(envOverride.trim()), timeoutMs: shippedDescriptor(type)?.timeoutMs };
+    return { type, base: tokenizeCommand(envOverride.trim()), timeoutMs: shippedDescriptor(type, home)?.timeoutMs };
   }
-  return shippedDescriptor(type);
+  return shippedDescriptor(type, home);
 }
 
-function shippedDescriptor(type: string): SourceDescriptor | undefined {
+function shippedDescriptor(type: string, home?: string): SourceDescriptor | undefined {
   // Built-in source descriptors now come from the per-directory provider.json
   // manifests under providers/sources/<type>/ (scanned at runtime). The manifest
   // layer resolves the script's shipped:/installed: ref to an absolute base argv
   // (aliases like x→twitter honored), returning undefined when the type is
   // unknown or its script isn't in this build — same contract as the old switch.
-  return manifestSourceDescriptor(type);
+  return manifestSourceDescriptor(type, home);
 }
 
 export interface ScanHit {

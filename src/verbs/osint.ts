@@ -184,7 +184,7 @@ async function enumerateAll(ctx: VerbContext, verb = "scan"): Promise<OvercastRe
 
   const out: OvercastRecord[] = [];
   for (const s of sources) {
-    const desc = builtinDescriptor(s.type);
+    const desc = builtinDescriptor(s.type, ctx.home);
     if (!desc) {
       out.push(err("scan", `unknown source type '${s.type}' (no provider)`));
       continue;
@@ -656,7 +656,7 @@ export async function captureRef(
   // to host-sniffing for ad-hoc URLs with no known source. A generic host maps
   // to the `web` page fetcher, not yt-dlp.
   const type = opts.sourceType ?? hostSourceType(ref);
-  const desc = builtinDescriptor(type);
+  const desc = builtinDescriptor(type, ctx.home);
   if (!desc) {
     return err("capture", `no source provider can fetch ${ref} (source type '${type}')`);
   }

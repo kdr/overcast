@@ -25,6 +25,7 @@ const {
 const { invalidateManifestCache, manifestSourceDescriptor, scanManifests } = await import("../../src/providers/manifests.ts");
 const { providerChoices, findProviderChoice } = await import("../../src/providers/catalog.ts");
 const { resolveInstalledRefToken } = await import("../../src/providers/installed-ref.ts");
+const { builtinDescriptor } = await import("../../src/providers/sources/index.ts");
 
 /** Write a minimal valid source package to <dir>/<name>/ and return its path. */
 function writeSourcePkg(dir: string, name: string, type = name): string {
@@ -280,6 +281,24 @@ test("install: refuses a tarball whose members escape via .. / absolute path (Bu
 
   rmSync(work, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
+});
+
+test("builtinDescriptor resolves an installed source type at the target home (Bugbot #110)", () => {
+  const savedEnv = process.env.OVERCAST_HOME;
+  delete process.env.OVERCAST_HOME;
+  const home = mkdtempSync(join(tmpdir(), "oc-bd-home-"));
+  const work = mkdtempSync(join(tmpdir(), "oc-install-src-"));
+  try {
+    installProvider(writeSourcePkg(work, "acme"), { yes: true }, home);
+    const d = builtinDescriptor("acme", home);
+    assert.ok(d && d.base[d.base.length - 1].endsWith("acme/run.sh"), "resolved (base absolute) at the target home");
+    assert.equal(builtinDescriptor("acme"), undefined, "not resolved at the default home");
+  } finally {
+    if (savedEnv === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedEnv;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  }
 });
 
 test("findProviderChoice honors the target home for an installed choice (Bugbot #110)", () => {

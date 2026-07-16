@@ -46,11 +46,11 @@ export function isInstalledRef(token: string): boolean {
 /** Resolve ONE `installed:<pkg>/<relpath>` token to an absolute path, or undefined
  *  when the package/file isn't present (or the token isn't an installed ref).
  *  Refuses `..` traversal outside the package dir. */
-export function resolveInstalledRefToken(token: string): string | undefined {
+export function resolveInstalledRefToken(token: string, home?: string): string | undefined {
   if (!isInstalledRef(token)) return undefined;
   const segments = token.slice(INSTALLED_REF_PREFIX.length).split("/").filter(Boolean);
   if (segments.length < 2) return undefined; // need <pkg>/<relpath>
   if (segments.includes("..")) return undefined;
-  const abs = join(installedProvidersRoot(), ...segments);
+  const abs = join(installedProvidersRoot(home), ...segments);
   return existsSync(abs) ? abs : undefined;
 }

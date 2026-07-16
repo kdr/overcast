@@ -699,7 +699,7 @@ export const doctorVerb: VerbSpec = {
       } else if (d.check === "probe_init") {
         // can't be judged from env alone (e.g. plate: actor-or-override). Probe the
         // provider's own `init` health check (exit 0 = ready, 13 = missing creds).
-        const desc = builtinDescriptor(entry.type);
+        const desc = builtinDescriptor(entry.type, ctx.home);
         let pok = false;
         let detail = d.unavailableNote ?? d.missingNote ?? `${entry.type} provider unavailable`;
         if (desc) {

@@ -197,21 +197,21 @@ export function manifestSourceEntries(home?: string): Array<SourceEntry & { orig
  *  spawned verbatim by the doctor plate probe, so it must not carry raw refs.
  *  Returns undefined when the type is unknown or its script isn't in this build
  *  (parity with the old `script ? {...} : undefined`). */
-export function manifestSourceDescriptor(type: string): SourceDescriptor | undefined {
-  for (const entry of manifestSourceEntries()) {
+export function manifestSourceDescriptor(type: string, home?: string): SourceDescriptor | undefined {
+  for (const entry of manifestSourceEntries(home)) {
     if (entry.type !== type && !(entry.aliases ?? []).includes(type)) continue;
-    const base = resolveBase(entry.base);
+    const base = resolveBase(entry.base, home);
     if (!base) return undefined;
     return { type, base, needs: entry.needs, timeoutMs: entry.timeoutMs };
   }
   return undefined;
 }
 
-function resolveBase(base: string[]): string[] | undefined {
+function resolveBase(base: string[], home?: string): string[] | undefined {
   const out: string[] = [];
   for (const token of base) {
     if (isInstalledRef(token)) {
-      const abs = resolveInstalledRefToken(token);
+      const abs = resolveInstalledRefToken(token, home);
       if (!abs) return undefined;
       out.push(abs);
     } else if (token.startsWith("shipped:")) {
