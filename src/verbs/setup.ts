@@ -27,8 +27,8 @@ import {
   shippedRefResolution,
   descriptorCommandStrings,
   findShippedTokenIssues,
-  ShippedRefError,
 } from "../providers/shipped-ref.js";
+import { ProviderRefError } from "../providers/ref-error.js";
 import { localVisionPython } from "../providers/local/vision.js";
 import { PI_VERSION } from "../version.js";
 import { envPresent, redactSecrets } from "../env.js";
@@ -440,7 +440,7 @@ export const providerVerb: VerbSpec = {
           // descriptor commands may carry `shipped:` refs — resolve at exec time.
           parts = resolveShippedArgv(tokenizeCommand(desc.describe));
         } catch (e) {
-          if (!(e instanceof ShippedRefError)) throw e;
+          if (!(e instanceof ProviderRefError)) throw e;
           return [err("provider", e.message)];
         }
         const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
@@ -466,7 +466,7 @@ export const providerVerb: VerbSpec = {
       // descriptor init commands may carry `shipped:` refs — resolve at exec time.
       parts = resolveShippedArgv(tokenizeCommand(cmd));
     } catch (e) {
-      if (!(e instanceof ShippedRefError)) throw e;
+      if (!(e instanceof ProviderRefError)) throw e;
       return [err("provider", e.message)];
     }
     const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 5 * 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
@@ -738,6 +738,22 @@ export const doctorVerb: VerbSpec = {
     // provider bindings
     const bound = Object.keys(ctx.profile.providers ?? {});
     checks.push({ name: "providers", ok: bound.length > 0, detail: bound.length ? bound.join(", ") : "none bound (defaults apply)" });
+
+    // installed provider packages: flag any whose files changed since install
+    // (sha256 mismatch vs .overcast-install.json) — the integrity check that
+    // `provider list --installed` surfaces, elevated to doctor so a tampered
+    // package doesn't go unnoticed. Only emitted when packages are installed.
+    const installedPkgs = listInstalled();
+    if (installedPkgs.length) {
+      const tampered = installedPkgs.filter((p) => p.tampered).map((p) => p.name);
+      checks.push({
+        name: "installed-providers",
+        ok: tampered.length === 0,
+        detail: tampered.length
+          ? `${tampered.length} tampered package(s): ${tampered.join(", ")} — files changed since install; \`provider install --upgrade\` to re-stamp or \`provider remove\``
+          : `${installedPkgs.length} installed: ${installedPkgs.map((p) => p.name).join(", ")}`,
+      });
+    }
 
     // provider paths: flag bindings whose `shipped:` ref doesn't resolve in this
     // build, or that still carry a stale absolute shipped-provider path healing

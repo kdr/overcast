@@ -14,7 +14,8 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, st
 import { execCapture, parseFirstJson } from "../exec.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
-import { resolveShippedArgv, ShippedRefError } from "../shipped-ref.js";
+import { resolveShippedArgv } from "../shipped-ref.js";
+import { ProviderRefError } from "../ref-error.js";
 import { manifestSourceDescriptor } from "../manifests.js";
 
 export interface SourceDescriptor {
@@ -164,7 +165,7 @@ export async function enumerateSource(
   try {
     base = resolveShippedArgv(desc.base);
   } catch (e) {
-    if (!(e instanceof ShippedRefError)) throw e;
+    if (!(e instanceof ProviderRefError)) throw e;
     return [makeRecord({ verb: "scan", format: "json", payload: { source: desc.type }, error: e.message, state: "error" })];
   }
   const [cmd, ...lead] = base;
@@ -275,7 +276,7 @@ export async function fetchSource(
   try {
     base = resolveShippedArgv(desc.base);
   } catch (e) {
-    if (!(e instanceof ShippedRefError)) throw e;
+    if (!(e instanceof ProviderRefError)) throw e;
     return makeRecord({ verb: "capture", format: "json", payload: { url: opts.url, source: desc.type }, error: e.message, state: "error" });
   }
   const [cmd, ...lead] = base;

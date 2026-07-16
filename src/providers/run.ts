@@ -7,7 +7,8 @@
 import { makeRecord, type OvercastRecord } from "../record.js";
 import { redactSecrets } from "../env.js";
 import { execCapture, renderCommand, parseFirstJson } from "./exec.js";
-import { resolveShippedArgv, ShippedRefError } from "./shipped-ref.js";
+import { resolveShippedArgv } from "./shipped-ref.js";
+import { ProviderRefError } from "./ref-error.js";
 import type { ProviderDescriptor } from "../profile.js";
 
 /** Does a run template look like the default tinycloud binding? */
@@ -99,7 +100,7 @@ export async function runExecProvider(
   try {
     [cmd, ...args] = resolveShippedArgv([cmd, ...args]);
   } catch (e) {
-    if (!(e instanceof ShippedRefError)) throw e;
+    if (!(e instanceof ProviderRefError)) throw e;
     return makeRecord({
       verb,
       format: "json",

@@ -9,21 +9,21 @@
 import { existsSync, realpathSync } from "node:fs";
 import { shippedPath } from "../pkg.js";
 import { isInstalledRef, resolveInstalledRefToken, InstalledRefError } from "./installed-ref.js";
+import { ProviderRefError } from "./ref-error.js";
 import type { ProviderDescriptor } from "../profile.js";
 
 export const SHIPPED_REF_PREFIX = "shipped:";
 
 /** Raised when a `shipped:` token can't resolve in this build (e.g. a bun binary
  *  without the providers/ sidecar next to the executable). */
-export class ShippedRefError extends Error {
-  ref: string;
+export class ShippedRefError extends ProviderRefError {
   constructor(ref: string) {
     super(
       `cannot resolve '${ref}': this build lacks the shipped provider files (providers/ sidecar missing) — ` +
         `reinstall, or rebind a provider you have (\`overcast provider setup apply --verb <verb> --choice <id> --yes\`)`,
+      ref,
+      "ShippedRefError",
     );
-    this.name = "ShippedRefError";
-    this.ref = ref;
   }
 }
 

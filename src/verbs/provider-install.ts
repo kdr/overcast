@@ -144,8 +144,23 @@ function stageSource(src: string): { staged: string; cleanup: () => void; error?
   if (/\.(tgz|tar\.gz)$/.test(abs)) {
     const out = join(staging, "pkg");
     mkdirSync(out, { recursive: true });
-    // system tar (a prerequisite like ffmpeg). -k refuses to overwrite; entries
-    // with absolute paths / .. are rejected below by scanning the result.
+    // Path-traversal guard: list the members and refuse the whole tarball if ANY
+    // entry is absolute or escapes via `..` — BEFORE extracting, since tar would
+    // otherwise write the offending member outside the staging dir (a post-extract
+    // scan can't see a file that already escaped). system tar is a prerequisite.
+    const list = spawnSync("tar", ["-tzf", abs], { encoding: "utf8", timeout: 60_000 });
+    if (list.error || list.status !== 0) {
+      cleanup();
+      return { staged: "", cleanup: () => {}, error: `tar listing failed: ${(list.stderr || list.error?.message || "").slice(0, 200)}` };
+    }
+    const unsafe = list.stdout
+      .split("\n")
+      .map((e) => e.trim())
+      .find((e) => e && (e.startsWith("/") || e.startsWith("~") || e.split("/").includes("..")));
+    if (unsafe) {
+      cleanup();
+      return { staged: "", cleanup: () => {}, error: `tarball has an unsafe member '${unsafe}' — refused (path traversal / absolute path)` };
+    }
     const res = spawnSync("tar", ["-xzf", abs, "-C", out], { encoding: "utf8", timeout: 60_000 });
     if (res.error || res.status !== 0) {
       cleanup();

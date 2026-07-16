@@ -15,6 +15,7 @@
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { resolveHome } from "../home.js";
+import { ProviderRefError } from "./ref-error.js";
 
 export const INSTALLED_REF_PREFIX = "installed:";
 
@@ -23,16 +24,15 @@ export function installedProvidersRoot(): string {
   return join(resolveHome(), "providers");
 }
 
-export class InstalledRefError extends Error {
-  ref: string;
+export class InstalledRefError extends ProviderRefError {
   constructor(ref: string) {
     const pkg = ref.slice(INSTALLED_REF_PREFIX.length).split("/")[0] || "?";
     super(
       `cannot resolve '${ref}': provider package '${pkg}' is not installed or was removed — ` +
         `reinstall it (\`overcast provider install <path>\`) or rebind the verb to another provider`,
+      ref,
+      "InstalledRefError",
     );
-    this.name = "InstalledRefError";
-    this.ref = ref;
   }
 }
 

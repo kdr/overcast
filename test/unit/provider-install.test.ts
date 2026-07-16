@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, appendFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -181,6 +182,31 @@ test("create: scaffolds a package that validates + installs cleanly", () => {
   invalidateManifestCache();
   const installed = rec(installProvider(dir, { yes: true }));
   assert.equal(installed.state, "ready", `scaffold should install: ${installed.error}`);
+
+  rmSync(work, { recursive: true, force: true });
+  rmSync(HOME, { recursive: true, force: true });
+});
+
+test("install: refuses a tarball whose members escape via .. / absolute path (Bugbot #110)", () => {
+  HOME = freshHome();
+  const work = mkdtempSync(join(tmpdir(), "oc-install-tar-"));
+  // build a tarball with a `../escape.txt` member (escapes the extraction dir):
+  // stage sub/provider.json + escape.txt one level up, tar from sub with `../`.
+  mkdirSync(join(work, "sub"), { recursive: true });
+  writeFileSync(join(work, "escape.txt"), "evil");
+  writeFileSync(join(work, "sub", "provider.json"), "{}");
+  const tgz = join(work, "evil.tgz");
+  const made = spawnSync("tar", ["-czf", tgz, "-C", join(work, "sub"), "provider.json", "../escape.txt"], { encoding: "utf8" });
+  if (made.status !== 0) {
+    // tar unavailable / refused to build the crafted member — skip, don't false-pass
+    rmSync(work, { recursive: true, force: true });
+    rmSync(HOME, { recursive: true, force: true });
+    return;
+  }
+  const r = rec(installProvider(tgz, { yes: true }));
+  assert.equal(r.state, "error");
+  assert.match(r.error ?? "", /unsafe member|path traversal/);
+  assert.equal(existsSync(join(HOME, "escape.txt")), false, "nothing written outside the package dir");
 
   rmSync(work, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
