@@ -93,6 +93,9 @@ async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise
   const query = await vscode.window.showInputBox({
     prompt: "Ad-hoc keyword (--query) — leave empty to scan each source's bound ref",
     ignoreFocusOut: true,
+    // a '-'-leading value is not consumed as the flag's value by the CLI parser
+    validateInput: (v) =>
+      v.trim().startsWith("-") ? "Queries can't start with '-' (read as a CLI flag)" : undefined,
   });
   if (query === undefined) return;
 

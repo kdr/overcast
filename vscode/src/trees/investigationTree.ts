@@ -123,7 +123,8 @@ class LeadItem extends vscode.TreeItem {
     super(truncate(String(row.text ?? "")), vscode.TreeItemCollapsibleState.None);
     this.findingId = row.id;
     const parts: string[] = [];
-    if (row.confidence != null) parts.push(String(row.confidence));
+    // confidence is untyped payload data — only a non-empty string renders
+    if (typeof row.confidence === "string" && row.confidence) parts.push(row.confidence);
     if (typeof row.score === "number") parts.push(`score ${row.score}`);
     this.description = parts.join(" · ");
     const tip = [

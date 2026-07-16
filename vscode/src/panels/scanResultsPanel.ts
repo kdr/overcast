@@ -41,6 +41,10 @@ async function captureHit(
   }
   status("working", "capturing…");
   const cap = await deps.bridge.run(["capture", ref]);
+  if (cap.cancelled) {
+    status("error", "cancelled");
+    return;
+  }
   if (cap.failure) {
     status("error", cap.failure.message);
     return;
@@ -62,6 +66,10 @@ async function captureHit(
   const verb = senseVerbFor(mediaRef);
   status("working", `captured — running ${verb}…`);
   const sensed = await deps.bridge.run([verb, capRec.id]);
+  if (sensed.cancelled) {
+    status("done", `captured (${capRec.id}); ${verb} cancelled`, capRec.id);
+    return;
+  }
   if (sensed.failure) {
     status("error", `captured (${capRec.id}) but ${verb} failed: ${sensed.failure.message}`);
     return;

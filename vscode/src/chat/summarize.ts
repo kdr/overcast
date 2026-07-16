@@ -185,6 +185,8 @@ const TEXT_FIELDS = ["text", "summary", "content", "answer", "report", "transcri
  *  extension stays a thin client (no runtime import from the overcast lib). */
 export function answerText(rec: OvercastRecord): string {
   if (typeof rec.payload === "string") return rec.payload;
+  // Loose-record contract: payload can be null/absent — never assume the shape.
+  if (!rec.payload || typeof rec.payload !== "object") return "";
   const p = rec.payload as Record<string, unknown>;
   for (const k of TEXT_FIELDS) {
     const v = p[k];
@@ -221,6 +223,16 @@ export function citedRecordIds(rec: OvercastRecord): string[] {
   }
   return [...ids];
 }
+
+/** True when user/model text would be misread by the CLI argv parser: any
+ *  `-`-leading token is eaten as a flag (positionals AND flag values), silently
+ *  corrupting the text. Guard before building argv; there is no `--` separator. */
+export function flagLikeText(text: string): boolean {
+  return text.trim().startsWith("-");
+}
+
+export const FLAG_LIKE_MESSAGE =
+  "Text starting with '-' would be misread as a CLI flag — rephrase without the leading dash.";
 
 /** Model/user-facing failure line. needs_credentials keeps the CLI's message
  *  verbatim so the model can relay exactly what to configure. */

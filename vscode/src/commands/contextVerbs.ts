@@ -270,6 +270,9 @@ async function batchSense(deps: ExtDeps, uri?: vscode.Uri, uris?: vscode.Uri[]):
           increment: 100 / jobs.length,
         });
         const res = await deps.bridge.run([job.verb, job.p], { token });
+        // A per-job cancel (Runs view) skips the file; a batch cancel breaks
+        // at the loop top via `token`.
+        if (res.cancelled) continue;
         if (res.failure) failed.push(`${path.basename(job.p)} (${res.failure.message})`);
         else ok++;
       }

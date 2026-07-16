@@ -26,11 +26,12 @@ const TARGET_MAX = 28;
 
 /** Track every run EXCEPT the noisy store-poll reads (`case status`/`records`,
  *  `finding list` — the model re-runs these on every store change) and the
- *  `--version` smoke-test; they'd flood the Runs view. */
+ *  internal bootstrap reads (`--version` smoke-test, `commands` registry fetch);
+ *  they'd flood the Runs view — and an internal read must not be user-killable. */
 export function shouldTrackJob(args: string[]): boolean {
   const head = args[0];
   if (!head) return false;
-  return head !== "case" && head !== "finding" && head !== "--version";
+  return head !== "case" && head !== "finding" && head !== "--version" && head !== "commands";
 }
 
 function baseName(p: string): string {

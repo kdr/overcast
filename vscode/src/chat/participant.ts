@@ -12,9 +12,11 @@ import { recordForVerb } from "../lib/cliOutput.ts";
 import type { CaseStatusPayload, ExtDeps, OvercastRecord } from "../types.ts";
 import { runVerbForChat, resolveMediaFile } from "./core.ts";
 import {
+  FLAG_LIKE_MESSAGE,
   answerText,
   caseSummary,
   citedRecordIds,
+  flagLikeText,
   recordBlurb,
   scanHits,
   type CaseSummary,
@@ -83,6 +85,10 @@ async function handleAsk(
     stream.markdown("Ask a question about this case — e.g. `@overcast what vehicles appear in the footage?`");
     return meta("ask");
   }
+  if (flagLikeText(prompt)) {
+    stream.markdown(warn(FLAG_LIKE_MESSAGE));
+    return meta("ask");
+  }
   stream.progress("Asking the case…");
   const outcome = await runVerbForChat(deps.bridge, ["ask", prompt.trim()], token);
   if (!outcome.ok) {
@@ -102,15 +108,22 @@ async function handleScan(
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
 ): Promise<vscode.ChatResult> {
+  if (prompt.trim() && flagLikeText(prompt)) {
+    stream.markdown(warn(FLAG_LIKE_MESSAGE));
+    return meta("scan");
+  }
   stream.progress("Scanning sources…");
   const args = ["scan"];
   if (prompt.trim()) args.push("--query", prompt.trim());
   const outcome = await runVerbForChat(deps.bridge, args, token);
-  if (!outcome.ok) {
+  // A plain scan exits non-zero when ANY single source is credential-gapped,
+  // while healthy sources still returned real hits in the same records stream —
+  // never swallow those hits behind the failure.
+  const hits = scanHits(outcome.records);
+  if (!outcome.ok && hits.length === 0) {
     stream.markdown(warn(outcome.message));
     return meta("scan");
   }
-  const hits = scanHits(outcome.records);
   if (hits.length === 0) {
     stream.markdown("No scan hits. Configure sources (the Sources view, or `/source`), then try again.");
     return meta("scan");
@@ -123,6 +136,7 @@ async function handleScan(
     if (h.id) openRecordButton(stream, h.id);
   }
   if (hits.length > shown.length) stream.markdown(`\n…and ${hits.length - shown.length} more.\n`);
+  if (!outcome.ok) stream.markdown(`\n${warn(outcome.message)}\n`);
   stream.markdown("\nUse `/capture <id | url>` to pull one into the case.");
   return meta("scan", { topHitId: shown.find((h) => h.id)?.id });
 }
@@ -175,6 +189,10 @@ async function handleCapture(
     stream.markdown("Usage: `/capture <url | scan-hit id>` — pulls the resource into the case (reaches the network for URLs).");
     return meta("capture");
   }
+  if (flagLikeText(ref)) {
+    stream.markdown(warn(FLAG_LIKE_MESSAGE));
+    return meta("capture");
+  }
   stream.progress(`Capturing ${ref}…`);
   const outcome = await runVerbForChat(deps.bridge, ["capture", ref], token);
   if (!outcome.ok) {
@@ -223,6 +241,10 @@ async function handleNote(
   const text = prompt.trim();
   if (!text) {
     stream.markdown("Usage: `/note <observation>` — records a human observation into the case.");
+    return meta("note");
+  }
+  if (flagLikeText(text)) {
+    stream.markdown(warn(FLAG_LIKE_MESSAGE));
     return meta("note");
   }
   stream.progress("Adding note…");

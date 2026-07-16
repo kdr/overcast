@@ -27,6 +27,10 @@ export async function runVerbForChat(
   opts: { rawOutput?: boolean } = {},
 ): Promise<ChatVerbOutcome> {
   const result = await bridge.run(args, { token, rawOutput: opts.rawOutput });
+  // A cancel (chat token OR the Runs view's inline cancel) is not a failure.
+  if (result.cancelled) {
+    return { ok: false, records: result.records, message: "The run was cancelled." };
+  }
   if (result.failure) {
     return { ok: false, records: result.records, message: failureMessage(result.failure) };
   }

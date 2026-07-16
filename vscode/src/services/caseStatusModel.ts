@@ -141,7 +141,11 @@ export class CaseStatusModel implements vscode.Disposable {
         () =>
           Promise.all([
             this.bridge.run(["case", "status"], { caseDir }),
-            this.bridge.run(["case", "records", "--limit", "500"], { caseDir }),
+            // Effectively-unbounded limit: the CLI's --limit keeps the OLDEST N
+            // (ascending sort + slice; default 50), which would hide new notes/
+            // records in big cases. Compact rows are tiny; trees cap what they
+            // render client-side.
+            this.bridge.run(["case", "records", "--limit", "1000000"], { caseDir }),
             this.bridge.run(["finding", "list", "--state", "all"], { caseDir }),
           ]),
       );
@@ -205,11 +209,14 @@ export class CaseStatusModel implements vscode.Disposable {
       const fetched = await Promise.all(
         missing.map(async (id) => {
           const res = await this.bridge.run(["case", "memory", "get", id, "--field", "text"], { caseDir });
+          // Cache only a real body — caching "" on a transient failure would
+          // poison the note for the life of the case (the cache is never re-read).
+          if (res.failure) return undefined;
           const chunk = (res.records[0]?.payload as { chunk?: unknown } | undefined)?.chunk;
-          return [id, typeof chunk === "string" ? chunk : ""] as const;
+          return typeof chunk === "string" ? ([id, chunk] as const) : undefined;
         }),
       );
-      for (const [id, text] of fetched) this.noteText.set(id, text);
+      for (const entry of fetched) if (entry) this.noteText.set(entry[0], entry[1]);
     } finally {
       // these reads append a case audit record too — mute the watcher fallout
       this.suppressUntil = Date.now() + 1500;

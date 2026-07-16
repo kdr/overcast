@@ -22,6 +22,9 @@ export function registerNoteCommands(deps: ExtDeps): void {
         prompt: "New note — a human observation for this case",
         placeHolder: "e.g. Crane barge matches the one seen at pier 9 on 06-02",
         ignoreFocusOut: true,
+        // a '-'-leading positional would be eaten as a CLI flag
+        validateInput: (v) =>
+          v.trim().startsWith("-") ? "Notes can't start with '-' (read as a CLI flag)" : undefined,
       });
       if (!text?.trim()) return;
 

@@ -13,7 +13,14 @@ import * as vscode from "vscode";
 import { recordForVerb } from "../lib/cliOutput.ts";
 import type { CaseStatusPayload, ExtDeps } from "../types.ts";
 import { runVerbForChat, resolveMediaFile } from "./core.ts";
-import { caseSummary, scanHits, summarizeVerbResult, toModelJson } from "./summarize.ts";
+import {
+  FLAG_LIKE_MESSAGE,
+  caseSummary,
+  flagLikeText,
+  scanHits,
+  summarizeVerbResult,
+  toModelJson,
+} from "./summarize.ts";
 
 const textResult = (s: string): vscode.LanguageModelToolResult =>
   new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(s)]);
@@ -106,6 +113,7 @@ export function registerChatTools(deps: ExtDeps): void {
     async invoke(options, token) {
       if (!deps.locator.caseDir) return textResult(NO_CASE);
       if (!options.input.question?.trim()) return textResult("Provide a non-empty question.");
+      if (flagLikeText(options.input.question)) return textResult(FLAG_LIKE_MESSAGE);
       const outcome = await runVerbForChat(deps.bridge, askArgs(options.input), token);
       if (!outcome.ok) return textResult(outcome.message ?? "overcast failed.");
       // ask answers can run long — raise the field cap so the answer text survives
@@ -126,10 +134,16 @@ export function registerChatTools(deps: ExtDeps): void {
     },
     async invoke(options, token) {
       if (!deps.locator.caseDir) return textResult(NO_CASE);
+      const flaggy = [options.input.query, options.input.source, options.input.since];
+      if (flaggy.some((v) => v && flagLikeText(v))) return textResult(FLAG_LIKE_MESSAGE);
       const outcome = await runVerbForChat(deps.bridge, scanArgs(options.input), token);
-      if (!outcome.ok) return textResult(outcome.message ?? "overcast failed.");
+      // scan exits non-zero when ANY source is credential-gapped even though
+      // healthy sources returned hits — report both, never swallow the hits.
       const hits = scanHits(outcome.records);
-      return textResult(toModelJson({ hits: hits.length, results: hits }));
+      if (!outcome.ok && hits.length === 0) return textResult(outcome.message ?? "overcast failed.");
+      const doc: Record<string, unknown> = { hits: hits.length, results: hits };
+      if (!outcome.ok) doc.warning = outcome.message;
+      return textResult(toModelJson(doc));
     },
   };
 
@@ -146,6 +160,7 @@ export function registerChatTools(deps: ExtDeps): void {
     async invoke(options, token) {
       if (!deps.locator.caseDir) return textResult(NO_CASE);
       if (!options.input.ref?.trim()) return textResult("Provide a ref: a URL, a scan-hit record id, or a local path.");
+      if (flagLikeText(options.input.ref)) return textResult(FLAG_LIKE_MESSAGE);
       const outcome = await runVerbForChat(deps.bridge, ["capture", options.input.ref.trim()], token);
       if (!outcome.ok) return textResult(outcome.message ?? "overcast failed.");
       return textResult(summarizeVerbResult(outcome.records, "capture"));
@@ -192,6 +207,7 @@ export function registerChatTools(deps: ExtDeps): void {
     async invoke(options, token) {
       if (!deps.locator.caseDir) return textResult(NO_CASE);
       if (!options.input.text?.trim()) return textResult("Provide non-empty note text.");
+      if (flagLikeText(options.input.text)) return textResult(FLAG_LIKE_MESSAGE);
       const outcome = await runVerbForChat(deps.bridge, noteArgs(options.input), token);
       if (!outcome.ok) return textResult(outcome.message ?? "overcast failed.");
       return textResult(summarizeVerbResult(outcome.records, "note"));

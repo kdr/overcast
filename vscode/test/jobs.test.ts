@@ -8,6 +8,7 @@ test("shouldTrackJob: skips the noisy poll reads + version, tracks the rest", ()
   assert.equal(shouldTrackJob(["case", "records", "--limit", "500"]), false);
   assert.equal(shouldTrackJob(["finding", "list", "--state", "all"]), false);
   assert.equal(shouldTrackJob(["--version"]), false);
+  assert.equal(shouldTrackJob(["commands"]), false);
   assert.equal(shouldTrackJob([]), false);
   assert.equal(shouldTrackJob(["watch", "/a/clip.mp4"]), true);
   assert.equal(shouldTrackJob(["scan", "youtube:@handle"]), true);

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   answerText,
+  flagLikeText,
   caseSummary,
   citedRecordIds,
   failureMessage,
@@ -176,6 +177,19 @@ test("recordBlurb: text, else media, else payload keys", () => {
   assert.equal(recordBlurb(rec({ payload: { summary: "one hit" } })), "one hit");
   assert.equal(recordBlurb(rec({ payload: {}, media: { ref: "/x.mp4" } })), "media: /x.mp4");
   assert.equal(recordBlurb(rec({ payload: { a: 1, b: 2 } })), "payload: a, b");
+});
+
+test("answerText/recordBlurb: null or missing payload never throws (loose record)", () => {
+  const nullPayload = rec({ payload: null as unknown as Record<string, unknown> });
+  assert.equal(answerText(nullPayload), "");
+  assert.equal(recordBlurb(nullPayload), "(no summary)");
+});
+
+test("flagLikeText: '-'-leading text is flagged, normal text passes", () => {
+  assert.equal(flagLikeText("--follow up tomorrow"), true);
+  assert.equal(flagLikeText("  -x"), true);
+  assert.equal(flagLikeText("follow up --tomorrow"), false);
+  assert.equal(flagLikeText(""), false);
 });
 
 test("failureMessage: needs_credentials keeps the CLI message verbatim", () => {

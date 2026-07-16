@@ -69,7 +69,12 @@ export class RecordsTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
         .map(([verb, count]) => new VerbGroupItem(verb, count));
     }
     if (element instanceof VerbGroupItem) {
-      return newestFirst.filter((r) => r.verb === element.verb).map((r) => new RecordItem(r));
+      // The model fetch is effectively unbounded now — cap what one group
+      // renders (the header count still shows the real total).
+      return newestFirst
+        .filter((r) => r.verb === element.verb)
+        .slice(0, 200)
+        .map((r) => new RecordItem(r));
     }
     return [];
   }

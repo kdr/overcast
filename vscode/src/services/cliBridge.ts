@@ -49,6 +49,9 @@ export interface CliResult {
   stdout: string;
   stderr: string;
   failure?: CliFailure;
+  /** true when the run was killed via a caller token OR the Runs-view cancel —
+   *  callers must treat this as "user said stop", never as a failure. */
+  cancelled?: boolean;
 }
 
 function findOnPath(name: string): string | undefined {
@@ -97,6 +100,9 @@ export class CliBridge implements vscode.Disposable {
           void this.resolve();
         }
       }),
+      // Finished-run rows deep-link record ids, which are per-case — drop them
+      // on a case switch so a stale row can't open a record in the wrong case.
+      locator.onDidChangeCase(() => this.clearFinishedJobs()),
     );
   }
 
@@ -255,7 +261,12 @@ export class CliBridge implements vscode.Disposable {
       const cancelSubs: vscode.Disposable[] = [];
       if (opts.token) cancelSubs.push(opts.token.onCancellationRequested(killChild));
       if (jobHandle) cancelSubs.push(jobHandle.cts.token.onCancellationRequested(killChild));
+      // A spawn failure emits BOTH 'error' and 'close' — settle exactly once or
+      // the job double-finishes (duplicate run:job-N tree ids break the Runs view).
+      let settled = false;
       const finish = (code: number, spawnErr?: Error) => {
+        if (settled) return;
+        settled = true;
         for (const s of cancelSubs) s.dispose();
         if (killTimer) clearTimeout(killTimer);
         if (truncated) this.output.appendLine("  (stdout truncated at 64MB)");
@@ -263,13 +274,11 @@ export class CliBridge implements vscode.Disposable {
         const failure = spawnErr
           ? { kind: "unknown" as const, message: spawnErr.message }
           : failureFor(code, records, stderr);
-        if (jobHandle) {
-          const cancelled = !!(
-            opts.token?.isCancellationRequested || jobHandle.cts.token.isCancellationRequested
-          );
-          this.finishJob(jobHandle, { cancelled, failure, records });
-        }
-        resolvePromise({ code, records, stdout, stderr, failure });
+        const cancelled = !!(
+          opts.token?.isCancellationRequested || jobHandle?.cts.token.isCancellationRequested
+        );
+        if (jobHandle) this.finishJob(jobHandle, { cancelled, failure, records });
+        resolvePromise({ code, records, stdout, stderr, failure, cancelled });
       };
       child.on("error", (err) => finish(-1, err));
       child.on("close", (code) => finish(code ?? -1));
@@ -292,7 +301,8 @@ export class CliBridge implements vscode.Disposable {
       { location: vscode.ProgressLocation.Notification, title, cancellable: true },
       async (_progress, token) => {
         const r = await this.run(args, { ...opts, token });
-        return token.isCancellationRequested ? undefined : r;
+        // r.cancelled also covers the Runs-view inline cancel (tracker token).
+        return token.isCancellationRequested || r.cancelled ? undefined : r;
       },
     );
     if (!result) return undefined;
