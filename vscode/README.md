@@ -63,7 +63,9 @@ output parsing) with plain `node --test` — no VS Code required.
   extension owns an `overcast situation serve` child with a pinned token
   (`OVERCAST_SITUATION_TOKEN`).
 - **Explorer right-click → Overcast**: watch/listen/see/face/exif/grid/… per
-  media type; multi-select batch sensing.
+  media type; multi-select batch sensing. The same Overcast menu sits on media
+  **editor tabs** (title-bar button + tab right-click) when an image/video/audio
+  file is open in the built-in preview.
 
 ## Future: registry-generated contributions
 

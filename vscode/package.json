@@ -121,14 +121,29 @@
     ],
     "submenus": [
       {
-        "id": "overcast.explorerSubmenu",
-        "label": "Overcast"
+        "id": "overcast.mediaSubmenu",
+        "label": "Overcast",
+        "icon": "media/overcast.svg"
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "submenu": "overcast.mediaSubmenu",
+          "group": "navigation@9",
+          "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic|mp3|wav|m4a|aac|flac|ogg|opus)$/i"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "submenu": "overcast.mediaSubmenu",
+          "group": "2_overcast",
+          "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic|mp3|wav|m4a|aac|flac|ogg|opus)$/i"
+        }
+      ],
       "explorer/context": [
         {
-          "submenu": "overcast.explorerSubmenu",
+          "submenu": "overcast.mediaSubmenu",
           "group": "2_overcast",
           "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic|mp3|wav|m4a|aac|flac|ogg|opus)$/i"
         },
@@ -138,7 +153,7 @@
           "when": "explorerResourceIsFolder"
         }
       ],
-      "overcast.explorerSubmenu": [
+      "overcast.mediaSubmenu": [
         { "command": "overcast.ctx.watch", "group": "1_sense@1", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg)$/i" },
         { "command": "overcast.ctx.listen", "group": "1_sense@2", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|mp3|wav|m4a|aac|flac|ogg|opus)$/i" },
         { "command": "overcast.ctx.see", "group": "1_sense@3", "when": "resourceExtname =~ /^\\.(png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic)$/i" },
