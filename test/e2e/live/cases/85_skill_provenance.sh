@@ -38,7 +38,7 @@ assert_eq "$C.fingerprint" "ready" "$(echo "$add" | jq -r '.state')" "distinctiv
 LENS_URL=""; lens_done=0; web_done=0
 if require_cred "$C.lens" APIFY_TOKEN "reverse-image tier needs Apify"; then
   cond "provenance skill: lens reverse-image-searches the mark for its earliest/original pages"
-  export OVERCAST_SOURCE_LENS_CMD="bash $PWD/providers/sources/lens.sh"
+  export OVERCAST_SOURCE_LENS_CMD="bash $PWD/providers/sources/lens/lens.sh"
   cp "$LOGO" "$CASE/origin_mark.${LOGO##*.}"
   ocrun "$CASE" source add "lens:origin_mark.${LOGO##*.}" --json >/dev/null 2>&1   # register the lens source
   lout="$(OC_TIMEOUT=420 oc "$CASE" scan --source lens --query "origin_mark.${LOGO##*.}" --limit 3 --json)"
@@ -55,7 +55,7 @@ fi
 # 3) skill step: keyword sweep with NO recency floor (older = closer to origin)
 if require_cred "$C.web" TAVILY_API_KEY "keyword-sweep tier needs Tavily"; then
   cond "provenance skill: keyword sweep with no --since floor surfaces origin candidates"
-  export OVERCAST_SOURCE_WEB_CMD="bash $PWD/providers/sources/web.sh"
+  export OVERCAST_SOURCE_WEB_CMD="bash $PWD/providers/sources/web/web.sh"
   ocrun "$CASE" source add 'web:brand logo origin history' --json >/dev/null 2>&1
   wout="$(OC_TIMEOUT=300 oc "$CASE" scan --source web --limit 3 --json)"
   save_json "85_web" "$wout" >/dev/null

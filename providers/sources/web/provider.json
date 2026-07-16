@@ -1,0 +1,37 @@
+{
+  "manifest_version": 1,
+  "name": "web",
+  "version": "1.0.0",
+  "description": "General web search (Tavily or Brave). Keyword queries; does not honor Google search operators (use dork for that).",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "web",
+      "label": "Web search",
+      "summary": "General web search (Tavily or Brave). Keyword queries; does not honor Google search operators (use dork for that).",
+      "env": [
+        "TAVILY_API_KEY",
+        "BRAVE_API_KEY"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/web/web.sh"
+      ],
+      "needs": "TAVILY_API_KEY|BRAVE_API_KEY",
+      "doctor": {
+        "check": "env_any",
+        "env": [
+          "TAVILY_API_KEY",
+          "BRAVE_API_KEY"
+        ],
+        "okNote": "web source key present",
+        "missingNote": "TAVILY_API_KEY or BRAVE_API_KEY missing for web source scans"
+      },
+      "refForms": [
+        {
+          "form": "web:<q>"
+        }
+      ]
+    }
+  ]
+}

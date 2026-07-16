@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "name": "enhance-forensics",
+  "version": "1.0.0",
+  "description": "Local image/video forensic enhance ops: ELA overlays (image) and panorama stitch (video).",
+  "entries": [
+    {
+      "kind": "sense",
+      "id": "ela",
+      "verb": "enhance",
+      "label": "Local ELA forensics (image)",
+      "summary": "Local `--ops ela` provider: ELA / noise-residual / luminance-gradient forensic overlays from an image (pillow + numpy; no key). Heuristic edit-detection LEADS, not proof — every record carries payload.caveat.",
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "python3 shipped:providers/senses/enhance/ela.py --input {{input}}",
+        "init": "python3 shipped:providers/senses/enhance/ela.py init",
+        "describe": "python3 shipped:providers/senses/enhance/ela.py describe"
+      }
+    },
+    {
+      "kind": "sense",
+      "id": "panorama",
+      "verb": "enhance",
+      "label": "Local panorama stitch (video)",
+      "summary": "Local `--ops panorama` provider: stitch a panning video into ONE wide still (opencv-python + numpy; no key) — exposes a skyline/landmark strip for geolocation that no single frame shows.",
+      "indexableDefault": true,
+      "descriptor": {
+        "type": "exec",
+        "run": "python3 shipped:providers/senses/enhance/panorama.py --input {{input}}",
+        "init": "python3 shipped:providers/senses/enhance/panorama.py init",
+        "describe": "python3 shipped:providers/senses/enhance/panorama.py describe"
+      }
+    }
+  ]
+}

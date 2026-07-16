@@ -478,11 +478,23 @@ overcast ask "where did we see the white van?" --deep --json
 ```
 
 Shipped provider scripts live in [`providers/`](providers) (sources / senses /
-engines); catalog bindings reference them as location-independent
-`shipped:<relpath>` refs resolved at run time, so profiles survive the install
-moving. The authoring demos stay in [`examples/providers/`](examples/providers)
-(bind those by raw `exec:` path), with the guide in
-[`docs/providers.md`](docs/providers.md).
+engines), each dir carrying a **`provider.json` manifest**; the catalog + source
+registry are built by scanning those at runtime, and bindings reference the
+scripts as location-independent `shipped:<relpath>` refs resolved at run time, so
+profiles survive the install moving. **Add your own provider** by authoring a
+manifest package and installing it — no code changes, no fork:
+
+```bash
+overcast provider create myfeed --kind source   # scaffold a package (provider.json + script)
+overcast provider install ./myfeed --yes         # register it (→ installed: refs, catalog, doctor)
+overcast provider list --installed               # or remove / --upgrade
+```
+
+A source package makes a new `scan`/`monitor` type; a sense package a new
+`--choice`. For a throwaway backend, the un-manifested escape hatch (a bare
+script bound by raw `exec:` / `OVERCAST_SOURCE_<TYPE>_CMD`) still works — the
+teaching demos are in [`examples/providers/`](examples/providers). Full authoring
+guide + manifest schema: [`docs/providers.md`](docs/providers.md).
 
 Provider setup has two levels:
 
@@ -673,7 +685,7 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 - `WINDY_API_KEY` — the `webcam` source (Windy Webcams API; free tier covers scan + still capture + monitor). Base override: `OVERCAST_WEBCAM_API`
 - `gdelttv`, `overpass`, `dispatch`, and `browser` need **no key** (`dispatch` optionally takes a `SOCRATA_APP_TOKEN` to raise rate limits)
 - `youtube` and `dl` need `yt-dlp` on `PATH` (no key)
-- `OVERCAST_SOURCE_<TYPE>_CMD` — override/add a source provider command
+- `OVERCAST_SOURCE_<TYPE>_CMD` — one-off override for a source provider command (to *add* a persistent source type, author a `provider.json` package + `provider install`)
 
 **Runtime / session** — `OVERCAST_HOME` (profiles, default `~/.overcast`),
 `OVERCAST_CASE` / `OVERCAST_PROFILE` (set by the launcher from `--case` / `--profile`),

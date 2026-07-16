@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "name": "lens",
+  "version": "1.0.0",
+  "description": "Google Lens reverse image search via Apify. Query/ref = an image URL or local image path.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "lens",
+      "label": "Google Lens reverse image (Apify)",
+      "summary": "Google Lens reverse image search via Apify. Query/ref = an image URL or local image path.",
+      "env": [
+        "APIFY_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/lens/lens.sh"
+      ],
+      "needs": "APIFY_TOKEN",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "APIFY_TOKEN"
+        ],
+        "okNote": "APIFY_TOKEN present",
+        "missingNote": "APIFY_TOKEN missing for lens (Google Lens reverse image) scans"
+      },
+      "refForms": [
+        {
+          "form": "lens:<image url|path>"
+        }
+      ]
+    }
+  ]
+}

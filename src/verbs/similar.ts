@@ -106,7 +106,7 @@ async function shotMarkers(ctx: VerbContext, ref: string): Promise<{ markers: nu
   // obtain shot boundaries. Reuse-first avoids re-paying for an already-watched clip.
   const binding = providerBinding(ctx, "watch");
   const rec = isCustomBinding(binding)
-    ? await runBoundProvider("watch", binding!, ref, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal })
+    ? await runBoundProvider("watch", binding!, ref, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal, home: ctx.home })
     : await runWatch(ref, { run: binding?.run, signal: ctx.signal });
   rec.meta = { ...rec.meta, case: ctx.case.dir, triggered_by: "similar" };
   return { markers: isReady(rec) ? segmentStarts(rec) : [], watched: rec };

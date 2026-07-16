@@ -1,0 +1,31 @@
+{
+  "manifest_version": 1,
+  "name": "gdelttv",
+  "version": "1.0.0",
+  "description": "GDELT 2.0 TV API — broadcast news video search over the Internet Archive TV News Archive. No key; media.ref is a bounded IA clip mp4.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "gdelttv",
+      "label": "GDELT TV broadcast news",
+      "summary": "GDELT 2.0 TV API — broadcast news video search over the Internet Archive TV News Archive. No key; media.ref is a bounded IA clip mp4.",
+      "base": [
+        "bash",
+        "shipped:providers/sources/gdelttv/gdelttv.sh"
+      ],
+      "needs": "none (public GDELT API)",
+      "doctor": {
+        "check": "keyless",
+        "okNote": "public GDELT TV API — no key needed (clipgallery corpus lags real time by weeks)"
+      },
+      "hosts": [
+        "archive.org"
+      ],
+      "refForms": [
+        {
+          "form": "gdelttv:\"<query>\""
+        }
+      ]
+    }
+  ]
+}

@@ -15,7 +15,7 @@ LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
 C=x_copycat
 require_cred "$C" APIFY_TOKEN "skipping x copycat flows" || exit 0
 SRCDIR="$PWD/providers/sources"
-export OVERCAST_SOURCE_X_CMD="bash $SRCDIR/x.sh"
+export OVERCAST_SOURCE_X_CMD="bash $SRCDIR/x/x.sh"
 
 assert_scan_hits() { # <id> <output> <label>  (same shape as 20_sources.sh)
   local id="$1" out="$2" label="$3"

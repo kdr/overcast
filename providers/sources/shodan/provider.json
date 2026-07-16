@@ -1,0 +1,38 @@
+{
+  "manifest_version": 1,
+  "name": "shodan",
+  "version": "1.0.0",
+  "description": "Host / service / banner intelligence via the Shodan REST API (search filters or a bare-IP host lookup). Authorized recon only.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "shodan",
+      "label": "Shodan host recon",
+      "summary": "Host / service / banner intelligence via the Shodan REST API (search filters or a bare-IP host lookup). Authorized recon only.",
+      "env": [
+        "SHODAN_API_KEY"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/shodan/shodan.sh"
+      ],
+      "needs": "SHODAN_API_KEY",
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "SHODAN_API_KEY"
+        ],
+        "okNote": "SHODAN_API_KEY present (host/service recon — authorized recon only)",
+        "missingNote": "SHODAN_API_KEY missing for shodan scans (https://account.shodan.io)"
+      },
+      "refForms": [
+        {
+          "form": "shodan:<search query>"
+        },
+        {
+          "form": "shodan:<ip>"
+        }
+      ]
+    }
+  ]
+}

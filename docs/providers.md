@@ -24,10 +24,12 @@ An exec provider is a command invoked three ways:
 
 A non-zero exit is a hint; the record's `state`/`error` is authoritative.
 overcast maps stdout to the loose record at the exec boundary — your provider
-just needs to emit `{ verb, format, payload, media?, meta?, state? }`. The
-runnable authoring demos live under
-[`examples/providers/`](../examples/providers) (bash / python / TypeScript, one
-per class) — copy one to start a provider of your own.
+just needs to emit `{ verb, format, payload, media?, meta?, state? }`. To start a
+provider of your own, scaffold a package with `overcast provider create`
+(see [Authoring a new provider](#authoring-a-new-provider)); the runnable
+teaching demos under [`examples/providers/`](../examples/providers) (bash /
+python / TypeScript, one per class) show the same contract for the bind-by-hand
+escape hatch.
 
 ## Binding a provider
 
@@ -43,8 +45,10 @@ overcast provider setup apply --preset fal --yes                 # or a whole pr
 overcast provider init enhance                                   # run the init hook
 ```
 
-For a provider **you wrote**, bind a raw `exec:` spec — the escape hatch for
-user-authored code the catalog doesn't know (the demos exercise exactly this):
+For a provider **you wrote**, the reusable path is a manifest package
+(`provider create` → `provider install`, see [Authoring a new
+provider](#authoring-a-new-provider)). For a quick throwaway, bind a raw `exec:`
+spec — the escape hatch for un-manifested user code (the demos exercise this):
 
 ```bash
 # sense provider (per verb)
@@ -90,6 +94,141 @@ next profile write; `overcast doctor` (the `provider-paths` check) flags any
 `overcast provider setup apply --verb <verb> --choice <id> --yes` to fix.
 `examples/providers/` holds only authoring demos: teaching code for the wire
 contract, bound by raw `exec:` path.
+
+Each shipped provider directory carries a **`provider.json` manifest** declaring
+its entries (sense choices and/or source types), env vars, and preset
+contributions. The catalog + source registry are built by scanning these at
+runtime, so adding a provider is a matter of dropping in a directory — see
+installable packages below.
+
+## Installable provider packages (`provider install`)
+
+A provider **package** is a directory (or a `.tgz`/`.tar.gz` tarball) shaped like
+a shipped provider dir: a `provider.json` manifest plus its exec scripts. Install
+one from a local path — there is no registry fetch (a package runs unsandboxed on
+untrusted media, so the source must be something you already have on disk):
+
+```bash
+overcast provider create myfeed --kind source     # scaffold ./myfeed (provider.json + myfeed.sh)
+overcast provider install ./myfeed                 # dry-run: prints what it would register
+overcast provider install ./myfeed --yes           # installs into <home>/providers/myfeed/
+overcast provider list --installed                 # name, version, entries, provenance, tamper flag
+overcast provider install ./myfeed --upgrade --yes # replace an installed package of the same name
+overcast provider remove myfeed --yes              # uninstall
+```
+
+Installed packages resolve through **`installed:<pkg>/<relpath>`** refs (the
+sibling of `shipped:`), against `<home>/providers/<pkg>/`. Once installed, a
+source type is usable everywhere a shipped one is (`source add <type>:<ref>`,
+`scan`, `monitor`, `doctor --sources`); a sense choice appears in `provider setup
+apply --verb <verb> --choice <id>`. Install **rejects collisions** with a shipped
+(or already-installed) choice id / source type / preset name, and the package
+names `sources`/`senses`/`engines` are reserved. Install stamps
+`.overcast-install.json` (origin + a sha256 tree hash); `provider list
+--installed` and `doctor` flag a package whose files changed since install
+(`tampered`). A manifest's `presets` and `hosts` extend the preset map and the
+`capture <url>` host router respectively.
+
+## Authoring a new provider
+
+Two ways to add a backend — pick by how you'll use it:
+
+1. **A package** (recommended for anything reusable or shareable) — a
+   `provider.json` manifest + exec scripts, scaffolded by `provider create`,
+   installed by `provider install`. This is how the shipped providers themselves
+   are structured; it gets you catalog listing (`provider setup apply --choice
+   <id>`), `source add <type>`, `doctor --sources`, presets, and portable
+   `installed:` refs.
+2. **A one-off bind** (the escape hatch) — a bare script with no manifest, bound
+   by `setup provider <verb> "exec:<cmd>"` (sense) or `OVERCAST_SOURCE_<TYPE>_CMD`
+   (source). Good for a throwaway backend or learning the wire contract; the
+   runnable teaching demos live in [`examples/providers/`](../examples/providers).
+
+Both speak the same [exec wire contract](#the-exec-wire-contract) — the only
+difference is whether a manifest registers the provider or you bind it by hand.
+
+### Walkthrough — a sense provider (per verb: see / enhance / listen / …)
+
+```bash
+overcast provider create myvlm --kind sense        # → ./myvlm/{provider.json, myvlm.sh}
+# 1. edit myvlm/myvlm.sh — implement describe / init / run --input, emit ONE record
+bash ./myvlm/myvlm.sh describe                      # sanity-check the contract offline
+# 2. edit myvlm/provider.json — set verb (default "see"), label/summary, env, indexableDefault
+overcast provider install ./myvlm --yes            # register it (validates + collision-checks)
+overcast provider setup apply --verb see --choice myvlm --yes   # bind `see` to it
+overcast see photo.jpg                              # run the verb through your provider
+```
+
+The scaffolded `run` op emits a record via `jq`; replace the `TODO` with your
+model call. `run` **must** map its output to the loose record
+(`{verb, format, payload, media?, state?}`) — overcast persists it verbatim.
+
+### Walkthrough — a source provider (a new `scan`/`monitor` type)
+
+```bash
+overcast provider create myfeed --kind source      # → ./myfeed/{provider.json, myfeed.sh}
+# edit myfeed/myfeed.sh:
+#   enumerate --query <q> [--limit N] [--since S] → a JSON ARRAY of scan.hit objects
+#   fetch --url <u> --out <path>                   → download to <path>, emit a capture record
+overcast provider install ./myfeed --yes
+overcast source add myfeed:some-query              # register a standing ref for the case
+overcast scan --source myfeed --pull               # enumerate + capture
+```
+
+Ref grammars (e.g. `myfeed:@handle` vs `myfeed:#tag`) are parsed **inside your
+script** — overcast passes whatever follows the first colon as `--query`, so the
+TS layer needs no per-type knowledge. Document them in the manifest's `refForms`.
+
+### The `provider.json` manifest
+
+One manifest per package directory. Top level:
+
+| Field | Purpose |
+|---|---|
+| `manifest_version` | schema version — `1`. |
+| `name` | package id (lowercase `[a-z0-9._-]`); the install dir name + `installed:<name>/…` namespace. `sources`/`senses`/`engines` are reserved. |
+| `version` | informational semver string. |
+| `entries[]` | one or more sense/source entries (below). |
+| `presets?` | named `{verb,choice}` bundles this package contributes (must reference its own entries). |
+
+A **sense** entry:
+
+```jsonc
+{ "kind": "sense", "id": "myvlm", "verb": "see",
+  "label": "My VLM", "summary": "…",
+  "env": ["MY_API_KEY"],            // surfaced as missing_env in setup/plan
+  "indexableDefault": true,          // does its output feed ask/brief evidence
+  "descriptor": {                    // exec templates; refs resolved at spawn
+    "type": "exec",
+    "run":      "bash installed:myvlm/myvlm.sh --input {{input}}",
+    "init":     "bash installed:myvlm/myvlm.sh init",
+    "describe": "bash installed:myvlm/myvlm.sh describe" } }
+```
+
+A **source** entry:
+
+```jsonc
+{ "kind": "source", "type": "myfeed", "aliases": ["mf"],
+  "label": "My Feed", "summary": "…",
+  "base": ["bash", "installed:myfeed/myfeed.sh"],   // op (enumerate|fetch|init) appended
+  "needs": "MY_API_KEY", "env": ["MY_API_KEY"],
+  "timeoutMs": 360000,                               // per-op budget for slow backends
+  "doctor": { "check": "env_all", "env": ["MY_API_KEY"],
+              "okNote": "MY_API_KEY present", "missingNote": "MY_API_KEY missing" },
+  "hosts": ["myfeed.example"],                        // ad-hoc `capture <url>` routing
+  "refForms": [{ "form": "myfeed:@handle" }, { "form": "myfeed:#tag" }] }
+```
+
+The `doctor.check` variants: `env_all` / `env_any` (present-checks over `env`),
+`keyless` (always ok, show `okNote`), `probe_init` (run `<base> init` — exit 0 =
+ready / 13 = needs creds), `reuse_playwright` (share the Playwright check). Omit
+`doctor` for a source with no credential check.
+
+**Ref tokens** in a manifest's command strings / `base`:
+`shipped:<relpath>` (the shipped `providers/` tree), `installed:<pkg>/<relpath>`
+(an installed package — what `provider create` writes), `{{input}}` (the media
+ref, rendered at spawn), and `{{env:VAR|default}}` (an env value resolved when the
+choice is materialized — e.g. a venv python: `{{env:DETECT_PY|python3}}`).
 
 ## Provider setup wizard and non-interactive profiles
 
@@ -823,7 +962,9 @@ sample 8 frames.
 ## Samples (runnable, in this repo)
 
 The authoring **demos** — minimal providers that teach the exec wire contract,
-one per language, meant to be copied as the starting point for your own:
+one per language. They're the manifest-*less* on-ramp (bind by hand); for a
+package you can install/share, `provider create` scaffolds the manifest version
+(see [Authoring a new provider](#authoring-a-new-provider)).
 
 - [`examples/providers/bash/watch.sh`](../examples/providers/bash/watch.sh) — the canonical tinycloud `watch` exec provider.
 - [`examples/providers/python/listen.py`](../examples/providers/python/listen.py) — a local-whisper `listen` provider (exec).
@@ -940,7 +1081,7 @@ Each responds to `describe` offline:
 ./examples/providers/bash/watch.sh describe
 python3 examples/providers/python/listen.py describe
 node --import tsx examples/providers/ts/see.ts describe
-bash providers/sources/tiktok.sh describe
+bash providers/sources/tiktok/tiktok.sh describe
 ```
 
 ### Consume an MCP server as a source (prototype/example)

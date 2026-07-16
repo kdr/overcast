@@ -1,0 +1,35 @@
+{
+  "manifest_version": 1,
+  "name": "plate",
+  "version": "1.0.0",
+  "description": "License plate → vehicle SPEC via a BOUND Apify actor. DPPA-restricted, no default actor: needs APIFY_TOKEN + OVERCAST_PLATE_ACTOR (or a self-contained OVERCAST_SOURCE_PLATE_CMD). Opt-in / sensitive.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "plate",
+      "label": "License plate → vehicle (Apify)",
+      "summary": "License plate → vehicle SPEC via a BOUND Apify actor. DPPA-restricted, no default actor: needs APIFY_TOKEN + OVERCAST_PLATE_ACTOR (or a self-contained OVERCAST_SOURCE_PLATE_CMD). Opt-in / sensitive.",
+      "env": [
+        "APIFY_TOKEN",
+        "OVERCAST_PLATE_ACTOR"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/plate/plate.sh"
+      ],
+      "needs": "APIFY_TOKEN + OVERCAST_PLATE_ACTOR",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "probe_init",
+        "okNote": "plate provider ready (vehicle SPEC only — owner is DPPA-restricted)",
+        "missingNote": "plate not ready — set APIFY_TOKEN + OVERCAST_PLATE_ACTOR (no default actor — DPPA), or a self-contained OVERCAST_SOURCE_PLATE_CMD",
+        "unavailableNote": "plate provider unavailable (shipped plate.sh not found)"
+      },
+      "refForms": [
+        {
+          "form": "plate:<ST>:<plate>"
+        }
+      ]
+    }
+  ]
+}

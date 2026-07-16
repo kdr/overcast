@@ -40,12 +40,12 @@ assert_eq "screenshot.needs_creds" "needs_credentials" "$(jq -r '.state' <<<"$mi
 
 # 3) the SHIPPED browser.sh enumerate emits one ephemeral recapture hit (jq-only,
 #    no renderer needed) — validates the real source contract offline
-enum="$(bash "$REPO/providers/sources/browser.sh" enumerate --query https://example.com 2>/dev/null)"
+enum="$(bash "$REPO/providers/sources/browser/browser.sh" enumerate --query https://example.com 2>/dev/null)"
 assert_eq "browser.enum_count" "1" "$(jq 'length' <<<"$enum")" "browser enumerate is one hit"
 assert_eq "browser.enum_recapture" "true" "$(jq -r '.[0].recapture' <<<"$enum")" "browser hit is recapture (ephemeral)"
 assert_eq "browser.enum_source" "browser" "$(jq -r '.[0].source' <<<"$enum")" "browser hit tagged source=browser"
 # scheme-less refs assume https
-enum2="$(bash "$REPO/providers/sources/browser.sh" enumerate --query example.org 2>/dev/null)"
+enum2="$(bash "$REPO/providers/sources/browser/browser.sh" enumerate --query example.org 2>/dev/null)"
 assert_eq "browser.enum_scheme" "https://example.org" "$(jq -r '.[0].url' <<<"$enum2")" "scheme-less ref → https"
 
 # 4) source plumbing: bind the fixture engine as the browser source; scan --pull

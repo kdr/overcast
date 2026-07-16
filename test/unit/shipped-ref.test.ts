@@ -19,6 +19,67 @@ import {
 } from "../../src/providers/shipped-ref.ts";
 import { runExecProvider } from "../../src/providers/run.ts";
 import { loadProfile, saveProfile } from "../../src/profile.ts";
+import { resolveInstalledRefToken, InstalledRefError } from "../../src/providers/installed-ref.ts";
+
+// installed: refs resolve against the TARGET home (Bugbot #110): transparency
+// (shippedRefResolution) and doctor (findShippedTokenIssues) must use the passed
+// home, not $OVERCAST_HOME, so setup show/plan don't display null and doctor
+// doesn't false-flag a valid custom-home binding.
+test("shippedRefResolution + findShippedTokenIssues honor the passed home for installed: refs (Bugbot #110)", () => {
+  const home = mkdtempSync(join(tmpdir(), "oc-refhome-"));
+  const savedHome = process.env.OVERCAST_HOME;
+  delete process.env.OVERCAST_HOME;
+  try {
+    const pkgDir = join(home, "providers", "vlm");
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(join(pkgDir, "run.sh"), "echo hi\n");
+    const desc = { type: "exec" as const, run: "bash installed:vlm/run.sh --input {{input}}", describe: "bash installed:vlm/run.sh describe" };
+    // transparency resolves at the target home, null at the default
+    assert.ok(shippedRefResolution(desc, home)?.["installed:vlm/run.sh"], "resolved path at target home");
+    assert.equal(shippedRefResolution(desc)?.["installed:vlm/run.sh"], null, "null at the default home");
+    // doctor doesn't false-flag a valid binding at the target home
+    assert.equal(findShippedTokenIssues("bash installed:vlm/run.sh describe", home).length, 0, "no issue at target home");
+    assert.equal(findShippedTokenIssues("bash installed:vlm/run.sh describe").length, 1, "flagged at the default home");
+  } finally {
+    if (savedHome === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// installed: ref scheme (manifests plan, Stage B) — resolved at the same spawn
+// seam as shipped:, but authored by `provider install`, NEVER by healing.
+test("installed: refs resolve at spawn, error when the package is gone, and are NEVER healed", () => {
+  const home = mkdtempSync(join(tmpdir(), "oc-installed-ref-"));
+  const savedHome = process.env.OVERCAST_HOME;
+  process.env.OVERCAST_HOME = home;
+  try {
+    const pkgDir = join(home, "providers", "acme");
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(join(pkgDir, "run.sh"), "echo hi\n");
+
+    // resolves through the shared spawn seam
+    assert.equal(resolveInstalledRefToken("installed:acme/run.sh"), join(pkgDir, "run.sh"));
+    assert.deepEqual(resolveShippedArgv(["bash", "installed:acme/run.sh"]), ["bash", join(pkgDir, "run.sh")]);
+    // a missing package throws the installed-specific error at the seam
+    assert.throws(() => resolveShippedArgv(["bash", "installed:gone/run.sh"]), InstalledRefError);
+    // doctor surfaces the stale binding
+    assert.deepEqual(
+      findShippedTokenIssues("bash installed:gone/run.sh").map((i) => i.kind),
+      ["unresolvable_ref"],
+    );
+    // healing is shipped-only: an installed: token passes through untouched
+    // (healCommandString only rewrites absolute paths), honoring locked decision 4.
+    const desc = { type: "exec" as const, run: "bash installed:acme/run.sh --input {{input}}" };
+    healDescriptor(desc);
+    assert.equal(desc.run, "bash installed:acme/run.sh --input {{input}}");
+    assert.equal(healShippedToken("installed:acme/run.sh"), "installed:acme/run.sh");
+  } finally {
+    if (savedHome === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test("resolveShippedRefToken resolves shipped provider files to absolute existing paths", () => {
   const abs = resolveShippedRefToken("shipped:providers/senses/enhance/ela.py");
@@ -65,7 +126,7 @@ test("healShippedToken rewrites recognized old absolute paths to shipped: refs (
     ["/opt/old/examples/providers/fal/enhance.sh", "shipped:providers/senses/fal/enhance.sh"],
     ["/opt/old/examples/providers/detect/detect.py", "shipped:providers/senses/detect/detect.py"],
     ["/opt/old/examples/providers/geocode/geocode.sh", "shipped:providers/senses/geocode/geocode.sh"],
-    ["/opt/old/examples/providers/sources/tiktok.sh", "shipped:providers/sources/tiktok.sh"],
+    ["/opt/old/examples/providers/sources/tiktok.sh", "shipped:providers/sources/tiktok/tiktok.sh"],
     ["/opt/old/examples/providers/visual-db/clip_match.py", "shipped:providers/engines/visual-db/clip_match.py"],
     ["/opt/old/examples/providers/audio-db/audio_match.py", "shipped:providers/engines/audio-db/audio_match.py"],
     ["/opt/old/examples/providers/screenshot/render.mjs", "shipped:providers/engines/screenshot/render.mjs"],

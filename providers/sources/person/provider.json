@@ -1,0 +1,39 @@
+{
+  "manifest_version": 1,
+  "name": "person",
+  "version": "1.0.0",
+  "description": "People-search / skip-trace via Apify: name(+location) → public records (addresses/phones/emails/relatives/age). NOT an FCRA report. Opt-in / sensitive.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "person",
+      "label": "People search / skip-trace (Apify)",
+      "summary": "People-search / skip-trace via Apify: name(+location) → public records (addresses/phones/emails/relatives/age). NOT an FCRA report. Opt-in / sensitive.",
+      "env": [
+        "APIFY_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/person/person.sh"
+      ],
+      "needs": "APIFY_TOKEN",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "APIFY_TOKEN"
+        ],
+        "okNote": "APIFY_TOKEN present (opt-in people-search — NOT an FCRA report; authorized use only)",
+        "missingNote": "APIFY_TOKEN missing for person (people-search / skip-trace) scans"
+      },
+      "refForms": [
+        {
+          "form": "person:<Full Name>"
+        },
+        {
+          "form": "person:<Full Name>@<location>"
+        }
+      ]
+    }
+  ]
+}

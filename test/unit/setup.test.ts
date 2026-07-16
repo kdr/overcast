@@ -1,12 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openCase } from "../../src/case.ts";
 import { loadProfile, defaultProfile } from "../../src/profile.ts";
 import { parseProviderSpec, setupVerb, providerVerb, doctorVerb } from "../../src/verbs/setup.ts";
+import { installProvider } from "../../src/verbs/provider-install.ts";
+import { invalidateManifestCache } from "../../src/providers/manifests.ts";
 import { addSource } from "../../src/state/source.ts";
 import { renderForFormat } from "../../src/render.ts";
 import { makeRecord } from "../../src/record.ts";
@@ -227,6 +229,85 @@ test("doctor reports core checks (pi/ffmpeg/ffprobe runnable) with structured re
     assert.equal(byName.get("ffmpeg"), true); // system ffmpeg must run
     assert.equal(byName.get("ffprobe"), true);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("provider setup show lists an installed choice at the target home (Bugbot #110)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-show-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-showhome-"));
+  const savedHome = process.env.OVERCAST_HOME;
+  delete process.env.OVERCAST_HOME; // prove ctx.home is used, not $OVERCAST_HOME
+  try {
+    const src = join(dir, "vlm");
+    mkdirSync(src, { recursive: true });
+    writeFileSync(join(src, "provider.json"), JSON.stringify({
+      manifest_version: 1, name: "vlm", version: "1.0.0",
+      entries: [{ kind: "sense", id: "vlm", verb: "see", label: "a", summary: "b",
+        descriptor: { type: "exec", run: "bash installed:vlm/run.sh --input {{input}}" } }],
+    }));
+    writeFileSync(join(src, "run.sh"), "echo '{}'\n");
+    assert.equal(installProvider(src, { yes: true }, home)[0].state, "ready");
+    invalidateManifestCache();
+    const [rec] = await providerVerb.run(ctx(dir, home, "setup", ["show"]));
+    const choices = (rec.payload as Record<string, unknown>).choices as Array<{ id: string; verb: string }>;
+    assert.ok(choices.some((c) => c.id === "vlm" && c.verb === "see"), "installed choice shown for the target home");
+  } finally {
+    if (savedHome === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedHome;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor flags a tampered installed provider package (Bugbot #110)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-tamper-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-tamper-"));
+  const savedHome = process.env.OVERCAST_HOME;
+  process.env.OVERCAST_HOME = home; // listInstalled() resolves the installed root via env
+  try {
+    const src = join(dir, "acme");
+    mkdirSync(src, { recursive: true });
+    writeFileSync(join(src, "provider.json"), JSON.stringify({
+      manifest_version: 1, name: "acme", version: "1.0.0",
+      entries: [{ kind: "source", type: "acme", label: "a", summary: "b",
+        base: ["bash", "installed:acme/run.sh"], doctor: { check: "keyless", okNote: "ok" } }],
+    }));
+    writeFileSync(join(src, "run.sh"), "echo '[]'\n");
+    assert.equal(installProvider(src, { yes: true })[0].state, "ready");
+    invalidateManifestCache();
+
+    // clean install → doctor check present and ok
+    let [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    let checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    let ip = checks.find((c) => c.name === "installed-providers");
+    assert.ok(ip && ip.ok, "clean installed package → installed-providers ok");
+
+    // tamper a file → doctor must flag it
+    appendFileSync(join(home, "providers", "acme", "run.sh"), "\n# tampered\n");
+    invalidateManifestCache();
+    [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    ip = checks.find((c) => c.name === "installed-providers");
+    assert.ok(ip && !ip.ok, "tampered package → installed-providers not ok");
+    assert.match(ip!.detail, /acme/);
+
+    // corrupt the manifest to valid-JSON-but-schema-invalid → the scan drops it;
+    // doctor must still surface it as an invalid installed package (not silent).
+    const mp = join(home, "providers", "acme", "provider.json");
+    const bad = JSON.parse(readFileSync(mp, "utf8"));
+    delete bad.version;
+    writeFileSync(mp, JSON.stringify(bad));
+    invalidateManifestCache();
+    [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    ip = checks.find((c) => c.name === "installed-providers");
+    assert.ok(ip && !ip.ok, "invalid installed manifest → installed-providers not ok");
+    assert.match(ip!.detail, /acme \(invalid manifest\)/);
+  } finally {
+    if (savedHome === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = savedHome;
     rmSync(dir, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   }

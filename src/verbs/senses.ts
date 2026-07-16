@@ -67,7 +67,7 @@ export async function dispatchListen(
   if (opts.diarize === true) extraArgs.push("--diarize");
   if (opts.lang) extraArgs.push("--lang", String(opts.lang));
   return isCustomBinding(binding)
-    ? runBoundProvider("listen", binding!, input, {
+    ? runBoundProvider("listen", binding!, input, { home: ctx.home,
         env: providerEnv(ctx.case.mediaDir),
         extraArgs,
         timeoutMs: 15 * 60_000,
@@ -268,7 +268,7 @@ export const seeVerb: VerbSpec = {
         // itself surfaces the clear "build lacks shipped provider files" record.
         let dp: string[] | undefined;
         try {
-          dp = resolveShippedArgv(tokenizeCommand(binding!.describe));
+          dp = resolveShippedArgv(tokenizeCommand(binding!.describe), ctx.home);
         } catch {
           dp = undefined;
         }
@@ -296,7 +296,7 @@ export const seeVerb: VerbSpec = {
           }
         }
       }
-      const rec = await runBoundProvider("see", binding!, resolvedRef, {
+      const rec = await runBoundProvider("see", binding!, resolvedRef, { home: ctx.home,
         env: seeEnv,
         extraArgs,
         signal: ctx.signal,
@@ -574,7 +574,7 @@ export const enhanceVerb: VerbSpec = {
       // dispatch by transport (exec runs it; http/inproc return an explicit
       // error) rather than silently falling back to ffmpeg. Local CPU models
       // (pyannote / SAM2) blow the 5-min default, so allow 15 min.
-      const rec = await runBoundProvider("enhance", enhBinding!, input, {
+      const rec = await runBoundProvider("enhance", enhBinding!, input, { home: ctx.home,
         env: providerEnv(ctx.case.mediaDir),
         extraArgs: extraArgs.length ? extraArgs : undefined,
         timeoutMs: 15 * 60_000,

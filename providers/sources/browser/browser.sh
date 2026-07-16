@@ -4,7 +4,7 @@
 # CURRENT state of the page to a PNG, so `monitor` becomes a page-watch:
 # every pass re-captures the live render (webcam-style ephemeral hits).
 # Bind with:  overcast source add browser:https://example.com/status
-#             OVERCAST_SOURCE_BROWSER_CMD="bash providers/sources/browser.sh"
+#             OVERCAST_SOURCE_BROWSER_CMD="bash providers/sources/browser/browser.sh"
 # Refs / queries:
 #   <url>  — the page to render (https:// assumed when no scheme is given)
 # Needs: node + the playwright optional dep + Chromium payload — see
@@ -15,8 +15,10 @@
 # Implements: enumerate --query <url> [--limit N] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
 
+# this script lives at providers/sources/browser/browser.sh, so the shared engine
+# is two levels up (providers/) then into engines/screenshot/.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-engine="$here/../engines/screenshot/screenshot.sh"
+engine="$here/../../engines/screenshot/screenshot.sh"
 
 op="${1:-enumerate}"; shift || true
 

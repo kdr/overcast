@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "name": "facesearch",
+  "version": "1.0.0",
+  "description": "OPT-IN, ToS/privacy-gated reverse FACE search via Apify. Never a default. Query/ref = a face image (url or local path).",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "facesearch",
+      "label": "Reverse face search (Apify)",
+      "summary": "OPT-IN, ToS/privacy-gated reverse FACE search via Apify. Never a default. Query/ref = a face image (url or local path).",
+      "env": [
+        "APIFY_TOKEN"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/facesearch/facesearch.sh"
+      ],
+      "needs": "APIFY_TOKEN",
+      "timeoutMs": 360000,
+      "doctor": {
+        "check": "env_all",
+        "env": [
+          "APIFY_TOKEN"
+        ],
+        "okNote": "APIFY_TOKEN present (opt-in face search — mind ToS/privacy)",
+        "missingNote": "APIFY_TOKEN missing for facesearch scans"
+      },
+      "refForms": [
+        {
+          "form": "facesearch:<image url|path>"
+        }
+      ]
+    }
+  ]
+}

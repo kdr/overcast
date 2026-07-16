@@ -109,7 +109,7 @@ async function runForensicSense(ctx: VerbContext, cfg: SenseConfig): Promise<Ove
   const binding = providerBinding(ctx, cfg.verb);
   const env = providerEnv(ctx.case.mediaDir);
   if (isCustomBinding(binding)) {
-    return stamp(await runBoundProvider(cfg.verb, binding!, ref, { env, signal: ctx.signal }));
+    return stamp(await runBoundProvider(cfg.verb, binding!, ref, { env, signal: ctx.signal, home: ctx.home }));
   }
   const script = shippedProviderPath(...cfg.shipped);
   if (!script) return stamp(errorRecord(cfg.verb, `the ${cfg.verb} provider script isn't available in this build`));
@@ -156,7 +156,7 @@ async function enrichWithPlace(ctx: VerbContext, records: OvercastRecord[]): Pro
       continue;
     }
     try {
-      const geo = await runBoundProvider("geocode", binding!, `${coords.lat},${coords.lng}`, {
+      const geo = await runBoundProvider("geocode", binding!, `${coords.lat},${coords.lng}`, { home: ctx.home,
         env: providerEnv(ctx.case.mediaDir),
         signal: ctx.signal,
       });

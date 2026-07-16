@@ -290,6 +290,15 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
   // first remaining token as the command.
   const { rest: tokens, caseDir, home, profile, errors: globalErrors } =
     extractGlobals(argv);
+  // Spawn-time ref resolution (installed:<pkg>/… → <home>/providers/<pkg>/…) and the
+  // manifest scan read the home from $OVERCAST_HOME via resolveHome({}) — they have
+  // no --home context. Export --home for the duration of THIS dispatch, then restore
+  // in `finally` so a reused process (tests/embeddings) calling runCli again without
+  // --home doesn't inherit a stale home. (Verb-level install/remove/list take ctx.home
+  // directly and don't depend on this.)
+  const priorOvercastHome = process.env.OVERCAST_HOME;
+  if (home) process.env.OVERCAST_HOME = home;
+  try {
   // Base load: launcher cwd secrets (mirrors bin/overcast.ts run()), so runCli is
   // self-contained for harnesses that call it without the bin preamble. The case
   // dir then overlays case-specific values on top.
@@ -425,5 +434,9 @@ export async function runCli(argv: string[], io: CliIO = defaultIO): Promise<num
 
   // unknown command
   io.err(`overcast: unknown command '${cmd ?? ""}'\n`);
-  return 1;
+    return 1;
+  } finally {
+    if (priorOvercastHome === undefined) delete process.env.OVERCAST_HOME;
+    else process.env.OVERCAST_HOME = priorOvercastHome;
+  }
 }
