@@ -15,8 +15,10 @@
 # Implements: enumerate --query <url> [--limit N] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
 
+# this script lives at providers/sources/browser/browser.sh, so the shared engine
+# is two levels up (providers/) then into engines/screenshot/.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-engine="$here/../engines/screenshot/screenshot.sh"
+engine="$here/../../engines/screenshot/screenshot.sh"
 
 op="${1:-enumerate}"; shift || true
 
