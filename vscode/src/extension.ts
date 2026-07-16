@@ -21,6 +21,7 @@ import { SituationServerManager } from "./services/situationServer.ts";
 import { VerbRegistry } from "./services/verbRegistry.ts";
 import { InvestigationTreeProvider } from "./trees/investigationTree.ts";
 import { RecordsTreeProvider } from "./trees/recordsTree.ts";
+import { RunsTreeProvider } from "./trees/runsTree.ts";
 import { SourcesTreeProvider } from "./trees/sourcesTree.ts";
 import { CommandDeckProvider } from "./views/commandDeck.ts";
 import type { ExtDeps, PanelRouter } from "./types.ts";
@@ -74,6 +75,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             : undefined;
       }
     }),
+  );
+
+  // ---- runs (CLI job tracker): a tree + a running-count badge + a status-bar
+  // spinner. All three ride the bridge's onDidChangeJobs event. ----
+  const runsTree = new RunsTreeProvider(deps);
+  const runsView = vscode.window.createTreeView("overcast.runs", { treeDataProvider: runsTree });
+  const runsStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  runsStatus.command = "overcast.runs.focus"; // auto-registered per view
+  context.subscriptions.push(
+    runsTree,
+    runsView,
+    runsStatus,
+    bridge.onDidChangeJobs(() => {
+      const running = bridge.jobs.filter((j) => j.state === "running").length;
+      runsView.badge = running
+        ? { value: running, tooltip: `${running} overcast run(s) in progress` }
+        : undefined;
+      if (running > 0) {
+        runsStatus.text = `$(sync~spin) overcast: ${running}`;
+        runsStatus.tooltip = `${running} overcast run(s) in progress — click to show Runs`;
+        runsStatus.show();
+      } else {
+        runsStatus.hide();
+      }
+    }),
+    vscode.commands.registerCommand("overcast.cancelRun", (node?: unknown) => {
+      const id = (node as { jobId?: unknown } | undefined)?.jobId;
+      if (typeof id === "string") bridge.cancelJob(id);
+    }),
+    vscode.commands.registerCommand("overcast.clearRuns", () => bridge.clearFinishedJobs()),
   );
 
   // ---- open the agent terminal when the view is opened with no editors ----

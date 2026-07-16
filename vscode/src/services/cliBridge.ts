@@ -11,11 +11,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { failureFor, parseRecords, type CliFailure } from "../lib/cliOutput.ts";
+import { jobLabel, jobVerbTarget, shouldTrackJob, type Job } from "../lib/jobs.ts";
 import type { OvercastRecord } from "../types.ts";
 import type { CaseLocator } from "./caseLocator.ts";
 
 const MAX_STDOUT_BYTES = 64 * 1024 * 1024;
 const KILL_ESCALATE_MS = 3000;
+// How many finished jobs the Runs view keeps (newest-first ring).
+const JOB_HISTORY = 20;
 
 export interface ResolvedCli {
   /** executable to spawn */
@@ -73,6 +76,15 @@ export class CliBridge implements vscode.Disposable {
   private resolved: ResolvedCli | null | undefined; // undefined = not yet tried
   private mutateQueue: Promise<unknown> = Promise.resolve();
   private readonly disposables: vscode.Disposable[] = [];
+
+  // ---- run tracking (Runs view + status-bar spinner) ----
+  private readonly jobEmitter = new vscode.EventEmitter<void>();
+  /** Fires on any job state change (start / finish / cancel / clear). */
+  readonly onDidChangeJobs = this.jobEmitter.event;
+  private runningJobs: Job[] = []; // newest-first
+  private finishedJobs: Job[] = []; // newest-first ring (≤ JOB_HISTORY)
+  private readonly jobCts = new Map<string, vscode.CancellationTokenSource>();
+  private jobSeq = 0;
 
   constructor(
     private readonly output: vscode.OutputChannel,
@@ -208,6 +220,11 @@ export class CliBridge implements vscode.Disposable {
 
     this.output.appendLine(`$ overcast ${finalArgs.slice(cli.argsPrefix.length).join(" ")}`);
 
+    // Track this run as a job (unless it's a noisy poll read) for the Runs view
+    // + status bar. The handle owns a tracker CancellationTokenSource that MERGES
+    // with any caller token — cancelling either kills the child (see below).
+    const jobHandle = this.startJob(args);
+
     return new Promise((resolvePromise) => {
       const child = spawn(cli.cmd, finalArgs, {
         cwd: opts.cwd ?? caseDir ?? undefined,
@@ -227,19 +244,31 @@ export class CliBridge implements vscode.Disposable {
         }
       });
       let killTimer: NodeJS.Timeout | undefined;
-      const cancelSub = opts.token?.onCancellationRequested(() => {
+      // Single kill path (SIGTERM → SIGKILL), driven by EITHER the caller token
+      // or the tracker's own token — so the Runs view's cancel works even when
+      // the caller passed no token.
+      const killChild = () => {
         this.output.appendLine("  (cancelled — SIGTERM)");
         child.kill("SIGTERM");
         killTimer = setTimeout(() => child.kill("SIGKILL"), KILL_ESCALATE_MS);
-      });
+      };
+      const cancelSubs: vscode.Disposable[] = [];
+      if (opts.token) cancelSubs.push(opts.token.onCancellationRequested(killChild));
+      if (jobHandle) cancelSubs.push(jobHandle.cts.token.onCancellationRequested(killChild));
       const finish = (code: number, spawnErr?: Error) => {
-        cancelSub?.dispose();
+        for (const s of cancelSubs) s.dispose();
         if (killTimer) clearTimeout(killTimer);
         if (truncated) this.output.appendLine("  (stdout truncated at 64MB)");
         const records = parseRecords(stdout);
         const failure = spawnErr
           ? { kind: "unknown" as const, message: spawnErr.message }
           : failureFor(code, records, stderr);
+        if (jobHandle) {
+          const cancelled = !!(
+            opts.token?.isCancellationRequested || jobHandle.cts.token.isCancellationRequested
+          );
+          this.finishJob(jobHandle, { cancelled, failure, records });
+        }
         resolvePromise({ code, records, stdout, stderr, failure });
       };
       child.on("error", (err) => finish(-1, err));
@@ -316,6 +345,62 @@ export class CliBridge implements vscode.Disposable {
     return next;
   }
 
+  /** Snapshot of tracked jobs, newest-first: running rows then the finished ring. */
+  get jobs(): readonly Job[] {
+    return [...this.runningJobs, ...this.finishedJobs];
+  }
+
+  /** Cancel a running job by id — kills its child via the tracker-owned token. */
+  cancelJob(id: string): void {
+    this.jobCts.get(id)?.cancel();
+  }
+
+  /** Drop finished jobs (the Runs view's "Clear" title action). */
+  clearFinishedJobs(): void {
+    if (this.finishedJobs.length === 0) return;
+    this.finishedJobs = [];
+    this.jobEmitter.fire();
+  }
+
+  private startJob(
+    args: string[],
+  ): { job: Job; cts: vscode.CancellationTokenSource } | undefined {
+    if (!shouldTrackJob(args)) return undefined;
+    const { verb, target } = jobVerbTarget(args);
+    const id = `job-${++this.jobSeq}`;
+    const cts = new vscode.CancellationTokenSource();
+    const job: Job = {
+      id,
+      verb,
+      target,
+      label: jobLabel(verb, target),
+      startedAt: Date.now(),
+      state: "running",
+    };
+    this.runningJobs.unshift(job);
+    this.jobCts.set(id, cts);
+    this.jobEmitter.fire();
+    return { job, cts };
+  }
+
+  private finishJob(
+    handle: { job: Job; cts: vscode.CancellationTokenSource },
+    outcome: { cancelled: boolean; failure?: CliFailure; records: OvercastRecord[] },
+  ): void {
+    const { job, cts } = handle;
+    const i = this.runningJobs.indexOf(job);
+    if (i >= 0) this.runningJobs.splice(i, 1);
+    cts.dispose();
+    this.jobCts.delete(job.id);
+    job.endedAt = Date.now();
+    job.state = outcome.cancelled ? "cancelled" : outcome.failure ? "failed" : "ok";
+    if (outcome.failure && !outcome.cancelled) job.failure = outcome.failure.message;
+    if (outcome.records[0]?.id) job.recordId = outcome.records[0].id;
+    this.finishedJobs.unshift(job);
+    if (this.finishedJobs.length > JOB_HISTORY) this.finishedJobs.length = JOB_HISTORY;
+    this.jobEmitter.fire();
+  }
+
   /** Spawn a long-lived child (situation serve). Caller owns the lifecycle. */
   async spawnLongLived(
     args: string[],
@@ -341,5 +426,8 @@ export class CliBridge implements vscode.Disposable {
 
   dispose(): void {
     for (const d of this.disposables) d.dispose();
+    for (const cts of this.jobCts.values()) cts.dispose();
+    this.jobCts.clear();
+    this.jobEmitter.dispose();
   }
 }

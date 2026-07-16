@@ -52,10 +52,14 @@ output parsing) with plain `node --test` — no VS Code required.
 - **Activity bar → Overcast**: a **Case** command deck pinned at the top
   (labeled buttons — New Note, Scan…, Run Verb…, Status Report, Map, Graph,
   Wall, Situation, Agent Terminal; case name + CLI status dot; Initialize/Select
-  when there's no case) over three trees — Investigation (lines of investigation
+  when there's no case) over four trees — Investigation (lines of investigation
   + a "Notes & leads" group: suggested findings with inline ✓/✗ and your notes,
   triage badge count on the view), Sources & Monitors (freshness), Records
-  (trail).
+  (trail), and Runs (collapsed by default: every tracked CLI invocation —
+  running senses/scans with a spinner + live elapsed and an inline Cancel, then
+  the last ~20 finished with duration/error and a record deep-link; a status-bar
+  `$(sync~spin) overcast: N` spinner + a view badge count the active runs and
+  click through to the tree).
 - **Editor tabs**: artifact panels (view player, grid board, map, graph, wall,
   brief export — the CLI's own self-contained HTML, CSP/file:// rewritten for
   webviews), record detail, scan results.

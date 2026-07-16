@@ -65,6 +65,12 @@
           "id": "overcast.records",
           "name": "Records",
           "icon": "media/overcast.svg"
+        },
+        {
+          "id": "overcast.runs",
+          "name": "Runs",
+          "icon": "media/overcast.svg",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -117,7 +123,9 @@
       { "command": "overcast.openInOvercast", "category": "Overcast", "title": "Open in Overcast" },
       { "command": "overcast.openAgentTerminal", "category": "Overcast", "title": "Open Agent Terminal", "icon": "$(terminal)" },
       { "command": "overcast.restartCli", "category": "Overcast", "title": "Restart CLI", "icon": "$(debug-restart)" },
-      { "command": "overcast.addNote", "category": "Overcast", "title": "New Note…", "icon": "$(note)" }
+      { "command": "overcast.addNote", "category": "Overcast", "title": "New Note…", "icon": "$(note)" },
+      { "command": "overcast.cancelRun", "category": "Overcast", "title": "Cancel Run", "icon": "$(stop-circle)" },
+      { "command": "overcast.clearRuns", "category": "Overcast", "title": "Clear Finished Runs", "icon": "$(clear-all)" }
     ],
     "submenus": [
       {
@@ -178,7 +186,8 @@
         { "command": "overcast.showWall", "when": "view == overcast.sources", "group": "navigation@1" },
         { "command": "overcast.situationOpen", "when": "view == overcast.sources", "group": "navigation@2" },
         { "command": "overcast.searchSource", "when": "view == overcast.sources", "group": "1_overflow@1" },
-        { "command": "overcast.addNote", "when": "view == overcast.records", "group": "navigation@1" }
+        { "command": "overcast.addNote", "when": "view == overcast.records", "group": "navigation@1" },
+        { "command": "overcast.clearRuns", "when": "view == overcast.runs", "group": "navigation@1" }
       ],
       "view/item/context": [
         { "command": "overcast.acceptFinding", "when": "viewItem == overcast.finding", "group": "inline@1" },
@@ -187,7 +196,8 @@
         { "command": "overcast.openRecord", "when": "viewItem =~ /^overcast\\.(record|finding)$/", "group": "2_record@1" },
         { "command": "overcast.copyRecordJson", "when": "viewItem =~ /^overcast\\.(record|finding)$/", "group": "2_record@2" },
         { "command": "overcast.copyRecordId", "when": "viewItem =~ /^overcast\\.(record|finding)$/", "group": "2_record@3" },
-        { "command": "overcast.scanSourceNode", "when": "viewItem == overcast.source", "group": "1_scan@1" }
+        { "command": "overcast.scanSourceNode", "when": "viewItem == overcast.source", "group": "1_scan@1" },
+        { "command": "overcast.cancelRun", "when": "viewItem == overcast.run.running", "group": "inline" }
       ],
       "commandPalette": [
         { "command": "overcast.openInOvercast", "when": "false" },
@@ -210,7 +220,8 @@
         { "command": "overcast.ctx.chronolocate", "when": "false" },
         { "command": "overcast.ctx.audio", "when": "false" },
         { "command": "overcast.ctx.voice", "when": "false" },
-        { "command": "overcast.ctx.batchSense", "when": "false" }
+        { "command": "overcast.ctx.batchSense", "when": "false" },
+        { "command": "overcast.cancelRun", "when": "false" }
       ]
     },
     "configuration": {
