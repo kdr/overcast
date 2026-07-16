@@ -38,8 +38,11 @@ bash vscode/scripts/seed-dev-case.sh
 # then open vscode/ in VS Code and F5 ("Run Extension (fixture case)")
 ```
 
-In the dev host, set `overcast.path` to `<repo>/dist/bin/overcast.js` to run
-against your fresh build. `npm run typecheck` covers host + webview;
+The seed script writes `.dev/vscode-fixture/.vscode/settings.json` pinning
+`overcast.path` (your fresh build), `overcast.home` (the isolated fixture
+home), and `overcast.profile`, plus a case-dir `.env` with the fixture source
+binding — so scan/watch in the dev host run fully offline. `npm run typecheck`
+covers host + webview;
 `npm test` runs the pure-logic units (html rewriting, argv assembly, CLI
 output parsing) with plain `node --test` — no VS Code required.
 

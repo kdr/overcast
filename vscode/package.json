@@ -209,6 +209,11 @@
           "default": "",
           "markdownDescription": "Path to the `overcast` CLI. A `.js` path (e.g. a repo `dist/bin/overcast.js`) is run with the extension host's Node. Empty = discover on PATH."
         },
+        "overcast.home": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Overcast home directory passed as `--home` on every CLI call (profiles, archive buckets). Absolute, or relative to the workspace folder. Empty = the CLI default (`~/.overcast`)."
+        },
         "overcast.caseDir": {
           "type": "string",
           "default": "",

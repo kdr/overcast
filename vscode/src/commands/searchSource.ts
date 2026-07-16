@@ -79,8 +79,11 @@ async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise
   if (!(await deps.bridge.ensureCli())) return;
 
   let filter = preselectedSourceId;
-  let filterLabel = preselectedSourceId ?? "all enabled sources";
-  if (!preselectedSourceId) {
+  let filterLabel = "all enabled sources";
+  if (preselectedSourceId) {
+    const src = (deps.model.status?.sources ?? []).find((s) => s.id === preselectedSourceId);
+    filterLabel = src ? `${src.type}:${src.ref}` : preselectedSourceId;
+  } else {
     const pick = await pickSourceFilter(deps);
     if (!pick) return;
     filter = pick.filter;

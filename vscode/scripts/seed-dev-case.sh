@@ -6,9 +6,12 @@
 # (dist/bin/overcast.js) and ffmpeg on PATH (or OVERCAST_FFMPEG).
 #
 # The fixture profile lives in an ISOLATED overcast home
-# (.dev/vscode-fixture/home) so nothing leaks into ~/.overcast. Extension-
-# invoked CLI runs use YOUR real profile — bind real providers (or accept
-# needs_credentials prompts) when exercising senses from the UI.
+# (.dev/vscode-fixture/home) so nothing leaks into ~/.overcast. The dev host is
+# wired to it too: this script writes .dev/vscode-fixture/.vscode/settings.json
+# (overcast.path/home/profile) and a case-dir .env carrying the fixture source
+# binding (the CLI loads .env from cwd, and the extension spawns with
+# cwd = case dir) — so scan + watch work offline from the UI. Senses the
+# fixture profile doesn't bind still hit defaults (needs_credentials prompts).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,6 +52,24 @@ export OVERCAST_SOURCE_FIXTURE_CMD="bash $REPO/test/fixtures/fake-source.sh"
 export OVERCAST_FIXTURE_CLIP="$CASE/harbor_cam.mp4"
 export OVERCAST_FIXTURE_CLIP2="$FIX/second_clip.mp4"
 export OVERCAST_NO_DOTENV=1
+
+# Same fixture bindings for extension-invoked runs: the CLI picks up .env from
+# its cwd, and the extension spawns with cwd = case dir.
+cat >"$CASE/.env" <<ENV
+OVERCAST_SOURCE_FIXTURE_CMD=bash $REPO/test/fixtures/fake-source.sh
+OVERCAST_FIXTURE_CLIP=$CASE/harbor_cam.mp4
+OVERCAST_FIXTURE_CLIP2=$FIX/second_clip.mp4
+ENV
+
+# Point the F5 dev host at the fresh CLI build + the isolated home/profile.
+mkdir -p "$FIX/.vscode"
+cat >"$FIX/.vscode/settings.json" <<JSON
+{
+  "overcast.path": "$REPO/dist/bin/overcast.js",
+  "overcast.home": "$OC_HOME",
+  "overcast.profile": "fixture"
+}
+JSON
 
 G=(--case "$CASE" --home "$OC_HOME" --profile fixture)
 

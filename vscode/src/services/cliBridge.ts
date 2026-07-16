@@ -195,6 +195,8 @@ export class CliBridge implements vscode.Disposable {
     }
     const profile = vscode.workspace.getConfiguration("overcast").get<string>("profile", "");
     if (profile && !args.includes("--profile")) finalArgs.push("--profile", profile);
+    const home = this.homeDir();
+    if (home && !args.includes("--home")) finalArgs.push("--home", home);
     if (!opts.rawOutput && !args.includes("--json")) finalArgs.push("--json");
 
     this.output.appendLine(`$ overcast ${finalArgs.slice(cli.argsPrefix.length).join(" ")}`);
@@ -250,18 +252,21 @@ export class CliBridge implements vscode.Disposable {
   ): Promise<CliResult | undefined> {
     const cli = await this.ensureCli();
     if (!cli) return undefined;
-    return vscode.window.withProgress(
+    const result = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title, cancellable: true },
       async (_progress, token) => {
-        const result = await this.run(args, { ...opts, token });
-        if (token.isCancellationRequested) return undefined;
-        if (result.failure) {
-          await this.surfaceFailure(result);
-          return undefined;
-        }
-        return result;
+        const r = await this.run(args, { ...opts, token });
+        return token.isCancellationRequested ? undefined : r;
       },
     );
+    if (!result) return undefined;
+    if (result.failure) {
+      // Outside the withProgress scope — awaiting the failure dialog inside it
+      // keeps the spinner toast open, stacked under the error.
+      await this.surfaceFailure(result);
+      return undefined;
+    }
+    return result;
   }
 
   private async surfaceFailure(result: CliResult): Promise<void> {
@@ -287,6 +292,16 @@ export class CliBridge implements vscode.Disposable {
     if (pick === "Show Log") this.output.show(true);
   }
 
+  /** `overcast.home` setting → `--home` (profiles, archive buckets). Absolute
+   *  or workspace-relative, mirroring `overcast.caseDir`. */
+  private homeDir(): string | undefined {
+    const raw = vscode.workspace.getConfiguration("overcast").get<string>("home", "").trim();
+    if (!raw) return undefined;
+    if (path.isAbsolute(raw)) return raw;
+    const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return ws ? path.join(ws, raw) : raw;
+  }
+
   /** Serialized mutation lane (finding accept/dismiss etc. — no double-fires). */
   mutate(args: string[], opts: RunOptions = {}): Promise<CliResult> {
     const next = this.mutateQueue.then(() => this.run(args, opts));
@@ -304,6 +319,10 @@ export class CliBridge implements vscode.Disposable {
     const finalArgs = [...cli.argsPrefix, ...args];
     const caseDir = opts.caseDir ?? this.locator.caseDir;
     if (caseDir && !args.includes("--case")) finalArgs.push("--case", caseDir);
+    const profile = vscode.workspace.getConfiguration("overcast").get<string>("profile", "");
+    if (profile && !args.includes("--profile")) finalArgs.push("--profile", profile);
+    const home = this.homeDir();
+    if (home && !args.includes("--home")) finalArgs.push("--home", home);
     this.output.appendLine(
       `$ overcast ${finalArgs.slice(cli.argsPrefix.length).join(" ")} (long-lived)`,
     );
