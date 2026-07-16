@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>overcast grid — harbor_cam.mp4</title>
+<style>
+  :root{--bg:#08120c;--panel:#0d1c12;--rule:#1f9d57;--ink:#c6f7d5;--amber:#ffc400;--dim:#5f9e79}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-monospace,Menlo,Consolas,monospace;padding:20px}
+  h1{color:var(--amber);font-size:14px;letter-spacing:2px;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:12px;margin:0 0 16px}
+  .board{position:relative;max-width:1100px;margin:0 auto;border:1px solid var(--rule);border-radius:8px;overflow:hidden;line-height:0}
+  .board img{display:block;width:100%;height:auto}
+  .overlay{position:absolute;inset:0}
+  .cell{position:absolute;margin:0;padding:0;border:1px solid transparent;background:transparent;cursor:pointer;border-radius:4px;transition:border-color .12s,background .12s}
+  .cell:hover,.cell:focus-visible{border-color:var(--amber);background:rgba(255,196,0,.12);outline:none}
+  .cell .badge{position:absolute;top:5px;left:5px;font-size:12px;font-weight:700;color:#08120c;background:var(--amber);border-radius:4px;padding:1px 6px;line-height:1.4}
+  .cell .tc{position:absolute;bottom:5px;right:5px;font-size:11px;color:var(--ink);background:rgba(8,18,12,.72);border:1px solid var(--rule);border-radius:4px;padding:1px 5px}
+  .cell.blank{cursor:default;background:repeating-linear-gradient(45deg,rgba(255,255,255,.03),rgba(255,255,255,.03) 6px,transparent 6px,transparent 12px)}
+  .cell.blank .badge{background:var(--dim);opacity:.6}
+  video{display:block;width:100%;max-width:1100px;margin:16px auto 0;background:#000;border:1px solid var(--rule);border-radius:8px}
+  .hint{color:var(--dim);font-size:12px;text-align:center;margin:12px 0 0}
+</style></head><body>
+<h1>▦ OVERCAST GRID — harbor_cam.mp4</h1>
+<p class="sub">2×2 contact sheet · click a numbered cell to seek the clip to that moment</p>
+<div class="board"><img src="file:///Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/harbor_cam_grid_4_a9edc5bb70.png" alt="contact sheet"><div class="overlay"><button class="cell" style="left:0.9119%;top:1.2048%;width:48.6322%;height:48.1928%" onclick="seek(0.25)" title="cell 1 · 0.25s"><span class="badge">1</span><span class="tc">0:00</span></button><button class="cell" style="left:50.4559%;top:1.2048%;width:48.6322%;height:48.1928%" onclick="seek(0.75)" title="cell 2 · 0.75s"><span class="badge">2</span><span class="tc">0:01</span></button><button class="cell" style="left:0.9119%;top:50.6024%;width:48.6322%;height:48.1928%" onclick="seek(1.25)" title="cell 3 · 1.25s"><span class="badge">3</span><span class="tc">0:01</span></button><button class="cell" style="left:50.4559%;top:50.6024%;width:48.6322%;height:48.1928%" onclick="seek(1.75)" title="cell 4 · 1.75s"><span class="badge">4</span><span class="tc">0:02</span></button></div></div>
+<video id="v" src="file:///Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/harbor_cam.mp4" controls preload="metadata"></video>
+<p class="hint">cells labeled #n · M:SS — the exact seconds live in the grid record's payload.cells</p>
+<script>
+  var v=document.getElementById('v');
+  function seek(t){ if(!v)return; v.currentTime=t; v.play&&v.play().catch(function(){}); v.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+</script>
+</body></html>

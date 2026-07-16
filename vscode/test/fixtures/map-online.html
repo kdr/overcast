@@ -1,0 +1,67 @@
+<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: file: https://*.tile.openstreetmap.org; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; font-src data:"><meta name="viewport" content="width=device-width,initial-scale=1"><title>harborwatch — evidence map</title><style>*{box-sizing:border-box}body{margin:0;background:#f7f8fa;color:#1a1f24;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.4}
+.top{padding:14px 18px;border-bottom:1px solid #d9dee5}
+h1{margin:0;font-size:20px;color:#2563eb}.sub{color:#5b6672;margin-top:4px}.chips{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid #d9dee5;border-radius:999px;padding:1px 8px;color:#5b6672}
+.layout{display:grid;grid-template-columns:1fr 320px;gap:0;height:calc(100vh - 74px)}
+.side{overflow:auto;border-left:1px solid #d9dee5;background:#ffffff}
+ul.points{list-style:none;margin:0;padding:0}
+.prow{display:grid;grid-template-columns:26px 1fr auto;gap:8px;padding:10px 12px;border-bottom:1px solid #d9dee5;cursor:pointer}
+.prow:hover,.prow.active{background:#f7f8fa}
+.pin{width:22px;height:22px;border-radius:50%;background:#e11d48;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px}
+.ptitle{color:#1a1f24;font-weight:600;word-break:break-word}.pdim{color:#5b6672;word-break:break-word}
+.posm{color:#2563eb;text-decoration:none;font-size:11px}
+.pthumb{width:56px;height:56px;object-fit:cover;border:1px solid #d9dee5;border-radius:4px}
+@media(max-width:720px){.layout{grid-template-columns:1fr;height:auto}.side{border-left:none;border-top:1px solid #d9dee5}}.mapwrap{position:relative;overflow:hidden;background:#0a0d0e;cursor:grab}.mapwrap.drag{cursor:grabbing}
+.tiles,.markers{position:absolute;left:0;top:0}.tiles img{position:absolute;width:256px;height:256px;user-select:none;-webkit-user-drag:none}
+.mk{position:absolute;transform:translate(-50%,-100%);width:22px;height:22px;border-radius:50% 50% 50% 0;background:#e11d48;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;transform-origin:center;rotate:-45deg}
+.mk span{rotate:45deg}.mk.active{background:#2563eb}
+.ctl{position:absolute;top:10px;left:10px;z-index:5;display:flex;flex-direction:column;gap:4px}
+.ctl button{width:30px;height:30px;font-size:18px;background:#ffffff;color:#1a1f24;border:1px solid #d9dee5;border-radius:4px;cursor:pointer}
+.attrib{position:absolute;bottom:2px;right:4px;z-index:5;font-size:10px;color:#5b6672;background:#ffffff;padding:1px 5px;border-radius:3px;opacity:.85}</style>
+<body><div id=map></div>
+<script>
+// trimmed chunk containing the tile url template
+var _chunk = 1;
+8VsVi9l6L2OS9q9ylrkKwlKzgNmJSMyNDdype1fuube1ycqKfoAOwYAmZTCZjWQ1mzvKBa7Q8/wAMAAbEfAAABuKADABaQAAAEzKYTMbVfrNneR/a7Q8/wwABqR+ADizXMcOhdLvFTf8AD0jplpWPORWwZeG+LEdc1qUr/K8iJ3rkOuUk5mfjtgS0F8aI65jEpXJeq8iInKq0IdDiikmkbHG1XuctERNv4bVXQiFDyvKW2XnJML5tOlK4WIujoa00rtdRF2erkbOygsWKyJF0rVznUVzulVURNCbERKfCc8lmr6qbLURItD4l6J+1nSvf5i9Wut9HrpIklIo6Xk1pa9y5I0wn933Ia/cTKqekvIAAPiJgUwmZTBVP6va3Eg2Q0zMcQAAUl/AAAD//2Q==">
+  </li></ul></aside>
+</div>
+<script>
+const POINTS=[{"lat":1.5,"lng":2.5,"i":0}];
+const BOUNDS={"minLat":1.5,"maxLat":1.5,"minLng":2.5,"maxLng":2.5};
+const map=document.getElementById('map'),tiles=document.getElementById('tiles'),markers=document.getElementById('markers');
+function lon2t(lon,z){return (lon+180)/360*Math.pow(2,z);}
+function lat2t(lat,z){var r=lat*Math.PI/180;return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*Math.pow(2,z);}
+// unwrap a point longitude into the (possibly antimeridian-shifted) BOUNDS frame
+function unwrap(lng){return (BOUNDS && lng < BOUNDS.minLng) ? lng+360 : lng;}
+let zoom=14,panning=null,center=BOUNDS?{lat:(BOUNDS.minLat+BOUNDS.maxLat)/2,lng:(BOUNDS.minLng+BOUNDS.maxLng)/2}:{lat:POINTS[0]?POINTS[0].lat:0,lng:POINTS[0]?POINTS[0].lng:0};
+// fit from the server-computed BOUNDS (single source of truth, antimeridian-aware)
+function fit(){if(!BOUNDS||POINTS.length<2)return;const w=map.clientWidth,h=map.clientHeight;
+  for(let z=18;z>=1;z--){const dx=(lon2t(BOUNDS.maxLng,z)-lon2t(BOUNDS.minLng,z))*256,dy=(lat2t(BOUNDS.minLat,z)-lat2t(BOUNDS.maxLat,z))*256;
+    if(dx<=w*0.85&&dy<=h*0.85){zoom=z;return;}}zoom=1;}
+function render(){const w=map.clientWidth,h=map.clientHeight;
+  const cx=lon2t(center.lng,zoom)*256,cy=lat2t(center.lat,zoom)*256,ox=cx-w/2,oy=cy-h/2,n=Math.pow(2,zoom);
+  let html='';for(let tx=Math.floor(ox/256);tx<=Math.floor((ox+w)/256);tx++)for(let ty=Math.floor(oy/256);ty<=Math.floor((oy+h)/256);ty++){
+    if(ty<0||ty>=n)continue;const wx=((tx%n)+n)%n,s=['a','b','c'][Math.abs(tx+ty)%3];
+    html+='<img src="https://'+s+'.tile.openstreetmap.org/'+zoom+'/'+wx+'/'+ty+'.png" style="left:'+(tx*256-ox)+'px;top:'+(ty*256-oy)+'px" onerror="this.style.visibility=\'hidden\'">';}
+  tiles.innerHTML=html;let mk='';POINTS.forEach(p=>{const px=lon2t(unwrap(p.lng),zoom)*256-ox,py=lat2t(p.lat,zoom)*256-oy;
+    mk+='<button class="mk" data-i="'+p.i+'" style="left:'+px+'px;top:'+py+'px"><span>'+(p.i+1)+'</span></button>';});
+  markers.innerHTML=mk;}
+function focusPoint(i){const p=POINTS[i];if(!p)return;center={lat:p.lat,lng:unwrap(p.lng)};if(zoom<15)zoom=15;render();
+  document.querySelectorAll('.mk').forEach(m=>m.classList.toggle('active',m.dataset.i==i));
+  document.querySelectorAll('.prow').forEach(r=>r.classList.toggle('active',r.dataset.i==i));
+  const row=document.querySelector('.prow[data-i="'+i+'"]');if(row)row.scrollIntoView({block:'nearest'});}
+markers.addEventListener('click',e=>{const b=e.target.closest('.mk');if(b)focusPoint(+b.dataset.i);});
+document.querySelectorAll('.prow').forEach(r=>r.addEventListener('click',()=>focusPoint(+r.dataset.i)));
+document.getElementById('zin').onclick=()=>{if(zoom<19){zoom++;render();}};
+document.getElementById('zout').onclick=()=>{if(zoom>1){zoom--;render();}};
+map.addEventListener('mousedown',e=>{if(e.target.closest('.mk')||e.target.closest('.ctl'))return;panning={x:e.clientX,y:e.clientY};map.classList.add('drag');});
+window.addEventListener('mousemove',e=>{if(!panning)return;const dx=e.clientX-panning.x,dy=e.clientY-panning.y,n=Math.pow(2,zoom);
+  center.lng+= -dx/256/n*360;center.lat+= dy/256/n*360*Math.cos(center.lat*Math.PI/180);panning={x:e.clientX,y:e.clientY};render();});
+window.addEventListener('mouseup',()=>{panning=null;map.classList.remove('drag');});
+map.addEventListener('wheel',e=>{e.preventDefault();if(e.deltaY<0&&zoom<19)zoom++;else if(e.deltaY>0&&zoom>1)zoom--;render();},{passive:false});
+fit();render();window.addEventListener('resize',render);
+<\/script></body></html>
+</script>
+<a href="https://www.openstreetmap.org/?mlat=1.5&amp;mlon=2.5#map=15/1.5/2.5" target="_blank" rel="noopener">osm</a>
+<img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYyLjI4LjEwMgD/2wBDAAgKCgsKCw0NDQ0NDRAPEBAQ">
+</body></html>

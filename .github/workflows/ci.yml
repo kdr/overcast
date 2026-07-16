@@ -40,6 +40,19 @@ jobs:
       # Offline e2e: fixture providers, no network/creds (test/e2e/README.md).
       # SKIP_BUILD=1 reuses the dist built two steps up.
       - run: SKIP_BUILD=1 bash test/e2e/run.sh
+      # VS Code extension (vscode/ — its own npm package, NOT npm-published;
+      # sideloaded as a .vsix). Typecheck imports root src/ types, so registry
+      # refactors that break the extension fail here.
+      - run: npm ci --prefix vscode
+      - run: npm run --prefix vscode typecheck
+      - run: npm run --prefix vscode build
+      - run: npm run --prefix vscode test
+      - run: mkdir -p .dev && npm run --prefix vscode package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: overcast-vscode-vsix
+          path: .dev/*.vsix
+          if-no-files-found: error
 
   shellcheck:
     runs-on: ubuntu-latest

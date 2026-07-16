@@ -1,0 +1,66 @@
+# Overcast for VS Code
+
+The case viewer + verb invoker for [overcast](../README.md), as a VS Code
+extension. One loop: **invoke** (right-click media → sense verbs; registry-driven
+"Run Verb…" / "Search Source…" quick-picks) → records land in the case →
+**view** (investigation sidebar, findings triage queue, artifact tabs for
+view/grid/map/graph/wall/brief, live situation panel).
+
+The extension is a thin client of the `overcast` CLI: reads ride
+`case status --json` / `case records --json` + fs-watching the `.overcast/`
+store; every action spawns `overcast …` (never a library import). See the
+repo-root CLAUDE.md invariants.
+
+## Requirements
+
+- The `overcast` CLI: `npm install -g @kdrrr/overcast`, or point the
+  `overcast.path` setting at a binary or a built `dist/bin/overcast.js`
+  (a `.js` path runs on the extension host's own Node).
+- A case folder in the workspace (or run "Overcast: Initialize Case Here").
+
+## Build & sideload
+
+```bash
+cd vscode
+npm install
+npm run build         # tsup (host → dist/extension.cjs) + vite (SPA → dist/webview)
+npm run package       # @vscode/vsce → ../.dev/overcast-vscode-<version>.vsix
+code --install-extension ../.dev/overcast-vscode-*.vsix
+```
+
+## Development
+
+```bash
+# from the repo root: build the CLI the fixture uses
+npm run build
+# seed the offline demo case (fixture providers, no creds)
+bash vscode/scripts/seed-dev-case.sh
+# then open vscode/ in VS Code and F5 ("Run Extension (fixture case)")
+```
+
+In the dev host, set `overcast.path` to `<repo>/dist/bin/overcast.js` to run
+against your fresh build. `npm run typecheck` covers host + webview;
+`npm test` runs the pure-logic units (html rewriting, argv assembly, CLI
+output parsing) with plain `node --test` — no VS Code required.
+
+## Surfaces
+
+- **Activity bar → Overcast**: Investigation (lines of investigation),
+  Triage (suggested findings, inline ✓/✗, badge count), Sources & Monitors
+  (freshness), Records (trail).
+- **Editor tabs**: artifact panels (view player, grid board, map, graph, wall,
+  brief export — the CLI's own self-contained HTML, CSP/file:// rewritten for
+  webviews), record detail, scan results.
+- **Bottom panel → Situation**: the live situation page in an iframe; the
+  extension owns an `overcast situation serve` child with a pinned token
+  (`OVERCAST_SITUATION_TOKEN`).
+- **Explorer right-click → Overcast**: watch/listen/see/face/exif/grid/… per
+  media type; multi-select batch sensing.
+
+## Future: registry-generated contributions
+
+`contributes.commands`/`menus` for the curated context verbs are hand-written
+today. When the surface stabilizes, generate them from
+`overcast commands --json` the same way `skills/` is generated from the verb
+registry (src/skill-gen.ts), with an identical CI no-diff regen gate — making
+this the registry's fourth surface (CLI, agent tool, skills, VS Code).

@@ -1,0 +1,83 @@
+<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: file:; media-src data: file:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:"><title>Wall — harborwatch</title>
+<style>*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.4;overflow:hidden;display:flex;flex-direction:column}
+.hud{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{color:var(--green);font-weight:700;letter-spacing:1px}.case{color:var(--cyan)}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:var(--green);background:var(--bg);white-space:nowrap}
+.chip.bad{color:var(--bad)}.chip.amber{color:var(--amber)}.chip.cyan{color:var(--cyan)}.chip.magenta{color:var(--magenta)}
+.clock{margin-left:auto;color:var(--amber)}
+.wall{flex:1;overflow-y:auto;overflow-anchor:none;display:grid;grid-template-columns:repeat(var(--cols,4),minmax(0,1fr));gap:10px;padding:10px;align-content:start}
+/* 16/9 via padding-top, NOT aspect-ratio: with a definite-height scroll grid,
+   Chrome collapses implicit rows of aspect-ratio items to a share of the
+   container (tiles overlap once the wall scrolls); %-padding resolves against
+   the track width and sizes the rows correctly. */
+.tile{position:relative;margin:0;padding-top:56.25%;background:#000;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.tile[data-open]{cursor:pointer}
+.tile video,.tile img.poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.tile-top{position:absolute;top:0;left:0;right:0;display:flex;gap:8px;padding:6px 8px;font-size:10px;color:var(--cyan);background:linear-gradient(180deg,rgba(0,0,0,.7),transparent)}
+.tile-top .live{margin-left:auto;color:var(--green)}
+.tile.still .tile-top .live{color:var(--amber)}.tile.down .tile-top .live,.tile.err .tile-top .live{color:var(--bad)}
+.lower{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:8px;padding:6px 8px;background:linear-gradient(0deg,rgba(0,0,0,.85),transparent);font-size:11px}
+.lower .title{color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.badges{display:inline-flex;gap:2px}
+.badges b{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:3px;color:var(--muted);font-size:9px;font-weight:400;background:var(--bg)}
+.badges b.on{color:var(--green);border-color:var(--green);font-weight:700}
+.lower .faces{color:var(--magenta)}.lower .find{color:var(--bad)}.lower .age{color:var(--muted)}
+.static{position:absolute;inset:0;background:repeating-linear-gradient(0deg,#0c0f10 0 2px,#181d1f 2px 4px)}
+.cover{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.nosig-label{color:var(--bad);letter-spacing:4px;font-size:14px}
+.tile.still .cover:not(.errcover) .nosig-label{color:var(--amber)}
+.errcover{display:none;background:repeating-linear-gradient(0deg,#0c0f10 0 2px,#181d1f 2px 4px)}
+.tile.err .errcover{display:flex}
+.intel{position:absolute;inset:0;padding:10px;background:rgba(0,0,0,.9);opacity:0;transition:opacity .15s;overflow:auto}
+.tile:hover .intel{opacity:1}
+.intel .sum{margin:0 0 8px;white-space:pre-wrap;word-break:break-word}
+.intel .kv{color:var(--muted);font-size:10px;margin:2px 0;word-break:break-word}
+.intel code{display:block;margin-top:8px;color:var(--cyan);word-break:break-all}
+.start{position:fixed;right:12px;bottom:12px;padding:8px 14px;border:1px solid var(--amber);color:var(--amber);background:var(--panel);border-radius:6px;cursor:pointer;display:none;z-index:10}
+body.stalled .start{display:block}
+.empty{grid-column:1/-1;display:flex;align-items:center;justify-content:center;min-height:40vh;color:var(--muted);letter-spacing:2px}
+:root{color-scheme:dark;--bg:#101214;--panel:#16191c;--panel2:#16191c;--line:#33393d;--green:#c8d0d4;--cyan:#9fb2bd;--amber:#c9b458;--magenta:#b48ead;--text:#d5d9dc;--muted:#7d878d;--bad:#d97b7b}</style>
+<main class="wall">
+<figure class="tile video" data-ref="/Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/second_clip_ec52dacd.mp4" data-open="file:///Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/second_clip_ec52dacd.mp4#t=0">
+  <video muted playsinline loop preload="metadata" data-src="file:///Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/second_clip_ec52dacd.mp4" data-start="0" data-end="6"></video>
+  <div class="cover errcover"><span class="nosig-label">NO SIGNAL</span></div>
+  <div class="tile-top"><span>CAM 01</span><span>@ 0:00</span><span class="live">● LIVE</span></div>
+  <figcaption class="lower">
+    <span class="title">second_clip_ec52dacd.mp4</span>
+    <span class="badges"><b class="on" title="watch">W</b><b class="" title="listen">L</b><b class="" title="see">S</b><b class="" title="face">F</b></span>
+    
+    
+    <span class="age">4m</span>
+  </figcaption>
+  <div class="intel">
+    <p class="sum">payload: kind, status, data, source_url, source_text, source_published, source_platform, source_record</p>
+    <div class="kv">ref /Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/second_clip_ec52dacd.mp4</div>
+    <div class="kv">anchor start @ 0:00 · loop 0:00–0:06</div>
+    <div class="kv">source local</div>
+    <div class="kv">records rec_04a4f63ac959324a, rec_2f2aea72a7b7a5b2</div>
+    <code>overcast view /Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/second_clip_ec52dacd.mp4 --at 0</code>
+  </div>
+</figure>
+<figure class="tile video" data-ref="/Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/harbor_cam_8980ddf9.mp4" data-open="file:///Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/harbor_cam_8980ddf9.mp4#t=0">
+  <video muted playsinline loop preload="metadata" data-src="file:///Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/harbor_cam_8980ddf9.mp4" data-start="0" data-end="6"></video>
+  <div class="cover errcover"><span class="nosig-label">NO SIGNAL</span></div>
+  <div class="tile-top"><span>CAM 02</span><span>@ 0:00</span><span class="live">● LIVE</span></div>
+  <figcaption class="lower">
+    <span class="title">harbor_cam_8980ddf9.mp4</span>
+    <span class="badges"><b class="on" title="watch">W</b><b class="" title="listen">L</b><b class="" title="see">S</b><b class="" title="face">F</b></span>
+    
+    
+    <span class="age">4m</span>
+  </figcaption>
+  <div class="intel">
+    <p class="sum">payload: kind, status, data, source_url, source_text, source_published, source_platform, source_record</p>
+    <div class="kv">ref /Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/harbor_cam_8980ddf9.mp4</div>
+    <div class="kv">anchor start @ 0:00 · loop 0:00–0:06</div>
+    <div class="kv">source local</div>
+    <div class="kv">records rec_8a08c184f3a99f30, rec_eeeb9c370af36905</div>
+    <code>overcast view /Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/.overcast/media/harbor_cam_8980ddf9.mp4 --at 0</code>
+  </div>
+</figure>
+</main>
+</body></html>
