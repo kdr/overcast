@@ -102,7 +102,12 @@ export class CliBridge implements vscode.Disposable {
       }),
       // Finished-run rows deep-link record ids, which are per-case — drop them
       // on a case switch so a stale row can't open a record in the wrong case.
-      locator.onDidChangeCase(() => this.clearFinishedJobs()),
+      // clear finished rows AND re-render (the jobs snapshot below filters
+      // running rows to the active case — the tree must drop them immediately)
+      locator.onDidChangeCase(() => {
+        this.clearFinishedJobs();
+        this.jobEmitter.fire();
+      }),
     );
   }
 
@@ -424,9 +429,14 @@ export class CliBridge implements vscode.Disposable {
     return next;
   }
 
-  /** Snapshot of tracked jobs, newest-first: running rows then the finished ring. */
+  /** Snapshot of tracked jobs, newest-first: running rows then the finished
+   *  ring — scoped to the ACTIVE case. An in-flight run from a previous case
+   *  keeps running (and lands nowhere on completion, see finishJob) but must
+   *  not render as this case's work: its cancel button and the status-bar
+   *  spinner would be aiming at another case folder. */
   get jobs(): readonly Job[] {
-    return [...this.runningJobs, ...this.finishedJobs];
+    const caseDir = this.locator.caseDir;
+    return [...this.runningJobs.filter((j) => j.caseDir === caseDir), ...this.finishedJobs];
   }
 
   /** Cancel a running job by id — kills its child via the tracker-owned token. */
