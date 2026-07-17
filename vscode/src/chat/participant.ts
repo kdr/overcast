@@ -164,7 +164,7 @@ async function handleStatus(
   token: vscode.CancellationToken,
 ): Promise<vscode.ChatResult> {
   stream.progress("Reading case status…");
-  const outcome = await runVerbForChat(deps.bridge, ["case", "status"], token);
+  const outcome = await runVerbForChat(deps.bridge, ["case", "status"], token, { caseDir: deps.locator.caseDir });
   if (!outcome.ok) {
     stream.markdown(warn(outcome.message));
     return meta("status");
@@ -186,7 +186,7 @@ async function handleBrief(
   stream.progress("Rendering the brief…");
   // brief with no --json prints its markdown report straight to stdout (a
   // report-shaped record renders its md body — see cli.ts renderForFormat).
-  const outcome = await runVerbForChat(deps.bridge, ["brief"], token, { rawOutput: true });
+  const outcome = await runVerbForChat(deps.bridge, ["brief"], token, { rawOutput: true, caseDir: deps.locator.caseDir });
   if (!outcome.ok) {
     stream.markdown(warn(outcome.message));
     return meta("brief");

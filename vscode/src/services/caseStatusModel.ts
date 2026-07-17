@@ -168,6 +168,11 @@ export class CaseStatusModel implements vscode.Disposable {
       this.suppressUntil = Date.now() + 1500;
     }
 
+    // A case switch mid-poll makes these results STALE — never paint case A's
+    // threads under case B's header. The switch queued its own refresh (the
+    // coalescing in refresh()), which owns the state.
+    if (this.locator.caseDir !== caseDir) return;
+
     const statusRec = statusRes.records.find((r) => r.verb === "case");
     this.status =
       !statusRes.failure && statusRec ? (statusRec.payload as CaseStatusPayload) : undefined;

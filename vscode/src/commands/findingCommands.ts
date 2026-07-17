@@ -27,11 +27,14 @@ async function review(
   deps: ExtDeps,
   action: "accept" | "dismiss",
   findingId: string,
-  targetId?: string,
+  targetId: string | undefined,
+  /** the case the finding row came from (captured at command entry) — the
+   *  serialized mutate lane + quick-pick gaps can outlive a case switch. */
+  caseDir: string | undefined,
 ): Promise<void> {
   const args = ["finding", action, findingId];
   if (targetId) args.push("--target", targetId);
-  const result = await deps.bridge.mutate(args);
+  const result = await deps.bridge.mutate(args, { caseDir });
   if (result.failure) {
     void vscode.window.showErrorMessage(`Overcast finding ${action}: ${result.failure.message}`);
     return;
@@ -48,18 +51,19 @@ export function registerFindingCommands(deps: ExtDeps): void {
     vscode.commands.registerCommand("overcast.acceptFinding", async (node?: unknown) => {
       const id = idFrom(node);
       if (!id) return;
-      await review(deps, "accept", id);
+      await review(deps, "accept", id, undefined, deps.locator.caseDir);
     }),
 
     vscode.commands.registerCommand("overcast.dismissFinding", async (node?: unknown) => {
       const id = idFrom(node);
       if (!id) return;
-      await review(deps, "dismiss", id);
+      await review(deps, "dismiss", id, undefined, deps.locator.caseDir);
     }),
 
     vscode.commands.registerCommand("overcast.acceptFindingWithTarget", async (node?: unknown) => {
       const id = idFrom(node);
       if (!id) return;
+      const caseDir = deps.locator.caseDir; // pinned across the pick gaps below
       const targets = deps.model.status?.targets ?? [];
       if (targets.length === 0) {
         const pick = await vscode.window.showWarningMessage(
@@ -67,7 +71,7 @@ export function registerFindingCommands(deps: ExtDeps): void {
           "Accept",
           "Cancel",
         );
-        if (pick === "Accept") await review(deps, "accept", id);
+        if (pick === "Accept") await review(deps, "accept", id, undefined, caseDir);
         return;
       }
       const pick = await vscode.window.showQuickPick(
@@ -80,7 +84,7 @@ export function registerFindingCommands(deps: ExtDeps): void {
         { placeHolder: "Stamp this finding onto which line of investigation?", ignoreFocusOut: true },
       );
       if (!pick) return;
-      await review(deps, "accept", id, pick.targetId);
+      await review(deps, "accept", id, pick.targetId, caseDir);
     }),
 
     // 2nd arg: an optional pinned caseDir (chat buttons pass [id, caseDir] so a
@@ -104,7 +108,7 @@ export function registerFindingCommands(deps: ExtDeps): void {
     vscode.commands.registerCommand("overcast.copyRecordJson", async (node?: unknown) => {
       const id = idFrom(node);
       if (!id) return;
-      const result = await deps.bridge.run(["case", "memory", "get", id]);
+      const result = await deps.bridge.run(["case", "memory", "get", id], { caseDir: deps.locator.caseDir });
       if (result.failure) {
         void vscode.window.showErrorMessage(`Overcast: ${result.failure.message}`);
         return;

@@ -90,7 +90,7 @@ export function registerChatTools(deps: ExtDeps): void {
     },
     async invoke(_options, token) {
       if (!deps.locator.caseDir) return textResult(NO_CASE);
-      const outcome = await runVerbForChat(deps.bridge, ["case", "status"], token);
+      const outcome = await runVerbForChat(deps.bridge, ["case", "status"], token, { caseDir: deps.locator.caseDir });
       if (!outcome.ok) return textResult(outcome.message ?? "overcast failed.");
       const rec = recordForVerb(outcome.records, "case");
       if (!rec || typeof rec.payload !== "object" || rec.payload === null) {
@@ -114,7 +114,7 @@ export function registerChatTools(deps: ExtDeps): void {
       if (!deps.locator.caseDir) return textResult(NO_CASE);
       if (!options.input.question?.trim()) return textResult("Provide a non-empty question.");
       if (flagLikeText(options.input.question)) return textResult(FLAG_LIKE_MESSAGE);
-      const outcome = await runVerbForChat(deps.bridge, askArgs(options.input), token);
+      const outcome = await runVerbForChat(deps.bridge, askArgs(options.input), token, { caseDir: deps.locator.caseDir });
       if (!outcome.ok) return textResult(outcome.message ?? "overcast failed.");
       // ask answers can run long — raise the field cap so the answer text survives
       // while the whole JSON stays within the overall budget.
@@ -136,7 +136,7 @@ export function registerChatTools(deps: ExtDeps): void {
       if (!deps.locator.caseDir) return textResult(NO_CASE);
       const flaggy = [options.input.query, options.input.source, options.input.since];
       if (flaggy.some((v) => v && flagLikeText(v))) return textResult(FLAG_LIKE_MESSAGE);
-      const outcome = await runVerbForChat(deps.bridge, scanArgs(options.input), token);
+      const outcome = await runVerbForChat(deps.bridge, scanArgs(options.input), token, { caseDir: deps.locator.caseDir });
       // scan exits non-zero when ANY source is credential-gapped even though
       // healthy sources returned hits — report both, never swallow the hits.
       const hits = scanHits(outcome.records);
@@ -161,7 +161,7 @@ export function registerChatTools(deps: ExtDeps): void {
       if (!deps.locator.caseDir) return textResult(NO_CASE);
       if (!options.input.ref?.trim()) return textResult("Provide a ref: a URL, a scan-hit record id, or a local path.");
       if (flagLikeText(options.input.ref)) return textResult(FLAG_LIKE_MESSAGE);
-      const outcome = await runVerbForChat(deps.bridge, ["capture", options.input.ref.trim()], token);
+      const outcome = await runVerbForChat(deps.bridge, ["capture", options.input.ref.trim()], token, { caseDir: deps.locator.caseDir });
       if (!outcome.ok) return textResult(outcome.message ?? "overcast failed.");
       return textResult(summarizeVerbResult(outcome.records, "capture"));
     },
@@ -188,7 +188,7 @@ export function registerChatTools(deps: ExtDeps): void {
           `File not found: ${options.input.file}. Provide a path that exists (absolute, or relative to the workspace/case folder).`,
         );
       }
-      const outcome = await runVerbForChat(deps.bridge, [options.input.verb, abs], token);
+      const outcome = await runVerbForChat(deps.bridge, [options.input.verb, abs], token, { caseDir: deps.locator.caseDir });
       if (!outcome.ok) return textResult(outcome.message ?? "overcast failed.");
       return textResult(summarizeVerbResult(outcome.records, options.input.verb));
     },
@@ -208,7 +208,7 @@ export function registerChatTools(deps: ExtDeps): void {
       if (!deps.locator.caseDir) return textResult(NO_CASE);
       if (!options.input.text?.trim()) return textResult("Provide non-empty note text.");
       if (flagLikeText(options.input.text)) return textResult(FLAG_LIKE_MESSAGE);
-      const outcome = await runVerbForChat(deps.bridge, noteArgs(options.input), token);
+      const outcome = await runVerbForChat(deps.bridge, noteArgs(options.input), token, { caseDir: deps.locator.caseDir });
       if (!outcome.ok) return textResult(outcome.message ?? "overcast failed.");
       return textResult(summarizeVerbResult(outcome.records, "note"));
     },
