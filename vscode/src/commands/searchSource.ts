@@ -79,11 +79,17 @@ export function hitsFromRecords(records: OvercastRecord[]): ScanHit[] {
   return hits;
 }
 
-async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise<void> {
+async function runScanFlow(
+  deps: ExtDeps,
+  preselectedSourceId?: string,
+  /** the case the CALLER pinned (Scan Now after source add — the toast can
+   *  outlive a case switch); defaults to the active case at flow entry. */
+  pinnedCaseDir?: string,
+): Promise<void> {
   if (!(await deps.bridge.ensureCli())) return;
   // ONE capture for the whole flow: the spawn and the results panel — the
   // input boxes below are long async gaps a case switch can land in
-  const caseDir = deps.locator.caseDir;
+  const caseDir = pinnedCaseDir ?? deps.locator.caseDir;
 
   let filter = preselectedSourceId;
   let filterLabel = "all enabled sources";
@@ -229,7 +235,9 @@ async function addSourceFlow(deps: ExtDeps): Promise<void> {
   );
   if (scanNow) {
     const p = (result.records[0]?.payload ?? {}) as { id?: unknown };
-    await runScanFlow(deps, typeof p.id === "string" ? p.id : undefined);
+    // the source was registered in `caseDir` — the scan must target the same
+    // case even if the toast outlived a switch
+    await runScanFlow(deps, typeof p.id === "string" ? p.id : undefined, caseDir);
   }
 }
 

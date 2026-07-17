@@ -436,7 +436,12 @@ export class CliBridge implements vscode.Disposable {
    *  spinner would be aiming at another case folder. */
   get jobs(): readonly Job[] {
     const caseDir = this.locator.caseDir;
-    return [...this.runningJobs.filter((j) => j.caseDir === caseDir), ...this.finishedJobs];
+    // finished rows are already cleared on switch + cross-case completions
+    // dropped; the filter makes the active-case invariant local, not implied
+    return [
+      ...this.runningJobs.filter((j) => j.caseDir === caseDir),
+      ...this.finishedJobs.filter((j) => j.caseDir === caseDir),
+    ];
   }
 
   /** Cancel a running job by id — kills its child via the tracker-owned token. */

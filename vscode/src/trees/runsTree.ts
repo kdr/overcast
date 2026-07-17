@@ -42,7 +42,9 @@ class RunItem extends vscode.TreeItem {
       .filter(Boolean)
       .join("\n");
     if (job.recordId) {
-      this.command = { command: "overcast.openRecord", title: "Open Record", arguments: [job.recordId] };
+      // carry the job's stamped case — the deep-link stays correct even if a
+      // row ever outlives a case switch
+      this.command = { command: "overcast.openRecord", title: "Open Record", arguments: [job.recordId, job.caseDir] };
     }
   }
 }
