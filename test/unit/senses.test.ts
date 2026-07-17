@@ -102,6 +102,19 @@ test("listen falls back to the summary ONLY with an explicit marker + warning", 
   );
 });
 
+test("listen: an abort during the caption pass REJECTS — never a ready summary record", async () => {
+  await withFakeTinycloud(
+    async () => {
+      const ac = new AbortController();
+      const pending = runListen("talk.wav", { signal: ac.signal });
+      // watch (instant fixture) finishes first; the abort lands mid-caption.
+      setTimeout(() => ac.abort(), 400);
+      await assert.rejects(pending);
+    },
+    { FAKE_TC_CAPTION: "hang" },
+  );
+});
+
 test("runListen maps a speech envelope to audio.analysis (via fixture provider)", async () => {
   chmodSync(FAKE_LISTEN, 0o755);
   const rec = await runListen("call.m4a", { run: `bash ${FAKE_LISTEN} {{input}}` });

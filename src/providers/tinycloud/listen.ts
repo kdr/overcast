@@ -85,7 +85,9 @@ function segments(data: Record<string, unknown>): {
 
 /** Fetch the verbatim transcript cues through the public `tinycloud caption`
  *  verb (local once `watch` has cached the speech enrichment). Best-effort:
- *  any failure returns undefined and the caller keeps the envelope mapping.
+ *  a provider failure returns undefined and the caller keeps the envelope
+ *  mapping — but a CANCELLATION (opts.signal) rethrows, so an aborted listen
+ *  never masquerades as a finished record with a summary transcript.
  *  Honors OVERCAST_TINYCLOUD_CMD like the other tinycloud-backed verbs. */
 async function captionTranscript(
   input: string,
@@ -100,7 +102,10 @@ async function captionTranscript(
     const args = [...lead, "caption", input, "--json", "-o", outDir];
     if (opts.diarize) args.push("--diarize");
     const res = await execCapture(cmd, args, {
-      timeoutMs: opts.timeoutMs ?? 5 * 60_000,
+      // same ceiling as the preceding watch call — the caption pass may do the
+      // actual transcription work when the enrichment isn't cached yet, so a
+      // shorter default here would drop verbatim cues that were still coming.
+      timeoutMs: opts.timeoutMs ?? 15 * 60_000,
       env: opts.env,
       signal: opts.signal,
     });
@@ -133,7 +138,10 @@ async function captionTranscript(
     }
     if (lines.length === 0) return undefined;
     return { transcript: lines.join("\n"), segments: segs };
-  } catch {
+  } catch (e) {
+    // cancellation is not a provider failure — propagate it (matches how an
+    // abort during the watch step already rejects out of runListen).
+    if (opts.signal?.aborted) throw e;
     return undefined;
   } finally {
     rmSync(outDir, { recursive: true, force: true });

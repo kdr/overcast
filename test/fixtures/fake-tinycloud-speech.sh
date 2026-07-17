@@ -4,6 +4,7 @@
 # inline speech segments — and `caption` answers with the verbatim cues, so the
 # two-step watch→caption transcript wiring is exercised offline.
 #   FAKE_TC_CAPTION=fail  → caption exits non-zero (tests the summary fallback path)
+#   FAKE_TC_CAPTION=hang  → caption blocks (tests that an abort REJECTS, never a summary)
 set -euo pipefail
 sub="${1:-}"
 case "$sub" in
@@ -20,6 +21,10 @@ case "$sub" in
 JSON
     ;;
   caption)
+    if [ "${FAKE_TC_CAPTION:-}" = "hang" ]; then
+      sleep 30
+      exit 1
+    fi
     if [ "${FAKE_TC_CAPTION:-}" = "fail" ]; then
       echo '{"tinycloud":"1","kind":"caption","status":"needs_upload","data":null,"error":{"code":"needs_upload","message":"No cached speech for this source."}}'
       exit 3
