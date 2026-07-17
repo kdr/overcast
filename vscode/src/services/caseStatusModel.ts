@@ -110,6 +110,16 @@ export class CaseStatusModel implements vscode.Disposable {
     }, DEBOUNCE_MS);
   }
 
+  /** Empty every painted field (case switch / no case). Caller fires the emitter. */
+  private clearState(): void {
+    this.status = undefined;
+    this.records = [];
+    this.recordsPayload = undefined;
+    this.findings = new Map();
+    this.notes = [];
+    this.indexes = [];
+  }
+
   /** Coalescing refresh: if one is in flight, queue exactly one more. */
   async refresh(): Promise<void> {
     if (this.refreshing) {
@@ -134,17 +144,14 @@ export class CaseStatusModel implements vscode.Disposable {
       this.noteText.clear(); // ids are per-case; don't carry a body across a switch
       this.warnedTruncated = false;
       this.lastCaseDir = caseDir;
-    }
-    if (!caseDir) {
-      this.status = undefined;
-      this.records = [];
-      this.recordsPayload = undefined;
-      this.findings = new Map();
-      this.notes = [];
-      this.indexes = [];
+      // blank the painted state NOW — the reads below take a beat, and the old
+      // case's threads/records must not sit under the new case's header while
+      // clicks already resolve against the new case (the view-scoped progress
+      // bar covers the gap)
+      this.clearState();
       this.emitter.fire();
-      return;
     }
+    if (!caseDir) return; // clearState above (or a prior clear) already painted empty
     let statusRes, recordsRes, findingsRes, indexRes;
     try {
       // A view-scoped progress bar shows the trees are (re)loading.
