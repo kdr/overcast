@@ -172,6 +172,19 @@ export function normalizeSince(since: string): string {
   return `${Math.ceil(hours / 24)}d`;
 }
 
+/** Exec budget for an UNCAPPED (--limit 0) enumerate on a source that declares
+ *  uncappedLimit: a whole-channel/playlist flat dump legitimately runs many
+ *  minutes, and the generic 2-min budget would kill it mid-dump and report a
+ *  healthy yt-dlp as an enumerate failure. Explicit opts/desc budgets win. */
+export const UNCAPPED_ENUMERATE_TIMEOUT_MS = 15 * 60_000;
+
+export function enumerateBudgetMs(desc: SourceDescriptor, opts: EnumerateOpts): number {
+  if (opts.timeoutMs != null) return opts.timeoutMs;
+  if (desc.timeoutMs != null) return desc.timeoutMs;
+  if (opts.limit === 0 && desc.uncappedLimit) return UNCAPPED_ENUMERATE_TIMEOUT_MS;
+  return 2 * 60_000;
+}
+
 /** Enumerate a source → scan.hit records. Throws on spawn failure. */
 export async function enumerateSource(
   desc: SourceDescriptor,
@@ -204,7 +217,7 @@ export async function enumerateSource(
   const res = await execCapture(cmd, args, {
     env: opts.env,
     signal: opts.signal,
-    timeoutMs: opts.timeoutMs ?? desc.timeoutMs ?? 2 * 60_000,
+    timeoutMs: enumerateBudgetMs(desc, opts),
   });
   if (res.code !== 0) {
     // exit 13 = missing deps/credentials (exec contract), a setup gap not a hard fail

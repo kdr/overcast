@@ -17,8 +17,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   builtinDescriptor,
+  enumerateBudgetMs,
   enumerateSource,
   fetchSource,
+  UNCAPPED_ENUMERATE_TIMEOUT_MS,
 } from "../../src/providers/sources/index.ts";
 import { captureVerb, scanVerb } from "../../src/verbs/osint.ts";
 import { addSource } from "../../src/state/source.ts";
@@ -42,7 +44,7 @@ case "$FAKE_MODE" in
   flat_videos)
     printf '%s\\n' '{"id":"vid1","title":"Video One","url":"https://youtu.be/vid1","uploader":"Acme","view_count":5,"duration":60}'
     ;;
-  subs|subs_none|subs_429|subs_orig_only)
+  subs|subs_none|subs_429|subs_429_none|subs_orig_only)
     printf '%s' '{"title":"Clip Title","description":"Full description text","upload_date":"20260101","uploader":"Acme","duration":65,"view_count":9,"subtitles":{"en":[{"ext":"vtt"}]}}' > "$out.info.json"
     if [ "$FAKE_MODE" = "subs" ] || [ "$FAKE_MODE" = "subs_429" ]; then
       # numeric cue IDENTIFIERS (1, 2) precede their timing lines; the closing
@@ -58,8 +60,9 @@ case "$FAKE_MODE" in
   *) : ;;
 esac
 # subs_429: the primary track + metadata landed, then a later subtitle-variant
-# request was rate-limited → yt-dlp exits nonzero despite usable output
-[ "$FAKE_MODE" = "subs_429" ] && exit 1
+# request was rate-limited → yt-dlp exits nonzero despite usable output.
+# subs_429_none: EVERY subtitle request was rate-limited (metadata only).
+case "$FAKE_MODE" in subs_429|subs_429_none) exit 1 ;; esac
 exit 0
 `;
 
@@ -447,4 +450,65 @@ test("explicit capture --transcript on a source without the fetch kind is an hon
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- round-2 hardening: honest failures + artifact lifecycle + budgets --------
+
+test("fetch --kind transcript FAILS when yt-dlp exits nonzero with no caption track (rate-limited != uncaptioned)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
+  try {
+    const { env } = shimEnv(dir, "subs_429_none");
+    const desc = builtinDescriptor("youtube");
+    assert.ok(desc);
+    const rec = await fetchSource(desc!, {
+      url: "https://youtu.be/vid1",
+      out: join(dir, "clip"),
+      kind: "transcript",
+      env,
+    });
+    assert.equal(rec.state, "error", "metadata-without-any-track on a failed run must NOT read as 'no captions'");
+    assert.match(String(rec.error), /no caption track retrieved/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failed transcript RETRY leaves a prior successful capture's artifact untouched (scratch-dir lifecycle)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
+  try {
+    // first capture succeeds → artifact at the stable per-URL out base
+    const ok = await fetchSource(builtinDescriptor("youtube")!, {
+      url: "https://youtu.be/vid1",
+      out: join(dir, "clip"),
+      kind: "transcript",
+      lang: "en",
+      env: shimEnv(dir, "subs").env,
+    });
+    assert.equal(ok.state, "ready", ok.error);
+    const artifact = String(ok.media?.ref);
+    assert.ok(existsSync(artifact));
+    // retry of the SAME url fails hard (no info.json) — the prior artifact must survive
+    const retry = await fetchSource(builtinDescriptor("youtube")!, {
+      url: "https://youtu.be/vid1",
+      out: join(dir, "clip"),
+      kind: "transcript",
+      lang: "en",
+      env: shimEnv(dir, "none").env,
+    });
+    assert.equal(retry.state, "error");
+    assert.ok(existsSync(artifact), "failed retry deleted the earlier capture's VTT");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("uncapped (--limit 0) enumerates on declaring sources get the long exec budget; everyone else keeps defaults", () => {
+  const base = ["bash", "x.sh"];
+  const uncapped = { type: "youtube", base, uncappedLimit: true };
+  const plain = { type: "web", base };
+  assert.equal(enumerateBudgetMs(uncapped, { limit: 0 }), UNCAPPED_ENUMERATE_TIMEOUT_MS);
+  assert.equal(enumerateBudgetMs(uncapped, { limit: 10 }), 2 * 60_000); // capped scans keep the tight default
+  assert.equal(enumerateBudgetMs(plain, { limit: 0 }), 2 * 60_000);     // non-declaring sources never widen
+  assert.equal(enumerateBudgetMs({ ...uncapped, timeoutMs: 5000 }, { limit: 0 }), 5000); // desc budget wins
+  assert.equal(enumerateBudgetMs(uncapped, { limit: 0, timeoutMs: 1234 }), 1234);        // opts budget wins over all
 });

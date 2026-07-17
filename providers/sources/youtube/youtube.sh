@@ -160,28 +160,34 @@ case "$op" in
         # "${lang}.*" glob pulls every auto-TRANSLATED variant and trips
         # YouTube's per-video subtitle rate limit (HTTP 429) on tracks we'd
         # discard anyway.
+        # All sidecars land in a SCRATCH dir and only the chosen artifact is
+        # moved into place: --out is stable per URL (uniqueName), so cleaning up
+        # "$tbase".* on a failed RETRY would delete the artifact a previous
+        # successful capture of the same video still points at.
+        workdir="$(mktemp -d)"; wbase="$workdir/cap"
         yt-dlp --skip-download --no-playlist --write-subs --write-auto-subs \
           --sub-langs "${lang},${lang}-orig" --sub-format vtt \
-          --write-info-json -o "$tbase" "$url" >&2
+          --write-info-json -o "$wbase" "$url" >&2
         ytcode=$?
-        info="$tbase.info.json"
-        # tolerate a nonzero exit when the metadata landed (e.g. a 429 on one
-        # subtitle variant after the primary track downloaded) — only fail when
-        # there's nothing to build a record from, and leave no partial sidecars.
+        info="$wbase.info.json"
         if [ ! -s "$info" ]; then
-          rm -f "$tbase".*.vtt "$info"
+          rm -rf "$workdir"
           echo "youtube transcript fetch failed for $url (yt-dlp exit $ytcode)" >&2; exit 1
         fi
         # pick the best caption track: exact lang > original-audio auto > any
         vtt=""
-        for cand in "$tbase.$lang.vtt" "$tbase.$lang-orig.vtt"; do
+        for cand in "$wbase.$lang.vtt" "$wbase.$lang-orig.vtt"; do
           [ -s "$cand" ] && { vtt="$cand"; break; }
         done
-        [ -z "$vtt" ] && vtt="$(ls -t "$tbase".*.vtt 2>/dev/null | head -1)"
-        # drop the unchosen variant files so only ONE artifact lands in the case
-        for f in "$tbase".*.vtt; do
-          [ -e "$f" ] && [ "$f" != "$vtt" ] && rm -f "$f"
-        done
+        [ -z "$vtt" ] && vtt="$(ls -t "$wbase".*.vtt 2>/dev/null | head -1)"
+        # a nonzero yt-dlp exit with NO caption track is a FAILURE, not an
+        # uncaptioned video — every subtitle request may have been rate-limited
+        # (HTTP 429), and reporting "no captions" would silently drop real ones
+        # from a playlist-wide pull. Tolerate nonzero only once a track landed.
+        if [ "$ytcode" -ne 0 ] && [ -z "$vtt" ]; then
+          rm -rf "$workdir"
+          echo "youtube transcript fetch failed for $url (yt-dlp exit $ytcode, no caption track retrieved)" >&2; exit 1
+        fi
         # VTT → plain text: strip cue timings/headers/inline karaoke tags, drop
         # the rolling duplicate lines auto-captions emit, cap at 200KB (the full
         # VTT stays as the file artifact). A digit-only line is removed ONLY when
@@ -197,23 +203,31 @@ case "$op" in
         fi
         truncated="false"
         [ -s "$txf" ] && [ "$(wc -c < "$txf")" -ge 200000 ] && truncated="true"
-        # uncaptioned video → metadata-only .txt artifact (title + description),
-        # a ready record with a note — not an error, so playlist-wide transcript
-        # pulls don't fail-storm on the odd captionless upload.
-        artifact="$vtt"; akind="transcript"
+        # uncaptioned video (clean yt-dlp exit, no track) → metadata-only .txt
+        # artifact (title + description), a ready record with a note — not an
+        # error, so playlist-wide pulls don't fail-storm on captionless uploads.
+        # Move ONLY the chosen artifact out of the scratch dir, preserving its
+        # suffix (.en.vtt / .en-orig.vtt / .txt) on the stable --out base.
+        akind="transcript"
         if [ ! -s "$txf" ]; then
-          artifact="$tbase.txt"; akind="meta"
+          akind="meta"; artifact="$tbase.txt"
           { jq -r '.title // ""' "$info"; echo; jq -r '.description // ""' "$info"; } > "$artifact"
+        else
+          artifact="$tbase${vtt#"$wbase"}"
+          mv -f "$vtt" "$artifact"
         fi
         # label the track we actually KEPT: only the exact-lang file can be the
         # manual track (and only when info.json lists manual subs for the lang);
         # a surviving -orig or other variant is auto-generated — a partial fetch
         # must not report "manual" for an auto track.
         tsrc="auto"
-        if [ "$vtt" = "$tbase.$lang.vtt" ]; then
+        if [ "$vtt" = "$wbase.$lang.vtt" ]; then
           tsrc="$(jq -r --arg l "$lang" 'if ((.subtitles // {}) | has($l)) then "manual" else "auto" end' "$info")"
         fi
-        jq -c --rawfile tx "$txf" --arg p "$artifact" --arg u "$url" --arg k "$akind" \
+        # build the record BEFORE scratch cleanup and honor jq's exit status — a
+        # trailing rm would otherwise mask a jq failure as exit 0 with empty
+        # stdout (a generic missing-file error instead of the real parse one).
+        record="$(jq -c --rawfile tx "$txf" --arg p "$artifact" --arg u "$url" --arg k "$akind" \
               --arg lang "$lang" --arg tsrc "$tsrc" --argjson trunc "$truncated" '
           ($tx | rtrimstr("\n")) as $text |
           { kind: $k, path: $p, source: "youtube", url: $u,
@@ -224,20 +238,32 @@ case "$op" in
              then { transcript: null, transcript_note: "no captions available" }
              else { transcript: $text, transcript_lang: $lang, transcript_source: $tsrc }
                   + (if $trunc then { transcript_truncated: true } else {} end)
-             end)' "$info"
-        rm -f "$info" "$txf"
+             end)' "$info")" || {
+          rm -rf "$workdir" "$txf"
+          echo "youtube transcript fetch: building the capture record failed for $url" >&2; exit 1
+        }
+        rm -rf "$workdir" "$txf"
+        printf '%s\n' "$record"
         ;;
       thumb)
         # thumbnail image only, NO media download (webp→jpg needs ffmpeg — an
-        # overcast prereq; without it yt-dlp keeps the original format).
+        # overcast prereq; without it yt-dlp keeps the original format). Same
+        # scratch-dir lifecycle as transcript: only the final image reaches the
+        # stable --out base, so a failed retry can't disturb prior artifacts.
+        workdir="$(mktemp -d)"; wbase="$workdir/cap"
         if ! yt-dlp --skip-download --no-playlist --write-thumbnail \
-              --convert-thumbnails jpg -o "$tbase" "$url" >&2; then
+              --convert-thumbnails jpg -o "$wbase" "$url" >&2; then
+          rm -rf "$workdir"
           echo "youtube thumbnail fetch failed for $url" >&2; exit 1
         fi
-        real="$(ls -t "$tbase".jpg "$tbase".*.jpg "$tbase".webp "$tbase".png 2>/dev/null | head -1)"
-        if [ -z "$real" ] || [ ! -s "$real" ]; then
+        got="$(ls -t "$wbase".jpg "$wbase".*.jpg "$wbase".webp "$wbase".png 2>/dev/null | head -1)"
+        if [ -z "$got" ] || [ ! -s "$got" ]; then
+          rm -rf "$workdir"
           echo "youtube thumbnail fetch produced no file for $url" >&2; exit 1
         fi
+        real="$tbase${got#"$wbase"}"
+        mv -f "$got" "$real"
+        rm -rf "$workdir"
         jq -nc --arg p "$real" --arg u "$url" '{kind:"image",path:$p,source:"youtube",url:$u}'
         ;;
       *)
