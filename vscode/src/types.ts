@@ -128,8 +128,10 @@ export interface CommandsPayload {
 export interface PanelRouter {
   /** Open a generated HTML artifact (view/grid/map/graph/wall/brief) in a tab. */
   openArtifact(absPath: string, title?: string): Promise<void>;
-  /** Open a record-detail tab for a case record id. */
-  openRecord(recordId: string): Promise<void>;
+  /** Open a record-detail tab for a case record id. `caseDir` pins the case
+   *  the record lives in (long-lived surfaces — panels, chat buttons — that
+   *  outlive case switches); omitted = the active case. */
+  openRecord(recordId: string, caseDir?: string): Promise<void>;
   /** Nudge the case model to refetch (after any mutating CLI run). */
   refresh(): void;
 }

@@ -51,12 +51,17 @@ interface FieldPagePayload {
   error?: string;
 }
 
-export async function openRecordPanel(deps: ExtDeps, recordId: string): Promise<void> {
+export async function openRecordPanel(
+  deps: ExtDeps,
+  recordId: string,
+  pinnedCaseDir?: string,
+): Promise<void> {
   if (!(await deps.bridge.ensureCli())) return;
   // pin the record's case — the panel outlives case switches, and a later
   // field-page read must target the case the record lives in, not the
-  // locator's case at click time
-  const caseDir = deps.locator.caseDir;
+  // locator's case at click time. Callers that already know the record's case
+  // (a retained panel, a chat button) pass it in.
+  const caseDir = pinnedCaseDir ?? deps.locator.caseDir;
   const result = await deps.bridge.run(["case", "memory", "get", recordId], { caseDir });
   if (result.failure) {
     void vscode.window.showErrorMessage(`Overcast: ${result.failure.message}`);
@@ -94,7 +99,7 @@ export async function openRecordPanel(deps: ExtDeps, recordId: string): Promise<
     extraLocalRoots: mediaExists && mediaRef ? [vscode.Uri.file(path.dirname(mediaRef))] : [],
     onMessage: (msg, webview) => {
       if (msg.type === "openRecord") {
-        void deps.router.openRecord(msg.recordId);
+        void deps.router.openRecord(msg.recordId, caseDir);
         return;
       }
       if (msg.type === "openMedia") {

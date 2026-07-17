@@ -83,7 +83,11 @@ export function registerFindingCommands(deps: ExtDeps): void {
       await review(deps, "accept", id, pick.targetId);
     }),
 
-    vscode.commands.registerCommand("overcast.openRecord", async (nodeOrId?: unknown) => {
+    // 2nd arg: an optional pinned caseDir (chat buttons pass [id, caseDir] so a
+    // click after a case switch opens the record in ITS case). Tree menu
+    // invocations pass (node, selectedNodes[]) — the string guard skips those.
+    vscode.commands.registerCommand("overcast.openRecord", async (nodeOrId?: unknown, caseDirArg?: unknown) => {
+      const caseDir = typeof caseDirArg === "string" ? caseDirArg : undefined;
       const id = idFrom(nodeOrId);
       if (!id) {
         const typed = await vscode.window.showInputBox({
@@ -91,10 +95,10 @@ export function registerFindingCommands(deps: ExtDeps): void {
           ignoreFocusOut: true,
         });
         if (!typed?.trim()) return;
-        await deps.router.openRecord(typed.trim());
+        await deps.router.openRecord(typed.trim(), caseDir);
         return;
       }
-      await deps.router.openRecord(id);
+      await deps.router.openRecord(id, caseDir);
     }),
 
     vscode.commands.registerCommand("overcast.copyRecordJson", async (node?: unknown) => {

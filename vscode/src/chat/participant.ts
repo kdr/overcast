@@ -32,8 +32,14 @@ const meta = (command: string, extra: Record<string, unknown> = {}): vscode.Chat
 });
 const warn = (m?: string): string => `⚠️ ${m ?? "overcast failed."}`;
 
-function openRecordButton(stream: vscode.ChatResponseStream, id: string): void {
-  stream.button({ command: "overcast.openRecord", title: `Open ${id}`, arguments: [id] });
+/** Pin the case the reply ran against — a button clicked after a case switch
+ *  must open the record in ITS case, not whatever is active then. */
+function openRecordButton(
+  stream: vscode.ChatResponseStream,
+  id: string,
+  caseDir: string | undefined,
+): void {
+  stream.button({ command: "overcast.openRecord", title: `Open ${id}`, arguments: [id, caseDir] });
 }
 
 /** Stream a produced record (capture/sense/note) as a short summary + Open button. */
@@ -41,6 +47,7 @@ function streamRecord(
   stream: vscode.ChatResponseStream,
   records: OvercastRecord[],
   verb: string,
+  caseDir: string | undefined,
 ): void {
   const rec = recordForVerb(records, verb) ?? records[0];
   if (!rec) {
@@ -49,7 +56,7 @@ function streamRecord(
   }
   const state = rec.state && rec.state !== "ready" ? ` _(${rec.state})_` : "";
   stream.markdown(`**${verb}** → \`${rec.id}\`${state}\n\n${recordBlurb(rec)}\n`);
-  openRecordButton(stream, rec.id);
+  openRecordButton(stream, rec.id, caseDir);
 }
 
 function renderStatusMarkdown(s: CaseSummary): string {
@@ -106,7 +113,7 @@ async function handleAsk(
   const rec = recordForVerb(outcome.records, "ask");
   const answer = rec ? answerText(rec) : "";
   stream.markdown(answer || "_No answer was produced._");
-  if (rec) for (const id of citedRecordIds(rec).slice(0, MAX_BUTTONS)) openRecordButton(stream, id);
+  if (rec) for (const id of citedRecordIds(rec).slice(0, MAX_BUTTONS)) openRecordButton(stream, id, deps.locator.caseDir);
   return meta("ask");
 }
 
@@ -141,7 +148,7 @@ async function handleScan(
   for (const h of shown) {
     const title = h.title || h.url || h.id || "(untitled)";
     stream.markdown(`- **${title}**${h.url ? ` — ${h.url}` : ""}${h.source ? ` _(${h.source})_` : ""}\n`);
-    if (h.id) openRecordButton(stream, h.id);
+    if (h.id) openRecordButton(stream, h.id, deps.locator.caseDir);
   }
   if (hits.length > shown.length) stream.markdown(`\n…and ${hits.length - shown.length} more.\n`);
   if (!outcome.ok) stream.markdown(`\n${warn(outcome.message)}\n`);
@@ -207,7 +214,7 @@ async function handleCapture(
     stream.markdown(warn(outcome.message));
     return meta("capture");
   }
-  streamRecord(stream, outcome.records, "capture");
+  streamRecord(stream, outcome.records, "capture", deps.locator.caseDir);
   return meta("capture");
 }
 
@@ -236,7 +243,7 @@ async function handleSense(
     stream.markdown(warn(outcome.message));
     return meta("sense");
   }
-  streamRecord(stream, outcome.records, verb);
+  streamRecord(stream, outcome.records, verb, deps.locator.caseDir);
   return meta("sense");
 }
 
@@ -261,7 +268,7 @@ async function handleNote(
     stream.markdown(warn(outcome.message));
     return meta("note");
   }
-  streamRecord(stream, outcome.records, "note");
+  streamRecord(stream, outcome.records, "note", deps.locator.caseDir);
   return meta("note");
 }
 

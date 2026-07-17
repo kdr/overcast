@@ -95,7 +95,7 @@ export async function openScanResultsPanel(deps: ExtDeps, state: ScanViewState):
     state,
     onMessage: (msg, webview) => {
       if (msg.type === "openRecord") {
-        void deps.router.openRecord(msg.recordId);
+        void deps.router.openRecord(msg.recordId, caseDir);
         return;
       }
       if (msg.type !== "hitAction") return;

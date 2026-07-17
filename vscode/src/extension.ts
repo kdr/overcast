@@ -42,7 +42,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // nothing invokes them synchronously during activation.
   const router: PanelRouter = {
     openArtifact: async (absPath, title) => artifacts.open(absPath, title),
-    openRecord: (recordId) => openRecordPanel(deps, recordId),
+    openRecord: (recordId, caseDir) => openRecordPanel(deps, recordId, caseDir),
     refresh: () => void model.refresh(),
   };
   const deps: ExtDeps = { context, output, bridge, locator, model, registry, router };
