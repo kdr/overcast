@@ -68,6 +68,43 @@ jobs:
             npm publish
           fi
 
+  # VS Code extension: package the .vsix and attach it to the same GitHub
+  # Release. Its version is stamped by scripts/sync-version.mjs (checked in the
+  # npm-publish job), so the .vsix always matches the tag.
+  vsix:
+    needs: npm-publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            vscode/package-lock.json
+      # Root deps too: the extension's typecheck/build import types from src/.
+      - run: npm ci
+      - run: npm ci --prefix vscode
+      - run: npm run --prefix vscode typecheck
+      - run: npm run --prefix vscode build
+      - run: npm run --prefix vscode test
+      - run: mkdir -p .dev && npm run --prefix vscode package
+      - name: Attach the .vsix to the GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: .dev/*.vsix
+          fail_on_unmatched_files: true
+      - name: Upload the .vsix as a workflow artifact (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: overcast-vscode-vsix
+          path: .dev/*.vsix
+          if-no-files-found: error
+          include-hidden-files: true
+
   binaries:
     needs: npm-publish
     runs-on: ubuntu-latest

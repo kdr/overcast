@@ -8,3 +8,6 @@ tsconfig.json
 tsup.config.ts
 **/*.map
 .gitignore
+package-lock.json
+*.vsix
+**/.DS_Store
