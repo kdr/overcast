@@ -68,9 +68,12 @@ export class ThreadItem extends vscode.TreeItem {
   }
 }
 
+// Rows carry the case they were RENDERED from in their openRecord arguments —
+// a click on a row that outlives a case switch must open the record in its
+// own case (the same rule as panels, chat buttons, and Runs rows).
 class ThreadFindingItem extends vscode.TreeItem {
   readonly findingId: string;
-  constructor(findingId: string, text: string, status: string) {
+  constructor(findingId: string, text: string, status: string, caseDir: string | undefined) {
     super(truncate(text), vscode.TreeItemCollapsibleState.None);
     this.findingId = findingId;
     this.description = status;
@@ -81,14 +84,14 @@ class ThreadFindingItem extends vscode.TreeItem {
     this.command = {
       command: "overcast.openRecord",
       title: "Open Record",
-      arguments: [findingId],
+      arguments: [findingId, caseDir],
     };
   }
 }
 
 class ThreadEvidenceItem extends vscode.TreeItem {
   readonly recordId: string;
-  constructor(recordId: string, verb: string | undefined) {
+  constructor(recordId: string, verb: string | undefined, caseDir: string | undefined) {
     super(verb ? `${verb} ${recordId}` : recordId, vscode.TreeItemCollapsibleState.None);
     this.recordId = recordId;
     this.iconPath = new vscode.ThemeIcon("file-media");
@@ -96,7 +99,7 @@ class ThreadEvidenceItem extends vscode.TreeItem {
     this.command = {
       command: "overcast.openRecord",
       title: "Open Record",
-      arguments: [recordId],
+      arguments: [recordId, caseDir],
     };
   }
 }
@@ -123,7 +126,7 @@ class NotesLeadsGroupItem extends vscode.TreeItem {
 // accept/dismiss + accept-with-target commands (findingCommands.idFrom) work.
 class LeadItem extends vscode.TreeItem {
   readonly findingId: string;
-  constructor(row: TriageRow) {
+  constructor(row: TriageRow, caseDir: string | undefined) {
     super(truncate(String(row.text ?? "")), vscode.TreeItemCollapsibleState.None);
     this.findingId = row.id;
     const parts: string[] = [];
@@ -146,7 +149,7 @@ class LeadItem extends vscode.TreeItem {
     this.command = {
       command: "overcast.openRecord",
       title: "Open Record",
-      arguments: [row.id],
+      arguments: [row.id, caseDir],
     };
   }
 }
@@ -155,7 +158,7 @@ class LeadItem extends vscode.TreeItem {
 // the id stands in.
 class NoteItem extends vscode.TreeItem {
   readonly recordId: string;
-  constructor(id: string, text: string | undefined) {
+  constructor(id: string, text: string | undefined, caseDir: string | undefined) {
     const body = text?.trim();
     super(body ? truncate(body) : id, vscode.TreeItemCollapsibleState.None);
     this.recordId = id;
@@ -166,7 +169,7 @@ class NoteItem extends vscode.TreeItem {
     this.command = {
       command: "overcast.openRecord",
       title: "Open Record",
-      arguments: [id],
+      arguments: [id, caseDir],
     };
   }
 }
@@ -206,10 +209,10 @@ export class InvestigationTreeProvider implements vscode.TreeDataProvider<vscode
       const verbById = new Map(this.deps.model.records.map((r) => [r.id, r.verb]));
       for (const fid of element.thread.findingIds ?? []) {
         const f = this.deps.model.findings.get(fid);
-        items.push(new ThreadFindingItem(fid, f?.text ?? fid, f?.status ?? "open"));
+        items.push(new ThreadFindingItem(fid, f?.text ?? fid, f?.status ?? "open", this.deps.locator.caseDir));
       }
       for (const rid of element.thread.recentEvidenceIds ?? []) {
-        items.push(new ThreadEvidenceItem(rid, verbById.get(rid)));
+        items.push(new ThreadEvidenceItem(rid, verbById.get(rid), this.deps.locator.caseDir));
       }
       return items;
     }
@@ -217,8 +220,8 @@ export class InvestigationTreeProvider implements vscode.TreeDataProvider<vscode
       // Leads first (newest-first from payload.triage), then recent notes
       // (newest-first from the model). No shared per-item timestamp exists to
       // interleave the two groups by time — see the model note.
-      const leads = (this.deps.model.status?.triage ?? []).map((r) => new LeadItem(r as TriageRow));
-      const notes = this.deps.model.notes.map((n) => new NoteItem(n.id, n.text));
+      const leads = (this.deps.model.status?.triage ?? []).map((r) => new LeadItem(r as TriageRow, this.deps.locator.caseDir));
+      const notes = this.deps.model.notes.map((n) => new NoteItem(n.id, n.text, this.deps.locator.caseDir));
       return [...leads, ...notes];
     }
     return [];

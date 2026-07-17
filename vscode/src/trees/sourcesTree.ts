@@ -64,6 +64,8 @@ export class MediaItem extends vscode.TreeItem {
     title?: string;
     detail: string;
     tooltipLines?: string[];
+    /** the case this row was rendered from — rides the openRecord deep-link */
+    caseDir: string | undefined;
   }) {
     const isLocal = path.isAbsolute(opts.ref) && fs.existsSync(opts.ref);
     super(
@@ -86,7 +88,7 @@ export class MediaItem extends vscode.TreeItem {
     // than once (one row per capture record) — a ref-only id would collide,
     // breaking tree identity and deep-linking the wrong record.
     this.id = `${opts.idPrefix}:${opts.recordId}:${opts.ref}`;
-    this.command = { command: "overcast.openRecord", title: "Open Record", arguments: [opts.recordId] };
+    this.command = { command: "overcast.openRecord", title: "Open Record", arguments: [opts.recordId, opts.caseDir] };
   }
 }
 
@@ -161,6 +163,7 @@ export class SourcesTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
         const rollup = byRef.get(m.ref);
         const analyzed = !!rollup || m.sensed;
         return new MediaItem({
+          caseDir: this.deps.locator.caseDir,
           idPrefix: `srcmedia:${element.sourceId}`,
           ref: m.ref,
           recordId: m.record,
@@ -192,6 +195,7 @@ export class SourcesTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
       return analyzedMedia(this.deps.model.records).map(
         (m) =>
           new MediaItem({
+            caseDir: this.deps.locator.caseDir,
             idPrefix: "analyzed",
             ref: m.ref,
             recordId: m.recordId,

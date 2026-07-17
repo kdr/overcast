@@ -20,7 +20,7 @@ class VerbGroupItem extends vscode.TreeItem {
 
 export class RecordItem extends vscode.TreeItem {
   readonly recordId: string;
-  constructor(row: RecordRow) {
+  constructor(row: RecordRow, caseDir: string | undefined) {
     super(row.id, vscode.TreeItemCollapsibleState.None);
     this.recordId = row.id;
     const parts: string[] = [];
@@ -42,7 +42,7 @@ export class RecordItem extends vscode.TreeItem {
     this.command = {
       command: "overcast.openRecord",
       title: "Open Record",
-      arguments: [row.id],
+      arguments: [row.id, caseDir],
     };
   }
 }
@@ -79,7 +79,7 @@ export class RecordsTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
       return newestFirst
         .filter((r) => r.verb === element.verb)
         .slice(0, 200)
-        .map((r) => new RecordItem(r));
+        .map((r) => new RecordItem(r, this.deps.locator.caseDir));
     }
     return [];
   }
