@@ -37,13 +37,14 @@ export function registerNoteCommands(deps: ExtDeps): void {
       });
       if (confidence && confidence !== "(none)") args.push("--confidence", confidence);
 
+      const caseDir = deps.locator.caseDir; // pinned: the toast outlives case switches
       const result = await deps.bridge.runWithProgress("Adding note", args);
       if (!result) return;
       deps.router.refresh();
       const rec = result.records.find((r) => r.verb === "note") ?? result.records[0];
       if (rec?.id) {
         const open = await vscode.window.showInformationMessage(`Note added → ${rec.id}`, "Open");
-        if (open) await deps.router.openRecord(rec.id);
+        if (open) await deps.router.openRecord(rec.id, caseDir);
       }
     }),
   );

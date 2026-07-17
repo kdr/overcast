@@ -174,9 +174,11 @@ export class SourcesTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
         });
       });
       // coverage.media is capped (newest 50) while `captured` counts them all —
-      // say so instead of silently omitting the older grabs
+      // say so instead of silently omitting the older grabs. Only when media
+      // rows are actually listed: an older CLI payload with no `media` at all
+      // must not render a lone "older grabs" hint implying rows above it.
       const hidden = element.row.captured - items.length;
-      if (hidden > 0) {
+      if (hidden > 0 && items.length > 0) {
         const more = new vscode.TreeItem(`… ${hidden} older grab${hidden === 1 ? "" : "s"}`);
         more.description = "see Records";
         more.iconPath = new vscode.ThemeIcon("ellipsis");

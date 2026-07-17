@@ -53,6 +53,9 @@ async function runAndRoute(
   opts: { artifact?: (payload: unknown) => string | undefined } = {},
 ): Promise<void> {
   const verb = args[0];
+  // pin the case at SPAWN time — a long sense run can outlive a case switch,
+  // and the produced record must open in the case it was written to
+  const caseDir = deps.locator.caseDir;
   const result = await deps.bridge.runWithProgress(
     `overcast ${verb} ${path.basename(args[1] ?? "")}`.trim(),
     args,
@@ -67,7 +70,7 @@ async function runAndRoute(
   if (artifact) {
     await deps.router.openArtifact(artifact, `${verb} — ${path.basename(artifact)}`);
   } else if (rec.id) {
-    await deps.router.openRecord(rec.id);
+    await deps.router.openRecord(rec.id, caseDir);
   }
   if (rec.id) {
     void vscode.window.showInformationMessage(

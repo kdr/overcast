@@ -153,6 +153,9 @@ export async function routeResult(
   deps: ExtDeps,
   verb: string,
   records: OvercastRecord[],
+  /** the case the run targeted (captured at spawn) — a run finishing after a
+   *  case switch must open its record in ITS case, not the locator's. */
+  caseDir?: string,
 ): Promise<void> {
   const rec = records.find((r) => r.verb === verb) ?? records[0];
   deps.router.refresh();
@@ -162,7 +165,7 @@ export async function routeResult(
     await deps.router.openArtifact(artifacts[0], `${verb} — ${path.basename(artifacts[0])}`);
     return;
   }
-  if (rec.id) await deps.router.openRecord(rec.id);
+  if (rec.id) await deps.router.openRecord(rec.id, caseDir);
 }
 
 export function registerRunVerb(deps: ExtDeps): void {
@@ -216,10 +219,11 @@ export function registerRunVerb(deps: ExtDeps): void {
       );
       if (!confirm?.run) return;
 
+      const caseDir = deps.locator.caseDir; // pinned at spawn (see routeResult)
       const result = await deps.bridge.runWithProgress(`overcast ${spec.name}`, argv);
       if (!result) return;
       const rec = result.records.find((r) => r.verb === spec.name) ?? result.records[0];
-      await routeResult(deps, spec.name, result.records);
+      await routeResult(deps, spec.name, result.records, caseDir);
       if (rec?.id) {
         void vscode.window.showInformationMessage(
           `overcast ${spec.name} → ${result.records.length} record(s), ${rec.id}${rec.state === "pending" ? " (pending)" : ""}`,

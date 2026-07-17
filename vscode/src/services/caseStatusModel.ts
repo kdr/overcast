@@ -88,10 +88,14 @@ export class CaseStatusModel implements vscode.Disposable {
     const pattern = new vscode.RelativePattern(caseDir, ".overcast/**/*.{json,jsonl}");
     const w = vscode.workspace.createFileSystemWatcher(pattern);
     const onEvt = (uri: vscode.Uri) => {
-      // never react to case.jsonl — our own status/records reads append there
+      // never react to case.jsonl — an OLD CLI's status/records reads append there
       if (uri.path.endsWith("/case.jsonl")) return;
-      // drop side effects of our own reads (any other file they touched)
-      if (Date.now() < this.suppressUntil) return;
+      // The suppress window only mutes the files an old CLI's poll reads could
+      // write (finding/index list audit rows) — evidence writes (watch/scan/
+      // note/… jsonl) from an agent terminal or external CLI must ALWAYS
+      // refresh, even mid-poll. Current CLIs mark every poll read transient,
+      // so this is pure defense-in-depth.
+      if (Date.now() < this.suppressUntil && /\/(finding|index)\.jsonl$/.test(uri.path)) return;
       this.scheduleRefresh();
     };
     this.watcher = w;
@@ -160,7 +164,7 @@ export class CaseStatusModel implements vscode.Disposable {
           ]),
       );
     } finally {
-      // the reads above just appended to case.jsonl — ignore the watcher fallout
+      // arm the old-CLI echo guard (see onEvt — scoped to finding/index.jsonl)
       this.suppressUntil = Date.now() + 1500;
     }
 
@@ -242,7 +246,7 @@ export class CaseStatusModel implements vscode.Disposable {
       );
       for (const entry of fetched) if (entry) this.noteText.set(entry[0], entry[1]);
     } finally {
-      // these reads append a case audit record too — mute the watcher fallout
+      // arm the old-CLI echo guard for these reads too (see onEvt)
       this.suppressUntil = Date.now() + 1500;
     }
     // stale if the case changed mid-fetch; the newer refresh already owns state
