@@ -24,8 +24,10 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
   `exec`). Cloudglue is **also** a pickable *brain* LLM provider (anthropic-messages
   API) so it appears in `/model` — never forced. The tinycloud CLI is a runtime
   prerequisite (like ffmpeg), not an npm dep; `face` + `index` need **≥ 0.3.4**,
-  and current docs recommend tinycloud **0.3.8** (image `see`/`extract` — the
-  opt-in `see:tinycloud` provider — need ≥ 0.3.7).
+  and current docs recommend tinycloud **0.3.10** — `listen` pulls VERBATIM
+  transcript cues via the public `caption` verb (0.3.10 watch envelopes ship
+  `segments: []`; older tinyclouds fall back to inline envelope speech), and
+  image `see`/`extract` (the opt-in `see:tinycloud` provider) need ≥ 0.3.7.
 - `ffmpeg` + `ffprobe` — a **system prerequisite** (on `PATH`, or via
   `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE`); the internal media toolkit, NOT bundled.
 - uv-managed visual/audio DB Python — optional for visual/audio DBs,

@@ -52,16 +52,19 @@ export class CaseStatusModel implements vscode.Disposable {
   // life of the case and never re-read (cleared on case switch).
   private noteText = new Map<string, string>();
   private lastCaseDir: string | undefined;
+  /** one records-truncation warning per case (reset on case switch). */
+  private warnedTruncated = false;
 
   private watcher: vscode.FileSystemWatcher | undefined;
   private debounceTimer: NodeJS.Timeout | undefined;
   private refreshing = false;
   private refreshQueued = false;
-  // Our own refresh reads (case status/records, finding list) PERSIST a `case`
-  // audit record to records/case.jsonl. Watching that file would loop forever
-  // (write → watcher → refresh → write). We ignore case.jsonl outright AND drop
-  // any watcher event within a short window after our reads finish, so no file
-  // our reads happen to touch can re-trigger us.
+  // Current CLIs mark every poll read (case status/records, finding list,
+  // index list, memory get) transient — nothing is written. This guard is
+  // defense-in-depth for OLDER CLIs whose reads DID append a `case` audit
+  // record to records/case.jsonl (write → watcher → refresh → write = runaway):
+  // ignore case.jsonl outright AND drop any watcher event within a short
+  // window after our reads finish.
   private suppressUntil = 0;
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -125,6 +128,7 @@ export class CaseStatusModel implements vscode.Disposable {
     const caseDir = this.locator.caseDir;
     if (caseDir !== this.lastCaseDir) {
       this.noteText.clear(); // ids are per-case; don't carry a body across a switch
+      this.warnedTruncated = false;
       this.lastCaseDir = caseDir;
     }
     if (!caseDir) {
@@ -168,6 +172,14 @@ export class CaseStatusModel implements vscode.Disposable {
     if (!recordsRes.failure && recordsRec) {
       this.recordsPayload = recordsRec.payload as unknown as CaseRecordsPayload;
       this.records = this.recordsPayload.records ?? [];
+      // The CLI keeps the OLDEST N when a case outgrows even our huge --limit —
+      // the trees would silently drop the NEWEST evidence. Say so once per case.
+      if (this.recordsPayload.truncated && !this.warnedTruncated) {
+        this.warnedTruncated = true;
+        void vscode.window.showWarningMessage(
+          `Overcast: this case has ${this.recordsPayload.count} records — the sidebar shows the oldest ${this.recordsPayload.shown} and NEWER records are missing from the trees. Use the CLI (case records --since …) for the full trail.`,
+        );
+      }
     } else {
       this.recordsPayload = undefined;
       this.records = [];

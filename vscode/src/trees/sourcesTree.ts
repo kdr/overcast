@@ -157,7 +157,7 @@ export class SourcesTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
       // `sensed` flag as fallback for refs whose analysis records fell outside
       // the model's compact record window.
       const byRef = new Map(analyzedMedia(this.deps.model.records).map((a) => [a.ref, a]));
-      return (element.row.media ?? []).map((m) => {
+      const items: vscode.TreeItem[] = (element.row.media ?? []).map((m) => {
         const rollup = byRef.get(m.ref);
         const analyzed = !!rollup || m.sensed;
         return new MediaItem({
@@ -173,6 +173,18 @@ export class SourcesTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
           ],
         });
       });
+      // coverage.media is capped (newest 50) while `captured` counts them all —
+      // say so instead of silently omitting the older grabs
+      const hidden = element.row.captured - items.length;
+      if (hidden > 0) {
+        const more = new vscode.TreeItem(`… ${hidden} older grab${hidden === 1 ? "" : "s"}`);
+        more.description = "see Records";
+        more.iconPath = new vscode.ThemeIcon("ellipsis");
+        more.tooltip = "The tree shows this source's newest grabs; the full capture trail lives in the Records view.";
+        more.id = `srcmedia:${element.sourceId}:more`;
+        items.push(more);
+      }
+      return items;
     }
     if (element instanceof AnalyzedFolderItem) {
       return analyzedMedia(this.deps.model.records).map(

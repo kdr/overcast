@@ -271,9 +271,18 @@ export class CliBridge implements vscode.Disposable {
         if (killTimer) clearTimeout(killTimer);
         if (truncated) this.output.appendLine("  (stdout truncated at 64MB)");
         const records = parseRecords(stdout);
-        const failure = spawnErr
+        let failure = spawnErr
           ? { kind: "unknown" as const, message: spawnErr.message }
           : failureFor(code, records, stderr);
+        // A capped stdout can cut a JSON document mid-stream — parseRecords
+        // then yields nothing or a partial set while the exit code is still 0.
+        // Never let that pose as a clean result.
+        if (!failure && truncated) {
+          failure = {
+            kind: "unknown" as const,
+            message: "output exceeded 64MB and was truncated — results are incomplete",
+          };
+        }
         const cancelled = !!(
           opts.token?.isCancellationRequested || jobHandle?.cts.token.isCancellationRequested
         );
