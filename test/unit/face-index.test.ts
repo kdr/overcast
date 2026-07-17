@@ -40,7 +40,7 @@ import { faceVerb } from "../../src/verbs/face.ts";
 import { imageVerb } from "../../src/verbs/image.ts";
 import { indexVerb } from "../../src/verbs/index.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
-import { doctorVerb, RECOMMENDED_TINYCLOUD } from "../../src/verbs/setup.ts";
+import { doctorVerb, MIN_TINYCLOUD } from "../../src/verbs/setup.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
 import { pageCommand } from "../../src/render.ts";
 
@@ -1215,14 +1215,16 @@ test("doctor warns about missing tinycloud even when watch/listen are custom-bou
   }
 });
 
-test("doctor warns when tinycloud is below the recommended version", async () => {
+test("doctor warns when tinycloud is below the supported floor", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-doctor-tcver-"));
   try {
     const c = openCase(cdir); c.ensure();
+    // the fixture reports 0.3.4 — below the 0.3.12 floor (inline watch/listen
+    // transcripts), so doctor must flag it with the update hint
     const [rec] = await doctorVerb.run({ input: undefined, rest: [], opts: {}, case: c, profile: defaultProfile(), home: cdir });
     const warnings = (rec.payload as Record<string, unknown>).warnings as string[];
     assert.equal(rec.state, "error");
-    assert.ok(warnings.some((w) => w.includes(`recommended ${RECOMMENDED_TINYCLOUD}`) && /tinycloud update/.test(w)), `expected a tinycloud update warning; got ${JSON.stringify(warnings)}`);
+    assert.ok(warnings.some((w) => w.includes(`older than ${MIN_TINYCLOUD}`) && /tinycloud update/.test(w)), `expected a tinycloud update warning; got ${JSON.stringify(warnings)}`);
   } finally {
     rmSync(cdir, { recursive: true, force: true });
   }
