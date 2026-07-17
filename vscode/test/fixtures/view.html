@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>overcast view — harbor_cam.mp4</title>
+<style>
+  body{background:#08120c;color:#c6f7d5;font-family:ui-monospace,monospace;margin:0;padding:24px}
+  h1{color:#ffc400;font-size:14px;letter-spacing:2px}
+  video{width:100%;max-width:960px;background:#000;border:1px solid #1f9d57}
+  .pins{margin-top:12px}
+  .pin{background:#0d1f14;color:#00ff7f;border:1px solid #1f9d57;padding:4px 8px;margin:2px;cursor:pointer}
+  .note{color:#1f9d57;font-size:12px;margin-top:8px}
+</style></head><body>
+<h1>▶ OVERCAST VIEW — harbor_cam.mp4</h1>
+<video id="m" src="file:///Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/harbor_cam.mp4" controls></video>
+<div class="pins"><span class="note">no markers</span></div>
+
+<p class="note">/Users/kdr/.supacode/repos/overcast/vscode-extension/.dev/vscode-fixture/case/harbor_cam.mp4</p>
+<script>
+  const m=document.getElementById('m');
+  function seek(s){m.currentTime=s;m.play();}
+  m.addEventListener('loadedmetadata',()=>{ if(0>0) m.currentTime=0; });
+</script>
+</body></html>

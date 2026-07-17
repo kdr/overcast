@@ -25,6 +25,7 @@
  *   cold                 ← nothing linked yet
  */
 import { findingStatusMap, isMemoryRecord, isReady, recordTimeMs, type OvercastRecord } from "../record.js";
+import { SENSE_VERBS } from "./pulse.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
 import { targetMatchesEvidence, payloadText } from "./triggers.js";
 import { targetStatus, type TargetEntry } from "../state/target.js";
@@ -84,7 +85,6 @@ export interface TargetThread {
   narrative?: string;
 }
 
-const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "audio", "crop", "enhance"]);
 const MATCH_VERBS = new Set(["face", "image", "similar", "cluster", "audio"]);
 
 function payloadOf(r: OvercastRecord): Record<string, unknown> {

@@ -150,6 +150,14 @@ function ensureDir(dir: string): string {
   return dir;
 }
 
+// ffmpeg 8.x's mjpeg encoder refuses non-full-range YUV ("Non full-range YUV is
+// non-standard" → ff_frame_thread_encoder_init failed → Conversion failed),
+// which limited/unknown-range source video (the common case) produces. Forcing
+// the full-range jpeg pixel format on the output makes every .jpg still we write
+// encode on ffmpeg 8.x as it did on 7.x. Applied as an OUTPUT option so it is
+// independent of each site's filter chain.
+const JPEG_FULL_RANGE = "-pix_fmt yuvj420p".split(" ");
+
 /** Extract a single frame at `second` from a video to a jpg. Returns out path. */
 export async function extractFrame(
   input: string,
@@ -160,7 +168,7 @@ export async function extractFrame(
   const out = join(outDir, `${basename(input, extname(input))}_t${Math.round(second)}.jpg`);
   await execFileP(
     FFMPEG_PATH,
-    ["-y", "-ss", String(second), "-i", input, "-frames:v", "1", "-q:v", "2", out],
+    ["-y", "-ss", String(second), "-i", input, "-frames:v", "1", "-q:v", "2", ...JPEG_FULL_RANGE, out],
     { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
   );
   return out;
@@ -178,7 +186,7 @@ export async function posterFrame(input: string, outDir: string, second = 0.5): 
     if (existsSync(out)) return out;
     await execFileP(
       FFMPEG_PATH,
-      ["-y", "-ss", String(second), "-i", input, "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-q:v", "6", out],
+      ["-y", "-ss", String(second), "-i", input, "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-q:v", "6", ...JPEG_FULL_RANGE, out],
       { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
     );
     return existsSync(out) ? out : undefined;
@@ -218,6 +226,7 @@ export async function cropStill(
     `crop=${width}:${height}:${x}:${y}`,
     "-q:v",
     "2",
+    ...JPEG_FULL_RANGE,
     out,
   );
   await execFileP(FFMPEG_PATH, args, { maxBuffer: 32 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS });
@@ -353,7 +362,7 @@ export async function contactSheet(
       }
       await execFileP(
         FFMPEG_PATH,
-        ["-y", "-ss", String(seconds[i]), "-i", input, "-frames:v", "1", "-q:v", "3", "-vf", vf, cell],
+        ["-y", "-ss", String(seconds[i]), "-i", input, "-frames:v", "1", "-q:v", "3", "-vf", vf, ...JPEG_FULL_RANGE, cell],
         { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
       );
       // ffmpeg can exit 0 with NO frame written when a seek lands at/past the last
@@ -372,7 +381,7 @@ export async function contactSheet(
       const filler = join(work, "filler.jpg");
       await execFileP(
         FFMPEG_PATH,
-        ["-y", "-f", "lavfi", "-i", `color=c=0x101418:s=${cellWidth}x${cellHeight}`, "-frames:v", "1", filler],
+        ["-y", "-f", "lavfi", "-i", `color=c=0x101418:s=${cellWidth}x${cellHeight}`, "-frames:v", "1", ...JPEG_FULL_RANGE, filler],
         { maxBuffer: 8 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
       );
       for (const i of missing) {
@@ -507,7 +516,7 @@ export async function tileImageSheet(
       if (existsSync(images[i].path)) {
         await execFileP(
           FFMPEG_PATH,
-          ["-y", "-i", images[i].path, "-frames:v", "1", "-q:v", "3", "-vf", vf, cell],
+          ["-y", "-i", images[i].path, "-frames:v", "1", "-q:v", "3", "-vf", vf, ...JPEG_FULL_RANGE, cell],
           { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
         ).catch(() => undefined);
       }
@@ -519,7 +528,7 @@ export async function tileImageSheet(
       const filler = join(work, "filler.jpg");
       await execFileP(
         FFMPEG_PATH,
-        ["-y", "-f", "lavfi", "-i", `color=c=0x101418:s=${cellWidth}x${cellHeight}`, "-frames:v", "1", filler],
+        ["-y", "-f", "lavfi", "-i", `color=c=0x101418:s=${cellWidth}x${cellHeight}`, "-frames:v", "1", ...JPEG_FULL_RANGE, filler],
         { maxBuffer: 8 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
       );
       for (const i of missing) {
@@ -575,7 +584,7 @@ export async function imagesToVideo(
       k += 1;
       await execFileP(
         FFMPEG_PATH,
-        ["-y", "-i", f, "-frames:v", "1", "-q:v", "3", "-vf", scalePad, join(work, `seq_${String(k).padStart(3, "0")}.jpg`)],
+        ["-y", "-i", f, "-frames:v", "1", "-q:v", "3", "-vf", scalePad, ...JPEG_FULL_RANGE, join(work, `seq_${String(k).padStart(3, "0")}.jpg`)],
         { maxBuffer: 16 * 1024 * 1024, timeout: FFMPEG_MEDIA_TIMEOUT_MS },
       );
     }

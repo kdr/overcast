@@ -273,7 +273,11 @@ export const seeVerb: VerbSpec = {
           dp = undefined;
         }
         const dres = dp
-          ? await execCapture(dp[0], dp.slice(1), { signal: ctx.signal, timeoutMs: 30_000 }).catch(() => undefined)
+          ? await execCapture(dp[0], dp.slice(1), { signal: ctx.signal, timeoutMs: 30_000 }).catch((e) => {
+              // lenient on provider hiccups, but never swallow a cancellation
+              if (ctx.signal?.aborted) throw e;
+              return undefined;
+            })
           : undefined;
         if (dres && dres.code === 0) {
           const d = parseFirstJson(dres.stdout) as Record<string, unknown> | undefined;

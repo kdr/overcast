@@ -1,0 +1,450 @@
+{
+  "name": "overcast-vscode",
+  "displayName": "Overcast",
+  "description": "The situation room in your editor — senses on your media (watch, listen, see, faces, EXIF via right-click), OSINT on your sources, and a wall to monitor the situation: maps, graphs, briefs, live feeds.",
+  "version": "0.0.1",
+  "publisher": "kdr",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kdr/overcast.git",
+    "directory": "vscode"
+  },
+  "type": "module",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "main": "./dist/extension.cjs",
+  "icon": "media/overcast.png",
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:**/.overcast/case.json",
+    "onWebviewPanel:overcast.artifact"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Overcast spawns the overcast CLI against workspace content."
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "overcast",
+          "title": "Overcast",
+          "icon": "media/overcast.svg"
+        }
+      ],
+      "panel": []
+    },
+    "views": {
+      "overcast": [
+        {
+          "id": "overcast.deck",
+          "type": "webview",
+          "name": "Case",
+          "icon": "media/overcast.svg",
+          "initialSize": 1
+        },
+        {
+          "id": "overcast.sources",
+          "name": "Sources & Monitors",
+          "icon": "media/overcast.svg",
+          "initialSize": 2
+        },
+        {
+          "id": "overcast.records",
+          "name": "Records",
+          "icon": "media/overcast.svg",
+          "initialSize": 3
+        },
+        {
+          "id": "overcast.investigation",
+          "name": "Investigation",
+          "icon": "media/overcast.svg",
+          "initialSize": 4
+        },
+        {
+          "id": "overcast.runs",
+          "name": "Runs",
+          "icon": "media/overcast.svg",
+          "visibility": "collapsed",
+          "initialSize": 2
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "overcast.investigation",
+        "contents": "The overcast CLI was not found.\n[Open Settings](command:workbench.action.openSettings?%22overcast.path%22)\nInstall it with `npm install -g @kdrrr/overcast`, or point `overcast.path` at a binary or a built `dist/bin/overcast.js`.",
+        "when": "!overcast.cliFound"
+      },
+      {
+        "view": "overcast.investigation",
+        "contents": "No overcast case in this workspace.\n[Initialize Case Here](command:overcast.initCase)\n[Select a Case…](command:overcast.selectCase)\nA case is a folder with an `.overcast/` store — records, media, targets, findings.",
+        "when": "overcast.cliFound && !overcast.hasCase"
+      },
+      {
+        "view": "overcast.investigation",
+        "contents": "No lines of investigation yet.\n[Case Setup](command:overcast.caseSetup)\n[New Note](command:overcast.addNote)\nAdd a target (a person, place, plate, claim…) and each becomes a thread here: its question, stage, linked findings, and latest evidence. Auto-suggested leads and your notes land here too.",
+        "when": "overcast.cliFound && overcast.hasCase"
+      }
+    ],
+    "commands": [
+      { "command": "overcast.runVerb", "category": "Overcast", "title": "Analyze Media…" },
+      { "command": "overcast.searchSource", "category": "Overcast", "title": "Search Source…" },
+      { "command": "overcast.initCase", "category": "Overcast", "title": "Initialize Case Here" },
+      { "command": "overcast.refresh", "category": "Overcast", "title": "Refresh", "icon": "$(refresh)" },
+      { "command": "overcast.exportBriefHtml", "category": "Overcast", "title": "Export Brief (HTML)…" },
+      { "command": "overcast.exportBriefMarkdown", "category": "Overcast", "title": "Export Brief (Markdown)…" },
+      { "command": "overcast.viewBrief", "category": "Overcast", "title": "Brief (Mission Report)", "icon": "$(book)" },
+      { "command": "overcast.showMap", "category": "Overcast", "title": "Open Map", "icon": "$(globe)" },
+      { "command": "overcast.showGraph", "category": "Overcast", "title": "Open Graph", "icon": "$(type-hierarchy)" },
+      { "command": "overcast.showWall", "category": "Overcast", "title": "Open Wall", "icon": "$(window)" },
+      { "command": "overcast.situationOpen", "category": "Overcast", "title": "Open Situation Panel", "icon": "$(broadcast)" },
+      { "command": "overcast.situationStop", "category": "Overcast", "title": "Stop Situation Server" },
+      { "command": "overcast.acceptFinding", "category": "Overcast", "title": "Accept lead as evidence", "icon": "$(check)" },
+      { "command": "overcast.dismissFinding", "category": "Overcast", "title": "Dismiss lead (not relevant)", "icon": "$(trash)" },
+      { "command": "overcast.acceptFindingWithTarget", "category": "Overcast", "title": "Accept lead → line of investigation…" },
+      { "command": "overcast.openRecord", "category": "Overcast", "title": "Open Record" },
+      { "command": "overcast.copyRecordJson", "category": "Overcast", "title": "Copy Record JSON" },
+      { "command": "overcast.copyRecordId", "category": "Overcast", "title": "Copy Record ID" },
+      { "command": "overcast.scanSourceNode", "category": "Overcast", "title": "Scan Now…" },
+      { "command": "overcast.ctx.watch", "category": "Overcast", "title": "Watch (describe video)" },
+      { "command": "overcast.ctx.listen", "category": "Overcast", "title": "Listen (transcribe speech)" },
+      { "command": "overcast.ctx.see", "category": "Overcast", "title": "See (describe image / OCR)" },
+      { "command": "overcast.ctx.grid", "category": "Overcast", "title": "Grid (frame board)" },
+      { "command": "overcast.ctx.exif", "category": "Overcast", "title": "EXIF Metadata" },
+      { "command": "overcast.ctx.enhance", "category": "Overcast", "title": "Enhance…" },
+      { "command": "overcast.ctx.view", "category": "Overcast", "title": "View (media player)" },
+      { "command": "overcast.ctx.face", "category": "Overcast", "title": "Detect Faces" },
+      { "command": "overcast.ctx.similar", "category": "Overcast", "title": "Find Similar…" },
+      { "command": "overcast.ctx.chronolocate", "category": "Overcast", "title": "Chronolocate (sun/shadows)…" },
+      { "command": "overcast.ctx.audio", "category": "Overcast", "title": "Audio Fingerprint…" },
+      { "command": "overcast.ctx.voice", "category": "Overcast", "title": "Voice Match…" },
+      { "command": "overcast.ctx.batchSense", "category": "Overcast", "title": "Analyze All Selected" },
+      { "command": "overcast.openMediaFile", "category": "Overcast", "title": "Open Media" },
+      { "command": "overcast.analyzeMediaNode", "category": "Overcast", "title": "Analyze with Overcast…" },
+      { "command": "overcast.selectCase", "category": "Overcast", "title": "Select Case…", "icon": "$(folder-opened)" },
+      { "command": "overcast.openInOvercast", "category": "Overcast", "title": "Open in Overcast" },
+      { "command": "overcast.openAgentTerminal", "category": "Overcast", "title": "Open Agent Terminal", "icon": "$(terminal)" },
+      { "command": "overcast.restartCli", "category": "Overcast", "title": "Restart CLI", "icon": "$(debug-restart)" },
+      { "command": "overcast.addNote", "category": "Overcast", "title": "New Note…", "icon": "$(note)" },
+      { "command": "overcast.addSource", "category": "Overcast", "title": "Add Source…", "icon": "$(add)" },
+      { "command": "overcast.caseSetup", "category": "Overcast", "title": "Case Setup…", "icon": "$(settings-gear)" },
+      { "command": "overcast.cancelRun", "category": "Overcast", "title": "Cancel Run", "icon": "$(stop-circle)" },
+      { "command": "overcast.clearRuns", "category": "Overcast", "title": "Clear Finished Runs", "icon": "$(clear-all)" }
+    ],
+    "chatParticipants": [
+      {
+        "id": "overcast.chat",
+        "name": "overcast",
+        "fullName": "Overcast",
+        "description": "Ask, scan, capture, sense, and note over your overcast OSINT/perception case.",
+        "isSticky": true,
+        "commands": [
+          { "name": "ask", "description": "Answer a question over the case's evidence, with citations" },
+          { "name": "scan", "description": "Scan the configured OSINT sources for new material (reaches the network)" },
+          { "name": "status", "description": "Case status — lines of investigation, suggested leads, source freshness" },
+          { "name": "brief", "description": "Render the mission brief" },
+          { "name": "capture", "description": "Pull a scan hit or URL into the case (reaches the network)" },
+          { "name": "sense", "description": "Analyze a media file — watch, listen, see, faces, EXIF" },
+          { "name": "note", "description": "Record an analyst observation into the case" }
+        ]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "overcast_case_status",
+        "displayName": "Overcast: Case Status",
+        "modelDescription": "Get a compact JSON summary of the active overcast investigation case: its lines of investigation (each with status/stage, linked-evidence count, and finding count), the number of suggested leads awaiting review, the configured OSINT sources with freshness (last-scan age, hit count, coverage gaps), and the total record count. Read-only: reaches no network and changes nothing. Use this first to orient on a case before asking, scanning, or capturing. Takes no input.",
+        "userDescription": "Case status — lines of investigation, suggested leads, source freshness.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastStatus",
+        "icon": "$(pulse)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_ask",
+        "displayName": "Overcast: Ask",
+        "modelDescription": "Answer a natural-language question over the overcast case's evidence memory (watch/listen/see/face/exif/scan/capture/note records and accepted findings). Returns the answer text plus citations to the record ids and media timestamps it drew from. Read-only over local case memory: no network, no changes. Set deep=true for slower qmd-backed semantic retrieval (requires qmd memory to be set up). Use this to interrogate what is already in the case; use overcast_scan to find NEW material.",
+        "userDescription": "Answer a question over the case's evidence, with citations.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastAsk",
+        "icon": "$(comment-discussion)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "question": { "type": "string", "description": "The natural-language question to answer over the case memory." },
+            "deep": { "type": "boolean", "description": "Use qmd-backed semantic retrieval (slower, requires qmd memory set up). Default false = local-grep." }
+          },
+          "required": ["question"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_scan",
+        "displayName": "Overcast: Scan Sources",
+        "modelDescription": "Scan the case's configured OSINT sources (YouTube/TikTok/X/web/Telegram/etc.) for new material and return a list of scan hits (each with a record id, title, url, snippet, and source). REACHES THE NETWORK. Every hit is persisted as a scan.hit record whose id can be passed to overcast_capture to pull the underlying media into the case. Optional query narrows the scan; source restricts to specific source ids/types (comma list); since filters recency (e.g. '24h', '7d'); limit caps hits per source. This finds NEW external material; use overcast_ask to query material already in the case.",
+        "userDescription": "Scan the configured OSINT sources for new material (reaches the network).",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastScan",
+        "icon": "$(radio-tower)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "description": "Ad-hoc keyword to search; omit to scan each source's bound ref." },
+            "source": { "type": "string", "description": "Restrict to source ids/types (comma list), e.g. 'youtube,web' or a source id." },
+            "since": { "type": "string", "description": "Recency filter, e.g. '24h', '7d', '30d'." },
+            "limit": { "type": "number", "description": "Max hits per source." }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_capture",
+        "displayName": "Overcast: Capture",
+        "modelDescription": "Fetch a resource into the case as a capture record and return its summary (id, state, compact payload). The ref is a URL, a scan-hit record id (from overcast_scan), or a local path. REACHES THE NETWORK for URLs. The resulting capture record id can then be sensed (overcast_sense) or asked about (overcast_ask). Use after overcast_scan to pull a promising hit into the case for analysis.",
+        "userDescription": "Pull a scan hit or URL into the case (reaches the network).",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastCapture",
+        "icon": "$(cloud-download)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "ref": { "type": "string", "description": "A URL, a scan-hit record id, or a local file path to capture into the case." }
+          },
+          "required": ["ref"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_sense",
+        "displayName": "Overcast: Sense Media",
+        "modelDescription": "Run a perception 'sense' verb on a media file and return the resulting evidence record summary (id, state, compact payload). verb is one of: watch (describe a video into time-anchored content/transcript), listen (transcribe audio), see (caption/OCR an image), face (detect faces), exif (extract metadata/GPS/capture-time). file is a path (absolute, or relative to the workspace/case folder) — it is validated to exist before running. May reach a cloud perception backend (e.g. tinycloud) depending on the bound provider. The record persists in the case and is citable by overcast_ask.",
+        "userDescription": "Analyze a media file — watch, listen, see, faces, EXIF.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastSense",
+        "icon": "$(eye)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "verb": {
+              "type": "string",
+              "enum": ["watch", "listen", "see", "face", "exif"],
+              "description": "The sense verb: watch (video), listen (audio), see (image), face (faces), exif (metadata)."
+            },
+            "file": { "type": "string", "description": "Path to the media file — absolute, or relative to the workspace/case folder." }
+          },
+          "required": ["verb", "file"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "overcast_note",
+        "displayName": "Overcast: Add Note",
+        "modelDescription": "Record an analyst observation as a note in the case and return the note record summary (id, state). Notes are evidence: searchable by overcast_ask and shown in the brief. Optional confidence is 'low' | 'medium' | 'high'. No network. Use this to persist a conclusion or observation you want to keep in the case record.",
+        "userDescription": "Record an analyst observation into the case.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "overcastNote",
+        "icon": "$(note)",
+        "when": "overcast.cliFound",
+        "tags": ["overcast", "osint"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string", "description": "The observation/finding text to record." },
+            "confidence": {
+              "type": "string",
+              "enum": ["low", "medium", "high"],
+              "description": "Optional confidence level for the observation."
+            }
+          },
+          "required": ["text"],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "submenus": [
+      {
+        "id": "overcast.mediaSubmenu",
+        "label": "Overcast",
+        "icon": {
+          "light": "media/overcast-light.svg",
+          "dark": "media/overcast-dark.svg"
+        }
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "submenu": "overcast.mediaSubmenu",
+          "group": "navigation@9",
+          "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic|mp3|wav|m4a|aac|flac|ogg|opus)$/i"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "submenu": "overcast.mediaSubmenu",
+          "group": "2_overcast",
+          "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic|mp3|wav|m4a|aac|flac|ogg|opus)$/i"
+        }
+      ],
+      "explorer/context": [
+        {
+          "submenu": "overcast.mediaSubmenu",
+          "group": "2_overcast",
+          "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic|mp3|wav|m4a|aac|flac|ogg|opus)$/i"
+        },
+        {
+          "command": "overcast.openInOvercast",
+          "group": "2_overcast",
+          "when": "explorerResourceIsFolder"
+        }
+      ],
+      "overcast.mediaSubmenu": [
+        { "command": "overcast.ctx.watch", "group": "1_sense@1", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg)$/i" },
+        { "command": "overcast.ctx.listen", "group": "1_sense@2", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|mp3|wav|m4a|aac|flac|ogg|opus)$/i" },
+        { "command": "overcast.ctx.see", "group": "1_sense@3", "when": "resourceExtname =~ /^\\.(png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic)$/i" },
+        { "command": "overcast.ctx.face", "group": "1_sense@4", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|png|jpg|jpeg|webp|bmp|tif|tiff|heic)$/i" },
+        { "command": "overcast.ctx.similar", "group": "1_sense@5", "when": "resourceExtname =~ /^\\.(png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic|mp3|wav|m4a|aac|flac|ogg|opus)$/i" },
+        { "command": "overcast.ctx.audio", "group": "1_sense@6", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mp3|wav|m4a|aac|flac|ogg|opus)$/i" },
+        { "command": "overcast.ctx.voice", "group": "1_sense@7", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mp3|wav|m4a|aac|flac|ogg|opus)$/i" },
+        { "command": "overcast.ctx.exif", "group": "2_forensics@1", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|png|jpg|jpeg|webp|gif|bmp|tif|tiff|heic)$/i" },
+        { "command": "overcast.ctx.chronolocate", "group": "2_forensics@2", "when": "resourceExtname =~ /^\\.(png|jpg|jpeg|webp|bmp|tif|tiff|heic)$/i" },
+        { "command": "overcast.ctx.enhance", "group": "2_forensics@3", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|png|jpg|jpeg|webp|mp3|wav|m4a|aac|flac|ogg|opus)$/i" },
+        { "command": "overcast.ctx.view", "group": "3_artifacts@1", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|mp3|wav|m4a|aac|flac|ogg|opus|png|jpg|jpeg|webp|gif)$/i" },
+        { "command": "overcast.ctx.grid", "group": "3_artifacts@2", "when": "resourceExtname =~ /^\\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg)$/i" },
+        { "command": "overcast.ctx.batchSense", "group": "4_batch@1", "when": "listMultiSelection" }
+      ],
+      "view/title": [
+        { "command": "overcast.refresh", "when": "view == overcast.investigation || view == overcast.sources || view == overcast.records", "group": "navigation@9" },
+        { "command": "overcast.selectCase", "when": "view == overcast.investigation", "group": "1_overflow@1" },
+        { "command": "overcast.restartCli", "when": "view == overcast.investigation", "group": "1_overflow@2" },
+        { "command": "overcast.addSource", "when": "view == overcast.sources", "group": "navigation@1" },
+        { "command": "overcast.searchSource", "when": "view == overcast.sources", "group": "1_overflow@1" },
+        { "command": "overcast.clearRuns", "when": "view == overcast.runs", "group": "navigation@1" }
+      ],
+      "view/item/context": [
+        { "command": "overcast.acceptFinding", "when": "viewItem == overcast.finding", "group": "inline@1" },
+        { "command": "overcast.dismissFinding", "when": "viewItem == overcast.finding", "group": "inline@2" },
+        { "command": "overcast.acceptFindingWithTarget", "when": "viewItem == overcast.finding", "group": "1_review@1" },
+        { "command": "overcast.openRecord", "when": "viewItem =~ /^overcast\\.(record|finding|media)/", "group": "2_record@1" },
+        { "command": "overcast.copyRecordJson", "when": "viewItem =~ /^overcast\\.(record|finding|media)/", "group": "2_record@2" },
+        { "command": "overcast.copyRecordId", "when": "viewItem =~ /^overcast\\.(record|finding|media)/", "group": "2_record@3" },
+        { "command": "overcast.scanSourceNode", "when": "viewItem == overcast.source", "group": "1_scan@1" },
+        { "command": "overcast.openMediaFile", "when": "viewItem == overcast.media.file", "group": "1_media@1" },
+        { "command": "overcast.analyzeMediaNode", "when": "viewItem == overcast.media.file", "group": "1_media@2" },
+        { "submenu": "overcast.mediaSubmenu", "when": "viewItem == overcast.media.file", "group": "1_media@3" },
+        { "command": "overcast.cancelRun", "when": "viewItem == overcast.run.running", "group": "inline" }
+      ],
+      "commandPalette": [
+        { "command": "overcast.openInOvercast", "when": "false" },
+        { "command": "overcast.acceptFinding", "when": "false" },
+        { "command": "overcast.dismissFinding", "when": "false" },
+        { "command": "overcast.acceptFindingWithTarget", "when": "false" },
+        { "command": "overcast.openRecord", "when": "false" },
+        { "command": "overcast.copyRecordJson", "when": "false" },
+        { "command": "overcast.copyRecordId", "when": "false" },
+        { "command": "overcast.scanSourceNode", "when": "false" },
+        { "command": "overcast.ctx.watch", "when": "false" },
+        { "command": "overcast.ctx.listen", "when": "false" },
+        { "command": "overcast.ctx.see", "when": "false" },
+        { "command": "overcast.ctx.grid", "when": "false" },
+        { "command": "overcast.ctx.exif", "when": "false" },
+        { "command": "overcast.ctx.enhance", "when": "false" },
+        { "command": "overcast.ctx.view", "when": "false" },
+        { "command": "overcast.ctx.face", "when": "false" },
+        { "command": "overcast.ctx.similar", "when": "false" },
+        { "command": "overcast.ctx.chronolocate", "when": "false" },
+        { "command": "overcast.ctx.audio", "when": "false" },
+        { "command": "overcast.ctx.voice", "when": "false" },
+        { "command": "overcast.ctx.batchSense", "when": "false" },
+        { "command": "overcast.openMediaFile", "when": "false" },
+        { "command": "overcast.analyzeMediaNode", "when": "false" },
+        { "command": "overcast.cancelRun", "when": "false" }
+      ]
+    },
+    "configuration": {
+      "title": "Overcast",
+      "properties": {
+        "overcast.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `overcast` CLI. A `.js` path (e.g. a repo `dist/bin/overcast.js`) is run with the extension host's Node. Empty = discover on PATH."
+        },
+        "overcast.home": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Overcast home directory passed as `--home` on every CLI call (profiles, archive buckets). Absolute, or relative to the workspace folder. Empty = the CLI default (`~/.overcast`)."
+        },
+        "overcast.caseDir": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Case directory override (absolute, or relative to the workspace folder). Empty = first workspace folder containing `.overcast/case.json`."
+        },
+        "overcast.profile": {
+          "type": "string",
+          "default": "",
+          "description": "Overcast profile name passed as --profile on every CLI call. Empty = the CLI's active profile."
+        },
+        "overcast.situation.port": {
+          "type": "number",
+          "default": 0,
+          "description": "Port for the situation server spawned by the panel. 0 = the CLI default (7374)."
+        },
+        "overcast.situation.stopOnClose": {
+          "type": "boolean",
+          "default": false,
+          "description": "Stop the situation server when the panel is hidden. Off by default so monitors keep running."
+        },
+        "overcast.allowRemoteMapTiles": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Allow the Map tab to load OpenStreetMap raster tiles from the network (reveals your IP to the tile server). Off = maps are generated with `--offline`."
+        },
+        "overcast.agentTerminalOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When the Overcast view is opened with no editors open, launch the interactive `overcast` agent in a terminal (once per session). The agent waits for input — it does nothing until you type."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "tsup && vite build --config webview/vite.config.ts",
+    "typecheck": "tsc --noEmit && tsc -p webview --noEmit",
+    "test": "node --test --import tsx test/*.test.ts",
+    "package": "vsce package --no-dependencies -o ../.dev/"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.4.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.3"
+  }
+}

@@ -1,0 +1,329 @@
+/* Theme via VS Code CSS variables so the SPA follows the editor theme. */
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  padding: 12px 16px;
+  color: var(--vscode-foreground);
+  background: transparent;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  line-height: 1.5;
+}
+
+.loading {
+  opacity: 0.6;
+}
+
+a {
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border: none;
+  border-radius: 2px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+button.secondary {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+pre,
+code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+}
+
+pre {
+  background: var(--vscode-textCodeBlock-background);
+  padding: 8px 10px;
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.card {
+  border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 10px;
+}
+
+.muted {
+  opacity: 0.7;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  border-radius: 8px;
+  padding: 0 8px;
+  font-size: 0.85em;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+}
+
+img,
+video {
+  max-width: 100%;
+  border-radius: 4px;
+}
+
+/* ---- record detail: collapsibles ------------------------------------- */
+
+/* a clickable header row that toggles a body below it */
+.collapse-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.collapse-head:hover .collapse-name {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-foreground));
+}
+.chevron {
+  flex: 0 0 auto;
+  width: 0.9em;
+  opacity: 0.75;
+  transition: transform 0.1s ease;
+}
+.chevron.open {
+  transform: rotate(90deg);
+}
+.collapse-name {
+  font-weight: 600;
+}
+.collapse-meta {
+  opacity: 0.65;
+  font-size: 0.9em;
+}
+.collapse-preview {
+  opacity: 0.6;
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.collapse-body {
+  margin-top: 8px;
+}
+.collapse-body[hidden] {
+  display: none;
+}
+
+/* ---- record detail: two-column layout -------------------------------- */
+
+.record-grid {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.record-main {
+  flex: 1 1 400px;
+  min-width: 300px;
+}
+.record-side {
+  flex: 0 1 400px;
+  min-width: 280px;
+  position: sticky;
+  top: 8px;
+}
+
+/* ---- record detail: media preview ------------------------------------ */
+
+.media-fit {
+  display: block;
+  max-height: 60vh;
+  max-width: 100%;
+  width: auto;
+  object-fit: contain;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+audio.media-fit {
+  width: 100%;
+  height: 36px;
+}
+.media-ref {
+  font-size: 0.85em;
+  word-break: break-all;
+  margin: 4px 0 8px;
+}
+
+/* ---- record detail: field bodies ------------------------------------- */
+
+.field-pre {
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+}
+.field-more {
+  margin-top: 6px;
+}
+
+/* ---- record detail: markdown folding --------------------------------- */
+
+.md-section {
+  margin: 2px 0;
+}
+.md-heading {
+  font-weight: 600;
+}
+.md-h1 {
+  font-size: 1.15em;
+}
+.md-h2 {
+  font-size: 1.05em;
+}
+.md-body {
+  margin: 4px 0 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.md-body[hidden] {
+  display: none;
+}
+.md-preamble {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 8px;
+}
+
+/* ---- record detail: rendered markdown (note bodies) ------------------- */
+
+.md-rendered p {
+  margin: 0 0 8px;
+}
+.md-rendered h3,
+.md-rendered h4,
+.md-rendered h5,
+.md-rendered h6 {
+  margin: 10px 0 4px;
+}
+.md-rendered ul,
+.md-rendered ol {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+.md-rendered li {
+  margin: 2px 0;
+}
+.md-rendered blockquote {
+  margin: 0 0 8px;
+  padding: 2px 10px;
+  border-left: 3px solid var(--vscode-textBlockQuote-border, rgba(128, 128, 128, 0.5));
+  background: var(--vscode-textBlockQuote-background, transparent);
+}
+.md-rendered code {
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.md-rendered pre code {
+  background: none;
+  padding: 0;
+}
+.md-rendered hr {
+  border: none;
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+  margin: 10px 0;
+}
+
+/* ---- record detail: JSON tree ---------------------------------------- */
+
+.json-tree {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  line-height: 1.45;
+  max-height: 460px;
+  overflow: auto;
+}
+.json-node {
+  padding-left: 1.1em;
+}
+.json-row {
+  white-space: pre;
+}
+.json-row.clickable {
+  cursor: pointer;
+}
+.json-key {
+  color: var(--vscode-debugTokenExpression-name, var(--vscode-symbolIcon-propertyForeground, var(--vscode-foreground)));
+}
+.json-children[hidden] {
+  display: none;
+}
+.tok-string {
+  color: var(--vscode-debugTokenExpression-string, #ce9178);
+}
+.tok-number {
+  color: var(--vscode-debugTokenExpression-number, #b5cea8);
+}
+.tok-boolean {
+  color: var(--vscode-debugTokenExpression-boolean, #569cd6);
+}
+.tok-null {
+  color: var(--vscode-debugTokenExpression-value, var(--vscode-descriptionForeground));
+  opacity: 0.85;
+}
+.tok-punct {
+  opacity: 0.7;
+}
+
+/* ---- record detail: state badges ------------------------------------- */
+
+.badge.state-pending {
+  color: var(--vscode-statusBarItem-warningForeground, #fff);
+  background: var(--vscode-statusBarItem-warningBackground, #b8891b);
+}
+.badge.state-error {
+  color: var(--vscode-statusBarItem-errorForeground, #fff);
+  background: var(--vscode-statusBarItem-errorBackground, #a1260d);
+}
+.badge.state-ready {
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+}
+.pending-note {
+  color: var(--vscode-statusBarItem-warningBackground, #b8891b);
+  margin: 4px 0 10px;
+}
+.section-title {
+  font-weight: 600;
+  margin: 14px 0 6px;
+}
+.err-line {
+  color: var(--vscode-errorForeground, #f14c4c);
+  margin-top: 6px;
+}

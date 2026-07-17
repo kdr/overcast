@@ -748,6 +748,12 @@ export const caseVerb: VerbSpec = {
       return [rec];
     }
 
+    // Pure READS below (info/status/setup status|show/records/memory
+    // list|get|search|index status) are transient like `finding list` and
+    // `index list`: persisting them turns every read into a store write, and
+    // store-watching pollers (the vscode sidebar re-reads on every change)
+    // would grow case.jsonl forever. Mutations (init/setup apply/clear/
+    // memory index rebuild|start|retry) stay persisted history.
     if (action === "info") {
       const c = ctx.case;
       const exists = c.exists();
@@ -759,6 +765,7 @@ export const caseVerb: VerbSpec = {
           verb: "case",
           format: "json",
           payload: { dir: c.dir, initialized: exists, info: exists ? c.info() : null, records: recs.length, counts },
+          meta: { transient: true },
           state: "ready",
         }),
       ];
@@ -800,14 +807,14 @@ export const caseVerb: VerbSpec = {
       }
       // format md + payload.report → the terminal prints the mission board by
       // default (nativeReportFormat); --json still returns the full payload.
-      return [makeRecord({ verb: "case", format: "md", payload: { ...status.payload, report: md, export: exported ?? null }, state: "ready" })];
+      return [makeRecord({ verb: "case", format: "md", payload: { ...status.payload, report: md, export: exported ?? null }, meta: { transient: true }, state: "ready" })];
     }
 
     if (action === "setup") {
       const sub = ctx.rest[0] ?? "apply";
       const saved = loadSetup(ctx.case);
       if (sub === "status") {
-        return [makeRecord({ verb: "case", format: "json", payload: setupHealth(ctx, saved), state: "ready" })];
+        return [makeRecord({ verb: "case", format: "json", payload: setupHealth(ctx, saved), meta: { transient: true }, state: "ready" })];
       }
       if (sub === "show") {
         return [
@@ -815,6 +822,7 @@ export const caseVerb: VerbSpec = {
             verb: "case",
             format: "json",
             payload: saved ? { ...saved } : { completed: false, setup_file: ctx.case.setupFile },
+            meta: { transient: true },
             state: saved ? "ready" : "pending",
           }),
         ];
@@ -1070,7 +1078,7 @@ export const caseVerb: VerbSpec = {
         writeFileSync(path, isHtmlExportPath(path) ? html : md, "utf8");
         exported = path;
       }
-      return [makeRecord({ verb: "case", format: "json", payload: { count: total, shown: limited.length, limit, truncated: total > limited.length, records: view, export: exported ?? null }, state: "ready" })];
+      return [makeRecord({ verb: "case", format: "json", payload: { count: total, shown: limited.length, limit, truncated: total > limited.length, records: view, export: exported ?? null }, meta: { transient: true }, state: "ready" })];
     }
 
     if (action === "memory") {
@@ -1088,6 +1096,7 @@ export const caseVerb: VerbSpec = {
               indexable: !!p.rebuild,
             })),
           },
+          meta: { transient: true },
           state: "ready",
         })];
       }
@@ -1100,7 +1109,7 @@ export const caseVerb: VerbSpec = {
           // another. Name the current case so a wrong-cwd lookup is obvious (the
           // common footgun: `cd`-ing elsewhere before re-reading a record).
           const msg = `no record ${id} in this case (${ctx.case.dir}) — records are per-case; cd back to the case you ran it in, or pass --case <dir>`;
-          return [makeRecord({ verb: "case", format: "json", payload: { record: id, found: false, case: ctx.case.dir }, state: "error", error: msg })];
+          return [makeRecord({ verb: "case", format: "json", payload: { record: id, found: false, case: ctx.case.dir }, meta: { transient: true }, state: "error", error: msg })];
         }
 
         // A record's payload is a set of named fields — object keys, or the single
@@ -1128,7 +1137,7 @@ export const caseVerb: VerbSpec = {
               format: "json",
               payload: { record: rec.id, verb: rec.verb, state: rec.state ?? "ready", media: rec.media ?? null, fields },
               // a preview of this envelope points paging at the TARGET record
-              meta: { pageTarget: rec.id },
+              meta: { pageTarget: rec.id, transient: true },
               state: "ready",
             }),
           ];
@@ -1183,7 +1192,7 @@ export const caseVerb: VerbSpec = {
               next_offset: hasMore ? nextOffset : null,
               chunk,
             },
-            meta: { pageTarget: id },
+            meta: { pageTarget: id, transient: true },
             state: "ready",
           }),
         ];
@@ -1214,7 +1223,7 @@ export const caseVerb: VerbSpec = {
           seen.add(key);
           return true;
         }).sort((a, b) => b.score - a.score).slice(0, limit);
-        return [makeRecord({ verb: "case", format: "json", payload: { query: q, passages }, state: "ready" })];
+        return [makeRecord({ verb: "case", format: "json", payload: { query: q, passages }, meta: { transient: true }, state: "ready" })];
       }
       if (sub === "index") {
         const action = ctx.rest[1] ?? "status";
@@ -1230,7 +1239,7 @@ export const caseVerb: VerbSpec = {
           for (const p of selected) {
             statuses.push(p.status ? await p.status() : { provider: p.id, backend: p.backend ?? p.id, state: "ready" });
           }
-          return [makeRecord({ verb: "case", format: "json", payload: { memory_index: statuses }, state: "ready" })];
+          return [makeRecord({ verb: "case", format: "json", payload: { memory_index: statuses }, meta: { transient: true }, state: "ready" })];
         }
         if (action === "rebuild" || action === "retry") {
           const statuses = [];

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#424242" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- TV / monitor body -->
+  <rect x="2.25" y="5.5" width="19.5" height="14" rx="2.5"/>
+  <!-- legs -->
+  <path d="M8 19.5 6.5 22"/>
+  <path d="M16 19.5 17.5 22"/>
+  <!-- antenna -->
+  <path d="M12 5.5 9 2.5"/>
+  <path d="M12 5.5 15 2.5"/>
+  <!-- eye inside the screen -->
+  <path d="M5.5 12.5C8 9 16 9 18.5 12.5 16 16 8 16 5.5 12.5Z"/>
+  <circle cx="12" cy="12.5" r="2.1" fill="#424242" stroke="none"/>
+</svg>

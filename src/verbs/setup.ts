@@ -443,7 +443,11 @@ export const providerVerb: VerbSpec = {
           if (!(e instanceof ProviderRefError)) throw e;
           return [err("provider", e.message)];
         }
-        const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+        const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 60_000 }).catch((e) => {
+          // a spawn/timeout failure becomes an error record; a cancellation propagates
+          if (ctx.signal?.aborted) throw e;
+          return { code: 1, stdout: "", stderr: (e as Error).message };
+        });
         // exit 13 = needs credentials (the exec contract), like provider init + the exec boundary
         const dstate = res.code === 0 ? "ready" : res.code === 13 ? "needs_credentials" : "error";
         // a provider's describe command may echo a credentialed URL / token; redact
@@ -469,7 +473,11 @@ export const providerVerb: VerbSpec = {
       if (!(e instanceof ProviderRefError)) throw e;
       return [err("provider", e.message)];
     }
-    const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 5 * 60_000 }).catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
+    const res = await execCapture(parts[0], parts.slice(1), { signal: ctx.signal, timeoutMs: 5 * 60_000 }).catch((e) => {
+      // a spawn/timeout failure becomes an error record; a cancellation propagates
+      if (ctx.signal?.aborted) throw e;
+      return { code: 1, stdout: "", stderr: (e as Error).message };
+    });
     // exec contract (providers.md): exit 13 = needs credentials, not a hard error.
     const state = res.code === 0 ? "ready" : res.code === 13 ? "needs_credentials" : "error";
     // redact BEFORE truncating: an init command may echo a token/credentialed URL,

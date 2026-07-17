@@ -52,6 +52,21 @@ test("casePulse: coverage funnel joins source → hits → captures → sensed",
   assert.equal(pulse.media.unsensed, 0);
 });
 
+test("casePulse: coverage rows carry the grabbed media items behind the counts", () => {
+  const src = source({ id: "src_a", type: "web", ref: "pier" });
+  const hit = makeRecord({ verb: "scan", format: "json", payload: { source: "web", source_id: "src_a", url: "http://x/1", title: "Pier cam clip" }, meta: { time: iso(3 * HOUR) } });
+  const capOld = makeRecord({ verb: "capture", format: "json", payload: { path: "old.mp4", source_record: hit.id }, media: { ref: "old.mp4" }, meta: { time: iso(2 * HOUR) } });
+  const capNew = makeRecord({ verb: "capture", format: "json", payload: { path: "new.mp4", source_record: hit.id }, media: { ref: "new.mp4" }, meta: { time: iso(1 * HOUR) } });
+  const adhocCap = makeRecord({ verb: "capture", format: "json", payload: { path: "stray.mp4" }, media: { ref: "stray.mp4" }, meta: { time: iso(HOUR) } });
+  const watch = makeRecord({ verb: "watch", format: "json", payload: { content: "scene" }, media: { ref: "new.mp4" }, meta: { time: iso(30 * 60 * 1000) } });
+  const pulse = casePulse({ records: [hit, capOld, capNew, adhocCap, watch], targets: [], sources: [src], now: NOW });
+  const media = pulse.coverage[0].media;
+  assert.equal(media.length, 2); // the unattributed capture stays out
+  // newest-first, sensed flags per ref, title lifted from the source hit
+  assert.deepEqual(media[0], { record: capNew.id, ref: "new.mp4", title: "Pier cam clip", sensed: true });
+  assert.deepEqual(media[1], { record: capOld.id, ref: "old.mp4", title: "Pier cam clip", sensed: false });
+});
+
 test("casePulse: per-source freshness uses the source's OWN hits, not the platform", () => {
   // two X sources scanned at different times must not share a freshness age
   const a = source({ id: "src_a", type: "x", ref: "@old" });

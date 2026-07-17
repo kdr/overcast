@@ -62,6 +62,8 @@
     "test:e2e": "bash test/e2e/run.sh",
     "test:e2e:live": "bash test/e2e/live/run.sh",
     "build:bun": "npm run build:web && bun build --compile bin/overcast.ts --outfile dist/bin/overcast && node scripts/bun-sidecar.mjs",
+    "build:vscode": "npm --prefix vscode run build",
+    "typecheck:vscode": "npm --prefix vscode run typecheck",
     "dev": "tsx bin/overcast.ts",
     "sync-version": "node scripts/sync-version.mjs",
     "pack:check": "node scripts/sync-version.mjs --check && node scripts/check-dist-fresh.mjs",

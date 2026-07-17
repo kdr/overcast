@@ -30,6 +30,10 @@ const TABLE: Array<[string[], "cli" | "tui", string | undefined]> = [
   [["watch", "clip.mp4", "--tui"], "cli", "watch"], // explicit verb wins over --tui
   [["--tui", "watch", "clip.mp4"], "cli", "watch"],
   [["bogusverb"], "cli", "bogusverb"], // mistyped → CLI ("unknown command")
+  // explicit --tui + a non-verb token = a pi initial MESSAGE, not a mistyped verb
+  // (the vscode extension's Case Setup button launches the wizard this way)
+  [["--tui", "walk me through case setup"], "tui", undefined],
+  [["--case", "/dir", "--tui", "start the setup wizard"], "tui", undefined],
 
   // output flags before the verb
   [["--json", "commands"], "cli", "commands"],

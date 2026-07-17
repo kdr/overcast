@@ -38,9 +38,12 @@ another backend or your own script with no code changes.
 - **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
   default `watch` / `listen` / `face` / `index` backend (Cloudglue); set
   `CLOUDGLUE_API_KEY`. The `face` + `index` verbs need **tinycloud ≥ 0.3.4**
-  and overcast currently recommends **0.3.8** (`npm i -g @cloudglue/tinycloud@0.3.8`
-  or `tinycloud update`); the image `see`/`extract` verbs (≥ 0.3.7) sit behind the
-  opt-in `see` provider; override the invocation with `OVERCAST_TINYCLOUD_CMD`.
+  and overcast currently recommends **0.3.10** (`npm i -g @cloudglue/tinycloud@0.3.10`
+  or `tinycloud update`): `listen` fetches its VERBATIM transcript cues through
+  the `caption` verb (0.3.10's watch envelope no longer inlines per-segment
+  speech; older tinyclouds fall back to the envelope's inline speech). The image
+  `see`/`extract` verbs (≥ 0.3.7) sit behind the opt-in `see` provider; override
+  the invocation with `OVERCAST_TINYCLOUD_CMD`.
 - **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
   `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
   `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.
@@ -166,6 +169,25 @@ such as qmd before clearing local state.
 
 ---
 
+## VS Code extension
+
+**[Overcast for VS Code](vscode/README.md)** (`vscode/`, sideloaded `.vsix`) puts
+the situation room in your editor as a thin client of this CLI: right-click any
+media file for the senses (watch / listen / see / faces / EXIF / …), an
+activity-bar view with a command deck laid out along the intelligence cycle plus
+Investigation / Sources / Records / Runs trees, evidence artifacts (map, graph,
+wall, brief, situation) as editor tabs, and `@overcast` chat + `#overcast*`
+language-model tools when a chat provider is installed. Every action spawns
+`overcast … --json`; records land in the case and the sidebar follows the
+`.overcast/` store live.
+
+```bash
+cd vscode && npm install && npm run build && npm run package
+code --install-extension ../.dev/overcast-vscode-*.vsix
+```
+
+---
+
 ## Quickstart
 
 ```bash
@@ -262,6 +284,9 @@ overcast voice match ./clip.mp4 ./sample.wav --diarize --json         # overlap-
 
 # 10) launch the interactive agent (pi TUI) in the current case
 overcast
+# … optionally with an opening message (a non-verb token after --tui is the
+# agent's first prompt — real verbs still win and dispatch the CLI)
+overcast --tui "walk me through case setup"
 ```
 
 A **case is just a directory** with a `.overcast/` store — switch cases with

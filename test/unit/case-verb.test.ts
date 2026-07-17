@@ -79,6 +79,22 @@ test("case records --verb filters", async () => {
   });
 });
 
+test("case READ ops are transient — a store-watching poller must not grow the store", async () => {
+  await withCase(async (dir) => {
+    // the vscode sidebar re-runs status/records (+ finding/index list, memory
+    // get) on every store change; persisting these reads would append a case
+    // audit row per poll (write → watcher → refresh → write)
+    for (const args of [["info"], ["status"], ["records"]] as const) {
+      const [rec] = await caseVerb.run(ctx(dir, args[0]));
+      assert.equal(rec.meta?.transient, true, `case ${args[0]} must be transient`);
+    }
+    const c = openCase(dir);
+    const target = c.records()[0];
+    const [manifest] = await caseVerb.run(ctx(dir, "memory", ["get", target.id]));
+    assert.equal(manifest.meta?.transient, true, "memory get manifest must be transient");
+  });
+});
+
 test("case status returns combined status payload", async () => {
   await withCase(async (dir) => {
     const c = openCase(dir);
