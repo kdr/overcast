@@ -26,6 +26,7 @@ import { captureVerb, scanVerb } from "../../src/verbs/osint.ts";
 import { addSource } from "../../src/state/source.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
+import { emptySetup } from "../../src/state/setup.ts";
 import { makeRecord } from "../../src/record.ts";
 import { indexableDocument } from "../../src/providers/memory/fields.ts";
 import type { VerbContext } from "../../src/registry/verbs.ts";
@@ -40,6 +41,7 @@ case "$FAKE_MODE" in
   flat_playlists)
     printf '%s\\n' '{"_type":"url","id":"PL111","title":"Trips","url":"https://www.youtube.com/playlist?list=PL111","uploader":"Acme","thumbnails":[{"url":"https://i.ytimg.com/p1.jpg"}]}'
     printf '%s\\n' '{"_type":"url","id":"PL222","title":"Builds","url":"https://www.youtube.com/playlist?list=PL222","uploader":"Acme"}'
+    printf '%s\\n' '{"_type":"url","id":"PL333","title":"NoUrl","uploader":"Acme"}'
     ;;
   flat_videos)
     printf '%s\\n' '{"id":"vid1","title":"Video One","url":"https://youtu.be/vid1","uploader":"Acme","view_count":5,"duration":60}'
@@ -47,9 +49,10 @@ case "$FAKE_MODE" in
   subs|subs_none|subs_429|subs_429_none|subs_orig_only)
     printf '%s' '{"title":"Clip Title","description":"Full description text","upload_date":"20260101","uploader":"Acme","duration":65,"view_count":9,"subtitles":{"en":[{"ext":"vtt"}]}}' > "$out.info.json"
     if [ "$FAKE_MODE" = "subs" ] || [ "$FAKE_MODE" = "subs_429" ]; then
-      # numeric cue IDENTIFIERS (1, 2) precede their timing lines; the closing
-      # "2026" is a digit-only CAPTION line that must survive compaction
-      printf 'WEBVTT\\nKind: captions\\nLanguage: en\\n\\n1\\n00:00:00.000 --> 00:00:01.000\\nhello world\\n\\n2\\n00:00:01.000 --> 00:00:02.000\\nhello world\\n\\n00:00:02.000 --> 00:00:03.000\\n<c>second</c> line\\n\\n00:00:03.000 --> 00:00:04.000\\n2026\\n' > "$out.en.vtt"
+      # numeric cue IDENTIFIERS (1, 2 — the 2 with a CRLF ending) precede their
+      # timing lines and must drop; "12:30 lunch launch" (spoken time) and
+      # "2026" (digit-only caption) are caption text and must survive
+      printf 'WEBVTT\\nKind: captions\\nLanguage: en\\n\\n1\\n00:00:00.000 --> 00:00:01.000\\nhello world\\n\\n2\\r\\n00:00:01.000 --> 00:00:02.000\\nhello world\\n\\n00:00:02.000 --> 00:00:03.000\\n<c>second</c> line\\n\\n00:00:03.000 --> 00:00:04.000\\n12:30 lunch launch\\n\\n00:00:04.000 --> 00:00:05.000\\n2026\\n' > "$out.en.vtt"
       printf 'WEBVTT\\n\\n00:00:00.000 --> 00:00:01.000\\norig variant\\n' > "$out.en-orig.vtt"
     fi
     if [ "$FAKE_MODE" = "subs_orig_only" ]; then
@@ -90,7 +93,11 @@ test("youtube playlists:@handle enumerates the playlists TAB: one hit per playli
     const desc = builtinDescriptor("youtube");
     assert.ok(desc);
     const hits = await enumerateSource(desc!, { query: "playlists:@acme", limit: 3, env });
-    assert.equal(hits.length, 2);
+    assert.equal(hits.length, 3);
+    // a url-less playlists-tab entry falls back to a PLAYLIST url, never youtu.be/<playlist_id>
+    const noUrl = hits[2].payload as Record<string, unknown>;
+    assert.equal(noUrl.url, "https://www.youtube.com/playlist?list=PL333");
+    assert.equal(hits[2].media?.ref, "https://www.youtube.com/playlist?list=PL333");
     for (const h of hits) assert.equal(h.state, "ready");
     const p0 = hits[0].payload as Record<string, unknown>;
     assert.equal(p0.title, "Trips");
@@ -126,6 +133,11 @@ test("youtube --limit 0 = uncapped: no --playlist-end for channels, ytsearchall 
     await enumerateSource(desc!, { query: "shorts:@acme", limit: 5, env });
     argv = readFileSync(log, "utf8");
     assert.match(argv, /https:\/\/www\.youtube\.com\/@acme\/shorts/);
+    // bare handles normalize like playlists: (shorts:acme == shorts:@acme)
+    writeFileSync(log, "");
+    await enumerateSource(desc!, { query: "streams:acme", limit: 5, env });
+    argv = readFileSync(log, "utf8");
+    assert.match(argv, /https:\/\/www\.youtube\.com\/@acme\/streams/);
     // search + limit 0 → ytsearchall
     writeFileSync(log, "");
     await enumerateSource(desc!, { query: "search:moon base", limit: 0, env });
@@ -161,7 +173,7 @@ test("fetch --kind transcript: captions + metadata land in the capture payload, 
     assert.equal(p.duration, 65);
     // VTT compaction: cue timings/headers/karaoke tags stripped, consecutive
     // rolling duplicates collapsed
-    assert.equal(p.transcript, "hello world\nsecond line\n2026");
+    assert.equal(p.transcript, "hello world\nsecond line\n12:30 lunch launch\n2026");
     assert.equal(p.transcript_lang, "en");
     assert.equal(p.transcript_source, "manual"); // info.json lists manual en subs
     // the exact-lang variant wins; the -orig variant is cleaned up
@@ -198,7 +210,7 @@ test("fetch --kind transcript tolerates a nonzero yt-dlp exit when the track + m
     assert.equal(rec.state, "ready", rec.error);
     const p = rec.payload as Record<string, unknown>;
     assert.equal(p.kind, "transcript");
-    assert.equal(p.transcript, "hello world\nsecond line\n2026");
+    assert.equal(p.transcript, "hello world\nsecond line\n12:30 lunch launch\n2026");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -511,4 +523,51 @@ test("uncapped (--limit 0) enumerates on declaring sources get the long exec bud
   assert.equal(enumerateBudgetMs(plain, { limit: 0 }), 2 * 60_000);     // non-declaring sources never widen
   assert.equal(enumerateBudgetMs({ ...uncapped, timeoutMs: 5000 }, { limit: 0 }), 5000); // desc budget wins
   assert.equal(enumerateBudgetMs(uncapped, { limit: 0, timeoutMs: 1234 }), 1234);        // opts budget wins over all
+});
+
+test("scan --pull --thumb: the configured auto_sense chain does NOT fire on the substitute artifact", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-thumbpull-"));
+  const prev = process.env.OVERCAST_SOURCE_YOUTUBE_CMD;
+  try {
+    // youtube rebound to a fixture: one VIDEO hit; fetch demands --kind thumb
+    // (proving the kind forwards through the pull path) and writes a jpg
+    const script = join(dir, "ytthumb.sh");
+    writeFileSync(script, `#!/usr/bin/env bash
+op="\${1:-enumerate}"; shift || true
+case "$op" in
+  enumerate) echo '[{"title":"Vid","url":"https://youtu.be/v1","source":"youtube","media":{"ref":"https://youtu.be/v1"}}]' ;;
+  fetch)
+    out=""; kind=""; prev=""
+    for a in "$@"; do
+      [ "$prev" = "--out" ] && out="$a"
+      [ "$prev" = "--kind" ] && kind="$a"
+      prev="$a"
+    done
+    [ "$kind" = "thumb" ] || { echo "expected --kind thumb, got '$kind'" >&2; exit 1; }
+    printf 'JPG' > "$out.jpg"
+    printf '{"kind":"image","path":"%s.jpg","source":"youtube","url":"https://youtu.be/v1"}\\n' "$out"
+    ;;
+  *) exit 0 ;;
+esac
+`, { mode: 0o755 });
+    process.env.OVERCAST_SOURCE_YOUTUBE_CMD = `bash ${script}`;
+    const c = openCase(dir);
+    c.ensure();
+    addSource(c, "youtube:@acme");
+    // a case configured to auto-watch pulled media — written for the source's
+    // NORMAL video pulls, must not fire on a --thumb substitute jpg
+    const setup = emptySetup("thumbpull");
+    setup.automation = { auto_sense: ["watch"], auto_index_new: false };
+    writeFileSync(c.setupFile, JSON.stringify(setup));
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true, thumb: true }, case: c, profile: defaultProfile(), home: dir } as VerbContext);
+    const cap = recs.find((r) => r.verb === "capture");
+    assert.ok(cap, "expected a thumb capture");
+    assert.equal(cap!.state, "ready", cap!.error);
+    assert.equal((cap!.payload as Record<string, unknown>).kind, "image");
+    assert.ok(!recs.some((r) => r.verb === "watch"), "auto_sense watch must not run on a --thumb jpg");
+    assert.ok(!recs.some((r) => r.state === "error"), `no errors expected: ${recs.find((r) => r.state === "error")?.error}`);
+  } finally {
+    if (prev == null) delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD; else process.env.OVERCAST_SOURCE_YOUTUBE_CMD = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

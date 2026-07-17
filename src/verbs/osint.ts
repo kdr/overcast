@@ -444,17 +444,20 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
     // Instagram/webcam still) must feed the configured auto_sense chain — exif /
     // verify / see — even though the DEFAULT sense (watch) is A/V-only. An
     // explicit --pipe always runs.
-    if (explicitPipe || isSenseableMedia(cap.media.ref) || isImage(cap.media.ref)) {
-      if (explicitPipe) {
-        const sensedRecords = await runExplicitPipeWithPolicy(ctx, caller, explicitPipe, cap.media.ref);
-        records.push(...(sensedRecords.length ? sensedRecords : [err(caller, `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`)]));
-      } else {
-        const automated = await runSetupAutomation(ctx, caller, cap.media.ref);
-        if (automated.length) records.push(...automated);
-        // no configured chain → default watch, but only for A/V; a still image
-        // has no default sense (forensic/image senses must be set via auto_sense).
-        else if (isAv(cap.media.ref)) records.push(...await runDefaultWatchWithPolicy(ctx, caller, cap.media.ref));
-      }
+    if (explicitPipe) {
+      const sensedRecords = await runExplicitPipeWithPolicy(ctx, caller, explicitPipe, cap.media.ref);
+      records.push(...(sensedRecords.length ? sensedRecords : [err(caller, `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`)]));
+    } else if (!kindApplies && (isSenseableMedia(cap.media.ref) || isImage(cap.media.ref))) {
+      // a fetch-kind capture (--transcript/--thumb) REPLACED the source's
+      // normal media pull, so the case's auto_sense chain — written for that
+      // media (watch/listen on videos) — must not fire on the substitute
+      // artifact (it would error a watch on a thumbnail jpg). An explicit
+      // --pipe above still wins when the operator asks for it.
+      const automated = await runSetupAutomation(ctx, caller, cap.media.ref);
+      if (automated.length) records.push(...automated);
+      // no configured chain → default watch, but only for A/V; a still image
+      // has no default sense (forensic/image senses must be set via auto_sense).
+      else if (isAv(cap.media.ref)) records.push(...await runDefaultWatchWithPolicy(ctx, caller, cap.media.ref));
     }
   }
   return finish();

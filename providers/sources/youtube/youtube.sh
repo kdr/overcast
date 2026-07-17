@@ -47,8 +47,13 @@ ref_to_target() {
         @*)        echo "https://www.youtube.com/${ch}/playlists" ;;
         *)         echo "https://www.youtube.com/@${ch}/playlists" ;;
       esac ;;
-    shorts:@*)   echo "https://www.youtube.com/${ref#shorts:}/shorts" ;;
-    streams:@*)  echo "https://www.youtube.com/${ref#streams:}/streams" ;;
+    shorts:*|streams:*) # channel tabs — same handle normalization as playlists:
+      local tab="${ref%%:*}" ch="${ref#*:}"
+      case "$ch" in
+        http*://*) echo "${ch%/}/$tab" ;;
+        @*)        echo "https://www.youtube.com/${ch}/$tab" ;;
+        *)         echo "https://www.youtube.com/@${ch}/$tab" ;;
+      esac ;;
     @*)          echo "https://www.youtube.com/${ref}/videos" ;;
     playlist:*)  echo "https://www.youtube.com/playlist?list=${ref#playlist:}" ;;
     http*://*)   echo "$ref" ;;
@@ -111,10 +116,17 @@ case "$op" in
     [ -z "$raw" ] && { echo '[]'; exit 0; }
     # playlists-tab hits additionally carry the playlist id + the youtube:playlist:
     # ref, so a hit can be promoted straight to a standing source.
+    # url fallback is MODE-aware: a playlists-tab entry's id is a playlist id,
+    # so the fallback must be a playlist URL, never a bogus youtu.be watch link
     printf '%s\n' "$raw" \
-      | jq -sc --arg mode "$mode" '[ .[] | {
+      | jq -sc --arg mode "$mode" '[ .[]
+        | (.url // .webpage_url
+           // (if $mode == "playlists"
+               then ("https://www.youtube.com/playlist?list=" + .id)
+               else ("https://youtu.be/" + .id) end)) as $u
+        | {
           title: (.title // .id),
-          url: (.url // .webpage_url // ("https://youtu.be/"+.id)),
+          url: $u,
           source: "youtube",
           published: (.upload_date // null),
           snippet: (.description // (.uploader // "") ),
@@ -122,7 +134,7 @@ case "$op" in
           views: (.view_count // null),
           duration: (.duration // null),
           thumb: (((.thumbnails // []) | last | .url?) // .thumbnail // null),
-          media: { ref: (.url // .webpage_url // ("https://youtu.be/"+.id)) }
+          media: { ref: $u }
         } + (if $mode == "playlists"
              then { kind: "playlist", playlist_id: .id, playlist_ref: ("youtube:playlist:" + .id) }
              else {} end) ]'
@@ -190,14 +202,16 @@ case "$op" in
         fi
         # VTT → plain text: strip cue timings/headers/inline karaoke tags, drop
         # the rolling duplicate lines auto-captions emit, cap at 200KB (the full
-        # VTT stays as the file artifact). A digit-only line is removed ONLY when
-        # the next line is a cue timing (a VTT cue identifier) — a spoken number
-        # ("2026") is caption text and must survive into the transcript.
+        # VTT stays as the file artifact). \r is stripped FIRST so CRLF VTTs
+        # anchor like LF ones. A digit-only line is removed ONLY when the next
+        # line is a cue TIMING (id + "-->" line = a VTT cue identifier), and
+        # only real timing lines (with the arrow) are dropped — spoken numbers
+        # ("2026") and spoken times ("12:30 news") are captions and survive.
         txf="$(mktemp)"
         if [ -n "$vtt" ] && [ -s "$vtt" ]; then
-          sed -E 's/<[^>]+>//g' "$vtt" \
-            | awk 'NR > 1 { if (!(prev ~ /^[0-9]+$/ && $0 ~ /^[0-9][0-9]:[0-9][0-9]/)) print prev } { prev = $0 } END { if (NR > 0) print prev }' \
-            | grep -Ev '^WEBVTT|^Kind:|^Language:|^NOTE( |$)|^[0-9]{2}:[0-9]{2}' \
+          sed -E -e 's/\r$//' -e 's/<[^>]+>//g' "$vtt" \
+            | awk 'NR > 1 { if (!(prev ~ /^[0-9]+$/ && $0 ~ /^[0-9][0-9]:[0-9][0-9](:[0-9][0-9])?[.,][0-9][0-9][0-9] --> /)) print prev } { prev = $0 } END { if (NR > 0) print prev }' \
+            | grep -Ev '^WEBVTT|^Kind:|^Language:|^NOTE( |$)|^[0-9]{2}:[0-9]{2}(:[0-9]{2})?[.,][0-9]{3} -->' \
             | awk 'NF' | awk '$0 != prev { print; prev = $0 }' \
             | head -c 200000 > "$txf"
         fi
