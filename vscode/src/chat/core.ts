@@ -19,14 +19,17 @@ export interface ChatVerbOutcome {
   message?: string;
 }
 
-/** Run a verb through the bridge for the chat surface and normalize the result. */
+/** Run a verb through the bridge for the chat surface and normalize the result.
+ *  `opts.caseDir` pins the spawn's `--case` — pass the SAME captured value to
+ *  any Open-Record buttons rendered from the result, so a case switch during a
+ *  long verb can't split the run's case from the buttons' case. */
 export async function runVerbForChat(
   bridge: CliBridge,
   args: string[],
   token?: vscode.CancellationToken,
-  opts: { rawOutput?: boolean } = {},
+  opts: { rawOutput?: boolean; caseDir?: string } = {},
 ): Promise<ChatVerbOutcome> {
-  const result = await bridge.run(args, { token, rawOutput: opts.rawOutput });
+  const result = await bridge.run(args, { token, rawOutput: opts.rawOutput, caseDir: opts.caseDir });
   // A cancel (chat token OR the Runs view's inline cancel) is not a failure.
   if (result.cancelled) {
     return { ok: false, records: result.records, message: "The run was cancelled." };

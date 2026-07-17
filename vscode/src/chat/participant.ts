@@ -105,7 +105,8 @@ async function handleAsk(
     return meta("ask");
   }
   stream.progress("Asking the case…");
-  const outcome = await runVerbForChat(deps.bridge, ["ask", prompt.trim()], token);
+  const caseDir = deps.locator.caseDir; // one capture: the spawn AND the buttons
+  const outcome = await runVerbForChat(deps.bridge, ["ask", prompt.trim()], token, { caseDir });
   if (!outcome.ok) {
     stream.markdown(warn(outcome.message));
     return meta("ask");
@@ -113,7 +114,7 @@ async function handleAsk(
   const rec = recordForVerb(outcome.records, "ask");
   const answer = rec ? answerText(rec) : "";
   stream.markdown(answer || "_No answer was produced._");
-  if (rec) for (const id of citedRecordIds(rec).slice(0, MAX_BUTTONS)) openRecordButton(stream, id, deps.locator.caseDir);
+  if (rec) for (const id of citedRecordIds(rec).slice(0, MAX_BUTTONS)) openRecordButton(stream, id, caseDir);
   return meta("ask");
 }
 
@@ -128,9 +129,10 @@ async function handleScan(
     return meta("scan");
   }
   stream.progress("Scanning sources…");
+  const caseDir = deps.locator.caseDir; // one capture: the spawn AND the buttons
   const args = ["scan"];
   if (prompt.trim()) args.push("--query", prompt.trim());
-  const outcome = await runVerbForChat(deps.bridge, args, token);
+  const outcome = await runVerbForChat(deps.bridge, args, token, { caseDir });
   // A plain scan exits non-zero when ANY single source is credential-gapped,
   // while healthy sources still returned real hits in the same records stream —
   // never swallow those hits behind the failure.
@@ -148,7 +150,7 @@ async function handleScan(
   for (const h of shown) {
     const title = h.title || h.url || h.id || "(untitled)";
     stream.markdown(`- **${title}**${h.url ? ` — ${h.url}` : ""}${h.source ? ` _(${h.source})_` : ""}\n`);
-    if (h.id) openRecordButton(stream, h.id, deps.locator.caseDir);
+    if (h.id) openRecordButton(stream, h.id, caseDir);
   }
   if (hits.length > shown.length) stream.markdown(`\n…and ${hits.length - shown.length} more.\n`);
   if (!outcome.ok) stream.markdown(`\n${warn(outcome.message)}\n`);
@@ -209,12 +211,13 @@ async function handleCapture(
     return meta("capture");
   }
   stream.progress(`Capturing ${ref}…`);
-  const outcome = await runVerbForChat(deps.bridge, ["capture", ref], token);
+  const caseDir = deps.locator.caseDir; // one capture: the spawn AND the button
+  const outcome = await runVerbForChat(deps.bridge, ["capture", ref], token, { caseDir });
   if (!outcome.ok) {
     stream.markdown(warn(outcome.message));
     return meta("capture");
   }
-  streamRecord(stream, outcome.records, "capture", deps.locator.caseDir);
+  streamRecord(stream, outcome.records, "capture", caseDir);
   return meta("capture");
 }
 
@@ -232,18 +235,19 @@ async function handleSense(
     stream.markdown("Usage: `/sense <watch|listen|see|face|exif> <file>` — analyze a media file.");
     return meta("sense");
   }
-  const abs = resolveMediaFile(deps.locator.caseDir, file);
+  const caseDir = deps.locator.caseDir; // one capture: resolve, spawn, button
+  const abs = resolveMediaFile(caseDir, file);
   if (!abs) {
     stream.markdown(warn(`File not found: ${file} (absolute, or relative to the workspace/case folder).`));
     return meta("sense");
   }
   stream.progress(`Running ${verb} on ${file}…`);
-  const outcome = await runVerbForChat(deps.bridge, [verb, abs], token);
+  const outcome = await runVerbForChat(deps.bridge, [verb, abs], token, { caseDir });
   if (!outcome.ok) {
     stream.markdown(warn(outcome.message));
     return meta("sense");
   }
-  streamRecord(stream, outcome.records, verb, deps.locator.caseDir);
+  streamRecord(stream, outcome.records, verb, caseDir);
   return meta("sense");
 }
 
@@ -263,12 +267,13 @@ async function handleNote(
     return meta("note");
   }
   stream.progress("Adding note…");
-  const outcome = await runVerbForChat(deps.bridge, ["note", text], token);
+  const caseDir = deps.locator.caseDir; // one capture: the spawn AND the button
+  const outcome = await runVerbForChat(deps.bridge, ["note", text], token, { caseDir });
   if (!outcome.ok) {
     stream.markdown(warn(outcome.message));
     return meta("note");
   }
-  streamRecord(stream, outcome.records, "note", deps.locator.caseDir);
+  streamRecord(stream, outcome.records, "note", caseDir);
   return meta("note");
 }
 
