@@ -43,10 +43,11 @@ case "$FAKE_MODE" in
     printf '%s\\n' '{"_type":"url","id":"PL222","title":"Builds","url":"https://www.youtube.com/playlist?list=PL222","uploader":"Acme"}'
     printf '%s\\n' '{"_type":"url","id":"PL333","title":"NoUrl","uploader":"Acme"}'
     ;;
-  flat_videos)
+  flat_videos|flat_videos_101)
     printf '%s\\n' '{"id":"vid1","title":"Video One","url":"https://youtu.be/vid1","uploader":"Acme","view_count":5,"duration":60}'
     ;;
-  subs|subs_none|subs_429|subs_429_none|subs_orig_only)
+  video) printf 'MP4' > "$out" ;;
+  subs|subs_none|subs_429|subs_429_none|subs_orig_only|subs_fr_only)
     printf '%s' '{"title":"Clip Title","description":"Full description text","upload_date":"20260101","uploader":"Acme","duration":65,"view_count":9,"subtitles":{"en":[{"ext":"vtt"}]}}' > "$out.info.json"
     if [ "$FAKE_MODE" = "subs" ] || [ "$FAKE_MODE" = "subs_429" ]; then
       # numeric cue IDENTIFIERS (1, 2 — the 2 with a CRLF ending) precede their
@@ -58,6 +59,9 @@ case "$FAKE_MODE" in
     if [ "$FAKE_MODE" = "subs_orig_only" ]; then
       printf 'WEBVTT\\n\\n00:00:00.000 --> 00:00:01.000\\norig only track\\n' > "$out.en-orig.vtt"
     fi
+    if [ "$FAKE_MODE" = "subs_fr_only" ]; then
+      printf 'WEBVTT\\n\\n00:00:00.000 --> 00:00:01.000\\nbonjour tout le monde\\n' > "$out.fr.vtt"
+    fi
     ;;
   thumb) printf 'JPG' > "$out.jpg" ;;
   *) : ;;
@@ -65,7 +69,7 @@ esac
 # subs_429: the primary track + metadata landed, then a later subtitle-variant
 # request was rate-limited → yt-dlp exits nonzero despite usable output.
 # subs_429_none: EVERY subtitle request was rate-limited (metadata only).
-case "$FAKE_MODE" in subs_429|subs_429_none) exit 1 ;; esac
+case "$FAKE_MODE" in subs_429|subs_429_none) exit 1 ;; flat_videos_101) exit 101 ;; esac
 exit 0
 `;
 
@@ -568,6 +572,86 @@ esac
     assert.ok(!recs.some((r) => r.state === "error"), `no errors expected: ${recs.find((r) => r.state === "error")?.error}`);
   } finally {
     if (prev == null) delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD; else process.env.OVERCAST_SOURCE_YOUTUBE_CMD = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- round-4 hardening: mode-from-target, bounded recency, kept-track labels --
+
+test("a RAW playlists-tab URL gets the same playlists-mode hits as the playlists: ref form", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
+  try {
+    const { env } = shimEnv(dir, "flat_playlists");
+    const hits = await enumerateSource(builtinDescriptor("youtube")!, {
+      query: "https://www.youtube.com/@acme/playlists",
+      limit: 3,
+      env,
+    });
+    assert.equal(hits.length, 3);
+    const p0 = hits[0].payload as Record<string, unknown>;
+    assert.equal(p0.kind, "playlist");
+    assert.equal(p0.playlist_ref, "youtube:playlist:PL111");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("uncapped recency scans of channel tabs are bounded by --break-on-reject; exit 101 is the success path", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
+  try {
+    // the break applies to a channel-tab target with --since + --limit 0…
+    const a = shimEnv(dir, "flat_videos_101");
+    const hits = await enumerateSource(builtinDescriptor("youtube")!, { query: "@acme", limit: 0, since: "3d", env: a.env });
+    assert.equal(hits.length, 1, "exit 101 (stopped at the date boundary) must not read as a failure");
+    assert.equal(hits[0].state, "ready");
+    let argv = readFileSync(a.log, "utf8");
+    assert.match(argv, /--dateafter/);
+    assert.match(argv, /--break-on-reject/);
+    // …but never to a PLAYLIST (arbitrary order — an early break would truncate wrongly)
+    const b = shimEnv(dir, "flat_videos");
+    await enumerateSource(builtinDescriptor("youtube")!, { query: "playlist:PLX", limit: 0, since: "3d", env: b.env });
+    argv = readFileSync(b.log, "utf8");
+    assert.doesNotMatch(argv, /--break-on-reject/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("transcript_lang reflects the KEPT track's language, not the requested one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
+  try {
+    const { env } = shimEnv(dir, "subs_fr_only");
+    const rec = await fetchSource(builtinDescriptor("youtube")!, {
+      url: "https://youtu.be/vid1",
+      out: join(dir, "clip"),
+      kind: "transcript",
+      lang: "en",
+      env,
+    });
+    assert.equal(rec.state, "ready", rec.error);
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.transcript, "bonjour tout le monde");
+    assert.equal(p.transcript_lang, "fr"); // the ls-fallback kept the fr track
+    assert.equal(p.transcript_source, "auto");
+    assert.match(String(rec.media?.ref), /clip\.fr\.vtt$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("default video fetch passes --no-playlist (a watch?v=…&list=… share link must not pull the whole list)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
+  try {
+    const { env, log } = shimEnv(dir, "video");
+    const rec = await fetchSource(builtinDescriptor("youtube")!, {
+      url: "https://www.youtube.com/watch?v=vid1&list=PL111",
+      out: join(dir, "cap1"),
+      env,
+    });
+    assert.equal(rec.state, "ready", rec.error);
+    assert.equal((rec.payload as Record<string, unknown>).kind, "video");
+    assert.match(readFileSync(log, "utf8"), /--no-playlist/);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

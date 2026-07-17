@@ -77,7 +77,11 @@ case "$op" in
     # a non-numeric limit falls back to the default cap; 0 = uncapped
     case "$limit" in ''|*[!0-9]*) limit=10 ;; esac
     target="$(ref_to_target "$query" "$limit")"
-    mode="videos"; case "$query" in playlists:*) mode="playlists" ;; esac
+    # playlists mode keys off the RESOLVED target, so a raw
+    # https://…/@handle/playlists URL gets the same kind/playlist_ref treatment
+    # as the playlists: ref form (otherwise --pull would error each hit at the
+    # fetch guard instead of emitting the pull_skip promote hint).
+    mode="videos"; case "$target" in */playlists|*/playlists/) mode="playlists" ;; esac
     # --flat-playlist keeps it fast (no per-video extraction); dump one JSON/line.
     flat="--flat-playlist"; date_args=""
     end_args="--playlist-end $limit"; [ "$limit" -eq 0 ] && end_args=""
@@ -95,6 +99,14 @@ case "$op" in
         *)                           da="$since" ;;
       esac
       flat=""; date_args="--dateafter $da"
+      # an UNCAPPED (--limit 0) recency scan of a channel TAB would otherwise
+      # crawl the entire channel non-flat just to date-filter it. Channel tabs
+      # enumerate newest-first, so --break-on-reject stops the crawl at the
+      # first too-old upload — bounded work for "everything since X". Playlists
+      # are arbitrary-order, so they never get the break (full scan is honest).
+      case "$target" in
+        */videos|*/shorts|*/streams) [ "$limit" -eq 0 ] && date_args="$date_args --break-on-reject" ;;
+      esac
     fi
     # capture yt-dlp explicitly so a failure (network, age-restriction, etc.)
     # surfaces as an enumerate ERROR (exit 1 → scan error record), not an empty
@@ -103,10 +115,13 @@ case "$op" in
     errf="$(mktemp)"
     # shellcheck disable=SC2086
     raw="$(yt-dlp $flat $date_args --dump-json $end_args "$target" 2>"$errf")"; code=$?
-    # ANY non-zero yt-dlp exit is a failure (network, auth, unavailable, partial),
-    # even with no "ERROR" line or some JSON already printed — surface it as an
-    # enumerate error rather than a clean/partial scan. A successful run that
-    # simply found nothing exits 0 with empty stdout (handled below).
+    # exit 101 is yt-dlp's "stopped by --break-*/--max-downloads" code — for a
+    # recency-bounded tab scan that IS the success path, not a failure.
+    [ "$code" -eq 101 ] && code=0
+    # ANY OTHER non-zero yt-dlp exit is a failure (network, auth, unavailable,
+    # partial), even with no "ERROR" line or some JSON already printed — surface
+    # it as an enumerate error rather than a clean/partial scan. A successful
+    # run that simply found nothing exits 0 with empty stdout (handled below).
     if [ "$code" -ne 0 ]; then
       echo "youtube enumerate failed (yt-dlp exit $code): $(tail -3 "$errf" | tr '\n' ' ')" >&2
       rm -f "$errf"; exit 1
@@ -220,29 +235,36 @@ case "$op" in
         # uncaptioned video (clean yt-dlp exit, no track) → metadata-only .txt
         # artifact (title + description), a ready record with a note — not an
         # error, so playlist-wide pulls don't fail-storm on captionless uploads.
-        # Move ONLY the chosen artifact out of the scratch dir, preserving its
-        # suffix (.en.vtt / .en-orig.vtt / .txt) on the stable --out base.
-        akind="transcript"
+        # EVERY artifact (vtt AND txt) is staged in the scratch dir and only
+        # moved onto the stable --out base after the record builds — a failed
+        # record build must never overwrite a prior successful artifact.
+        akind="transcript"; staged=""
         if [ ! -s "$txf" ]; then
-          akind="meta"; artifact="$tbase.txt"
-          { jq -r '.title // ""' "$info"; echo; jq -r '.description // ""' "$info"; } > "$artifact"
+          akind="meta"; staged="$wbase.txt"; artifact="$tbase.txt"
+          { jq -r '.title // ""' "$info"; echo; jq -r '.description // ""' "$info"; } > "$staged"
         else
-          artifact="$tbase${vtt#"$wbase"}"
-          mv -f "$vtt" "$artifact"
+          staged="$vtt"; artifact="$tbase${vtt#"$wbase"}"
         fi
         # label the track we actually KEPT: only the exact-lang file can be the
         # manual track (and only when info.json lists manual subs for the lang);
         # a surviving -orig or other variant is auto-generated — a partial fetch
-        # must not report "manual" for an auto track.
+        # must not report "manual" for an auto track. transcript_lang likewise
+        # reflects the kept FILE's language token (e.g. a fallback fr track is
+        # labeled fr, not the requested lang; -orig maps to its base language).
         tsrc="auto"
         if [ "$vtt" = "$wbase.$lang.vtt" ]; then
           tsrc="$(jq -r --arg l "$lang" 'if ((.subtitles // {}) | has($l)) then "manual" else "auto" end' "$info")"
         fi
-        # build the record BEFORE scratch cleanup and honor jq's exit status — a
-        # trailing rm would otherwise mask a jq failure as exit 0 with empty
-        # stdout (a generic missing-file error instead of the real parse one).
+        keptlang="$lang"
+        if [ -n "$vtt" ]; then
+          keptlang="${vtt#"$wbase".}"; keptlang="${keptlang%.vtt}"; keptlang="${keptlang%-orig}"
+        fi
+        # build the record BEFORE moving the artifact or cleaning scratch, and
+        # honor jq's exit status — a trailing rm would otherwise mask a jq
+        # failure as exit 0 with empty stdout (a generic missing-file error
+        # instead of the real parse one).
         record="$(jq -c --rawfile tx "$txf" --arg p "$artifact" --arg u "$url" --arg k "$akind" \
-              --arg lang "$lang" --arg tsrc "$tsrc" --argjson trunc "$truncated" '
+              --arg lang "$keptlang" --arg tsrc "$tsrc" --argjson trunc "$truncated" '
           ($tx | rtrimstr("\n")) as $text |
           { kind: $k, path: $p, source: "youtube", url: $u,
             title: (.title // null), description: (.description // null),
@@ -256,6 +278,7 @@ case "$op" in
           rm -rf "$workdir" "$txf"
           echo "youtube transcript fetch: building the capture record failed for $url" >&2; exit 1
         }
+        mv -f "$staged" "$artifact"
         rm -rf "$workdir" "$txf"
         printf '%s\n' "$record"
         ;;
@@ -283,7 +306,10 @@ case "$op" in
       *)
         # cap resolution to keep downloads small; merge to mp4. Honor yt-dlp's exit
         # status — a failed download must surface as an error, not a stale success.
-        if ! yt-dlp -f "best[height<=720]/best" -o "$out" "$url" >&2; then
+        # --no-playlist like the other kinds: a watch?v=…&list=… SHARE link slips
+        # past the pure-playlist guard above, and without it yt-dlp would download
+        # the entire list over one --out base.
+        if ! yt-dlp --no-playlist -f "best[height<=720]/best" -o "$out" "$url" >&2; then
           echo "youtube fetch failed for $url" >&2; exit 1
         fi
         # yt-dlp may add an extension; resolve the actual file (newest match first)
