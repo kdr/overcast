@@ -14,9 +14,6 @@ export function registerInitCase(deps: ExtDeps): void {
       if (!cli) return;
       const folders = vscode.workspace.workspaceFolders ?? [];
       let dir: string;
-      // A dialog-picked folder isn't a workspace folder, so auto-detection
-      // won't find the case afterward — it must be pinned via setChosenCase.
-      let pickedOutsideWorkspace = false;
       if (folders.length === 0) {
         const picked = await vscode.window.showOpenDialog({
           canSelectFolders: true,
@@ -27,7 +24,6 @@ export function registerInitCase(deps: ExtDeps): void {
         });
         if (!picked?.[0]) return;
         dir = picked[0].fsPath;
-        pickedOutsideWorkspace = true;
       } else if (folders.length > 1) {
         const pick = await vscode.window.showQuickPick(
           folders.map((f) => ({ label: f.name, description: f.uri.fsPath, dir: f.uri.fsPath })),
@@ -42,8 +38,7 @@ export function registerInitCase(deps: ExtDeps): void {
         // Never `case init` over an existing store — on any path here (palette,
         // chat button, Select Case → Initialize…): with --name it would
         // silently rename the case. Adopt it as the active case instead.
-        if (pickedOutsideWorkspace) await deps.locator.setChosenCase(dir);
-        await deps.locator.refresh();
+        await deps.locator.setChosenCase(dir);
         deps.router.refresh();
         void vscode.window.showInformationMessage(
           `Folder is already an overcast case — selected: ${path.basename(dir)}`,
@@ -63,8 +58,11 @@ export function registerInitCase(deps: ExtDeps): void {
         cwd: dir,
       });
       if (!result) return;
-      if (pickedOutsideWorkspace) await deps.locator.setChosenCase(dir);
-      await deps.locator.refresh();
+      // Always pin: auto-detection can't see a dialog-picked folder at all,
+      // and in multi-root (or under a stale chosen-case override) the new
+      // case wouldn't become active either — initCase on X must END with X
+      // active, same rule as adoptFolder. setChosenCase refreshes the locator.
+      await deps.locator.setChosenCase(dir);
       deps.router.refresh();
       void vscode.window.showInformationMessage(`Overcast case ready: ${name || dir}`);
     }),

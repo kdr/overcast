@@ -131,6 +131,11 @@ export class CliBridge implements vscode.Disposable {
   /** Full-sentence reason the last resolve failed ("not found" vs "found but
    *  won't run") — the two need different fixes, so never blur them. */
   private resolveFailure: string | undefined;
+  /** In-flight resolution, so concurrent callers share ONE discovery pass. */
+  private resolving: Promise<ResolvedCli | undefined> | undefined;
+  /** Bumped by invalidate(); a pass that finishes under a stale generation
+   *  (setting changed / restart mid-flight) must not write the cache. */
+  private resolveGen = 0;
   private mutateQueue: Promise<unknown> = Promise.resolve();
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -150,7 +155,7 @@ export class CliBridge implements vscode.Disposable {
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration("overcast.path")) {
-          this.resolved = undefined;
+          this.invalidate();
           void this.resolve();
         }
       }),
@@ -174,14 +179,36 @@ export class CliBridge implements vscode.Disposable {
 
   /** Drop the cached resolution and re-resolve (the "Restart CLI" command). */
   async restart(): Promise<ResolvedCli | undefined> {
-    this.resolved = undefined;
+    this.invalidate();
     this.output.appendLine("overcast cli: re-resolving (restart requested)");
     return this.resolve();
   }
 
-  /** Resolve (and smoke-test) the CLI; caches; maintains overcast.cliFound. */
+  /** Forget any cached/in-flight resolution (setting change, restart, retry).
+   *  A pass already in flight keeps running but can't write the cache. */
+  private invalidate(): void {
+    this.resolved = undefined;
+    this.resolving = undefined;
+    this.resolveGen++;
+  }
+
+  /** Resolve (and smoke-test) the CLI; caches; maintains overcast.cliFound.
+   *  Single-flight: the cache is only ever written with a FINISHED outcome —
+   *  mutating it mid-pass would make cliFound/resolve report "not found"
+   *  to concurrent callers while candidates are still being smoke-tested. */
   async resolve(): Promise<ResolvedCli | undefined> {
     if (this.resolved !== undefined) return this.resolved ?? undefined;
+    if (!this.resolving) {
+      const pass = this.doResolve(this.resolveGen).finally(() => {
+        // don't clear a NEWER pass installed after an invalidate mid-flight
+        if (this.resolving === pass) this.resolving = undefined;
+      });
+      this.resolving = pass;
+    }
+    return this.resolving;
+  }
+
+  private async doResolve(gen: number): Promise<ResolvedCli | undefined> {
     const setting = vscode.workspace.getConfiguration("overcast").get<string>("path", "").trim();
     const candidates: ResolvedCli[] = [];
     if (setting) {
@@ -202,14 +229,18 @@ export class CliBridge implements vscode.Disposable {
         candidates.push({ cmd: found, argsPrefix: [], env: {}, display: found });
       }
     }
-    this.resolved = null;
+    let resolved: ResolvedCli | null = null;
     for (const candidate of candidates) {
       if (await this.smokeTest(candidate)) {
-        this.resolved = candidate;
+        resolved = candidate;
         break;
       }
     }
-    this.resolveFailure = this.resolved
+    // Invalidated mid-pass (setting change / restart): the outcome is stale —
+    // hand it to whoever awaited THIS pass, but leave the cache to the new one.
+    if (gen !== this.resolveGen) return resolved ?? undefined;
+    this.resolved = resolved;
+    this.resolveFailure = resolved
       ? undefined
       : candidates.length > 0
         ? `The overcast CLI at ${candidates[0].display}${candidates.length > 1 ? ` (and ${candidates.length - 1} other install(s))` : ""} failed to run — see the Overcast output log.`
@@ -288,7 +319,7 @@ export class CliBridge implements vscode.Disposable {
     } else if (pick === "Show Log") {
       this.output.show(true);
     } else if (pick === "Retry") {
-      this.resolved = undefined;
+      this.invalidate();
       return this.ensureCli();
     }
     return undefined;
