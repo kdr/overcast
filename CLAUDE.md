@@ -463,3 +463,32 @@ and inspect the emitted record JSONL. For skill/doc changes, check against
 CLI router, bun binary), run the live suite (`npm run test:e2e:live`) and inspect
 the generated `report.md`. Keep pi touch-points isolated in `src/extension/` and
 `src/registry/to-agent-tool.ts` so a pi bump has a small blast radius.
+
+## Cursor Cloud specific instructions
+
+The startup update script runs `npm ci` (root) and `npm ci --prefix vscode`; the
+root `postinstall` (`scripts/brand-pi.mjs`) runs automatically. `ffmpeg`/`ffprobe`
+are already installed system-wide. Standard verb/test/build commands live in the
+`## Commands` section above and in `package.json` — reference those, not copies.
+
+Non-obvious caveats for this environment:
+
+- **Node version.** The default `node` is 22.14.x, which runs the CLI, build,
+ typecheck, and all test suites fine. `@earendil-works/pi-tui` declares
+ `engines.node >= 22.19.0`, so `npm ci` prints an `EBADENGINE` **warning** (not an
+ error). If the interactive pi TUI (bare `overcast` / `npm run dev`) misbehaves,
+ `nvm use 22.22.2` (already installed) satisfies that engine floor.
+- **Offline by default — no keys needed for core dev.** `overcast doctor` will
+ report `cloudglue`/`tinycloud`, `playwright`, `uv`/`visual-db`/`audio-db`,
+ `exiftool`, and `c2patool` as missing/failed — these are all *optional*
+ cloud/OSINT/Python backends. The core product (case management + local senses
+ like `chronolocate`, plus `note`/`target`/`finding`/`brief`) works fully offline.
+- **What needs secrets to run for real** (add via Secrets, not required for tests):
+ tinycloud CLI + `CLOUDGLUE_API_KEY` for the default `watch`/`listen`/`face`/`index`
+ senses; a brain-LLM key (BYO, e.g. `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`) for the
+ agent TUI and the default vision `see`; OSINT source keys per `.env.example`.
+- **Fast test loop.** After one `npm run build`, reuse `dist/` with
+ `SKIP_BUILD=1 npm run test:e2e`. Offline unit + e2e suites need no network/creds;
+ the live suite (`npm run test:e2e:live`) does and is not runnable here without
+ `.env` keys + media.
+- **No ESLint.** Lint in CI is `shellcheck -S warning` over `*.sh` only.
