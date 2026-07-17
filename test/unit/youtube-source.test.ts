@@ -21,6 +21,7 @@ import {
   fetchSource,
 } from "../../src/providers/sources/index.ts";
 import { captureVerb, scanVerb } from "../../src/verbs/osint.ts";
+import { addSource } from "../../src/state/source.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import { makeRecord } from "../../src/record.ts";
@@ -41,11 +42,16 @@ case "$FAKE_MODE" in
   flat_videos)
     printf '%s\\n' '{"id":"vid1","title":"Video One","url":"https://youtu.be/vid1","uploader":"Acme","view_count":5,"duration":60}'
     ;;
-  subs|subs_none|subs_429)
+  subs|subs_none|subs_429|subs_orig_only)
     printf '%s' '{"title":"Clip Title","description":"Full description text","upload_date":"20260101","uploader":"Acme","duration":65,"view_count":9,"subtitles":{"en":[{"ext":"vtt"}]}}' > "$out.info.json"
-    if [ "$FAKE_MODE" != "subs_none" ]; then
-      printf 'WEBVTT\\nKind: captions\\nLanguage: en\\n\\n00:00:00.000 --> 00:00:01.000\\nhello world\\n\\n00:00:01.000 --> 00:00:02.000\\nhello world\\n\\n00:00:02.000 --> 00:00:03.000\\n<c>second</c> line\\n' > "$out.en.vtt"
+    if [ "$FAKE_MODE" = "subs" ] || [ "$FAKE_MODE" = "subs_429" ]; then
+      # numeric cue IDENTIFIERS (1, 2) precede their timing lines; the closing
+      # "2026" is a digit-only CAPTION line that must survive compaction
+      printf 'WEBVTT\\nKind: captions\\nLanguage: en\\n\\n1\\n00:00:00.000 --> 00:00:01.000\\nhello world\\n\\n2\\n00:00:01.000 --> 00:00:02.000\\nhello world\\n\\n00:00:02.000 --> 00:00:03.000\\n<c>second</c> line\\n\\n00:00:03.000 --> 00:00:04.000\\n2026\\n' > "$out.en.vtt"
       printf 'WEBVTT\\n\\n00:00:00.000 --> 00:00:01.000\\norig variant\\n' > "$out.en-orig.vtt"
+    fi
+    if [ "$FAKE_MODE" = "subs_orig_only" ]; then
+      printf 'WEBVTT\\n\\n00:00:00.000 --> 00:00:01.000\\norig only track\\n' > "$out.en-orig.vtt"
     fi
     ;;
   thumb) printf 'JPG' > "$out.jpg" ;;
@@ -152,7 +158,7 @@ test("fetch --kind transcript: captions + metadata land in the capture payload, 
     assert.equal(p.duration, 65);
     // VTT compaction: cue timings/headers/karaoke tags stripped, consecutive
     // rolling duplicates collapsed
-    assert.equal(p.transcript, "hello world\nsecond line");
+    assert.equal(p.transcript, "hello world\nsecond line\n2026");
     assert.equal(p.transcript_lang, "en");
     assert.equal(p.transcript_source, "manual"); // info.json lists manual en subs
     // the exact-lang variant wins; the -orig variant is cleaned up
@@ -189,7 +195,7 @@ test("fetch --kind transcript tolerates a nonzero yt-dlp exit when the track + m
     assert.equal(rec.state, "ready", rec.error);
     const p = rec.payload as Record<string, unknown>;
     assert.equal(p.kind, "transcript");
-    assert.equal(p.transcript, "hello world\nsecond line");
+    assert.equal(p.transcript, "hello world\nsecond line\n2026");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -293,6 +299,151 @@ test("scan --limit 0 is accepted (uncapped), not an invalid-limit error", async 
     // negative stays rejected
     const bad = await scanVerb.run(vctx(dir, undefined, { limit: -2 }));
     assert.ok(bad.some((r) => /invalid --limit/.test(String(r.error ?? ""))));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- source capabilities: uncappedLimit + fetchKinds (manifest-declared) -------
+
+test("capability flags come from the manifest: youtube (uncapped + fetch kinds), dl (uncapped), web (neither)", () => {
+  const yt = builtinDescriptor("youtube");
+  assert.ok(yt);
+  assert.equal(yt!.uncappedLimit, true);
+  assert.deepEqual(yt!.fetchKinds, ["transcript", "thumb"]);
+  const dl = builtinDescriptor("dl");
+  assert.ok(dl);
+  assert.equal(dl!.uncappedLimit, true);
+  assert.equal(dl!.fetchKinds, undefined);
+  const web = builtinDescriptor("web");
+  assert.ok(web);
+  assert.equal(web!.uncappedLimit, undefined);
+  assert.equal(web!.fetchKinds, undefined);
+  // an env-override rebind keeps the built-in capabilities (command changes,
+  // semantics don't)
+  process.env.OVERCAST_SOURCE_YOUTUBE_CMD = "bash /tmp/custom-yt.sh";
+  try {
+    const rebound = builtinDescriptor("youtube");
+    assert.equal(rebound!.uncappedLimit, true);
+    assert.deepEqual(rebound!.fetchKinds, ["transcript", "thumb"]);
+  } finally {
+    delete process.env.OVERCAST_SOURCE_YOUTUBE_CMD;
+  }
+});
+
+test("enumerate seam: --limit 0 is forwarded only to uncappedLimit sources; others get NO --limit (their default cap)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-seam-"));
+  try {
+    const log = join(dir, "args.log");
+    // a logging fixture source: records its argv, returns zero hits
+    const script = join(dir, "fixture.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${log}"\necho '[]'\n`, { mode: 0o755 });
+    const base = ["bash", script];
+    // no uncappedLimit → 0 is swallowed at the seam (provider default applies)
+    writeFileSync(log, "");
+    await enumerateSource({ type: "web", base }, { query: "q", limit: 0 });
+    assert.doesNotMatch(readFileSync(log, "utf8"), /--limit/);
+    // uncappedLimit → the 0 travels
+    writeFileSync(log, "");
+    await enumerateSource({ type: "web", base, uncappedLimit: true }, { query: "q", limit: 0 });
+    assert.match(readFileSync(log, "utf8"), /--limit 0/);
+    // a positive limit always travels
+    writeFileSync(log, "");
+    await enumerateSource({ type: "web", base }, { query: "q", limit: 7 });
+    assert.match(readFileSync(log, "utf8"), /--limit 7/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- transcript_source reflects the CHOSEN track ------------------------------
+
+test("fetch --kind transcript labels a surviving -orig track auto, even when info.json lists manual subs", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
+  try {
+    const { env } = shimEnv(dir, "subs_orig_only");
+    const desc = builtinDescriptor("youtube");
+    assert.ok(desc);
+    const rec = await fetchSource(desc!, {
+      url: "https://youtu.be/vid1",
+      out: join(dir, "clip"),
+      kind: "transcript",
+      lang: "en",
+      env,
+    });
+    assert.equal(rec.state, "ready", rec.error);
+    const p = rec.payload as Record<string, unknown>;
+    assert.equal(p.transcript, "orig only track");
+    assert.equal(p.transcript_source, "auto"); // the kept file is the auto -orig track
+    assert.match(String(rec.media?.ref), /clip\.en-orig\.vtt$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- playlist container hits are not fetchable media --------------------------
+
+test("youtube fetch refuses a playlist container URL at every kind (clean error, no yt-dlp spawn)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
+  try {
+    const { env, log } = shimEnv(dir, "subs");
+    const desc = builtinDescriptor("youtube");
+    assert.ok(desc);
+    for (const kind of [undefined, "transcript", "thumb"]) {
+      const rec = await fetchSource(desc!, {
+        url: "https://www.youtube.com/playlist?list=PL111",
+        out: join(dir, "cap"),
+        kind,
+        env,
+      });
+      assert.equal(rec.state, "error");
+      assert.match(String(rec.error), /playlist, not a video/);
+    }
+    assert.equal(readFileSync(log, "utf8"), "", "the guard must fire before yt-dlp is spawned");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("scan --pull skips playlist container hits with a promote hint instead of fetching them", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-pull-"));
+  const prev = process.env.OVERCAST_SOURCE_YTFIX_CMD;
+  try {
+    // a fixture source whose one hit is a playlists-tab CONTAINER entry; its
+    // fetch op fails loudly so any capture attempt turns the test red
+    const script = join(dir, "ytfix.sh");
+    writeFileSync(script, `#!/usr/bin/env bash
+op="\${1:-enumerate}"; shift || true
+case "$op" in
+  enumerate) echo '[{"title":"Trips","url":"https://www.youtube.com/playlist?list=PL111","source":"ytfix","kind":"playlist","playlist_id":"PL111","playlist_ref":"youtube:playlist:PL111","media":{"ref":"https://www.youtube.com/playlist?list=PL111"}}]' ;;
+  fetch) echo "container hit must not be fetched" >&2; exit 1 ;;
+  *) exit 0 ;;
+esac
+`, { mode: 0o755 });
+    process.env.OVERCAST_SOURCE_YTFIX_CMD = `bash ${script}`;
+    const c = openCase(dir);
+    c.ensure();
+    addSource(c, "ytfix:@acme");
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile: defaultProfile(), home: dir } as VerbContext);
+    assert.ok(!recs.some((r) => r.verb === "capture"), "a container hit must never reach capture");
+    assert.ok(!recs.some((r) => r.state === "error"), `no errors expected: ${recs.find((r) => r.state === "error")?.error}`);
+    const skip = recs.find((r) => (r.payload as Record<string, unknown>)?.op === "pull_skip");
+    assert.ok(skip, "expected a pull_skip record for the container hit");
+    assert.match(String((skip!.payload as Record<string, unknown>).promote), /source add youtube:playlist:PL111/);
+  } finally {
+    if (prev == null) delete process.env.OVERCAST_SOURCE_YTFIX_CMD; else process.env.OVERCAST_SOURCE_YTFIX_CMD = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- fetch-kind gating: only declaring sources serve --transcript/--thumb -----
+
+test("explicit capture --transcript on a source without the fetch kind is an honest error, not a silent download", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-verb-"));
+  try {
+    const [rec] = await captureVerb.run(vctx(dir, "https://example.org/page", { transcript: true }));
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /doesn't support --transcript/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

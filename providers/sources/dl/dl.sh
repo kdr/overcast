@@ -50,6 +50,10 @@ case "$op" in
       --since) since="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
+    # a non-numeric limit falls back to the default cap; 0 = uncapped (whole
+    # channel/playlist — the manifest declares uncappedLimit so the seam
+    # forwards the 0)
+    case "$limit" in ''|*[!0-9]*) limit=10 ;; esac
     # dl refs are raw URLs. yt-dlp flat mode on a SINGLE video URL yields exactly one
     # entry and wastes a network call, and the settled contract keeps single URLs
     # capture-only. Best-effort heuristic (host quirks are a long tail — the policy is
@@ -97,8 +101,9 @@ case "$op" in
     # list that reads like a clean zero-result scan. Keep stderr SEPARATE from the
     # --dump-json stdout so routine yt-dlp warnings don't corrupt the JSON.
     errf="$(mktemp)"
+    end_args="--playlist-end $limit"; [ "$limit" -eq 0 ] && end_args=""
     # shellcheck disable=SC2086
-    raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>"$errf")"; code=$?
+    raw="$(yt-dlp $flat $date_args --dump-json $end_args "$target" 2>"$errf")"; code=$?
     # ANY non-zero yt-dlp exit is a failure (network, auth, unavailable, partial),
     # even with no "ERROR" line or some JSON already printed — surface it as an
     # enumerate error rather than a clean/partial scan. A successful run that simply

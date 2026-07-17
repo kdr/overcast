@@ -14,6 +14,11 @@
         "shipped:providers/sources/youtube/youtube.sh"
       ],
       "needs": "yt-dlp on PATH",
+      "uncappedLimit": true,
+      "fetchKinds": [
+        "transcript",
+        "thumb"
+      ],
       "hosts": [
         "youtube.com",
         "youtu.be"

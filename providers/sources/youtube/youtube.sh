@@ -138,6 +138,14 @@ case "$op" in
       --lang) lang="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
+    # a playlist CONTAINER url is not a video — refuse cleanly for every fetch
+    # kind (a bare `yt-dlp <playlist>` would download the entire list over one
+    # --out path; the --no-playlist transcript/thumb fetches would just error).
+    case "$url" in
+      *"/playlist?list="*)
+        echo "youtube fetch: $url is a playlist, not a video — enumerate it (scan youtube:playlist:<id>) and pull its video hits instead" >&2
+        exit 1 ;;
+    esac
     # yt-dlp derives sidecar names (subs/info-json/thumbnail) from the -o base,
     # so strip a pre-existing extension off --out (dot in the BASENAME only —
     # `${out%.*}` alone would truncate a dotted parent dir).
@@ -176,11 +184,14 @@ case "$op" in
         done
         # VTT → plain text: strip cue timings/headers/inline karaoke tags, drop
         # the rolling duplicate lines auto-captions emit, cap at 200KB (the full
-        # VTT stays as the file artifact).
+        # VTT stays as the file artifact). A digit-only line is removed ONLY when
+        # the next line is a cue timing (a VTT cue identifier) — a spoken number
+        # ("2026") is caption text and must survive into the transcript.
         txf="$(mktemp)"
         if [ -n "$vtt" ] && [ -s "$vtt" ]; then
           sed -E 's/<[^>]+>//g' "$vtt" \
-            | grep -Ev '^WEBVTT|^Kind:|^Language:|^NOTE( |$)|^[0-9]+$|^[0-9]{2}:[0-9]{2}' \
+            | awk 'NR > 1 { if (!(prev ~ /^[0-9]+$/ && $0 ~ /^[0-9][0-9]:[0-9][0-9]/)) print prev } { prev = $0 } END { if (NR > 0) print prev }' \
+            | grep -Ev '^WEBVTT|^Kind:|^Language:|^NOTE( |$)|^[0-9]{2}:[0-9]{2}' \
             | awk 'NF' | awk '$0 != prev { print; prev = $0 }' \
             | head -c 200000 > "$txf"
         fi
@@ -194,7 +205,14 @@ case "$op" in
           artifact="$tbase.txt"; akind="meta"
           { jq -r '.title // ""' "$info"; echo; jq -r '.description // ""' "$info"; } > "$artifact"
         fi
-        tsrc="$(jq -r --arg l "$lang" 'if ((.subtitles // {}) | has($l)) then "manual" else "auto" end' "$info")"
+        # label the track we actually KEPT: only the exact-lang file can be the
+        # manual track (and only when info.json lists manual subs for the lang);
+        # a surviving -orig or other variant is auto-generated — a partial fetch
+        # must not report "manual" for an auto track.
+        tsrc="auto"
+        if [ "$vtt" = "$tbase.$lang.vtt" ]; then
+          tsrc="$(jq -r --arg l "$lang" 'if ((.subtitles // {}) | has($l)) then "manual" else "auto" end' "$info")"
+        fi
         jq -c --rawfile tx "$txf" --arg p "$artifact" --arg u "$url" --arg k "$akind" \
               --arg lang "$lang" --arg tsrc "$tsrc" --argjson trunc "$truncated" '
           ($tx | rtrimstr("\n")) as $text |

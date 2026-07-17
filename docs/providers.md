@@ -224,6 +224,19 @@ The `doctor.check` variants: `env_all` / `env_any` (present-checks over `env`),
 ready / 13 = needs creds), `reuse_playwright` (share the Playwright check). Omit
 `doctor` for a source with no credential check.
 
+Two optional **capability flags** widen what the seam forwards to a source:
+
+- `"uncappedLimit": true` — the source honors `--limit 0` as "enumerate
+  everything" (yt-dlp local enumeration: youtube, dl). Sources WITHOUT it never
+  see a 0 — a `--limit 0` scan omits the flag entirely so the provider's own
+  default cap applies (an Apify actor handed 0 could read it as unlimited
+  billing; a SODA/SERP API as zero rows).
+- `"fetchKinds": ["transcript", "thumb"]` — alternate fetch modes the provider
+  serves instead of the default media download; `fetch` then receives
+  `--kind <k>` (and `--lang <code>` for transcripts). `--transcript`/`--thumb`
+  on capture/scan/monitor only route to sources declaring the kind — everyone
+  else keeps their normal pull path.
+
 **Ref tokens** in a manifest's command strings / `base`:
 `shipped:<relpath>` (the shipped `providers/` tree), `installed:<pkg>/<relpath>`
 (an installed package — what `provider create` writes), `{{input}}` (the media
