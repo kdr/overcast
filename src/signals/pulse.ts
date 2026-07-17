@@ -115,7 +115,10 @@ export interface CasePulse {
   gaps: string[];
 }
 
-const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "audio", "crop", "enhance"]);
+// One definition of "sensed/analyzed" media, shared with the vscode extension's
+// analyzed-media rollup (vscode/src/lib/analyzedMedia.ts) — keep the sets in
+// lockstep or the funnel and the sidebar disagree about the same ref.
+const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "audio", "voice", "crop", "enhance", "exif", "verify"]);
 
 /** Triage buckets over root findings, by effective (reviewed) status. */
 export function triageCounts(records: OvercastRecord[]): TriageCounts {

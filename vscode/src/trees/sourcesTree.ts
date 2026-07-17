@@ -152,17 +152,27 @@ export class SourcesTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
 
   getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {
     if (element instanceof SourceItem) {
-      return (element.row.media ?? []).map(
-        (m) =>
-          new MediaItem({
-            idPrefix: `srcmedia:${element.sourceId}`,
-            ref: m.ref,
-            recordId: m.record,
-            title: m.title,
-            detail: m.sensed ? "sensed" : "not sensed",
-            tooltipLines: [m.sensed ? "✓ analyzed" : "grabbed, not yet analyzed"],
-          }),
-      );
+      // One vocabulary with the Analyzed-media folder: derive the label from
+      // the SAME rollup (verbs listed when we have them), with the pulse
+      // `sensed` flag as fallback for refs whose analysis records fell outside
+      // the model's compact record window.
+      const byRef = new Map(analyzedMedia(this.deps.model.records).map((a) => [a.ref, a]));
+      return (element.row.media ?? []).map((m) => {
+        const rollup = byRef.get(m.ref);
+        const analyzed = !!rollup || m.sensed;
+        return new MediaItem({
+          idPrefix: `srcmedia:${element.sourceId}`,
+          ref: m.ref,
+          recordId: m.record,
+          title: m.title,
+          detail: rollup ? rollup.verbs.join(" · ") : analyzed ? "analyzed" : "not analyzed",
+          tooltipLines: [
+            analyzed
+              ? `✓ analyzed${rollup ? `: ${rollup.verbs.join(", ")}` : ""}`
+              : "grabbed, not yet analyzed",
+          ],
+        });
+      });
     }
     if (element instanceof AnalyzedFolderItem) {
       return analyzedMedia(this.deps.model.records).map(
