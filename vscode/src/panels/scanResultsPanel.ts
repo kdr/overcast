@@ -84,10 +84,15 @@ async function captureHit(
   status("done", `captured + ${verb}${pending}`, senseRec?.id ?? capRec.id);
 }
 
-export async function openScanResultsPanel(deps: ExtDeps, state: ScanViewState): Promise<void> {
+export async function openScanResultsPanel(
+  deps: ExtDeps,
+  state: ScanViewState,
+  /** the case the scan RAN in (captured at spawn by the flow) — not the
+   *  locator's case at open/click time. */
+  pinnedCaseDir?: string,
+): Promise<void> {
   const running = new Set<number>();
-  // pin the case the scan belongs to — not the locator's case at click time
-  const caseDir = deps.locator.caseDir;
+  const caseDir = pinnedCaseDir ?? deps.locator.caseDir;
   await createSpaPanel(deps.context, {
     viewType: "overcast.scan",
     title: `Scan: ${state.query}`,

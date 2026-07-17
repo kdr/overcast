@@ -219,8 +219,8 @@ export function registerRunVerb(deps: ExtDeps): void {
       );
       if (!confirm?.run) return;
 
-      const caseDir = deps.locator.caseDir; // pinned at spawn (see routeResult)
-      const result = await deps.bridge.runWithProgress(`overcast ${spec.name}`, argv);
+      const caseDir = deps.locator.caseDir; // ONE capture: the spawn and the record routing
+      const result = await deps.bridge.runWithProgress(`overcast ${spec.name}`, argv, { caseDir });
       if (!result) return;
       const rec = result.records.find((r) => r.verb === spec.name) ?? result.records[0];
       await routeResult(deps, spec.name, result.records, caseDir);

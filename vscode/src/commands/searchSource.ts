@@ -81,6 +81,9 @@ export function hitsFromRecords(records: OvercastRecord[]): ScanHit[] {
 
 async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise<void> {
   if (!(await deps.bridge.ensureCli())) return;
+  // ONE capture for the whole flow: the spawn and the results panel — the
+  // input boxes below are long async gaps a case switch can land in
+  const caseDir = deps.locator.caseDir;
 
   let filter = preselectedSourceId;
   let filterLabel = "all enabled sources";
@@ -134,7 +137,7 @@ async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise
   // credential-gapped source) while healthy sources still returned real hits
   // in the same records stream — keep those hits and warn, like the chat
   // surfaces do; only a hitless failure is surfaced as a plain failure.
-  const result = await deps.bridge.runWithProgress(title, args, { keepPartialFailure: true });
+  const result = await deps.bridge.runWithProgress(title, args, { keepPartialFailure: true, caseDir });
   if (!result) return;
   deps.router.refresh();
 
@@ -159,11 +162,15 @@ async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise
       `Overcast: scan of ${filterLabel} partially failed — showing ${hits.length} hit${hits.length === 1 ? "" : "s"} from healthy sources. ${result.failure.message}`,
     );
   }
-  await openScanResultsPanel(deps, {
-    query: query.trim() || filterLabel,
-    source: filter ? filterLabel : undefined,
-    hits,
-  });
+  await openScanResultsPanel(
+    deps,
+    {
+      query: query.trim() || filterLabel,
+      source: filter ? filterLabel : undefined,
+      hits,
+    },
+    caseDir,
+  );
 }
 
 // Common source types offered by "Add Source…" (spec: `<type>:<ref>`; the CLI
@@ -184,7 +191,8 @@ const SOURCE_TYPE_PICKS: Array<vscode.QuickPickItem & { prefix?: string; hint?: 
 
 async function addSourceFlow(deps: ExtDeps): Promise<void> {
   if (!(await deps.bridge.ensureCli())) return;
-  if (!deps.locator.caseDir) {
+  const caseDir = deps.locator.caseDir; // pinned across the input gaps below
+  if (!caseDir) {
     void vscode.window.showWarningMessage("Overcast: no case selected — pick one first.");
     return;
   }
@@ -208,11 +216,11 @@ async function addSourceFlow(deps: ExtDeps): Promise<void> {
     },
   });
   if (!spec?.trim()) return;
-  const result = await deps.bridge.runWithProgress(`Adding source ${spec.trim()}`, [
-    "source",
-    "add",
-    spec.trim(),
-  ]);
+  const result = await deps.bridge.runWithProgress(
+    `Adding source ${spec.trim()}`,
+    ["source", "add", spec.trim()],
+    { caseDir },
+  );
   if (!result) return;
   deps.router.refresh();
   const scanNow = await vscode.window.showInformationMessage(

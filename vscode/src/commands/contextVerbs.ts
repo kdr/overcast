@@ -59,6 +59,7 @@ async function runAndRoute(
   const result = await deps.bridge.runWithProgress(
     `overcast ${verb} ${path.basename(args[1] ?? "")}`.trim(),
     args,
+    { caseDir },
   );
   if (!result) return;
   deps.router.refresh();
@@ -242,6 +243,8 @@ async function chronolocateFlow(deps: ExtDeps, p: string): Promise<void> {
 }
 
 async function batchSense(deps: ExtDeps, arg?: unknown, args?: unknown[]): Promise<void> {
+  // pin the case for the whole batch — a long batch can outlive a case switch
+  const caseDir = deps.locator.caseDir;
   // Explorer passes (Uri, Uri[]); tree-view menus pass (TreeItem, TreeItem[])
   // — normalize both, like `simple`/`flow` do for the single-file commands.
   const files = (args?.length ? args : arg ? [arg] : [])
@@ -284,7 +287,7 @@ async function batchSense(deps: ExtDeps, arg?: unknown, args?: unknown[]): Promi
           message: `${i + 1}/${jobs.length} ${job.verb} ${path.basename(job.p)}`,
           increment: 100 / jobs.length,
         });
-        const res = await deps.bridge.run([job.verb, job.p], { token });
+        const res = await deps.bridge.run([job.verb, job.p], { token, caseDir });
         // A per-job cancel (Runs view) skips the file; a batch cancel breaks
         // at the loop top via `token`.
         if (res.cancelled) continue;
