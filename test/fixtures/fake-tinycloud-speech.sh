@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # Fixture tinycloud for the listen DEFAULT path (bound via OVERCAST_TINYCLOUD_CMD):
-# `watch` answers with a tinycloud ≥0.3.10-shaped envelope — summary only, NO
-# inline speech segments — and `caption` answers with the verbatim cues, so the
-# two-step watch→caption transcript wiring is exercised offline.
-#   FAKE_TC_CAPTION=fail  → caption exits non-zero (tests the summary fallback path)
-#   FAKE_TC_CAPTION=hang  → caption blocks (tests that an abort REJECTS, never a summary)
-#   FAKE_TC_WATCH=pending → watch answers a pending async envelope (with a summary)
+# `watch` answers a tinycloud ≥0.3.12-shaped envelope — VERBATIM speech inlined
+# as segments[].speech (string arrays; a boundary cue repeats in the next
+# segment, like the real CLI) — so the single-call watch transcript wiring is
+# exercised offline. `caption` answers the verbatim cues for the --diarize pass
+# and the legacy (<0.3.12) fallback.
+#   FAKE_TC_WATCH=nospeech → watch answers a 0.3.10/0.3.11-shaped envelope
+#                            (summary only, segments: []) — tests the legacy
+#                            caption-verb fallback path
+#   FAKE_TC_WATCH=pending  → watch answers a pending async envelope (with a summary)
+#   FAKE_TC_CAPTION=fail   → caption exits non-zero (tests the summary fallback path)
+#   FAKE_TC_CAPTION=hang   → caption blocks (tests that an abort REJECTS, never a summary)
 #   FAKE_TC_DIARIZED=off    → caption honors --diarize but answers diarized:false
 #                             with "Word: …"-shaped SPEECH (diarization unavailable —
 #                             tests that no phantom speaker is lifted)
@@ -16,7 +21,7 @@ set -euo pipefail
 sub="${1:-}"
 case "$sub" in
   watch)
-    # strict like the real CLI (0.3.10): watch takes neither --diarize nor
+    # strict like the real CLI (0.3.12): watch takes neither --diarize nor
     # --lang — regressing to pushing listen flags onto watch must fail loudly.
     for a in "$@"; do
       case "$a" in
@@ -29,8 +34,22 @@ case "$sub" in
 JSON
       exit 0
     fi
-    cat <<'JSON'
+    if [ "${FAKE_TC_WATCH:-}" = "nospeech" ]; then
+      # 0.3.10/0.3.11: watch stopped inlining speech (segments: [] for audio /
+      # short sources) — listen must fall back to the caption verb.
+      cat <<'JSON'
 {"tinycloud":"1","kind":"watch","status":"ready","data":{"title":"Zurich walk","summary":"A visitor describes exploring Zurich for the first time.","duration_seconds":5,"segmentation":null,"segments":[]}}
+JSON
+      exit 0
+    fi
+    # 0.3.12 (watch.speech.v1): verbatim cues ride segments[].speech; a cue
+    # touching the segment boundary is repeated in the NEXT segment's array —
+    # the mapper must dedupe it, never store it twice.
+    cat <<'JSON'
+{"tinycloud":"1","kind":"watch","status":"ready","data":{"title":"Zurich walk","summary":"A visitor describes exploring Zurich for the first time.","duration_seconds":5,"segmentation":"uniform:20","segments":[
+  {"index":1,"start_time":0,"end_time":1.2,"description":"We'll walk through the streets","summary":null,"thumbnail_url":null,"speech":["We'll walk through the streets"]},
+  {"index":2,"start_time":1.2,"end_time":2.5,"description":"of Zurich.","summary":null,"thumbnail_url":null,"speech":["We'll walk through the streets","of Zurich."]}
+]}}
 JSON
     ;;
   caption)

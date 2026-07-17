@@ -2,7 +2,7 @@
   "name": "overcast-vscode",
   "displayName": "Overcast",
   "description": "The situation room in your editor — senses on your media (watch, listen, see, faces, EXIF via right-click), OSINT on your sources, and a wall to monitor the situation: maps, graphs, briefs, live feeds.",
-  "version": "0.0.1",
+  "version": "0.0.9",
   "publisher": "kdr",
   "private": true,
   "license": "Apache-2.0",
@@ -11,14 +11,22 @@
     "url": "git+https://github.com/kdr/overcast.git",
     "directory": "vscode"
   },
+  "homepage": "https://github.com/kdr/overcast/tree/main/vscode#readme",
+  "bugs": { "url": "https://github.com/kdr/overcast/issues" },
+  "qna": false,
+  "pricing": "Free",
   "type": "module",
   "engines": {
     "vscode": "^1.96.0"
   },
   "categories": [
-    "Other",
-    "Visualization"
+    "AI",
+    "Chat",
+    "Visualization",
+    "Other"
   ],
+  "keywords": ["osint", "investigation", "video", "forensics", "geolocation", "transcription", "media", "evidence"],
+  "galleryBanner": { "color": "#101418", "theme": "dark" },
   "main": "./dist/extension.cjs",
   "icon": "media/overcast.png",
   "activationEvents": [

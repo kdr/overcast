@@ -69,6 +69,30 @@ export function envelopeData(parsed: unknown): Record<string, unknown> {
   return o;
 }
 
+/** Verbatim speech cues for one watch-envelope segment. tinycloud ≥ 0.3.12
+ *  (`watch.speech.v1`) ships `speech: string[]` per segment; older envelopes
+ *  inlined a single transcript/speech/text string. A cue that straddles a
+ *  segment boundary lands in BOTH neighboring segments' arrays, so `fresh`
+ *  excludes cues already present in the PREVIOUS segment — thread the returned
+ *  `cues` back in as the next call's `prev`. A speechless segment yields an
+ *  empty `cues` set, clearing that state: only ADJACENT segments can share a
+ *  straddling cue, so an identical utterance repeated after a gap survives. */
+export function segmentSpeechCues(
+  seg: Record<string, unknown>,
+  prev: ReadonlySet<string>,
+): { fresh: string[]; cues: Set<string> } {
+  const arr = Array.isArray(seg.speech)
+    ? seg.speech.filter((l): l is string => typeof l === "string" && l.trim() !== "")
+    : [];
+  const legacy =
+    (typeof seg.transcript === "string" && seg.transcript) ||
+    (typeof seg.speech === "string" && seg.speech) ||
+    (typeof seg.text === "string" && seg.text) ||
+    "";
+  const texts = arr.length > 0 ? arr : legacy ? [legacy] : [];
+  return { fresh: texts.filter((t) => !prev.has(t)), cues: new Set(texts) };
+}
+
 /** The first string-y status found across the envelope + data (envelope wins). */
 function rawStatus(env: Record<string, unknown>, data: Record<string, unknown>): string {
   for (const v of [env.status, env.state, data.status, data.state]) {
