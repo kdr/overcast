@@ -3,20 +3,12 @@
 // folder as the case, launching the interactive overcast AGENT in a terminal,
 // and a CLI restart. The active-case override lives in workspaceState (see
 // CaseLocator.setChosenCase) so it survives reloads and beats auto-detection.
-import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { hasCaseStore } from "../services/caseLocator.ts";
 import type { ExtDeps } from "../types.ts";
 
 const OVERCAST_VIEW = "workbench.view.extension.overcast";
-
-function hasStore(dir: string): boolean {
-  try {
-    return fs.existsSync(path.join(dir, ".overcast", "case.json"));
-  } catch {
-    return false;
-  }
-}
 
 async function focusOvercastView(): Promise<void> {
   try {
@@ -186,7 +178,7 @@ export function registerCaseCommands(deps: ExtDeps): void {
 
 /** Adopt a folder as the active case, initializing the store if absent. */
 async function adoptFolder(deps: ExtDeps, dir: string): Promise<void> {
-  if (!hasStore(dir)) {
+  if (!hasCaseStore(dir)) {
     const pick = await vscode.window.showInformationMessage(
       `No overcast case in "${path.basename(dir)}". Initialize one here?`,
       "Initialize",

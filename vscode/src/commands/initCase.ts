@@ -2,18 +2,10 @@
 // (`overcast case init`), then re-locate. With no folder open there is no
 // "here" yet — instead of dead-ending, ask for a folder and pin it as the
 // active case (same adopt path as Select a Case → "Choose another folder…").
-import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { hasCaseStore } from "../services/caseLocator.ts";
 import type { ExtDeps } from "../types.ts";
-
-function hasStore(dir: string): boolean {
-  try {
-    return fs.existsSync(path.join(dir, ".overcast", "case.json"));
-  } catch {
-    return false;
-  }
-}
 
 export function registerInitCase(deps: ExtDeps): void {
   deps.context.subscriptions.push(
@@ -36,16 +28,6 @@ export function registerInitCase(deps: ExtDeps): void {
         if (!picked?.[0]) return;
         dir = picked[0].fsPath;
         pickedOutsideWorkspace = true;
-        if (hasStore(dir)) {
-          // Already a case — adopt it as-is; `case init --name` on an existing
-          // store would silently rename it.
-          await deps.locator.setChosenCase(dir);
-          deps.router.refresh();
-          void vscode.window.showInformationMessage(
-            `Existing overcast case selected: ${path.basename(dir)}`,
-          );
-          return;
-        }
       } else if (folders.length > 1) {
         const pick = await vscode.window.showQuickPick(
           folders.map((f) => ({ label: f.name, description: f.uri.fsPath, dir: f.uri.fsPath })),
@@ -55,6 +37,18 @@ export function registerInitCase(deps: ExtDeps): void {
         dir = pick.dir;
       } else {
         dir = folders[0].uri.fsPath;
+      }
+      if (hasCaseStore(dir)) {
+        // Never `case init` over an existing store — on any path here (palette,
+        // chat button, Select Case → Initialize…): with --name it would
+        // silently rename the case. Adopt it as the active case instead.
+        if (pickedOutsideWorkspace) await deps.locator.setChosenCase(dir);
+        await deps.locator.refresh();
+        deps.router.refresh();
+        void vscode.window.showInformationMessage(
+          `Folder is already an overcast case — selected: ${path.basename(dir)}`,
+        );
+        return;
       }
       const name = await vscode.window.showInputBox({
         prompt: "Case name",

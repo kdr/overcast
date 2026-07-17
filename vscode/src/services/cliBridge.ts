@@ -92,23 +92,38 @@ function wellKnownBinDirs(): string[] {
   return dirs;
 }
 
-function findExecutable(name: string, dirs: string[]): string | undefined {
+/** EVERY executable named `name` across `dirs`, in order, deduped by realpath
+ *  (symlinked installs would smoke-test the same binary twice). All of them are
+ *  returned — resolution smoke-tests each in turn, so a stale/broken launcher
+ *  earlier in the order can't hide a working later install. */
+function findExecutables(name: string, dirs: string[]): string[] {
   const exts =
     process.platform === "win32"
       ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
       : [""];
+  const found: string[] = [];
+  const seen = new Set<string>();
   for (const dir of dirs) {
     for (const ext of exts) {
       const candidate = path.join(dir, name + ext.toLowerCase());
       try {
         fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
+        let key = candidate;
+        try {
+          key = fs.realpathSync(candidate);
+        } catch {
+          /* dedupe on the literal path */
+        }
+        if (!seen.has(key)) {
+          seen.add(key);
+          found.push(candidate);
+        }
       } catch {
         /* keep looking */
       }
     }
   }
-  return undefined;
+  return found;
 }
 
 export class CliBridge implements vscode.Disposable {
@@ -168,32 +183,37 @@ export class CliBridge implements vscode.Disposable {
   async resolve(): Promise<ResolvedCli | undefined> {
     if (this.resolved !== undefined) return this.resolved ?? undefined;
     const setting = vscode.workspace.getConfiguration("overcast").get<string>("path", "").trim();
-    let candidate: ResolvedCli | undefined;
+    const candidates: ResolvedCli[] = [];
     if (setting) {
+      // An explicit setting never falls back to discovery — a wrong path
+      // should fail loudly, not be silently papered over.
       if (setting.endsWith(".js") || setting.endsWith(".mjs")) {
-        candidate = {
+        candidates.push({
           cmd: process.execPath,
           argsPrefix: [setting],
           env: { ELECTRON_RUN_AS_NODE: "1" },
           display: `${setting} (via extension-host node)`,
-        };
+        });
       } else {
-        candidate = { cmd: setting, argsPrefix: [], env: {}, display: setting };
+        candidates.push({ cmd: setting, argsPrefix: [], env: {}, display: setting });
       }
     } else {
-      const found = findExecutable("overcast", pathDirs()) ?? findExecutable("overcast", wellKnownBinDirs());
-      if (found) candidate = { cmd: found, argsPrefix: [], env: {}, display: found };
+      for (const found of findExecutables("overcast", [...pathDirs(), ...wellKnownBinDirs()])) {
+        candidates.push({ cmd: found, argsPrefix: [], env: {}, display: found });
+      }
     }
-    if (candidate) {
-      const ok = await this.smokeTest(candidate);
-      this.resolved = ok ? candidate : null;
-      this.resolveFailure = ok
-        ? undefined
-        : `The overcast CLI at ${candidate.display} failed to run — see the Overcast output log.`;
-    } else {
-      this.resolved = null;
-      this.resolveFailure = "The overcast CLI was not found on PATH or in the usual install locations.";
+    this.resolved = null;
+    for (const candidate of candidates) {
+      if (await this.smokeTest(candidate)) {
+        this.resolved = candidate;
+        break;
+      }
     }
+    this.resolveFailure = this.resolved
+      ? undefined
+      : candidates.length > 0
+        ? `The overcast CLI at ${candidates[0].display}${candidates.length > 1 ? ` (and ${candidates.length - 1} other install(s))` : ""} failed to run — see the Overcast output log.`
+        : "The overcast CLI was not found on PATH or in the usual install locations.";
     await vscode.commands.executeCommand("setContext", "overcast.cliFound", !!this.resolved);
     if (this.resolved) this.output.appendLine(`overcast cli: ${this.resolved.display}`);
     else
@@ -224,13 +244,13 @@ export class CliBridge implements vscode.Disposable {
         }, 10_000);
         child.on("error", (e) => {
           clearTimeout(timer);
-          this.output.appendLine(`  smoke test (--version) spawn failed: ${e.message}`);
+          this.output.appendLine(`  smoke test ${cli.display}: spawn failed: ${e.message}`);
           done(false);
         });
         child.on("close", (code) => {
           clearTimeout(timer);
           if (code !== 0 && stderr.trim()) {
-            this.output.appendLine(`  smoke test (--version) exit ${code}: ${stderr.trim()}`);
+            this.output.appendLine(`  smoke test ${cli.display}: exit ${code}: ${stderr.trim()}`);
           }
           done(code === 0);
         });
