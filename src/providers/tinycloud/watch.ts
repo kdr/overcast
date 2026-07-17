@@ -11,7 +11,7 @@ import {
   renderCommand,
   parseFirstJson,
 } from "../exec.js";
-import { tinycloudBase } from "./envelope.js";
+import { segmentSpeechCues, tinycloudBase } from "./envelope.js";
 import type { ProviderDescriptor } from "../../profile.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --json";
@@ -27,29 +27,18 @@ function envelopeData(parsed: unknown): Record<string, unknown> {
 }
 
 /** Render a transcript string from tinycloud segments[], when present.
- *  tinycloud ≥ 0.3.12 ships verbatim speech as `speech: string[]` per segment;
- *  a cue touching a segment boundary lands in BOTH neighboring segments, so
- *  lines already emitted for the previous segment are dropped. Older envelopes
- *  inlined a single transcript/speech/text string per segment. */
+ *  Cue extraction + boundary dedupe live in the shared `segmentSpeechCues`
+ *  (envelope.ts), the same seam `listen` maps through. */
 function transcriptFromSegments(data: Record<string, unknown>): string {
   const segs = data.segments;
   if (!Array.isArray(segs)) return "";
   const lines: string[] = [];
-  let prev = new Set<string>();
+  let prev: ReadonlySet<string> = new Set<string>();
   for (const s of segs) {
     if (!s || typeof s !== "object") continue;
     const seg = s as Record<string, unknown>;
-    const cues = Array.isArray(seg.speech)
-      ? seg.speech.filter((l): l is string => typeof l === "string" && l.trim() !== "")
-      : [];
-    const legacy =
-      (typeof seg.transcript === "string" && seg.transcript) ||
-      (typeof seg.speech === "string" && seg.speech) ||
-      (typeof seg.text === "string" && seg.text) ||
-      "";
-    const texts = cues.length > 0 ? cues : legacy ? [legacy] : [];
-    const fresh = texts.filter((t) => !prev.has(t));
-    prev = new Set(texts);
+    const { fresh, cues } = segmentSpeechCues(seg, prev);
+    prev = cues;
     if (fresh.length === 0) continue;
     const t = fresh.join(" ");
     const start = seg.start_time ?? seg.start_seconds ?? seg.start ?? "";

@@ -217,6 +217,39 @@ test("listen: an abort during the caption pass REJECTS — never a ready summary
   );
 });
 
+test("listen boundary dedupe is per-adjacent-segment: repeats after a gap survive, multi-cue overlaps drop once", async () => {
+  // seg2 repeats BOTH of seg1's straddling cues (dropped once each); seg3 is
+  // speechless (clears the dedupe state); seg4 legitimately repeats seg1's
+  // first utterance and must survive — the global-lastText regression dropped it.
+  const dir = mkdtempSync(join(tmpdir(), "oc-listengap-"));
+  try {
+    const json = JSON.stringify({
+      status: "ready",
+      data: {
+        summary: "sum",
+        segments: [
+          { index: 1, start_time: 0, end_time: 10, speech: ["Yeah.", "Can I ask you something?"] },
+          { index: 2, start_time: 10, end_time: 20, speech: ["Yeah.", "Can I ask you something?", "Sure."] },
+          { index: 3, start_time: 20, end_time: 30, speech: [] },
+          { index: 4, start_time: 30, end_time: 40, speech: ["Yeah."] },
+        ],
+      },
+    });
+    const script = join(dir, "listen.sh");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+    const rec = await runListen("talk.wav", { run: `bash ${script} {{input}}` });
+    assert.equal(rec.state, "ready");
+    const p = rec.payload as Record<string, unknown>;
+    const texts = (p.segments as Array<Record<string, unknown>>).map((s) => s.text);
+    assert.deepEqual(texts, ["Yeah.", "Can I ask you something?", "Sure.", "Yeah."]);
+    assert.equal(p.transcript, "Yeah.\nCan I ask you something?\nSure.\nYeah.");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runListen maps a speech envelope to audio.analysis (via fixture provider)", async () => {
   chmodSync(FAKE_LISTEN, 0o755);
   const rec = await runListen("call.m4a", { run: `bash ${FAKE_LISTEN} {{input}}` });

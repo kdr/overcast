@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
 import { execCapture, renderCommand, parseFirstJson } from "../exec.js";
-import { tinycloudBase } from "./envelope.js";
+import { segmentSpeechCues, tinycloudBase } from "./envelope.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --speech-only --json";
 
@@ -52,10 +52,8 @@ function toSeconds(v: unknown): number | undefined {
 /** Build a transcript + speaker-tagged segments[] from tinycloud segments.
  *  SPEECH fields only — a segment's `summary`/`description` is scene prose,
  *  not spoken words; the caller decides (and marks) any summary fallback.
- *  tinycloud ≥ 0.3.12 ships verbatim cues as `speech: string[]` per segment;
- *  a cue touching a segment boundary lands in BOTH neighbors, so a line
- *  identical to the one just emitted is dropped. Older envelopes inlined a
- *  single transcript/speech/text string per segment. */
+ *  Cue extraction + boundary dedupe live in the shared `segmentSpeechCues`
+ *  (envelope.ts), the same seam `watch` renders through. */
 function segments(data: Record<string, unknown>): {
   transcript: string;
   segments: Array<Record<string, unknown>>;
@@ -63,26 +61,17 @@ function segments(data: Record<string, unknown>): {
   const raw = Array.isArray(data.segments) ? data.segments : [];
   const out: Array<Record<string, unknown>> = [];
   const lines: string[] = [];
-  let lastText = "";
+  let prev: ReadonlySet<string> = new Set<string>();
   for (const s of raw) {
     if (!s || typeof s !== "object") continue;
     const seg = s as Record<string, unknown>;
-    const cues = Array.isArray(seg.speech)
-      ? seg.speech.filter((l): l is string => typeof l === "string" && l.trim() !== "")
-      : [];
-    const legacy =
-      (typeof seg.transcript === "string" && seg.transcript) ||
-      (typeof seg.speech === "string" && seg.speech) ||
-      (typeof seg.text === "string" && seg.text) ||
-      "";
-    const texts = cues.length > 0 ? cues : legacy ? [legacy] : [];
+    const { fresh, cues } = segmentSpeechCues(seg, prev);
+    prev = cues;
     // tolerate numeric-string timestamps from external APIs ("12.5").
     const start = toSeconds(seg.start_time ?? seg.start_seconds ?? seg.start);
     const end = toSeconds(seg.end_time ?? seg.end_seconds ?? seg.end);
     const speaker = seg.speaker;
-    for (const text of texts) {
-      if (text === lastText) continue; // boundary cue repeated in the next segment
-      lastText = text;
+    for (const text of fresh) {
       const entry: Record<string, unknown> = { speaker, text };
       // only attach a numeric [start,end] anchor when both endpoints are real
       // numbers — never emit [null,null] / [undefined,undefined].
