@@ -183,6 +183,11 @@ language-model tools when a chat provider is installed. Every action spawns
 `overcast … --json`; records land in the case and the sidebar follows the
 `.overcast/` store live.
 
+Install the `overcast-vscode-<version>.vsix` attached to the
+[latest release](https://github.com/kdr/overcast/releases) (`code
+--install-extension overcast-vscode-<version>.vsix`, or "Install from VSIX…" in
+the Extensions view), or build it from source:
+
 ```bash
 cd vscode && npm install && npm run build && npm run package
 code --install-extension ../.dev/overcast-vscode-*.vsix

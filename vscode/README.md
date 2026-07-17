@@ -3,7 +3,8 @@
 **The situation room in your editor: senses on your media, OSINT on your
 sources, a wall to monitor the situation.**
 
-[overcast](../README.md) turns footage into cited evidence: it watches,
+[overcast](https://github.com/kdr/overcast#readme) turns footage into cited
+evidence: it watches,
 listens to, and reads your media, scans OSINT sources, and keeps everything
 in an investigation case where every answer cites the exact record and
 timestamp. This extension puts that power where your media already lives —
@@ -98,7 +99,22 @@ what to configure.
   (a `.js` path runs on the extension host's own Node).
 - A case folder in the workspace (or run "Overcast: Initialize Case Here").
 
-## Build & sideload
+## Install
+
+Install the packaged `.vsix`.
+
+**From a GitHub release** (recommended): every
+[overcast release](https://github.com/kdr/overcast/releases) attaches
+`overcast-vscode-<version>.vsix`. Download it, then either run
+
+```bash
+code --install-extension overcast-vscode-<version>.vsix
+```
+
+or, in VS Code: **Extensions** view → `···` menu → **Install from VSIX…** and
+pick the downloaded file.
+
+**From source:**
 
 ```bash
 cd vscode
