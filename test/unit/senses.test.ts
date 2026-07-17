@@ -102,6 +102,19 @@ test("listen falls back to the summary ONLY with an explicit marker + warning", 
   );
 });
 
+test("listen: a pending envelope never gets the summary copied into transcript", async () => {
+  await withFakeTinycloud(
+    async () => {
+      const rec = await runListen("talk.wav");
+      assert.equal(rec.state, "pending");
+      const p = rec.payload as Record<string, unknown>;
+      assert.equal(p.transcript, ""); // NOT the watch summary
+      assert.equal(rec.meta?.transcript_source, undefined);
+    },
+    { FAKE_TC_WATCH: "pending" },
+  );
+});
+
 test("listen: an abort during the caption pass REJECTS — never a ready summary record", async () => {
   await withFakeTinycloud(
     async () => {

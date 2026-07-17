@@ -136,6 +136,7 @@ async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise
 
   const hits = hitsFromRecords(result.records);
   if (hits.length === 0) {
+    if (result.cancelled) return; // cancelled before anything usable arrived
     if (result.failure) {
       await deps.bridge.surfaceFailure(result);
       return;
@@ -145,7 +146,11 @@ async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise
     );
     return;
   }
-  if (result.failure) {
+  if (result.cancelled) {
+    void vscode.window.showWarningMessage(
+      `Overcast: scan cancelled — showing ${hits.length} hit${hits.length === 1 ? "" : "s"} gathered before the cancel.`,
+    );
+  } else if (result.failure) {
     void vscode.window.showWarningMessage(
       `Overcast: scan of ${filterLabel} partially failed — showing ${hits.length} hit${hits.length === 1 ? "" : "s"} from healthy sources. ${result.failure.message}`,
     );

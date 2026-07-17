@@ -53,6 +53,9 @@ jobs:
           name: overcast-vscode-vsix
           path: .dev/*.vsix
           if-no-files-found: error
+          # the vsix lands in .dev/ — a dotted dir, which upload-artifact@v4
+          # silently excludes unless hidden files are opted in.
+          include-hidden-files: true
 
   shellcheck:
     runs-on: ubuntu-latest

@@ -346,8 +346,11 @@ export async function runListen(
 
   // Last-resort fallbacks for an empty transcript: a top-level transcript
   // string is real speech; the summary is NOT — keep it visible but say so.
+  // READY records only: a pending async envelope hasn't run the caption pass
+  // yet, so copying its summary into `transcript` now would ship the exact
+  // summary-as-speech confusion this file exists to prevent.
   let warning: string | undefined;
-  if (!transcript) {
+  if (!transcript && state === "ready") {
     if (typeof data.transcript === "string" && data.transcript) {
       transcript = data.transcript;
       transcriptSource = "transcript";

@@ -82,7 +82,10 @@ export class MediaItem extends vscode.TreeItem {
     this.tooltip = [opts.title ?? "", opts.ref, ...(opts.tooltipLines ?? [])]
       .filter(Boolean)
       .join("\n");
-    this.id = `${opts.idPrefix}:${opts.ref}`;
+    // recordId is part of the identity: a source can capture the same ref more
+    // than once (one row per capture record) — a ref-only id would collide,
+    // breaking tree identity and deep-linking the wrong record.
+    this.id = `${opts.idPrefix}:${opts.recordId}:${opts.ref}`;
     this.command = { command: "overcast.openRecord", title: "Open Record", arguments: [opts.recordId] };
   }
 }

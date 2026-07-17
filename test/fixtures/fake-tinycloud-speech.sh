@@ -5,6 +5,7 @@
 # two-step watch→caption transcript wiring is exercised offline.
 #   FAKE_TC_CAPTION=fail  → caption exits non-zero (tests the summary fallback path)
 #   FAKE_TC_CAPTION=hang  → caption blocks (tests that an abort REJECTS, never a summary)
+#   FAKE_TC_WATCH=pending → watch answers a pending async envelope (with a summary)
 set -euo pipefail
 sub="${1:-}"
 case "$sub" in
@@ -16,6 +17,12 @@ case "$sub" in
         --diarize|--lang) echo "Error: Unknown flag for watch: $a" >&2; exit 1 ;;
       esac
     done
+    if [ "${FAKE_TC_WATCH:-}" = "pending" ]; then
+      cat <<'JSON'
+{"tinycloud":"1","kind":"watch","status":"pending","data":{"title":"Zurich walk","summary":"A visitor describes exploring Zurich for the first time.","segments":[]}}
+JSON
+      exit 0
+    fi
     cat <<'JSON'
 {"tinycloud":"1","kind":"watch","status":"ready","data":{"title":"Zurich walk","summary":"A visitor describes exploring Zurich for the first time.","duration_seconds":5,"segmentation":null,"segments":[]}}
 JSON

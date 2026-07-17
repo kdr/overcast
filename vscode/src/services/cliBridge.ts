@@ -292,9 +292,10 @@ export class CliBridge implements vscode.Disposable {
    *
    * `keepPartialFailure`: fan-out verbs like scan exit non-zero when ANY single
    * source fails (e.g. one credential-gapped source) even though healthy sources
-   * emitted real records in the same stream — with this set, a failed run that
-   * still produced records is RETURNED (failure attached, nothing surfaced) so
-   * the caller can show the partial results; use surfaceFailure for the rest.
+   * emitted real records in the same stream — with this set, a failed OR
+   * CANCELLED run that still produced records is RETURNED (failure/cancelled
+   * attached, nothing surfaced) so the caller can show the partial results;
+   * use surfaceFailure for the rest.
    */
   async runWithProgress(
     title: string,
@@ -308,10 +309,16 @@ export class CliBridge implements vscode.Disposable {
       async (_progress, token) => {
         const r = await this.run(args, { ...opts, token });
         // r.cancelled also covers the Runs-view inline cancel (tracker token).
-        return token.isCancellationRequested || r.cancelled ? undefined : r;
+        if (token.isCancellationRequested || r.cancelled) {
+          // A cancelled fan-out run may have already streamed real records —
+          // hand them back (marked cancelled) instead of discarding the work.
+          return opts.keepPartialFailure && r.records.length > 0 ? { ...r, cancelled: true } : undefined;
+        }
+        return r;
       },
     );
     if (!result) return undefined;
+    if (result.cancelled) return result; // caller shows the partial results
     if (result.failure) {
       if (opts.keepPartialFailure && result.records.length > 0) return result;
       // Outside the withProgress scope — awaiting the failure dialog inside it
