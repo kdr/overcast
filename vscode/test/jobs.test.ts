@@ -1,7 +1,7 @@
 // Pure-logic tests for lib/jobs.ts (no vscode import — plain node --test).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDuration, jobLabel, jobVerbTarget, shouldTrackJob } from "../src/lib/jobs.ts";
+import { formatDuration, jobLabel, jobRecordId, jobVerbTarget, shouldTrackJob } from "../src/lib/jobs.ts";
 
 test("shouldTrackJob: skips the noisy poll reads + version, tracks the rest", () => {
   assert.equal(shouldTrackJob(["case", "status"]), false);
@@ -61,4 +61,23 @@ test("formatDuration: seconds then minutes", () => {
 test("jobLabel: target appended when present", () => {
   assert.equal(jobLabel("watch", "clip.mp4"), "watch clip.mp4");
   assert.equal(jobLabel("scan"), "scan");
+});
+
+test("jobRecordId: skips leading error/cred/progress rows, falls back to first id", () => {
+  // fan-out scan: a failed source's rows stream FIRST, real hits after
+  assert.equal(
+    jobRecordId([
+      { id: "rec_err", state: "error" },
+      { id: "rec_cred", state: "needs_credentials" },
+      { id: "rec_prog", payload: { op: "pull_progress" } },
+      { id: "rec_hit", payload: { title: "hit" } },
+    ]),
+    "rec_hit",
+  );
+  // single-record verbs unchanged
+  assert.equal(jobRecordId([{ id: "rec_a" }]), "rec_a");
+  // fully-failed run still deep-links to its error record
+  assert.equal(jobRecordId([{ id: "rec_err", state: "error" }]), "rec_err");
+  assert.equal(jobRecordId([]), undefined);
+  assert.equal(jobRecordId([{ state: "error" }]), undefined);
 });

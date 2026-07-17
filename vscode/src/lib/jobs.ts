@@ -64,3 +64,21 @@ export function formatDuration(ms: number): string {
 export function jobLabel(verb: string, target?: string): string {
   return target ? `${verb} ${target}` : verb;
 }
+
+/** Record id for the Runs row deep-link. Fan-out verbs (scan) can stream a
+ *  failed source's error/credential row FIRST and the real hits after it —
+ *  prefer the first usable result row over a blind records[0]: skip error /
+ *  needs_credentials rows and scan pull-progress chatter, fall back to the
+ *  first id at all so a fully-failed run still deep-links to its error record. */
+export function jobRecordId(
+  records: Array<{ id?: string; state?: string; payload?: unknown }>,
+): string | undefined {
+  for (const r of records) {
+    if (!r.id) continue;
+    if (r.state === "error" || r.state === "needs_credentials") continue;
+    const op = (r.payload as { op?: unknown } | undefined)?.op;
+    if (op === "pull_progress") continue;
+    return r.id;
+  }
+  return records.find((r) => r.id)?.id;
+}

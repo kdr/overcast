@@ -104,16 +104,14 @@ export function registerCaseCommands(deps: ExtDeps): void {
       location: vscode.TerminalLocation.Editor,
     });
     term.show();
-    // Launch the interactive agent (TUI). In node-runner mode cli.cmd is the
-    // extension host's Electron binary (only runnable as node with
-    // ELECTRON_RUN_AS_NODE) — a plain terminal must use real `node <script>`
-    // instead; otherwise the resolved overcast binary / PATH name.
-    const q = (s: string) => (/\s/.test(s) ? `"${s}"` : s);
-    const launch = cli.argsPrefix.length ? `node ${cli.argsPrefix.map(q).join(" ")}` : q(cli.cmd);
+    // Launch the interactive agent (TUI) via bridge.terminalLaunch: node-runner
+    // aware (in node-runner mode cli.cmd is the extension host's Electron
+    // binary — a plain terminal needs real `node <script>`), and carrying the
+    // same --profile/--home settings as every spawned run.
     // Records the agent writes land in .overcast/ (the sidebar auto-refreshes);
     // the agent opens its own HTML artifacts in the OS browser — open them here
     // from the Records tree to get a webview panel instead.
-    term.sendText(launch);
+    term.sendText(bridge.terminalLaunch(cli));
   });
 
   // ---- case setup wizard (agent-guided → its own terminal) ------------------
@@ -136,12 +134,10 @@ export function registerCaseCommands(deps: ExtDeps): void {
       location: vscode.TerminalLocation.Editor,
     });
     term.show();
-    const q = (s: string) => (/\s/.test(s) ? `"${s}"` : s);
-    const launch = cli.argsPrefix.length ? `node ${cli.argsPrefix.map(q).join(" ")}` : q(cli.cmd);
     // single-quoted: shell-inert in zsh/bash/PowerShell (no backticks/apostrophes!)
     const wizardMsg =
       "Walk me through case setup as a step-by-step wizard. Check the current setup status first, then ask me one question at a time. If the case is already set up, summarize the current setup and offer edits.";
-    term.sendText(`${launch} --tui '${wizardMsg}'`);
+    term.sendText(bridge.terminalLaunch(cli, "--tui", `'${wizardMsg}'`));
   });
 
   // ---- restart / re-resolve the CLI -----------------------------------------

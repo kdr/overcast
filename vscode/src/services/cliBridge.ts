@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { failureFor, parseRecords, type CliFailure } from "../lib/cliOutput.ts";
-import { jobLabel, jobVerbTarget, shouldTrackJob, type Job } from "../lib/jobs.ts";
+import { jobLabel, jobRecordId, jobVerbTarget, shouldTrackJob, type Job } from "../lib/jobs.ts";
 import type { OvercastRecord } from "../types.ts";
 import type { CaseLocator } from "./caseLocator.ts";
 
@@ -333,9 +333,12 @@ export class CliBridge implements vscode.Disposable {
         "Show Log",
       );
       if (pick === "Run overcast setup") {
+        // Launch via the RESOLVED cli (node-runner aware) + settings flags — a
+        // bare `overcast` may not be on the terminal's PATH at all.
+        const cli = await this.resolve();
         const term = vscode.window.createTerminal({ name: "overcast setup" });
         term.show();
-        term.sendText("overcast setup");
+        term.sendText(cli ? this.terminalLaunch(cli, "setup") : "overcast setup");
       } else if (pick === "Show Log") {
         this.output.show(true);
       }
@@ -344,6 +347,24 @@ export class CliBridge implements vscode.Disposable {
     const label = failure.kind === "usage" ? "Overcast (internal argv error)" : "Overcast";
     const pick = await vscode.window.showErrorMessage(`${label}: ${failure.message}`, "Show Log");
     if (pick === "Show Log") this.output.show(true);
+  }
+
+  /**
+   * Shell command line launching the overcast CLI in an interactive terminal
+   * (agent TUI, setup wizard): node-runner aware, quoted, and carrying the
+   * same `--profile`/`--home` settings every spawned run gets — a terminal
+   * session must see the same profiles/archive as sidebar and chat runs.
+   * `extra` tokens are appended verbatim (caller handles their quoting).
+   */
+  terminalLaunch(cli: ResolvedCli, ...extra: string[]): string {
+    const q = (s: string) => (/[\s"']/.test(s) ? `"${s.replace(/(["\\$`])/g, "\\$1")}"` : s);
+    const head = cli.argsPrefix.length ? `node ${cli.argsPrefix.map(q).join(" ")}` : q(cli.cmd);
+    const settings: string[] = [];
+    const profile = vscode.workspace.getConfiguration("overcast").get<string>("profile", "");
+    if (profile) settings.push("--profile", profile);
+    const home = this.homeDir();
+    if (home) settings.push("--home", home);
+    return [head, ...settings.map(q), ...extra].join(" ");
   }
 
   /** `overcast.home` setting → `--home` (profiles, archive buckets). Absolute
@@ -413,7 +434,8 @@ export class CliBridge implements vscode.Disposable {
     job.endedAt = Date.now();
     job.state = outcome.cancelled ? "cancelled" : outcome.failure ? "failed" : "ok";
     if (outcome.failure && !outcome.cancelled) job.failure = outcome.failure.message;
-    if (outcome.records[0]?.id) job.recordId = outcome.records[0].id;
+    const recId = jobRecordId(outcome.records);
+    if (recId) job.recordId = recId;
     this.finishedJobs.unshift(job);
     if (this.finishedJobs.length > JOB_HISTORY) this.finishedJobs.length = JOB_HISTORY;
     this.jobEmitter.fire();
