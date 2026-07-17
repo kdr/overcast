@@ -60,19 +60,42 @@ async function withFakeTinycloud(fn: () => Promise<void>, extraEnv: Record<strin
   }
 }
 
-test("listen default path takes the VERBATIM caption cues, not the watch summary", async () => {
+test("listen default path maps the VERBATIM inline watch speech (single call, ≥0.3.12)", async () => {
   await withFakeTinycloud(async () => {
     const rec = await runListen("talk.wav");
     assert.equal(rec.state, "ready");
     const p = rec.payload as Record<string, unknown>;
     assert.match(p.transcript as string, /We'll walk through the streets/);
+    assert.match(p.transcript as string, /of Zurich\./);
     assert.ok(!(p.transcript as string).includes("visitor describes"), "summary leaked into transcript");
     const segs = p.segments as Array<Record<string, unknown>>;
+    // the boundary cue repeated in the second segment's speech[] is deduped
     assert.equal(segs.length, 2);
     assert.deepEqual(segs[0].at, [0, 1.2]);
-    assert.equal(rec.meta?.transcript_source, "caption");
+    assert.deepEqual(segs[1].at, [1.2, 2.5]);
+    // envelope speech is the source — a "caption" here means the two-call
+    // workaround came back
+    assert.equal(rec.meta?.transcript_source, "segments");
     assert.equal("warning" in p, false);
   });
+});
+
+test("listen falls back to the caption verb on a pre-0.3.12 envelope (segments: [])", async () => {
+  await withFakeTinycloud(
+    async () => {
+      const rec = await runListen("talk.wav");
+      assert.equal(rec.state, "ready");
+      const p = rec.payload as Record<string, unknown>;
+      assert.match(p.transcript as string, /We'll walk through the streets/);
+      assert.ok(!(p.transcript as string).includes("visitor describes"), "summary leaked into transcript");
+      const segs = p.segments as Array<Record<string, unknown>>;
+      assert.equal(segs.length, 2);
+      assert.deepEqual(segs[0].at, [0, 1.2]);
+      assert.equal(rec.meta?.transcript_source, "caption");
+      assert.equal("warning" in p, false);
+    },
+    { FAKE_TC_WATCH: "nospeech" },
+  );
 });
 
 test("listen default path --diarize rides the caption pass and lifts speaker labels", async () => {
@@ -91,12 +114,29 @@ test("listen default path --diarize rides the caption pass and lifts speaker lab
 test("listen falls back to the summary ONLY with an explicit marker + warning", async () => {
   await withFakeTinycloud(
     async () => {
+      // no inline speech (pre-0.3.12 envelope) AND a caption outage — the
+      // summary may stand in only when it is marked as such
       const rec = await runListen("talk.wav");
       assert.equal(rec.state, "ready");
       const p = rec.payload as Record<string, unknown>;
       assert.match(p.transcript as string, /visitor describes exploring Zurich/);
       assert.equal(rec.meta?.transcript_source, "summary");
       assert.match(p.warning as string, /SUMMARY of the audio, not the spoken words/);
+    },
+    { FAKE_TC_WATCH: "nospeech", FAKE_TC_CAPTION: "fail" },
+  );
+});
+
+test("listen --diarize with a caption outage keeps the verbatim envelope speech + warns", async () => {
+  await withFakeTinycloud(
+    async () => {
+      const rec = await runListen("talk.wav", { diarize: true });
+      assert.equal(rec.state, "ready");
+      const p = rec.payload as Record<string, unknown>;
+      // the undiarized inline speech stays — never the summary
+      assert.match(p.transcript as string, /We'll walk through the streets/);
+      assert.equal(rec.meta?.transcript_source, "segments");
+      assert.match(p.warning as string, /diarization was unavailable/);
     },
     { FAKE_TC_CAPTION: "fail" },
   );
@@ -125,7 +165,7 @@ test("listen: a binding pinned to the STOCK template still takes the default pat
     assert.equal(rec.state, "ready");
     const p = rec.payload as Record<string, unknown>;
     assert.match(p.transcript as string, /We'll walk through the streets/);
-    assert.equal(rec.meta?.transcript_source, "caption");
+    assert.equal(rec.meta?.transcript_source, "segments");
   });
 });
 
@@ -167,13 +207,47 @@ test("listen: an abort during the caption pass REJECTS — never a ready summary
   await withFakeTinycloud(
     async () => {
       const ac = new AbortController();
+      // a pre-0.3.12 envelope (no inline speech) forces the caption pass
       const pending = runListen("talk.wav", { signal: ac.signal });
       // watch (instant fixture) finishes first; the abort lands mid-caption.
       setTimeout(() => ac.abort(), 400);
       await assert.rejects(pending);
     },
-    { FAKE_TC_CAPTION: "hang" },
+    { FAKE_TC_WATCH: "nospeech", FAKE_TC_CAPTION: "hang" },
   );
+});
+
+test("listen boundary dedupe is per-adjacent-segment: repeats after a gap survive, multi-cue overlaps drop once", async () => {
+  // seg2 repeats BOTH of seg1's straddling cues (dropped once each); seg3 is
+  // speechless (clears the dedupe state); seg4 legitimately repeats seg1's
+  // first utterance and must survive — the global-lastText regression dropped it.
+  const dir = mkdtempSync(join(tmpdir(), "oc-listengap-"));
+  try {
+    const json = JSON.stringify({
+      status: "ready",
+      data: {
+        summary: "sum",
+        segments: [
+          { index: 1, start_time: 0, end_time: 10, speech: ["Yeah.", "Can I ask you something?"] },
+          { index: 2, start_time: 10, end_time: 20, speech: ["Yeah.", "Can I ask you something?", "Sure."] },
+          { index: 3, start_time: 20, end_time: 30, speech: [] },
+          { index: 4, start_time: 30, end_time: 40, speech: ["Yeah."] },
+        ],
+      },
+    });
+    const script = join(dir, "listen.sh");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+    const rec = await runListen("talk.wav", { run: `bash ${script} {{input}}` });
+    assert.equal(rec.state, "ready");
+    const p = rec.payload as Record<string, unknown>;
+    const texts = (p.segments as Array<Record<string, unknown>>).map((s) => s.text);
+    assert.deepEqual(texts, ["Yeah.", "Can I ask you something?", "Sure.", "Yeah."]);
+    assert.equal(p.transcript, "Yeah.\nCan I ask you something?\nSure.\nYeah.");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("runListen maps a speech envelope to audio.analysis (via fixture provider)", async () => {

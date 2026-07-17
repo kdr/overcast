@@ -20,16 +20,19 @@ if require_cred "$C.cloudglue" CLOUDGLUE_API_KEY "skipping"; then
   assert_eq "$C.cg.verb" "listen" "$(echo "$out" | jq -r '.verb')" "record.verb is listen"
   assert_eq "$C.cg.state" "ready" "$(echo "$out" | jq -r '.state')" "state is ready"
   assert_eq "$C.cg.segments_array" "array" "$(echo "$out" | jq -r '.payload.segments|type')" "payload.segments is an array"
-  echo "$out" | jq -e 'has("payload") and (.payload|has("transcript"))' >/dev/null 2>&1 \
-    && ok "$C.cg.transcript_field" "transcript field present (len $(echo "$out"|jq -r '.payload.transcript|length'))" \
-    || fail "$C.cg.transcript_field" "no transcript field"
-  # Regression (tinycloud ≥0.3.10): `watch --speech-only` stopped inlining
-  # speech segments, and listen silently stored the LLM SUMMARY as the
-  # transcript. The transcript must come from the verbatim caption cues —
-  # a marked summary fallback here means the speech path is broken again.
+  tlen="$(echo "$out" | jq -r '.payload.transcript | length')"
+  [ "${tlen:-0}" -gt 0 ] \
+    && ok "$C.cg.transcript_field" "transcript present and non-empty (len $tlen)" \
+    || fail "$C.cg.transcript_field" "empty/missing transcript from a real speech clip"
+  # tinycloud ≥ 0.3.12 (the floor) inlines the verbatim speech in the watch
+  # envelope — listen maps it in ONE call (transcript_source=segments).
+  # "caption" = the legacy pre-0.3.12 two-call fallback ran (old CLI on PATH);
+  # a marked summary fallback means the speech path is broken again.
   src="$(echo "$out" | jq -r '.meta.transcript_source // empty')"
-  if [ "$src" = "caption" ] || [ "$src" = "segments" ]; then
-    ok "$C.cg.verbatim" "transcript is verbatim speech (transcript_source=$src)"
+  if [ "$src" = "segments" ]; then
+    ok "$C.cg.verbatim" "transcript is the inline watch speech (transcript_source=segments)"
+  elif [ "$src" = "caption" ]; then
+    fail "$C.cg.verbatim" "transcript_source=caption — the tinycloud on PATH is pre-0.3.12 (envelope shipped no inline speech); install the floor version"
   else
     fail "$C.cg.verbatim" "transcript_source='$src' — summary/none posing as the transcript"
   fi

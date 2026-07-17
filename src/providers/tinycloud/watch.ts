@@ -11,7 +11,7 @@ import {
   renderCommand,
   parseFirstJson,
 } from "../exec.js";
-import { tinycloudBase } from "./envelope.js";
+import { segmentSpeechCues, tinycloudBase } from "./envelope.js";
 import type { ProviderDescriptor } from "../../profile.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --json";
@@ -26,22 +26,23 @@ function envelopeData(parsed: unknown): Record<string, unknown> {
   return {};
 }
 
-/** Render a transcript string from tinycloud segments[], when present. */
+/** Render a transcript string from tinycloud segments[], when present.
+ *  Cue extraction + boundary dedupe live in the shared `segmentSpeechCues`
+ *  (envelope.ts), the same seam `listen` maps through. */
 function transcriptFromSegments(data: Record<string, unknown>): string {
   const segs = data.segments;
   if (!Array.isArray(segs)) return "";
   const lines: string[] = [];
+  let prev: ReadonlySet<string> = new Set<string>();
   for (const s of segs) {
     if (!s || typeof s !== "object") continue;
     const seg = s as Record<string, unknown>;
-    const t =
-      (seg.transcript as string) ??
-      (seg.speech as string) ??
-      (seg.text as string) ??
-      "";
-    if (!t) continue;
-    const start = seg.start_seconds ?? seg.start ?? "";
-    lines.push(start !== "" ? `[${start}] ${t}` : String(t));
+    const { fresh, cues } = segmentSpeechCues(seg, prev);
+    prev = cues;
+    if (fresh.length === 0) continue;
+    const t = fresh.join(" ");
+    const start = seg.start_time ?? seg.start_seconds ?? seg.start ?? "";
+    lines.push(start !== "" ? `[${start}] ${t}` : t);
   }
   return lines.join("\n");
 }

@@ -44,6 +44,70 @@ test("runWatch maps a real tinycloud envelope to the loose record (via fixture p
   assert.equal(rec.meta?.title, detailed.title);
 });
 
+test("runWatch maps a ≥0.3.12 envelope's inline segments[].speech into transcript (deduped)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchspeech-"));
+  try {
+    // shaped like a real 0.3.12 capture: verbatim cues ride speech[] per
+    // segment, and a cue touching the segment boundary appears in BOTH
+    // neighboring segments — the transcript must carry it once.
+    const json = JSON.stringify({
+      status: "ready",
+      data: {
+        title: "Podcast clip",
+        summary: "Two men talk in a studio.",
+        duration_seconds: 30,
+        segments: [
+          { index: 1, start_time: 0, end_time: 20, description: "Podcast Interview", summary: "Scene prose.", speech: ["Are there a lot of birth fears?"] },
+          { index: 2, start_time: 20, end_time: 30, description: "Podcast Discussion", summary: "More scene prose.", speech: ["Are there a lot of birth fears?", "Can I ask you something?"] },
+        ],
+      },
+    });
+    const script = join(dir, "watch.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
+    assert.equal(rec.state, "ready");
+    const p = rec.payload as Record<string, unknown>;
+    const transcript = String(p.transcript);
+    assert.ok(transcript.length > 0, "transcript populated from the watch envelope alone");
+    assert.match(transcript, /\[0\] Are there a lot of birth fears\?/);
+    assert.match(transcript, /\[20\] Can I ask you something\?/);
+    // the boundary-duplicated cue appears exactly once
+    assert.equal(transcript.match(/birth fears/g)?.length, 1);
+    // scene prose never leaks into the transcript
+    assert.ok(!transcript.includes("Scene prose"), "segment summary leaked into transcript");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runWatch boundary dedupe is per-adjacent-segment: repeats after a gap survive", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchgap-"));
+  try {
+    // mirrors the listen-side case: a speechless segment clears the dedupe
+    // state, so a genuinely repeated utterance later in the video is kept.
+    const json = JSON.stringify({
+      status: "ready",
+      data: {
+        title: "clip",
+        summary: "sum",
+        segments: [
+          { index: 1, start_time: 0, end_time: 10, speech: ["Yeah."] },
+          { index: 2, start_time: 10, end_time: 20, speech: [] },
+          { index: 3, start_time: 20, end_time: 30, speech: ["Yeah."] },
+        ],
+      },
+    });
+    const script = join(dir, "watch.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
+    assert.equal(String((rec.payload as Record<string, unknown>).transcript), "[0] Yeah.\n[20] Yeah.");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runWatch fills transcript from tinycloud's speech.vtt sidecar", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-watchvtt-"));
   try {

@@ -37,13 +37,15 @@ another backend or your own script with no code changes.
   (or point `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` at specific binaries).
 - **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
   default `watch` / `listen` / `face` / `index` backend (Cloudglue); set
-  `CLOUDGLUE_API_KEY`. The `face` + `index` verbs need **tinycloud ≥ 0.3.4**
-  and overcast currently recommends **0.3.10** (`npm i -g @cloudglue/tinycloud@0.3.10`
-  or `tinycloud update`): `listen` fetches its VERBATIM transcript cues through
-  the `caption` verb (0.3.10's watch envelope no longer inlines per-segment
-  speech; older tinyclouds fall back to the envelope's inline speech). The image
-  `see`/`extract` verbs (≥ 0.3.7) sit behind the opt-in `see` provider; override
-  the invocation with `OVERCAST_TINYCLOUD_CMD`.
+  `CLOUDGLUE_API_KEY`. overcast needs **tinycloud ≥ 0.3.12**
+  (`npm i -g @cloudglue/tinycloud@0.3.12` or `tinycloud update`): 0.3.12
+  (`watch.speech.v1`) inlines the VERBATIM speech in the watch envelope
+  (`segments[].speech`), so `watch`/`listen` transcripts come from a single
+  call — on the older 0.3.10/0.3.11 (empty `segments`) `listen` falls back to
+  fetching the cues through the `caption` verb, which `--diarize` still uses on
+  every version. `face` + `index` need ≥ 0.3.4; the image `see`/`extract` verbs
+  (≥ 0.3.7) sit behind the opt-in `see` provider; override the invocation with
+  `OVERCAST_TINYCLOUD_CMD`.
 - **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
   `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
   `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.

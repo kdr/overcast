@@ -1234,8 +1234,8 @@ library collection surfaces (invariant #9: public verbs only; mapped to the loos
 record by the shared `runTinycloud` boundary in
 [`src/providers/tinycloud/envelope.ts`](../src/providers/tinycloud/envelope.ts)).
 Point `OVERCAST_TINYCLOUD_CMD` at a specific binary/wrapper if `tinycloud` isn't
-on `PATH`; `overcast doctor` reports the installed version, warns below 0.3.4,
-and recommends the latest tested tinycloud, currently 0.3.8.
+on `PATH`; `overcast doctor` reports the installed version, warns below the
+0.3.12 floor, and recommends the latest tested tinycloud, currently 0.3.12.
 
 ### `face` — detect / match / search
 
@@ -1307,7 +1307,8 @@ accept a path, URL, or a case record id (a `capture`/`watch` record → its medi
 ## Readiness
 
 `overcast doctor` checks pi, the system ffmpeg/ffprobe, Cloudglue creds, the
-tinycloud CLI **and its version** (`face`/`index` need ≥ 0.3.4; the opt-in
-`see:tinycloud` provider needs ≥ 0.3.7), the
-home/profiles, and the active provider bindings. Version 0.3.8 is the current
+tinycloud CLI **and its version** (the floor is ≥ 0.3.12 — `watch.speech.v1`
+inlines the verbatim `watch`/`listen` transcripts; `face`/`index` need ≥ 0.3.4;
+the opt-in `see:tinycloud` provider needs ≥ 0.3.7), the
+home/profiles, and the active provider bindings. Version 0.3.12 is the current
 recommended tinycloud build.

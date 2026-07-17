@@ -22,11 +22,13 @@ One-time setup for overcast.
    (`~/.claude/skills`), and `--harness claude-code` is the explicit Claude
    target.
 3. **Install/update tinycloud** — the default perception backend. Get the latest
-   (`npm i -g @cloudglue/tinycloud@0.3.8` then `tinycloud install --latest`, or
-   `tinycloud update`). The `face` + `index` verbs need **tinycloud ≥ 0.3.4**,
-   and overcast currently recommends **0.3.8** (the image `see`/`extract`
-   verbs behind the opt-in `see:tinycloud` provider need ≥ 0.3.7);
-   override the invocation with `OVERCAST_TINYCLOUD_CMD` if it isn't on `PATH`.
+   (`npm i -g @cloudglue/tinycloud@0.3.12` then `tinycloud install --latest`, or
+   `tinycloud update`). overcast needs **tinycloud ≥ 0.3.12** — its watch
+   envelope inlines the verbatim `watch`/`listen` transcripts
+   (`watch.speech.v1`); the `face` + `index` verbs need ≥ 0.3.4, and the image
+   `see`/`extract` verbs behind the opt-in `see:tinycloud` provider need
+   ≥ 0.3.7. Override the invocation with `OVERCAST_TINYCLOUD_CMD` if it isn't
+   on `PATH`.
 4. **Verify** — `overcast doctor --json` (pi pinned, ffmpeg/ffprobe runnable,
    Cloudglue key, tinycloud CLI + version, optional uv/visual-db readiness).
 5. **Cloudglue key** — the default `watch`/`listen`/`face`/`index` providers

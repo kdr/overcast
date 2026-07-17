@@ -2,12 +2,13 @@
 // Maps the tinycloud envelope to an `audio.analysis` record at
 // the exec boundary. Swap to a local whisper via http/in-proc for offline use.
 //
-// Two-step default path: `tinycloud watch --speech-only` creates/refreshes the
-// speech enrichment, then the public `tinycloud caption` verb (local once the
-// enrichment is cached) supplies the VERBATIM cues. tinycloud ≥ 0.3.10 stopped
-// inlining per-segment speech in the watch envelope (segments: [] for audio /
-// short sources), so mapping the envelope alone would silently store the LLM
-// summary as the "transcript" — never let a summary pose as the spoken words.
+// Single-call default path: tinycloud ≥ 0.3.12 (the documented floor) ships the
+// VERBATIM cues inline in the watch envelope again (`segments[].speech`, an
+// array of cue strings per segment). The public `tinycloud caption` verb still
+// backs two gaps: `--diarize` (watch has no diarize flag) and older tinyclouds
+// (0.3.10/0.3.11 shipped `segments: []` for audio / short sources), where
+// mapping the envelope alone would silently store the LLM summary as the
+// "transcript" — never let a summary pose as the spoken words.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +16,7 @@ import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
 import { execCapture, renderCommand, parseFirstJson } from "../exec.js";
-import { tinycloudBase } from "./envelope.js";
+import { segmentSpeechCues, tinycloudBase } from "./envelope.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --speech-only --json";
 
@@ -50,7 +51,9 @@ function toSeconds(v: unknown): number | undefined {
 
 /** Build a transcript + speaker-tagged segments[] from tinycloud segments.
  *  SPEECH fields only — a segment's `summary`/`description` is scene prose,
- *  not spoken words; the caller decides (and marks) any summary fallback. */
+ *  not spoken words; the caller decides (and marks) any summary fallback.
+ *  Cue extraction + boundary dedupe live in the shared `segmentSpeechCues`
+ *  (envelope.ts), the same seam `watch` renders through. */
 function segments(data: Record<string, unknown>): {
   transcript: string;
   segments: Array<Record<string, unknown>>;
@@ -58,16 +61,17 @@ function segments(data: Record<string, unknown>): {
   const raw = Array.isArray(data.segments) ? data.segments : [];
   const out: Array<Record<string, unknown>> = [];
   const lines: string[] = [];
+  let prev: ReadonlySet<string> = new Set<string>();
   for (const s of raw) {
     if (!s || typeof s !== "object") continue;
     const seg = s as Record<string, unknown>;
-    const text =
-      (seg.transcript as string) ?? (seg.speech as string) ?? (seg.text as string) ?? "";
+    const { fresh, cues } = segmentSpeechCues(seg, prev);
+    prev = cues;
     // tolerate numeric-string timestamps from external APIs ("12.5").
     const start = toSeconds(seg.start_time ?? seg.start_seconds ?? seg.start);
     const end = toSeconds(seg.end_time ?? seg.end_seconds ?? seg.end);
     const speaker = seg.speaker;
-    if (text) {
+    for (const text of fresh) {
       const entry: Record<string, unknown> = { speaker, text };
       // only attach a numeric [start,end] anchor when both endpoints are real
       // numbers — never emit [null,null] / [undefined,undefined].
@@ -335,11 +339,14 @@ export async function runListen(
         ? "pending"
         : "ready";
 
-  // Default path: prefer the caption verb's VERBATIM cues over whatever the
-  // watch envelope inlined — tinycloud ≥ 0.3.10 ships segments: [] for audio /
-  // short sources, and older envelopes' segment text is the same speech anyway.
+  // Default path: tinycloud ≥ 0.3.12 (the floor) inlines the VERBATIM cues in
+  // the watch envelope (`segments[].speech`), so a ready envelope with speech
+  // needs no second call. The public `caption` verb still covers two gaps:
+  // --diarize (watch has no diarize flag) and an older tinycloud whose
+  // speech-only envelope shipped segments: [] (0.3.10/0.3.11).
   // Best-effort: a caption failure keeps the envelope mapping.
-  if (isDefault && state === "ready") {
+  let warning: string | undefined;
+  if (isDefault && state === "ready" && (opts.diarize || !transcript)) {
     const cap = await captionTranscript(input, {
       diarize: opts.diarize,
       env: opts.env,
@@ -350,6 +357,9 @@ export async function runListen(
       transcript = cap.transcript;
       segs = cap.segments;
       transcriptSource = "caption";
+    } else if (opts.diarize && transcript) {
+      warning =
+        "diarization was unavailable (the caption pass failed) — `transcript` is the undiarized verbatim speech from the watch envelope.";
     }
   }
 
@@ -358,7 +368,6 @@ export async function runListen(
   // READY records only: a pending async envelope hasn't run the caption pass
   // yet, so copying its summary into `transcript` now would ship the exact
   // summary-as-speech confusion this file exists to prevent.
-  let warning: string | undefined;
   if (!transcript && state === "ready") {
     if (typeof data.transcript === "string" && data.transcript) {
       transcript = data.transcript;
