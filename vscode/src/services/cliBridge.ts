@@ -5,9 +5,12 @@
 // Resolution: `overcast.path` setting wins — a `.js` path (e.g. a repo
 // dist/bin/overcast.js) is run with the extension host's own Node
 // (ELECTRON_RUN_AS_NODE=1); anything else is treated as an executable.
-// Empty setting = discover `overcast` on PATH.
+// Empty setting = discover `overcast` on PATH, then in well-known install
+// locations (nvm/volta/bun/homebrew) — a Dock-launched extension host often
+// carries the bare GUI PATH, hiding installs every terminal can see.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { failureFor, parseRecords, type CliFailure } from "../lib/cliOutput.ts";
@@ -54,14 +57,47 @@ export interface CliResult {
   cancelled?: boolean;
 }
 
-function findOnPath(name: string): string | undefined {
-  const pathVar = process.env.PATH ?? "";
+function pathDirs(): string[] {
+  return (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+}
+
+// Fallback install locations probed when PATH discovery misses. GUI-launched
+// VS Code can skip the shell init that puts version-manager bins on PATH, so
+// an `npm install -g` via nvm is invisible here while working in every
+// terminal. nvm keeps no stable `current` symlink — probe every installed
+// node's bin, newest first.
+function wellKnownBinDirs(): string[] {
+  if (process.platform === "win32") return [];
+  const home = os.homedir();
+  const dirs = [
+    path.join(home, ".volta", "bin"),
+    path.join(home, ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ];
+  const nvmNode = path.join(process.env.NVM_DIR ?? path.join(home, ".nvm"), "versions", "node");
+  try {
+    const versions = fs
+      .readdirSync(nvmNode)
+      .filter((v) => /^v\d+\.\d+\.\d+$/.test(v))
+      .sort((a, b) => {
+        const pa = a.slice(1).split(".").map(Number);
+        const pb = b.slice(1).split(".").map(Number);
+        return pb[0] - pa[0] || pb[1] - pa[1] || pb[2] - pa[2];
+      });
+    for (const v of versions) dirs.push(path.join(nvmNode, v, "bin"));
+  } catch {
+    /* no nvm */
+  }
+  return dirs;
+}
+
+function findExecutable(name: string, dirs: string[]): string | undefined {
   const exts =
     process.platform === "win32"
       ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
       : [""];
-  for (const dir of pathVar.split(path.delimiter)) {
-    if (!dir) continue;
+  for (const dir of dirs) {
     for (const ext of exts) {
       const candidate = path.join(dir, name + ext.toLowerCase());
       try {
@@ -77,6 +113,9 @@ function findOnPath(name: string): string | undefined {
 
 export class CliBridge implements vscode.Disposable {
   private resolved: ResolvedCli | null | undefined; // undefined = not yet tried
+  /** Full-sentence reason the last resolve failed ("not found" vs "found but
+   *  won't run") — the two need different fixes, so never blur them. */
+  private resolveFailure: string | undefined;
   private mutateQueue: Promise<unknown> = Promise.resolve();
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -142,18 +181,25 @@ export class CliBridge implements vscode.Disposable {
         candidate = { cmd: setting, argsPrefix: [], env: {}, display: setting };
       }
     } else {
-      const onPath = findOnPath("overcast");
-      if (onPath) candidate = { cmd: onPath, argsPrefix: [], env: {}, display: onPath };
+      const found = findExecutable("overcast", pathDirs()) ?? findExecutable("overcast", wellKnownBinDirs());
+      if (found) candidate = { cmd: found, argsPrefix: [], env: {}, display: found };
     }
     if (candidate) {
       const ok = await this.smokeTest(candidate);
       this.resolved = ok ? candidate : null;
+      this.resolveFailure = ok
+        ? undefined
+        : `The overcast CLI at ${candidate.display} failed to run — see the Overcast output log.`;
     } else {
       this.resolved = null;
+      this.resolveFailure = "The overcast CLI was not found on PATH or in the usual install locations.";
     }
     await vscode.commands.executeCommand("setContext", "overcast.cliFound", !!this.resolved);
     if (this.resolved) this.output.appendLine(`overcast cli: ${this.resolved.display}`);
-    else this.output.appendLine("overcast cli: NOT FOUND (set overcast.path or install on PATH)");
+    else
+      this.output.appendLine(
+        `overcast cli: ${this.resolveFailure} (set overcast.path or install on PATH)`,
+      );
     return this.resolved ?? undefined;
   }
 
@@ -168,18 +214,24 @@ export class CliBridge implements vscode.Disposable {
       };
       try {
         const child = spawn(cli.cmd, [...cli.argsPrefix, "--version", "--json"], {
-          env: { ...process.env, ...cli.env },
+          env: this.childEnv(cli),
         });
+        let stderr = "";
+        child.stderr?.on("data", (d: Buffer) => (stderr += d.toString("utf8")));
         const timer = setTimeout(() => {
           child.kill("SIGKILL");
           done(false);
         }, 10_000);
-        child.on("error", () => {
+        child.on("error", (e) => {
           clearTimeout(timer);
+          this.output.appendLine(`  smoke test (--version) spawn failed: ${e.message}`);
           done(false);
         });
         child.on("close", (code) => {
           clearTimeout(timer);
+          if (code !== 0 && stderr.trim()) {
+            this.output.appendLine(`  smoke test (--version) exit ${code}: ${stderr.trim()}`);
+          }
           done(code === 0);
         });
       } catch {
@@ -188,17 +240,33 @@ export class CliBridge implements vscode.Disposable {
     });
   }
 
+  /** Env for spawning the resolved CLI. Prepends the resolved binary's own
+   *  directory to PATH: an `#!/usr/bin/env node` launcher (nvm/volta installs)
+   *  resolves `node` from PATH, and node sits next to the launcher — but a
+   *  GUI-launched extension host's PATH lacks that directory even when
+   *  discovery (or the overcast.path setting) found the launcher itself. */
+  private childEnv(cli: ResolvedCli, extra?: Record<string, string>): NodeJS.ProcessEnv {
+    if (process.platform === "win32") return { ...process.env, ...cli.env, ...extra };
+    const binDir = path.dirname(cli.cmd);
+    const dirs = pathDirs();
+    const PATH = dirs.includes(binDir) ? (process.env.PATH ?? "") : [binDir, ...dirs].join(path.delimiter);
+    return { ...process.env, PATH, ...cli.env, ...extra };
+  }
+
   /** Resolve or walk the user through fixing the setup. Returns undefined if missing. */
   async ensureCli(): Promise<ResolvedCli | undefined> {
     const cli = await this.resolve();
     if (cli) return cli;
     const pick = await vscode.window.showErrorMessage(
-      "The overcast CLI was not found. Install it (npm install -g @kdrrr/overcast) or point overcast.path at a binary or a built dist/bin/overcast.js.",
+      `${this.resolveFailure ?? "The overcast CLI was not found."} Install it (npm install -g @kdrrr/overcast) or point overcast.path at a binary or a built dist/bin/overcast.js.`,
       "Open Settings",
+      "Show Log",
       "Retry",
     );
     if (pick === "Open Settings") {
       await vscode.commands.executeCommand("workbench.action.openSettings", "overcast.path");
+    } else if (pick === "Show Log") {
+      this.output.show(true);
     } else if (pick === "Retry") {
       this.resolved = undefined;
       return this.ensureCli();
@@ -239,7 +307,7 @@ export class CliBridge implements vscode.Disposable {
     return new Promise((resolvePromise) => {
       const child = spawn(cli.cmd, finalArgs, {
         cwd: opts.cwd ?? caseDir ?? undefined,
-        env: { ...process.env, ...cli.env, ...opts.env },
+        env: this.childEnv(cli, opts.env),
       });
       let stdout = "";
       let stderr = "";
@@ -525,7 +593,7 @@ export class CliBridge implements vscode.Disposable {
     );
     return spawn(cli.cmd, finalArgs, {
       cwd: caseDir ?? undefined,
-      env: { ...process.env, ...cli.env, ...opts.env },
+      env: this.childEnv(cli, opts.env),
     });
   }
 

@@ -2,7 +2,7 @@
   "name": "overcast-vscode",
   "displayName": "Overcast",
   "description": "The situation room in your editor — senses on your media (watch, listen, see, faces, EXIF via right-click), OSINT on your sources, and a wall to monitor the situation: maps, graphs, briefs, live feeds.",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "publisher": "kdr",
   "private": true,
   "license": "Apache-2.0",
@@ -95,8 +95,13 @@
       },
       {
         "view": "overcast.investigation",
+        "contents": "No folder is open — a case is a directory.\n[Open Folder…](command:workbench.action.files.openFolder)\nOr adopt an existing case folder without opening it as the workspace:\n[Select a Case…](command:overcast.selectCase)",
+        "when": "overcast.cliFound && !overcast.hasCase && workbenchState == empty"
+      },
+      {
+        "view": "overcast.investigation",
         "contents": "No overcast case in this workspace.\n[Initialize Case Here](command:overcast.initCase)\n[Select a Case…](command:overcast.selectCase)\nA case is a folder with an `.overcast/` store — records, media, targets, findings.",
-        "when": "overcast.cliFound && !overcast.hasCase"
+        "when": "overcast.cliFound && !overcast.hasCase && workbenchState != empty"
       },
       {
         "view": "overcast.investigation",

@@ -91,10 +91,25 @@ const NO_CASE_GROUPS: DeckGroup[] = [
   },
 ];
 
+// Actions in an empty window (no folder open): "Initialize Case HERE" has no
+// here yet — lead with opening a folder; Select Case can still adopt an
+// existing case folder without opening it as the workspace.
+const EMPTY_WINDOW_GROUPS: DeckGroup[] = [
+  {
+    title: "Case",
+    buttons: [
+      { label: "Open Folder…", command: "workbench.action.files.openFolder", icon: ICONS.folder },
+      { label: "Select Case…", command: "overcast.selectCase", icon: ICONS.swap },
+    ],
+  },
+];
+
 // Every command the deck is allowed to dispatch (guards the message channel).
 // selectCase + the agent terminal ride the head row, not a grid button.
 const ALLOWED = new Set([
-  ...[...CASE_GROUPS, ...NO_CASE_GROUPS].flatMap((g) => g.buttons.map((b) => b.command)),
+  ...[...CASE_GROUPS, ...NO_CASE_GROUPS, ...EMPTY_WINDOW_GROUPS].flatMap((g) =>
+    g.buttons.map((b) => b.command),
+  ),
   "overcast.selectCase",
   "overcast.openAgentTerminal",
 ]);
@@ -141,10 +156,12 @@ export class CommandDeckProvider implements vscode.WebviewViewProvider {
         void vscode.commands.executeCommand(msg.command);
       }
     });
-    // Re-render on case-board refreshes and case switches (both cheap here).
+    // Re-render on case-board refreshes, case switches, and workspace-folder
+    // changes (the empty-window deck below) — all cheap here.
     this.subs.push(
       this.deps.model.onDidChange(() => this.render()),
       this.deps.locator.onDidChangeCase(() => this.render()),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => this.render()),
     );
     webviewView.onDidDispose(() => {
       for (const d of this.subs) d.dispose();
@@ -164,7 +181,11 @@ export class CommandDeckProvider implements vscode.WebviewViewProvider {
     const hasCase = !!this.deps.locator.caseDir;
     const cliFound = this.deps.bridge.cliFound;
     const caseName = hasCase ? (this.deps.locator.caseName ?? "case") : "no case";
-    const groups = hasCase ? CASE_GROUPS : NO_CASE_GROUPS;
+    // A chosen case can be active with no folder open — only the truly empty
+    // no-case window swaps to the open-a-folder deck.
+    const emptyWindow = (vscode.workspace.workspaceFolders ?? []).length === 0;
+    const groups = hasCase ? CASE_GROUPS : emptyWindow ? EMPTY_WINDOW_GROUPS : NO_CASE_GROUPS;
+    const hint = !hasCase && emptyWindow ? "No folder is open — a case is a directory." : "";
     const dotClass = cliFound ? "ok" : "bad";
     const dotTitle = cliFound ? "overcast CLI found" : "overcast CLI not found — set overcast.path";
     const button = (b: DeckButton) =>
@@ -207,6 +228,7 @@ export class CommandDeckProvider implements vscode.WebviewViewProvider {
           font-size: 0.78em; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
           opacity: 0.55; margin: 0 0 3px 1px;
         }
+        .hint { opacity: 0.75; margin: 0 0 8px; }
         .grid { display: flex; flex-wrap: wrap; gap: 6px; }
         .icon-btn {
           margin-left: auto; flex: 0 0 auto; background: none; border: none; padding: 2px;
@@ -241,6 +263,7 @@ export class CommandDeckProvider implements vscode.WebviewViewProvider {
           </button>
           ${hasCase ? `<button class="icon-btn" data-cmd="overcast.openAgentTerminal" title="Open the overcast agent terminal"><svg viewBox="0 0 16 16" aria-hidden="true">${ICONS.terminal}</svg></button>` : ""}
         </div>
+        ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ""}
         <div class="groups">${groupHtml}</div>
       </div>
       <script nonce="${n}">
