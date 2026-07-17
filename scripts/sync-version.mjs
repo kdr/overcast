@@ -79,24 +79,35 @@ if (mktDirty && !CHECK) writeJson(mktPath, mkt);
 // the root release so the .vsix attached to a GitHub Release matches the tag.
 // Surgical string replace (NOT parse + re-stringify): the manifest's compact
 // hand-formatting must survive the sync.
-const replaceVersions = (relPath, re) => {
+const replaceVersions = (relPath, re, expectedSites) => {
   const path = join(ROOT, relPath);
   const text = readFileSync(path, "utf8");
+  let sites = 0;
   const next = text.replace(re, (whole, pre, current, post) => {
+    sites += 1;
     if (current === VERSION) return whole;
     drift.push(`${relPath} (version=${current})`);
     return `${pre}${VERSION}${post}`;
   });
+  // A silent zero-match would let --check pass while the .vsix version
+  // diverges — fail loudly like the OVERCAST_VERSION path does.
+  if (sites !== expectedSites) {
+    console.error(
+      `[sync-version] expected ${expectedSites} version site(s) in ${relPath}, matched ${sites} — the file's formatting drifted from the sync regex`
+    );
+    process.exit(1);
+  }
   if (next !== text && !CHECK) writeFileSync(path, next);
 };
 // The manifest's own top-level version (2-space indent, so nested "version"
 // keys — e.g. inside contributes — can't match).
-replaceVersions("vscode/package.json", /^(  "version": ")([^"]*)(")/m);
+replaceVersions("vscode/package.json", /^(  "version": ")([^"]*)(")/m, 1);
 // The lockfile stamps the package version twice: at the top level and in the
 // root "" packages entry — both directly follow the package name.
 replaceVersions(
   "vscode/package-lock.json",
-  /("name": "overcast-vscode",\n\s*"version": ")([^"]*)(")/g
+  /("name": "overcast-vscode",\n\s*"version": ")([^"]*)(")/g,
+  2
 );
 
 if (CHECK) {
