@@ -315,7 +315,12 @@ export function registerChatParticipant(deps: ExtDeps): void {
   };
 
   const participant = vscode.chat.createChatParticipant("overcast.chat", handler);
-  participant.iconPath = vscode.Uri.joinPath(deps.context.extensionUri, "media", "overcast.png");
+  // Explicit-color svg pair (not the currentColor master): chat avatars render
+  // the file as-is, so currentColor would come out black on dark themes.
+  participant.iconPath = {
+    light: vscode.Uri.joinPath(deps.context.extensionUri, "media", "overcast-light.svg"),
+    dark: vscode.Uri.joinPath(deps.context.extensionUri, "media", "overcast-dark.svg"),
+  };
   participant.followupProvider = followupProvider;
   deps.context.subscriptions.push(participant);
 }
