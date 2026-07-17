@@ -86,9 +86,10 @@ overcast case records --export ./records.html --theme csi # full audit log
 
 Built-in source refs for `source add <type>:<ref>`:
 
-- `youtube:@handle` — enumerate a channel's videos.
+- `youtube:@handle` — enumerate a channel's videos (`youtube:shorts:@handle` / `youtube:streams:@handle` for those tabs; `--limit 0` = the whole channel/playlist).
+- `youtube:playlists:@handle` — enumerate a channel's playlists TAB: one hit per playlist, each carrying a `youtube:playlist:<id>` ref ready for `source add`.
 - `youtube:search:<query>` or `youtube:<keyword>` — YouTube keyword search.
-- `youtube:playlist:<id>` or `youtube:<full YouTube URL>` — enumerate a playlist/video URL.
+- `youtube:playlist:<id>` or `youtube:<full YouTube URL>` — enumerate a playlist/video URL. `scan … --pull --transcript` (or `capture <url> --transcript`) pulls captions + full metadata per video with NO video download (`--thumb` = thumbnail image; `--lang` picks the caption language).
 - `tiktok:@user` — enumerate a TikTok profile.
 - `tiktok:#tag` — enumerate a TikTok hashtag.
 - `x:@handle` — enumerate an X (Twitter) profile's posts.

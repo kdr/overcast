@@ -3,10 +3,16 @@
 # Default binding for `source add youtube:<ref>`; enumerated by scan/monitor,
 # fetched by capture. Implements the exec source contract:
 #   <this> enumerate --query <ref> [--limit N]   -> scan.hit JSON array on stdout
-#   <this> fetch     --url <u> --out <path>       -> capture record JSON on stdout
+#   <this> fetch     --url <u> --out <path> [--kind video|transcript|thumb]
+#                    [--lang <code>]             -> capture record JSON on stdout
 #   <this> init | describe
 #
-# Refs: search:"pier 9" | @handle | playlist:<id> | a full youtube URL | keyword
+# Refs: search:"pier 9" | @handle | playlist:<id> | playlists:@handle (channel's
+#       playlists tab) | shorts:@handle | streams:@handle | a full youtube URL |
+#       keyword. `--limit 0` = uncapped (whole channel/playlist/tab).
+# Fetch kinds (no video download): `transcript` pulls captions + full metadata
+# (manual subs preferred over auto; metadata-only fallback when uncaptioned),
+# `thumb` pulls the thumbnail image. Default `video` downloads as before.
 set -uo pipefail
 
 # yt-dlp is required. Surface a clear, actionable message if it's missing so the
@@ -30,18 +36,29 @@ op="${1:-enumerate}"; shift || true
 # translate an overcast youtube ref into a yt-dlp target
 ref_to_target() {
   local ref="$1" limit="${2:-}"
+  # search refs embed the cap in the target; limit 0 = every result
+  local n="$limit"; [ "$n" = "0" ] && n="all"
   case "$ref" in
-    search:*)   echo "ytsearch${limit}:${ref#search:}" ;;
-    @*)         echo "https://www.youtube.com/${ref}/videos" ;;
-    playlist:*) echo "https://www.youtube.com/playlist?list=${ref#playlist:}" ;;
-    http*://*)  echo "$ref" ;;
-    *)          echo "ytsearch${limit}:${ref}" ;;  # bare keyword
+    search:*)    echo "ytsearch${n}:${ref#search:}" ;;
+    playlists:*) # the channel's playlists TAB — one hit per playlist
+      local ch="${ref#playlists:}"
+      case "$ch" in
+        http*://*) echo "${ch%/}/playlists" ;;
+        @*)        echo "https://www.youtube.com/${ch}/playlists" ;;
+        *)         echo "https://www.youtube.com/@${ch}/playlists" ;;
+      esac ;;
+    shorts:@*)   echo "https://www.youtube.com/${ref#shorts:}/shorts" ;;
+    streams:@*)  echo "https://www.youtube.com/${ref#streams:}/streams" ;;
+    @*)          echo "https://www.youtube.com/${ref}/videos" ;;
+    playlist:*)  echo "https://www.youtube.com/playlist?list=${ref#playlist:}" ;;
+    http*://*)   echo "$ref" ;;
+    *)           echo "ytsearch${n}:${ref}" ;;  # bare keyword
   esac
 }
 
 case "$op" in
   init)     need_ytdlp; exit 0 ;;
-  describe) echo '{"source":"youtube","emits":"scan.hit","needs":["yt-dlp"]}'; exit 0 ;;
+  describe) echo '{"source":"youtube","emits":"scan.hit","needs":["yt-dlp"],"fetch_kinds":["video","transcript","thumb"]}'; exit 0 ;;
 
   enumerate)
     need_ytdlp
@@ -52,9 +69,13 @@ case "$op" in
       --since) since="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
+    # a non-numeric limit falls back to the default cap; 0 = uncapped
+    case "$limit" in ''|*[!0-9]*) limit=10 ;; esac
     target="$(ref_to_target "$query" "$limit")"
+    mode="videos"; case "$query" in playlists:*) mode="playlists" ;; esac
     # --flat-playlist keeps it fast (no per-video extraction); dump one JSON/line.
     flat="--flat-playlist"; date_args=""
+    end_args="--playlist-end $limit"; [ "$limit" -eq 0 ] && end_args=""
     if [ -n "$since" ]; then
       # honor --since: map to yt-dlp --dateafter. Date-granular, so sub-day units
       # (minutes/hours) collapse to today/yesterday. Drop --flat-playlist so
@@ -76,7 +97,7 @@ case "$op" in
     # the --dump-json stdout, so routine yt-dlp warnings don't corrupt the JSON.
     errf="$(mktemp)"
     # shellcheck disable=SC2086
-    raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>"$errf")"; code=$?
+    raw="$(yt-dlp $flat $date_args --dump-json $end_args "$target" 2>"$errf")"; code=$?
     # ANY non-zero yt-dlp exit is a failure (network, auth, unavailable, partial),
     # even with no "ERROR" line or some JSON already printed — surface it as an
     # enumerate error rather than a clean/partial scan. A successful run that
@@ -88,8 +109,10 @@ case "$op" in
     rm -f "$errf"
     # exit 0 + empty stdout = legitimate ZERO-result search/playlist.
     [ -z "$raw" ] && { echo '[]'; exit 0; }
+    # playlists-tab hits additionally carry the playlist id + the youtube:playlist:
+    # ref, so a hit can be promoted straight to a standing source.
     printf '%s\n' "$raw" \
-      | jq -sc '[ .[] | {
+      | jq -sc --arg mode "$mode" '[ .[] | {
           title: (.title // .id),
           url: (.url // .webpage_url // ("https://youtu.be/"+.id)),
           source: "youtube",
@@ -100,28 +123,119 @@ case "$op" in
           duration: (.duration // null),
           thumb: (((.thumbnails // []) | last | .url?) // .thumbnail // null),
           media: { ref: (.url // .webpage_url // ("https://youtu.be/"+.id)) }
-        } ]'
+        } + (if $mode == "playlists"
+             then { kind: "playlist", playlist_id: .id, playlist_ref: ("youtube:playlist:" + .id) }
+             else {} end) ]'
     ;;
 
   fetch)
     need_ytdlp
-    url=""; out=""
+    url=""; out=""; kind="video"; lang="en"
     while [ "$#" -gt 0 ]; do case "$1" in
       --url) url="${2:-}"; shift 2 2>/dev/null || shift ;;
       --out) out="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --kind) kind="${2:-}"; shift 2 2>/dev/null || shift ;;
+      --lang) lang="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
-    # cap resolution to keep downloads small; merge to mp4. Honor yt-dlp's exit
-    # status — a failed download must surface as an error, not a stale success.
-    if ! yt-dlp -f "best[height<=720]/best" -o "$out" "$url" >&2; then
-      echo "youtube fetch failed for $url" >&2; exit 1
-    fi
-    # yt-dlp may add an extension; resolve the actual file (newest match first)
-    real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"
-    if [ -z "$real" ] || [ ! -s "$real" ]; then
-      echo "youtube fetch produced no file for $url" >&2; exit 1
-    fi
-    jq -nc --arg p "$real" --arg u "$url" '{kind:"video",path:$p,source:"youtube",url:$u}'
+    # yt-dlp derives sidecar names (subs/info-json/thumbnail) from the -o base,
+    # so strip a pre-existing extension off --out (dot in the BASENAME only —
+    # `${out%.*}` alone would truncate a dotted parent dir).
+    tbase="$out"
+    case "$(basename "$out")" in *.*) tbase="${out%.*}" ;; esac
+
+    case "$kind" in
+      transcript)
+        # captions + full metadata, NO media download. Manual + auto subs both
+        # requested; --no-playlist pins a watch?v=…&list=… URL to the one video.
+        # Request ONLY the target lang + the original-audio auto track — a broad
+        # "${lang}.*" glob pulls every auto-TRANSLATED variant and trips
+        # YouTube's per-video subtitle rate limit (HTTP 429) on tracks we'd
+        # discard anyway.
+        yt-dlp --skip-download --no-playlist --write-subs --write-auto-subs \
+          --sub-langs "${lang},${lang}-orig" --sub-format vtt \
+          --write-info-json -o "$tbase" "$url" >&2
+        ytcode=$?
+        info="$tbase.info.json"
+        # tolerate a nonzero exit when the metadata landed (e.g. a 429 on one
+        # subtitle variant after the primary track downloaded) — only fail when
+        # there's nothing to build a record from, and leave no partial sidecars.
+        if [ ! -s "$info" ]; then
+          rm -f "$tbase".*.vtt "$info"
+          echo "youtube transcript fetch failed for $url (yt-dlp exit $ytcode)" >&2; exit 1
+        fi
+        # pick the best caption track: exact lang > original-audio auto > any
+        vtt=""
+        for cand in "$tbase.$lang.vtt" "$tbase.$lang-orig.vtt"; do
+          [ -s "$cand" ] && { vtt="$cand"; break; }
+        done
+        [ -z "$vtt" ] && vtt="$(ls -t "$tbase".*.vtt 2>/dev/null | head -1)"
+        # drop the unchosen variant files so only ONE artifact lands in the case
+        for f in "$tbase".*.vtt; do
+          [ -e "$f" ] && [ "$f" != "$vtt" ] && rm -f "$f"
+        done
+        # VTT → plain text: strip cue timings/headers/inline karaoke tags, drop
+        # the rolling duplicate lines auto-captions emit, cap at 200KB (the full
+        # VTT stays as the file artifact).
+        txf="$(mktemp)"
+        if [ -n "$vtt" ] && [ -s "$vtt" ]; then
+          sed -E 's/<[^>]+>//g' "$vtt" \
+            | grep -Ev '^WEBVTT|^Kind:|^Language:|^NOTE( |$)|^[0-9]+$|^[0-9]{2}:[0-9]{2}' \
+            | awk 'NF' | awk '$0 != prev { print; prev = $0 }' \
+            | head -c 200000 > "$txf"
+        fi
+        truncated="false"
+        [ -s "$txf" ] && [ "$(wc -c < "$txf")" -ge 200000 ] && truncated="true"
+        # uncaptioned video → metadata-only .txt artifact (title + description),
+        # a ready record with a note — not an error, so playlist-wide transcript
+        # pulls don't fail-storm on the odd captionless upload.
+        artifact="$vtt"; akind="transcript"
+        if [ ! -s "$txf" ]; then
+          artifact="$tbase.txt"; akind="meta"
+          { jq -r '.title // ""' "$info"; echo; jq -r '.description // ""' "$info"; } > "$artifact"
+        fi
+        tsrc="$(jq -r --arg l "$lang" 'if ((.subtitles // {}) | has($l)) then "manual" else "auto" end' "$info")"
+        jq -c --rawfile tx "$txf" --arg p "$artifact" --arg u "$url" --arg k "$akind" \
+              --arg lang "$lang" --arg tsrc "$tsrc" --argjson trunc "$truncated" '
+          ($tx | rtrimstr("\n")) as $text |
+          { kind: $k, path: $p, source: "youtube", url: $u,
+            title: (.title // null), description: (.description // null),
+            published: (.upload_date // null), author: (.uploader // .channel // null),
+            duration: (.duration // null), views: (.view_count // null) }
+          + (if $text == ""
+             then { transcript: null, transcript_note: "no captions available" }
+             else { transcript: $text, transcript_lang: $lang, transcript_source: $tsrc }
+                  + (if $trunc then { transcript_truncated: true } else {} end)
+             end)' "$info"
+        rm -f "$info" "$txf"
+        ;;
+      thumb)
+        # thumbnail image only, NO media download (webp→jpg needs ffmpeg — an
+        # overcast prereq; without it yt-dlp keeps the original format).
+        if ! yt-dlp --skip-download --no-playlist --write-thumbnail \
+              --convert-thumbnails jpg -o "$tbase" "$url" >&2; then
+          echo "youtube thumbnail fetch failed for $url" >&2; exit 1
+        fi
+        real="$(ls -t "$tbase".jpg "$tbase".*.jpg "$tbase".webp "$tbase".png 2>/dev/null | head -1)"
+        if [ -z "$real" ] || [ ! -s "$real" ]; then
+          echo "youtube thumbnail fetch produced no file for $url" >&2; exit 1
+        fi
+        jq -nc --arg p "$real" --arg u "$url" '{kind:"image",path:$p,source:"youtube",url:$u}'
+        ;;
+      *)
+        # cap resolution to keep downloads small; merge to mp4. Honor yt-dlp's exit
+        # status — a failed download must surface as an error, not a stale success.
+        if ! yt-dlp -f "best[height<=720]/best" -o "$out" "$url" >&2; then
+          echo "youtube fetch failed for $url" >&2; exit 1
+        fi
+        # yt-dlp may add an extension; resolve the actual file (newest match first)
+        real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"
+        if [ -z "$real" ] || [ ! -s "$real" ]; then
+          echo "youtube fetch produced no file for $url" >&2; exit 1
+        fi
+        jq -nc --arg p "$real" --arg u "$url" '{kind:"video",path:$p,source:"youtube",url:$u}'
+        ;;
+    esac
     ;;
 
   *) echo "youtube source: unknown op (expected enumerate|fetch|init|describe)" >&2; exit 2 ;;

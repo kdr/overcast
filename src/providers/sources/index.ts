@@ -215,6 +215,13 @@ export async function enumerateSource(
 export interface FetchOpts {
   url: string;
   out: string;
+  /** alternate fetch mode (e.g. youtube `transcript` / `thumb` — captions or
+   *  thumbnail instead of the video, no media download). Advisory: forwarded as
+   *  `--kind <k>` on the fetch argv; providers that don't implement modes skip
+   *  the unknown flag (the exec-contract catchall) and fetch as usual. */
+  kind?: string;
+  /** caption language for kind=transcript (forwarded as `--lang <code>`) */
+  lang?: string;
   home?: string;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
@@ -284,6 +291,8 @@ export async function fetchSource(
   }
   const [cmd, ...lead] = base;
   const args = [...lead, "fetch", "--url", opts.url, "--out", opts.out];
+  if (opts.kind) args.push("--kind", opts.kind);
+  if (opts.lang) args.push("--lang", opts.lang);
   const res = await execCapture(cmd, args, {
     env: opts.env,
     signal: opts.signal,
@@ -322,13 +331,19 @@ export async function fetchSource(
     });
   }
   path = ensureMediaExtension(path);
+  // like hitsToRecords: fields beyond the canonical capture shape ride along into
+  // the payload (loose record) — e.g. a transcript fetch's title/description/
+  // transcript text must not be dropped at this boundary. Canonical keys win.
+  const { path: _rp, media: _rm, kind: reportedKind, source: _rs, url: _ru, ...extra } =
+    (parsed ?? {}) as Record<string, unknown>;
   return makeRecord({
     verb: "capture",
     format: "json",
     payload: {
+      ...extra,
       capture_id: "cap_" + Math.abs(hashString(path)).toString(16),
       path,
-      kind: parsed?.kind ?? "media",
+      kind: reportedKind ?? "media",
       source: desc.type,
       url: opts.url,
     },

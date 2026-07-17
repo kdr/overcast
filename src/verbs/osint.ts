@@ -49,9 +49,13 @@ const err = errRecord;
 function scanFlagError(ctx: VerbContext, verb = "scan"): OvercastRecord | undefined {
   if (ctx.opts.limit != null) {
     const n = Number(ctx.opts.limit);
-    if (!Number.isFinite(n) || n <= 0) {
-      return err(verb, `invalid --limit: ${ctx.opts.limit} (expected a positive number)`);
+    // 0 = uncapped where the source supports it (yt-dlp whole-channel/playlist)
+    if (!Number.isFinite(n) || n < 0) {
+      return err(verb, `invalid --limit: ${ctx.opts.limit} (expected a positive number, or 0 for uncapped)`);
     }
+  }
+  if (ctx.opts.transcript === true && ctx.opts.thumb === true) {
+    return err(verb, "--transcript and --thumb are mutually exclusive (pick one fetch kind)");
   }
   const since = ctx.opts.since ? String(ctx.opts.since) : undefined;
   if (since && parseSince(since) == null) {
@@ -363,7 +367,9 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
   }
 
   const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-  const directPlan = directSensePlan(ctx, ref);
+  // a --transcript/--thumb pull replaces the video download entirely — never
+  // hand the URL to a remote sense plan that assumes full-media capture.
+  const directPlan = fetchKindOverride(ctx) ? undefined : directSensePlan(ctx, ref);
   const records: OvercastRecord[] = [];
   let submittedRemote = 0;
 
@@ -440,6 +446,9 @@ export const scanVerb: VerbSpec = {
     { name: "limit", summary: "Max hits per source; with --local, max local visual DB candidates", type: "number" },
     { name: "local", summary: "Scan local case media/indexes instead of external sources", type: "boolean" },
     { name: "pull", summary: "Auto-capture + sense each hit", type: "boolean" },
+    { name: "transcript", summary: "With --pull, yt-dlp sources: captions + metadata per hit instead of the video", type: "boolean" },
+    { name: "thumb", summary: "With --pull, yt-dlp sources: thumbnail image per hit instead of the video", type: "boolean" },
+    { name: "lang", summary: "With --transcript: caption language (default en)", type: "string" },
     { name: "pipe", summary: "Sense to run on pulled hits (watch|listen|face|exif|verify)", type: "string" },
     { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -622,6 +631,20 @@ function hitSourceType(rec: OvercastRecord | undefined): string | undefined {
   return undefined;
 }
 
+/** The --transcript/--thumb capture-mode override: an alternate fetch kind the
+ *  provider serves INSTEAD of the full video download (yt-dlp sources: captions +
+ *  metadata / thumbnail image). Advisory — a source without fetch kinds ignores
+ *  the flag at the exec boundary and captures as usual. */
+function fetchKindOverride(ctx: VerbContext): { kind: string; lang?: string } | undefined {
+  const transcript = ctx.opts.transcript === true;
+  const thumb = ctx.opts.thumb === true;
+  if (!transcript && !thumb) return undefined;
+  return {
+    kind: transcript ? "transcript" : "thumb",
+    lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
+  };
+}
+
 export async function captureRef(
   ctx: VerbContext,
   ref: string,
@@ -663,7 +686,8 @@ export async function captureRef(
   }
   const dest = opts.out ? opts.out : join(outDir, uniqueName(ref));
   mkdirSync(dirname(dest), { recursive: true }); // a nested --out needs its parent first
-  return fetchSource(desc, { url: ref, out: dest, home: ctx.home, signal: ctx.signal });
+  const mode = fetchKindOverride(ctx);
+  return fetchSource(desc, { url: ref, out: dest, kind: mode?.kind, lang: mode?.lang, home: ctx.home, signal: ctx.signal });
 }
 
 async function pipeSense(
@@ -942,6 +966,9 @@ export const captureVerb: VerbSpec = {
   flags: [
     { name: "index", summary: "Embed into the case index after capture", type: "boolean" },
     { name: "out", summary: "Output location override", type: "string" },
+    { name: "transcript", summary: "yt-dlp sources: captions + metadata instead of the video (no video download)", type: "boolean" },
+    { name: "thumb", summary: "yt-dlp sources: thumbnail image instead of the video (no video download)", type: "boolean" },
+    { name: "lang", summary: "With --transcript: caption language (default en)", type: "string" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -949,6 +976,9 @@ export const captureVerb: VerbSpec = {
   providerKey: "capture",
   run: async (ctx) => {
     if (!ctx.input) return [err("capture", "capture requires a ref (URL/path/scan.hit id, or - for stdin)")];
+    if (ctx.opts.transcript === true && ctx.opts.thumb === true) {
+      return [err("capture", "--transcript and --thumb are mutually exclusive (pick one fetch kind)")];
+    }
     // `-` → ingest stdin (a piped clip/image) into the case.
     if (ctx.input === "-") return [await captureStdin(ctx, ctx.opts.out ? String(ctx.opts.out) : undefined)];
     // archive:<bucket>/<item> → pull a COPY of archived media into this case,
@@ -1193,6 +1223,9 @@ export const monitorVerb: VerbSpec = {
     { name: "query", summary: "Ad-hoc keyword search across sources", type: "string" },
     { name: "since", summary: "Only items newer than e.g. 24h, 2026-06-01", type: "string" },
     { name: "limit", summary: "Max hits per source", type: "number" },
+    { name: "transcript", summary: "yt-dlp sources: captions + metadata per new item instead of the video", type: "boolean" },
+    { name: "thumb", summary: "yt-dlp sources: thumbnail image per new item instead of the video", type: "boolean" },
+    { name: "lang", summary: "With --transcript: caption language (default en)", type: "string" },
     { name: "pipe", summary: "Sense to run on new items (watch|listen|face|exif|verify)", type: "string" },
     { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
     { name: "once", summary: "Single diff pass then exit", type: "boolean" },

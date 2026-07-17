@@ -1,14 +1,14 @@
 {
   "manifest_version": 1,
   "name": "youtube",
-  "version": "1.0.0",
-  "description": "YouTube channel/handle, playlist, or keyword-search enumeration + video download via yt-dlp. No API key.",
+  "version": "1.1.0",
+  "description": "YouTube channel/handle, playlist, playlists-tab, or keyword-search enumeration + video download via yt-dlp; --transcript/--thumb fetch captions+metadata or the thumbnail without downloading the video. No API key.",
   "entries": [
     {
       "kind": "source",
       "type": "youtube",
       "label": "YouTube (yt-dlp)",
-      "summary": "YouTube channel/handle, playlist, or keyword-search enumeration + video download via yt-dlp. No API key.",
+      "summary": "YouTube channel/handle, playlist, playlists-tab, or keyword-search enumeration + video download via yt-dlp; --transcript/--thumb fetch captions+metadata or the thumbnail without downloading the video. No API key.",
       "base": [
         "bash",
         "shipped:providers/sources/youtube/youtube.sh"
@@ -24,6 +24,15 @@
         },
         {
           "form": "youtube:playlist:<id>"
+        },
+        {
+          "form": "youtube:playlists:@handle"
+        },
+        {
+          "form": "youtube:shorts:@handle"
+        },
+        {
+          "form": "youtube:streams:@handle"
         },
         {
           "form": "youtube:search:<q>"

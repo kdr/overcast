@@ -64,7 +64,10 @@ const FIELD_POLICY: Record<string, string[]> = {
   scan: ["title", "snippet", "url", "source", "published"],
   // tags/note/source_ref only appear on archive-written captures (bucket items) —
   // they carry the operator's own labels, the whole point of `ask --archive`.
-  capture: ["title", "snippet", "text", "path", "source", "kind", "tags", "note", "source_ref"],
+  // description/transcript appear on youtube --transcript captures (captions +
+  // metadata pulled instead of the video) — the transcript text is the whole
+  // point of that pull, so it must be quotable by ask like a listen transcript.
+  capture: ["title", "snippet", "text", "description", "transcript", "path", "source", "kind", "tags", "note", "source_ref"],
   // enhance now also fans out separate/segment child records — index the compact
   // signal (op, kind, speaker/label, prompt, transcript) but keep binaries
   // (mask/track paths), raw boxes, and segment arrays out of case memory.

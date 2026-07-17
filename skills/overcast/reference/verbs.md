@@ -608,6 +608,9 @@ Options:
   --limit <number>       Max hits per source; with --local, max local visual DB candidates
   --local                Scan local case media/indexes instead of external sources
   --pull                 Auto-capture + sense each hit
+  --transcript           With --pull, yt-dlp sources: captions + metadata per hit instead of the video
+  --thumb                With --pull, yt-dlp sources: thumbnail image per hit instead of the video
+  --lang <string>        With --transcript: caption language (default en)
   --pipe <string>        Sense to run on pulled hits (watch|listen|face|exif|verify)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --format <string>      json | md | txt
@@ -631,6 +634,9 @@ Arguments:
 Options:
   --index                Embed into the case index after capture
   --out <string>         Output location override
+  --transcript           yt-dlp sources: captions + metadata instead of the video (no video download)
+  --thumb                yt-dlp sources: thumbnail image instead of the video (no video download)
+  --lang <string>        With --transcript: caption language (default en)
   --format <string>      json | md | txt
   --json                 Shorthand for --format json
 ```
@@ -651,6 +657,9 @@ Options:
   --query <string>       Ad-hoc keyword search across sources
   --since <string>       Only items newer than e.g. 24h, 2026-06-01
   --limit <number>       Max hits per source
+  --transcript           yt-dlp sources: captions + metadata per new item instead of the video
+  --thumb                yt-dlp sources: thumbnail image per new item instead of the video
+  --lang <string>        With --transcript: caption language (default en)
   --pipe <string>        Sense to run on new items (watch|listen|face|exif|verify)
   --describe             With --pipe listen: full audio-scene describe (not speech-only)
   --once                 Single diff pass then exit
