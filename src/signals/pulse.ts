@@ -115,10 +115,12 @@ export interface CasePulse {
   gaps: string[];
 }
 
-// One definition of "sensed/analyzed" media, shared with the vscode extension's
-// analyzed-media rollup (vscode/src/lib/analyzedMedia.ts) — keep the sets in
-// lockstep or the funnel and the sidebar disagree about the same ref.
-const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "audio", "voice", "crop", "enhance", "exif", "verify"]);
+// One definition of "sensed/analyzed" media — the single source for every
+// funnel that counts senses: this coverage funnel, the thread funnel
+// (src/signals/threads.ts imports it), and the vscode extension's
+// analyzed-media rollup (vscode/src/lib/analyzedMedia.ts mirrors it; keep that
+// copy in lockstep or the funnel and the sidebar disagree about the same ref).
+export const SENSE_VERBS = new Set(["watch", "listen", "see", "face", "image", "similar", "cluster", "audio", "voice", "crop", "enhance", "exif", "verify"]);
 
 /** Triage buckets over root findings, by effective (reviewed) status. */
 export function triageCounts(records: OvercastRecord[]): TriageCounts {

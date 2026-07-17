@@ -20,6 +20,9 @@ export interface Job {
   failure?: string;
   /** first result record id, for the Runs row deep-link. */
   recordId?: string;
+  /** the case the run targeted — finished rows are dropped when it no longer
+   *  matches the active case (a deep-link must never cross cases). */
+  caseDir?: string;
 }
 
 const TARGET_MAX = 28;

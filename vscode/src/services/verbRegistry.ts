@@ -43,6 +43,14 @@ export class VerbRegistry {
     return this.fetch(version);
   }
 
+  /** Drop the in-memory tier so the next getVerbs re-checks the CLI version —
+   *  without this, a "Restart CLI" onto an upgraded/repointed binary keeps
+   *  serving the OLD verb list for the life of the window (the globalState
+   *  tier is version-keyed, but the memory tier short-circuits before it). */
+  invalidate(): void {
+    this.memory = undefined;
+  }
+
   /** Force refetch (e.g. after the CLI is upgraded mid-session). */
   async refresh(): Promise<VerbSpecJSON[]> {
     return this.fetch(await this.cliVersion());

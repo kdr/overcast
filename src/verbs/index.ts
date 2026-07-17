@@ -766,15 +766,19 @@ export const indexVerb: VerbSpec = {
     }
 
     // ---- list ----
+    // A pure read — transient like `finding list`, so callers that poll it (the
+    // vscode sidebar re-lists on every store change) don't append an audit row
+    // per poll: each write would re-fire the store watcher and grow index.jsonl
+    // forever. Mutations (create/add/delete/…) stay persisted.
     if (action === "list" || action === undefined) {
       const mirror = listIndexes(c).map((x) => ({ id: x.id, type: x.type, backend: x.backend ?? "tinycloud", name: x.name, members: x.members.length }));
       if (ctx.opts.remote === true) {
         const { rec } = await tcCollectionList(tcOpts);
         (rec.payload as Record<string, unknown>).mirror = mirror;
-        rec.meta = { ...rec.meta, case: c.dir };
+        rec.meta = { ...rec.meta, case: c.dir, transient: true };
         return [indexRecord(rec)];
       }
-      return [makeRecord({ verb: "index", format: "json", payload: { op: "list", indexes: mirror, count: mirror.length }, meta: { case: c.dir }, state: "ready" })];
+      return [makeRecord({ verb: "index", format: "json", payload: { op: "list", indexes: mirror, count: mirror.length }, meta: { case: c.dir, transient: true }, state: "ready" })];
     }
 
     // ---- show ----

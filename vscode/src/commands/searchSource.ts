@@ -46,6 +46,10 @@ async function pickSourceFilter(deps: ExtDeps): Promise<SourcePick | undefined> 
     const raw = await vscode.window.showInputBox({
       prompt: "Source ids/types (comma list), e.g. youtube,web or src_ab12cd",
       ignoreFocusOut: true,
+      // same argv guard as the query/spec inputs — a '-'-leading value is
+      // eaten by the CLI parser as a flag, leaving --source valueless
+      validateInput: (v) =>
+        v.trim().startsWith("-") ? "Filters can't start with '-' (read as a CLI flag)" : undefined,
     });
     if (raw === undefined) return undefined;
     return { label: raw.trim(), filter: raw.trim() || undefined };

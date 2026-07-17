@@ -53,7 +53,11 @@ interface FieldPagePayload {
 
 export async function openRecordPanel(deps: ExtDeps, recordId: string): Promise<void> {
   if (!(await deps.bridge.ensureCli())) return;
-  const result = await deps.bridge.run(["case", "memory", "get", recordId]);
+  // pin the record's case — the panel outlives case switches, and a later
+  // field-page read must target the case the record lives in, not the
+  // locator's case at click time
+  const caseDir = deps.locator.caseDir;
+  const result = await deps.bridge.run(["case", "memory", "get", recordId], { caseDir });
   if (result.failure) {
     void vscode.window.showErrorMessage(`Overcast: ${result.failure.message}`);
     return;
@@ -102,18 +106,21 @@ export async function openRecordPanel(deps: ExtDeps, recordId: string): Promise<
       }
       if (msg.type !== "getField") return;
       void (async () => {
-        const page = await deps.bridge.run([
-          "case",
-          "memory",
-          "get",
-          msg.recordId,
-          "--field",
-          msg.field,
-          "--offset",
-          String(msg.offset),
-          "--limit",
-          String(msg.limit),
-        ]);
+        const page = await deps.bridge.run(
+          [
+            "case",
+            "memory",
+            "get",
+            msg.recordId,
+            "--field",
+            msg.field,
+            "--offset",
+            String(msg.offset),
+            "--limit",
+            String(msg.limit),
+          ],
+          { caseDir },
+        );
         const payload = (page.records[0]?.payload ?? {}) as FieldPagePayload;
         if (page.failure || payload.error) {
           void webview.postMessage({

@@ -21,6 +21,10 @@ test("analyzedMedia: groups verbs per ref, newest-first, skips errors + non-anal
     row({ id: "rec_4", verb: "capture", media: "/case/c.mp4" }), // grabbed ≠ analyzed
     row({ id: "rec_5", verb: "face", media: "/case/a.mp4", state: "error" }), // failed run
     row({ id: "rec_6", verb: "note" }), // no media
+    // ready-only, like pulse's sensedRefs: an analysis that didn't run yet
+    // (or couldn't) must not mark its media analyzed
+    row({ id: "rec_7", verb: "listen", media: "/case/d.mp4", state: "pending" }),
+    row({ id: "rec_8", verb: "watch", media: "/case/d.mp4", state: "needs_credentials" }),
   ];
   const out = analyzedMedia(rows);
   assert.equal(out.length, 2);
@@ -54,4 +58,29 @@ test("mdToHtml: escapes HTML and refuses non-http link schemes", () => {
 test("mdToHtml: fenced code blocks pass through verbatim (escaped, unstyled)", () => {
   const html = mdToHtml("```\nnot **bold**\n```");
   assert.ok(html.includes("<pre><code>not **bold**\n</code></pre>"));
+});
+
+test("mdToHtml: emphasis never restyles URLs or code contents (evidence URLs byte-exact)", () => {
+  // underscore-bearing handle URL — the emphasis pass must not corrupt the href
+  const link = mdToHtml("see https://x.com/_kdr_/status/1 now");
+  assert.ok(link.includes('<a href="https://x.com/_kdr_/status/1">https://x.com/_kdr_/status/1</a>'));
+  assert.ok(!link.includes("<em>"));
+  // markdown-link URL with underscores — same guarantee for the explicit form
+  const mdLink = mdToHtml("[report](https://x.com/_a_/b)");
+  assert.ok(mdLink.includes('<a href="https://x.com/_a_/b">report</a>'));
+  // *…* inside inline code stays literal
+  const code = mdToHtml("run `*args*` here");
+  assert.ok(code.includes("<code>*args*</code>"));
+  // plain digits must never be mistaken for a stash placeholder
+  const digits = mdToHtml("call 911 now");
+  assert.ok(digits.includes("call 911 now"));
+});
+
+test("mdToHtml: autolink hands trailing punctuation back, keeps balanced parens", () => {
+  const dot = mdToHtml("see http://example.com/report.");
+  assert.ok(dot.includes('<a href="http://example.com/report">http://example.com/report</a>.'));
+  const wiki = mdToHtml("map at https://en.wikipedia.org/wiki/Z%C3%BCrich_(city) today");
+  assert.ok(wiki.includes('href="https://en.wikipedia.org/wiki/Z%C3%BCrich_(city)"'));
+  const wrapped = mdToHtml("(see http://example.com/a)");
+  assert.ok(wrapped.includes('<a href="http://example.com/a">http://example.com/a</a>)'));
 });

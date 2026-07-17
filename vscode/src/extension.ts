@@ -65,7 +65,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const views = new Map<string, vscode.TreeView<vscode.TreeItem>>();
   const providers = new Map<string, vscode.TreeDataProvider<vscode.TreeItem>>();
   for (const [id, provider] of trees) {
-    const view = vscode.window.createTreeView(id, { treeDataProvider: provider });
+    const view = vscode.window.createTreeView(id, {
+      treeDataProvider: provider,
+      // Sources media rows expose "Analyze All Selected" (listMultiSelection-
+      // gated in package.json) — without multi-select that entry can never fire
+      canSelectMany: id === "overcast.sources",
+    });
     views.set(id, view);
     providers.set(id, provider);
     context.subscriptions.push(view);

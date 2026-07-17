@@ -112,6 +112,11 @@ async function captionTranscript(
     if (res.code !== 0) return undefined;
     const data = envelopeData(parseFirstJson(res.stdout));
     const raw = Array.isArray(data.cues) ? data.cues : [];
+    // Only lift "SPEAKER: words" labels out of cues that ARE diarized: the
+    // envelope says so (`diarized: false` = diarization was requested but
+    // unavailable — plain cues whose speech happens to start "Warning: …"
+    // must not gain a phantom speaker).
+    const liftSpeakers = opts.diarize && data.diarized !== false;
     const segs: Array<Record<string, unknown>> = [];
     const lines: string[] = [];
     for (const c of raw) {
@@ -121,7 +126,7 @@ async function captionTranscript(
       if (!text) continue;
       // diarized cues arrive as "SPEAKER: words" — lift the label out.
       let speaker: string | undefined;
-      if (opts.diarize) {
+      if (liftSpeakers) {
         const m = text.match(/^([^:\n]{1,24}):\s+([\s\S]*)$/);
         if (m) {
           speaker = m[1];
@@ -265,9 +270,12 @@ export async function runListen(
     data.status === "error" ||
     Boolean(envError)
   ) {
+    // isDefault, not a bare opts.run check: a binding pinned to the stock
+    // template (what `provider setup apply --choice tinycloud` materializes)
+    // must get the same graceful speech-only fallback as an unbound profile.
     const visualDescribeUnavailable =
       opts.describe &&
-      !(opts.run && opts.run.trim()) &&
+      isDefault &&
       /(?:enable_visual_scene_description|visual scene description) is not available for audio files/i.test(envError);
     if (visualDescribeUnavailable) {
       const fallback = await runListen(input, {
@@ -361,7 +369,9 @@ export async function runListen(
         "no verbatim speech was available from the provider — `transcript` holds the provider's SUMMARY of the audio, not the spoken words.";
     }
   }
-  if (isDefault && opts.lang) {
+  // READY only, like the summary fallback above: a pending/needs_credentials
+  // record transcribed nothing, so "was auto-detected" would be false.
+  if (isDefault && opts.lang && state === "ready") {
     warning = [
       warning,
       "the default tinycloud backend has no --lang option; the source language was auto-detected.",

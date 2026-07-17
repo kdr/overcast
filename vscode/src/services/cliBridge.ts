@@ -229,7 +229,7 @@ export class CliBridge implements vscode.Disposable {
     // Track this run as a job (unless it's a noisy poll read) for the Runs view
     // + status bar. The handle owns a tracker CancellationTokenSource that MERGES
     // with any caller token — cancelling either kills the child (see below).
-    const jobHandle = this.startJob(args);
+    const jobHandle = this.startJob(args, caseDir);
 
     return new Promise((resolvePromise) => {
       const child = spawn(cli.cmd, finalArgs, {
@@ -312,6 +312,11 @@ export class CliBridge implements vscode.Disposable {
         if (token.isCancellationRequested || r.cancelled) {
           // A cancelled fan-out run may have already streamed real records —
           // hand them back (marked cancelled) instead of discarding the work.
+          // NOTE: today the CLI prints all records only after the verb
+          // completes (scan checkpoints hits to the STORE mid-run, not to
+          // stdout), so a killed scan yields zero parseable records and this
+          // branch stays dormant until the CLI ever streams; the hits still
+          // land in the Records tree via the store watcher.
           return opts.keepPartialFailure && r.records.length > 0 ? { ...r, cancelled: true } : undefined;
         }
         return r;
@@ -343,7 +348,10 @@ export class CliBridge implements vscode.Disposable {
         // Launch via the RESOLVED cli (node-runner aware) + settings flags — a
         // bare `overcast` may not be on the terminal's PATH at all.
         const cli = await this.resolve();
-        const term = vscode.window.createTerminal({ name: "overcast setup" });
+        const term = vscode.window.createTerminal({
+          name: "overcast setup",
+          env: cli ? this.terminalEnv(cli) : undefined,
+        });
         term.show();
         term.sendText(cli ? this.terminalLaunch(cli, "setup") : "overcast setup");
       } else if (pick === "Show Log") {
@@ -362,16 +370,32 @@ export class CliBridge implements vscode.Disposable {
    * same `--profile`/`--home` settings every spawned run gets — a terminal
    * session must see the same profiles/archive as sidebar and chat runs.
    * `extra` tokens are appended verbatim (caller handles their quoting).
+   * Create the terminal with `terminalEnv(cli)` — the node-runner head relies
+   * on it. Quoting is POSIX-double-quote semantics (macOS/Linux shells);
+   * exotic paths under Windows cmd/PowerShell are best-effort.
    */
   terminalLaunch(cli: ResolvedCli, ...extra: string[]): string {
-    const q = (s: string) => (/[\s"']/.test(s) ? `"${s.replace(/(["\\$`])/g, "\\$1")}"` : s);
-    const head = cli.argsPrefix.length ? `node ${cli.argsPrefix.map(q).join(" ")}` : q(cli.cmd);
+    // quote anything outside a conservative safe set — a $/backtick-bearing
+    // path without spaces still expands/executes if left bare
+    const q = (s: string) =>
+      /^[A-Za-z0-9_\-./:@=+,]+$/.test(s) ? s : `"${s.replace(/(["\\$`])/g, "\\$1")}"`;
+    // Node-runner mode: reuse the SAME resolved runner every spawned run uses
+    // (the extension host's executable, run-as-node via terminalEnv) — a bare
+    // `node` may not exist on the terminal's PATH at all.
+    const head = [q(cli.cmd), ...cli.argsPrefix.map(q)].join(" ");
     const settings: string[] = [];
     const profile = vscode.workspace.getConfiguration("overcast").get<string>("profile", "");
     if (profile) settings.push("--profile", profile);
     const home = this.homeDir();
     if (home) settings.push("--home", home);
     return [head, ...settings.map(q), ...extra].join(" ");
+  }
+
+  /** Terminal env for a `terminalLaunch` command line — the node-runner head
+   *  (extension-host executable) only behaves as node with ELECTRON_RUN_AS_NODE
+   *  set. Undefined when the resolved CLI needs no env. */
+  terminalEnv(cli: ResolvedCli): Record<string, string> | undefined {
+    return Object.keys(cli.env).length ? { ...cli.env } : undefined;
   }
 
   /** `overcast.home` setting → `--home` (profiles, archive buckets). Absolute
@@ -410,6 +434,7 @@ export class CliBridge implements vscode.Disposable {
 
   private startJob(
     args: string[],
+    caseDir: string | undefined,
   ): { job: Job; cts: vscode.CancellationTokenSource } | undefined {
     if (!shouldTrackJob(args)) return undefined;
     const { verb, target } = jobVerbTarget(args);
@@ -422,6 +447,7 @@ export class CliBridge implements vscode.Disposable {
       label: jobLabel(verb, target),
       startedAt: Date.now(),
       state: "running",
+      caseDir,
     };
     this.runningJobs.unshift(job);
     this.jobCts.set(id, cts);
@@ -443,6 +469,14 @@ export class CliBridge implements vscode.Disposable {
     if (outcome.failure && !outcome.cancelled) job.failure = outcome.failure.message;
     const recId = jobRecordId(outcome.records);
     if (recId) job.recordId = recId;
+    // A run that was in flight when the user switched cases must not land in
+    // the finished ring: clearFinishedJobs already wiped the OLD case's rows,
+    // and this row's deep-link would resolve its record id against the NEW
+    // case. Fire anyway so the Runs view drops the running row.
+    if (job.caseDir !== this.locator.caseDir) {
+      this.jobEmitter.fire();
+      return;
+    }
     this.finishedJobs.unshift(job);
     if (this.finishedJobs.length > JOB_HISTORY) this.finishedJobs.length = JOB_HISTORY;
     this.jobEmitter.fire();

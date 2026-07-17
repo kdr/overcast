@@ -273,6 +273,9 @@ test("local visual index: create/add/list/show/delete without tinycloud", async 
     const [listed] = await indexVerb.run(mk("list"));
     const indexes = (listed.payload as Record<string, unknown>).indexes as Array<Record<string, unknown>>;
     assert.equal(indexes[0].backend, "local");
+    // list is a pure read: transient, so store-watching pollers (the vscode
+    // sidebar re-lists on every store change) never grow the store by polling
+    assert.equal(listed.meta?.transient, true);
 
     const [shown] = await indexVerb.run(mk("show", [id]));
     assert.equal((shown.payload as Record<string, unknown>).member_count, 1);

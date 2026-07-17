@@ -238,9 +238,12 @@ async function chronolocateFlow(deps: ExtDeps, p: string): Promise<void> {
   await runAndRoute(deps, args);
 }
 
-async function batchSense(deps: ExtDeps, uri?: vscode.Uri, uris?: vscode.Uri[]): Promise<void> {
-  const files = (uris?.length ? uris : uri ? [uri] : [])
-    .filter((u) => u.scheme === "file")
+async function batchSense(deps: ExtDeps, arg?: unknown, args?: unknown[]): Promise<void> {
+  // Explorer passes (Uri, Uri[]); tree-view menus pass (TreeItem, TreeItem[])
+  // — normalize both, like `simple`/`flow` do for the single-file commands.
+  const files = (args?.length ? args : arg ? [arg] : [])
+    .map(asUri)
+    .filter((u): u is vscode.Uri => u?.scheme === "file")
     .map((u) => u.fsPath);
   if (files.length === 0) {
     void vscode.window.showErrorMessage("Overcast: no files selected.");
@@ -308,19 +311,25 @@ interface AnalyzeChoice extends vscode.QuickPickItem {
 }
 
 // Labels/blurbs mirror the Explorer context-menu titles (package.json) — one
-// vocabulary everywhere.
+// vocabulary everywhere. Matches are composed from shared segments so the
+// per-verb combinations can't drift (a .mpg offered Listen but not Voice).
+const VID = "mp4|mov|mkv|webm|avi|m4v|mpg|mpeg";
+const AUD = "mp3|wav|m4a|aac|flac|ogg|opus";
+const IMG = "png|jpe?g|webp|gif|bmp|tiff?|heic";
+const ext = (...segs: string[]) => new RegExp(`\\.(${segs.join("|")})$`, "i");
+
 const ANALYZE_CHOICES: AnalyzeChoice[] = [
   { label: "$(eye) Watch", description: "describe video", command: "overcast.ctx.watch", match: VIDEO_EXT },
-  { label: "$(unmute) Listen", description: "transcribe speech", command: "overcast.ctx.listen", match: /\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
+  { label: "$(unmute) Listen", description: "transcribe speech", command: "overcast.ctx.listen", match: ext(VID, AUD) },
   { label: "$(search) See", description: "describe image / OCR", command: "overcast.ctx.see", match: IMAGE_EXT },
-  { label: "$(person) Detect Faces", description: "find the people in it", command: "overcast.ctx.face", match: /\.(mp4|mov|mkv|webm|avi|m4v|png|jpe?g|webp|bmp|tiff?|heic)$/i },
-  { label: "$(info) EXIF Metadata", description: "GPS, capture time, camera fingerprint", command: "overcast.ctx.exif", match: /\.(mp4|mov|mkv|webm|avi|m4v|png|jpe?g|webp|gif|bmp|tiff?|heic)$/i },
-  { label: "$(wand) Enhance…", description: "denoise, upscale, forensic overlays", command: "overcast.ctx.enhance", match: /\.(mp4|mov|mkv|webm|avi|m4v|png|jpe?g|webp|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
-  { label: "$(play) View", description: "media player", command: "overcast.ctx.view", match: /\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|mp3|wav|m4a|aac|flac|ogg|opus|png|jpe?g|webp|gif)$/i },
+  { label: "$(person) Detect Faces", description: "find the people in it", command: "overcast.ctx.face", match: ext(VID, "png|jpe?g|webp|bmp|tiff?|heic") },
+  { label: "$(info) EXIF Metadata", description: "GPS, capture time, camera fingerprint", command: "overcast.ctx.exif", match: ext(VID, IMG) },
+  { label: "$(wand) Enhance…", description: "denoise, upscale, forensic overlays", command: "overcast.ctx.enhance", match: ext(VID, "png|jpe?g|webp", AUD) },
+  { label: "$(play) View", description: "media player", command: "overcast.ctx.view", match: ext(VID, AUD, "png|jpe?g|webp|gif") },
   { label: "$(layout-panel) Grid", description: "timestamped frame board", command: "overcast.ctx.grid", match: VIDEO_EXT },
-  { label: "$(compare-changes) Find Similar…", description: "search the case's image/sound databases", command: "overcast.ctx.similar", match: /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
-  { label: "$(pulse) Audio Fingerprint…", description: "exact-recording match", command: "overcast.ctx.audio", match: /\.(mp4|mov|mkv|webm|avi|m4v|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
-  { label: "$(mic) Voice Match…", description: "find a speaker", command: "overcast.ctx.voice", match: /\.(mp4|mov|mkv|webm|avi|m4v|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
+  { label: "$(compare-changes) Find Similar…", description: "search the case's image/sound databases", command: "overcast.ctx.similar", match: ext(IMG, AUD) },
+  { label: "$(pulse) Audio Fingerprint…", description: "exact-recording match", command: "overcast.ctx.audio", match: ext(VID, AUD) },
+  { label: "$(mic) Voice Match…", description: "find a speaker", command: "overcast.ctx.voice", match: ext(VID, AUD) },
   { label: "$(watch) Chronolocate…", description: "check time claims against sun/shadows", command: "overcast.ctx.chronolocate", match: IMAGE_EXT },
 ];
 

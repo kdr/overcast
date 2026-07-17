@@ -27,6 +27,10 @@ async function captureHit(
   post: (msg: HostMsg) => void,
   hit: ScanHit,
   alsoSense: boolean,
+  /** the case the SCAN ran in — the panel outlives case switches
+   *  (retainContextWhenHidden), and a click must not write evidence into
+   *  whatever case is active now. */
+  caseDir: string | undefined,
 ): Promise<void> {
   const status = (
     status: "working" | "done" | "error",
@@ -40,7 +44,7 @@ async function captureHit(
     return;
   }
   status("working", "capturing…");
-  const cap = await deps.bridge.run(["capture", ref]);
+  const cap = await deps.bridge.run(["capture", ref], { caseDir });
   if (cap.cancelled) {
     status("error", "cancelled");
     return;
@@ -65,7 +69,7 @@ async function captureHit(
     capRec.media?.ref ?? (typeof payload.path === "string" ? payload.path : "");
   const verb = senseVerbFor(mediaRef);
   status("working", `captured — running ${verb}…`);
-  const sensed = await deps.bridge.run([verb, capRec.id]);
+  const sensed = await deps.bridge.run([verb, capRec.id], { caseDir });
   if (sensed.cancelled) {
     status("done", `captured (${capRec.id}); ${verb} cancelled`, capRec.id);
     return;
@@ -82,6 +86,8 @@ async function captureHit(
 
 export async function openScanResultsPanel(deps: ExtDeps, state: ScanViewState): Promise<void> {
   const running = new Set<number>();
+  // pin the case the scan belongs to — not the locator's case at click time
+  const caseDir = deps.locator.caseDir;
   await createSpaPanel(deps.context, {
     viewType: "overcast.scan",
     title: `Scan: ${state.query}`,
@@ -108,7 +114,7 @@ export async function openScanResultsPanel(deps: ExtDeps, state: ScanViewState):
       if (running.has(hit.index)) return;
       running.add(hit.index);
       const post = (m: HostMsg): void => void webview.postMessage(m);
-      void captureHit(deps, post, hit, msg.action === "pullSense").finally(() =>
+      void captureHit(deps, post, hit, msg.action === "pullSense", caseDir).finally(() =>
         running.delete(hit.index),
       );
     },

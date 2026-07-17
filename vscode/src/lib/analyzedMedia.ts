@@ -3,11 +3,11 @@
 // import — testable under plain `node --test`.
 import type { RecordRow } from "../types.ts";
 
-// Client-side "this verb analyzed its media.ref" set (superset of the pulse
-// funnel's SENSE_VERBS — exif/voice/verify count as analysis here).
-// Keep in lockstep with SENSE_VERBS in the CLI's src/signals/pulse.ts — the
-// coverage funnel's `sensed` flag and this rollup must agree on what counts
-// as analyzed, or a source row and the Analyzed folder contradict each other.
+// Client-side "this verb analyzed its media.ref" set — a mirror of SENSE_VERBS
+// in the CLI's src/signals/pulse.ts (the extension is a thin client and can't
+// import it). Keep the sets AND the ready-only gate in lockstep — the coverage
+// funnel's `sensed` flag and this rollup must agree on what counts as
+// analyzed, or a source row and the Analyzed folder contradict each other.
 const ANALYZE_VERBS = new Set([
   "watch", "listen", "see", "face", "image", "similar", "cluster",
   "audio", "voice", "crop", "enhance", "exif", "verify",
@@ -20,7 +20,9 @@ export function analyzedMedia(
 ): Array<{ ref: string; verbs: string[]; recordId: string }> {
   const byRef = new Map<string, { verbs: Set<string>; recordId: string }>();
   for (const r of records) {
-    if (!r.media || !ANALYZE_VERBS.has(r.verb) || r.state === "error") continue;
+    // ready records only (missing state = ready) — a pending/needs_credentials/
+    // error run didn't analyze anything, and pulse's sensedRefs gates the same way
+    if (!r.media || !ANALYZE_VERBS.has(r.verb) || (r.state ?? "ready") !== "ready") continue;
     const entry = byRef.get(r.media);
     if (entry) {
       entry.verbs.add(r.verb);

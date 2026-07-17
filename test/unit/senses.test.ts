@@ -105,13 +105,44 @@ test("listen falls back to the summary ONLY with an explicit marker + warning", 
 test("listen: a pending envelope never gets the summary copied into transcript", async () => {
   await withFakeTinycloud(
     async () => {
-      const rec = await runListen("talk.wav");
+      // --lang rides along: the auto-detected warning must NOT be stamped on a
+      // record where nothing was transcribed (ready-only, like the summary gate)
+      const rec = await runListen("talk.wav", { lang: "es" });
       assert.equal(rec.state, "pending");
       const p = rec.payload as Record<string, unknown>;
       assert.equal(p.transcript, ""); // NOT the watch summary
+      assert.equal("warning" in p, false);
       assert.equal(rec.meta?.transcript_source, undefined);
     },
     { FAKE_TC_WATCH: "pending" },
+  );
+});
+
+test("listen: a binding pinned to the STOCK template still takes the default path", async () => {
+  await withFakeTinycloud(async () => {
+    // what `provider setup apply --verb listen --choice tinycloud` materializes
+    const rec = await runListen("talk.wav", { run: "tinycloud watch {{input}} --speech-only --json" });
+    assert.equal(rec.state, "ready");
+    const p = rec.payload as Record<string, unknown>;
+    assert.match(p.transcript as string, /We'll walk through the streets/);
+    assert.equal(rec.meta?.transcript_source, "caption");
+  });
+});
+
+test("listen --diarize: a diarized:false caption answer lifts NO phantom speaker", async () => {
+  await withFakeTinycloud(
+    async () => {
+      const rec = await runListen("talk.wav", { diarize: true });
+      assert.equal(rec.state, "ready");
+      const segs = (rec.payload as Record<string, unknown>).segments as Array<
+        Record<string, unknown>
+      >;
+      // spoken words start "Warning: …" but diarization was unavailable — the
+      // colon must stay in the text, not become a speaker named "Warning"
+      assert.equal(segs[0].speaker, undefined);
+      assert.equal(segs[0].text, "Warning: do not cross the bridge");
+    },
+    { FAKE_TC_DIARIZED: "off" },
   );
 });
 

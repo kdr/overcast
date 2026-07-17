@@ -6,6 +6,9 @@
 #   FAKE_TC_CAPTION=fail  → caption exits non-zero (tests the summary fallback path)
 #   FAKE_TC_CAPTION=hang  → caption blocks (tests that an abort REJECTS, never a summary)
 #   FAKE_TC_WATCH=pending → watch answers a pending async envelope (with a summary)
+#   FAKE_TC_DIARIZED=off  → caption honors --diarize but answers diarized:false
+#                           with "Word: …"-shaped SPEECH (diarization unavailable —
+#                           tests that no phantom speaker is lifted)
 set -euo pipefail
 sub="${1:-}"
 case "$sub" in
@@ -36,7 +39,13 @@ JSON
       echo '{"tinycloud":"1","kind":"caption","status":"needs_upload","data":null,"error":{"code":"needs_upload","message":"No cached speech for this source."}}'
       exit 3
     fi
-    if [[ "$*" == *"--diarize"* ]]; then
+    if [ "${FAKE_TC_DIARIZED:-}" = "off" ]; then
+      cat <<'JSON'
+{"tinycloud":"1","kind":"caption","status":"ready","data":{"format":"srt","cues":[
+  {"index":1,"start_time":0,"end_time":1.2,"text":"Warning: do not cross the bridge"}
+],"diarized":false}}
+JSON
+    elif [[ "$*" == *"--diarize"* ]]; then
       cat <<'JSON'
 {"tinycloud":"1","kind":"caption","status":"ready","data":{"format":"srt","cues":[
   {"index":1,"start_time":0,"end_time":1.2,"text":"1: We'll walk through the streets"},

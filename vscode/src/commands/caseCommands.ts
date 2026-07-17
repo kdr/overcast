@@ -102,12 +102,15 @@ export function registerCaseCommands(deps: ExtDeps): void {
       name: `overcast · ${locator.caseName ?? ""}`.trim(),
       cwd: caseDir,
       location: vscode.TerminalLocation.Editor,
+      // node-runner mode relaunches the resolved runner, which needs
+      // ELECTRON_RUN_AS_NODE in the terminal's env
+      env: bridge.terminalEnv(cli),
     });
     term.show();
     // Launch the interactive agent (TUI) via bridge.terminalLaunch: node-runner
-    // aware (in node-runner mode cli.cmd is the extension host's Electron
-    // binary — a plain terminal needs real `node <script>`), and carrying the
-    // same --profile/--home settings as every spawned run.
+    // aware (reuses the SAME resolved runner every spawned run uses — a bare
+    // `node` may not be on the terminal's PATH), and carrying the same
+    // --profile/--home settings as every spawned run.
     // Records the agent writes land in .overcast/ (the sidebar auto-refreshes);
     // the agent opens its own HTML artifacts in the OS browser — open them here
     // from the Records tree to get a webview panel instead.
@@ -132,9 +135,12 @@ export function registerCaseCommands(deps: ExtDeps): void {
       name: `overcast setup · ${locator.caseName ?? ""}`.trim(),
       cwd: caseDir,
       location: vscode.TerminalLocation.Editor,
+      env: bridge.terminalEnv(cli),
     });
     term.show();
-    // single-quoted: shell-inert in zsh/bash/PowerShell (no backticks/apostrophes!)
+    // single-quoted: literal in zsh/bash and PowerShell — so the message must
+    // contain NO apostrophes/backticks (cmd.exe is best-effort, like the rest
+    // of terminalLaunch)
     const wizardMsg =
       "Walk me through case setup as a step-by-step wizard. Check the current setup status first, then ask me one question at a time. If the case is already set up, summarize the current setup and offer edits.";
     term.sendText(bridge.terminalLaunch(cli, "--tui", `'${wizardMsg}'`));
@@ -143,6 +149,9 @@ export function registerCaseCommands(deps: ExtDeps): void {
   // ---- restart / re-resolve the CLI -----------------------------------------
   const restartCli = vscode.commands.registerCommand("overcast.restartCli", async () => {
     const cli = await bridge.restart();
+    // the restart may have landed on an upgraded/repointed binary — the verb
+    // registry's memory tier must re-check the version on next use
+    deps.registry.invalidate();
     void vscode.window.showInformationMessage(
       cli ? `Overcast CLI: ${cli.display}` : "Overcast CLI still not found — set overcast.path.",
     );
