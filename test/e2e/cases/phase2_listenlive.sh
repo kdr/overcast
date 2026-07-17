@@ -31,3 +31,12 @@ out="$($OVERCAST listen "$clip" --json --case "$casedir" 2>"$SMOKE_DIR/phase2_li
 save_json "phase2_listenlive" "$out" >/dev/null
 assert_eq "listenlive.verb" "listen" "$(jq -r .verb <<<"$out")" "listen verb"
 assert_eq "listenlive.state" "ready" "$(jq -r '.state // "ready"' <<<"$out")" "listen ready (real Cloudglue)"
+# Regression (tinycloud ≥0.3.10): the transcript must be the verbatim caption
+# cues / inline speech segments — never the watch SUMMARY (which the mapper
+# marks transcript_source=summary + payload.warning when it has nothing else).
+src="$(jq -r '.meta.transcript_source // empty' <<<"$out")"
+if [ "$src" = "caption" ] || [ "$src" = "segments" ]; then
+  ok "listenlive.verbatim" "transcript is verbatim speech (transcript_source=$src)"
+else
+  fail "listenlive.verbatim" "transcript_source='$src' — summary/none posing as the transcript"
+fi

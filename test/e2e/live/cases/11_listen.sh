@@ -23,6 +23,19 @@ if require_cred "$C.cloudglue" CLOUDGLUE_API_KEY "skipping"; then
   echo "$out" | jq -e 'has("payload") and (.payload|has("transcript"))' >/dev/null 2>&1 \
     && ok "$C.cg.transcript_field" "transcript field present (len $(echo "$out"|jq -r '.payload.transcript|length'))" \
     || fail "$C.cg.transcript_field" "no transcript field"
+  # Regression (tinycloud ≥0.3.10): `watch --speech-only` stopped inlining
+  # speech segments, and listen silently stored the LLM SUMMARY as the
+  # transcript. The transcript must come from the verbatim caption cues —
+  # a marked summary fallback here means the speech path is broken again.
+  src="$(echo "$out" | jq -r '.meta.transcript_source // empty')"
+  if [ "$src" = "caption" ] || [ "$src" = "segments" ]; then
+    ok "$C.cg.verbatim" "transcript is verbatim speech (transcript_source=$src)"
+  else
+    fail "$C.cg.verbatim" "transcript_source='$src' — summary/none posing as the transcript"
+  fi
+  echo "$out" | jq -e '.payload.segments | length >= 1 and (.[0] | has("at"))' >/dev/null 2>&1 \
+    && ok "$C.cg.segment_anchors" "segments carry time anchors ($(echo "$out"|jq -r '.payload.segments|length') cue(s))" \
+    || fail "$C.cg.segment_anchors" "no time-anchored segments in a real speech clip"
 fi
 
 # --- ElevenLabs Scribe (bound provider) ---

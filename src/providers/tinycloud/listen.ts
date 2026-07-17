@@ -1,10 +1,21 @@
 // Default `listen` provider: tinycloud (exec): a SPEECH-ONLY describe
 // Maps the tinycloud envelope to an `audio.analysis` record at
 // the exec boundary. Swap to a local whisper via http/in-proc for offline use.
+//
+// Two-step default path: `tinycloud watch --speech-only` creates/refreshes the
+// speech enrichment, then the public `tinycloud caption` verb (local once the
+// enrichment is cached) supplies the VERBATIM cues. tinycloud ≥ 0.3.10 stopped
+// inlining per-segment speech in the watch envelope (segments: [] for audio /
+// short sources), so mapping the envelope alone would silently store the LLM
+// summary as the "transcript" — never let a summary pose as the spoken words.
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
 import { execCapture, renderCommand, parseFirstJson } from "../exec.js";
+import { tinycloudBase } from "./envelope.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --speech-only --json";
 
@@ -37,7 +48,9 @@ function toSeconds(v: unknown): number | undefined {
   return undefined;
 }
 
-/** Build a transcript + speaker-tagged segments[] from tinycloud segments. */
+/** Build a transcript + speaker-tagged segments[] from tinycloud segments.
+ *  SPEECH fields only — a segment's `summary`/`description` is scene prose,
+ *  not spoken words; the caller decides (and marks) any summary fallback. */
 function segments(data: Record<string, unknown>): {
   transcript: string;
   segments: Array<Record<string, unknown>>;
@@ -49,11 +62,7 @@ function segments(data: Record<string, unknown>): {
     if (!s || typeof s !== "object") continue;
     const seg = s as Record<string, unknown>;
     const text =
-      (seg.transcript as string) ??
-      (seg.speech as string) ??
-      (seg.text as string) ??
-      (seg.summary as string) ??
-      "";
+      (seg.transcript as string) ?? (seg.speech as string) ?? (seg.text as string) ?? "";
     // tolerate numeric-string timestamps from external APIs ("12.5").
     const start = toSeconds(seg.start_time ?? seg.start_seconds ?? seg.start);
     const end = toSeconds(seg.end_time ?? seg.end_seconds ?? seg.end);
@@ -71,15 +80,64 @@ function segments(data: Record<string, unknown>): {
       lines.push(speaker ? `${String(speaker)}: ${text}` : String(text));
     }
   }
-  // fall back to a top-level summary/transcript when no per-segment speech
-  let transcript = lines.join("\n");
-  if (!transcript) {
-    transcript =
-      (typeof data.transcript === "string" && data.transcript) ||
-      (typeof data.summary === "string" && (data.summary as string)) ||
-      "";
+  return { transcript: lines.join("\n"), segments: out };
+}
+
+/** Fetch the verbatim transcript cues through the public `tinycloud caption`
+ *  verb (local once `watch` has cached the speech enrichment). Best-effort:
+ *  any failure returns undefined and the caller keeps the envelope mapping.
+ *  Honors OVERCAST_TINYCLOUD_CMD like the other tinycloud-backed verbs. */
+async function captionTranscript(
+  input: string,
+  opts: { diarize?: boolean; env?: NodeJS.ProcessEnv; signal?: AbortSignal; timeoutMs?: number },
+): Promise<{ transcript: string; segments: Array<Record<string, unknown>> } | undefined> {
+  const [cmd, ...lead] = tinycloudBase();
+  if (!cmd) return undefined;
+  // caption writes an .srt sidecar — point it at a scratch dir so nothing
+  // lands next to the evidence media; the cues we need are in the envelope.
+  const outDir = mkdtempSync(join(tmpdir(), "oc-caption-"));
+  try {
+    const args = [...lead, "caption", input, "--json", "-o", outDir];
+    if (opts.diarize) args.push("--diarize");
+    const res = await execCapture(cmd, args, {
+      timeoutMs: opts.timeoutMs ?? 5 * 60_000,
+      env: opts.env,
+      signal: opts.signal,
+    });
+    if (res.code !== 0) return undefined;
+    const data = envelopeData(parseFirstJson(res.stdout));
+    const raw = Array.isArray(data.cues) ? data.cues : [];
+    const segs: Array<Record<string, unknown>> = [];
+    const lines: string[] = [];
+    for (const c of raw) {
+      if (!c || typeof c !== "object") continue;
+      const cue = c as Record<string, unknown>;
+      let text = typeof cue.text === "string" ? cue.text.trim() : "";
+      if (!text) continue;
+      // diarized cues arrive as "SPEAKER: words" — lift the label out.
+      let speaker: string | undefined;
+      if (opts.diarize) {
+        const m = text.match(/^([^:\n]{1,24}):\s+([\s\S]*)$/);
+        if (m) {
+          speaker = m[1];
+          text = m[2];
+        }
+      }
+      const start = toSeconds(cue.start_time ?? cue.start);
+      const end = toSeconds(cue.end_time ?? cue.end);
+      const entry: Record<string, unknown> = speaker ? { speaker, text } : { text };
+      if (start !== undefined && end !== undefined) entry.at = [start, end];
+      else if (start !== undefined) entry.at = start;
+      segs.push(entry);
+      lines.push(speaker ? `${speaker}: ${text}` : text);
+    }
+    if (lines.length === 0) return undefined;
+    return { transcript: lines.join("\n"), segments: segs };
+  } catch {
+    return undefined;
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
   }
-  return { transcript, segments: out };
 }
 
 /** Full multimodal describe → surfaces tinycloud's AUDIO descriptions (sounds,
@@ -123,9 +181,15 @@ export async function runListen(
   opts: ListenOptions = {},
 ): Promise<OvercastRecord> {
   // Empty/whitespace run template falls back to the default; --describe selects
-  // the full multimodal describe template.
-  const template = opts.run && opts.run.trim() ? opts.run : (opts.describe ? DESCRIBE_RUN : DEFAULT_RUN);
-  const argv = renderCommand(template, { input });
+  // the full multimodal describe template. A binding pinned to the stock
+  // template still counts as the default path (mirrors runWatch), which honors
+  // OVERCAST_TINYCLOUD_CMD via tinycloudBase.
+  const configured = opts.run?.trim();
+  const isDefault = !configured || configured === DEFAULT_RUN || configured === DESCRIBE_RUN;
+  const template = isDefault ? (opts.describe ? DESCRIBE_RUN : DEFAULT_RUN) : configured;
+  const argv = isDefault
+    ? [...tinycloudBase(), "watch", input, ...(opts.describe ? [] : ["--speech-only"]), "--json"]
+    : renderCommand(template, { input });
   const [cmd, ...args] = argv;
   // A template that renders to no command would reject at spawn and throw;
   // surface it as a normal error record like other failures.
@@ -140,9 +204,14 @@ export async function runListen(
       state: "error",
     });
   }
-  // Forward the declared listen flags to the provider command.
-  if (opts.diarize) args.push("--diarize");
-  if (opts.lang) args.push("--lang", opts.lang);
+  // Forward the declared listen flags to a CUSTOM provider command (the
+  // wrapper's contract). The default tinycloud `watch` REJECTS both flags
+  // ("Unknown flag for watch: --diarize") — on the default path --diarize
+  // rides the caption pass below and --lang has no tinycloud equivalent.
+  if (!isDefault) {
+    if (opts.diarize) args.push("--diarize");
+    if (opts.lang) args.push("--lang", opts.lang);
+  }
   const res = await execCapture(cmd, args, {
     timeoutMs: opts.timeoutMs ?? 15 * 60_000,
     env: opts.env,
@@ -227,7 +296,9 @@ export async function runListen(
     });
   }
 
-  const { transcript, segments: segs } = segments(data);
+  let { transcript, segments: segs } = segments(data);
+  let transcriptSource: "segments" | "caption" | "transcript" | "summary" | undefined =
+    segs.length > 0 ? "segments" : undefined;
   const language =
     (typeof data.language === "string" && data.language) ||
     (typeof data.lang === "string" && (data.lang as string)) ||
@@ -247,6 +318,47 @@ export async function runListen(
         ? "pending"
         : "ready";
 
+  // Default path: prefer the caption verb's VERBATIM cues over whatever the
+  // watch envelope inlined — tinycloud ≥ 0.3.10 ships segments: [] for audio /
+  // short sources, and older envelopes' segment text is the same speech anyway.
+  // Best-effort: a caption failure keeps the envelope mapping.
+  if (isDefault && state === "ready") {
+    const cap = await captionTranscript(input, {
+      diarize: opts.diarize,
+      env: opts.env,
+      signal: opts.signal,
+      timeoutMs: opts.timeoutMs,
+    });
+    if (cap) {
+      transcript = cap.transcript;
+      segs = cap.segments;
+      transcriptSource = "caption";
+    }
+  }
+
+  // Last-resort fallbacks for an empty transcript: a top-level transcript
+  // string is real speech; the summary is NOT — keep it visible but say so.
+  let warning: string | undefined;
+  if (!transcript) {
+    if (typeof data.transcript === "string" && data.transcript) {
+      transcript = data.transcript;
+      transcriptSource = "transcript";
+    } else if (typeof data.summary === "string" && data.summary) {
+      transcript = data.summary;
+      transcriptSource = "summary";
+      warning =
+        "no verbatim speech was available from the provider — `transcript` holds the provider's SUMMARY of the audio, not the spoken words.";
+    }
+  }
+  if (isDefault && opts.lang) {
+    warning = [
+      warning,
+      "the default tinycloud backend has no --lang option; the source language was auto-detected.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
   // Record-level seek anchor (the per-segment anchors live in payload.segments):
   // the first segment's start, so `view <listen-rec>` has a seek hint.
   let mediaAt: number | undefined;
@@ -263,15 +375,23 @@ export async function runListen(
   }
 
   const payload: Record<string, unknown> = { transcript, segments: segs, language };
+  if (warning) payload.warning = warning;
   // describe mode surfaces the audio-scene description alongside the transcript
   if (opts.describe) payload.description = audioDescription(data);
+
+  const meta: Record<string, unknown> = {
+    provider: "tinycloud",
+    model: "cloudglue",
+    mode: opts.describe ? "describe" : "speech",
+  };
+  if (transcriptSource) meta.transcript_source = transcriptSource;
 
   return makeRecord({
     verb: "listen",
     format: "json",
     payload,
     media: mediaAt !== undefined ? { ref: input, at: mediaAt } : { ref: input },
-    meta: { provider: "tinycloud", model: "cloudglue", mode: opts.describe ? "describe" : "speech" },
+    meta,
     state,
   });
 }

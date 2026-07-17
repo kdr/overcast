@@ -39,6 +39,69 @@ function ctx(input: string, opts: VerbContext["opts"] = {}): VerbContext {
   return { input, rest: [], opts, case: c, profile: defaultProfile() };
 }
 
+const FAKE_TC_SPEECH = join(HERE, "..", "fixtures", "fake-tinycloud-speech.sh");
+
+/** Run fn with OVERCAST_TINYCLOUD_CMD pointed at the speech fixture. */
+async function withFakeTinycloud(fn: () => Promise<void>, extraEnv: Record<string, string> = {}) {
+  chmodSync(FAKE_TC_SPEECH, 0o755);
+  const prevCmd = process.env.OVERCAST_TINYCLOUD_CMD;
+  const prevExtra = Object.fromEntries(Object.keys(extraEnv).map((k) => [k, process.env[k]]));
+  process.env.OVERCAST_TINYCLOUD_CMD = `bash ${FAKE_TC_SPEECH}`;
+  Object.assign(process.env, extraEnv);
+  try {
+    await fn();
+  } finally {
+    if (prevCmd === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prevCmd;
+    for (const [k, v] of Object.entries(prevExtra)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+test("listen default path takes the VERBATIM caption cues, not the watch summary", async () => {
+  await withFakeTinycloud(async () => {
+    const rec = await runListen("talk.wav");
+    assert.equal(rec.state, "ready");
+    const p = rec.payload as Record<string, unknown>;
+    assert.match(p.transcript as string, /We'll walk through the streets/);
+    assert.ok(!(p.transcript as string).includes("visitor describes"), "summary leaked into transcript");
+    const segs = p.segments as Array<Record<string, unknown>>;
+    assert.equal(segs.length, 2);
+    assert.deepEqual(segs[0].at, [0, 1.2]);
+    assert.equal(rec.meta?.transcript_source, "caption");
+    assert.equal("warning" in p, false);
+  });
+});
+
+test("listen default path --diarize rides the caption pass and lifts speaker labels", async () => {
+  await withFakeTinycloud(async () => {
+    const rec = await runListen("talk.wav", { diarize: true });
+    assert.equal(rec.state, "ready"); // watch must NOT have been passed --diarize
+    const segs = (rec.payload as Record<string, unknown>).segments as Array<
+      Record<string, unknown>
+    >;
+    assert.equal(segs[0].speaker, "1");
+    assert.equal(segs[0].text, "We'll walk through the streets");
+    assert.match((rec.payload as Record<string, unknown>).transcript as string, /^1: We'll walk/);
+  });
+});
+
+test("listen falls back to the summary ONLY with an explicit marker + warning", async () => {
+  await withFakeTinycloud(
+    async () => {
+      const rec = await runListen("talk.wav");
+      assert.equal(rec.state, "ready");
+      const p = rec.payload as Record<string, unknown>;
+      assert.match(p.transcript as string, /visitor describes exploring Zurich/);
+      assert.equal(rec.meta?.transcript_source, "summary");
+      assert.match(p.warning as string, /SUMMARY of the audio, not the spoken words/);
+    },
+    { FAKE_TC_CAPTION: "fail" },
+  );
+});
+
 test("runListen maps a speech envelope to audio.analysis (via fixture provider)", async () => {
   chmodSync(FAKE_LISTEN, 0o755);
   const rec = await runListen("call.m4a", { run: `bash ${FAKE_LISTEN} {{input}}` });

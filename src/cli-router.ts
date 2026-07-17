@@ -65,8 +65,11 @@ export function hasMalformedGlobal(argv: string[]): boolean {
   return false;
 }
 
-/** Does this (--tui-stripped) argv dispatch the verb registry (vs launch the TUI)? */
-export function isCliDispatch(argv: string[]): boolean {
+/** Does this (--tui-stripped) argv dispatch the verb registry (vs launch the TUI)?
+ *  `explicitTui`: the original argv carried `--tui` — an unknown leading token is
+ *  then a pi initial MESSAGE (`overcast --tui "walk me through case setup"`),
+ *  not a mistyped verb. Real verbs/help/version still win over --tui. */
+export function isCliDispatch(argv: string[], opts: { explicitTui?: boolean } = {}): boolean {
   const cmd = effectiveCmd(argv);
   // No command after the leading flags. Route to the CLI (to report the error) for
   // a value-less global (`overcast --case`) OR an output-flag-only invocation
@@ -87,8 +90,9 @@ export function isCliDispatch(argv: string[]): boolean {
   if (KNOWN_TOP.has(cmd)) return true;
   if (findVerb(cmd)) return true;
   // A leading non-flag token is a command — route mistyped verbs to the CLI so it
-  // reports "unknown command" instead of silently launching the TUI.
-  if (!cmd.startsWith("-")) return true;
+  // reports "unknown command" instead of silently launching the TUI. With an
+  // explicit --tui the same token is pi's initial message instead.
+  if (!cmd.startsWith("-")) return !opts.explicitTui;
   return false; // leading pi flag (e.g. -p) → TUI
 }
 
@@ -101,6 +105,7 @@ export interface Route {
 /** The top-level dispatch decision for `overcast <argv>`. */
 export function routeArgv(argv: string[]): Route {
   // --tui is a TUI-only routing flag; the CLI never needs to see it.
+  const explicitTui = argv.includes("--tui");
   const cliArgv = argv.filter((a) => a !== "--tui");
-  return { mode: isCliDispatch(cliArgv) ? "cli" : "tui", cliArgv };
+  return { mode: isCliDispatch(cliArgv, { explicitTui }) ? "cli" : "tui", cliArgv };
 }

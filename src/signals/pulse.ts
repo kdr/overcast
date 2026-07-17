@@ -58,6 +58,17 @@ export function latestTimed(records: OvercastRecord[], verb: string): { rec: Ove
   return best;
 }
 
+/** One grabbed media item attributed to a source (capture provenance). */
+export interface SourceMediaItem {
+  /** capture record id */
+  record: string;
+  /** local media path (or the capture record id when no ref was stored) */
+  ref: string;
+  title?: string;
+  /** ≥1 ready sense record exists over this media */
+  sensed: boolean;
+}
+
 export interface SourceCoverage {
   id: string;
   spec: string;
@@ -69,6 +80,8 @@ export interface SourceCoverage {
   sensed: number;
   /** enabled source that has never produced a ready scan hit */
   gap: boolean;
+  /** grabbed media attributed to this source, newest-first (capped) */
+  media: SourceMediaItem[];
 }
 
 export interface TriageCounts {
@@ -186,6 +199,25 @@ function buildCoverage(records: OvercastRecord[], sources: SourceEntry[], now: n
         .map((c) => c.media?.ref ?? (typeof payloadOf(c).path === "string" ? (payloadOf(c).path as string) : undefined))
         .filter((ref): ref is string => !!ref && sensed.has(ref)),
     ).size;
+    // The grabbed-media items behind the `captured` count, newest-first (the
+    // sidebar's per-source media children). Capped: coverage rides every
+    // status/brief payload.
+    const hitTitleById = new Map(hitRecords.map((r) => [r.id, payloadOf(r).title]));
+    const mediaItems: SourceMediaItem[] = captured
+      .slice()
+      .sort((a, b) => (timeMs(b) || 0) - (timeMs(a) || 0))
+      .slice(0, 50)
+      .map((c) => {
+        const p = payloadOf(c);
+        const ref = c.media?.ref ?? (typeof p.path === "string" ? p.path : c.id);
+        const title = typeof p.title === "string" && p.title ? p.title : hitTitleById.get(p.source_record as string);
+        return {
+          record: c.id,
+          ref,
+          ...(typeof title === "string" && title ? { title } : {}),
+          sensed: sensed.has(ref),
+        };
+      });
     // per-SOURCE freshness: newest of THIS source's own hit records (source_id),
     // not the platform-shared freshness — two x:@a / x:@b sources must not share
     // an age just because they're the same platform.
@@ -201,6 +233,7 @@ function buildCoverage(records: OvercastRecord[], sources: SourceEntry[], now: n
       captured: captured.length,
       sensed: sensedCount,
       gap: src.enabled && hitRecords.length === 0,
+      media: mediaItems,
     };
   });
 }
