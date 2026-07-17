@@ -142,6 +142,12 @@ test("youtube --limit 0 = uncapped: no --playlist-end for channels, ytsearchall 
     await enumerateSource(desc!, { query: "streams:acme", limit: 5, env });
     argv = readFileSync(log, "utf8");
     assert.match(argv, /https:\/\/www\.youtube\.com\/@acme\/streams/);
+    // a URL already ending with the tab must not double-append it
+    writeFileSync(log, "");
+    await enumerateSource(desc!, { query: "shorts:https://www.youtube.com/@acme/shorts/", limit: 5, env });
+    argv = readFileSync(log, "utf8");
+    assert.match(argv, /https:\/\/www\.youtube\.com\/@acme\/shorts/);
+    assert.doesNotMatch(argv, /shorts\/shorts/);
     // search + limit 0 → ytsearchall
     writeFileSync(log, "");
     await enumerateSource(desc!, { query: "search:moon base", limit: 0, env });

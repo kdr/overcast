@@ -40,17 +40,12 @@ ref_to_target() {
   local n="$limit"; [ "$n" = "0" ] && n="all"
   case "$ref" in
     search:*)    echo "ytsearch${n}:${ref#search:}" ;;
-    playlists:*) # the channel's playlists TAB — one hit per playlist
-      local ch="${ref#playlists:}"
-      case "$ch" in
-        http*://*) echo "${ch%/}/playlists" ;;
-        @*)        echo "https://www.youtube.com/${ch}/playlists" ;;
-        *)         echo "https://www.youtube.com/@${ch}/playlists" ;;
-      esac ;;
-    shorts:*|streams:*) # channel tabs — same handle normalization as playlists:
+    playlists:*|shorts:*|streams:*) # channel TABS — one shared normalization:
+      # bare handle → @handle; URL → append the tab, tolerating a URL that
+      # already ends with it (no …/playlists/playlists double-append)
       local tab="${ref%%:*}" ch="${ref#*:}"
       case "$ch" in
-        http*://*) echo "${ch%/}/$tab" ;;
+        http*://*) ch="${ch%/}"; ch="${ch%"/$tab"}"; echo "$ch/$tab" ;;
         @*)        echo "https://www.youtube.com/${ch}/$tab" ;;
         *)         echo "https://www.youtube.com/@${ch}/$tab" ;;
       esac ;;
