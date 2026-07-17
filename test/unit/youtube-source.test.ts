@@ -693,3 +693,32 @@ test("dl: uncapped recency scans of channel/user pages get --break-on-reject (10
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a raw channel-ROOT url normalizes to its /videos tab (parity with @handle: mode + recency bound apply)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
+  try {
+    // bare root (with browser query junk) → /videos tab + the uncapped recency bound
+    const a = shimEnv(dir, "flat_videos");
+    await enumerateSource(builtinDescriptor("youtube")!, {
+      query: "https://www.youtube.com/@acme?si=xyz",
+      limit: 0,
+      since: "3d",
+      env: a.env,
+    });
+    let argv = readFileSync(a.log, "utf8");
+    assert.match(argv, /https:\/\/www\.youtube\.com\/@acme\/videos/);
+    assert.match(argv, /--break-on-reject/);
+    // a watch url and an existing tab url pass through untouched
+    const b = shimEnv(dir, "flat_videos");
+    await enumerateSource(builtinDescriptor("youtube")!, { query: "https://www.youtube.com/watch?v=abc", limit: 5, env: b.env });
+    argv = readFileSync(b.log, "utf8");
+    assert.match(argv, /watch\?v=abc/);
+    assert.doesNotMatch(argv, /watch\?v=abc\/videos/);
+    const c = shimEnv(dir, "flat_videos");
+    await enumerateSource(builtinDescriptor("youtube")!, { query: "https://www.youtube.com/@acme/shorts", limit: 5, env: c.env });
+    argv = readFileSync(c.log, "utf8");
+    assert.doesNotMatch(argv, /shorts\/videos/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

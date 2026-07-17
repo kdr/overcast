@@ -55,7 +55,19 @@ ref_to_target() {
       esac ;;
     @*)          echo "https://www.youtube.com/${ref}/videos" ;;
     playlist:*)  echo "https://www.youtube.com/playlist?list=${ref#playlist:}" ;;
-    http*://*)   echo "$ref" ;;
+    http*://*)
+      # a bare channel-ROOT url normalizes to its /videos tab, exactly like
+      # the @handle shorthand — so mode detection and the uncapped recency
+      # bound (--break-on-reject) treat both spellings identically. Anything
+      # deeper (a tab, a video slug, watch/playlist urls) passes through.
+      local u="${ref%%\#*}"; u="${u%%\?*}"; u="${u%/}"
+      case "$u" in
+        *youtube.com/@*/*|*youtube.com/c/*/*|*youtube.com/channel/*/*|*youtube.com/user/*/*)
+          echo "$ref" ;;   # already a tab or deeper path
+        *youtube.com/@*|*youtube.com/c/*|*youtube.com/channel/*|*youtube.com/user/*)
+          echo "$u/videos" ;;
+        *) echo "$ref" ;;
+      esac ;;
     *)           echo "ytsearch${n}:${ref}" ;;  # bare keyword
   esac
 }
