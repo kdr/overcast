@@ -49,9 +49,13 @@ const err = errRecord;
 function scanFlagError(ctx: VerbContext, verb = "scan"): OvercastRecord | undefined {
   if (ctx.opts.limit != null) {
     const n = Number(ctx.opts.limit);
-    if (!Number.isFinite(n) || n <= 0) {
-      return err(verb, `invalid --limit: ${ctx.opts.limit} (expected a positive number)`);
+    // 0 = uncapped where the source supports it (yt-dlp whole-channel/playlist)
+    if (!Number.isFinite(n) || n < 0) {
+      return err(verb, `invalid --limit: ${ctx.opts.limit} (expected a positive number, or 0 for uncapped)`);
     }
+  }
+  if (ctx.opts.transcript === true && ctx.opts.thumb === true) {
+    return err(verb, "--transcript and --thumb are mutually exclusive (pick one fetch kind)");
   }
   const since = ctx.opts.since ? String(ctx.opts.since) : undefined;
   if (since && parseSince(since) == null) {
@@ -96,7 +100,10 @@ async function scanLocalCase(ctx: VerbContext): Promise<OvercastRecord[]> {
   const localImageIndexes = indexes.filter((i) => i.backend === "local" && i.type === "image-ransac");
   const mediaIndexes = indexes.filter((i) => i.type === "media-descriptions");
   const refs = localMediaRefs(ctx);
-  const localLimit = ctx.opts.limit != null ? Number(ctx.opts.limit) : 5;
+  // --limit 0 = uncapped here too (the local scan is free), matching the
+  // yt-dlp source semantics — a literal 0 would slice every candidate away
+  const rawLimit = ctx.opts.limit != null ? Number(ctx.opts.limit) : 5;
+  const localLimit = rawLimit === 0 ? Infinity : rawLimit;
   const localCandidatesAll = localVisualCandidates(refs, imageTargets, [...localFaceIndexes, ...localImageIndexes]);
   const localImageCandidates = localCandidatesAll.slice(0, localLimit);
   const localFaceCandidatesAll = localCandidatesAll.filter(isVideoRef);
@@ -362,8 +369,39 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
     return { records: [err(caller, label)], outcome: "failed", submittedRemote: 0 };
   }
 
+  // A CONTAINER hit (a playlists-tab entry: payload.kind === "playlist") is a
+  // pointer to a collection, not fetchable media — pulling its URL would hand
+  // yt-dlp an entire playlist as if it were one video. Skip with a promote
+  // hint; the youtube provider guards the same class at the fetch boundary.
+  const hitPayload = (hit.payload ?? {}) as Record<string, unknown>;
+  if (hitPayload.kind === "playlist") {
+    const promote = typeof hitPayload.playlist_ref === "string" ? hitPayload.playlist_ref : undefined;
+    return {
+      ref,
+      records: [makeRecord({
+        verb: caller,
+        format: "json",
+        payload: {
+          op: "pull_skip",
+          reason: "playlist container hit — scan its videos instead of pulling it as media",
+          url: ref,
+          ...(promote ? { promote: `overcast source add ${promote}` } : {}),
+        },
+        meta: { case: ctx.case.dir },
+        state: "ready",
+      })],
+      outcome: "completed",
+      submittedRemote: 0,
+    };
+  }
+
   const explicitPipe = ctx.opts.pipe ? String(ctx.opts.pipe) : undefined;
-  const directPlan = directSensePlan(ctx, ref);
+  // a --transcript/--thumb pull replaces the video download entirely — but only
+  // for hits whose SOURCE declares the fetch kind; anyone else keeps their
+  // normal pull path, including remote direct-sense plans.
+  const mode = fetchKindOverride(ctx);
+  const kindApplies = mode != null && sourceSupportsFetchKind(ctx, hitSourceType(hit), ref, mode.kind);
+  const directPlan = kindApplies ? undefined : directSensePlan(ctx, ref);
   const records: OvercastRecord[] = [];
   let submittedRemote = 0;
 
@@ -406,17 +444,20 @@ async function processPulledHit(ctx: VerbContext, caller: "scan" | "monitor", hi
     // Instagram/webcam still) must feed the configured auto_sense chain — exif /
     // verify / see — even though the DEFAULT sense (watch) is A/V-only. An
     // explicit --pipe always runs.
-    if (explicitPipe || isSenseableMedia(cap.media.ref) || isImage(cap.media.ref)) {
-      if (explicitPipe) {
-        const sensedRecords = await runExplicitPipeWithPolicy(ctx, caller, explicitPipe, cap.media.ref);
-        records.push(...(sensedRecords.length ? sensedRecords : [err(caller, `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`)]));
-      } else {
-        const automated = await runSetupAutomation(ctx, caller, cap.media.ref);
-        if (automated.length) records.push(...automated);
-        // no configured chain → default watch, but only for A/V; a still image
-        // has no default sense (forensic/image senses must be set via auto_sense).
-        else if (isAv(cap.media.ref)) records.push(...await runDefaultWatchWithPolicy(ctx, caller, cap.media.ref));
-      }
+    if (explicitPipe) {
+      const sensedRecords = await runExplicitPipeWithPolicy(ctx, caller, explicitPipe, cap.media.ref);
+      records.push(...(sensedRecords.length ? sensedRecords : [err(caller, `explicit --pipe ${explicitPipe} produced no records for ${cap.media.ref}`)]));
+    } else if (!kindApplies && (isSenseableMedia(cap.media.ref) || isImage(cap.media.ref))) {
+      // a fetch-kind capture (--transcript/--thumb) REPLACED the source's
+      // normal media pull, so the case's auto_sense chain — written for that
+      // media (watch/listen on videos) — must not fire on the substitute
+      // artifact (it would error a watch on a thumbnail jpg). An explicit
+      // --pipe above still wins when the operator asks for it.
+      const automated = await runSetupAutomation(ctx, caller, cap.media.ref);
+      if (automated.length) records.push(...automated);
+      // no configured chain → default watch, but only for A/V; a still image
+      // has no default sense (forensic/image senses must be set via auto_sense).
+      else if (isAv(cap.media.ref)) records.push(...await runDefaultWatchWithPolicy(ctx, caller, cap.media.ref));
     }
   }
   return finish();
@@ -440,6 +481,9 @@ export const scanVerb: VerbSpec = {
     { name: "limit", summary: "Max hits per source; with --local, max local visual DB candidates", type: "number" },
     { name: "local", summary: "Scan local case media/indexes instead of external sources", type: "boolean" },
     { name: "pull", summary: "Auto-capture + sense each hit", type: "boolean" },
+    { name: "transcript", summary: "With --pull, yt-dlp sources: captions + metadata per hit instead of the video", type: "boolean" },
+    { name: "thumb", summary: "With --pull, yt-dlp sources: thumbnail image per hit instead of the video", type: "boolean" },
+    { name: "lang", summary: "With --transcript: caption language (default en)", type: "string" },
     { name: "pipe", summary: "Sense to run on pulled hits (watch|listen|face|exif|verify)", type: "string" },
     { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
@@ -622,10 +666,34 @@ function hitSourceType(rec: OvercastRecord | undefined): string | undefined {
   return undefined;
 }
 
+/** The --transcript/--thumb capture-mode override: an alternate fetch kind the
+ *  provider serves INSTEAD of the full video download (yt-dlp sources: captions +
+ *  metadata / thumbnail image). Advisory — a source without fetch kinds ignores
+ *  the flag at the exec boundary and captures as usual. */
+function fetchKindOverride(ctx: VerbContext): { kind: string; lang?: string } | undefined {
+  const transcript = ctx.opts.transcript === true;
+  const thumb = ctx.opts.thumb === true;
+  if (!transcript && !thumb) return undefined;
+  return {
+    kind: transcript ? "transcript" : "thumb",
+    lang: ctx.opts.lang ? String(ctx.opts.lang) : undefined,
+  };
+}
+
+/** Does the source that would fetch `ref` declare this alternate fetch kind?
+ *  (manifest `fetchKinds` — youtube: transcript/thumb). Gates the --transcript/
+ *  --thumb routing so sources that would ignore the advisory --kind keep their
+ *  normal pull behavior, including remote direct-sense plans. */
+function sourceSupportsFetchKind(ctx: VerbContext, sourceType: string | undefined, ref: string, kind: string): boolean {
+  const type = sourceType ?? hostSourceType(ref, ctx.home);
+  const desc = builtinDescriptor(type, ctx.home);
+  return (desc?.fetchKinds ?? []).includes(kind);
+}
+
 export async function captureRef(
   ctx: VerbContext,
   ref: string,
-  opts: { sourceType?: string; out?: string } = {},
+  opts: { sourceType?: string; out?: string; requireKind?: boolean } = {},
 ): Promise<OvercastRecord> {
   const outDir = ctx.case.mediaDir;
   // a local file → copy into the case (fixture/folder sources, ad-hoc paths).
@@ -663,7 +731,26 @@ export async function captureRef(
   }
   const dest = opts.out ? opts.out : join(outDir, uniqueName(ref));
   mkdirSync(dirname(dest), { recursive: true }); // a nested --out needs its parent first
-  return fetchSource(desc, { url: ref, out: dest, home: ctx.home, signal: ctx.signal });
+  // --transcript/--thumb only route to sources that DECLARE the fetch kind
+  // (manifest fetchKinds); anyone else keeps their normal capture. An explicit
+  // `capture <url> --transcript` on an unsupporting source is an honest error,
+  // not a silent full download.
+  const mode = fetchKindOverride(ctx);
+  const kindSupported = mode != null && (desc.fetchKinds ?? []).includes(mode.kind);
+  if (mode && !kindSupported && opts.requireKind) {
+    return err(
+      "capture",
+      `source '${type}' doesn't support --${mode.kind === "transcript" ? "transcript" : "thumb"} (no ${mode.kind} fetch kind) — supported by yt-dlp sources like youtube`,
+    );
+  }
+  return fetchSource(desc, {
+    url: ref,
+    out: dest,
+    kind: kindSupported ? mode!.kind : undefined,
+    lang: kindSupported ? mode!.lang : undefined,
+    home: ctx.home,
+    signal: ctx.signal,
+  });
 }
 
 async function pipeSense(
@@ -942,6 +1029,9 @@ export const captureVerb: VerbSpec = {
   flags: [
     { name: "index", summary: "Embed into the case index after capture", type: "boolean" },
     { name: "out", summary: "Output location override", type: "string" },
+    { name: "transcript", summary: "yt-dlp sources: captions + metadata instead of the video (no video download)", type: "boolean" },
+    { name: "thumb", summary: "yt-dlp sources: thumbnail image instead of the video (no video download)", type: "boolean" },
+    { name: "lang", summary: "With --transcript: caption language (default en)", type: "string" },
     { name: "format", summary: "json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
   ],
@@ -949,6 +1039,9 @@ export const captureVerb: VerbSpec = {
   providerKey: "capture",
   run: async (ctx) => {
     if (!ctx.input) return [err("capture", "capture requires a ref (URL/path/scan.hit id, or - for stdin)")];
+    if (ctx.opts.transcript === true && ctx.opts.thumb === true) {
+      return [err("capture", "--transcript and --thumb are mutually exclusive (pick one fetch kind)")];
+    }
     // `-` → ingest stdin (a piped clip/image) into the case.
     if (ctx.input === "-") return [await captureStdin(ctx, ctx.opts.out ? String(ctx.opts.out) : undefined)];
     // archive:<bucket>/<item> → pull a COPY of archived media into this case,
@@ -1016,6 +1109,10 @@ export const captureVerb: VerbSpec = {
     const cap = await captureRef(ctx, ref, {
       sourceType: hitSourceType(rec),
       out: ctx.opts.out ? String(ctx.opts.out) : undefined,
+      // an explicit `capture <url> --transcript` names ONE intent — error
+      // honestly when the source has no such fetch kind, never silently
+      // download the full media instead
+      requireKind: true,
     });
     // stamp where it came from (tweet/video URL, author, text, date) so a later
     // match/finding on this file traces back to the originating post
@@ -1193,6 +1290,9 @@ export const monitorVerb: VerbSpec = {
     { name: "query", summary: "Ad-hoc keyword search across sources", type: "string" },
     { name: "since", summary: "Only items newer than e.g. 24h, 2026-06-01", type: "string" },
     { name: "limit", summary: "Max hits per source", type: "number" },
+    { name: "transcript", summary: "yt-dlp sources: captions + metadata per new item instead of the video", type: "boolean" },
+    { name: "thumb", summary: "yt-dlp sources: thumbnail image per new item instead of the video", type: "boolean" },
+    { name: "lang", summary: "With --transcript: caption language (default en)", type: "string" },
     { name: "pipe", summary: "Sense to run on new items (watch|listen|face|exif|verify)", type: "string" },
     { name: "describe", summary: "With --pipe listen: full audio-scene describe (not speech-only)", type: "boolean" },
     { name: "once", summary: "Single diff pass then exit", type: "boolean" },

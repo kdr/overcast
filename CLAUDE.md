@@ -271,7 +271,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   dork Google-dorking / shodan host-recon / browser rendered-page-capture /
   username account-discovery / person people-search / phone reverse-phone /
   property assessor-records / plate license-plate;
-  `--since` recency; `--pull`/`--pipe` to capture+sense; `monitor --once/--every`).
+  `--since` recency; `--pull`/`--pipe` to capture+sense; `--transcript`/`--thumb`
+  fetch-kind overrides (yt-dlp sources: captions+metadata / thumbnail instead of
+  the video, no video download; `--lang` picks caption language);
+  `monitor --once/--every`).
   With no enabled sources, `scan` falls back to local case media/indexes
   (`scan --local`). `index` (create/attach/add/list/show/delete/remove/entities —
   typed remote tinycloud indexes: media-descriptions → `ask --index`, entities →
@@ -280,7 +283,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   `face-cluster` for the `cluster` face DB, `basic-clip` for `similar` CLIP
   semantic search, `audio-fp` for `audio match` fingerprinting, `basic-clap` for
   `similar` CLAP audio search, `voice-print` for `voice` speaker matching).
-  Built-in source refs: `youtube:@handle`, `youtube:search:<q>`,
+  Built-in source refs: `youtube:@handle` (`youtube:shorts:@…`/`youtube:streams:@…`
+  tabs; `--limit 0` = whole channel), `youtube:playlists:@handle` (playlists TAB —
+  one hit per playlist w/ a ready `playlist_ref`), `youtube:search:<q>`,
   `youtube:playlist:<id>` or a URL; `tiktok:@user`, `tiktok:#tag`; `x:@handle`,
   `x:<advanced query>`, `x:video:<q>` / `x:image:<q>` (media targeting); `web:<q>`;
   `lens:<image url|path>` (Google Lens reverse image search via Apify);

@@ -14,6 +14,7 @@
         "shipped:providers/sources/dl/dl.sh"
       ],
       "needs": "yt-dlp on PATH",
+      "uncappedLimit": true,
       "refForms": [
         {
           "form": "dl:<url>"

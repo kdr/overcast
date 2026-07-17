@@ -27,6 +27,16 @@ export interface SourceDescriptor {
   /** per-op exec budget for slow backends (e.g. Apify run-sync holds the
    *  request up to 300s); overrides the enumerate/fetch defaults */
   timeoutMs?: number;
+  /** the source honors `--limit 0` as "enumerate everything" (yt-dlp local
+   *  enumeration). Sources without it never see a 0 — the seam omits --limit so
+   *  the provider's own default cap applies (an Apify actor handed 0 could read
+   *  it as UNLIMITED billing, a SODA/SERP API as zero rows). */
+  uncappedLimit?: boolean;
+  /** alternate fetch kinds the provider serves instead of the default media
+   *  download (youtube: transcript, thumb). Callers gate --transcript/--thumb
+   *  on this so sources that would ignore the advisory flag keep their normal
+   *  pull behavior (including remote direct-sense plans). */
+  fetchKinds?: string[];
 }
 
 /** Exec budget for sources backed by Apify's run-sync endpoint (tiktok, lens):
@@ -54,9 +64,17 @@ export function builtinDescriptor(type: string, home?: string): SourceDescriptor
   const envOverride = process.env[`OVERCAST_SOURCE_${type.toUpperCase()}_CMD`];
   if (envOverride) {
     // an override rebinds the COMMAND, not the type's semantics — keep the
-    // built-in exec budget so a rebound lens/tiktok (e.g. the live e2e binding
-    // the shipped script by absolute path) isn't killed at the generic default.
-    return { type, base: tokenizeCommand(envOverride.trim()), timeoutMs: shippedDescriptor(type, home)?.timeoutMs };
+    // built-in exec budget (so a rebound lens/tiktok isn't killed at the generic
+    // default) AND the built-in capability flags (a rebound youtube still honors
+    // --limit 0 / --transcript).
+    const shipped = shippedDescriptor(type, home);
+    return {
+      type,
+      base: tokenizeCommand(envOverride.trim()),
+      timeoutMs: shipped?.timeoutMs,
+      uncappedLimit: shipped?.uncappedLimit,
+      fetchKinds: shipped?.fetchKinds,
+    };
   }
   return shippedDescriptor(type, home);
 }
@@ -154,6 +172,19 @@ export function normalizeSince(since: string): string {
   return `${Math.ceil(hours / 24)}d`;
 }
 
+/** Exec budget for an UNCAPPED (--limit 0) enumerate on a source that declares
+ *  uncappedLimit: a whole-channel/playlist flat dump legitimately runs many
+ *  minutes, and the generic 2-min budget would kill it mid-dump and report a
+ *  healthy yt-dlp as an enumerate failure. Explicit opts/desc budgets win. */
+export const UNCAPPED_ENUMERATE_TIMEOUT_MS = 15 * 60_000;
+
+export function enumerateBudgetMs(desc: SourceDescriptor, opts: EnumerateOpts): number {
+  if (opts.timeoutMs != null) return opts.timeoutMs;
+  if (desc.timeoutMs != null) return desc.timeoutMs;
+  if (opts.limit === 0 && desc.uncappedLimit) return UNCAPPED_ENUMERATE_TIMEOUT_MS;
+  return 2 * 60_000;
+}
+
 /** Enumerate a source → scan.hit records. Throws on spawn failure. */
 export async function enumerateSource(
   desc: SourceDescriptor,
@@ -174,13 +205,19 @@ export async function enumerateSource(
   const args = [...lead, "enumerate"];
   const q = opts.query ?? opts.ref ?? "";
   if (q) args.push("--query", q);
-  if (opts.limit != null) args.push("--limit", String(opts.limit));
+  // --limit 0 = uncapped, but ONLY sources that declare uncappedLimit ever see
+  // the 0 (yt-dlp local enumeration). For everyone else the flag is omitted so
+  // the provider's own default cap applies — an Apify actor handed 0 could read
+  // it as UNLIMITED (billing), a SODA/SERP backend as zero rows.
+  if (opts.limit != null && (opts.limit > 0 || desc.uncappedLimit)) {
+    args.push("--limit", String(opts.limit));
+  }
   if (opts.since) args.push("--since", normalizeSince(opts.since));
 
   const res = await execCapture(cmd, args, {
     env: opts.env,
     signal: opts.signal,
-    timeoutMs: opts.timeoutMs ?? desc.timeoutMs ?? 2 * 60_000,
+    timeoutMs: enumerateBudgetMs(desc, opts),
   });
   if (res.code !== 0) {
     // exit 13 = missing deps/credentials (exec contract), a setup gap not a hard fail
@@ -215,6 +252,13 @@ export async function enumerateSource(
 export interface FetchOpts {
   url: string;
   out: string;
+  /** alternate fetch mode (e.g. youtube `transcript` / `thumb` — captions or
+   *  thumbnail instead of the video, no media download). Advisory: forwarded as
+   *  `--kind <k>` on the fetch argv; providers that don't implement modes skip
+   *  the unknown flag (the exec-contract catchall) and fetch as usual. */
+  kind?: string;
+  /** caption language for kind=transcript (forwarded as `--lang <code>`) */
+  lang?: string;
   home?: string;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
@@ -284,6 +328,8 @@ export async function fetchSource(
   }
   const [cmd, ...lead] = base;
   const args = [...lead, "fetch", "--url", opts.url, "--out", opts.out];
+  if (opts.kind) args.push("--kind", opts.kind);
+  if (opts.lang) args.push("--lang", opts.lang);
   const res = await execCapture(cmd, args, {
     env: opts.env,
     signal: opts.signal,
@@ -322,13 +368,19 @@ export async function fetchSource(
     });
   }
   path = ensureMediaExtension(path);
+  // like hitsToRecords: fields beyond the canonical capture shape ride along into
+  // the payload (loose record) — e.g. a transcript fetch's title/description/
+  // transcript text must not be dropped at this boundary. Canonical keys win.
+  const { path: _rp, media: _rm, kind: reportedKind, source: _rs, url: _ru, ...extra } =
+    (parsed ?? {}) as Record<string, unknown>;
   return makeRecord({
     verb: "capture",
     format: "json",
     payload: {
+      ...extra,
       capture_id: "cap_" + Math.abs(hashString(path)).toString(16),
       path,
-      kind: parsed?.kind ?? "media",
+      kind: reportedKind ?? "media",
       source: desc.type,
       url: opts.url,
     },

@@ -224,6 +224,19 @@ The `doctor.check` variants: `env_all` / `env_any` (present-checks over `env`),
 ready / 13 = needs creds), `reuse_playwright` (share the Playwright check). Omit
 `doctor` for a source with no credential check.
 
+Two optional **capability flags** widen what the seam forwards to a source:
+
+- `"uncappedLimit": true` — the source honors `--limit 0` as "enumerate
+  everything" (yt-dlp local enumeration: youtube, dl). Sources WITHOUT it never
+  see a 0 — a `--limit 0` scan omits the flag entirely so the provider's own
+  default cap applies (an Apify actor handed 0 could read it as unlimited
+  billing; a SODA/SERP API as zero rows).
+- `"fetchKinds": ["transcript", "thumb"]` — alternate fetch modes the provider
+  serves instead of the default media download; `fetch` then receives
+  `--kind <k>` (and `--lang <code>` for transcripts). `--transcript`/`--thumb`
+  on capture/scan/monitor only route to sources declaring the kind — everyone
+  else keeps their normal pull path.
+
 **Ref tokens** in a manifest's command strings / `base`:
 `shipped:<relpath>` (the shipped `providers/` tree), `installed:<pkg>/<relpath>`
 (an installed package — what `provider create` writes), `{{input}}` (the media
@@ -1034,7 +1047,7 @@ headless browser. Element (`--selector`) and video capture are not yet supported
 a full ISO datetime) is rewritten to a ceiled relative duration (`Nm`/`Nh`/`Nd`,
 widening-only) — so a provider script only ever has to parse the shared shell
 grammar. Built-in types resolve to shipped scripts:
-- **`youtube`** — yt-dlp (no key). Supported refs: `youtube:@handle` for a channel's videos; `youtube:search:<query>` or `youtube:<keyword>` for keyword search; `youtube:playlist:<id>` or `youtube:<full YouTube URL>` for playlists/video URLs.
+- **`youtube`** — yt-dlp (no key). Supported refs: `youtube:@handle` for a channel's videos (`youtube:shorts:@handle` / `youtube:streams:@handle` for those tabs); `youtube:playlists:@handle` for the channel's playlists TAB (one hit per playlist, each carrying kind `playlist` + a ready-to-`source add` `playlist_ref`); `youtube:search:<query>` or `youtube:<keyword>` for keyword search; `youtube:playlist:<id>` or `youtube:<full YouTube URL>` for playlists/video URLs. `--limit 0` = uncapped (whole channel/playlist/tab). Fetch kinds: `capture <url> --transcript` (or `scan … --pull --transcript`) pulls captions + full metadata — the VTT is the artifact, plain transcript text + title/description ride in the capture payload (manual subs preferred over auto, `--lang` picks the language, capped at 200KB with `transcript_truncated`; an uncaptioned video degrades to a metadata-only `.txt` record with `transcript_note`, never an error) — and `--thumb` pulls the thumbnail image (jpg via ffmpeg convert); both skip the video download entirely.
 - **`tiktok`** — Apify (`APIFY_TOKEN`). Supported refs: `tiktok:@user` for profile videos and `tiktok:#tag` for hashtag videos. TikTok keyword search is not a built-in mode.
 - **`x`** (alias `twitter`) — Apify (`APIFY_TOKEN`). Default actor: kaitoeasyapi's pay-per-result tweet scraper, which works on any Apify plan against platform credit; override with `OVERCAST_X_ACTOR` (e.g. `apidojo~tweet-scraper` — same schema and faster, but **rental**: an unrented/free account gets only placeholder items, which map to zero hits). Supported refs: `x:@handle` for a profile's posts (translated to a `from:` search); `x:<query>` / `x:#tag` for X advanced search (`from:`, `filter:native_video`, `min_faves:`, `-filter:retweets`, …); `x:video:<query>` / `x:image:<query>` to return only posts carrying native video / images (applied as `filter:` operators so they hold across actors); `x:<full X URL>` for a post/profile/search/list URL. Hits point `media.ref` at the direct CDN asset (highest-bitrate mp4, else first photo) so `capture` downloads without X auth, and carry `author`/`views`/`thumb` triage metadata. Actors bill per result with a small per-query minimum — prefer fewer, broader queries.
 - **`web`** — Tavily (`TAVILY_API_KEY`, preferred) or Brave (`BRAVE_API_KEY`). Supported ref: `web:<query>` for web search hits.

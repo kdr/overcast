@@ -50,6 +50,10 @@ case "$op" in
       --since) since="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
+    # a non-numeric limit falls back to the default cap; 0 = uncapped (whole
+    # channel/playlist — the manifest declares uncappedLimit so the seam
+    # forwards the 0)
+    case "$limit" in ''|*[!0-9]*) limit=10 ;; esac
     # dl refs are raw URLs. yt-dlp flat mode on a SINGLE video URL yields exactly one
     # entry and wastes a network call, and the settled contract keeps single URLs
     # capture-only. Best-effort heuristic (host quirks are a long tail — the policy is
@@ -91,18 +95,37 @@ case "$op" in
         *)                           da="$since" ;;
       esac
       flat=""; date_args="--dateafter $da"
+      # an UNCAPPED (--limit 0) recency scan of a CHANNEL/USER page would
+      # otherwise crawl the whole listing non-flat just to date-filter it —
+      # uploads pages enumerate newest-first across yt-dlp hosts, so
+      # --break-on-reject stops at the first too-old entry (same policy as
+      # youtube.sh tabs). Playlist-shaped URLs are arbitrary-order and never
+      # get the break (a full scan is the honest behavior there).
+      qpath="${query%%\#*}"; qpath="${qpath%%\?*}"
+      case "$qpath" in
+        *'/playlist'*) : ;;
+        *) case "$query" in
+             *'?list='*|*'&list='*) : ;;
+             *) [ "$limit" -eq 0 ] && date_args="$date_args --break-on-reject" ;;
+           esac ;;
+      esac
     fi
     # capture yt-dlp explicitly so a failure (network, extractor, unsupported host)
     # surfaces as an enumerate ERROR (exit 1 → scan error record), not an empty hit
     # list that reads like a clean zero-result scan. Keep stderr SEPARATE from the
     # --dump-json stdout so routine yt-dlp warnings don't corrupt the JSON.
     errf="$(mktemp)"
+    end_args="--playlist-end $limit"; [ "$limit" -eq 0 ] && end_args=""
     # shellcheck disable=SC2086
-    raw="$(yt-dlp $flat $date_args --dump-json --playlist-end "$limit" "$target" 2>"$errf")"; code=$?
-    # ANY non-zero yt-dlp exit is a failure (network, auth, unavailable, partial),
-    # even with no "ERROR" line or some JSON already printed — surface it as an
-    # enumerate error rather than a clean/partial scan. A successful run that simply
-    # found nothing exits 0 with empty stdout (handled below).
+    raw="$(yt-dlp $flat $date_args --dump-json $end_args "$target" 2>"$errf")"; code=$?
+    # exit 101 is yt-dlp's "stopped by --break-*" code — the success path ONLY
+    # when THIS script passed --break-on-reject (the bounded recency scan); a
+    # 101 from a user/global --max-downloads config is a truncated listing.
+    case "$date_args" in *--break-on-reject*) [ "$code" -eq 101 ] && code=0 ;; esac
+    # ANY OTHER non-zero yt-dlp exit is a failure (network, auth, unavailable,
+    # partial), even with no "ERROR" line or some JSON already printed — surface
+    # it as an enumerate error rather than a clean/partial scan. A successful
+    # run that simply found nothing exits 0 with empty stdout (handled below).
     if [ "$code" -ne 0 ]; then
       echo "dl enumerate failed (yt-dlp exit $code): $(tail -3 "$errf" | tr '\n' ' ')" >&2
       rm -f "$errf"; exit 1

@@ -90,6 +90,13 @@ export interface SourceEntry extends EntryBase {
   needs?: string;
   /** per-op exec budget in ms for slow backends (Apify run-sync = 360000). */
   timeoutMs?: number;
+  /** the source honors `--limit 0` = enumerate everything (yt-dlp local
+   *  enumeration). Without it the seam never forwards a 0 — the provider's own
+   *  default cap applies instead. */
+  uncappedLimit?: boolean;
+  /** alternate fetch kinds served instead of the default media download
+   *  (youtube: ["transcript","thumb"]); gates --transcript/--thumb routing. */
+  fetchKinds?: string[];
   /** doctor --sources check; omit for sources that have no check today
    *  (youtube/dl/overpass/firms/flights/yandeximg) to preserve parity. */
   doctor?: SourceDoctor;
@@ -201,6 +208,8 @@ function validateEntry(
     else for (const bad of (e.base as string[]).filter(isAbsoluteScriptToken)) push(`${at}.base has an absolute script path '${bad}' (use a shipped:/installed: ref)`);
     if (e.needs !== undefined && typeof e.needs !== "string") push(`${at}.needs must be a string`);
     if (e.timeoutMs !== undefined && (typeof e.timeoutMs !== "number" || e.timeoutMs <= 0)) push(`${at}.timeoutMs must be a positive number`);
+    if (e.uncappedLimit !== undefined && typeof e.uncappedLimit !== "boolean") push(`${at}.uncappedLimit must be a boolean`);
+    if (e.fetchKinds !== undefined && !isStringArray(e.fetchKinds)) push(`${at}.fetchKinds must be a string[]`);
     if (e.hosts !== undefined && !isStringArray(e.hosts)) push(`${at}.hosts must be a string[]`);
     validateSourceDoctor(e.doctor, at, push);
   }

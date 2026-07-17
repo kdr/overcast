@@ -202,7 +202,7 @@ export function manifestSourceDescriptor(type: string, home?: string): SourceDes
     if (entry.type !== type && !(entry.aliases ?? []).includes(type)) continue;
     const base = resolveBase(entry.base, home);
     if (!base) return undefined;
-    return { type, base, needs: entry.needs, timeoutMs: entry.timeoutMs };
+    return { type, base, needs: entry.needs, timeoutMs: entry.timeoutMs, uncappedLimit: entry.uncappedLimit, fetchKinds: entry.fetchKinds };
   }
   return undefined;
 }
