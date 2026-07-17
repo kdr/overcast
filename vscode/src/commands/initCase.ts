@@ -10,8 +10,6 @@ import type { ExtDeps } from "../types.ts";
 export function registerInitCase(deps: ExtDeps): void {
   deps.context.subscriptions.push(
     vscode.commands.registerCommand("overcast.initCase", async () => {
-      const cli = await deps.bridge.ensureCli();
-      if (!cli) return;
       const folders = vscode.workspace.workspaceFolders ?? [];
       let dir: string;
       if (folders.length === 0) {
@@ -45,6 +43,10 @@ export function registerInitCase(deps: ExtDeps): void {
         );
         return;
       }
+      // Only a FRESH init needs the CLI — adopting an existing store (above)
+      // is pure state, same split adoptFolder makes. Checked before the name
+      // prompt so a missing CLI fails before the user types anything.
+      if (!(await deps.bridge.ensureCli())) return;
       const name = await vscode.window.showInputBox({
         prompt: "Case name",
         value: path.basename(dir),
