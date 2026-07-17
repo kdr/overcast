@@ -1,30 +1,55 @@
 // "Overcast: Initialize Case Here" — turn the workspace folder into a case
-// (`overcast case init`), then re-locate.
+// (`overcast case init`), then re-locate. With no folder open there is no
+// "here" yet — instead of dead-ending, ask for a folder and pin it as the
+// active case (same adopt path as Select a Case → "Choose another folder…").
+import * as path from "node:path";
 import * as vscode from "vscode";
+import { hasCaseStore } from "../services/caseLocator.ts";
 import type { ExtDeps } from "../types.ts";
 
 export function registerInitCase(deps: ExtDeps): void {
   deps.context.subscriptions.push(
     vscode.commands.registerCommand("overcast.initCase", async () => {
-      const cli = await deps.bridge.ensureCli();
-      if (!cli) return;
       const folders = vscode.workspace.workspaceFolders ?? [];
+      let dir: string;
       if (folders.length === 0) {
-        void vscode.window.showErrorMessage("Open a folder first — a case is a directory.");
-        return;
-      }
-      let dir = folders[0].uri.fsPath;
-      if (folders.length > 1) {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFolders: true,
+          canSelectFiles: false,
+          canSelectMany: false,
+          openLabel: "Use as Case Folder",
+          title: "A case is a directory — pick the folder that becomes the case",
+        });
+        if (!picked?.[0]) return;
+        dir = picked[0].fsPath;
+      } else if (folders.length > 1) {
         const pick = await vscode.window.showQuickPick(
           folders.map((f) => ({ label: f.name, description: f.uri.fsPath, dir: f.uri.fsPath })),
           { placeHolder: "Which folder becomes the case?" },
         );
         if (!pick) return;
         dir = pick.dir;
+      } else {
+        dir = folders[0].uri.fsPath;
       }
+      if (hasCaseStore(dir)) {
+        // Never `case init` over an existing store — on any path here (palette,
+        // chat button, Select Case → Initialize…): with --name it would
+        // silently rename the case. Adopt it as the active case instead.
+        await deps.locator.setChosenCase(dir);
+        deps.router.refresh();
+        void vscode.window.showInformationMessage(
+          `Folder is already an overcast case — selected: ${path.basename(dir)}`,
+        );
+        return;
+      }
+      // Only a FRESH init needs the CLI — adopting an existing store (above)
+      // is pure state, same split adoptFolder makes. Checked before the name
+      // prompt so a missing CLI fails before the user types anything.
+      if (!(await deps.bridge.ensureCli())) return;
       const name = await vscode.window.showInputBox({
         prompt: "Case name",
-        value: folders[0].name,
+        value: path.basename(dir),
         ignoreFocusOut: true,
       });
       if (name === undefined) return;
@@ -35,7 +60,11 @@ export function registerInitCase(deps: ExtDeps): void {
         cwd: dir,
       });
       if (!result) return;
-      await deps.locator.refresh();
+      // Always pin: auto-detection can't see a dialog-picked folder at all,
+      // and in multi-root (or under a stale chosen-case override) the new
+      // case wouldn't become active either — initCase on X must END with X
+      // active, same rule as adoptFolder. setChosenCase refreshes the locator.
+      await deps.locator.setChosenCase(dir);
       deps.router.refresh();
       void vscode.window.showInformationMessage(`Overcast case ready: ${name || dir}`);
     }),

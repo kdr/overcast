@@ -22,7 +22,9 @@ export interface CaseChoice {
 
 const CHOSEN_KEY = "overcast.chosenCaseDir";
 
-function hasCaseStore(dir: string): boolean {
+/** The one store-detection check (a case = a folder with `.overcast/case.json`)
+ *  — import this rather than re-checking the path shape elsewhere. */
+export function hasCaseStore(dir: string): boolean {
   try {
     return fs.existsSync(path.join(dir, ".overcast", "case.json"));
   } catch {

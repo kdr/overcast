@@ -5,9 +5,12 @@
 // Resolution: `overcast.path` setting wins — a `.js` path (e.g. a repo
 // dist/bin/overcast.js) is run with the extension host's own Node
 // (ELECTRON_RUN_AS_NODE=1); anything else is treated as an executable.
-// Empty setting = discover `overcast` on PATH.
+// Empty setting = discover `overcast` on PATH, then in well-known install
+// locations (nvm/volta/bun/homebrew) — a Dock-launched extension host often
+// carries the bare GUI PATH, hiding installs every terminal can see.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { failureFor, parseRecords, type CliFailure } from "../lib/cliOutput.ts";
@@ -54,31 +57,121 @@ export interface CliResult {
   cancelled?: boolean;
 }
 
-function findOnPath(name: string): string | undefined {
-  const pathVar = process.env.PATH ?? "";
+function pathDirs(): string[] {
+  return (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+}
+
+// Fallback install locations probed when PATH discovery misses. GUI-launched
+// VS Code can skip the shell init that puts version-manager bins on PATH, so
+// an `npm install -g` via nvm is invisible here while working in every
+// terminal. nvm keeps no stable `current` symlink — probe every installed
+// node's bin, newest first.
+function wellKnownBinDirs(): string[] {
+  if (process.platform === "win32") return [];
+  const home = os.homedir();
+  const dirs = [
+    path.join(home, ".volta", "bin"),
+    path.join(home, ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ];
+  const nvmNode = path.join(process.env.NVM_DIR ?? path.join(home, ".nvm"), "versions", "node");
+  try {
+    const versions = fs
+      .readdirSync(nvmNode)
+      .filter((v) => /^v\d+\.\d+\.\d+$/.test(v))
+      .sort((a, b) => {
+        const pa = a.slice(1).split(".").map(Number);
+        const pb = b.slice(1).split(".").map(Number);
+        return pb[0] - pa[0] || pb[1] - pa[1] || pb[2] - pa[2];
+      });
+    for (const v of versions) dirs.push(path.join(nvmNode, v, "bin"));
+  } catch {
+    /* no nvm */
+  }
+  return dirs;
+}
+
+/** EVERY executable named `name` across `dirs`, in order, deduped by LITERAL
+ *  path only — two paths sharing a realpath are still distinct candidates,
+ *  because a symlink's own location changes which PATH prefix rescues its
+ *  shebang (see launcherDirs); dropping the "duplicate" could drop the only
+ *  runnable one. All are returned — resolution smoke-tests each in turn, so a
+ *  stale/broken launcher earlier in the order can't hide a working install. */
+function findExecutables(name: string, dirs: string[]): string[] {
   const exts =
     process.platform === "win32"
       ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
       : [""];
-  for (const dir of pathVar.split(path.delimiter)) {
-    if (!dir) continue;
+  const found: string[] = [];
+  const seen = new Set<string>();
+  for (const dir of dirs) {
     for (const ext of exts) {
       const candidate = path.join(dir, name + ext.toLowerCase());
       try {
         fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
+        if (!seen.has(candidate)) {
+          seen.add(candidate);
+          found.push(candidate);
+        }
       } catch {
         /* keep looking */
       }
     }
   }
-  return undefined;
+  return found;
+}
+
+/** The launcher's own dir plus each symlink hop's dir, in chain order. An
+ *  `#!/usr/bin/env node` launcher needs `node` on PATH, and node sits next to
+ *  SOME hop of the chain — e.g. /usr/local/bin/overcast → ~/.nvm/.../bin/
+ *  overcast (node lives here) → …/lib/node_modules/…/overcast.js. */
+function launcherDirs(cmd: string): string[] {
+  const dirs: string[] = [];
+  let cur = cmd;
+  for (let hop = 0; hop < 8; hop++) {
+    const dir = path.dirname(cur);
+    if (!dirs.includes(dir)) dirs.push(dir);
+    let link: string;
+    try {
+      link = fs.readlinkSync(cur);
+    } catch {
+      break; // not a symlink — end of the chain
+    }
+    cur = path.resolve(dir, link);
+  }
+  return dirs;
+}
+
+/** PATH with the launcher's missing symlink-chain dirs prepended — the ONE
+ *  shebang-rescue computation, shared by spawn env and terminal env. Undefined
+ *  when PATH already covers the chain (or on win32, where shebangs don't run). */
+function rescuedPath(cmd: string): string | undefined {
+  if (process.platform === "win32") return undefined;
+  const dirs = pathDirs();
+  const missing = launcherDirs(cmd).filter((d) => !dirs.includes(d));
+  return missing.length ? [...missing, ...dirs].join(path.delimiter) : undefined;
 }
 
 export class CliBridge implements vscode.Disposable {
   private resolved: ResolvedCli | null | undefined; // undefined = not yet tried
+  /** Full-sentence reason the last resolve failed ("not found" vs "found but
+   *  won't run") — the two need different fixes, so never blur them. */
+  private resolveFailure: string | undefined;
+  /** In-flight resolution, so concurrent callers share ONE discovery pass. */
+  private resolving: Promise<ResolvedCli | undefined> | undefined;
+  /** Bumped by invalidate(); a pass that finishes under a stale generation
+   *  (setting changed / restart mid-flight) must not write the cache. */
+  private resolveGen = 0;
   private mutateQueue: Promise<unknown> = Promise.resolve();
   private readonly disposables: vscode.Disposable[] = [];
+
+  // ---- resolution eventing ----
+  private readonly cliEmitter = new vscode.EventEmitter<void>();
+  /** Fires when a resolution pass completes — `cliFound` may have changed.
+   *  UI that paints off the synchronous `cliFound` getter must re-render on
+   *  this, or a view drawn mid-discovery keeps a stale "not found" state. */
+  readonly onDidResolveCli = this.cliEmitter.event;
 
   // ---- run tracking (Runs view + status-bar spinner) ----
   private readonly jobEmitter = new vscode.EventEmitter<void>();
@@ -96,7 +189,7 @@ export class CliBridge implements vscode.Disposable {
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration("overcast.path")) {
-          this.resolved = undefined;
+          this.invalidate();
           void this.resolve();
         }
       }),
@@ -120,40 +213,81 @@ export class CliBridge implements vscode.Disposable {
 
   /** Drop the cached resolution and re-resolve (the "Restart CLI" command). */
   async restart(): Promise<ResolvedCli | undefined> {
-    this.resolved = undefined;
+    this.invalidate();
     this.output.appendLine("overcast cli: re-resolving (restart requested)");
     return this.resolve();
   }
 
-  /** Resolve (and smoke-test) the CLI; caches; maintains overcast.cliFound. */
+  /** Forget any cached/in-flight resolution (setting change, restart, retry).
+   *  A pass already in flight keeps running but can't write the cache. */
+  private invalidate(): void {
+    this.resolved = undefined;
+    this.resolving = undefined;
+    this.resolveGen++;
+  }
+
+  /** Resolve (and smoke-test) the CLI; caches; maintains overcast.cliFound.
+   *  Single-flight: the cache is only ever written with a FINISHED outcome —
+   *  mutating it mid-pass would make cliFound/resolve report "not found"
+   *  to concurrent callers while candidates are still being smoke-tested. */
   async resolve(): Promise<ResolvedCli | undefined> {
     if (this.resolved !== undefined) return this.resolved ?? undefined;
+    if (!this.resolving) {
+      const pass = this.doResolve(this.resolveGen).finally(() => {
+        // don't clear a NEWER pass installed after an invalidate mid-flight
+        if (this.resolving === pass) this.resolving = undefined;
+      });
+      this.resolving = pass;
+    }
+    return this.resolving;
+  }
+
+  private async doResolve(gen: number): Promise<ResolvedCli | undefined> {
     const setting = vscode.workspace.getConfiguration("overcast").get<string>("path", "").trim();
-    let candidate: ResolvedCli | undefined;
+    const candidates: ResolvedCli[] = [];
     if (setting) {
+      // An explicit setting never falls back to discovery — a wrong path
+      // should fail loudly, not be silently papered over.
       if (setting.endsWith(".js") || setting.endsWith(".mjs")) {
-        candidate = {
+        candidates.push({
           cmd: process.execPath,
           argsPrefix: [setting],
           env: { ELECTRON_RUN_AS_NODE: "1" },
           display: `${setting} (via extension-host node)`,
-        };
+        });
       } else {
-        candidate = { cmd: setting, argsPrefix: [], env: {}, display: setting };
+        candidates.push({ cmd: setting, argsPrefix: [], env: {}, display: setting });
       }
     } else {
-      const onPath = findOnPath("overcast");
-      if (onPath) candidate = { cmd: onPath, argsPrefix: [], env: {}, display: onPath };
+      for (const found of findExecutables("overcast", [...pathDirs(), ...wellKnownBinDirs()])) {
+        candidates.push({ cmd: found, argsPrefix: [], env: {}, display: found });
+      }
     }
-    if (candidate) {
-      const ok = await this.smokeTest(candidate);
-      this.resolved = ok ? candidate : null;
-    } else {
-      this.resolved = null;
+    let resolved: ResolvedCli | null = null;
+    for (const candidate of candidates) {
+      if (await this.smokeTest(candidate)) {
+        resolved = candidate;
+        break;
+      }
     }
+    // Invalidated mid-pass (setting change / restart): the outcome is stale —
+    // JOIN the current resolve instead of handing awaiters an outdated CLI or
+    // a false not-found. No self-await cycle: invalidate() cleared `resolving`
+    // when it bumped the generation, so this.resolve() is never THIS pass.
+    if (gen !== this.resolveGen) return this.resolve();
+    this.resolved = resolved;
+    this.resolveFailure = resolved
+      ? undefined
+      : candidates.length > 0
+        ? `The overcast CLI at ${candidates[0].display}${candidates.length > 1 ? ` (and ${candidates.length - 1} other install(s))` : ""} failed to run — see the Overcast output log.`
+        : "The overcast CLI was not found on PATH or in the usual install locations.";
     await vscode.commands.executeCommand("setContext", "overcast.cliFound", !!this.resolved);
     if (this.resolved) this.output.appendLine(`overcast cli: ${this.resolved.display}`);
-    else this.output.appendLine("overcast cli: NOT FOUND (set overcast.path or install on PATH)");
+    else
+      this.output.appendLine(
+        `overcast cli: ${this.resolveFailure} (set overcast.path or install on PATH)`,
+      );
+    this.cliEmitter.fire();
     return this.resolved ?? undefined;
   }
 
@@ -168,18 +302,24 @@ export class CliBridge implements vscode.Disposable {
       };
       try {
         const child = spawn(cli.cmd, [...cli.argsPrefix, "--version", "--json"], {
-          env: { ...process.env, ...cli.env },
+          env: this.childEnv(cli),
         });
+        let stderr = "";
+        child.stderr?.on("data", (d: Buffer) => (stderr += d.toString("utf8")));
         const timer = setTimeout(() => {
           child.kill("SIGKILL");
           done(false);
         }, 10_000);
-        child.on("error", () => {
+        child.on("error", (e) => {
           clearTimeout(timer);
+          this.output.appendLine(`  smoke test ${cli.display}: spawn failed: ${e.message}`);
           done(false);
         });
         child.on("close", (code) => {
           clearTimeout(timer);
+          if (code !== 0 && stderr.trim()) {
+            this.output.appendLine(`  smoke test ${cli.display}: exit ${code}: ${stderr.trim()}`);
+          }
           done(code === 0);
         });
       } catch {
@@ -188,19 +328,33 @@ export class CliBridge implements vscode.Disposable {
     });
   }
 
+  /** Env for spawning the resolved CLI, with the shebang PATH rescue
+   *  (rescuedPath): an `#!/usr/bin/env node` launcher resolves `node` from
+   *  PATH, and a GUI-launched extension host's PATH lacks the launcher's own
+   *  chain dirs even when discovery (or overcast.path) found the launcher. */
+  private childEnv(cli: ResolvedCli, extra?: Record<string, string>): NodeJS.ProcessEnv {
+    const PATH = rescuedPath(cli.cmd);
+    return PATH
+      ? { ...process.env, PATH, ...cli.env, ...extra }
+      : { ...process.env, ...cli.env, ...extra };
+  }
+
   /** Resolve or walk the user through fixing the setup. Returns undefined if missing. */
   async ensureCli(): Promise<ResolvedCli | undefined> {
     const cli = await this.resolve();
     if (cli) return cli;
     const pick = await vscode.window.showErrorMessage(
-      "The overcast CLI was not found. Install it (npm install -g @kdrrr/overcast) or point overcast.path at a binary or a built dist/bin/overcast.js.",
+      `${this.resolveFailure ?? "The overcast CLI was not found."} Install it (npm install -g @kdrrr/overcast) or point overcast.path at a binary or a built dist/bin/overcast.js.`,
       "Open Settings",
+      "Show Log",
       "Retry",
     );
     if (pick === "Open Settings") {
       await vscode.commands.executeCommand("workbench.action.openSettings", "overcast.path");
+    } else if (pick === "Show Log") {
+      this.output.show(true);
     } else if (pick === "Retry") {
-      this.resolved = undefined;
+      this.invalidate();
       return this.ensureCli();
     }
     return undefined;
@@ -239,7 +393,7 @@ export class CliBridge implements vscode.Disposable {
     return new Promise((resolvePromise) => {
       const child = spawn(cli.cmd, finalArgs, {
         cwd: opts.cwd ?? caseDir ?? undefined,
-        env: { ...process.env, ...cli.env, ...opts.env },
+        env: this.childEnv(cli, opts.env),
       });
       let stdout = "";
       let stderr = "";
@@ -407,9 +561,16 @@ export class CliBridge implements vscode.Disposable {
 
   /** Terminal env for a `terminalLaunch` command line — the node-runner head
    *  (extension-host executable) only behaves as node with ELECTRON_RUN_AS_NODE
-   *  set. Undefined when the resolved CLI needs no env. */
+   *  set, and a discovered shim needs the same shebang PATH rescue spawns get
+   *  (a terminal shell whose init doesn't restore nvm/volta dirs would
+   *  otherwise die on `env: node: No such file or directory`; shell init that
+   *  prepends its own PATH on top keeps working — ours only appends coverage).
+   *  Undefined when the resolved CLI needs no env. */
   terminalEnv(cli: ResolvedCli): Record<string, string> | undefined {
-    return Object.keys(cli.env).length ? { ...cli.env } : undefined;
+    const env: Record<string, string> = { ...cli.env };
+    const PATH = rescuedPath(cli.cmd);
+    if (PATH) env.PATH = PATH;
+    return Object.keys(env).length ? env : undefined;
   }
 
   /** `overcast.home` setting → `--home` (profiles, archive buckets). Absolute
@@ -525,7 +686,7 @@ export class CliBridge implements vscode.Disposable {
     );
     return spawn(cli.cmd, finalArgs, {
       cwd: caseDir ?? undefined,
-      env: { ...process.env, ...cli.env, ...opts.env },
+      env: this.childEnv(cli, opts.env),
     });
   }
 
@@ -534,5 +695,6 @@ export class CliBridge implements vscode.Disposable {
     for (const cts of this.jobCts.values()) cts.dispose();
     this.jobCts.clear();
     this.jobEmitter.dispose();
+    this.cliEmitter.dispose();
   }
 }
