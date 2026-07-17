@@ -1,12 +1,15 @@
 # Releasing overcast
 
-overcast ships from one source tree to three places on every release:
+overcast ships from one source tree to four places on every release:
 
 - **npm** — `@kdrrr/overcast` (the CLI + pi package), published from CI via **npm
   OIDC trusted publishing** (no tokens, provenance attached automatically).
 - **GitHub Releases** — the standalone **bun binary**, cross-compiled for macOS
   (arm64/x64) and Linux (x64/arm64) and attached as
   `overcast-<os>-<arch>.tar.gz`.
+- **GitHub Releases** — the **VS Code extension** packaged as
+  `overcast-vscode-<version>.vsix` (install via `code --install-extension …` or
+  "Install from VSIX…" in the Extensions view).
 - **Claude plugin + agent skills** — the `.claude-plugin/` manifests and
   `skills/` are read straight from the repo (GitHub), so they go live when the
   release commit lands on the default branch.
@@ -24,6 +27,8 @@ propagates it into the files that hard-code a version:
 - `src/version.ts` (`OVERCAST_VERSION`)
 - `.claude-plugin/plugin.json`
 - `.claude-plugin/marketplace.json` (`metadata.version` + every `plugins[].version`)
+- `vscode/package.json` + `vscode/package-lock.json` (the `.vsix` rides the
+  release train, so the extension version always matches the CLI it pairs with)
 
 (`scripts/bun-sidecar.mjs` reads `package.json` directly, so it needs no sync.)
 
@@ -96,8 +101,8 @@ node scripts/sync-version.mjs --check     # all surfaces match (should already)
 ```
 
 `--no-git-tag-version` edits + syncs every surface (`package.json`,
-`package-lock.json`, `src/version.ts`, both `.claude-plugin/*.json`) **without**
-committing or tagging.
+`package-lock.json`, `src/version.ts`, both `.claude-plugin/*.json`, and the
+`vscode/` package + lockfile) **without** committing or tagging.
 
 **2. Open + merge the PR** (squash or merge — either is fine; step 3 tags `main`
 *after* it lands, so the tagged commit is always whatever ends up on `main`):
@@ -123,6 +128,8 @@ Pushing the `vX.Y.Z` tag triggers `release.yml`, which:
 3. **Publishes to npm** over OIDC (skipped if that version is already on npm).
 4. Cross-compiles the bun binary for the four targets and attaches the tarballs
    to the GitHub Release for the tag.
+5. Builds + tests the VS Code extension and attaches
+   `overcast-vscode-<version>.vsix` to the same Release.
 
 You can also run it manually from the Actions tab (**workflow_dispatch**) with the
 version as input; in that mode the binaries are uploaded as workflow artifacts
@@ -150,6 +157,8 @@ npm i -g @kdrrr/overcast@latest && overcast --version --json
 ```
 
 - Binaries: download a tarball from the release, `tar -xzf …`, run `./overcast --version`.
+- VS Code extension: download the `.vsix` from the release, `code
+  --install-extension overcast-vscode-<version>.vsix`, open the Overcast view.
 - Provenance: the npm package page shows a "Provenance" panel linking back to the run.
 - Plugin/skills: `/plugin marketplace add kdr/overcast` then `/plugin install overcast@overcast`,
   or `npx skills add kdr/overcast`.

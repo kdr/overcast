@@ -11,6 +11,10 @@ export default defineConfig({
   platform: "node",
   target: "node20",
   external: ["vscode"],
+  // Release-grade output: the same build is what gets packaged into the .vsix.
+  // Sourcemaps are emitted for local F5 debugging but .vscodeignore keeps them
+  // out of the package.
+  minify: true,
   sourcemap: true,
   clean: true,
   dts: false,
