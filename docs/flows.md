@@ -483,7 +483,9 @@ on a single run always wins over setup automation.
 
 > Cost note: for broad discovery, prefer `scan --limit N` first, review the hits,
 > then capture/sense only likely candidates rather than `scan --pull --pipe
-> watch` over everything.
+> watch` over everything. On yt-dlp sources, `scan --pull --transcript` is the
+> cheap middle tier — captions + full metadata per hit, no video downloads —
+> before pulling full video for the finalists.
 
 ### 7. Continuous monitoring
 

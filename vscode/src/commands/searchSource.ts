@@ -182,7 +182,7 @@ async function runScanFlow(
 // Common source types offered by "Add Source…" (spec: `<type>:<ref>`; the CLI
 // accepts any registered type — Custom covers the long tail).
 const SOURCE_TYPE_PICKS: Array<vscode.QuickPickItem & { prefix?: string; hint?: string }> = [
-  { label: "youtube", description: "@handle · search:<q> · playlist:<id> · URL", prefix: "youtube:", hint: "@handle" },
+  { label: "youtube", description: "@handle · playlists:@handle · search:<q> · playlist:<id> · URL", prefix: "youtube:", hint: "@handle" },
   { label: "x", description: "@handle · <query> · video:<q> · image:<q>", prefix: "x:", hint: "@handle" },
   { label: "tiktok", description: "@user · #tag", prefix: "tiktok:", hint: "@user" },
   { label: "web", description: "web search query", prefix: "web:", hint: "search terms" },

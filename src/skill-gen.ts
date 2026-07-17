@@ -91,6 +91,7 @@ Run any verb from bash and parse the JSON record:
 \`\`\`bash
 overcast watch ./clip.mp4 --json          # video.analysis record
 overcast scan --pull --json               # enumerate sources, capture + sense
+overcast scan --pull --transcript --json  # yt-dlp sources: captions + metadata per hit, NO video download (--thumb: thumbnail)
 overcast finding list --state triage --json  # triage auto-suggested leads (accept/dismiss)
 overcast note "rear plate is missing" --ref <record-id> --at 12-18 --json
 overcast face ./clip.mp4 --thumbnails --json  # detect faces (boxes + provider frame thumbnails)
