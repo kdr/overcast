@@ -143,6 +143,16 @@ function launcherDirs(cmd: string): string[] {
   return dirs;
 }
 
+/** PATH with the launcher's missing symlink-chain dirs prepended — the ONE
+ *  shebang-rescue computation, shared by spawn env and terminal env. Undefined
+ *  when PATH already covers the chain (or on win32, where shebangs don't run). */
+function rescuedPath(cmd: string): string | undefined {
+  if (process.platform === "win32") return undefined;
+  const dirs = pathDirs();
+  const missing = launcherDirs(cmd).filter((d) => !dirs.includes(d));
+  return missing.length ? [...missing, ...dirs].join(path.delimiter) : undefined;
+}
+
 export class CliBridge implements vscode.Disposable {
   private resolved: ResolvedCli | null | undefined; // undefined = not yet tried
   /** Full-sentence reason the last resolve failed ("not found" vs "found but
@@ -155,6 +165,13 @@ export class CliBridge implements vscode.Disposable {
   private resolveGen = 0;
   private mutateQueue: Promise<unknown> = Promise.resolve();
   private readonly disposables: vscode.Disposable[] = [];
+
+  // ---- resolution eventing ----
+  private readonly cliEmitter = new vscode.EventEmitter<void>();
+  /** Fires when a resolution pass completes — `cliFound` may have changed.
+   *  UI that paints off the synchronous `cliFound` getter must re-render on
+   *  this, or a view drawn mid-discovery keeps a stale "not found" state. */
+  readonly onDidResolveCli = this.cliEmitter.event;
 
   // ---- run tracking (Runs view + status-bar spinner) ----
   private readonly jobEmitter = new vscode.EventEmitter<void>();
@@ -254,8 +271,10 @@ export class CliBridge implements vscode.Disposable {
       }
     }
     // Invalidated mid-pass (setting change / restart): the outcome is stale —
-    // hand it to whoever awaited THIS pass, but leave the cache to the new one.
-    if (gen !== this.resolveGen) return resolved ?? undefined;
+    // JOIN the current resolve instead of handing awaiters an outdated CLI or
+    // a false not-found. No self-await cycle: invalidate() cleared `resolving`
+    // when it bumped the generation, so this.resolve() is never THIS pass.
+    if (gen !== this.resolveGen) return this.resolve();
     this.resolved = resolved;
     this.resolveFailure = resolved
       ? undefined
@@ -268,6 +287,7 @@ export class CliBridge implements vscode.Disposable {
       this.output.appendLine(
         `overcast cli: ${this.resolveFailure} (set overcast.path or install on PATH)`,
       );
+    this.cliEmitter.fire();
     return this.resolved ?? undefined;
   }
 
@@ -308,19 +328,15 @@ export class CliBridge implements vscode.Disposable {
     });
   }
 
-  /** Env for spawning the resolved CLI. Prepends the launcher's symlink-chain
-   *  dirs (launcherDirs) to PATH: an `#!/usr/bin/env node` launcher resolves
-   *  `node` from PATH, and node sits next to some hop of the chain — but a
-   *  GUI-launched extension host's PATH lacks those directories even when
-   *  discovery (or the overcast.path setting) found the launcher itself. */
+  /** Env for spawning the resolved CLI, with the shebang PATH rescue
+   *  (rescuedPath): an `#!/usr/bin/env node` launcher resolves `node` from
+   *  PATH, and a GUI-launched extension host's PATH lacks the launcher's own
+   *  chain dirs even when discovery (or overcast.path) found the launcher. */
   private childEnv(cli: ResolvedCli, extra?: Record<string, string>): NodeJS.ProcessEnv {
-    if (process.platform === "win32") return { ...process.env, ...cli.env, ...extra };
-    const dirs = pathDirs();
-    const missing = launcherDirs(cli.cmd).filter((d) => !dirs.includes(d));
-    const PATH = missing.length
-      ? [...missing, ...dirs].join(path.delimiter)
-      : (process.env.PATH ?? "");
-    return { ...process.env, PATH, ...cli.env, ...extra };
+    const PATH = rescuedPath(cli.cmd);
+    return PATH
+      ? { ...process.env, PATH, ...cli.env, ...extra }
+      : { ...process.env, ...cli.env, ...extra };
   }
 
   /** Resolve or walk the user through fixing the setup. Returns undefined if missing. */
@@ -545,9 +561,16 @@ export class CliBridge implements vscode.Disposable {
 
   /** Terminal env for a `terminalLaunch` command line — the node-runner head
    *  (extension-host executable) only behaves as node with ELECTRON_RUN_AS_NODE
-   *  set. Undefined when the resolved CLI needs no env. */
+   *  set, and a discovered shim needs the same shebang PATH rescue spawns get
+   *  (a terminal shell whose init doesn't restore nvm/volta dirs would
+   *  otherwise die on `env: node: No such file or directory`; shell init that
+   *  prepends its own PATH on top keeps working — ours only appends coverage).
+   *  Undefined when the resolved CLI needs no env. */
   terminalEnv(cli: ResolvedCli): Record<string, string> | undefined {
-    return Object.keys(cli.env).length ? { ...cli.env } : undefined;
+    const env: Record<string, string> = { ...cli.env };
+    const PATH = rescuedPath(cli.cmd);
+    if (PATH) env.PATH = PATH;
+    return Object.keys(env).length ? env : undefined;
   }
 
   /** `overcast.home` setting → `--home` (profiles, archive buckets). Absolute
@@ -672,5 +695,6 @@ export class CliBridge implements vscode.Disposable {
     for (const cts of this.jobCts.values()) cts.dispose();
     this.jobCts.clear();
     this.jobEmitter.dispose();
+    this.cliEmitter.dispose();
   }
 }

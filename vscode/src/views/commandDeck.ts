@@ -156,12 +156,16 @@ export class CommandDeckProvider implements vscode.WebviewViewProvider {
         void vscode.commands.executeCommand(msg.command);
       }
     });
-    // Re-render on case-board refreshes, case switches, and workspace-folder
-    // changes (the empty-window deck below) — all cheap here.
+    // Re-render on case-board refreshes, case switches, workspace-folder
+    // changes (the empty-window deck below), and CLI resolution finishing —
+    // the status dot reads the synchronous cliFound, and a deck painted while
+    // multi-candidate discovery is still smoke-testing would keep a stale
+    // red dot forever otherwise. All cheap here.
     this.subs.push(
       this.deps.model.onDidChange(() => this.render()),
       this.deps.locator.onDidChangeCase(() => this.render()),
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.render()),
+      this.deps.bridge.onDidResolveCli(() => this.render()),
     );
     webviewView.onDidDispose(() => {
       for (const d of this.subs) d.dispose();
