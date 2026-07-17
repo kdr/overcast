@@ -146,6 +146,23 @@ test("listen --diarize: a diarized:false caption answer lifts NO phantom speaker
   );
 });
 
+test("listen --diarize: a MISSING diarized flag lifts no speaker either (confirm-only)", async () => {
+  await withFakeTinycloud(
+    async () => {
+      const rec = await runListen("talk.wav", { diarize: true });
+      assert.equal(rec.state, "ready");
+      const segs = (rec.payload as Record<string, unknown>).segments as Array<
+        Record<string, unknown>
+      >;
+      // the envelope never confirmed diarization — the prefix stays verbatim
+      // in the text instead of becoming a structured speaker claim
+      assert.equal(segs[0].speaker, undefined);
+      assert.equal(segs[0].text, "1: We'll walk through the streets");
+    },
+    { FAKE_TC_DIARIZED: "absent" },
+  );
+});
+
 test("listen: an abort during the caption pass REJECTS — never a ready summary record", async () => {
   await withFakeTinycloud(
     async () => {

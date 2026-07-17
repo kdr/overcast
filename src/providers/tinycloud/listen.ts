@@ -112,11 +112,12 @@ async function captionTranscript(
     if (res.code !== 0) return undefined;
     const data = envelopeData(parseFirstJson(res.stdout));
     const raw = Array.isArray(data.cues) ? data.cues : [];
-    // Only lift "SPEAKER: words" labels out of cues that ARE diarized: the
-    // envelope says so (`diarized: false` = diarization was requested but
-    // unavailable — plain cues whose speech happens to start "Warning: …"
-    // must not gain a phantom speaker).
-    const liftSpeakers = opts.diarize && data.diarized !== false;
+    // Only lift "SPEAKER: words" labels out of cues the envelope CONFIRMS are
+    // diarized (`diarized: true`). Requested-but-unavailable (`false`) or a
+    // missing flag both mean plain speech — a cue starting "Warning: …" must
+    // never gain a phantom speaker; an unlifted real label merely stays
+    // verbatim in the text, which loses nothing.
+    const liftSpeakers = opts.diarize && data.diarized === true;
     const segs: Array<Record<string, unknown>> = [];
     const lines: string[] = [];
     for (const c of raw) {
