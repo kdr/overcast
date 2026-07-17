@@ -597,6 +597,13 @@ test("a RAW playlists-tab URL gets the same playlists-mode hits as the playlists
     const p0 = hits[0].payload as Record<string, unknown>;
     assert.equal(p0.kind, "playlist");
     assert.equal(p0.playlist_ref, "youtube:playlist:PL111");
+    // a browser-copied URL with ?query params must not defeat the mode/suffix checks
+    const hits2 = await enumerateSource(builtinDescriptor("youtube")!, {
+      query: "playlists:https://www.youtube.com/@acme/playlists?view=1&sort=dd",
+      limit: 3,
+      env: shimEnv(dir, "flat_playlists").env,
+    });
+    assert.equal((hits2[0].payload as Record<string, unknown>).kind, "playlist");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -618,6 +625,12 @@ test("uncapped recency scans of channel tabs are bounded by --break-on-reject; e
     await enumerateSource(builtinDescriptor("youtube")!, { query: "playlist:PLX", limit: 0, since: "3d", env: b.env });
     argv = readFileSync(b.log, "utf8");
     assert.doesNotMatch(argv, /--break-on-reject/);
+    // exit 101 WITHOUT our --break-on-reject (e.g. a global --max-downloads
+    // config) is a TRUNCATED listing and must stay an enumerate error
+    const c = shimEnv(dir, "flat_videos_101");
+    const errHits = await enumerateSource(builtinDescriptor("youtube")!, { query: "@acme", limit: 5, env: c.env });
+    assert.equal(errHits.length, 1);
+    assert.equal(errHits[0].state, "error");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

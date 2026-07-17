@@ -42,10 +42,14 @@ ref_to_target() {
     search:*)    echo "ytsearch${n}:${ref#search:}" ;;
     playlists:*|shorts:*|streams:*) # channel TABS — one shared normalization:
       # bare handle → @handle; URL → append the tab, tolerating a URL that
-      # already ends with it (no …/playlists/playlists double-append)
+      # already ends with it (no …/playlists/playlists double-append). A
+      # browser-copied URL's ?query/#fragment is dropped — it only tweaks the
+      # tab's sort/view and would defeat the suffix handling downstream.
       local tab="${ref%%:*}" ch="${ref#*:}"
       case "$ch" in
-        http*://*) ch="${ch%/}"; ch="${ch%"/$tab"}"; echo "$ch/$tab" ;;
+        http*://*)
+          ch="${ch%%\#*}"; ch="${ch%%\?*}"
+          ch="${ch%/}"; ch="${ch%"/$tab"}"; echo "$ch/$tab" ;;
         @*)        echo "https://www.youtube.com/${ch}/$tab" ;;
         *)         echo "https://www.youtube.com/@${ch}/$tab" ;;
       esac ;;
@@ -75,8 +79,11 @@ case "$op" in
     # playlists mode keys off the RESOLVED target, so a raw
     # https://…/@handle/playlists URL gets the same kind/playlist_ref treatment
     # as the playlists: ref form (otherwise --pull would error each hit at the
-    # fetch guard instead of emitting the pull_skip promote hint).
-    mode="videos"; case "$target" in */playlists|*/playlists/) mode="playlists" ;; esac
+    # fetch guard instead of emitting the pull_skip promote hint). Matching
+    # ignores ?query/#fragment — a browser-copied tab URL carries sort/view
+    # params that must not defeat the suffix check.
+    tpath="${target%%\#*}"; tpath="${tpath%%\?*}"; tpath="${tpath%/}"
+    mode="videos"; case "$tpath" in */playlists) mode="playlists" ;; esac
     # --flat-playlist keeps it fast (no per-video extraction); dump one JSON/line.
     flat="--flat-playlist"; date_args=""
     end_args="--playlist-end $limit"; [ "$limit" -eq 0 ] && end_args=""
@@ -99,7 +106,8 @@ case "$op" in
       # enumerate newest-first, so --break-on-reject stops the crawl at the
       # first too-old upload — bounded work for "everything since X". Playlists
       # are arbitrary-order, so they never get the break (full scan is honest).
-      case "$target" in
+      # Matched on the query-stripped path like `mode` above.
+      case "$tpath" in
         */videos|*/shorts|*/streams) [ "$limit" -eq 0 ] && date_args="$date_args --break-on-reject" ;;
       esac
     fi
@@ -110,9 +118,11 @@ case "$op" in
     errf="$(mktemp)"
     # shellcheck disable=SC2086
     raw="$(yt-dlp $flat $date_args --dump-json $end_args "$target" 2>"$errf")"; code=$?
-    # exit 101 is yt-dlp's "stopped by --break-*/--max-downloads" code — for a
-    # recency-bounded tab scan that IS the success path, not a failure.
-    [ "$code" -eq 101 ] && code=0
+    # exit 101 is yt-dlp's "stopped by --break-*/--max-downloads" code — the
+    # success path ONLY when THIS script passed --break-on-reject (the bounded
+    # recency scan). A user/global yt-dlp config tripping 101 on its own
+    # (--max-downloads etc.) is a truncated listing and stays an error.
+    case "$date_args" in *--break-on-reject*) [ "$code" -eq 101 ] && code=0 ;; esac
     # ANY OTHER non-zero yt-dlp exit is a failure (network, auth, unavailable,
     # partial), even with no "ERROR" line or some JSON already printed — surface
     # it as an enumerate error rather than a clean/partial scan. A successful
