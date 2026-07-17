@@ -15,6 +15,7 @@ import type {
   HostMsg,
   RecordViewState,
 } from "../../../src/shared/protocol.ts";
+import { mdToHtml } from "./markdown.ts";
 import { post } from "../vscodeApi.ts";
 
 const PAGE_CHARS = 8000; // per host round-trip
@@ -301,11 +302,36 @@ function renderMarkdown(text: string, host: HTMLElement): void {
 
 // ---- field rendering -------------------------------------------------------
 
-function fieldBody(recordId: string, f: FieldInfo, body: HTMLElement): void {
+function fieldBody(
+  recordId: string,
+  f: FieldInfo,
+  body: HTMLElement,
+  opts: { markdown?: boolean } = {},
+): void {
   const loading = el("div", "muted", "Loading…");
   body.appendChild(loading);
   const isStructured = f.type === "object" || f.type === "array";
   const chars = f.chars ?? 0;
+
+  // note bodies: render as real markdown (mdToHtml escapes everything first,
+  // then rebuilds a small trusted tag set — no raw payload HTML gets through)
+  if (opts.markdown && f.type === "string" && chars <= LOAD_ALL_MAX) {
+    loadFullField(
+      recordId,
+      f.name,
+      (text) => {
+        loading.remove();
+        const md = el("div", "md-rendered");
+        md.innerHTML = mdToHtml(text);
+        body.appendChild(md);
+      },
+      (message) => {
+        loading.className = "err-line";
+        loading.textContent = `⚠ ${message}`;
+      },
+    );
+    return;
+  }
 
   if (isStructured && chars <= LOAD_ALL_MAX) {
     loadFullField(
@@ -349,7 +375,11 @@ function fieldBody(recordId: string, f: FieldInfo, body: HTMLElement): void {
   pagedText(recordId, f.name, f.type === "string" ? chars : 0, body);
 }
 
-function renderField(recordId: string, f: FieldInfo): HTMLElement {
+function renderField(
+  recordId: string,
+  f: FieldInfo,
+  opts: { markdown?: boolean } = {},
+): HTMLElement {
   const chars = f.chars ?? 0;
   const metaParts = [f.type];
   if (f.size) metaParts.push(f.size);
@@ -360,6 +390,19 @@ function renderField(recordId: string, f: FieldInfo): HTMLElement {
   const isEmpty = !isStructured && chars === 0 && !f.count;
   const isShortScalar =
     !isStructured && chars > 0 && chars <= INLINE_PREVIEW_CHARS && f.type !== "object";
+
+  // Markdown fields (note bodies): always the full-load path, open by default —
+  // the inline preview is truncated and unstyled.
+  if (opts.markdown && f.type === "string" && chars > 0) {
+    return collapsible({
+      headChildren: [
+        el("span", "collapse-name", f.name),
+        el("span", "collapse-meta", metaParts.join(" · ")),
+      ],
+      open: true,
+      onFirstOpen: (body) => fieldBody(recordId, f, body, opts),
+    });
+  }
 
   // Short/empty scalars: show inline, no collapsible.
   if (isEmpty || isShortScalar) {
@@ -424,37 +467,56 @@ export function renderRecordDetail(
     );
   }
 
-  // --- media (collapsible + capped, so payload stays above the fold) --------
-  if (state.mediaWebviewUri && state.mediaKind) {
-    const title = el("span", "collapse-name", "Media");
-    const refMeta = el("span", "collapse-meta", manifest.media?.ref ?? "");
-    root.appendChild(
-      collapsible({
-        headChildren: [title, refMeta],
-        open: state.mediaKind === "image",
-        onFirstOpen: (body) => {
-          if (state.mediaKind === "image") {
-            const img = el("img", "media-capped");
-            img.src = state.mediaWebviewUri as string;
-            body.appendChild(img);
-          } else {
-            const media = el(state.mediaKind === "video" ? "video" : "audio", "media-capped");
-            media.controls = true;
-            media.src = state.mediaWebviewUri as string;
-            body.appendChild(media);
-          }
-        },
-      }),
-    );
-  } else if (manifest.media?.ref) {
-    root.appendChild(el("div", "card muted", `media: ${manifest.media.ref}`));
+  // --- two-column body: payload (left) · media (right) ----------------------
+  // Both sides stay collapsible; on narrow panels the columns wrap and stack.
+  const grid = el("div", "record-grid");
+  const main = el("div", "record-main");
+  const side = el("div", "record-side");
+  grid.appendChild(main);
+  grid.appendChild(side);
+  root.appendChild(grid);
+
+  // --- media column (player rendered EAGERLY — no expand-to-load) -----------
+  if (manifest.media?.ref) {
+    const body = el("div");
+    if (state.mediaWebviewUri && state.mediaKind) {
+      if (state.mediaKind === "image") {
+        const img = el("img", "media-fit");
+        img.src = state.mediaWebviewUri;
+        body.appendChild(img);
+      } else {
+        const media = el(state.mediaKind === "video" ? "video" : "audio", "media-fit");
+        media.controls = true;
+        media.preload = "metadata";
+        media.src = state.mediaWebviewUri;
+        body.appendChild(media);
+      }
+    } else {
+      body.appendChild(el("div", "muted", "No inline preview for this file."));
+    }
+    const ref = el("div", "media-ref muted", manifest.media.ref);
+    body.appendChild(ref);
+    const open = el("button", "secondary", "Open Media in Editor");
+    open.addEventListener("click", () => post({ type: "openMedia" }));
+    body.appendChild(open);
+
+    const card = collapsible({
+      headChildren: [el("span", "collapse-name", "Media")],
+      open: true,
+      onFirstOpen: (host) => host.appendChild(body),
+    });
+    side.appendChild(card);
   }
 
   // --- payload fields -------------------------------------------------------
   const fields = state.fields ?? [];
   if (fields.length > 0) {
-    root.appendChild(el("div", "section-title", "Payload fields"));
-    for (const f of fields) root.appendChild(renderField(recordId, f));
+    main.appendChild(el("div", "section-title", "Payload fields"));
+    for (const f of fields) {
+      // a note's text IS the record — render it as markdown, expanded
+      const markdown = manifest.verb === "note" && f.name === "text";
+      main.appendChild(renderField(recordId, f, { markdown }));
+    }
   }
 
   // --- raw manifest ---------------------------------------------------------
@@ -463,7 +525,7 @@ export function renderRecordDetail(
   const rawPre = el("pre", "field-pre");
   rawPre.textContent = JSON.stringify(state.record, null, 2);
   details.appendChild(rawPre);
-  root.appendChild(details);
+  main.appendChild(details);
 
   // --- host message routing -------------------------------------------------
   return (msg: HostMsg) => {

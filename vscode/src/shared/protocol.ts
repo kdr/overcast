@@ -76,4 +76,6 @@ export type WebviewMsg =
   | { type: "openRecord"; recordId: string }
   | { type: "copy"; text: string }
   | { type: "getField"; recordId: string; field: string; offset: number; limit: number }
-  | { type: "hitAction"; index: number; action: "capture" | "pullSense" | "open" };
+  | { type: "hitAction"; index: number; action: "capture" | "pullSense" | "open" }
+  /** open the record's media in the editor (host resolves the trusted ref) */
+  | { type: "openMedia" };

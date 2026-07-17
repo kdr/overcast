@@ -18,7 +18,16 @@ const VIDEO_EXT = /\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|ts)$/i;
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|tiff?|heic)$/i;
 const AUDIO_EXT = /\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i;
 
-function targetPath(uri?: vscode.Uri): string | undefined {
+/** Explorer menus pass a Uri; tree-view item menus pass the TreeItem itself
+ *  (media rows in the Sources view carry resourceUri). Normalize both. */
+function asUri(arg?: unknown): vscode.Uri | undefined {
+  if (arg instanceof vscode.Uri) return arg;
+  const res = (arg as { resourceUri?: vscode.Uri } | undefined)?.resourceUri;
+  return res instanceof vscode.Uri ? res : undefined;
+}
+
+function targetPath(arg?: unknown): string | undefined {
+  const uri = asUri(arg);
   if (uri?.scheme === "file") return uri.fsPath;
   const active = vscode.window.activeTextEditor?.document.uri;
   if (active?.scheme === "file") return active.fsPath;
@@ -290,19 +299,65 @@ async function batchSense(deps: ExtDeps, uri?: vscode.Uri, uris?: vscode.Uri[]):
   );
 }
 
+// ---- analyze picker (media rows in the Sources tree) ---------------------------
+
+interface AnalyzeChoice extends vscode.QuickPickItem {
+  command: string;
+  /** which files this verb applies to */
+  match: RegExp;
+}
+
+// Labels/blurbs mirror the Explorer context-menu titles (package.json) — one
+// vocabulary everywhere.
+const ANALYZE_CHOICES: AnalyzeChoice[] = [
+  { label: "$(eye) Watch", description: "describe video", command: "overcast.ctx.watch", match: VIDEO_EXT },
+  { label: "$(unmute) Listen", description: "transcribe speech", command: "overcast.ctx.listen", match: /\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
+  { label: "$(search) See", description: "describe image / OCR", command: "overcast.ctx.see", match: IMAGE_EXT },
+  { label: "$(person) Detect Faces", description: "find the people in it", command: "overcast.ctx.face", match: /\.(mp4|mov|mkv|webm|avi|m4v|png|jpe?g|webp|bmp|tiff?|heic)$/i },
+  { label: "$(info) EXIF Metadata", description: "GPS, capture time, camera fingerprint", command: "overcast.ctx.exif", match: /\.(mp4|mov|mkv|webm|avi|m4v|png|jpe?g|webp|gif|bmp|tiff?|heic)$/i },
+  { label: "$(wand) Enhance…", description: "denoise, upscale, forensic overlays", command: "overcast.ctx.enhance", match: /\.(mp4|mov|mkv|webm|avi|m4v|png|jpe?g|webp|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
+  { label: "$(play) View", description: "media player", command: "overcast.ctx.view", match: /\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|mp3|wav|m4a|aac|flac|ogg|opus|png|jpe?g|webp|gif)$/i },
+  { label: "$(layout-panel) Grid", description: "timestamped frame board", command: "overcast.ctx.grid", match: VIDEO_EXT },
+  { label: "$(compare-changes) Find Similar…", description: "search the case's image/sound databases", command: "overcast.ctx.similar", match: /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
+  { label: "$(pulse) Audio Fingerprint…", description: "exact-recording match", command: "overcast.ctx.audio", match: /\.(mp4|mov|mkv|webm|avi|m4v|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
+  { label: "$(mic) Voice Match…", description: "find a speaker", command: "overcast.ctx.voice", match: /\.(mp4|mov|mkv|webm|avi|m4v|mp3|wav|m4a|aac|flac|ogg|opus)$/i },
+  { label: "$(watch) Chronolocate…", description: "check time claims against sun/shadows", command: "overcast.ctx.chronolocate", match: IMAGE_EXT },
+];
+
+/** "Analyze with Overcast…" on a Sources-tree media row: pick a type-appropriate
+ *  verb, then dispatch the existing ctx command with the file's Uri. */
+async function analyzeMediaNode(node?: unknown): Promise<void> {
+  const uri = asUri(node);
+  if (!uri || uri.scheme !== "file") {
+    void vscode.window.showErrorMessage("Overcast: no local media file on this item.");
+    return;
+  }
+  const choices = ANALYZE_CHOICES.filter((c) => c.match.test(uri.fsPath));
+  if (choices.length === 0) {
+    void vscode.window.showErrorMessage(`Overcast: no senses apply to ${path.basename(uri.fsPath)}.`);
+    return;
+  }
+  const pick = await vscode.window.showQuickPick(choices, {
+    placeHolder: `Analyze ${path.basename(uri.fsPath)} with…`,
+    matchOnDescription: true,
+  });
+  if (!pick) return;
+  await vscode.commands.executeCommand(pick.command, uri);
+}
+
 // ---- registration --------------------------------------------------------------
 
 export function registerContextVerbs(deps: ExtDeps): void {
-  const simple = (verb: string) => async (uri?: vscode.Uri) => {
+  const simple = (verb: string) => async (arg?: unknown) => {
     if (!(await ensureCase(deps))) return;
-    const p = targetPath(uri);
+    const p = targetPath(arg);
     if (!p) return;
     await runAndRoute(deps, [verb, p]);
   };
   const flow =
-    (fn: (deps: ExtDeps, p: string) => Promise<void>) => async (uri?: vscode.Uri) => {
+    (fn: (deps: ExtDeps, p: string) => Promise<void>) => async (arg?: unknown) => {
       if (!(await ensureCase(deps))) return;
-      const p = targetPath(uri);
+      const p = targetPath(arg);
       if (!p) return;
       await fn(deps, p);
     };
@@ -337,5 +392,14 @@ export function registerContextVerbs(deps: ExtDeps): void {
         await batchSense(deps, uri, uris);
       },
     ),
+    // Sources-tree media rows
+    vscode.commands.registerCommand("overcast.openMediaFile", async (node?: unknown) => {
+      const uri = asUri(node);
+      if (uri?.scheme === "file") await vscode.commands.executeCommand("vscode.open", uri);
+    }),
+    vscode.commands.registerCommand("overcast.analyzeMediaNode", async (node?: unknown) => {
+      if (!(await ensureCase(deps))) return;
+      await analyzeMediaNode(node);
+    }),
   );
 }

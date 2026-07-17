@@ -8,6 +8,7 @@ import {
   citedRecordIds,
   failureMessage,
   formatAge,
+  isCapabilityQuestion,
   MAX_FIELD_CHARS,
   MAX_JSON_CHARS,
   recordBlurb,
@@ -190,6 +191,18 @@ test("flagLikeText: '-'-leading text is flagged, normal text passes", () => {
   assert.equal(flagLikeText("  -x"), true);
   assert.equal(flagLikeText("follow up --tomorrow"), false);
   assert.equal(flagLikeText(""), false);
+});
+
+test("isCapabilityQuestion: participant-meta prompts hit help, case questions reach ask", () => {
+  assert.equal(isCapabilityQuestion("what can you do"), true);
+  assert.equal(isCapabilityQuestion("What can you do?!"), true);
+  assert.equal(isCapabilityQuestion("help"), true);
+  assert.equal(isCapabilityQuestion("hi"), true);
+  assert.equal(isCapabilityQuestion("who are you"), true);
+  // case-shaped questions must NOT be intercepted
+  assert.equal(isCapabilityQuestion("what vehicles appear in the footage"), false);
+  assert.equal(isCapabilityQuestion("what can you tell me about the suspect"), false);
+  assert.equal(isCapabilityQuestion("help me find the van"), false);
 });
 
 test("failureMessage: needs_credentials keeps the CLI message verbatim", () => {

@@ -25,12 +25,14 @@ export interface Job {
 const TARGET_MAX = 28;
 
 /** Track every run EXCEPT the noisy store-poll reads (`case status`/`records`,
- *  `finding list` — the model re-runs these on every store change) and the
- *  internal bootstrap reads (`--version` smoke-test, `commands` registry fetch);
- *  they'd flood the Runs view — and an internal read must not be user-killable. */
+ *  `finding list`, `index list` — the model re-runs these on every store change)
+ *  and the internal bootstrap reads (`--version` smoke-test, `commands` registry
+ *  fetch); they'd flood the Runs view — and an internal read must not be
+ *  user-killable. Mutating index actions (create/add/…) stay tracked. */
 export function shouldTrackJob(args: string[]): boolean {
   const head = args[0];
   if (!head) return false;
+  if (head === "index" && (args[1] === "list" || args[1] === undefined)) return false;
   return head !== "case" && head !== "finding" && head !== "--version" && head !== "commands";
 }
 

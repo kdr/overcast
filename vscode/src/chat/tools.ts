@@ -128,7 +128,7 @@ export function registerChatTools(deps: ExtDeps): void {
         invocationMessage: "Scanning overcast sources",
         confirmationMessages: {
           title: "Scan OSINT sources (reaches the network)",
-          message: `Run \`overcast ${scanArgs(options.input).join(" ")}\` — this **reaches the network**, sweeping the case's configured OSINT sources, and writes scan.hit records into the case.`,
+          message: `Run \`overcast ${scanArgs(options.input).join(" ")}\` — this **reaches the network**, scanning the case's configured OSINT sources, and writes scan.hit records into the case.`,
         },
       };
     },

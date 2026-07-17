@@ -126,16 +126,29 @@ async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise
   const title = query.trim()
     ? `Scanning ${filterLabel} for “${query.trim()}”`
     : `Scanning ${filterLabel}`;
-  const result = await deps.bridge.runWithProgress(title, args);
+  // scan exits non-zero when ANY single source fails (e.g. one
+  // credential-gapped source) while healthy sources still returned real hits
+  // in the same records stream — keep those hits and warn, like the chat
+  // surfaces do; only a hitless failure is surfaced as a plain failure.
+  const result = await deps.bridge.runWithProgress(title, args, { keepPartialFailure: true });
   if (!result) return;
   deps.router.refresh();
 
   const hits = hitsFromRecords(result.records);
   if (hits.length === 0) {
+    if (result.failure) {
+      await deps.bridge.surfaceFailure(result);
+      return;
+    }
     void vscode.window.showInformationMessage(
       `Overcast: scan of ${filterLabel} returned no hits.`,
     );
     return;
+  }
+  if (result.failure) {
+    void vscode.window.showWarningMessage(
+      `Overcast: scan of ${filterLabel} partially failed — showing ${hits.length} hit${hits.length === 1 ? "" : "s"} from healthy sources. ${result.failure.message}`,
+    );
   }
   await openScanResultsPanel(deps, {
     query: query.trim() || filterLabel,
@@ -144,9 +157,69 @@ async function runScanFlow(deps: ExtDeps, preselectedSourceId?: string): Promise
   });
 }
 
+// Common source types offered by "Add Source…" (spec: `<type>:<ref>`; the CLI
+// accepts any registered type — Custom covers the long tail).
+const SOURCE_TYPE_PICKS: Array<vscode.QuickPickItem & { prefix?: string; hint?: string }> = [
+  { label: "youtube", description: "@handle · search:<q> · playlist:<id> · URL", prefix: "youtube:", hint: "@handle" },
+  { label: "x", description: "@handle · <query> · video:<q> · image:<q>", prefix: "x:", hint: "@handle" },
+  { label: "tiktok", description: "@user · #tag", prefix: "tiktok:", hint: "@user" },
+  { label: "web", description: "web search query", prefix: "web:", hint: "search terms" },
+  { label: "instagram", description: "@handle · #tag · post URL", prefix: "instagram:", hint: "@handle" },
+  { label: "telegram", description: "public channel or t.me URL", prefix: "telegram:", hint: "channel" },
+  { label: "dl", description: "any yt-dlp URL (Rumble/Odysee/Vimeo/…)", prefix: "dl:", hint: "https://…" },
+  { label: "webcam", description: "<lat>,<lng>[,radius] · country:<ISO2>", prefix: "webcam:", hint: "47.36,8.54,20" },
+  { label: "gdelttv", description: "broadcast-TV news query (no key)", prefix: "gdelttv:", hint: "\"query\"" },
+  { label: "browser", description: "rendered-page watch (URL)", prefix: "browser:", hint: "https://…" },
+  { label: "$(edit) Custom…", description: "any <type>:<ref> the CLI accepts" },
+];
+
+async function addSourceFlow(deps: ExtDeps): Promise<void> {
+  if (!(await deps.bridge.ensureCli())) return;
+  if (!deps.locator.caseDir) {
+    void vscode.window.showWarningMessage("Overcast: no case selected — pick one first.");
+    return;
+  }
+  const pick = await vscode.window.showQuickPick(SOURCE_TYPE_PICKS, {
+    placeHolder: "Source type — where should this case keep looking?",
+    ignoreFocusOut: true,
+    matchOnDescription: true,
+  });
+  if (!pick) return;
+  const spec = await vscode.window.showInputBox({
+    prompt: "Source spec (<type>:<ref>)",
+    value: pick.prefix ?? "",
+    placeHolder: pick.prefix ? `${pick.prefix}${pick.hint}` : "type:ref",
+    valueSelection: pick.prefix ? [pick.prefix.length, pick.prefix.length] : undefined,
+    ignoreFocusOut: true,
+    validateInput: (v) => {
+      const t = v.trim();
+      if (t.startsWith("-")) return "Specs can't start with '-' (read as a CLI flag)";
+      if (!/^[a-z0-9_-]+:.+/i.test(t)) return "Expected <type>:<ref>, e.g. youtube:@handle";
+      return undefined;
+    },
+  });
+  if (!spec?.trim()) return;
+  const result = await deps.bridge.runWithProgress(`Adding source ${spec.trim()}`, [
+    "source",
+    "add",
+    spec.trim(),
+  ]);
+  if (!result) return;
+  deps.router.refresh();
+  const scanNow = await vscode.window.showInformationMessage(
+    `Overcast: source ${spec.trim()} added.`,
+    "Scan Now",
+  );
+  if (scanNow) {
+    const p = (result.records[0]?.payload ?? {}) as { id?: unknown };
+    await runScanFlow(deps, typeof p.id === "string" ? p.id : undefined);
+  }
+}
+
 export function registerSearchSource(deps: ExtDeps): void {
   deps.context.subscriptions.push(
     vscode.commands.registerCommand("overcast.searchSource", () => runScanFlow(deps)),
+    vscode.commands.registerCommand("overcast.addSource", () => addSourceFlow(deps)),
     vscode.commands.registerCommand("overcast.scanSourceNode", (node?: unknown) => {
       const sourceId =
         node && typeof node === "object" && typeof (node as { sourceId?: unknown }).sourceId === "string"

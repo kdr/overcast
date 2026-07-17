@@ -93,6 +93,13 @@ export async function openRecordPanel(deps: ExtDeps, recordId: string): Promise<
         void deps.router.openRecord(msg.recordId);
         return;
       }
+      if (msg.type === "openMedia") {
+        // the ref comes from the host-side manifest (trusted), not the webview
+        if (mediaExists && mediaRef) {
+          void vscode.commands.executeCommand("vscode.open", vscode.Uri.file(mediaRef));
+        }
+        return;
+      }
       if (msg.type !== "getField") return;
       void (async () => {
         const page = await deps.bridge.run([

@@ -37,8 +37,8 @@ async function exportBrief(deps: ExtDeps, kind: "html" | "md"): Promise<void> {
   }
 }
 
-/** Quick status report: (re)generate the brief HTML into the case and open it
- *  in an artifact tab — no save dialog. */
+/** One-press brief: (re)generate the mission-brief HTML into the case and
+ *  open it in an artifact tab — no save dialog. */
 async function viewBrief(deps: ExtDeps): Promise<void> {
   if (!(await deps.bridge.ensureCli())) return;
   const caseDir = deps.locator.caseDir;
@@ -48,7 +48,7 @@ async function viewBrief(deps: ExtDeps): Promise<void> {
   }
   const out = path.join(caseDir, ".overcast", "media", "brief.html");
   const result = await deps.bridge.runWithProgress(
-    "Building status report",
+    "Building brief",
     ["brief", "--export", out, "--theme", "csi"],
     { caseDir },
   );

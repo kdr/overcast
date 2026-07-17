@@ -116,6 +116,34 @@ export function registerCaseCommands(deps: ExtDeps): void {
     term.sendText(launch);
   });
 
+  // ---- case setup wizard (agent-guided → its own terminal) ------------------
+  const caseSetup = vscode.commands.registerCommand("overcast.caseSetup", async () => {
+    const cli = await bridge.ensureCli();
+    if (!cli) return;
+    const caseDir = locator.caseDir;
+    if (!caseDir) {
+      void vscode.window.showWarningMessage("Overcast: no case selected — pick one first.");
+      return;
+    }
+    // Plain `overcast case setup` (no flags) only PRINTS the setup status — the
+    // interactive question-at-a-time wizard is the agent's job (the TUI system
+    // prompt drives it). Launch the TUI with an initial message so the wizard
+    // starts immediately: `--tui "<message>"` (a --tui non-verb positional is
+    // pi's initial message, see routeArgv). Editor tab like the agent terminal.
+    const term = vscode.window.createTerminal({
+      name: `overcast setup · ${locator.caseName ?? ""}`.trim(),
+      cwd: caseDir,
+      location: vscode.TerminalLocation.Editor,
+    });
+    term.show();
+    const q = (s: string) => (/\s/.test(s) ? `"${s}"` : s);
+    const launch = cli.argsPrefix.length ? `node ${cli.argsPrefix.map(q).join(" ")}` : q(cli.cmd);
+    // single-quoted: shell-inert in zsh/bash/PowerShell (no backticks/apostrophes!)
+    const wizardMsg =
+      "Walk me through case setup as a step-by-step wizard. Check the current setup status first, then ask me one question at a time. If the case is already set up, summarize the current setup and offer edits.";
+    term.sendText(`${launch} --tui '${wizardMsg}'`);
+  });
+
   // ---- restart / re-resolve the CLI -----------------------------------------
   const restartCli = vscode.commands.registerCommand("overcast.restartCli", async () => {
     const cli = await bridge.restart();
@@ -142,6 +170,7 @@ export function registerCaseCommands(deps: ExtDeps): void {
     selectCase,
     openInOvercast,
     openTerminal,
+    caseSetup,
     restartCli,
     statusItem,
     locator.onDidChangeCase(refreshStatus),

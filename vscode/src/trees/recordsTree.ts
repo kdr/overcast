@@ -11,7 +11,7 @@ class VerbGroupItem extends vscode.TreeItem {
     readonly verb: string,
     count: number,
   ) {
-    super(verb, vscode.TreeItemCollapsibleState.Collapsed);
+    super(verb, vscode.TreeItemCollapsibleState.Expanded);
     this.description = String(count);
     this.iconPath = new vscode.ThemeIcon("folder");
     this.id = `verbgroup:${verb}`;
@@ -57,6 +57,11 @@ export class RecordsTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
 
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
+  }
+
+  // Roots only (layout-nudge reveal support).
+  getParent(): vscode.TreeItem | undefined {
+    return undefined;
   }
 
   getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {

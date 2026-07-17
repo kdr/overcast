@@ -9,9 +9,12 @@ test("shouldTrackJob: skips the noisy poll reads + version, tracks the rest", ()
   assert.equal(shouldTrackJob(["finding", "list", "--state", "all"]), false);
   assert.equal(shouldTrackJob(["--version"]), false);
   assert.equal(shouldTrackJob(["commands"]), false);
+  assert.equal(shouldTrackJob(["index", "list"]), false); // model poll read
+  assert.equal(shouldTrackJob(["index"]), false); // bare index = list
   assert.equal(shouldTrackJob([]), false);
   assert.equal(shouldTrackJob(["watch", "/a/clip.mp4"]), true);
   assert.equal(shouldTrackJob(["scan", "youtube:@handle"]), true);
+  assert.equal(shouldTrackJob(["index", "create", "faces", "--type", "face"]), true);
   assert.equal(shouldTrackJob(["note", "--text", "hi"]), true);
 });
 

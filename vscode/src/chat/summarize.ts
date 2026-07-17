@@ -224,6 +224,36 @@ export function citedRecordIds(rec: OvercastRecord): string[] {
   return [...ids];
 }
 
+/** True for prompts about the participant itself ("what can you do", "help") —
+ *  those must get the capability card, not an `ask` over case memory (which
+ *  would honestly answer "no records match"). Deliberately narrow: anything
+ *  case-shaped ("what cars appear…") must still reach `ask`. */
+export function isCapabilityQuestion(text: string): boolean {
+  const t = text.trim().toLowerCase().replace(/[?!. ]+$/, "");
+  return (
+    /^(help|commands|capabilities|usage|hi|hello|hey)$/.test(t) ||
+    /^(what (can|do) you do|what can you help( me)? with|how do i use (you|this)|what are you|who are you|how does this work)$/.test(
+      t,
+    )
+  );
+}
+
+// Keep the wording in lockstep with package.json's chatParticipants command
+// descriptions, the Explorer menu titles, and the deck labels.
+export const CAPABILITY_MARKDOWN = [
+  "**@overcast** works over the active investigation case — every result is a case record you can reopen from the Overcast sidebar.",
+  "",
+  "- **Free text** (or `/ask`) — answer a question over the case's evidence, with citations: `@overcast what vehicles appear in the footage?`",
+  "- `/scan [query]` — scan the configured OSINT sources for new material _(reaches the network)_",
+  "- `/capture <scan-hit id | url>` — pull a scan hit or URL into the case _(reaches the network)_",
+  "- `/sense <watch|listen|see|face|exif> <file>` — analyze a media file (watch, listen, see, faces, EXIF)",
+  "- `/note <text>` — record an analyst observation into the case",
+  "- `/status` — case status: lines of investigation, suggested leads, source freshness",
+  "- `/brief` — render the mission brief",
+  "",
+  "In agent mode, models can call the `overcast_*` tools directly (`#overcastAsk`, `#overcastScan`, `#overcastCapture`, `#overcastSense`, `#overcastNote`, `#overcastStatus`).",
+].join("\n");
+
 /** True when user/model text would be misread by the CLI argv parser: any
  *  `-`-leading token is eaten as a flag (positionals AND flag values), silently
  *  corrupting the text. Guard before building argv; there is no `--` separator. */

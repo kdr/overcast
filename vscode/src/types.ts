@@ -95,6 +95,16 @@ export interface RecordRow {
   at?: string | number | null;
 }
 
+/** `index list --json` payload row — producer: src/verbs/index.ts (list action:
+ *  {op:"list", indexes:[{id,type,backend,name,members}], count}). */
+export interface IndexInfo {
+  id: string;
+  type: string;
+  backend?: string;
+  name?: string;
+  members?: number;
+}
+
 /** `finding list --json` payload — producer: src/verbs/finding.ts (list). */
 export interface FindingListPayload {
   state?: string;

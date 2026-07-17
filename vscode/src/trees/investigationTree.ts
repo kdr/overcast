@@ -45,8 +45,12 @@ export class ThreadItem extends vscode.TreeItem {
       (thread.findingIds?.length ?? 0) > 0 || (thread.recentEvidenceIds?.length ?? 0) > 0;
     super(
       thread.value,
+      // Open lines of investigation show their evidence at a glance; closed
+      // ones start folded (they still sort to the bottom, dimmed).
       hasChildren
-        ? vscode.TreeItemCollapsibleState.Collapsed
+        ? closed
+          ? vscode.TreeItemCollapsibleState.Collapsed
+          : vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.None,
     );
     const funnel = thread.funnel ?? { scan: 0, captures: 0, senses: 0, matches: 0 };
@@ -177,6 +181,12 @@ export class InvestigationTreeProvider implements vscode.TreeDataProvider<vscode
 
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
+  }
+
+  // Only ROOT elements are ever reveal()ed (the extension's one-time layout
+  // nudge) — a flat undefined parent satisfies TreeView.reveal's requirement.
+  getParent(): vscode.TreeItem | undefined {
+    return undefined;
   }
 
   getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {

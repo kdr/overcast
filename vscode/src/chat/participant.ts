@@ -12,11 +12,13 @@ import { recordForVerb } from "../lib/cliOutput.ts";
 import type { CaseStatusPayload, ExtDeps, OvercastRecord } from "../types.ts";
 import { runVerbForChat, resolveMediaFile } from "./core.ts";
 import {
+  CAPABILITY_MARKDOWN,
   FLAG_LIKE_MESSAGE,
   answerText,
   caseSummary,
   citedRecordIds,
   flagLikeText,
+  isCapabilityQuestion,
   recordBlurb,
   scanHits,
   type CaseSummary,
@@ -85,6 +87,12 @@ async function handleAsk(
     stream.markdown("Ask a question about this case — e.g. `@overcast what vehicles appear in the footage?`");
     return meta("ask");
   }
+  // "@overcast what can you do" is about the participant, not the case — an
+  // `ask` would truthfully stream `No records match "what can you do"`.
+  if (isCapabilityQuestion(prompt)) {
+    stream.markdown(CAPABILITY_MARKDOWN);
+    return meta("help");
+  }
   if (flagLikeText(prompt)) {
     stream.markdown(warn(FLAG_LIKE_MESSAGE));
     return meta("ask");
@@ -137,7 +145,7 @@ async function handleScan(
   }
   if (hits.length > shown.length) stream.markdown(`\n…and ${hits.length - shown.length} more.\n`);
   if (!outcome.ok) stream.markdown(`\n${warn(outcome.message)}\n`);
-  stream.markdown("\nUse `/capture <id | url>` to pull one into the case.");
+  stream.markdown("\nUse `/capture <scan-hit id | url>` to pull one into the case.");
   return meta("scan", { topHitId: shown.find((h) => h.id)?.id });
 }
 
@@ -186,7 +194,7 @@ async function handleCapture(
 ): Promise<vscode.ChatResult> {
   const ref = prompt.trim();
   if (!ref) {
-    stream.markdown("Usage: `/capture <url | scan-hit id>` — pulls the resource into the case (reaches the network for URLs).");
+    stream.markdown("Usage: `/capture <scan-hit id | url>` — pull a scan hit or URL into the case (reaches the network).");
     return meta("capture");
   }
   if (flagLikeText(ref)) {
@@ -214,7 +222,7 @@ async function handleSense(
   const verb = sp === -1 ? trimmed : trimmed.slice(0, sp);
   const file = sp === -1 ? "" : trimmed.slice(sp + 1).trim();
   if (!SENSE_VERBS.has(verb) || !file) {
-    stream.markdown("Usage: `/sense <watch|listen|see|face|exif> <file>`");
+    stream.markdown("Usage: `/sense <watch|listen|see|face|exif> <file>` — analyze a media file.");
     return meta("sense");
   }
   const abs = resolveMediaFile(deps.locator.caseDir, file);
@@ -240,7 +248,7 @@ async function handleNote(
 ): Promise<vscode.ChatResult> {
   const text = prompt.trim();
   if (!text) {
-    stream.markdown("Usage: `/note <observation>` — records a human observation into the case.");
+    stream.markdown("Usage: `/note <text>` — record an analyst observation into the case.");
     return meta("note");
   }
   if (flagLikeText(text)) {

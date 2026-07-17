@@ -12,6 +12,7 @@ import type {
   CaseRecordsPayload,
   CaseStatusPayload,
   FindingListPayload,
+  IndexInfo,
   RecordRow,
 } from "../types.ts";
 import type { CaseLocator } from "./caseLocator.ts";
@@ -45,6 +46,8 @@ export class CaseStatusModel implements vscode.Disposable {
   findings = new Map<string, FindingSummary>();
   /** newest-first recent notes (≤ NOTE_LIMIT), bodies lazily enriched below. */
   notes: NoteEntry[] = [];
+  /** case indexes (`index list` mirror rows) — the Sources view's Indexes folder. */
+  indexes: IndexInfo[] = [];
   // note id → body. Notes are immutable, so a fetched body is cached for the
   // life of the case and never re-read (cleared on case switch).
   private noteText = new Map<string, string>();
@@ -130,13 +133,14 @@ export class CaseStatusModel implements vscode.Disposable {
       this.recordsPayload = undefined;
       this.findings = new Map();
       this.notes = [];
+      this.indexes = [];
       this.emitter.fire();
       return;
     }
-    let statusRes, recordsRes, findingsRes;
+    let statusRes, recordsRes, findingsRes, indexRes;
     try {
       // A view-scoped progress bar shows the trees are (re)loading.
-      [statusRes, recordsRes, findingsRes] = await vscode.window.withProgress(
+      [statusRes, recordsRes, findingsRes, indexRes] = await vscode.window.withProgress(
         { location: { viewId: "overcast.investigation" } },
         () =>
           Promise.all([
@@ -147,6 +151,8 @@ export class CaseStatusModel implements vscode.Disposable {
             // render client-side.
             this.bridge.run(["case", "records", "--limit", "1000000"], { caseDir }),
             this.bridge.run(["finding", "list", "--state", "all"], { caseDir }),
+            // local mirror read (no --remote): never reaches tinycloud
+            this.bridge.run(["index", "list"], { caseDir }),
           ]),
       );
     } finally {
@@ -166,6 +172,12 @@ export class CaseStatusModel implements vscode.Disposable {
       this.recordsPayload = undefined;
       this.records = [];
     }
+
+    const indexRec = indexRes.records.find((r) => r.verb === "index");
+    this.indexes =
+      !indexRes.failure && indexRec
+        ? (((indexRec.payload as Record<string, unknown> | null)?.indexes ?? []) as IndexInfo[])
+        : [];
 
     this.findings = new Map();
     const findingRec = findingsRes.records.find((r) => r.verb === "finding");

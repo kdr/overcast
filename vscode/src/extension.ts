@@ -50,7 +50,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ---- command deck (webview view, pinned at the top of the container) ----
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider("overcast.deck", new CommandDeckProvider(deps)),
+    vscode.window.registerWebviewViewProvider(
+      "overcast.deck",
+      new CommandDeckProvider(deps, () => void nudgeLayout()),
+    ),
   );
 
   // ---- sidebar trees ----
@@ -60,11 +63,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ["overcast.records", new RecordsTreeProvider(deps)],
   ];
   const views = new Map<string, vscode.TreeView<vscode.TreeItem>>();
+  const providers = new Map<string, vscode.TreeDataProvider<vscode.TreeItem>>();
   for (const [id, provider] of trees) {
     const view = vscode.window.createTreeView(id, { treeDataProvider: provider });
     views.set(id, view);
+    providers.set(id, provider);
     context.subscriptions.push(view);
   }
+
+  // ---- one-time layout nudge ------------------------------------------------
+  // VS Code persists per-workspace section collapse/size state, and a stale
+  // layout (tree sections collapsed at the bottom, the deck webview filling the
+  // sidebar) survives reinstalls — `initialSize` only applies to fresh state.
+  // When the Overcast container first becomes visible, reveal one root element
+  // in each tree (focus/select-less reveal expands a collapsed section), so the
+  // sections open top-down and the deck gives the space back. Runs stays
+  // collapsed by design. Marked done per-workspace only after every tree had
+  // content to expand (an empty tree can't be revealed — retry next time).
+  const NUDGE_KEY = "overcast.layoutNudge.v1";
+  let nudging = false;
+  const nudgeLayout = async (): Promise<void> => {
+    if (nudging || context.workspaceState.get<boolean>(NUDGE_KEY)) return;
+    nudging = true;
+    try {
+      let allExpanded = true;
+      for (const id of ["overcast.investigation", "overcast.sources", "overcast.records"]) {
+        const view = views.get(id);
+        const provider = providers.get(id);
+        if (!view || !provider) continue;
+        const roots = await provider.getChildren();
+        const first = roots?.[0];
+        if (!first) {
+          allExpanded = false; // nothing to reveal yet (model still loading / empty case)
+          continue;
+        }
+        try {
+          await view.reveal(first, { focus: false, select: false, expand: false });
+        } catch {
+          allExpanded = false; // view gone mid-flight — retry on next visibility
+        }
+      }
+      if (allExpanded) await context.workspaceState.update(NUDGE_KEY, true);
+    } finally {
+      nudging = false;
+    }
+  };
+  // The deck's visibility callback handles the "container already open" case;
+  // also retry once the model delivers data while the container is visible.
+  context.subscriptions.push(
+    model.onDidChange(() => {
+      if (views.get("overcast.investigation")?.visible) void nudgeLayout();
+    }),
+  );
   // The triage-count badge lives on Investigation now (Triage merged into it).
   context.subscriptions.push(
     model.onDidChange(() => {

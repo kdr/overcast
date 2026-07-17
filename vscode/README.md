@@ -1,16 +1,95 @@
 # Overcast for VS Code
 
-The case viewer + verb invoker for [overcast](../README.md), as a VS Code
-extension. One loop: **invoke** (a command deck of labeled buttons; right-click media →
-sense verbs; registry-driven "Run Verb…" / "Search Source…" quick-picks) →
-records land in the case → **view** (investigation sidebar with its notes &
-leads queue, artifact tabs for view/grid/map/graph/wall/brief, live situation
-panel).
+**The situation room in your editor: senses on your media, OSINT on your
+sources, a wall to monitor the situation.**
+
+[overcast](../README.md) turns footage into cited evidence: it watches,
+listens to, and reads your media, scans OSINT sources, and keeps everything
+in an investigation case where every answer cites the exact record and
+timestamp. This extension puts that power where your media already lives —
+right-click a clip in the Explorer, and the case builds itself in the sidebar.
+
+## Right-click any media file
+
+Select a video, image, or audio file in the Explorer — or open one in the
+editor — and the **Overcast** menu puts senses on it:
+
+- **Watch** — describe a video scene by scene: what happens, what's said,
+  what's on screen.
+- **Listen** — transcribe the speech out of audio or video.
+- **See** — describe an image and read the text in it.
+- **Detect Faces** — find the people in a frame or clip.
+- **EXIF Metadata** — GPS, capture time, and the camera fingerprint that ties
+  photos to a device.
+- **Chronolocate** — check a photo's claimed time against the sun and shadows.
+- **Enhance** — denoise, upscale, forensic overlays.
+- **Find Similar / Audio Fingerprint / Voice Match** — search the case's local
+  image, sound, and speaker databases.
+- **View / Grid** — an instant media player; a timestamped frame board for
+  skimming an hour of footage at a glance.
+
+Multi-select and **Analyze All Selected** runs the right sense per file across
+a whole folder of footage. Every result lands in the case as an evidence
+record with an id — citable, reviewable, permanent.
+
+## The investigation view
+
+The **Overcast** view in the activity bar is the case's living crime board,
+laid out along the intelligence cycle:
+
+- **Case deck** — the case name (click it to switch case folders), a CLI
+  status dot, and one-press actions grouped by phase: *Prepare* (Case Setup,
+  Add Source), *Collect* (Scan), *Process* (Analyze Media), *Analyze* (New
+  Note, Map, Graph), *Present* (Brief, Wall, Situation) — plus the agent
+  terminal.
+- **Sources & Monitors** — the standing OSINT watch (YouTube, X, Telegram,
+  webcams, police dispatch, flights, …) with per-source freshness. Expand a
+  source to see the media it grabbed; the **Analyzed media** folder rolls up
+  everything a sense has touched, and **Indexes** lists the case's search
+  databases. Right-click a source to scan it now, or a media item to analyze
+  it.
+- **Records** — the evidence trail, newest first, one click from any record's
+  full payload (media plays alongside it; notes render as markdown).
+- **Investigation** — your lines of investigation, each with its linked
+  evidence, and a *Notes & leads* queue where machine-suggested leads (a face
+  match, a matched frame, a target phrase) wait with inline ✓ accept / ✗
+  dismiss — nothing becomes evidence until you say so.
+- **Runs** — every CLI run as a job: spinner + elapsed + inline cancel while
+  it works, result deep-link when it's done.
+
+Artifacts open as editor tabs: the **Map** plots every GPS-carrying record,
+the **Graph** connects the dots between people, places, findings, and media,
+the **Wall** loops case video at its evidence moments, the **Brief** is the
+mission report, and the **Situation** panel is a live, self-refreshing
+control room over the case's feeds.
 
 The extension is a thin client of the `overcast` CLI: reads ride
-`case status --json` / `case records --json` + fs-watching the `.overcast/`
-store; every action spawns `overcast …` (never a library import). See the
-repo-root CLAUDE.md invariants.
+`case status --json` / `case records --json` plus fs-watching the `.overcast/`
+store, and every action spawns `overcast …` — the CLI and its record contract
+stay the single source of truth.
+
+## Chat
+
+When a chat provider (e.g. GitHub Copilot) is installed, Overcast adds two
+chat surfaces — both thin clients of the CLI, producing ordinary case records:
+
+- **`@overcast` chat participant**: free text (or `/ask`) answers a question
+  over the case's evidence, with citations; `/scan` scans the configured OSINT
+  sources for new material, `/capture <scan-hit id | url>` pulls a scan hit or
+  URL into the case, `/sense <verb> <file>` analyzes a media file (watch,
+  listen, see, faces, EXIF), `/note <text>` records an analyst observation,
+  `/status` shows lines of investigation + suggested leads + source freshness,
+  `/brief` renders the mission brief. Answers stream as markdown with
+  **Open Record** buttons for every produced or cited record id.
+- **Six language-model tools** for agent mode: `#overcastStatus`,
+  `#overcastAsk`, `#overcastScan`, `#overcastCapture`, `#overcastSense`,
+  `#overcastNote` — or let the model pick them itself.
+
+**Network + confirmation.** Scan and capture reach the network. Every
+language-model tool invocation shows a confirmation dialog carrying the exact
+`overcast …` command line before anything runs; ask and status are read-only.
+A `needs_credentials` failure is relayed verbatim so the model can tell you
+what to configure.
 
 ## Requirements
 
@@ -28,82 +107,3 @@ npm run build         # tsup (host → dist/extension.cjs) + vite (SPA → dist/
 npm run package       # @vscode/vsce → ../.dev/overcast-vscode-<version>.vsix
 code --install-extension ../.dev/overcast-vscode-*.vsix
 ```
-
-## Development
-
-```bash
-# from the repo root: build the CLI the fixture uses
-npm run build
-# seed the offline demo case (fixture providers, no creds)
-bash vscode/scripts/seed-dev-case.sh
-# then open vscode/ in VS Code and F5 ("Run Extension (fixture case)")
-```
-
-The seed script writes `.dev/vscode-fixture/.vscode/settings.json` pinning
-`overcast.path` (your fresh build), `overcast.home` (the isolated fixture
-home), and `overcast.profile`, plus a case-dir `.env` with the fixture source
-binding — so scan/watch in the dev host run fully offline. `npm run typecheck`
-covers host + webview;
-`npm test` runs the pure-logic units (html rewriting, argv assembly, CLI
-output parsing) with plain `node --test` — no VS Code required.
-
-## Surfaces
-
-- **Activity bar → Overcast**: a **Case** command deck pinned at the top
-  (labeled buttons — New Note, Scan…, Run Verb…, Status Report, Map, Graph,
-  Wall, Situation, Agent Terminal; case name + CLI status dot; Initialize/Select
-  when there's no case) over four trees — Investigation (lines of investigation
-  + a "Notes & leads" group: suggested findings with inline ✓/✗ and your notes,
-  triage badge count on the view), Sources & Monitors (freshness), Records
-  (trail), and Runs (collapsed by default: every tracked CLI invocation —
-  running senses/scans with a spinner + live elapsed and an inline Cancel, then
-  the last ~20 finished with duration/error and a record deep-link; a status-bar
-  `$(sync~spin) overcast: N` spinner + a view badge count the active runs and
-  click through to the tree).
-- **Editor tabs**: artifact panels (view player, grid board, map, graph, wall,
-  brief export — the CLI's own self-contained HTML, CSP/file:// rewritten for
-  webviews), record detail, scan results.
-- **Bottom panel → Situation**: the live situation page in an iframe; the
-  extension owns an `overcast situation serve` child with a pinned token
-  (`OVERCAST_SITUATION_TOKEN`).
-- **Explorer right-click → Overcast**: watch/listen/see/face/exif/grid/… per
-  media type; multi-select batch sensing. The same Overcast menu sits on media
-  **editor tabs** (title-bar button + tab right-click) when an image/video/audio
-  file is open in the built-in preview.
-
-## Chat
-
-When a chat provider (e.g. GitHub Copilot) is installed, Overcast adds two chat
-surfaces — both **thin clients**: every action spawns `overcast …` and the
-results are ordinary case records with ids (never a library import).
-
-- **`@overcast` chat participant** (ask-mode front door). Free text (or `/ask`)
-  answers a question over the case memory with citations; slash commands map to
-  verbs: `/scan` (sweep sources), `/status` (threads + leads + source
-  freshness), `/brief` (mission brief), `/capture <id|url>`, `/sense <verb>
-  <file>`, `/note <text>`. Answers stream as markdown with **Open Record**
-  buttons for produced/cited record ids. Each request is single-shot against the
-  CLI (the case store is the memory — no multi-turn history is replayed). With no
-  case or no CLI it streams a short pointer instead of erroring.
-- **Six `#`-referenceable language-model tools** (agent-mode). In an agent chat
-  you can reference `#overcastStatus`, `#overcastAsk`, `#overcastScan`,
-  `#overcastCapture`, `#overcastSense`, `#overcastNote`, or let the model pick
-  them: `overcast_case_status`, `overcast_ask`, `overcast_scan`,
-  `overcast_capture`, `overcast_sense`, `overcast_note`. They appear only once the
-  CLI is found (`when: overcast.cliFound`).
-
-**Network + confirmation.** `scan` and `capture` (and `/scan` `/capture`) reach
-the network — scan sweeps the configured OSINT sources, capture fetches the ref.
-Every language-model **tool invocation shows a confirmation dialog** carrying the
-exact `overcast …` argv (network-reaching and case-mutating tools are worded
-clearly; `case_status`/`ask` are read-only). A `needs_credentials` failure is
-relayed verbatim so the model can tell you what to run (`overcast setup`).
-
-## Future: registry-generated contributions
-
-`contributes.commands`/`menus` for the curated context verbs — and
-`contributes.languageModelTools` for the six chat tools — are hand-written
-today. When the surface stabilizes, generate them from
-`overcast commands --json` the same way `skills/` is generated from the verb
-registry (src/skill-gen.ts), with an identical CI no-diff regen gate — making
-this the registry's fourth surface (CLI, agent tool, skills, VS Code).

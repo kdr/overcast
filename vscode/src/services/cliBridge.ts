@@ -289,11 +289,17 @@ export class CliBridge implements vscode.Disposable {
    * Run under a cancellable progress notification and surface failures with
    * actionable buttons. Returns undefined when the run failed or was cancelled
    * (already reported to the user).
+   *
+   * `keepPartialFailure`: fan-out verbs like scan exit non-zero when ANY single
+   * source fails (e.g. one credential-gapped source) even though healthy sources
+   * emitted real records in the same stream — with this set, a failed run that
+   * still produced records is RETURNED (failure attached, nothing surfaced) so
+   * the caller can show the partial results; use surfaceFailure for the rest.
    */
   async runWithProgress(
     title: string,
     args: string[],
-    opts: RunOptions = {},
+    opts: RunOptions & { keepPartialFailure?: boolean } = {},
   ): Promise<CliResult | undefined> {
     const cli = await this.ensureCli();
     if (!cli) return undefined;
@@ -307,6 +313,7 @@ export class CliBridge implements vscode.Disposable {
     );
     if (!result) return undefined;
     if (result.failure) {
+      if (opts.keepPartialFailure && result.records.length > 0) return result;
       // Outside the withProgress scope — awaiting the failure dialog inside it
       // keeps the spinner toast open, stacked under the error.
       await this.surfaceFailure(result);
@@ -315,7 +322,8 @@ export class CliBridge implements vscode.Disposable {
     return result;
   }
 
-  private async surfaceFailure(result: CliResult): Promise<void> {
+  /** Report a failed CliResult to the user with actionable buttons. */
+  async surfaceFailure(result: CliResult): Promise<void> {
     const failure = result.failure;
     if (!failure) return;
     if (failure.kind === "needs_credentials") {
