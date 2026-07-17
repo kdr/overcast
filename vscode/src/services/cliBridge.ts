@@ -92,10 +92,12 @@ function wellKnownBinDirs(): string[] {
   return dirs;
 }
 
-/** EVERY executable named `name` across `dirs`, in order, deduped by realpath
- *  (symlinked installs would smoke-test the same binary twice). All of them are
- *  returned — resolution smoke-tests each in turn, so a stale/broken launcher
- *  earlier in the order can't hide a working later install. */
+/** EVERY executable named `name` across `dirs`, in order, deduped by LITERAL
+ *  path only — two paths sharing a realpath are still distinct candidates,
+ *  because a symlink's own location changes which PATH prefix rescues its
+ *  shebang (see launcherDirs); dropping the "duplicate" could drop the only
+ *  runnable one. All are returned — resolution smoke-tests each in turn, so a
+ *  stale/broken launcher earlier in the order can't hide a working install. */
 function findExecutables(name: string, dirs: string[]): string[] {
   const exts =
     process.platform === "win32"
@@ -108,14 +110,8 @@ function findExecutables(name: string, dirs: string[]): string[] {
       const candidate = path.join(dir, name + ext.toLowerCase());
       try {
         fs.accessSync(candidate, fs.constants.X_OK);
-        let key = candidate;
-        try {
-          key = fs.realpathSync(candidate);
-        } catch {
-          /* dedupe on the literal path */
-        }
-        if (!seen.has(key)) {
-          seen.add(key);
+        if (!seen.has(candidate)) {
+          seen.add(candidate);
           found.push(candidate);
         }
       } catch {
@@ -124,6 +120,27 @@ function findExecutables(name: string, dirs: string[]): string[] {
     }
   }
   return found;
+}
+
+/** The launcher's own dir plus each symlink hop's dir, in chain order. An
+ *  `#!/usr/bin/env node` launcher needs `node` on PATH, and node sits next to
+ *  SOME hop of the chain — e.g. /usr/local/bin/overcast → ~/.nvm/.../bin/
+ *  overcast (node lives here) → …/lib/node_modules/…/overcast.js. */
+function launcherDirs(cmd: string): string[] {
+  const dirs: string[] = [];
+  let cur = cmd;
+  for (let hop = 0; hop < 8; hop++) {
+    const dir = path.dirname(cur);
+    if (!dirs.includes(dir)) dirs.push(dir);
+    let link: string;
+    try {
+      link = fs.readlinkSync(cur);
+    } catch {
+      break; // not a symlink — end of the chain
+    }
+    cur = path.resolve(dir, link);
+  }
+  return dirs;
 }
 
 export class CliBridge implements vscode.Disposable {
@@ -291,16 +308,18 @@ export class CliBridge implements vscode.Disposable {
     });
   }
 
-  /** Env for spawning the resolved CLI. Prepends the resolved binary's own
-   *  directory to PATH: an `#!/usr/bin/env node` launcher (nvm/volta installs)
-   *  resolves `node` from PATH, and node sits next to the launcher — but a
-   *  GUI-launched extension host's PATH lacks that directory even when
+  /** Env for spawning the resolved CLI. Prepends the launcher's symlink-chain
+   *  dirs (launcherDirs) to PATH: an `#!/usr/bin/env node` launcher resolves
+   *  `node` from PATH, and node sits next to some hop of the chain — but a
+   *  GUI-launched extension host's PATH lacks those directories even when
    *  discovery (or the overcast.path setting) found the launcher itself. */
   private childEnv(cli: ResolvedCli, extra?: Record<string, string>): NodeJS.ProcessEnv {
     if (process.platform === "win32") return { ...process.env, ...cli.env, ...extra };
-    const binDir = path.dirname(cli.cmd);
     const dirs = pathDirs();
-    const PATH = dirs.includes(binDir) ? (process.env.PATH ?? "") : [binDir, ...dirs].join(path.delimiter);
+    const missing = launcherDirs(cli.cmd).filter((d) => !dirs.includes(d));
+    const PATH = missing.length
+      ? [...missing, ...dirs].join(path.delimiter)
+      : (process.env.PATH ?? "");
     return { ...process.env, PATH, ...cli.env, ...extra };
   }
 
