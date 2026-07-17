@@ -95,6 +95,20 @@ case "$op" in
         *)                           da="$since" ;;
       esac
       flat=""; date_args="--dateafter $da"
+      # an UNCAPPED (--limit 0) recency scan of a CHANNEL/USER page would
+      # otherwise crawl the whole listing non-flat just to date-filter it —
+      # uploads pages enumerate newest-first across yt-dlp hosts, so
+      # --break-on-reject stops at the first too-old entry (same policy as
+      # youtube.sh tabs). Playlist-shaped URLs are arbitrary-order and never
+      # get the break (a full scan is the honest behavior there).
+      qpath="${query%%\#*}"; qpath="${qpath%%\?*}"
+      case "$qpath" in
+        *'/playlist'*) : ;;
+        *) case "$query" in
+             *'?list='*|*'&list='*) : ;;
+             *) [ "$limit" -eq 0 ] && date_args="$date_args --break-on-reject" ;;
+           esac ;;
+      esac
     fi
     # capture yt-dlp explicitly so a failure (network, extractor, unsupported host)
     # surfaces as an enumerate ERROR (exit 1 → scan error record), not an empty hit
@@ -104,10 +118,14 @@ case "$op" in
     end_args="--playlist-end $limit"; [ "$limit" -eq 0 ] && end_args=""
     # shellcheck disable=SC2086
     raw="$(yt-dlp $flat $date_args --dump-json $end_args "$target" 2>"$errf")"; code=$?
-    # ANY non-zero yt-dlp exit is a failure (network, auth, unavailable, partial),
-    # even with no "ERROR" line or some JSON already printed — surface it as an
-    # enumerate error rather than a clean/partial scan. A successful run that simply
-    # found nothing exits 0 with empty stdout (handled below).
+    # exit 101 is yt-dlp's "stopped by --break-*" code — the success path ONLY
+    # when THIS script passed --break-on-reject (the bounded recency scan); a
+    # 101 from a user/global --max-downloads config is a truncated listing.
+    case "$date_args" in *--break-on-reject*) [ "$code" -eq 101 ] && code=0 ;; esac
+    # ANY OTHER non-zero yt-dlp exit is a failure (network, auth, unavailable,
+    # partial), even with no "ERROR" line or some JSON already printed — surface
+    # it as an enumerate error rather than a clean/partial scan. A successful
+    # run that simply found nothing exits 0 with empty stdout (handled below).
     if [ "$code" -ne 0 ]; then
       echo "dl enumerate failed (yt-dlp exit $code): $(tail -3 "$errf" | tr '\n' ' ')" >&2
       rm -f "$errf"; exit 1

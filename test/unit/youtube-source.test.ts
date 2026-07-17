@@ -674,3 +674,22 @@ test("default video fetch passes --no-playlist (a watch?v=…&list=… share lin
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("dl: uncapped recency scans of channel/user pages get --break-on-reject (101 = success); playlist URLs never do", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-dl-"));
+  try {
+    const a = shimEnv(dir, "flat_videos_101");
+    const hits = await enumerateSource(builtinDescriptor("dl")!, { query: "https://rumble.com/c/acme", limit: 0, since: "3d", env: a.env });
+    assert.equal(hits.length, 1, "exit 101 at the date boundary is the success path");
+    assert.equal(hits[0].state, "ready");
+    let argv = readFileSync(a.log, "utf8");
+    assert.match(argv, /--break-on-reject/);
+    // playlist-shaped URLs are arbitrary-order — never bounded by the break
+    const b = shimEnv(dir, "flat_videos");
+    await enumerateSource(builtinDescriptor("dl")!, { query: "https://www.youtube.com/playlist?list=PLX", limit: 0, since: "3d", env: b.env });
+    argv = readFileSync(b.log, "utf8");
+    assert.doesNotMatch(argv, /--break-on-reject/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
