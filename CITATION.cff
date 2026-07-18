@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: >-
+  overcast — senses (video/audio/image) + OSINT reach for any agent
+message: If you use overcast in your research or reporting, please cite it.
+type: software
+authors:
+  - name: "kdr"
+repository-code: "https://github.com/kdr/overcast"
+url: "https://github.com/kdr/overcast#readme"
+abstract: >-
+  overcast is a portable toolkit that gives an agent senses (video, audio, and
+  image understanding) and OSINT reach (search, capture, monitor, reverse-image
+  and reverse-face lookup, and public-records sources), organized around an
+  investigation case. It is built on top of the pi agent harness and ships as a
+  pi package, a standalone binary, and agent skills.
+keywords:
+  - osint
+  - video-analysis
+  - investigation
+  - agent
+  - cli
+  - perception
+license: Apache-2.0
+version: 0.0.10
+date-released: "2026-07-17"
