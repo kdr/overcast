@@ -39,6 +39,9 @@ while [ "$#" -gt 0 ]; do case "$1" in
 esac; done
 need_exiftool
 [ -f "$input" ] || { jq -nc --arg i "$input" '{verb:"exif",format:"json",payload:{error:("file not found: "+$i)},error:"file not found",state:"error"}'; exit 0; }
+# A relative path beginning with '-' would be parsed by exiftool as an option
+# (e.g. -tagsFromFile / -w); prefix ./ so it stays a positional file operand.
+case "$input" in -*) input="./$input" ;; esac
 
 # -n = numeric values (signed decimal GPS via the Composite group), -json = one
 # object per file. Capture exiftool's exit status so a genuine failure (corrupt/

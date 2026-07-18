@@ -45,6 +45,9 @@ while [ "$#" -gt 0 ]; do case "$1" in
 esac; done
 need_c2patool
 [ -f "$input" ] || { jq -nc --arg i "$input" '{verb:"verify",format:"json",payload:{error:("file not found: "+$i)},error:"file not found",state:"error"}'; exit 0; }
+# A relative path beginning with '-' would be parsed by c2patool as an option;
+# prefix ./ so it stays a positional file operand.
+case "$input" in -*) input="./$input" ;; esac
 
 errf="$(mktemp)"
 out="$("${C2PATOOL_CMD[@]}" "$input" 2>"$errf")"; code=$?

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, appendFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, appendFileSync, symlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -279,6 +279,39 @@ test("install: refuses a tarball whose members escape via .. / absolute path (Bu
   assert.match(r.error ?? "", /unsafe member|path traversal/);
   assert.equal(existsSync(join(HOME, "escape.txt")), false, "nothing written outside the package dir");
 
+  rmSync(work, { recursive: true, force: true });
+  rmSync(HOME, { recursive: true, force: true });
+});
+
+test("install: refuses a tarball containing a symlink member (write-through escape)", () => {
+  HOME = freshHome();
+  const work = mkdtempSync(join(tmpdir(), "oc-install-symlink-"));
+  const pkg = join(work, "pkg");
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(join(pkg, "provider.json"), "{}");
+  // a symlink member pointing outside the staging dir — a follow-up file member
+  // under it could write through it during extraction, so install must refuse
+  // the tarball at listing time (before extraction).
+  try {
+    symlinkSync("/tmp", join(pkg, "escape"));
+  } catch {
+    rmSync(work, { recursive: true, force: true }); // platform without symlink support
+    rmSync(HOME, { recursive: true, force: true });
+    return;
+  }
+  const tgz = join(work, "sym.tgz");
+  const made = spawnSync("tar", ["-czf", tgz, "-C", pkg, "provider.json", "escape"], { encoding: "utf8" });
+  // verify the symlink actually survived AS a link member (some tars deref)
+  const vlist = spawnSync("tar", ["-tvzf", tgz], { encoding: "utf8" }).stdout || "";
+  const isLink = vlist.split("\n").some((l) => l.trim() && (l.trim()[0] === "l" || / -> | link to /.test(l)));
+  if (made.status !== 0 || !isLink) {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(HOME, { recursive: true, force: true });
+    return;
+  }
+  const r = rec(installProvider(tgz, { yes: true }));
+  assert.equal(r.state, "error");
+  assert.match(r.error ?? "", /link member|symlink/);
   rmSync(work, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
 });

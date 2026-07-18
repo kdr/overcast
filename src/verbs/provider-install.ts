@@ -237,6 +237,27 @@ function stageSource(src: string): { staged: string; cleanup: () => void; error?
       cleanup();
       return { staged: "", cleanup: () => {}, error: `tarball has an unsafe member '${unsafe}' — refused (path traversal / absolute path)` };
     }
+    // Reject symlink/hardlink members BEFORE extraction. A symlink member
+    // (`d -> /outside`) followed by a regular member under it (`d/x`) can write
+    // THROUGH the symlink and escape the staging dir on tar builds that follow
+    // it — the post-extract hasUnsafePaths() scan runs too late to catch a file
+    // that already escaped. `-tv` prints the type char (l=symlink, h=hardlink)
+    // and the ` -> ` / ` link to ` notation across GNU and BSD tar. Packages
+    // already may not contain symlinks (hasUnsafePaths rejects them), so this
+    // only moves that check earlier to close the write-through window.
+    const vlist = spawnSync("tar", ["-tvzf", abs], { encoding: "utf8", timeout: 60_000 });
+    if (vlist.error || vlist.status !== 0) {
+      cleanup();
+      return { staged: "", cleanup: () => {}, error: `tar listing failed: ${(vlist.stderr || vlist.error?.message || "").slice(0, 200)}` };
+    }
+    const link = vlist.stdout
+      .split("\n")
+      .map((e) => e.trim())
+      .find((e) => e && (e[0] === "l" || e[0] === "h" || / -> | link to /.test(e)));
+    if (link) {
+      cleanup();
+      return { staged: "", cleanup: () => {}, error: `tarball has a link member '${link.slice(0, 120)}' — refused (symlink/hardlink escape)` };
+    }
     const res = spawnSync("tar", ["-xzf", abs, "-C", out], { encoding: "utf8", timeout: 60_000 });
     if (res.error || res.status !== 0) {
       cleanup();

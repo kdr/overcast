@@ -12,6 +12,8 @@ import { readRecordsJSONL, newRecordId, makeRecord } from "../../src/record.ts";
 import { execCapture } from "../../src/providers/exec.ts";
 import { assertFetchHostAllowed, readBodyCapped, fetchMediaToCase } from "../../src/media/fetch.ts";
 import { writeFileAtomic } from "../../src/fs-atomic.ts";
+import { redactSecrets } from "../../src/env.ts";
+import { quoteCommandArg } from "../../src/verbs/case.ts";
 
 // --- C1: a torn JSONL line must not brick the whole store read ---------------
 
@@ -97,6 +99,17 @@ test("assertFetchHostAllowed blocks private/loopback/link-local host literals (C
 test("assertFetchHostAllowed allows public IP literals (no DNS)", async () => {
   const ok = ["https://8.8.8.8/x", "https://1.1.1.1/x", "https://172.32.0.1/x", "https://11.0.0.1/x", "https://[2001:db8::1]/x"];
   for (const u of ok) await assert.doesNotReject(assertFetchHostAllowed(u, { lookup: noLookup }), u);
+});
+
+test("assertFetchHostAllowed blocks multicast / reserved / broadcast / 192.0.0.0/24", async () => {
+  const blocked = [
+    "http://224.0.0.1/x", // multicast 224/4 lower
+    "http://239.255.255.250/x", // SSDP multicast
+    "http://240.0.0.1/x", // reserved 240/4
+    "http://255.255.255.255/x", // limited broadcast
+    "http://192.0.0.1/x", // 192.0.0.0/24 IETF protocol assignments
+  ];
+  for (const u of blocked) await assert.rejects(assertFetchHostAllowed(u, { lookup: noLookup }), /private\/loopback/, u);
 });
 
 test("assertFetchHostAllowed resolves a hostname and blocks a private DNS answer (rebinding)", async () => {
@@ -200,6 +213,42 @@ test("writeFileAtomic writes content and leaves no temp file (C2)", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --- quoteCommandArg: the memory-index job script must not be sh-injectable ---
+
+test("quoteCommandArg neutralizes $()/backtick/space so a case path can't inject", () => {
+  // a hostile case dir / --home / --profile carrying a command substitution
+  const payload = "/tmp/case$(touch /tmp/pwned)";
+  const q = quoteCommandArg(payload);
+  // single-quoted → everything literal; the `$(` is inside single quotes, inert
+  assert.equal(q, "'/tmp/case$(touch /tmp/pwned)'");
+  assert.ok(!/^"/.test(q), "must NOT use double quotes (which keep $()/backtick live)");
+  for (const bad of ["`id`", "a b", "$(id)", "x;y", "$HOME", "a'b"]) {
+    const out = quoteCommandArg(bad);
+    assert.ok(out.startsWith("'") && out.endsWith("'"), `${bad} → single-quoted`);
+  }
+  // an embedded single quote is closed/escaped/reopened, not left dangling
+  assert.equal(quoteCommandArg("a'b"), "'a'\\''b'");
+  // shell-safe tokens stay verbatim for a readable stored command line
+  assert.equal(quoteCommandArg("/abs/path.mp4"), "/abs/path.mp4");
+  assert.equal(quoteCommandArg("--json"), "--json");
+});
+
+// --- redactSecrets: added high-precision key prefixes are masked inline -------
+
+test("redactSecrets masks hf_/AIza/AKIA/xox tokens even inline in prose", () => {
+  const hf = "hf_" + "a".repeat(34);
+  const aiza = "AIza" + "B".repeat(35);
+  const akia = "AKIA" + "1234567890ABCDEF";
+  const slack = "xoxb-" + "1111111111-abcdefghij";
+  for (const secret of [hf, aiza, akia, slack]) {
+    const out = redactSecrets(`error fetching https://api.example/?key=${secret}&x=1`);
+    assert.ok(!out.includes(secret), `${secret.slice(0, 6)}… must be redacted`);
+    assert.ok(out.includes("[REDACTED]"));
+  }
+  // a plain word / short id is NOT redacted (no false positives)
+  assert.equal(redactSecrets("just a normal sentence with id 12345"), "just a normal sentence with id 12345");
 });
 
 // --- S1: every scripts/*.sh a skill instructs must ship in package.json -------
