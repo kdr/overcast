@@ -473,13 +473,26 @@ the generated `report.md`. Keep pi touch-points isolated in `src/extension/` and
 
 ## Cursor Cloud specific instructions
 
-The startup update script runs `npm ci` (root) and `npm ci --prefix vscode`; the
-root `postinstall` (`scripts/brand-pi.mjs`) runs automatically. `ffmpeg`/`ffprobe`
+The startup update script runs `npm ci` for the root, `vscode/`, and the sibling
+`overcast.video` marketing-site repo (all guarded by their `package.json`, via
+`npm --prefix`, so it is cwd-independent and safe if a repo is absent); the root
+`postinstall` (`scripts/brand-pi.mjs`) runs automatically. `ffmpeg`/`ffprobe`
 are already installed system-wide. Standard verb/test/build commands live in the
 `## Commands` section above and in `package.json` — reference those, not copies.
 
+This cloud workspace mounts two sibling repos under `/agent/repos/`: this one
+(`overcast`, the CLI toolkit) and `overcast.video` (a Vite + React + Tailwind
+marketing site — `npm run dev` on `http://localhost:5173`, `npm run lint` =
+oxlint, `npm run build` = `tsc -b && vite build`; see its own `README.md`).
+
 Non-obvious caveats for this environment:
 
+- **`bun` is NOT installed.** The dev build (`tsup`/`vite`), typecheck, `npm test`,
+ and offline `npm run test:e2e` all run under `node`. Only `npm run build:bun` and
+ `npm run test:e2e:live` need bun (plus live creds) and are not runnable as-is.
+- **Run the built CLI as `node dist/bin/overcast.js`** (no global `overcast` bin on
+ PATH); `npm run dev` (`tsx bin/overcast.ts`) runs it from source. A local case is
+ just a folder — `case init` in any dir, or `--case <dir>`.
 - **Node version.** The default `node` is 22.14.x, which runs the CLI, build,
  typecheck, and all test suites fine. `@earendil-works/pi-tui` declares
  `engines.node >= 22.19.0`, so `npm ci` prints an `EBADENGINE` **warning** (not an
