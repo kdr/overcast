@@ -101,14 +101,17 @@ what to configure.
 
 ## Install
 
-Install the packaged `.vsix`.
+**From the Marketplace** (recommended): search for **Overcast** in the
+Extensions view, or install
+[`kdrrr.overcast`](https://marketplace.visualstudio.com/items?itemName=kdrrr.overcast)
+directly (`ext install kdrrr.overcast` from Quick Open).
 
-**From a GitHub release** (recommended): every
+**From a GitHub release**: every
 [overcast release](https://github.com/kdr/overcast/releases) attaches
-`overcast-vscode-<version>.vsix`. Download it, then either run
+`overcast-<version>.vsix`. Download it, then either run
 
 ```bash
-code --install-extension overcast-vscode-<version>.vsix
+code --install-extension overcast-<version>.vsix
 ```
 
 or, in VS Code: **Extensions** view → `···` menu → **Install from VSIX…** and
@@ -120,6 +123,6 @@ pick the downloaded file.
 cd vscode
 npm install
 npm run build         # tsup (host → dist/extension.cjs) + vite (SPA → dist/webview)
-npm run package       # @vscode/vsce → ../.dev/overcast-vscode-<version>.vsix
-code --install-extension ../.dev/overcast-vscode-*.vsix
+npm run package       # @vscode/vsce → ../.dev/overcast-<version>.vsix
+code --install-extension ../.dev/overcast-*.vsix
 ```

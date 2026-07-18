@@ -195,7 +195,8 @@ such as qmd before clearing local state.
 
 ## VS Code extension
 
-**[Overcast for VS Code](vscode/README.md)** (`vscode/`, sideloaded `.vsix`) puts
+**[Overcast for VS Code](vscode/README.md)** (`vscode/`, extension id
+[`kdrrr.overcast`](https://marketplace.visualstudio.com/items?itemName=kdrrr.overcast)) puts
 the situation room in your editor as a thin client of this CLI: right-click any
 media file for the senses (watch / listen / see / faces / EXIF / …), an
 activity-bar view with a command deck laid out along the intelligence cycle plus
@@ -205,14 +206,17 @@ language-model tools when a chat provider is installed. Every action spawns
 `overcast … --json`; records land in the case and the sidebar follows the
 `.overcast/` store live.
 
-Install the `overcast-vscode-<version>.vsix` attached to the
+Install it from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=kdrrr.overcast)
+(search "Overcast", or `ext install kdrrr.overcast`), or install the
+`overcast-<version>.vsix` attached to the
 [latest release](https://github.com/kdr/overcast/releases) (`code
---install-extension overcast-vscode-<version>.vsix`, or "Install from VSIX…" in
-the Extensions view), or build it from source:
+--install-extension overcast-<version>.vsix`, or "Install from VSIX…" in the
+Extensions view), or build it from source:
 
 ```bash
 cd vscode && npm install && npm run build && npm run package
-code --install-extension ../.dev/overcast-vscode-*.vsix
+code --install-extension ../.dev/overcast-*.vsix
 ```
 
 ---

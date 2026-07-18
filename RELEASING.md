@@ -8,8 +8,11 @@ overcast ships from one source tree to four places on every release:
   (arm64/x64) and Linux (x64/arm64) and attached as
   `overcast-<os>-<arch>.tar.gz`.
 - **GitHub Releases** — the **VS Code extension** packaged as
-  `overcast-vscode-<version>.vsix` (install via `code --install-extension …` or
-  "Install from VSIX…" in the Extensions view).
+  `overcast-<version>.vsix` and attached to the Release by CI. Publishing to the
+  **VS Code Marketplace** (`kdrrr.overcast`) is a **manual upload** of that
+  `.vsix` from the publisher manage page (see below); it can also be installed
+  straight from the `.vsix` (`code --install-extension …` or "Install from
+  VSIX…" in the Extensions view).
 - **Claude plugin + agent skills** — the `.claude-plugin/` manifests and
   `skills/` are read straight from the repo (GitHub), so they go live when the
   release commit lands on the default branch.
@@ -85,6 +88,34 @@ exists — the publish step is idempotent) and just build + attach the binaries.
 
 ---
 
+## Publishing the extension to the VS Code Marketplace (manual)
+
+CI attaches `overcast-<version>.vsix` to every GitHub Release; putting it on the
+Marketplace is a **manual upload** of that file. (Automated publishing — PAT or
+Entra ID OIDC — was intentionally left out; the manual upload is the supported
+path here.)
+
+**One-time:** create the **`kdrrr` publisher** on
+<https://marketplace.visualstudio.com/manage> (it authenticates through an
+[Azure DevOps organization](https://dev.azure.com), so create one if prompted).
+The publisher id must match `publisher` in `vscode/package.json` (`kdrrr` — same
+story as npm: `kdr` is already taken on the Marketplace, we ship under `kdrrr`
+everywhere).
+
+**Each release:**
+
+1. On the Release for the tag, download `overcast-<version>.vsix`.
+2. Go to <https://marketplace.visualstudio.com/manage/publishers/kdrrr> →
+   **New extension → Visual Studio Code** (or the extension's `⋯` → **Update**
+   for a new version) and upload the `.vsix`.
+
+Marketplace ingestion runs a malware scan; the listing goes live a few minutes
+after upload. The `.vsix` already carries the right identity
+(`Id="overcast" Publisher="kdrrr"` → `kdrrr.overcast`), so the upload is accepted
+as long as you're signed in as the `kdrrr` publisher.
+
+---
+
 ## Cutting a release (0.0.1 and onward)
 
 `main` is protected (changes must go through a PR), so the version-bump **commit**
@@ -128,8 +159,9 @@ Pushing the `vX.Y.Z` tag triggers `release.yml`, which:
 3. **Publishes to npm** over OIDC (skipped if that version is already on npm).
 4. Cross-compiles the bun binary for the four targets and attaches the tarballs
    to the GitHub Release for the tag.
-5. Builds + tests the VS Code extension and attaches
-   `overcast-vscode-<version>.vsix` to the same Release.
+5. Builds + tests the VS Code extension and attaches `overcast-<version>.vsix`
+   to the same Release. Putting it on the Marketplace is a **manual upload** —
+   see "Publishing the extension to the VS Code Marketplace" above.
 
 You can also run it manually from the Actions tab (**workflow_dispatch**) with the
 version as input; in that mode the binaries are uploaded as workflow artifacts
@@ -157,8 +189,11 @@ npm i -g @kdrrr/overcast@latest && overcast --version --json
 ```
 
 - Binaries: download a tarball from the release, `tar -xzf …`, run `./overcast --version`.
-- VS Code extension: download the `.vsix` from the release, `code
-  --install-extension overcast-vscode-<version>.vsix`, open the Overcast view.
+- VS Code extension: after the manual upload, the
+  [Marketplace listing](https://marketplace.visualstudio.com/items?itemName=kdrrr.overcast)
+  shows the version (`npx @vscode/vsce show kdrrr.overcast` also works). To
+  verify the release asset itself: download the `.vsix`, `code
+  --install-extension overcast-<version>.vsix`, open the Overcast view.
 - Provenance: the npm package page shows a "Provenance" panel linking back to the run.
 - Plugin/skills: `/plugin marketplace add kdr/overcast` then `/plugin install overcast@overcast`,
   or `npx skills add kdr/overcast`.
@@ -177,5 +212,10 @@ npm i -g @kdrrr/overcast@latest && overcast --version --json
   version commit → `main` requires a PR. Use the PR-based flow above (the tag
   pushes fine on its own), or add an admin bypass to the `main` ruleset.
 - **2FA on the bootstrap publish** → `npm publish --otp=<code>`.
-- **Re-running a release tag** → safe; the publish step no-ops when the version is
-  already on npm, and binary assets are overwritten.
+- **Marketplace upload rejected (publisher mismatch)** → the `.vsix` must be
+  uploaded while signed in as the **`kdrrr`** publisher, and its manifest
+  `Publisher` must equal `kdrrr` (it does, from `vscode/package.json`). A `.vsix`
+  built before the `kdr` → `kdrrr` rename won't upload to this publisher.
+- **Re-running a release tag** → safe; the npm publish no-ops when the version
+  is already live and binary/`.vsix` assets are overwritten. The Marketplace
+  upload is manual and independent of re-runs.

@@ -70,7 +70,9 @@ jobs:
 
   # VS Code extension: package the .vsix and attach it to the same GitHub
   # Release. Its version is stamped by scripts/sync-version.mjs (checked in the
-  # npm-publish job), so the .vsix always matches the tag.
+  # npm-publish job), so the .vsix always matches the tag. Publishing to the
+  # Marketplace is a manual upload of this attached .vsix from the publisher
+  # manage page — see RELEASING.md.
   vsix:
     needs: npm-publish
     runs-on: ubuntu-latest
