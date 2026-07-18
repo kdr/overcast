@@ -316,6 +316,30 @@ test("install: refuses a tarball containing a symlink member (write-through esca
   rmSync(HOME, { recursive: true, force: true });
 });
 
+test("install: a regular file whose name contains ' -> ' is NOT misflagged as a link (Bugbot #118)", () => {
+  HOME = freshHome();
+  const work = mkdtempSync(join(tmpdir(), "oc-install-arrow-"));
+  const pkg = writeSourcePkg(work, "arrowpkg", "arrowtype");
+  // a regular file whose NAME contains the symlink/hardlink notation strings —
+  // the link check must key on the tar type char, not this text
+  writeFileSync(join(pkg, "a -> b link to c.txt"), "regular file, not a link");
+  const tgz = join(work, "arrow.tgz");
+  const made = spawnSync("tar", ["-czf", tgz, "-C", work, "arrowpkg"], { encoding: "utf8" });
+  // sanity: the odd name survived AND is listed as a regular file (type '-')
+  const vlist = spawnSync("tar", ["-tvzf", tgz], { encoding: "utf8" }).stdout || "";
+  const arrowLine = vlist.split("\n").find((l) => l.includes("a -> b link to c.txt"));
+  if (made.status !== 0 || !arrowLine || arrowLine.trim()[0] !== "-") {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(HOME, { recursive: true, force: true });
+    return;
+  }
+  const r = rec(installProvider(tgz, { yes: true }));
+  assert.notEqual(r.state, "error", `must not reject a valid package: ${r.error ?? ""}`);
+  assert.doesNotMatch(r.error ?? "", /link member/);
+  rmSync(work, { recursive: true, force: true });
+  rmSync(HOME, { recursive: true, force: true });
+});
+
 test("builtinDescriptor resolves an installed source type at the target home (Bugbot #110)", () => {
   const savedEnv = process.env.OVERCAST_HOME;
   delete process.env.OVERCAST_HOME;
