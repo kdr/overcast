@@ -237,6 +237,30 @@ function stageSource(src: string): { staged: string; cleanup: () => void; error?
       cleanup();
       return { staged: "", cleanup: () => {}, error: `tarball has an unsafe member '${unsafe}' — refused (path traversal / absolute path)` };
     }
+    // Reject symlink/hardlink members BEFORE extraction. A symlink member
+    // (`d -> /outside`) followed by a regular member under it (`d/x`) can write
+    // THROUGH the symlink and escape the staging dir on tar builds that follow
+    // it — the post-extract hasUnsafePaths() scan runs too late to catch a file
+    // that already escaped. Discriminate on the TYPE CHAR (first column of
+    // `tar -tv`: l=symlink, h=hardlink) — authoritative across GNU and BSD tar.
+    // Do NOT match ` -> ` / ` link to ` in the line: those strings can appear in
+    // a regular file's NAME and would false-positive a valid package. Symlink
+    // detection (`l`) is the security-critical one; hasUnsafePaths rejects any
+    // symlink post-extract as a backstop, so this only closes the earlier
+    // write-through window.
+    const vlist = spawnSync("tar", ["-tvzf", abs], { encoding: "utf8", timeout: 60_000 });
+    if (vlist.error || vlist.status !== 0) {
+      cleanup();
+      return { staged: "", cleanup: () => {}, error: `tar listing failed: ${(vlist.stderr || vlist.error?.message || "").slice(0, 200)}` };
+    }
+    const link = vlist.stdout
+      .split("\n")
+      .map((e) => e.trim())
+      .find((e) => e[0] === "l" || e[0] === "h");
+    if (link) {
+      cleanup();
+      return { staged: "", cleanup: () => {}, error: `tarball has a link member '${link.slice(0, 120)}' — refused (symlink/hardlink escape)` };
+    }
     const res = spawnSync("tar", ["-xzf", abs, "-C", out], { encoding: "utf8", timeout: 60_000 });
     if (res.error || res.status !== 0) {
       cleanup();

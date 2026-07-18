@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, appendFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, appendFileSync, symlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -279,6 +279,63 @@ test("install: refuses a tarball whose members escape via .. / absolute path (Bu
   assert.match(r.error ?? "", /unsafe member|path traversal/);
   assert.equal(existsSync(join(HOME, "escape.txt")), false, "nothing written outside the package dir");
 
+  rmSync(work, { recursive: true, force: true });
+  rmSync(HOME, { recursive: true, force: true });
+});
+
+test("install: refuses a tarball containing a symlink member (write-through escape)", () => {
+  HOME = freshHome();
+  const work = mkdtempSync(join(tmpdir(), "oc-install-symlink-"));
+  const pkg = join(work, "pkg");
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(join(pkg, "provider.json"), "{}");
+  // a symlink member pointing outside the staging dir — a follow-up file member
+  // under it could write through it during extraction, so install must refuse
+  // the tarball at listing time (before extraction).
+  try {
+    symlinkSync("/tmp", join(pkg, "escape"));
+  } catch {
+    rmSync(work, { recursive: true, force: true }); // platform without symlink support
+    rmSync(HOME, { recursive: true, force: true });
+    return;
+  }
+  const tgz = join(work, "sym.tgz");
+  const made = spawnSync("tar", ["-czf", tgz, "-C", pkg, "provider.json", "escape"], { encoding: "utf8" });
+  // verify the symlink actually survived AS a link member (some tars deref)
+  const vlist = spawnSync("tar", ["-tvzf", tgz], { encoding: "utf8" }).stdout || "";
+  const isLink = vlist.split("\n").some((l) => l.trim() && (l.trim()[0] === "l" || / -> | link to /.test(l)));
+  if (made.status !== 0 || !isLink) {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(HOME, { recursive: true, force: true });
+    return;
+  }
+  const r = rec(installProvider(tgz, { yes: true }));
+  assert.equal(r.state, "error");
+  assert.match(r.error ?? "", /link member|symlink/);
+  rmSync(work, { recursive: true, force: true });
+  rmSync(HOME, { recursive: true, force: true });
+});
+
+test("install: a regular file whose name contains ' -> ' is NOT misflagged as a link (Bugbot #118)", () => {
+  HOME = freshHome();
+  const work = mkdtempSync(join(tmpdir(), "oc-install-arrow-"));
+  const pkg = writeSourcePkg(work, "arrowpkg", "arrowtype");
+  // a regular file whose NAME contains the symlink/hardlink notation strings —
+  // the link check must key on the tar type char, not this text
+  writeFileSync(join(pkg, "a -> b link to c.txt"), "regular file, not a link");
+  const tgz = join(work, "arrow.tgz");
+  const made = spawnSync("tar", ["-czf", tgz, "-C", work, "arrowpkg"], { encoding: "utf8" });
+  // sanity: the odd name survived AND is listed as a regular file (type '-')
+  const vlist = spawnSync("tar", ["-tvzf", tgz], { encoding: "utf8" }).stdout || "";
+  const arrowLine = vlist.split("\n").find((l) => l.includes("a -> b link to c.txt"));
+  if (made.status !== 0 || !arrowLine || arrowLine.trim()[0] !== "-") {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(HOME, { recursive: true, force: true });
+    return;
+  }
+  const r = rec(installProvider(tgz, { yes: true }));
+  assert.notEqual(r.state, "error", `must not reject a valid package: ${r.error ?? ""}`);
+  assert.doesNotMatch(r.error ?? "", /link member/);
   rmSync(work, { recursive: true, force: true });
   rmSync(HOME, { recursive: true, force: true });
 });

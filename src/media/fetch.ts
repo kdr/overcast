@@ -50,11 +50,14 @@ function parseLooseIPv4(host: string): number | null {
 function isBlockedIPv4(ip: number): boolean {
   const a = (ip >>> 24) & 0xff;
   const b = (ip >>> 16) & 0xff;
+  const c = (ip >>> 8) & 0xff;
   if (a === 127 || a === 10 || a === 0) return true; // loopback / private / this-host
   if (a === 169 && b === 254) return true; // link-local incl. cloud metadata 169.254.169.254
   if (a === 192 && b === 168) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  if (a === 192 && b === 0 && c === 0) return true; // 192.0.0.0/24 IETF protocol assignments
+  if (a >= 224) return true; // multicast 224/4 + reserved 240/4 (incl. 255.255.255.255 broadcast)
   return false;
 }
 

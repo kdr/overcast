@@ -27,10 +27,32 @@ another backend or your own script with no code changes.
 
 ---
 
+> ### ⚠️ Responsible use & security model
+>
+> overcast is a **dual-use** tool. Its OSINT sources can reach personal
+> information about real people (reverse-face and reverse-image search,
+> skip-trace / people-search, phone, property, and license-plate lookups). Use
+> it **only for lawful purposes against targets you are authorized to
+> investigate.** The high-sensitivity sources are opt-in and never enabled by
+> default, and each carries legal constraints (DPPA, not-an-FCRA-report,
+> biometric-privacy law, third-party ToS). Read
+> **[RESPONSIBLE_USE.md](RESPONSIBLE_USE.md)** before you point it at anyone.
+>
+> By design, overcast runs an agent with **no sandbox or permission system**
+> (inherited from [pi](https://github.com/earendil-works/pi)) over **untrusted
+> media and scraped web content**, which are prompt-injection vectors. Run
+> investigations in an environment you're willing to expose to the material you
+> collect. See **[SECURITY.md](SECURITY.md)** for the full trust model and how
+> to report a vulnerability.
+
+---
+
 ## Install
 
 ### Prerequisites
 
+- **Node.js ≥ 22** (with npm) — required to install and run overcast. The
+  compiled `bun` binary bundles its own runtime, but `npm i -g` needs Node 22+.
 - **FFmpeg** — `ffmpeg` + `ffprobe` on your `PATH` (the internal media toolkit
   for `enhance`, frame extraction, detection crops, and `view`).
   `brew install ffmpeg` · `apt install ffmpeg` · <https://ffmpeg.org/download.html>
@@ -781,3 +803,25 @@ overcast doctor            # preflight
 `npm pack` runs `npm run pack:check` first. Build with `npm run build` before
 packing; if the ignored `dist/` tree is missing or stale, the pack fails with a
 message showing the version or command-registry drift.
+
+---
+
+## Contributing & community
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — dev setup, the architecture
+  invariants, how to add a provider, and the PR checklist.
+- **[RESPONSIBLE_USE.md](RESPONSIBLE_USE.md)** — the dual-use / acceptable-use
+  policy and per-source legal notes. Read this before using the OSINT sources.
+- **[SECURITY.md](SECURITY.md)** — the trust model and how to report a
+  vulnerability (privately, via GitHub Security Advisories).
+- **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** — how we treat each other.
+- **[SUPPORT.md](SUPPORT.md)** — where to get help.
+- Questions and ideas → [Discussions](https://github.com/kdr/overcast/discussions);
+  bugs and features → [Issues](https://github.com/kdr/overcast/issues/new/choose).
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). Built on top of
+[pi](https://github.com/earendil-works/pi). You are responsible for how you use
+this tool and for complying with all applicable laws and the terms of any
+third-party services you configure — see [RESPONSIBLE_USE.md](RESPONSIBLE_USE.md).

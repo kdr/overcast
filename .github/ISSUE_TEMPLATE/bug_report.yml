@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a problem with a verb, provider, source, or the CLI/TUI
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please **do not paste real targets, PII,
+        credentials, API keys, or case data** into this issue — redact anything
+        sensitive. Security vulnerabilities should go through
+        [SECURITY.md](../blob/main/SECURITY.md), not a public issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: Running `overcast watch clip.mp4` returned ... but I expected ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact command(s). Redact any real paths/targets.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area?
+      description: The verb, source, or surface involved.
+      options:
+        - "Sense verb (watch / listen / see / face / etc.)"
+        - "OSINT source (scan / capture / monitor)"
+        - "Inspect/report (view / brief / map / graph / wall / situation)"
+        - "Provider setup / doctor / profiles"
+        - "Case / state (init / setup / target / finding / archive)"
+        - "pi extension / TUI / slash commands"
+        - "VS Code extension"
+        - "Build / install / packaging"
+        - "Other / not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: overcast doctor output
+      description: "Paste `overcast doctor` output (it reports tool/credential *presence* only — no key values)."
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: overcast version
+      description: Output of `overcast --version`.
+      placeholder: "0.0.10"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS + Node version
+      placeholder: "macOS 15.5 / Node 22.5.0 (or 'bun binary')"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I redacted real targets, PII, credentials, and case data from this report.
+          required: true
+        - label: This is not a security vulnerability (those go through SECURITY.md).
+          required: true

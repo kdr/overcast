@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest a new verb, provider/source, or improvement
+title: "[feat]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! For questions or open-ended discussion, prefer
+        [Discussions](../../discussions). New OSINT sources that reach personal
+        data must be **opt-in and never a default** — see
+        [RESPONSIBLE_USE.md](../blob/main/RESPONSIBLE_USE.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem or use case?
+      description: What are you trying to do that overcast doesn't support well today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to see? A new verb, a source/provider, a flag, a report view?
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of change is this?
+      options:
+        - "New sense verb / capability"
+        - "New OSINT source or provider"
+        - "New inspect/report surface"
+        - "Improvement to an existing verb"
+        - "Developer experience / docs"
+        - "Other"
+    validations:
+      required: true
+  - type: checkboxes
+    id: responsible
+    attributes:
+      label: Responsible use
+      description: Only if this involves an OSINT source reaching personal data.
+      options:
+        - label: If this source reaches PII/biometrics, I understand it must be opt-in, non-default, and documented with its legal constraints.
+          required: false

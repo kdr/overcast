@@ -643,8 +643,16 @@ function parseFindingsThresholds(raw: string): { thresholds: Record<string, numb
   return { thresholds, errors };
 }
 
-function quoteCommandArg(arg: string): string {
-  return /^[A-Za-z0-9_./:=@+-]+$/.test(arg) ? arg : JSON.stringify(arg);
+// Quote an argument for interpolation into the generated /bin/sh job script.
+// JSON.stringify (double quotes) is NOT sh-safe: `$(...)` and backticks still
+// execute inside a double-quoted string, so a case dir / --home / --profile
+// containing `$(cmd)` would run when the memory-index rebuild script executes.
+// Use POSIX single-quote escaping — everything between single quotes is literal;
+// an embedded single quote is closed, escaped, and reopened ('\''). The fast
+// path returns already-safe tokens verbatim so the stored command stays readable.
+export function quoteCommandArg(arg: string): string {
+  if (/^[A-Za-z0-9_./:=@+-]+$/.test(arg)) return arg;
+  return `'${arg.replace(/'/g, "'\\''")}'`;
 }
 
 function incompletePlannedIndexes(setup: CaseSetup): SetupIndex[] {
