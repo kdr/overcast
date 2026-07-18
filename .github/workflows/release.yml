@@ -68,9 +68,12 @@ jobs:
             npm publish
           fi
 
-  # VS Code extension: package the .vsix and attach it to the same GitHub
-  # Release. Its version is stamped by scripts/sync-version.mjs (checked in the
-  # npm-publish job), so the .vsix always matches the tag.
+  # VS Code extension: package the .vsix, attach it to the same GitHub Release,
+  # and publish it to the VS Code Marketplace + Open VSX. Its version is stamped
+  # by scripts/sync-version.mjs (checked in the npm-publish job), so the .vsix
+  # always matches the tag. The publish steps are secret-gated (VSCE_PAT /
+  # OVSX_PAT — see RELEASING.md) and skip when the version is already live, so
+  # re-running a tag is safe and the job passes before the one-time setup.
   vsix:
     needs: npm-publish
     runs-on: ubuntu-latest
@@ -90,6 +93,41 @@ jobs:
       - run: npm run --prefix vscode build
       - run: npm run --prefix vscode test
       - run: mkdir -p .dev && npm run --prefix vscode package
+      - name: Publish to the VS Code Marketplace
+        if: github.event_name == 'push'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "VSCE_PAT secret not set — skipping Marketplace publish (see RELEASING.md)."
+            exit 0
+          fi
+          VSCE=vscode/node_modules/.bin/vsce
+          VERSION="$(node -p "require('./vscode/package.json').version")"
+          # Idempotent like the npm publish so re-running a tag is safe. `vsce
+          # show --json` lists every published version on its own line (and
+          # prints `undefined`, exit 0, before the first publish — no match →
+          # publish); a match means this version is already live → skip.
+          if "$VSCE" show kdrrr.overcast --json 2>/dev/null | grep -q "\"version\": \"$VERSION\""; then
+            echo "kdrrr.overcast@$VERSION is already on the Marketplace — skipping publish."
+          else
+            "$VSCE" publish --packagePath .dev/*.vsix
+          fi
+      - name: Publish to Open VSX
+        if: github.event_name == 'push'
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "OVSX_PAT secret not set — skipping Open VSX publish (see RELEASING.md)."
+            exit 0
+          fi
+          VERSION="$(node -p "require('./vscode/package.json').version")"
+          if curl -fsS "https://open-vsx.org/api/kdrrr/overcast/$VERSION" >/dev/null 2>&1; then
+            echo "kdrrr.overcast@$VERSION is already on Open VSX — skipping publish."
+          else
+            npx --yes ovsx@1.0.2 publish .dev/*.vsix -p "$OVSX_PAT"
+          fi
       - name: Attach the .vsix to the GitHub Release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v3

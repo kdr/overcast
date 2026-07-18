@@ -5,9 +5,10 @@ the overcast release train — it matches the root `package.json` version stampe
 by `scripts/sync-version.mjs`, so a given `.vsix` version pairs with the same
 CLI version.
 
-## Unreleased
+## 0.0.11
 
-Initial preview release.
+Initial preview release — first published to the VS Code Marketplace and Open
+VSX as `kdrrr.overcast`.
 
 - Right-click senses on any media file — Watch, Listen, See, Detect Faces,
   EXIF, Chronolocate, Enhance, Find Similar, Audio Fingerprint, Voice Match,

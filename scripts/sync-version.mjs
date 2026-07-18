@@ -106,7 +106,7 @@ replaceVersions("vscode/package.json", /^(  "version": ")([^"]*)(")/m, 1);
 // root "" packages entry — both directly follow the package name.
 replaceVersions(
   "vscode/package-lock.json",
-  /("name": "overcast-vscode",\n\s*"version": ")([^"]*)(")/g,
+  /("name": "overcast",\n\s*"version": ")([^"]*)(")/g,
   2
 );
 
