@@ -7,15 +7,12 @@ overcast ships from one source tree to four places on every release:
 - **GitHub Releases** — the standalone **bun binary**, cross-compiled for macOS
   (arm64/x64) and Linux (x64/arm64) and attached as
   `overcast-<os>-<arch>.tar.gz`.
-- **VS Code Marketplace + Open VSX** — the **VS Code extension**
-  (`kdrrr.overcast`), published from CI. The Marketplace uses **Entra ID
-  workload identity federation (OIDC)** — no stored PAT, like npm above (a
-  `VSCE_PAT` secret is an optional fallback); Open VSX uses an `OVSX_PAT` secret.
-  Each step skips when unconfigured or the version is already live. Open VSX
-  serves Cursor/VSCodium/Windsurf users.
-- **GitHub Releases** — the same extension packaged as
-  `overcast-<version>.vsix` (install via `code --install-extension …` or
-  "Install from VSIX…" in the Extensions view).
+- **GitHub Releases** — the **VS Code extension** packaged as
+  `overcast-<version>.vsix` and attached to the Release by CI. Publishing to the
+  **VS Code Marketplace** (`kdrrr.overcast`) is a **manual upload** of that
+  `.vsix` from the publisher manage page (see below); it can also be installed
+  straight from the `.vsix` (`code --install-extension …` or "Install from
+  VSIX…" in the Extensions view).
 - **Claude plugin + agent skills** — the `.claude-plugin/` manifests and
   `skills/` are read straight from the repo (GitHub), so they go live when the
   release commit lands on the default branch.
@@ -91,108 +88,31 @@ exists — the publish step is idempotent) and just build + attach the binaries.
 
 ---
 
-## One-time setup: VS Code Marketplace + Open VSX (maintainer)
+## Publishing the extension to the VS Code Marketplace (manual)
 
-Unlike npm's OIDC, the Marketplace has no publish-once bootstrap requirement —
-once the publisher and credential exist, CI can do the very first publish. Until
-then the publish steps log a skip and the release still succeeds.
+CI attaches `overcast-<version>.vsix` to every GitHub Release; putting it on the
+Marketplace is a **manual upload** of that file. (Automated publishing — PAT or
+Entra ID OIDC — was intentionally left out; the manual upload is the supported
+path here.)
 
-The extension publishes with **Microsoft Entra ID workload identity federation
-(OIDC)** — no stored PAT, the analog of this repo's npm trusted publishing.
-Microsoft's own docs describe this only for Azure Pipelines; the steps below are
-the **GitHub Actions** adaptation. (A PAT is still supported as a fallback — see
-the end of this section — but note that vsce PATs must be *global* ("All
-accessible organizations") PATs, which Microsoft **retires Dec 1 2026**, so OIDC
-is the durable path.)
+**One-time:** create the **`kdrrr` publisher** on
+<https://marketplace.visualstudio.com/manage> (it authenticates through an
+[Azure DevOps organization](https://dev.azure.com), so create one if prompted).
+The publisher id must match `publisher` in `vscode/package.json` (`kdrrr` — same
+story as npm: `kdr` is already taken on the Marketplace, we ship under `kdrrr`
+everywhere).
 
-### 1. Create the publisher
+**Each release:**
 
-Create an [Azure DevOps organization](https://dev.azure.com) (the Marketplace
-authenticates through it), then create the **`kdrrr` publisher** on
-<https://marketplace.visualstudio.com/manage>. The publisher id must match
-`publisher` in `vscode/package.json` (`kdrrr` — same story as npm: `kdr` is
-already taken on the Marketplace, we ship under `kdrrr` everywhere).
+1. On the Release for the tag, download `overcast-<version>.vsix`.
+2. Go to <https://marketplace.visualstudio.com/manage/publishers/kdrrr> →
+   **New extension → Visual Studio Code** (or the extension's `⋯` → **Update**
+   for a new version) and upload the `.vsix`.
 
-### 2. Create a user-assigned managed identity
-
-In the [Azure Portal](https://portal.azure.com) → **Managed Identities** →
-**Create**: any resource group / region, name e.g. `overcast-vsce-publish`. Open
-it and record its **Client ID**, **Subscription ID**, and **Tenant ID** (the
-tenant is on the identity's **Properties** / your Entra tenant). A managed
-identity is required (not a plain app registration): the Marketplace authorizes
-publishers by managed-identity **resource ID** in step 5.
-
-> The identity also needs a foothold on the subscription so the Azure CLI has a
-> subscription context when it mints the Marketplace token: Subscription →
-> **Access control (IAM)** → **Add role assignment** → **Reader** → assign to
-> the managed identity.
-
-### 3. Add a federated credential trusting this repo's `release` environment
-
-On the managed identity → **Settings → Federated credentials → Add credential**:
-
-| Field    | Value                                            |
-| -------- | ------------------------------------------------ |
-| Scenario | Other issuer                                     |
-| Issuer   | `https://token.actions.githubusercontent.com`    |
-| Subject  | `repo:kdr/overcast:environment:release`          |
-| Audience | `api://AzureADTokenExchange`                     |
-| Name     | e.g. `github-release`                            |
-
-The subject must match **exactly** (case-sensitive). It ties the credential to
-the GitHub Actions `release` environment (created in step 6), which is why the
-`vsix` job sets `environment: release` — without it the OIDC subject would be
-per-tag (`…:ref:refs/tags/vX.Y.Z`) and need a new credential every release.
-
-### 4. Get the managed identity's resource ID
-
-```bash
-az identity show -n overcast-vsce-publish -g <resource-group> --query id -o tsv
-# → /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/overcast-vsce-publish
-```
-
-(Or Portal → the identity → **Properties → Resource ID**.)
-
-### 5. Authorize the identity on the publisher
-
-On <https://marketplace.visualstudio.com/manage/publishers/kdrrr> → **Members** →
-**Add** → paste the managed identity's **resource ID** from step 4, role
-**Contributor**.
-
-### 6. Wire GitHub Actions
-
-- Repo **Settings → Environments → New environment** → name it **`release`**
-  (no protection rules needed — it exists only to give the OIDC token a stable
-  subject).
-- Repo **Settings → Secrets and variables → Actions → Variables** (the
-  **Variables** tab, not Secrets — these ids aren't sensitive). Add:
-  - `AZURE_CLIENT_ID` — the managed identity's Client ID
-  - `AZURE_TENANT_ID` — the tenant id
-  - `AZURE_SUBSCRIPTION_ID` — the subscription id
-
-That's it — the next `v*` tag authenticates via OIDC and publishes. The `vsix`
-job attaches the `.vsix` to the Release **before** the publish steps, so the
-download always exists even if a publish fails.
-
-### 7. Open VSX (optional — for Cursor/VSCodium/Windsurf users)
-
-Open VSX has no OIDC, so it stays token-based. Create an
-[Open VSX](https://open-vsx.org) account, sign the publisher agreement, create
-the `kdrrr` namespace (`npx ovsx create-namespace kdrrr -p <token>`), and store
-the token as the `OVSX_PAT` **secret**.
-
-### PAT fallback
-
-If OIDC isn't set up (or misbehaves), the Marketplace step falls back to a PAT
-when `AZURE_CLIENT_ID` is unset and the `VSCE_PAT` **secret** is present. Create
-it in Azure DevOps → User settings → **Personal access tokens** → New Token,
-**Organization: All accessible organizations**, **Scopes: Show all scopes →
-Marketplace → Manage**; `npx @vscode/vsce verify-pat kdrrr` checks it. To put
-the listing live by hand without a release, upload the current release's `.vsix`
-on the manage page (**New extension → Visual Studio Code**), or
-`npx @vscode/vsce publish --packagePath overcast-<v>.vsix -p <pat>`. Marketplace
-ingestion runs a malware scan; the listing goes live a few minutes after
-publish.
+Marketplace ingestion runs a malware scan; the listing goes live a few minutes
+after upload. The `.vsix` already carries the right identity
+(`Id="overcast" Publisher="kdrrr"` → `kdrrr.overcast`), so the upload is accepted
+as long as you're signed in as the `kdrrr` publisher.
 
 ---
 
@@ -239,11 +159,9 @@ Pushing the `vX.Y.Z` tag triggers `release.yml`, which:
 3. **Publishes to npm** over OIDC (skipped if that version is already on npm).
 4. Cross-compiles the bun binary for the four targets and attaches the tarballs
    to the GitHub Release for the tag.
-5. Builds + tests the VS Code extension, attaches `overcast-<version>.vsix` to
-   the same Release (before publishing, so the download always exists), then
-   publishes it to the **VS Code Marketplace** (Entra ID OIDC, PAT fallback) and
-   **Open VSX** (`OVSX_PAT`) — each step skips if unconfigured or the version is
-   already live there.
+5. Builds + tests the VS Code extension and attaches `overcast-<version>.vsix`
+   to the same Release. Putting it on the Marketplace is a **manual upload** —
+   see "Publishing the extension to the VS Code Marketplace" above.
 
 You can also run it manually from the Actions tab (**workflow_dispatch**) with the
 version as input; in that mode the binaries are uploaded as workflow artifacts
@@ -271,12 +189,11 @@ npm i -g @kdrrr/overcast@latest && overcast --version --json
 ```
 
 - Binaries: download a tarball from the release, `tar -xzf …`, run `./overcast --version`.
-- VS Code extension: `npx @vscode/vsce show kdrrr.overcast` shows the published
-  version (or check the
+- VS Code extension: after the manual upload, the
   [Marketplace listing](https://marketplace.visualstudio.com/items?itemName=kdrrr.overcast)
-  and [Open VSX](https://open-vsx.org/extension/kdrrr/overcast)). To verify the
-  release asset itself: download the `.vsix`, `code --install-extension
-  overcast-<version>.vsix`, open the Overcast view.
+  shows the version (`npx @vscode/vsce show kdrrr.overcast` also works). To
+  verify the release asset itself: download the `.vsix`, `code
+  --install-extension overcast-<version>.vsix`, open the Overcast view.
 - Provenance: the npm package page shows a "Provenance" panel linking back to the run.
 - Plugin/skills: `/plugin marketplace add kdr/overcast` then `/plugin install overcast@overcast`,
   or `npx skills add kdr/overcast`.
@@ -295,16 +212,10 @@ npm i -g @kdrrr/overcast@latest && overcast --version --json
   version commit → `main` requires a PR. Use the PR-based flow above (the tag
   pushes fine on its own), or add an admin bypass to the `main` ruleset.
 - **2FA on the bootstrap publish** → `npm publish --otp=<code>`.
-- **Marketplace publish fails under OIDC** → usual causes: the federated
-  credential **subject** doesn't exactly equal `repo:kdr/overcast:environment:release`
-  (case-sensitive; the `vsix` job must keep `environment: release`); the managed
-  identity isn't a **Contributor** member of the `kdrrr` publisher; or the
-  `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_SUBSCRIPTION_ID` **variables** are
-  missing/wrong. Check the "Azure login (OIDC)" step's log first.
-- **Marketplace publish 401/403 under the PAT fallback** → the PAT expired,
-  isn't scoped to **All accessible organizations** + Marketplace → Manage, or
-  belongs to a different org than the `kdrrr` publisher.
-  `npx @vscode/vsce verify-pat kdrrr` checks credentials without publishing.
-- **Re-running a release tag** → safe; the npm, Marketplace, and Open VSX
-  publish steps each no-op when the version is already live, and binary assets
-  are overwritten.
+- **Marketplace upload rejected (publisher mismatch)** → the `.vsix` must be
+  uploaded while signed in as the **`kdrrr`** publisher, and its manifest
+  `Publisher` must equal `kdrrr` (it does, from `vscode/package.json`). A `.vsix`
+  built before the `kdr` → `kdrrr` rename won't upload to this publisher.
+- **Re-running a release tag** → safe; the npm publish no-ops when the version
+  is already live and binary/`.vsix` assets are overwritten. The Marketplace
+  upload is manual and independent of re-runs.

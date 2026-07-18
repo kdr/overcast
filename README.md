@@ -186,9 +186,8 @@ language-model tools when a chat provider is installed. Every action spawns
 
 Install it from the
 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=kdrrr.overcast)
-(search "Overcast", or `ext install kdrrr.overcast`) — Cursor / VSCodium /
-Windsurf users, from [Open VSX](https://open-vsx.org/extension/kdrrr/overcast).
-Alternatively, install the `overcast-<version>.vsix` attached to the
+(search "Overcast", or `ext install kdrrr.overcast`), or install the
+`overcast-<version>.vsix` attached to the
 [latest release](https://github.com/kdr/overcast/releases) (`code
 --install-extension overcast-<version>.vsix`, or "Install from VSIX…" in the
 Extensions view), or build it from source:

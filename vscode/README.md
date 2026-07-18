@@ -104,9 +104,7 @@ what to configure.
 **From the Marketplace** (recommended): search for **Overcast** in the
 Extensions view, or install
 [`kdrrr.overcast`](https://marketplace.visualstudio.com/items?itemName=kdrrr.overcast)
-directly (`ext install kdrrr.overcast` from Quick Open). Cursor / VSCodium /
-Windsurf users install the same extension from
-[Open VSX](https://open-vsx.org/extension/kdrrr/overcast).
+directly (`ext install kdrrr.overcast` from Quick Open).
 
 **From a GitHub release**: every
 [overcast release](https://github.com/kdr/overcast/releases) attaches

@@ -7,8 +7,8 @@ CLI version.
 
 ## 0.0.11
 
-Initial preview release — first published to the VS Code Marketplace and Open
-VSX as `kdrrr.overcast`.
+Initial preview release — first published to the VS Code Marketplace as
+`kdrrr.overcast`.
 
 - Right-click senses on any media file — Watch, Listen, See, Detect Faces,
   EXIF, Chronolocate, Enhance, Find Similar, Audio Fingerprint, Voice Match,

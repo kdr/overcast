@@ -68,22 +68,14 @@ jobs:
             npm publish
           fi
 
-  # VS Code extension: package the .vsix, attach it to the same GitHub Release,
-  # and publish it to the VS Code Marketplace + Open VSX. Its version is stamped
-  # by scripts/sync-version.mjs (checked in the npm-publish job), so the .vsix
-  # always matches the tag. The publish steps are config-gated (Entra ID OIDC
-  # via the AZURE_* repo variables, or VSCE_PAT / OVSX_PAT — see RELEASING.md)
-  # and skip when the version is already live, so re-running a tag is safe and
-  # the job passes before the one-time setup.
-  #
-  # `environment: release` gives the GitHub OIDC token a STABLE subject
-  # (`repo:<owner>/<repo>:environment:release`) that the managed identity's
-  # federated credential trusts — without it, the subject is per-tag and would
-  # need a credential per release.
+  # VS Code extension: package the .vsix and attach it to the same GitHub
+  # Release. Its version is stamped by scripts/sync-version.mjs (checked in the
+  # npm-publish job), so the .vsix always matches the tag. Publishing to the
+  # Marketplace is a manual upload of this attached .vsix from the publisher
+  # manage page — see RELEASING.md.
   vsix:
     needs: npm-publish
     runs-on: ubuntu-latest
-    environment: release
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -100,64 +92,12 @@ jobs:
       - run: npm run --prefix vscode build
       - run: npm run --prefix vscode test
       - run: mkdir -p .dev && npm run --prefix vscode package
-      # Attach the .vsix to the Release BEFORE publishing, so the downloadable
-      # artifact is guaranteed even if a Marketplace/Open VSX publish later fails
-      # (a bad PAT, a registry hiccup) — the manual download+upload path always
-      # has a file to grab.
       - name: Attach the .vsix to the GitHub Release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v3
         with:
           files: .dev/*.vsix
           fail_on_unmatched_files: true
-      # Entra ID OIDC (preferred): exchange the GitHub OIDC token for an Azure
-      # token as the managed identity behind vars.AZURE_CLIENT_ID. `vsce publish
-      # --azure-credential` then mints a Marketplace token via the logged-in
-      # Azure CLI — no stored PAT. Runs only when OIDC is configured; the PAT
-      # path below is the fallback.
-      - name: Azure login (OIDC — for Marketplace publish)
-        if: github.event_name == 'push' && vars.AZURE_CLIENT_ID != ''
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - name: Publish to the VS Code Marketplace
-        if: github.event_name == 'push'
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-          HAVE_OIDC: ${{ vars.AZURE_CLIENT_ID != '' }}
-        run: |
-          VSCE=vscode/node_modules/.bin/vsce
-          VERSION="$(node -p "require('./vscode/package.json').version")"
-          # Idempotent like the npm publish so re-running a tag is safe. `vsce
-          # show --json` lists every published version on its own line (and
-          # prints `undefined`, exit 0, before the first publish — no match →
-          # publish); a match means this version is already live → skip.
-          if "$VSCE" show kdrrr.overcast --json 2>/dev/null | grep -q "\"version\": \"$VERSION\""; then
-            echo "kdrrr.overcast@$VERSION is already on the Marketplace — skipping publish."
-          elif [ "$HAVE_OIDC" = "true" ]; then
-            "$VSCE" publish --azure-credential --packagePath .dev/*.vsix
-          elif [ -n "$VSCE_PAT" ]; then
-            "$VSCE" publish -p "$VSCE_PAT" --packagePath .dev/*.vsix
-          else
-            echo "No Marketplace auth configured (set the AZURE_* variables for OIDC, or VSCE_PAT) — skipping (see RELEASING.md)."
-          fi
-      - name: Publish to Open VSX
-        if: github.event_name == 'push'
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: |
-          if [ -z "$OVSX_PAT" ]; then
-            echo "OVSX_PAT secret not set — skipping Open VSX publish (see RELEASING.md)."
-            exit 0
-          fi
-          VERSION="$(node -p "require('./vscode/package.json').version")"
-          if curl -fsS "https://open-vsx.org/api/kdrrr/overcast/$VERSION" >/dev/null 2>&1; then
-            echo "kdrrr.overcast@$VERSION is already on Open VSX — skipping publish."
-          else
-            npx --yes ovsx@1.0.2 publish .dev/*.vsix -p "$OVSX_PAT"
-          fi
       - name: Upload the .vsix as a workflow artifact (manual run)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
