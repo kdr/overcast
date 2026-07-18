@@ -93,6 +93,16 @@ jobs:
       - run: npm run --prefix vscode build
       - run: npm run --prefix vscode test
       - run: mkdir -p .dev && npm run --prefix vscode package
+      # Attach the .vsix to the Release BEFORE publishing, so the downloadable
+      # artifact is guaranteed even if a Marketplace/Open VSX publish later fails
+      # (a bad PAT, a registry hiccup) — the manual download+upload path always
+      # has a file to grab.
+      - name: Attach the .vsix to the GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: .dev/*.vsix
+          fail_on_unmatched_files: true
       - name: Publish to the VS Code Marketplace
         if: github.event_name == 'push'
         env:
@@ -128,12 +138,6 @@ jobs:
           else
             npx --yes ovsx@1.0.2 publish .dev/*.vsix -p "$OVSX_PAT"
           fi
-      - name: Attach the .vsix to the GitHub Release
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v3
-        with:
-          files: .dev/*.vsix
-          fail_on_unmatched_files: true
       - name: Upload the .vsix as a workflow artifact (manual run)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7

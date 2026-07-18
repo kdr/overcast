@@ -101,20 +101,37 @@ then the publish steps log a skip and the release still succeeds.
    id must match `publisher` in `vscode/package.json` (`kdrrr` — same story as
    npm: `kdr` is already taken on the Marketplace, we ship under `kdrrr`
    everywhere).
-2. Create a PAT with **Marketplace → Manage** scope and store it as the
-   `VSCE_PAT` repo secret. Make it an **org-scoped** PAT — Azure DevOps
-   *global* PATs retire **Dec 1 2026**. Sanity-check it without publishing:
-   `npx @vscode/vsce verify-pat kdrrr`.
+2. Create the credential and store it as the `VSCE_PAT` repo secret — **two
+   options**, see the note below on which to pick:
+   - **PAT (simplest, works today):** in Azure DevOps → User settings →
+     Personal access tokens → New Token, set **Organization: All accessible
+     organizations** and **Scopes: Show all scopes → Marketplace → Manage**.
+     Sanity-check without publishing: `npx @vscode/vsce verify-pat kdrrr`.
+   - **Microsoft Entra ID workload identity federation (recommended):** no
+     stored secret — the analog of this repo's npm OIDC publishing. See the
+     note below.
 3. Optionally (for Cursor/VSCodium/Windsurf users): create an
    [Open VSX](https://open-vsx.org) account, sign the publisher agreement,
    create the `kdrrr` namespace (`npx ovsx create-namespace kdrrr -p <token>`),
    and store the token as the `OVSX_PAT` repo secret.
 
-The next `v*` tag then publishes the extension automatically. To put the
-listing live without waiting for a release train, publish the current release's
-`.vsix` by hand: `npx @vscode/vsce publish --packagePath overcast-<v>.vsix -p
-<pat>` (or upload it on the manage page). Marketplace ingestion runs a malware
-scan; the listing goes live a few minutes after publish.
+> **PAT vs. Entra ID — which to use.** A PAT is the quickest way to start and
+> is what the `VSCE_PAT`-gated workflow expects. But note the vsce publishing
+> PAT must be scoped to **All accessible organizations** (a *global* PAT), and
+> Microsoft **retires global PATs on Dec 1 2026** — so a PAT is a stopgap.
+> Microsoft's recommended path is **Entra ID workload identity federation**
+> (`vsce publish --azure-credential` after `azure/login` OIDC, with the managed
+> identity added as a publisher member) — no long-lived secret, matching this
+> repo's npm-OIDC posture. Migrate to it before Dec 2026; ref:
+> <https://code.visualstudio.com/api/working-with-extensions/publishing-extension#secure-automated-publishing-to-visual-studio-marketplace>.
+
+The next `v*` tag then publishes the extension automatically (CI attaches the
+`.vsix` to the Release *before* the publish steps, so the download always
+exists even if a publish fails). To put the listing live without waiting for a
+release train, publish the current release's `.vsix` by hand: `npx @vscode/vsce
+publish --packagePath overcast-<v>.vsix -p <pat>`, or upload it on the manage
+page (**New extension → Visual Studio Code**). Marketplace ingestion runs a
+malware scan; the listing goes live a few minutes after publish.
 
 ---
 
