@@ -126,7 +126,9 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 
 Run `overcast commands --json` for the authoritative registry, or `overcast <verb>
 --help` for a man page. Common end-to-end flows live in
-[`docs/flows.md`](docs/flows.md); provider authoring in
+[`docs/field-manual.md`](docs/field-manual.md); the verb & source reference in
+[`docs/verbs.md`](docs/verbs.md); binding/profile/env config in
+[`docs/configuration.md`](docs/configuration.md); provider authoring in
 [`docs/providers.md`](docs/providers.md).
 
 - **Senses** — `watch` (shot-detect + all-modality describe → `content` /

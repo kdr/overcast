@@ -8,4 +8,4 @@ contact_links:
     about: Ask a question, share a workflow, or propose an idea before filing an issue.
   - name: 📖 Documentation
     url: https://github.com/kdr/overcast#readme
-    about: README, docs/flows.md, and docs/providers.md cover setup, flows, and provider authoring.
+    about: README, docs/field-manual.md, and docs/providers.md cover setup, flows, and provider authoring.

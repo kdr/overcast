@@ -13,9 +13,9 @@ overcast commands --json   # the authoritative list of verbs and flags
 overcast <verb> --help     # a man page for any verb
 ```
 
-The [README](README.md), [`docs/flows.md`](docs/flows.md) (end-to-end flows), and
-[`docs/providers.md`](docs/providers.md) (provider setup and authoring) cover most
-questions.
+The [README](README.md), [`docs/field-manual.md`](docs/field-manual.md) (end-to-end
+flows), and [`docs/providers.md`](docs/providers.md) (provider setup and authoring)
+cover most questions.
 
 ## Where to go
 

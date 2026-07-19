@@ -1,11 +1,120 @@
-# overcast — common flows & usage patterns
+# overcast — Field Manual
 
-How the verbs fit together: the mental model, what becomes searchable, and the
-case lifecycles you'll reach for most. Run `overcast commands --json` for the
-authoritative verb registry, `overcast <verb> --help` for a man page, and see
-[`providers.md`](providers.md) for provider authoring. Every command writes one
-or more loose **records** into the case; cite findings by `record.id` +
-`media.at`.
+The operational playbook: how the verbs fit together, what becomes searchable,
+and the case lifecycles you'll reach for most. Run `overcast commands --json` for
+the authoritative verb registry, `overcast <verb> --help` for a man page, and see
+[`providers.md`](providers.md) for provider authoring, [`verbs.md`](verbs.md) for
+the verb & source reference, and [`configuration.md`](configuration.md) for
+binding/profile/env config. Every command writes one or more loose **records**
+into the case; cite findings by `record.id` + `media.at`.
+
+## Quickstart
+
+The whole surface, condensed — copy a block and go. Each numbered step is a
+self-contained recipe; the [case lifecycles](#recommended-case-lifecycles) below
+walk the same moves in prose.
+
+```bash
+# 0) optional: prepare a reusable provider profile once per machine/profile
+overcast provider setup plan --preset cloudglue --profile default --json
+overcast provider setup apply --preset cloudglue --profile default --yes --json
+overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+
+# 1) analyze a video → a reusable, time-anchored record
+overcast watch ./clip.mp4 --json
+
+# 2) run first-run case setup, give it a target + a source, sweep it
+overcast case setup --name "dock-incident" --target "white van at pier 9" --source web:"pier 9 dock incident" --yes
+overcast case setup status --json
+overcast scan --pull --json            # enumerate sources → capture → sense each hit
+
+# 3) ask questions over everything the case has accumulated (with citations)
+overcast ask "every white van, with timestamps" --json
+overcast brief --export ./brief.html
+overcast case status --export ./status.html --theme csi
+overcast case records --export ./records.html --theme csi
+
+# 4) add a human observation anchored to evidence
+overcast note "rear plate is missing" --ref <watch-record-id> --at 12-18 --tag vehicle --json
+
+# 5) faces: detect, or find a specific person in a clip
+overcast face ./clip.mp4 --thumbnails --json          # who is in this video + frame thumbnails for exact crops
+overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/PNG query image), ranked by similarity
+overcast crop <face-record-id> --all --class face --json # write cropped face images as evidence
+
+# 6) objects: bind the OWLv2 detector, find boxes, and crop them
+scripts/visual-db-uv.sh --detect     # uv-installs torch + transformers + scipy (prints DETECT_PY)
+export DETECT_PY=…; overcast provider setup apply --preset owl-local --yes   # binds see:owl-local ($DETECT_PY + a portable shipped: ref)
+overcast see ./clip.mp4 --detect "person, car, license plate" --json
+overcast crop <see-record-id> --all --class person --json
+
+# 6b) when did X happen? tile the clip, ask a VLM which cell, then verify the frame
+overcast grid ./clip.mp4 --count 16 --json               # one contact sheet + cell→timestamp map
+overcast see <montage-path> --prompt "which numbered cells show X?" --json
+overcast see frame://<watch-record>@<seconds> --prompt "is X happening here?" --json  # verify at the frame
+overcast grid ./clip.mp4 --view                          # clickable numbered board that seeks the clip
+
+# 7) index the target's videos, then search across ALL of them
+overcast index create faces --type face --json
+overcast index attach existing-face-index --type face --json       # or bind an existing remote index
+overcast index add --all --to <face-col-id> --json   # register every captured/sensed video
+overcast index add ./local.mp4 --to <face-col-id> --json # creates missing watch evidence locally
+overcast face --match ./suspect.jpg --index <face-col-id> --json   # find them across the index
+
+# 8) visual DBs: logos/landmarks with RANSAC, faces with a uv Python
+scripts/visual-db-uv.sh --face
+overcast index create logos --type image-ransac --local --json
+overcast index add ./starbucks-logo.jpg --to logos --json
+overcast image match ./clip.mp4 --index logos --fps 0.7 --draw --json
+overcast index create localfaces --type deepface-local --local --json
+overcast index add ./suspect.jpg --to localfaces --json
+overcast face ./clip.mp4 --match ./suspect.jpg --index localfaces --fps 0.5 --max-frames 32 --json
+
+# 8b) face-cluster DB: group everyone across clips into people, then browse
+overcast index create people --type face-cluster --local --json  # or: case setup --index people:face-cluster
+overcast cluster add ./clipA.mp4 --index people --fps 0.5 --max-frames 20 --json  # ingest → assign-or-create
+overcast cluster add ./clipB.mp4 --index people --json
+overcast cluster identify ./who.jpg --index people --json         # most-similar person (or "new person")
+overcast cluster recluster --index people --json                  # re-tidy groups as the DB grows
+overcast cluster label p_1 "Jane Doe" --index people --json       # names survive recluster
+overcast cluster view --index people --json                       # self-contained HTML contact sheet
+
+# 9) semantic (CLIP) search: find images/video moments by text or by example image
+scripts/visual-db-uv.sh --clip
+overcast index create scenes --type basic-clip --local --granularity frame --json
+overcast similar add ./clip.mp4 --index scenes --json          # embed + cache (videos frame-sampled)
+overcast similar search "a red car at night" --index scenes --json   # text → image/video moments
+overcast similar match ./reference.jpg --index scenes --json         # image → image/video moments
+
+# 9b) audio DBs: Shazam-style exact matching (audio-fp) + CLAP audio similarity (basic-clap)
+scripts/visual-db-uv.sh --audio           # numpy/scipy fingerprint deps (add --clap for CLAP embeddings)
+overcast index create jingles --type audio-fp --local --json
+overcast audio add ./original.mp4 --to jingles --json                 # fingerprint (video → audio track)
+overcast audio match ./suspect.mp4 --index jingles --json             # which recording + WHERE (offset)
+overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --json # reject sped-up re-uploads
+overcast audio match ./suspect.mp4 --index jingles --draw --json      # + SVG alignment plot (embeds in briefs)
+overcast audio match ./a.mp3 ./b.mp3 --json                           # clip-to-clip, no index
+overcast index create sounds --type basic-clap --local --json         # CLAP audio-embedding DB
+overcast similar add ./clip.wav --index sounds --json                 # embed + cache (10s audio windows)
+overcast similar search "crowd chanting" --index sounds --json        # text → audio moments
+
+# 9c) voice DB: speaker verification (voice-print) — find a reference VOICE, not a recording
+scripts/visual-db-uv.sh --voice           # pyannote stack (same as enhance --ops separate; no token needed)
+overcast index create voices --type voice-print --local --json
+overcast voice add ./interview.mp4 --index voices --json              # enroll (video → audio track)
+overcast voice match ./sample.wav --index voices --json               # which members contain this speaker?
+overcast voice match ./clip.mp4 ./sample.wav --json                   # WHERE the speaker talks in a clip
+overcast voice match ./clip.mp4 ./sample.wav --diarize --json         # overlap-aware tier (HF_TOKEN gated)
+
+# 10) launch the interactive agent (pi TUI) in the current case
+overcast
+# … optionally with an opening message (a non-verb token after --tui is the
+# agent's first prompt — real verbs still win and dispatch the CLI)
+overcast --tui "walk me through case setup"
+```
+
+A **case is just a directory** with a `.overcast/` store — switch cases with
+`cd` or `--case <dir>`. pi's per-directory sessions are the case history.
 
 ## Mental model
 

@@ -1,12 +1,14 @@
 # overcast documentation
 
 The front-door [README](../README.md) covers what overcast is, install, and the
-verb surface. This folder holds the deeper references.
+verb surface at a glance. This folder holds the deeper references.
 
 | Doc | What's in it |
 | --- | --- |
-| [flows.md](flows.md) | End-to-end investigation flows — how the verbs chain into real workflows (scan → capture → sense → ask/brief). |
-| [providers.md](providers.md) | The provider model in depth: binding senses/sources, the profile system, and **authoring your own provider** (manifests, `provider install`). |
+| [field-manual.md](field-manual.md) | **Field Manual** — the operational playbook: the quickstart cookbook + end-to-end investigation flows (scan → capture → sense → ask/brief), the live control room, and the case memory model. |
+| [verbs.md](verbs.md) | Verb & source reference — every verb and every built-in source ref. |
+| [configuration.md](configuration.md) | Binding senses/sources to backends, the profile system, findings tuning, local DBs, and the full environment-variable surface. |
+| [providers.md](providers.md) | The provider model in depth: **authoring your own provider** (manifests, `provider install`) and the binding contract. |
 | [../RESPONSIBLE_USE.md](../RESPONSIBLE_USE.md) | Dual-use / acceptable-use policy and per-source legal constraints. |
 | [../SECURITY.md](../SECURITY.md) | Trust model and vulnerability disclosure. |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Dev setup, architecture invariants, and the PR checklist. |

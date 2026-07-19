@@ -237,7 +237,7 @@ credit + uses the machine's Claude auth + runs Bash headless).
 
 ## Man in the chair (`/chair`) — manual smoke
 
-The remote-drive bridge (`/chair`, see [flow 20](../../docs/flows.md)) isn't in
+The remote-drive bridge (`/chair`, see [flow 20](../../docs/field-manual.md)) isn't in
 the CLI e2e suites: it's an **interactive TUI feature + a network/browser
 client**, so there's no headless CLI case for it. Its automated coverage is the
 unit tests — `test/unit/chair-{bridge,extension,glance,qr,net}.test.ts` (auth,
