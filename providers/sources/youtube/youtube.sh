@@ -238,12 +238,18 @@ case "$op" in
         # pass, mirroring stripCueTags in the tinycloud watch mapper (same
         # caption text, same semantics): each `<` marks the kept-piece index and
         # the matching `>` rewinds to it, so nesting is handled in ONE traversal.
-        # It works over an ARRAY of characters (split once, printf the kept ones)
-        # rather than string ops: `out = out c` copies the growing string, and
-        # even `substr($0, i, 1)` per character rescans, so either makes a long
+        # It works over an ARRAY of characters (printf the kept ones) rather than
+        # string ops: `out = out c` copies the growing string, and even
+        # `substr($0, i, 1)` per character rescans, so either makes a long
         # provider-controlled caption line quadratic while the nesting logic
-        # stays single-pass. Measured on this shape: 800KB in one line went
-        # 11.2s → 0.73s, and time now doubles with size instead of quadrupling.
+        # stays single-pass. Measured: 800KB in one line went 11.2s → 0.73s, and
+        # time now doubles with size instead of quadrupling.
+        #
+        # Empty-separator `split` fills that array in one linear step, but it is
+        # a gawk/mawk/BWK extension rather than POSIX, so BEGIN probes for it and
+        # falls back to a per-character substr walk on an awk that lacks it. The
+        # fallback is quadratic on a pathological single line — correct output
+        # everywhere, fast where the extension exists.
         # A `sed` fixed-point loop peels one layer per pass (quadratic on deep
         # nesting); a plain depth counter swallows the rest of a cue after a lone
         # `<`. A bracket is markup only when it PAIRS, so spoken "x < y" and
@@ -255,7 +261,10 @@ case "$op" in
         txf="$(mktemp)"
         if [ -n "$vtt" ] && [ -s "$vtt" ]; then
           sed -E 's/\r$//' "$vtt" \
-            | awk '{ m = split($0, ch, ""); k = 0; top = 0
+            | awk 'BEGIN { SPLIT_CHARS = (split("ab", probe_, "") == 2) }
+                   { if (SPLIT_CHARS) m = split($0, ch, "")
+                     else { m = length($0); for (i = 1; i <= m; i++) ch[i] = substr($0, i, 1) }
+                     k = 0; top = 0
                      for (i = 1; i <= m; i++) {
                        c = ch[i]
                        if (c == "<") { mark[++top] = k; out[++k] = c }

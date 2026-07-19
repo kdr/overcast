@@ -216,18 +216,22 @@ function withControlLock<T>(
       held = true;
       break;
     } catch {
-      try {
-        // a holder that died leaves the file behind; steal it once it's stale
-        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) {
-          rmSync(lock, { force: true });
-          continue;
-        }
-      } catch {
-        continue; // vanished under us — try to acquire
-      }
-      if (Date.now() >= deadline) break;
-      sleepSync(LOCK_POLL_MS);
+      /* contended, or the lock path is unusable (EACCES/ENOSPC/read-only) */
     }
+    try {
+      // a holder that died leaves the file behind; steal it once it's stale
+      if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) rmSync(lock, { force: true });
+    } catch {
+      /* vanished or unreadable — fall through; the deadline still governs */
+    }
+    // EVERY path reaches this. An earlier version `continue`d past it when the
+    // lock file could not be stat'd, so an openSync failing for a reason other
+    // than contention (a read-only or full disk) span forever with no sleep —
+    // on the server's control tick that hangs the event loop, the exact failure
+    // the non-blocking take was added to prevent. With waitMs 0 this breaks on
+    // the first miss, which is what makes that take a single attempt.
+    if (Date.now() >= deadline) break;
+    sleepSync(LOCK_POLL_MS);
   }
   if (!held && ifBusy === "skip") return undefined;
   try {
