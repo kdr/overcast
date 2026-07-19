@@ -92,6 +92,30 @@ test("situation stop: a --force SIGTERM is not reported as blocked", async () =>
   }
 });
 
+test("situation: a LEGACY control.json blocker is named, not hidden behind control.d", async () => {
+  // the legacy file is folded as the OLDEST patch, so an unreadable one blocks
+  // everything after it. A note pointing only at control.d/ sends the operator
+  // looking in the wrong place during exactly the upgrade that produced it.
+  const dir = mkdtempSync(join(tmpdir(), "oc-sitlegacy-"));
+  let legacy: string | undefined;
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    writeControl(c, { limit: 3 }); // a normal patch under control.d/
+    legacy = join(situationDir(c), "control.json");
+    writeFileSync(legacy, JSON.stringify({ theme: "plain" }), "utf8");
+    chmodSync(legacy, 0o000);
+
+    const [status] = await situationVerb.run(ctx(dir, { input: "status", surface: "agent" }));
+    const sp = status.payload as Record<string, unknown>;
+    assert.equal(sp.blocked, true);
+    assert.equal(sp.blocked_path, legacy, "points at control.json, not the control.d directory");
+  } finally {
+    if (legacy) { try { chmodSync(legacy, 0o600); } catch { /* gone */ } }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("situation status and stop BOTH surface a blocked control log", async () => {
   // surfacing this only on `set` (as the first pass did) leaves the two surfaces
   // an operator actually checks reporting a clean, possibly empty view of a
@@ -102,6 +126,7 @@ test("situation status and stop BOTH surface a blocked control log", async () =>
     const sp = status.payload as Record<string, unknown>;
     assert.equal(sp.blocked, true, "status reports the blocked queue");
     assert.match(String(sp.blocked_note), /cannot be read/i);
+    assert.equal(sp.blocked_path, blocker, "names the file that is actually blocking");
 
     const [stop] = await situationVerb.run(ctx(dir, { input: "stop", surface: "agent" }));
     const tp = stop.payload as Record<string, unknown>;

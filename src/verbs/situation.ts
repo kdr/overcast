@@ -34,7 +34,7 @@ import {
   inProcessSituationCaseDir,
   parsePanels,
   readControl,
-  controlBlocked,
+  blockedControlPath,
   readRuntime,
   runtimeAlive,
   runtimeServing,
@@ -193,7 +193,7 @@ export const situationVerb: VerbSpec = {
       const merged = writeControl(cc, { ...parsed.config, ...(clear ? { clear } : {}) });
       // an unreadable patch earlier in the log holds everything behind it, this
       // write included — say so instead of reporting a clean apply
-      const blocked = controlBlocked(cc);
+      const blockedBy = blockedControlPath(cc);
       const rt = readRuntime(cc);
       // "running" must reflect a server actually SERVING (pid alive AND the port
       // is up), not just a live/reused pid (Bugbot #98/med) — else `set` tells
@@ -207,9 +207,9 @@ export const situationVerb: VerbSpec = {
             op: "set",
             control: merged,
             running,
-            ...(blocked ? { blocked: true } : {}),
-            note: blocked
-              ? "queued, but an earlier control patch cannot be read — THIS command sits behind it and will not apply until that patch is removed or repaired (earlier readable ones still apply; see .overcast/situation/control.d)"
+            ...(blockedBy ? { blocked: true, blocked_path: blockedBy } : {}),
+            note: blockedBy
+              ? `queued, but an earlier control patch cannot be read (${blockedBy}) — THIS command sits behind it and will not apply until that patch is removed or repaired (earlier readable ones still apply)`
               : running
                 ? `applied by the live page within ~2s (${rt!.displayUrl})`
                 : "no situation is running — the control applies when one starts",
@@ -234,7 +234,7 @@ export const situationVerb: VerbSpec = {
         // control is honored by the rebound server's first tick. A genuinely
         // fresh serve is unaffected: every serve clears a stale stop at start.
         writeControl(cc, { stop: true } satisfies SituationControl);
-        const stopBlocked = controlBlocked(cc);
+        const stopBlockedBy = blockedControlPath(cc);
         return [
           makeRecord({
             verb: "situation",
@@ -242,9 +242,9 @@ export const situationVerb: VerbSpec = {
             payload: {
               op: "stop",
               running: false,
-              ...(stopBlocked ? { blocked: true } : {}),
-              note: stopBlocked
-                ? "stop queued, but an earlier control patch cannot be read — it will NOT be honored until that is removed or repaired (see .overcast/situation/control.d)"
+              ...(stopBlockedBy ? { blocked: true, blocked_path: stopBlockedBy } : {}),
+              note: stopBlockedBy
+                ? `stop queued, but an earlier control patch cannot be read (${stopBlockedBy}) — it will NOT be honored until that patch is removed or repaired`
                 : "no situation is running — stop queued (honored by a server starting on this case; a fresh serve clears it)",
               ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
             },
@@ -293,11 +293,12 @@ export const situationVerb: VerbSpec = {
             // A stop that rides the QUEUE ALONE is subject to a blocked log; one
             // that was also signalled has already killed the process, so
             // reporting it as stuck would contradict what just happened.
-            ...(!signalled && controlBlocked(cc)
+            ...(!signalled && blockedControlPath(cc)
               ? {
                   blocked: true,
+                  blocked_path: blockedControlPath(cc),
                   blocked_note:
-                    "an earlier control patch cannot be read — this stop will NOT be honored until it is removed or repaired (see .overcast/situation/control.d)",
+                    "an earlier control patch cannot be read — this stop will NOT be honored until that patch is removed or repaired",
                 }
               : {}),
             ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
@@ -537,18 +538,19 @@ async function statusRecord(ctx: VerbContext, cc: Case = ctx.case): Promise<Over
   // an unreadable patch holds everything behind it, so `pending` here is the
   // APPLYABLE prefix, not the whole queue — say so rather than showing a clean
   // (and possibly empty) view of a stuck control log
-  const blocked = controlBlocked(cc);
+  const blockedBy = blockedControlPath(cc);
   return makeRecord({
     verb: "situation",
     format: "json",
     payload: {
       op: "status",
       running,
-      ...(blocked
+      ...(blockedBy
         ? {
             blocked: true,
+            blocked_path: blockedBy,
             blocked_note:
-              "a control patch cannot be read — the pending control shown is the APPLYABLE PREFIX; anything queued behind that patch is not applying (see .overcast/situation/control.d)",
+              "a control patch cannot be read — the pending control shown is the APPLYABLE PREFIX; anything queued behind that patch is not applying",
           }
         : {}),
       ...(rt && running

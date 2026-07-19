@@ -239,16 +239,16 @@ function pendingPatchFiles(c: Case): string[] {
  *  Deliberate consequence: a patch that can never be read blocks the ones behind
  *  it. That is visible (the page stops following commands) and preferable to
  *  applying operator intent out of order, which would be silent. */
-function foldPending(files: string[]): { control?: SituationControl; consumed: string[]; blocked: boolean } {
+function foldPending(files: string[]): { control?: SituationControl; consumed: string[]; blockedBy?: string } {
   let control: SituationControl | undefined;
   const consumed: string[] = [];
-  let blocked = false;
+  let blockedBy: string | undefined;
   for (const file of files) {
     let raw: string;
     try {
       raw = readFileSync(file, "utf8");
     } catch {
-      blocked = true;
+      blockedBy = file;
       break; // ordered log — stop here, do not skip ahead
     }
     consumed.push(file);
@@ -258,7 +258,7 @@ function foldPending(files: string[]): { control?: SituationControl; consumed: s
       /* corrupt: consumed and dropped; no content, so no reordering */
     }
   }
-  return { control, consumed, blocked };
+  return { control, consumed, blockedBy };
 }
 
 /** Append ONE patch. No read-modify-write, so concurrent writers cannot lose
@@ -291,12 +291,17 @@ export function readControl(c: Case): SituationControl | undefined {
   return foldPending(pendingPatchFiles(c)).control;
 }
 
-/** True when an unreadable patch is holding the queue, so pending commands
+/** The PATH of the unreadable patch holding the queue, if any: pending commands
  *  BEHIND it cannot be applied yet. Callers surface this rather than reporting a
  *  clean success for something the server cannot take — a `situation set` that
- *  says "applied within ~2s" while the log is stuck is a lie to the operator. */
-export function controlBlocked(c: Case): boolean {
-  return foldPending(pendingPatchFiles(c)).blocked;
+ *  says "applied within ~2s" while the log is stuck is a lie to the operator.
+ *
+ *  Returns the path, not a boolean, so the operator is pointed at the actual
+ *  file. The blocker can be the LEGACY control.json rather than anything under
+ *  control.d/ (an interrupted upgrade), and a note naming only the directory
+ *  sends them looking in the wrong place. */
+export function blockedControlPath(c: Case): string | undefined {
+  return foldPending(pendingPatchFiles(c)).blockedBy;
 }
 
 /** TAKE the pending control: fold every pending patch and remove the files that
