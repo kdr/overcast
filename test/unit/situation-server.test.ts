@@ -2,7 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawn } from "node:child_process";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 import { openCase } from "../../src/case.ts";
 import { SituationServer, parseRange } from "../../src/situation/server.ts";
 import { writeControl, readControl, takeControl, controlFile, situationDir, clearStaleStop, readRuntime, writeRuntime, clearRuntime, runtimeAlive } from "../../src/situation/state.ts";
@@ -144,6 +148,44 @@ test("situation control: takeControl claims atomically — a set racing the take
     writeFileSync(controlFile(c), "{not json", "utf8");
     assert.equal(takeControl(c), undefined, "corrupt control ignored");
     assert.equal(readControl(c), undefined, "and cleared, so it can't loop forever");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation control: concurrent writeControl across PROCESSES loses no update", async () => {
+  // writeControl is a read-modify-write, so two `situation set`s racing from
+  // different processes (the agent and a CLI in another terminal) could both
+  // read the same pending state and the slower publish would clobber the
+  // faster — an operator command lost with no error. Verified against the
+  // unlocked implementation: it keeps 1 of 6 updates per round.
+  //
+  // Every contender adds a DIFFERENT clear key; writeControl unions clear[], so
+  // a lost fold shows up precisely as a missing key.
+  const { dir, c } = tmpCase();
+  const child = join(dir, "contend.ts");
+  const stateMod = pathToFileURL(join(HERE, "..", "..", "src", "situation", "state.ts")).href;
+  const caseMod = pathToFileURL(join(HERE, "..", "..", "src", "case.ts")).href;
+  writeFileSync(child, `
+import { openCase } from ${JSON.stringify(caseMod)};
+import { writeControl } from ${JSON.stringify(stateMod)};
+const [dir, key, startAt] = process.argv.slice(2);
+while (Date.now() < Number(startAt)) { /* spin to the barrier so we truly contend */ }
+writeControl(openCase(dir), { clear: [key] });
+`, "utf8");
+
+  const KEYS = ["panels", "source", "since", "limit", "theme", "query"];
+  try {
+    for (let round = 0; round < 2; round++) {
+      rmSync(controlFile(c), { force: true });
+      const startAt = Date.now() + 700; // all contenders write at the same instant
+      await Promise.all(KEYS.map((k) => new Promise<void>((res) => {
+        spawn(process.execPath, ["--import", "tsx", child, dir, k, String(startAt)], { stdio: "ignore" })
+          .on("exit", () => res());
+      })));
+      const kept = (readControl(c)?.clear ?? []) as string[];
+      assert.deepEqual([...kept].sort(), [...KEYS].sort(), `round ${round}: a concurrent update was lost`);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -19,6 +19,14 @@ export function realpathContained(root: string, target: string): boolean {
   }
 }
 
+/** Whether this platform's `dev`/`ino` pair is a trustworthy file identity.
+ *  POSIX: yes. Windows: Node fills these from a different source per call and
+ *  may report 0 or a disagreeing pair for the same unchanged file, so comparing
+ *  them there produces false "swapped" verdicts rather than catching real ones. */
+function inodeIdentityReliable(): boolean {
+  return process.platform !== "win32";
+}
+
 /** Open `target` for reading and prove the OPEN DESCRIPTOR is the file that
  *  passed containment. `realpathContained` validates a path STRING; anything the
  *  caller then does with that string re-resolves it, so a symlink swapped in
@@ -42,9 +50,17 @@ export function openContainedFile(root: string, target: string): number | undefi
     const realRoot = realpathSync(root);
     const real = realpathSync(target);
     if (real !== realRoot && !real.startsWith(realRoot + sep)) throw new Error("outside root");
-    const resolved = statSync(real);
-    if (resolved.dev !== opened.dev || resolved.ino !== opened.ino) {
-      throw new Error("path no longer resolves to the opened file");
+    // Identity check only where inode identity is meaningful. POSIX dev+ino
+    // uniquely names the file, so a mismatch proves a swap. Windows reports
+    // these from a different source per call and can hand back 0 or a
+    // disagreeing pair for an UNCHANGED file — enforcing it there would 404
+    // every static asset and /media response. Fall back to the realpath
+    // containment above, which is what this guarded before the fd was added.
+    if (inodeIdentityReliable()) {
+      const resolved = statSync(real);
+      if (resolved.dev !== opened.dev || resolved.ino !== opened.ino) {
+        throw new Error("path no longer resolves to the opened file");
+      }
     }
     return fd;
   } catch {

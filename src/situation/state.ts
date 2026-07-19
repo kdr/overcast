@@ -11,7 +11,8 @@
 //     replace, merging any not-yet-consumed control), consumed by the server on
 //     its next poll tick (~2s). `stop: true` shuts the server down gracefully.
 
-import { mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { writeFileAtomic } from "../fs-atomic.js";
@@ -157,6 +158,64 @@ export function parsePanels(raw: string | undefined): SituationPanel[] | undefin
   return [...new Set(items)] as SituationPanel[];
 }
 
+/** Serialize every MUTATION of the control file through an O_EXCL lock.
+ *
+ *  writeControl is a read-modify-write: it folds the operator's patch onto
+ *  whatever is still pending. Two `situation set`s racing (the agent and a CLI
+ *  in another terminal, say) could both read the same pending state and the
+ *  slower publish would clobber the faster one — an operator command lost with
+ *  no error, the exact failure this control plane is supposed to have stopped
+ *  having. A take landing mid-RMW could likewise resurrect an applied control.
+ *
+ *  So the lock covers ALL of the mutators (write / take / clearStaleStop), not
+ *  just the pair that happened to be reported. Held for microseconds around a
+ *  small JSON file.
+ *
+ *  Never fails the caller: if the lock can't be acquired within the budget we
+ *  proceed anyway. Dropping the operator's command to protect against a rare
+ *  interleaving would be the worse trade. A lock left by a killed process is
+ *  stolen once it goes stale. */
+const LOCK_STALE_MS = 5_000;
+const LOCK_WAIT_MS = 2_000;
+
+function sleepSync(ms: number): void {
+  // no sync sleep in Node; wait on a private SharedArrayBuffer nobody notifies
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function withControlLock<T>(c: Case, fn: () => T): T {
+  const lock = `${controlFile(c)}.lock`;
+  mkdirSync(situationDir(c), { recursive: true });
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  let held = false;
+  while (Date.now() < deadline) {
+    try {
+      closeSync(openSync(lock, "wx")); // atomic create = acquire
+      held = true;
+      break;
+    } catch {
+      try {
+        // a holder that died leaves the file behind; steal it once it's stale
+        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) rmSync(lock, { force: true });
+        else sleepSync(10);
+      } catch {
+        /* vanished under us — loop and try to acquire */
+      }
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    if (held) {
+      try {
+        rmSync(lock, { force: true });
+      } catch {
+        /* best effort; a leftover lock goes stale and is stolen */
+      }
+    }
+  }
+}
+
 /** Merge a control patch onto any pending (unconsumed) control and write it
  *  atomically. Two quick `situation set`s compose instead of clobbering. Clears
  *  compose by ORDER: a clear in the patch drops the key from pending (so the
@@ -164,6 +223,10 @@ export function parsePanels(raw: string | undefined): SituationPanel[] | undefin
  *  (so the re-set wins) — the server can then apply clears before assignments
  *  without reordering the operator's intent. */
 export function writeControl(c: Case, patch: SituationControl): SituationControl {
+  return withControlLock(c, () => writeControlLocked(c, patch));
+}
+
+function writeControlLocked(c: Case, patch: SituationControl): SituationControl {
   const pending: SituationControl = { ...(readControl(c) ?? {}) };
   if (patch.clear?.length) for (const key of patch.clear) delete pending[key];
   if (pending.clear?.length) {
@@ -210,21 +273,56 @@ export function readControl(c: Case): SituationControl | undefined {
  *  next line, so that window is negligible — and losing a control to a crash is
  *  strictly better than deleting a live one the server never looked at. */
 export function takeControl(c: Case): SituationControl | undefined {
+  return withControlLock(c, () => takeControlLocked(c));
+}
+
+function takeControlLocked(c: Case): SituationControl | undefined {
   const file = controlFile(c);
-  const taken = `${file}.taken`;
+  // a UNIQUE claim name per take: a fixed `.taken` assumes rename replaces an
+  // existing destination, which POSIX does but Windows does not — one leftover
+  // from a crash would then block every future claim, and pending controls would
+  // never be applied again.
+  const taken = `${file}.taken.${process.pid}.${randomBytes(4).toString("hex")}`;
   try {
     renameSync(file, taken); // atomic claim; ENOENT = nothing pending
   } catch {
     return undefined;
   }
+
+  let raw: string;
   try {
-    return JSON.parse(readFileSync(taken, "utf8")) as SituationControl;
+    raw = readFileSync(taken, "utf8");
   } catch {
-    return undefined; // corrupt/truncated — dropped along with the file
-  } finally {
-    // a crash before this leaves one stale .taken; the next rename replaces it
-    rmSync(taken, { force: true });
+    // A TRANSIENT IO error is not corruption — deleting here would destroy the
+    // operator's command. Put it back for the next tick, but only if nothing
+    // newer is already pending: a control written since our claim is the more
+    // recent intent and must not be clobbered by our restore.
+    try {
+      closeSync(openSync(file, "r")); // newer control exists → drop ours
+      rmSync(taken, { force: true });
+    } catch {
+      try {
+        renameSync(taken, file);
+      } catch {
+        /* best effort — the claim is lost, but nothing newer was overwritten */
+      }
+    }
+    return undefined;
   }
+
+  let parsed: SituationControl | undefined;
+  try {
+    parsed = JSON.parse(raw) as SituationControl;
+  } catch {
+    parsed = undefined; // genuinely corrupt — dropped with the file below
+  }
+  try {
+    rmSync(taken, { force: true });
+  } catch {
+    // must NOT suppress the return: a throw here would discard a control the
+    // caller is about to apply. A leftover claim file is harmless.
+  }
+  return parsed;
 }
 
 /** Before a FRESH serve binds, drop a stale `stop: true` still sitting in
@@ -234,6 +332,10 @@ export function takeControl(c: Case): SituationControl | undefined {
  *  set-before-start config is preserved (deleting the file only if nothing else
  *  remains). */
 export function clearStaleStop(c: Case): void {
+  withControlLock(c, () => clearStaleStopLocked(c));
+}
+
+function clearStaleStopLocked(c: Case): void {
   const cur = readControl(c);
   if (!cur || cur.stop !== true) return;
   const { stop: _stop, ...rest } = cur;
