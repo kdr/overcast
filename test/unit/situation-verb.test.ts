@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, readdirSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
@@ -48,6 +49,48 @@ function blockedCase(): { dir: string; blocker: string } {
   chmodSync(blocker, 0o000);
   return { dir, blocker };
 }
+
+test("situation stop: a --force SIGTERM is not reported as blocked", async () => {
+  // `delivered` reads "control+signal" when the SIGTERM lands, and one of the
+  // force-IGNORED variants literally contains the word "signal" — so gating the
+  // blocked flag on any substring of it is a trap. A stop that already killed
+  // the process must never be reported as stuck behind the queue.
+  const dir = mkdtempSync(join(tmpdir(), "oc-sitforce-"));
+  let blocker: string | undefined;
+  const srv = createServer(() => {});
+  // a DISPOSABLE process to receive the SIGTERM — using our own pid here makes
+  // the verb kill the test runner, which is a silent, detail-free failure
+  const victim = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+  try {
+    await new Promise<void>((res) => srv.listen(0, "127.0.0.1", () => res()));
+    const port = (srv.address() as AddressInfo).port;
+    const c = openCase(dir);
+    c.ensure();
+    writeRuntime(c, {
+      pid: victim.pid as number, port, bind: "127.0.0.1", url: `http://127.0.0.1:${port}/`,
+      displayUrl: `http://127.0.0.1:${port}/`, startedAt: new Date(0).toISOString(),
+      caseDir: dir, every: null, mode: "cli",
+    });
+    writeControl(c, { limit: 2 });
+    const cdir = join(situationDir(c), "control.d");
+    const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
+    blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
+    writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
+    chmodSync(blocker, 0o000);
+
+    const [rec] = await situationVerb.run(ctx(dir, { input: "stop", surface: "cli", opts: { force: true } }));
+    const p = rec.payload as Record<string, unknown>;
+    const delivered = String(p.delivered);
+    assert.match(delivered, /signal/, "the force path was exercised (a live pid on a served port)");
+    assert.ok(!delivered.includes("ignored"), `expected a delivered signal, got: ${delivered}`);
+    assert.equal(p.blocked, undefined, "a delivered SIGTERM must not be reported as stuck behind the queue");
+  } finally {
+    try { victim.kill("SIGKILL"); } catch { /* already gone */ }
+    srv.close();
+    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("situation status and stop BOTH surface a blocked control log", async () => {
   // surfacing this only on `set` (as the first pass did) leaves the two surfaces

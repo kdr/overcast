@@ -255,6 +255,10 @@ export const situationVerb: VerbSpec = {
       }
       writeControl(cc, { stop: true } satisfies SituationControl);
       let delivered = "control";
+      // whether a SIGTERM actually went out. Tracked as a fact rather than sniffed
+      // out of `delivered`: that string says "not signal" in one of its
+      // force-ignored variants, so any substring test on it is a trap.
+      let signalled = false;
       // --force SIGTERM is ONLY for a dedicated CLI serve pane. For a `/situation
       // on` (mode "tui") the runtime pid IS the whole TUI session, so signalling
       // it would kill the operator's editor (Bugbot #98/high) — the in-process
@@ -268,6 +272,7 @@ export const situationVerb: VerbSpec = {
           try {
             process.kill(rt.pid, "SIGTERM");
             delivered = "control+signal";
+            signalled = true;
           } catch {
             /* already exiting */
           }
@@ -285,10 +290,10 @@ export const situationVerb: VerbSpec = {
             pid: rt!.pid,
             url: rt!.displayUrl,
             delivered,
-            // a control-delivered stop rides the same queue as everything else,
-            // so a blocked log means the server will NOT see it (a --force
-            // signal still lands, which `delivered` already distinguishes)
-            ...(delivered.startsWith("control") && controlBlocked(cc)
+            // A stop that rides the QUEUE ALONE is subject to a blocked log; one
+            // that was also signalled has already killed the process, so
+            // reporting it as stuck would contradict what just happened.
+            ...(!signalled && controlBlocked(cc)
               ? {
                   blocked: true,
                   blocked_note:
