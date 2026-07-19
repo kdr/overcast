@@ -21,10 +21,15 @@ test("originAllowed: only the panel's own origin", () => {
   assert.ok(!originAllowed("https://evil.test/" + SELF, SELF));
 });
 
-test("originAllowed: an empty self origin rejects rather than matching everything", () => {
+test("originAllowed: an OPAQUE self origin rejects rather than matching its twin", () => {
+  // both `""` and `"null"` are opaque — a sandboxed frame reports `"null"` too,
+  // so equality alone would admit exactly the sender this is meant to reject
   assert.ok(!originAllowed("", ""));
+  assert.ok(!originAllowed("null", "null"));
   assert.ok(!originAllowed("null", ""));
+  assert.ok(!originAllowed("", "null"));
   assert.ok(!originAllowed("https://example.com", ""));
+  assert.ok(!originAllowed("https://example.com", "null"));
 });
 
 test("isHostMsg: requires the discriminant the host contract is built on", () => {

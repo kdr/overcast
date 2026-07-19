@@ -15,9 +15,12 @@ import type { HostMsg } from "../../src/shared/protocol.ts";
  *  sender the check exists to reject — an unchecked handler trusts whoever posts
  *  (CodeQL js/missing-origin-check). */
 export function originAllowed(origin: string, selfOrigin: string): boolean {
-  // an empty selfOrigin (non-browser/opaque context) must never turn into
-  // "everything matches" — reject rather than fail open
-  return selfOrigin !== "" && origin === selfOrigin;
+  // A concrete self origin is required. `""` and `"null"` are both OPAQUE — a
+  // sandboxed frame reports `"null"` too, so comparing them for equality admits
+  // exactly the stray sender this rejects (equality alone fails open when both
+  // sides are opaque). Demand a real origin rather than trusting the match.
+  if (selfOrigin === "" || selfOrigin === "null") return false;
+  return origin === selfOrigin;
 }
 
 /** The host contract is a discriminated union — anything without a string `type`

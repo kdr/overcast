@@ -139,6 +139,40 @@ test("runWatch fills transcript from tinycloud's speech.vtt sidecar", async () =
   }
 });
 
+test("runWatch strips cue tags inside a <v> voice cue, to a fixed point", async () => {
+  // tinycloud VTTs lean on `<v Name>`, and that branch used to return the body
+  // verbatim — so nested <b>/<i>/timestamp tags rode straight into the
+  // transcript. Interleaved brackets also need the fixed-point loop: a single
+  // pass over `<<b>b>` matches `<` to the FIRST `>` and leaves a stray `b>`.
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchvoice-"));
+  try {
+    const vtt = join(dir, "speech.vtt");
+    writeFileSync(vtt, `WEBVTT
+
+1
+00:00:00.000 --> 00:00:01.000
+<v Ada Lovelace><b>bold</b> and <i>italic</i></v>
+
+2
+00:00:01.000 --> 00:00:02.000
+<v Alan Turing><00:00:01.500>timed <<b>b>nested</v>
+`);
+    const json = JSON.stringify({ status: "ready", data: { title: "clip", summary: "s", transcript: "", describe: { vtt_path: vtt }, segments: [] } });
+    const script = join(dir, "watch.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
+    const transcript = String((rec.payload as Record<string, unknown>).transcript);
+
+    assert.match(transcript, /Ada Lovelace: bold and italic/);
+    assert.match(transcript, /Alan Turing: timed nested/);
+    // no markup of any kind survives — neither whole tags nor bracket residue
+    assert.doesNotMatch(transcript, /[<>]/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("watch resolves capture_id handles before dispatching to a provider", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-watchcap-"));
   const media = join(dir, "clip.mp4");

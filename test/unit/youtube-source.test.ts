@@ -53,7 +53,7 @@ case "$FAKE_MODE" in
       # numeric cue IDENTIFIERS (1, 2 — the 2 with a CRLF ending) precede their
       # timing lines and must drop; "12:30 lunch launch" (spoken time) and
       # "2026" (digit-only caption) are caption text and must survive
-      printf 'WEBVTT\\nKind: captions\\nLanguage: en\\n\\n1\\n00:00:00.000 --> 00:00:01.000\\nhello world\\n\\n2\\r\\n00:00:01.000 --> 00:00:02.000\\nhello world\\n\\n00:00:02.000 --> 00:00:03.000\\n<c>second</c> line\\n\\n00:00:03.000 --> 00:00:04.000\\n12:30 lunch launch\\n\\n00:00:04.000 --> 00:00:05.000\\n2026\\n' > "$out.en.vtt"
+      printf 'WEBVTT\\nKind: captions\\nLanguage: en\\n\\n1\\n00:00:00.000 --> 00:00:01.000\\nhello world\\n\\n2\\r\\n00:00:01.000 --> 00:00:02.000\\nhello world\\n\\n00:00:02.000 --> 00:00:03.000\\n<c>second</c> line\\n\\n00:00:02.500 --> 00:00:02.900\\n<<b>b>interleaved<</i>i> tags\\n\\n00:00:03.000 --> 00:00:04.000\\n12:30 lunch launch\\n\\n00:00:04.000 --> 00:00:05.000\\n2026\\n' > "$out.en.vtt"
       printf 'WEBVTT\\n\\n00:00:00.000 --> 00:00:01.000\\norig variant\\n' > "$out.en-orig.vtt"
     fi
     if [ "$FAKE_MODE" = "subs_orig_only" ]; then
@@ -183,7 +183,7 @@ test("fetch --kind transcript: captions + metadata land in the capture payload, 
     assert.equal(p.duration, 65);
     // VTT compaction: cue timings/headers/karaoke tags stripped, consecutive
     // rolling duplicates collapsed
-    assert.equal(p.transcript, "hello world\nsecond line\n12:30 lunch launch\n2026");
+    assert.equal(p.transcript, "hello world\nsecond line\ninterleaved tags\n12:30 lunch launch\n2026");
     assert.equal(p.transcript_lang, "en");
     assert.equal(p.transcript_source, "manual"); // info.json lists manual en subs
     // the exact-lang variant wins; the -orig variant is cleaned up
@@ -220,7 +220,7 @@ test("fetch --kind transcript tolerates a nonzero yt-dlp exit when the track + m
     assert.equal(rec.state, "ready", rec.error);
     const p = rec.payload as Record<string, unknown>;
     assert.equal(p.kind, "transcript");
-    assert.equal(p.transcript, "hello world\nsecond line\n12:30 lunch launch\n2026");
+    assert.equal(p.transcript, "hello world\nsecond line\ninterleaved tags\n12:30 lunch launch\n2026");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -51,7 +51,10 @@ function textFromVttCue(raw: string): { speaker?: string; text: string } | undef
   const cleaned = raw.replace(/\s+/g, " ").trim();
   if (!cleaned) return undefined;
   const voice = cleaned.match(/^<v\s+([^>]+)>(.*)<\/v>$/i);
-  if (voice) return { speaker: voice[1].trim(), text: voice[2].trim() };
+  // strip BOTH halves of a voice cue, not just the fallback branch — tinycloud
+  // VTTs lean on `<v Name>`, and its body routinely carries nested `<b>`/`<i>`/
+  // timestamp tags that would otherwise survive verbatim into the transcript
+  if (voice) return { speaker: stripCueTags(voice[1]).trim(), text: stripCueTags(voice[2]).trim() };
   return { text: stripCueTags(cleaned).trim() };
 }
 
