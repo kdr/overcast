@@ -3,7 +3,7 @@
 // boundary (invariant #3). A comprehensive describe → flat payload with
 // content / transcript / detailed keys.
 
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
 import {
@@ -58,31 +58,73 @@ function textFromVttCue(raw: string): { speaker?: string; text: string } | undef
   return { text: stripCueTags(cleaned).trim() };
 }
 
-/** Strip WebVTT cue tags (`<b>`, `<v Name>`, `<00:00.500>`, …) to a FIXED POINT.
- *  One pass is incomplete (CodeQL js/incomplete-multi-character-sanitization):
- *  each match runs `<` → the next `>`, so interleaved brackets leave residue —
- *  `<<b>b>hello<</i>i>` reduces to `b>helloi>`, not `hello`. Reports escape this
- *  text downstream, so it's tidiness + defense in depth on provider input rather
- *  than the last line of defense; loop until a pass changes nothing. */
+/** Strip WebVTT cue tags (`<b>`, `<v Name>`, `<00:00.500>`, …) in ONE linear
+ *  pass, tracking bracket depth.
+ *
+ *  A single regex pass is incomplete (CodeQL
+ *  js/incomplete-multi-character-sanitization): each match runs `<` → the next
+ *  `>`, so interleaved brackets leave residue — `<<b>b>hello` keeps a stray
+ *  `b>`. But re-running that regex to a fixed point only peels ONE nesting layer
+ *  per pass, so deeply nested provider text costs O(n²) and a crafted sidecar
+ *  could stall the mapper — trading an incomplete sanitizer for a slow one.
+ *
+ *  Depth counting gets both in O(n): everything between an unmatched `<` and its
+ *  closing `>` is dropped, at any nesting depth, in a single traversal. A `>`
+ *  with no open `<` is ordinary text and survives, so spoken "2 > 1" is intact.
+ *  A dangling unclosed `<foo` drops too, which the fixed point would have kept —
+ *  strictly safer, since a lone `<` is what could recombine downstream. */
 function stripCueTags(s: string): string {
-  let out = s;
-  for (;;) {
-    const next = out.replace(/<\/?[^<>]*>/g, "");
-    if (next === out) return out;
-    out = next;
+  const out: string[] = [];
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === "<") depth++;
+    else if (ch === ">") { if (depth > 0) depth--; else out.push(ch); }
+    else if (depth === 0) out.push(ch);
+  }
+  return out.join("");
+}
+
+/** Cap for the provider-written sidecars (speech VTT, describe markdown). Real
+ *  ones for hour-long media land in the low MBs; past this we're being handed
+ *  something else. */
+const MAX_SIDECAR_BYTES = 16 * 1024 * 1024;
+
+/** Read at most `maxBytes` of a file as utf8, or undefined if it can't be read.
+ *  Sizes and reads the SAME descriptor, so nothing is re-resolved by path. */
+function readCappedUtf8(path: string, maxBytes: number): string | undefined {
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return undefined;
+  }
+  try {
+    const want = Math.min(fstatSync(fd).size, maxBytes);
+    const buf = Buffer.alloc(want);
+    let read = 0;
+    while (read < want) {
+      const n = readSync(fd, buf, read, want - read, read);
+      if (n <= 0) break;
+      read += n;
+    }
+    return buf.subarray(0, read).toString("utf8");
+  } catch {
+    return undefined;
+  } finally {
+    closeSync(fd);
   }
 }
 
 /** Tinycloud full describe writes speech to a WebVTT sidecar. Convert it to a
  * readable speaker transcript so watch records expose spoken words inline. */
 function transcriptFromVttPath(path: string): string {
-  if (!existsSync(path)) return "";
-  let vtt = "";
-  try {
-    vtt = readFileSync(path, "utf8");
-  } catch {
-    return "";
-  }
+  // Bounded read off ONE descriptor: the sidecar is provider-controlled, so an
+  // unbounded readFileSync can be handed an arbitrarily large file, and the
+  // existsSync-then-read it replaces was the same check-then-use race this
+  // change set has been closing elsewhere. Over the cap we keep the leading
+  // bytes — a truncated transcript beats none, and beats an OOM.
+  const vtt = readCappedUtf8(path, MAX_SIDECAR_BYTES);
+  if (vtt === undefined) return "";
   const out: Array<{ speaker?: string; text: string }> = [];
   for (const block of vtt.split(/\n\s*\n/)) {
     const lines = block.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -146,13 +188,11 @@ function contentMarkdown(data: Record<string, unknown>): string {
   if (data.describe && typeof data.describe === "object") {
     const d = data.describe as Record<string, unknown>;
     const mdPath = d.markdown_path;
-    if (typeof mdPath === "string" && existsSync(mdPath)) {
-      try {
-        const md = readFileSync(mdPath, "utf8");
-        if (md.trim()) return md;
-      } catch {
-        /* fall through to synthesized content */
-      }
+    if (typeof mdPath === "string") {
+      // same capped, single-descriptor read as the VTT sidecar — both are
+      // provider-written files reached by path
+      const md = readCappedUtf8(mdPath, MAX_SIDECAR_BYTES);
+      if (md && md.trim()) return md;
     }
   }
 

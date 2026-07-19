@@ -474,34 +474,42 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
       // short private cache keeps the loop windows from refetching
       "Cache-Control": "private, max-age=300",
     };
-    // every exit below must dispose of the fd: the streams adopt it (autoClose),
-    // the non-streaming replies close it themselves.
-    if (req.method === "HEAD") {
-      closeSync(fd);
-      res.writeHead(200, { ...headers, "Content-Length": st.size });
-      return void res.end();
-    }
-    const range = req.headers.range;
-    if (typeof range === "string" && range.trim() !== "") {
-      const parsed = parseRange(range, st.size);
-      if (!parsed) {
-        closeSync(fd);
-        res.writeHead(416, { "Content-Range": `bytes */${st.size}` });
+    // ONE disposal path for the descriptor. Only a created stream takes
+    // ownership (autoClose); every other outcome — HEAD, 416, and crucially a
+    // THROW from writeHead on an already-destroyed socket — falls through to the
+    // finally. Closing per-branch (as this did) leaks on the throw, and /media is
+    // the hot route, so a client that hangs up mid-header would bleed fds.
+    let adopted = false;
+    try {
+      if (req.method === "HEAD") {
+        res.writeHead(200, { ...headers, "Content-Length": st.size });
         return void res.end();
       }
-      res.writeHead(206, {
-        ...headers,
-        "Content-Range": `bytes ${parsed.start}-${parsed.end}/${st.size}`,
-        "Content-Length": parsed.end - parsed.start + 1,
-      });
-      const stream = createReadStream("", { fd, start: parsed.start, end: parsed.end, autoClose: true });
+      const range = req.headers.range;
+      if (typeof range === "string" && range.trim() !== "") {
+        const parsed = parseRange(range, st.size);
+        if (!parsed) {
+          res.writeHead(416, { "Content-Range": `bytes */${st.size}` });
+          return void res.end();
+        }
+        res.writeHead(206, {
+          ...headers,
+          "Content-Range": `bytes ${parsed.start}-${parsed.end}/${st.size}`,
+          "Content-Length": parsed.end - parsed.start + 1,
+        });
+        const stream = createReadStream("", { fd, start: parsed.start, end: parsed.end, autoClose: true });
+        adopted = true;
+        stream.on("error", () => res.destroy());
+        return void stream.pipe(res);
+      }
+      res.writeHead(200, { ...headers, "Content-Length": st.size });
+      const stream = createReadStream("", { fd, autoClose: true });
+      adopted = true;
       stream.on("error", () => res.destroy());
-      return void stream.pipe(res);
+      stream.pipe(res);
+    } finally {
+      if (!adopted) closeSync(fd);
     }
-    res.writeHead(200, { ...headers, "Content-Length": st.size });
-    const stream = createReadStream("", { fd, autoClose: true });
-    stream.on("error", () => res.destroy());
-    stream.pipe(res);
   }
 }
 
