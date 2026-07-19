@@ -336,11 +336,24 @@ export function clearStaleStop(c: Case): void {
   // deletes exactly what it CONSUMED — an unread patch is a command nobody has
   // looked at, so sweeping it up would discard it silently
   const { control, consumed } = foldPending(pendingPatchFiles(c));
-  if (!control || control.stop !== true) return;
+  if (!control || control.stop !== true || consumed.length === 0) return;
   const { stop: _stop, ...rest } = control;
+  const keep = Object.keys(rest).length > 0;
   try {
-    for (const file of consumed) rmSync(file, { force: true });
-    if (Object.keys(rest).length > 0) writeControl(c, rest);
+    if (keep) {
+      // Republish the surviving config AT THE FIRST CONSUMED NAME, and write it
+      // BEFORE removing anything. Two reasons, both learned the hard way:
+      //   - write-then-delete means a failed write leaves the original patches
+      //     intact. Deleting first and then failing would destroy
+      //     set-before-start config with only an empty catch to show for it.
+      //   - reusing the first name keeps this patch's PLACE in the order. A
+      //     fresh name sorts to the end, so an unreadable patch further along
+      //     would strand config that was applyable a moment ago.
+      writeFileAtomic(consumed[0], JSON.stringify(rest, null, 2) + "\n");
+      for (const file of consumed.slice(1)) rmSync(file, { force: true });
+    } else {
+      for (const file of consumed) rmSync(file, { force: true });
+    }
   } catch {
     /* best-effort; the server also ignores a stop it can't attribute */
   }

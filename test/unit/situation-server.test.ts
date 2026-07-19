@@ -274,7 +274,10 @@ writeControl(openCase(dir), { clear: [key] });
   const KEYS = ["panels", "source", "since", "limit", "theme", "query"];
   try {
     for (let round = 0; round < 2; round++) {
+      // reset BOTH the legacy file and the patch directory — leftovers from a
+      // previous round would satisfy the assertion and mask a real loss
       rmSync(controlFile(c), { force: true });
+      rmSync(join(situationDir(c), "control.d"), { recursive: true, force: true });
       const startAt = Date.now() + 700; // all contenders write at the same instant
       await Promise.all(KEYS.map((k) => new Promise<void>((res) => {
         spawn(process.execPath, ["--import", "tsx", child, dir, k, String(startAt)], { stdio: "ignore" })
@@ -419,6 +422,38 @@ test("situation state: clearStaleStop keeps a patch it could not read", () => {
       chmodSync(unread, 0o600);
     }
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation state: clearStaleStop keeps surviving config APPLYABLE (position, not just content)", () => {
+  // dropping the stop must not push the set-before-start config behind a later
+  // unreadable patch — it was applyable a moment ago and must stay so
+  const { dir, c } = tmpCase();
+  const cdir = join(situationDir(c), "control.d");
+  let blocker: string | undefined;
+  try {
+    writeControl(c, { stop: true, panels: ["map"], theme: "plain" });
+    // The blocker must sort strictly AFTER the config patch and strictly BEFORE
+    // anything republished later, or the test passes against the very bug it
+    // targets: a far-future name sorts last, and a same-millisecond name can be
+    // beaten by the republish's sequence number. Pin it one ms after the config
+    // patch, then let the clock move past it.
+    const firstName = readdirSync(cdir)[0];
+    const firstMs = Number(firstName.split("-")[0]);
+    blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
+    writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
+    chmodSync(blocker, 0o000); // an unreadable patch sitting AFTER the config
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); // clock > blocker
+
+    clearStaleStop(c);
+
+    const applied = takeControl(c);
+    assert.equal(applied?.stop, undefined, "stale stop dropped");
+    assert.deepEqual(applied?.panels, ["map"], "config still applies despite the later blocker");
+    assert.equal(applied?.theme, "plain");
+  } finally {
+    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
   }
 });
