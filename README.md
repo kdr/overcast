@@ -42,6 +42,22 @@ another backend or your own script with no code changes.
 
 ---
 
+## 📣 News
+
+**overcast is at [DEF CON 34](https://info.defcon.org/defcon34/content/?id=66515)
+Demo Labs** — *"Overcast: Video OSINT Agent. Point It at 100 Videos, Ask
+Anything"*, presented by Kevin "kdrwins" Dela Rosa. Two sessions, both in
+LVCC L1, Exhibit Hall West 3 – 902 (Demo Labs Track 6):
+
+| Session | When |
+| --- | --- |
+| 1 | Fri, Aug 7, 2026 · 12:00–12:45 PDT |
+| 2 | Sat, Aug 8, 2026 · 16:00–16:45 PDT |
+
+Come see it run live, or [read the abstract](https://info.defcon.org/defcon34/content/?id=66515).
+
+---
+
 > ### ⚠️ Responsible use & security model
 >
 > overcast is a **dual-use** tool. Its OSINT sources can reach personal
@@ -838,27 +854,23 @@ message showing the version or command-registry drift.
 - Questions and ideas → [Discussions](https://github.com/kdr/overcast/discussions);
   bugs and features → [Issues](https://github.com/kdr/overcast/issues/new/choose).
 
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). Built on top of
+[pi](https://github.com/earendil-works/pi). You are responsible for how you use
+this tool and for complying with all applicable laws and the terms of any
+third-party services you configure — see [RESPONSIBLE_USE.md](RESPONSIBLE_USE.md).
+
 ## Credits
 
-Created by **[Kevin Dela Rosa](https://github.com/kdr/kdr)** (`@kdr`) —
-co-founder & CTO of [Cloudglue](https://cloudglue.dev/) and creator of
+Created by **[Kevin Dela Rosa](https://github.com/kdr)** (`@kdr`) — co-founder &
+CTO of [Cloudglue](https://cloudglue.dev/) and creator of
 [Tinycloud](https://www.tinycloud.sh/), the default perception backend here.
-*Autonomous Video Hunter*, on AI agents for real-time video OSINT, was presented
-at **DEF CON 33**.
 
 <p align="center">
-  <a href="https://github.com/kdr/kdr"><img src="https://img.shields.io/badge/GitHub-kdr-181717?logo=github&logoColor=white" alt="GitHub @kdr" /></a>
+  <a href="https://github.com/kdr"><img src="https://img.shields.io/badge/GitHub-kdr-181717?logo=github&logoColor=white" alt="GitHub @kdr" /></a>
   <a href="https://kevindelarosa.com/"><img src="https://img.shields.io/badge/Portfolio-kevindelarosa.com-0A66C2?logo=googlechrome&logoColor=white" alt="Portfolio" /></a>
   <a href="https://x.com/kdrwins"><img src="https://img.shields.io/badge/X-%40kdrwins-000000?logo=x&logoColor=white" alt="X @kdrwins" /></a>
   <a href="https://www.linkedin.com/in/kdrwins/"><img src="https://img.shields.io/badge/LinkedIn-kdrwins-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
   <a href="https://scholar.google.com/citations?user=8Pc5MiUAAAAJ&hl=en"><img src="https://img.shields.io/badge/Google%20Scholar-publications-4285F4?logo=googlescholar&logoColor=white" alt="Google Scholar" /></a>
 </p>
-
-Built on top of [pi](https://github.com/earendil-works/pi) by
-[earendil-works](https://github.com/earendil-works).
-
-## License
-
-Licensed under the [Apache License 2.0](LICENSE). You are responsible for how you use
-this tool and for complying with all applicable laws and the terms of any
-third-party services you configure — see [RESPONSIBLE_USE.md](RESPONSIBLE_USE.md).
