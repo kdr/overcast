@@ -854,8 +854,8 @@ third-party services you configure — see [RESPONSIBLE_USE.md](RESPONSIBLE_USE.
 
 ## Credits
 
-Created by **[Kevin Dela Rosa](https://github.com/kdr)** (`@kdr`) — co-founder &
-CTO of [Cloudglue](https://cloudglue.dev/) and creator of
+Created by **[Kevin Dela Rosa](https://github.com/kdr)** — co-founder & CTO of
+[Cloudglue](https://cloudglue.dev/) and creator of
 [Tinycloud](https://www.tinycloud.sh/), the default perception backend here.
 
 <p align="center">
