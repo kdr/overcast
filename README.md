@@ -46,7 +46,7 @@ another backend or your own script with no code changes.
 
 **overcast is at [DEF CON 34](https://info.defcon.org/defcon34/content/?id=66515)
 Demo Labs** — *"Overcast: Video OSINT Agent. Point It at 100 Videos, Ask
-Anything"*, presented by Kevin "kdrwins" Dela Rosa. Two sessions, both in
+Anything"*, presented by Kevin Dela Rosa. Two sessions, both in
 LVCC L1, Exhibit Hall West 3 – 902 (Demo Labs Track 6):
 
 | Session | When |
