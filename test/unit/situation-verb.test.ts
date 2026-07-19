@@ -81,7 +81,7 @@ test("situation set writes a validated control patch (agent-safe)", async () => 
   try {
     const [rec] = await situationVerb.run(ctx(dir, { input: "set", surface: "agent", opts: { panels: "wall,map", theme: "plain" } }));
     assert.equal(rec.state, "ready");
-    const ctl = readControl(c)?.control;
+    const ctl = readControl(c);
     assert.deepEqual(ctl?.panels, ["wall", "map"]);
     assert.equal(ctl?.theme, "plain");
     // an invalid panel is rejected with an error record, no control written
@@ -124,7 +124,7 @@ test("situation status reports offline / stale runtime; stop writes a stop contr
     assert.equal(stopped.state, "ready");
     assert.equal((stopped.payload as Record<string, unknown>).running, false);
     assert.equal(readRuntime(openCase(dir)), undefined);
-    assert.equal(readControl(c)?.control.stop, true, "stop queued in control.json");
+    assert.equal(readControl(c)?.stop, true, "stop queued in control.json");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

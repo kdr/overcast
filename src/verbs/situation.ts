@@ -507,7 +507,7 @@ async function statusRecord(ctx: VerbContext, cc: Case = ctx.case): Promise<Over
   // running = pid alive AND the recorded port is actually served (Bugbot #98/med:
   // a read-only surface must not report "live" off a reused pid alone).
   const running = runtimeAlive(rt) && (await runtimeServing(rt));
-  const pending = readControl(cc)?.control ?? null;
+  const pending = readControl(cc) ?? null;
   return makeRecord({
     verb: "situation",
     format: "json",

@@ -117,7 +117,7 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
         // honor it instead of restarting over it (Bugbot #98/high: the restart
         // used to clearStaleStop it away and bring the page straight back up).
         const next = openCase(cur);
-        if (readControl(next)?.control.stop === true) {
+        if (readControl(next)?.stop === true) {
           optedOut = true;
           desired = false;
           sessionToken = undefined;

@@ -136,7 +136,7 @@ test("situation control: takeControl claims atomically — a set racing the take
     // never applied it — the operator's command vanishing with no error.
     takeControl(c);
     writeControl(c, { theme: "plain" });
-    assert.deepEqual(readControl(c)?.control, { theme: "plain" }, "post-take write still pending");
+    assert.deepEqual(readControl(c), { theme: "plain" }, "post-take write still pending");
     assert.deepEqual(takeControl(c), { theme: "plain" }, "and is delivered whole on the next take");
 
     // a corrupt/truncated control is dropped rather than wedging the tick loop
@@ -235,23 +235,23 @@ test("situation state: clearStaleStop drops a leftover stop:true (keeps config)"
     // a stop alongside a set-before-start config → stop dropped, config kept
     writeControl(c, { stop: true, panels: ["map"], theme: "plain" });
     clearStaleStop(c);
-    const left = readControl(c)?.control;
+    const left = readControl(c);
     assert.equal(left?.stop, undefined, "stale stop removed");
     assert.deepEqual(left?.panels, ["map"], "set-before-start config preserved");
     // a config-only control is untouched
     clearStaleStop(c);
-    assert.deepEqual(readControl(c)?.control.panels, ["map"]);
+    assert.deepEqual(readControl(c)?.panels, ["map"]);
     // clear-vs-set composition in PENDING control: a clear drops a pending
     // assignment (clear wins over an older set) …
     writeControl(c, { source: "web", limit: 4 });
     writeControl(c, { clear: ["source"] });
-    let pending = readControl(c)?.control;
+    let pending = readControl(c);
     assert.equal(pending?.source, undefined, "pending assignment dropped by a later clear");
     assert.deepEqual(pending?.clear, ["source"]);
     assert.equal(pending?.limit, 4, "unrelated pending key kept");
     // … and a later re-set drops the pending clear (the newest intent wins)
     writeControl(c, { source: "youtube" });
-    pending = readControl(c)?.control;
+    pending = readControl(c);
     assert.equal(pending?.source, "youtube");
     assert.equal(pending?.clear, undefined, "pending clear cancelled by a re-set");
   } finally {

@@ -101,7 +101,7 @@ test("case-switch rebind honors a stop queued on the new case (no restart over i
     // wait for that — the last step of the stop — not just server() clearing.
     await until(() => handle.server() === undefined && readRuntime(openCase(dirA)) === undefined);
 
-    assert.equal(readControl(openCase(dirB))?.control.stop, undefined, "pending stop consumed");
+    assert.equal(readControl(openCase(dirB))?.stop, undefined, "pending stop consumed");
     assert.equal(readRuntime(openCase(dirB)), undefined, "no server restarted on case B");
   } finally {
     await emit("session_shutdown", {}, fakeCtx(dirB));
@@ -127,7 +127,7 @@ test("agent-tool set/stop steer the in-process page's BOUND case, not the sessio
     const [setRec] = await situationVerb.run(verbCtx(dirB, { input: "set", opts: { source: "webcam" } }));
     assert.equal(setRec.state, "ready");
     assert.equal((setRec.payload as Record<string, unknown>).steered_case, openCase(dirA).dir, "set reports the steered case");
-    assert.equal(readControl(openCase(dirA))?.control.source, "webcam", "control written to the bound case");
+    assert.equal(readControl(openCase(dirA))?.source, "webcam", "control written to the bound case");
     assert.equal(readControl(openCase(dirB)), undefined, "nothing written to the session case");
     assert.equal((setRec.payload as Record<string, unknown>).running, true, "set sees the live page");
 

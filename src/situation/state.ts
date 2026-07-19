@@ -11,7 +11,7 @@
 //     replace, merging any not-yet-consumed control), consumed by the server on
 //     its next poll tick (~2s). `stop: true` shuts the server down gracefully.
 
-import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { writeFileAtomic } from "../fs-atomic.js";
@@ -164,7 +164,7 @@ export function parsePanels(raw: string | undefined): SituationPanel[] | undefin
  *  (so the re-set wins) — the server can then apply clears before assignments
  *  without reordering the operator's intent. */
 export function writeControl(c: Case, patch: SituationControl): SituationControl {
-  const pending: SituationControl = { ...(readControl(c)?.control ?? {}) };
+  const pending: SituationControl = { ...(readControl(c) ?? {}) };
   if (patch.clear?.length) for (const key of patch.clear) delete pending[key];
   if (pending.clear?.length) {
     const kept = pending.clear.filter((key) => patch[key] === undefined);
@@ -178,20 +178,14 @@ export function writeControl(c: Case, patch: SituationControl): SituationControl
   return merged;
 }
 
-export function readControl(c: Case): { control: SituationControl; mtimeMs: number } | undefined {
-  const file = controlFile(c);
+export function readControl(c: Case): SituationControl | undefined {
   try {
-    // open ONCE and stat/read that descriptor: an existsSync + statSync + read
-    // trio races a concurrent `situation set` rewriting the file between calls
-    // (CodeQL js/file-system-race), which would pair one tick's mtime with the
-    // next tick's body and make the consume-on-match below drop a live update.
-    const fd = openSync(file, "r");
-    try {
-      const mtimeMs = fstatSync(fd).mtimeMs;
-      return { control: JSON.parse(readFileSync(fd, "utf8")) as SituationControl, mtimeMs };
-    } finally {
-      closeSync(fd);
-    }
+    // A plain read is safe: writeControl publishes through an atomic rename, so
+    // a reader sees a whole control or none — never a half-written one. This is
+    // a non-destructive PEEK (the verb's pending display, the extension's stop
+    // check); the server's apply path uses takeControl below, which claims the
+    // file instead of reading it.
+    return JSON.parse(readFileSync(controlFile(c), "utf8")) as SituationControl;
   } catch {
     return undefined;
   }
@@ -240,7 +234,7 @@ export function takeControl(c: Case): SituationControl | undefined {
  *  set-before-start config is preserved (deleting the file only if nothing else
  *  remains). */
 export function clearStaleStop(c: Case): void {
-  const cur = readControl(c)?.control;
+  const cur = readControl(c);
   if (!cur || cur.stop !== true) return;
   const { stop: _stop, ...rest } = cur;
   try {
