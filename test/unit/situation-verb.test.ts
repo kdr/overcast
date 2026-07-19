@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, readdirSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { defaultProfile } from "../../src/profile.ts";
 import { situationVerb } from "../../src/verbs/situation.ts";
 import { findVerb } from "../../src/registry/verbs.ts";
 import { OPERATIONAL_VERBS } from "../../src/record.ts";
-import { readControl, readRuntime, writeRuntime } from "../../src/situation/state.ts";
+import { readControl, readRuntime, writeRuntime, writeControl, situationDir } from "../../src/situation/state.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
 function tmpCase() {
@@ -34,6 +34,31 @@ function ctx(dir: string, over: Partial<VerbContext> = {}): VerbContext {
     ...over,
   };
 }
+
+test("situation set reports a BLOCKED control log instead of a clean apply", async () => {
+  // an unreadable patch earlier in the log holds everything behind it. Telling
+  // the operator "applied within ~2s" there is a lie — the server cannot take it.
+  const dir = mkdtempSync(join(tmpdir(), "oc-sitblocked-"));
+  let blocker: string | undefined;
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    writeControl(c, { limit: 2 });
+    const cdir = join(situationDir(c), "control.d");
+    const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
+    blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
+    writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
+    chmodSync(blocker, 0o000);
+
+    const recs = await situationVerb.run(ctx(dir, { input: "set", surface: "agent", opts: { limit: 5 } }));
+    const p = recs[0].payload as Record<string, unknown>;
+    assert.equal(p.blocked, true, "the blocked queue is surfaced");
+    assert.match(String(p.note), /cannot be read/i, "the note explains why nothing applies");
+  } finally {
+    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("situation is registered + operational (out of ask/brief evidence)", () => {
   assert.equal(findVerb("situation")?.name, "situation");

@@ -34,6 +34,7 @@ import {
   inProcessSituationCaseDir,
   parsePanels,
   readControl,
+  controlBlocked,
   readRuntime,
   runtimeAlive,
   runtimeServing,
@@ -190,6 +191,9 @@ export const situationVerb: VerbSpec = {
         return [err("situation set: nothing to set (pass --panels/--source/--since/--limit/--theme/--query, or --clear <keys>)")];
       }
       const merged = writeControl(cc, { ...parsed.config, ...(clear ? { clear } : {}) });
+      // an unreadable patch earlier in the log holds everything behind it, this
+      // write included — say so instead of reporting a clean apply
+      const blocked = controlBlocked(cc);
       const rt = readRuntime(cc);
       // "running" must reflect a server actually SERVING (pid alive AND the port
       // is up), not just a live/reused pid (Bugbot #98/med) — else `set` tells
@@ -203,9 +207,12 @@ export const situationVerb: VerbSpec = {
             op: "set",
             control: merged,
             running,
-            note: running
-              ? `applied by the live page within ~2s (${rt!.displayUrl})`
-              : "no situation is running — the control applies when one starts",
+            ...(blocked ? { blocked: true } : {}),
+            note: blocked
+              ? "queued, but an earlier control patch cannot be read — nothing applies until it is removed or repaired (see .overcast/situation/control.d)"
+              : running
+                ? `applied by the live page within ~2s (${rt!.displayUrl})`
+                : "no situation is running — the control applies when one starts",
             ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
           },
           meta: { provider: "situation", case: ctx.case.dir },

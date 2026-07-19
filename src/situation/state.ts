@@ -253,14 +253,16 @@ function pendingPatchFiles(c: Case): string[] {
  *  Deliberate consequence: a patch that can never be read blocks the ones behind
  *  it. That is visible (the page stops following commands) and preferable to
  *  applying operator intent out of order, which would be silent. */
-function foldPending(files: string[]): { control?: SituationControl; consumed: string[] } {
+function foldPending(files: string[]): { control?: SituationControl; consumed: string[]; blocked: boolean } {
   let control: SituationControl | undefined;
   const consumed: string[] = [];
+  let blocked = false;
   for (const file of files) {
     let raw: string;
     try {
       raw = readFileSync(file, "utf8");
     } catch {
+      blocked = true;
       break; // ordered log — stop here, do not skip ahead
     }
     consumed.push(file);
@@ -270,7 +272,7 @@ function foldPending(files: string[]): { control?: SituationControl; consumed: s
       /* corrupt: consumed and dropped; no content, so no reordering */
     }
   }
-  return { control, consumed };
+  return { control, consumed, blocked };
 }
 
 /** Append ONE patch. No read-modify-write, so concurrent writers cannot lose
@@ -301,6 +303,14 @@ export function writeControl(c: Case, patch: SituationControl): SituationControl
  *  extension's stop check). The server's apply path uses takeControl. */
 export function readControl(c: Case): SituationControl | undefined {
   return foldPending(pendingPatchFiles(c)).control;
+}
+
+/** True when an unreadable patch is holding the queue, so pending commands
+ *  BEHIND it cannot be applied yet. Callers surface this rather than reporting a
+ *  clean success for something the server cannot take — a `situation set` that
+ *  says "applied within ~2s" while the log is stuck is a lie to the operator. */
+export function controlBlocked(c: Case): boolean {
+  return foldPending(pendingPatchFiles(c)).blocked;
 }
 
 /** TAKE the pending control: fold every pending patch and remove the files that
