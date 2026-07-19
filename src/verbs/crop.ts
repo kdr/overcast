@@ -4,7 +4,7 @@
 // the source detection record remains the full audit trail.
 
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { cropStill, modalityFromExt, probe, type CropBox } from "../media/ffmpeg.js";
@@ -284,35 +284,39 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
   const frameDir = join(outDir, ".frames");
   mkdirSync(frameDir, { recursive: true });
   const out = join(frameDir, `${safePart(id)}${extFromMime(mime)}`);
-  // Cache probe BEFORE the decode: the name is id-addressed, so an openable file
-  // already holds this exact content and a repeat crop must not re-decode up to
-  // the 64MB cap. Opening (rather than existsSync-ing) keeps this off the
-  // check-then-use path — the write below is `wx` and races safely regardless.
+  // ONE atomic `wx` open does both jobs: it claims the slot and answers "is this
+  // already materialized?". EEXIST is the cache hit — return before decoding, so
+  // a repeat crop never re-runs up to 64MB of base64. Everything after writes to
+  // the DESCRIPTOR, never the path, so there is no second resolution to race
+  // (an existsSync/open probe followed by a path write is exactly the
+  // check-then-use pair CodeQL js/file-system-race flags).
+  let fd: number;
   try {
-    closeSync(openSync(out, "r"));
-    return out;
-  } catch {
-    /* not materialized yet — decode below */
-  }
-  // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
-  // a huge inline data URL from an untrusted provider must not OOM the process.
-  const isBase64 = params.toLowerCase().includes(";base64");
-  // For base64, decoded ≈ 3/4 of the ASCII char count. For percent/plain, use the
-  // UTF-8 BYTE length (data.length is UTF-16 units and underestimates multibyte) —
-  // an upper bound on the decoded buffer, so a Unicode-crafted URL can't slip past.
-  const estBytes = isBase64 ? Math.floor((data.length * 3) / 4) : Buffer.byteLength(data, "utf8");
-  if (estBytes > THUMBNAIL_MAX_BYTES) {
-    throw new Error(`inline data URL too large (~${estBytes} bytes, cap ${THUMBNAIL_MAX_BYTES})`);
-  }
-  const buf = isBase64 ? Buffer.from(data, "base64") : Buffer.from(decodeURIComponent(data));
-  // `wx` instead of an existsSync cache check + plain write: the check-then-write
-  // pair is a TOCTOU race (CodeQL js/file-system-race). The name is id-addressed,
-  // so an existing file already holds this exact content — EEXIST IS the cache hit.
-  try {
-    writeFileSync(out, buf, { flag: "wx" });
+    fd = openSync(out, "wx");
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return out; // id-addressed: same content
+    throw e;
   }
+  try {
+    // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
+    // a huge inline data URL from an untrusted provider must not OOM the process.
+    const isBase64 = params.toLowerCase().includes(";base64");
+    // For base64, decoded ≈ 3/4 of the ASCII char count. For percent/plain, use the
+    // UTF-8 BYTE length (data.length is UTF-16 units and underestimates multibyte) —
+    // an upper bound on the decoded buffer, so a Unicode-crafted URL can't slip past.
+    const estBytes = isBase64 ? Math.floor((data.length * 3) / 4) : Buffer.byteLength(data, "utf8");
+    if (estBytes > THUMBNAIL_MAX_BYTES) {
+      throw new Error(`inline data URL too large (~${estBytes} bytes, cap ${THUMBNAIL_MAX_BYTES})`);
+    }
+    writeFileSync(fd, isBase64 ? Buffer.from(data, "base64") : Buffer.from(decodeURIComponent(data)));
+  } catch (e) {
+    // never leave the empty file we just claimed behind — the next call would
+    // read it as a cache hit and crop a zero-byte frame
+    closeSync(fd);
+    rmSync(out, { force: true });
+    throw e;
+  }
+  closeSync(fd);
   return out;
 }
 
