@@ -234,6 +234,7 @@ export const situationVerb: VerbSpec = {
         // control is honored by the rebound server's first tick. A genuinely
         // fresh serve is unaffected: every serve clears a stale stop at start.
         writeControl(cc, { stop: true } satisfies SituationControl);
+        const stopBlocked = controlBlocked(cc);
         return [
           makeRecord({
             verb: "situation",
@@ -241,7 +242,10 @@ export const situationVerb: VerbSpec = {
             payload: {
               op: "stop",
               running: false,
-              note: "no situation is running — stop queued (honored by a server starting on this case; a fresh serve clears it)",
+              ...(stopBlocked ? { blocked: true } : {}),
+              note: stopBlocked
+                ? "stop queued, but an earlier control patch cannot be read — it will NOT be honored until that is removed or repaired (see .overcast/situation/control.d)"
+                : "no situation is running — stop queued (honored by a server starting on this case; a fresh serve clears it)",
               ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
             },
             meta: { provider: "situation", case: ctx.case.dir },
@@ -281,6 +285,16 @@ export const situationVerb: VerbSpec = {
             pid: rt!.pid,
             url: rt!.displayUrl,
             delivered,
+            // a control-delivered stop rides the same queue as everything else,
+            // so a blocked log means the server will NOT see it (a --force
+            // signal still lands, which `delivered` already distinguishes)
+            ...(delivered.startsWith("control") && controlBlocked(cc)
+              ? {
+                  blocked: true,
+                  blocked_note:
+                    "an earlier control patch cannot be read — this stop will NOT be honored until it is removed or repaired (see .overcast/situation/control.d)",
+                }
+              : {}),
             ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
           },
           meta: { provider: "situation", case: ctx.case.dir },
@@ -515,12 +529,23 @@ async function statusRecord(ctx: VerbContext, cc: Case = ctx.case): Promise<Over
   // a read-only surface must not report "live" off a reused pid alone).
   const running = runtimeAlive(rt) && (await runtimeServing(rt));
   const pending = readControl(cc) ?? null;
+  // an unreadable patch holds everything behind it, so `pending` here is the
+  // APPLYABLE prefix, not the whole queue — say so rather than showing a clean
+  // (and possibly empty) view of a stuck control log
+  const blocked = controlBlocked(cc);
   return makeRecord({
     verb: "situation",
     format: "json",
     payload: {
       op: "status",
       running,
+      ...(blocked
+        ? {
+            blocked: true,
+            blocked_note:
+              "a control patch cannot be read — pending commands behind it are NOT applying (see .overcast/situation/control.d)",
+          }
+        : {}),
       ...(rt && running
         ? {
             url: rt.url,

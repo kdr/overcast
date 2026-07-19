@@ -35,6 +35,41 @@ function ctx(dir: string, over: Partial<VerbContext> = {}): VerbContext {
   };
 }
 
+/** seed a case whose control log is held by an unreadable patch */
+function blockedCase(): { dir: string; blocker: string } {
+  const dir = mkdtempSync(join(tmpdir(), "oc-sitblocked-"));
+  const c = openCase(dir);
+  c.ensure();
+  writeControl(c, { limit: 2 });
+  const cdir = join(situationDir(c), "control.d");
+  const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
+  const blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
+  writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
+  chmodSync(blocker, 0o000);
+  return { dir, blocker };
+}
+
+test("situation status and stop BOTH surface a blocked control log", async () => {
+  // surfacing this only on `set` (as the first pass did) leaves the two surfaces
+  // an operator actually checks reporting a clean, possibly empty view of a
+  // queue that is going nowhere
+  const { dir, blocker } = blockedCase();
+  try {
+    const [status] = await situationVerb.run(ctx(dir, { input: "status", surface: "agent" }));
+    const sp = status.payload as Record<string, unknown>;
+    assert.equal(sp.blocked, true, "status reports the blocked queue");
+    assert.match(String(sp.blocked_note), /cannot be read/i);
+
+    const [stop] = await situationVerb.run(ctx(dir, { input: "stop", surface: "agent" }));
+    const tp = stop.payload as Record<string, unknown>;
+    assert.equal(tp.blocked, true, "a queued stop reports that it will not be honored yet");
+    assert.match(String(tp.note), /NOT be honored/i);
+  } finally {
+    try { chmodSync(blocker, 0o600); } catch { /* gone */ }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("situation set reports a BLOCKED control log instead of a clean apply", async () => {
   // an unreadable patch earlier in the log holds everything behind it. Telling
   // the operator "applied within ~2s" there is a lie — the server cannot take it.

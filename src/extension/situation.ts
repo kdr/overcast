@@ -27,6 +27,7 @@ import {
   clearStaleStop,
   parsePanels,
   readControl,
+  controlBlocked,
   readRuntime,
   registerInProcessSituation,
   runtimeServing,
@@ -117,7 +118,12 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
         // honor it instead of restarting over it (Bugbot #98/high: the restart
         // used to clearStaleStop it away and bring the page straight back up).
         const next = openCase(cur);
-        if (readControl(next)?.stop === true) {
+        // readControl only returns the APPLYABLE prefix, so a stop sitting
+        // behind an unreadable patch is invisible here. Treat a blocked log as
+        // "cannot confirm" and leave the page up rather than acting on a
+        // half-read queue — the server's own tick is equally stuck, so nothing
+        // is silently skipped.
+        if (!controlBlocked(next) && readControl(next)?.stop === true) {
           optedOut = true;
           desired = false;
           sessionToken = undefined;
