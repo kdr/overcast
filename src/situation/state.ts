@@ -247,9 +247,10 @@ function foldPending(files: string[]): { control?: SituationControl; consumed: s
     let raw: string;
     try {
       raw = readFileSync(file, "utf8");
-    } catch {
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") continue; // already drained by a concurrent take — nothing to hold
       blockedBy = file;
-      break; // ordered log — stop here, do not skip ahead
+      break; // genuinely unreadable: ordered log, stop here rather than skip ahead
     }
     consumed.push(file);
     try {
@@ -301,7 +302,16 @@ export function readControl(c: Case): SituationControl | undefined {
  *  control.d/ (an interrupted upgrade), and a note naming only the directory
  *  sends them looking in the wrong place. */
 export function blockedControlPath(c: Case): string | undefined {
-  return foldPending(pendingPatchFiles(c)).blockedBy;
+  return controlSnapshot(c).blockedBy;
+}
+
+/** Pending control AND the blocker, from ONE fold. Callers that report both must
+ *  use this: two separate folds can be split by a concurrent drain and disagree
+ *  — `blocked: true` beside a `blocked_path` that has since been consumed, or a
+ *  pending control that does not match the blocked verdict shown next to it. */
+export function controlSnapshot(c: Case): { control?: SituationControl; blockedBy?: string } {
+  const { control, blockedBy } = foldPending(pendingPatchFiles(c));
+  return { control, blockedBy };
 }
 
 /** TAKE the pending control: fold every pending patch and remove the files that

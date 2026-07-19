@@ -35,6 +35,7 @@ import {
   parsePanels,
   readControl,
   blockedControlPath,
+  controlSnapshot,
   readRuntime,
   runtimeAlive,
   runtimeServing,
@@ -192,7 +193,8 @@ export const situationVerb: VerbSpec = {
       }
       const merged = writeControl(cc, { ...parsed.config, ...(clear ? { clear } : {}) });
       // an unreadable patch earlier in the log holds everything behind it, this
-      // write included — say so instead of reporting a clean apply
+      // write included — say so instead of reporting a clean apply. ONE call:
+      // the value is used twice below and two folds could disagree.
       const blockedBy = blockedControlPath(cc);
       const rt = readRuntime(cc);
       // "running" must reflect a server actually SERVING (pid alive AND the port
@@ -255,6 +257,9 @@ export const situationVerb: VerbSpec = {
       }
       writeControl(cc, { stop: true } satisfies SituationControl);
       let delivered = "control";
+      // ONE snapshot for the payload below: calling blockedControlPath twice
+      // lets a concurrent drain report blocked:true beside a path that is gone
+      const stopBlockedBy = blockedControlPath(cc);
       // whether a SIGTERM actually went out. Tracked as a fact rather than sniffed
       // out of `delivered`: that string says "not signal" in one of its
       // force-ignored variants, so any substring test on it is a trap.
@@ -293,10 +298,10 @@ export const situationVerb: VerbSpec = {
             // A stop that rides the QUEUE ALONE is subject to a blocked log; one
             // that was also signalled has already killed the process, so
             // reporting it as stuck would contradict what just happened.
-            ...(!signalled && blockedControlPath(cc)
+            ...(!signalled && stopBlockedBy
               ? {
                   blocked: true,
-                  blocked_path: blockedControlPath(cc),
+                  blocked_path: stopBlockedBy,
                   blocked_note:
                     "an earlier control patch cannot be read — this stop will NOT be honored until that patch is removed or repaired",
                 }
@@ -534,11 +539,12 @@ async function statusRecord(ctx: VerbContext, cc: Case = ctx.case): Promise<Over
   // running = pid alive AND the recorded port is actually served (Bugbot #98/med:
   // a read-only surface must not report "live" off a reused pid alone).
   const running = runtimeAlive(rt) && (await runtimeServing(rt));
-  const pending = readControl(cc) ?? null;
+  const snap = controlSnapshot(cc);
+  const pending = snap.control ?? null;
   // an unreadable patch holds everything behind it, so `pending` here is the
   // APPLYABLE prefix, not the whole queue — say so rather than showing a clean
   // (and possibly empty) view of a stuck control log
-  const blockedBy = blockedControlPath(cc);
+  const blockedBy = snap.blockedBy;
   return makeRecord({
     verb: "situation",
     format: "json",

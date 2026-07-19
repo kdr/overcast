@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 const HERE = dirname(fileURLToPath(import.meta.url));
 import { openCase } from "../../src/case.ts";
 import { SituationServer, parseRange } from "../../src/situation/server.ts";
-import { writeControl, readControl, takeControl, controlFile, situationDir, clearStaleStop, readRuntime, writeRuntime, clearRuntime, runtimeAlive } from "../../src/situation/state.ts";
+import { writeControl, readControl, takeControl, controlSnapshot, controlFile, situationDir, clearStaleStop, readRuntime, writeRuntime, clearRuntime, runtimeAlive } from "../../src/situation/state.ts";
 
 function tmpCase() {
   const dir = mkdtempSync(join(tmpdir(), "oc-situation-"));
@@ -483,6 +483,69 @@ test("situation state: clearStaleStop neutralizes a stop queued BEHIND a blocker
     assert.equal(applied?.stop, undefined, "the stale stop cannot come back and kill the server");
     assert.deepEqual(applied?.panels, ["map"], "everything else still applies");
     assert.equal(applied?.theme, "plain", "the once-blocked patch applies too");
+  } finally {
+    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation control: a patch drained mid-fold is not a blocker", async () => {
+  // pendingPatchFiles LISTS, then foldPending reads. A concurrent take can
+  // delete a listed file in between — that is ENOENT, meaning "already applied
+  // by someone else", NOT "unreadable". Treating it as a blocker would hold
+  // every later patch and report a blocked_path that no longer exists.
+  //
+  // The window is between two calls inside foldPending, so it cannot be staged
+  // from outside: this races a real drainer process against live snapshots and
+  // asserts no phantom blocker is ever reported.
+  const { dir, c } = tmpCase();
+  const drainer = join(dir, "drain.ts");
+  const stateMod = pathToFileURL(join(HERE, "..", "..", "src", "situation", "state.ts")).href;
+  const caseMod = pathToFileURL(join(HERE, "..", "..", "src", "case.ts")).href;
+  writeFileSync(drainer, `
+import { openCase } from ${JSON.stringify(caseMod)};
+import { takeControl } from ${JSON.stringify(stateMod)};
+const c = openCase(process.argv[2]);
+const until = Number(process.argv[3]);
+while (Date.now() < until) takeControl(c);
+`, "utf8");
+
+  const until = Date.now() + 2500;
+  const child = spawn(process.execPath, ["--import", "tsx", drainer, dir, String(until)], { stdio: "ignore" });
+  try {
+    let phantom = 0;
+    let snapshots = 0;
+    while (Date.now() < until) {
+      writeControl(c, { limit: snapshots % 7 });
+      const snap = controlSnapshot(c);
+      snapshots++;
+      // a reported blocker must be a file that actually exists and is unreadable
+      if (snap.blockedBy && !existsSync(snap.blockedBy)) phantom++;
+    }
+    assert.ok(snapshots > 50, `expected real contention, only ${snapshots} snapshots`);
+    assert.equal(phantom, 0, "a vanished patch was reported as a blocker");
+  } finally {
+    child.kill("SIGKILL");
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation control: pending and blocked come from ONE fold", () => {
+  // status reports both; two separate folds can be split by a concurrent drain
+  // and disagree — blocked:true beside a path already consumed, say
+  const { dir, c } = tmpCase();
+  const cdir = join(situationDir(c), "control.d");
+  let blocker: string | undefined;
+  try {
+    writeControl(c, { source: "web" });
+    const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
+    blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
+    writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
+    chmodSync(blocker, 0o000);
+
+    const snap = controlSnapshot(c);
+    assert.deepEqual(snap.control, { source: "web" }, "the applyable prefix");
+    assert.equal(snap.blockedBy, blocker, "and the blocker, from the same fold");
   } finally {
     if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
