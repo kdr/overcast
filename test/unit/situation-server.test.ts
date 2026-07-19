@@ -458,6 +458,37 @@ test("situation state: clearStaleStop keeps surviving config APPLYABLE (position
   }
 });
 
+test("situation state: clearStaleStop neutralizes a stop queued BEHIND a blocker", () => {
+  // folding only the applyable prefix missed this: the fresh serve starts fine,
+  // then dies the moment the blocker is repaired and the take reaches the stale
+  // stop — the exact failure clearStaleStop exists to prevent, just deferred.
+  const { dir, c } = tmpCase();
+  const cdir = join(situationDir(c), "control.d");
+  let blocker: string | undefined;
+  try {
+    writeControl(c, { panels: ["map"] });          // readable prefix
+    const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
+    blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
+    writeFileSync(blocker, JSON.stringify({ theme: "plain" }), "utf8");
+    chmodSync(blocker, 0o000);
+    // let the clock pass the blocker's stamp, or the stop lands in the PREFIX
+    // and the test passes against the very implementation it targets
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+    writeControl(c, { stop: true });               // the stale stop, BEHIND it
+
+    clearStaleStop(c);
+    chmodSync(blocker, 0o600);                     // the blocker is repaired
+
+    const applied = takeControl(c);
+    assert.equal(applied?.stop, undefined, "the stale stop cannot come back and kill the server");
+    assert.deepEqual(applied?.panels, ["map"], "everything else still applies");
+    assert.equal(applied?.theme, "plain", "the once-blocked patch applies too");
+  } finally {
+    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("parseRange: standard, open-ended, suffix, and unsatisfiable", () => {
   assert.deepEqual(parseRange("bytes=2-5", 16), { start: 2, end: 5 });
   assert.deepEqual(parseRange("bytes=10-", 16), { start: 10, end: 15 });

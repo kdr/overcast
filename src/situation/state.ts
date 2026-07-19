@@ -343,28 +343,31 @@ export function takeControl(c: Case): SituationControl | undefined {
  *  concurrently is left untouched rather than swept up — the same rule the take
  *  follows. Runs once, before the server binds. */
 export function clearStaleStop(c: Case): void {
-  // deletes exactly what it CONSUMED — an unread patch is a command nobody has
-  // looked at, so sweeping it up would discard it silently
-  const { control, consumed } = foldPending(pendingPatchFiles(c));
-  if (!control || control.stop !== true || consumed.length === 0) return;
-  const { stop: _stop, ...rest } = control;
-  const keep = Object.keys(rest).length > 0;
-  try {
-    if (keep) {
-      // Republish the surviving config AT THE FIRST CONSUMED NAME, and write it
-      // BEFORE removing anything. Two reasons, both learned the hard way:
-      //   - write-then-delete means a failed write leaves the original patches
-      //     intact. Deleting first and then failing would destroy
-      //     set-before-start config with only an empty catch to show for it.
-      //   - reusing the first name keeps this patch's PLACE in the order. A
-      //     fresh name sorts to the end, so an unreadable patch further along
-      //     would strand config that was applyable a moment ago.
-      writeFileAtomic(consumed[0], JSON.stringify(rest, null, 2) + "\n");
-      for (const file of consumed.slice(1)) rmSync(file, { force: true });
-    } else {
-      for (const file of consumed) rmSync(file, { force: true });
+  // Neutralize a stale stop WHEREVER it sits, patch by patch. Folding only the
+  // applyable prefix (as this did) misses a `stop: true` queued behind an
+  // unreadable patch: the fresh serve starts fine, then dies the moment that
+  // patch is repaired and the take reaches the stop — precisely the failure this
+  // helper exists to prevent.
+  //
+  // Rewriting each offending patch IN PLACE, under its own name, keeps every
+  // other property that took several rounds to get right: order is preserved
+  // (same filename, same sort position), an unreadable patch is skipped rather
+  // than swept up, surviving config is written before anything is removed, and
+  // a failed rewrite leaves that patch untouched.
+  for (const file of pendingPatchFiles(c)) {
+    let patch: SituationControl;
+    try {
+      patch = JSON.parse(readFileSync(file, "utf8")) as SituationControl;
+    } catch {
+      continue; // unreadable or corrupt — not ours to touch
     }
-  } catch {
-    /* best-effort; the server also ignores a stop it can't attribute */
+    if (patch?.stop !== true) continue;
+    const { stop: _stop, ...rest } = patch;
+    try {
+      if (Object.keys(rest).length > 0) writeFileAtomic(file, JSON.stringify(rest, null, 2) + "\n");
+      else rmSync(file, { force: true }); // the patch carried nothing but the stop
+    } catch {
+      /* best-effort; the server also ignores a stop it can't attribute */
+    }
   }
 }
