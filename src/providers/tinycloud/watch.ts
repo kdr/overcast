@@ -58,28 +58,35 @@ function textFromVttCue(raw: string): { speaker?: string; text: string } | undef
   return { text: stripCueTags(cleaned).trim() };
 }
 
-/** Strip WebVTT cue tags (`<b>`, `<v Name>`, `<00:00.500>`, …) in ONE linear
- *  pass, tracking bracket depth.
+/** Strip WebVTT cue tags (`<b>`, `<v Name>`, `<00:00.500>`, …) in ONE pass.
  *
  *  A single regex pass is incomplete (CodeQL
  *  js/incomplete-multi-character-sanitization): each match runs `<` → the next
  *  `>`, so interleaved brackets leave residue — `<<b>b>hello` keeps a stray
- *  `b>`. But re-running that regex to a fixed point only peels ONE nesting layer
- *  per pass, so deeply nested provider text costs O(n²) and a crafted sidecar
- *  could stall the mapper — trading an incomplete sanitizer for a slow one.
+ *  `b>`. Re-running that regex to a fixed point fixes the residue but peels only
+ *  ONE nesting layer per pass, so deeply nested text costs O(n²).
  *
- *  Depth counting gets both in O(n): everything between an unmatched `<` and its
- *  closing `>` is dropped, at any nesting depth, in a single traversal. A `>`
- *  with no open `<` is ordinary text and survives, so spoken "2 > 1" is intact.
- *  A dangling unclosed `<foo` drops too, which the fixed point would have kept —
- *  strictly safer, since a lone `<` is what could recombine downstream. */
+ *  A mark stack gets both. Each `<` records the output length at that point; the
+ *  matching `>` rewinds the output to it, dropping the whole region — at any
+ *  nesting depth, in one traversal, amortized O(n).
+ *
+ *  A bracket only counts as markup when it PAIRS. An unmatched `<` (spoken
+ *  "x < y") and an unmatched `>` ("2 > 1") are ordinary text and survive intact
+ *  — a plain depth counter gets this wrong, swallowing the rest of the cue after
+ *  a lone `<`. This matches the fixed point's semantics exactly; it is only
+ *  faster. */
 function stripCueTags(s: string): string {
   const out: string[] = [];
-  let depth = 0;
+  const marks: number[] = []; // output length at each so-far-unmatched '<'
   for (const ch of s) {
-    if (ch === "<") depth++;
-    else if (ch === ">") { if (depth > 0) depth--; else out.push(ch); }
-    else if (depth === 0) out.push(ch);
+    if (ch === "<") {
+      marks.push(out.length);
+      out.push(ch);
+    } else if (ch === ">" && marks.length > 0) {
+      out.length = marks.pop() as number; // rewind over the matched <…> region
+    } else {
+      out.push(ch);
+    }
   }
   return out.join("");
 }

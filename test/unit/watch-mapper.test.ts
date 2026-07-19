@@ -200,17 +200,19 @@ test("runWatch cue stripping stays linear on deeply nested provider text", async
   }
 });
 
-test("runWatch: a `>` with no open tag is spoken text, not markup", async () => {
+test("runWatch: an UNPAIRED bracket is spoken text, not markup", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-watchgt-"));
   try {
     const vtt = join(dir, "speech.vtt");
-    writeFileSync(vtt, `WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nif 2 > 1 then <b>ship</b> it\n`);
+    // a lone `<` must NOT swallow the rest of the cue — a plain depth counter
+    // does exactly that, silently truncating real spoken content
+    writeFileSync(vtt, `WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nif 2 > 1 and x < y then <b>ship</b> it\n`);
     const json = JSON.stringify({ status: "ready", data: { title: "clip", summary: "s", transcript: "", describe: { vtt_path: vtt }, segments: [] } });
     const script = join(dir, "watch.sh");
     writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
     chmodSync(script, 0o755);
     const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
-    assert.equal(String((rec.payload as Record<string, unknown>).transcript), "if 2 > 1 then ship it");
+    assert.equal(String((rec.payload as Record<string, unknown>).transcript), "if 2 > 1 and x < y then ship it");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
