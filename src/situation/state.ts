@@ -11,7 +11,7 @@
 //     replace, merging any not-yet-consumed control), consumed by the server on
 //     its next poll tick (~2s). `stop: true` shuts the server down gracefully.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { writeFileAtomic } from "../fs-atomic.js";
@@ -181,9 +181,17 @@ export function writeControl(c: Case, patch: SituationControl): SituationControl
 export function readControl(c: Case): { control: SituationControl; mtimeMs: number } | undefined {
   const file = controlFile(c);
   try {
-    if (!existsSync(file)) return undefined;
-    const mtimeMs = statSync(file).mtimeMs;
-    return { control: JSON.parse(readFileSync(file, "utf8")) as SituationControl, mtimeMs };
+    // open ONCE and stat/read that descriptor: an existsSync + statSync + read
+    // trio races a concurrent `situation set` rewriting the file between calls
+    // (CodeQL js/file-system-race), which would pair one tick's mtime with the
+    // next tick's body and make the consume-on-match below drop a live update.
+    const fd = openSync(file, "r");
+    try {
+      const mtimeMs = fstatSync(fd).mtimeMs;
+      return { control: JSON.parse(readFileSync(fd, "utf8")) as SituationControl, mtimeMs };
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return undefined;
   }
@@ -195,7 +203,9 @@ export function readControl(c: Case): { control: SituationControl; mtimeMs: numb
 export function consumeControl(c: Case, mtimeMs: number): void {
   const file = controlFile(c);
   try {
-    if (existsSync(file) && statSync(file).mtimeMs === mtimeMs) rmSync(file, { force: true });
+    // no existsSync pre-check — a missing file throws ENOENT into the catch below,
+    // which is the same outcome without the check-then-use race
+    if (statSync(file).mtimeMs === mtimeMs) rmSync(file, { force: true });
   } catch {
     /* another writer landed mid-consume — leave it for the next tick */
   }

@@ -3,7 +3,7 @@
 // directly, and otherwise launches the pi TUI with the overcast extension
 // attached (CLAUDE.md invariant #1: reuse pi's loop/TUI, don't fork).
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { runCli } from "../src/cli.js";
@@ -62,9 +62,17 @@ function ensureQuietStartup(): void {
   try {
     const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
     const file = join(agentDir, "settings.json");
-    const settings: Record<string, unknown> = existsSync(file)
-      ? (JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>)
-      : {};
+    // read-then-handle rather than existsSync-then-read: the exists check is a
+    // TOCTOU race (CodeQL js/file-system-race) and buys nothing here. Only a
+    // MISSING file falls back to defaults — a corrupt/unreadable settings.json
+    // must propagate to the outer catch so we never clobber real user settings.
+    let raw: string | undefined;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    }
+    const settings: Record<string, unknown> = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
     if (settings.quietStartup === undefined) {
       settings.quietStartup = true;
       mkdirSync(agentDir, { recursive: true });

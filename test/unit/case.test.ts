@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, readFileSync, statSync, utimesSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, readFileSync, openSync, fstatSync, closeSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase, recordFiles } from "../../src/case.ts";
@@ -208,8 +208,18 @@ test("records() cache: a same-size in-place edit is detected even if mtime is fo
     assert.equal((c.recordById("rec_ss")?.payload as { content: string }).content, "AAAA");
 
     const f = join(c.recordsDir, "watch.jsonl");
-    const beforeMtime = statSync(f).mtime;
-    const raw = readFileSync(f, "utf8");
+    // stat + read the SAME descriptor rather than the path twice — the mtime we
+    // forge back has to belong to the bytes we edited for the assertion to mean
+    // anything (and path-check-then-path-read is CodeQL js/file-system-race).
+    const fd = openSync(f, "r");
+    let beforeMtime: Date;
+    let raw: string;
+    try {
+      beforeMtime = fstatSync(fd).mtime;
+      raw = readFileSync(fd, "utf8");
+    } finally {
+      closeSync(fd);
+    }
     const edited = raw.replace('"AAAA"', '"BBBB"'); // same byte length
     assert.equal(edited.length, raw.length, "edit must be the exact same size");
     writeFileSync(f, edited, "utf8");

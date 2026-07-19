@@ -22,17 +22,20 @@ const MP4 = Buffer.concat([Buffer.alloc(4), Buffer.from("ftypisom", "latin1"), B
 let dir: string;
 let server: Server;
 let base: string;
-let hits: Record<string, number>;
+// a Map, not a plain object: the key comes straight off `req.url`, and a request
+// for `/__proto__` would write through an object's prototype (CodeQL
+// js/remote-property-injection) rather than record a hit.
+let hits: Map<string, number>;
 
 before(async () => {
   // the fixture server binds 127.0.0.1, which the media-fetch SSRF guard blocks
   // by default — opt out for this offline test of the fetch/sniff pipeline.
   process.env.OVERCAST_ALLOW_PRIVATE_FETCH = "1";
   dir = mkdtempSync(join(tmpdir(), "oc-seeurl-"));
-  hits = {};
+  hits = new Map();
   server = createServer((req, res) => {
     const path = (req.url ?? "/").split("?")[0];
-    hits[path] = (hits[path] ?? 0) + 1;
+    hits.set(path, (hits.get(path) ?? 0) + 1);
     if (path === "/img.png") {
       res.writeHead(200, { "content-type": "image/png" });
       res.end(PNG);
@@ -111,10 +114,10 @@ test("fetchMediaToCase: URL ext survives query noise; repeat call reuses the art
   const url = `${base}/photo.jpg?Expires=123&Signature=abc~def`;
   const a = await fetchMediaToCase(url, media);
   assert.equal(a.ext, ".jpg");
-  const before = hits["/photo.jpg"];
+  const before = hits.get("/photo.jpg");
   const b = await fetchMediaToCase(url, media);
   assert.equal(b.path, a.path);
-  assert.equal(hits["/photo.jpg"], before); // cache hit — no second download
+  assert.equal(hits.get("/photo.jpg"), before); // cache hit — no second download
 });
 
 test("fetchMediaToCase: no ext + no content-type → magic-byte sniff", async () => {
@@ -129,7 +132,7 @@ test("fetchMediaToCase: HTTP error status throws with the status line", async ()
 test("fetchMediaToCase: follows a redirect (manual loop) to the final media", async () => {
   const got = await fetchMediaToCase(`${base}/redir`, join(dir, "media"));
   assert.equal(got.ext, ".png"); // followed 302 → /img.png
-  assert.ok((hits["/img.png"] ?? 0) > 0, "the redirect target was fetched");
+  assert.ok((hits.get("/img.png") ?? 0) > 0, "the redirect target was fetched");
 });
 
 test("fetchMediaToCase: refuses a redirect to a non-http(s) scheme (file://)", async () => {

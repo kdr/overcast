@@ -138,7 +138,16 @@ export function memoryRecords(records: OvercastRecord[]): OvercastRecord[] {
   });
 }
 
-const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
+const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i;
+
+/** Drop a URL's `?query`/`#fragment` tail. Deliberately NOT a `/[?#].*$/` regex:
+ *  `.` stops at newlines, so `$` forces a retry from every later separator and a
+ *  crafted ref degrades to quadratic (CodeQL js/polynomial-redos). `search` +
+ *  `slice` is linear and does the same job. */
+export function stripUrlTail(s: string): string {
+  const cut = s.search(/[?#]/);
+  return cut < 0 ? s : s.slice(0, cut);
+}
 // deliberately NOT a bare `path`/`img` — the image-match payload carries
 // `db_img_path` (the reference frame) and `query_path` (a temp frame that's
 // deleted after the run); only the rendered `match_draw_path` overlay and real
@@ -155,7 +164,7 @@ export function collectVisualRefs(value: unknown): string[] {
   const refs = new Set<string>();
   const visit = (v: unknown, key = ""): void => {
     if (typeof v === "string") {
-      if (/^data:image\//i.test(v) || (VISUAL_EXT_RE.test(v) && VISUAL_KEY_RE.test(key))) refs.add(v);
+      if (/^data:image\//i.test(v) || (VISUAL_EXT_RE.test(stripUrlTail(v)) && VISUAL_KEY_RE.test(key))) refs.add(v);
       return;
     }
     if (Array.isArray(v)) {
@@ -292,7 +301,7 @@ export function recordStub(rec: Pick<OvercastRecord, "verb" | "payload"> & Parti
   }
   if (rec.verb === "capture") {
     const path = typeof p.path === "string" ? p.path : rec.media?.ref;
-    if (path) return clip(`captured ${path.replace(/[?#].*$/, "").split(/[\\/]/).pop() || path}`);
+    if (path) return clip(`captured ${stripUrlTail(path).split(/[\\/]/).pop() || path}`);
   }
   if (rec.verb === "scan" && typeof p.url === "string" && p.url) return clip(p.url);
   const op = typeof p.op === "string" ? p.op : undefined;

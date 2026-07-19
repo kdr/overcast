@@ -9,7 +9,7 @@
 // Both pages lead with the speculative caveat banner — synthesized imagery must
 // never read as a capture (same posture as the reconstruct gallery).
 
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { escapeHtml, imageSrc } from "./html.js";
 
@@ -349,13 +349,30 @@ requestAnimationFrame(frame);
 export function buildOrbitViewerHtml(glbPath: string, opts: ReconstructViewerOpts): string {
   let body: string;
   let head = "";
-  if (!existsSync(glbPath)) {
+  // Open once, then size-check and read THAT descriptor — exists → stat → read
+  // re-resolves the path three times and can size-check one file but embed
+  // another (CodeQL js/file-system-race). Sizing off the held fd also keeps the
+  // over-cap path from ever reading a multi-GB mesh into memory to reject it.
+  let fd: number | undefined;
+  try {
+    fd = openSync(glbPath, "r");
+  } catch {
+    fd = undefined;
+  }
+  if (fd === undefined) {
     body = `<div class="fail">mesh file missing: ${escapeHtml(glbPath)}</div>`;
-  } else if (statSync(glbPath).size > MAX_EMBED_GLB_BYTES) {
-    body = `<div class="fail">mesh is too large to embed (${Math.round(statSync(glbPath).size / 1024 / 1024)} MB &gt; 64 MB).\nOpen it in an external GLB viewer: ${escapeHtml(glbPath)}</div>`;
   } else {
-    const b64 = readFileSync(glbPath).toString("base64");
-    head = `<script>const GLB_B64=${JSON.stringify(b64)};</script>`;
+    try {
+      const size = fstatSync(fd).size;
+      if (size > MAX_EMBED_GLB_BYTES) {
+        body = `<div class="fail">mesh is too large to embed (${Math.round(size / 1024 / 1024)} MB &gt; 64 MB).\nOpen it in an external GLB viewer: ${escapeHtml(glbPath)}</div>`;
+        return shell(opts, head, body);
+      }
+      const b64 = readFileSync(fd).toString("base64");
+      head = `<script>const GLB_B64=${JSON.stringify(b64)};</script>`;
+    } finally {
+      closeSync(fd);
+    }
     body = `<canvas id="gl"></canvas>
 <div id="fail" class="fail" style="display:none"></div>
 <div id="hud" class="hud">AZ —</div>

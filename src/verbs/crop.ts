@@ -273,7 +273,10 @@ function extFromMime(mime: string): string {
 }
 
 function materializeDataUrl(url: string, outDir: string, id: string): string {
-  const match = /^data:([^;,]+)?((?:;[^,]*)*),(.*)$/is.exec(url);
+  // `[^;,]` inside the parameter repetition (NOT `[^,]`, which can also match the
+  // `;` the outer group consumes): the ambiguous form backtracks exponentially on
+  // a crafted `data:;;;;…` URL from an untrusted provider (CodeQL js/redos).
+  const match = /^data:([^;,]+)?((?:;[^;,]*)*),(.*)$/is.exec(url);
   if (!match) throw new Error("invalid data URL");
   const mime = match[1] || "image/jpeg";
   const params = match[2] || "";
@@ -281,7 +284,6 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
   const frameDir = join(outDir, ".frames");
   mkdirSync(frameDir, { recursive: true });
   const out = join(frameDir, `${safePart(id)}${extFromMime(mime)}`);
-  if (existsSync(out)) return out;
   // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
   // a huge inline data URL from an untrusted provider must not OOM the process.
   const isBase64 = params.toLowerCase().includes(";base64");
@@ -293,7 +295,14 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
     throw new Error(`inline data URL too large (~${estBytes} bytes, cap ${THUMBNAIL_MAX_BYTES})`);
   }
   const buf = isBase64 ? Buffer.from(data, "base64") : Buffer.from(decodeURIComponent(data));
-  writeFileSync(out, buf);
+  // `wx` instead of an existsSync cache check + plain write: the check-then-write
+  // pair is a TOCTOU race (CodeQL js/file-system-race). The name is id-addressed,
+  // so an existing file already holds this exact content — EEXIST IS the cache hit.
+  try {
+    writeFileSync(out, buf, { flag: "wx" });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+  }
   return out;
 }
 

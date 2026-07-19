@@ -80,7 +80,7 @@ export function createWall(): WallView {
     cells.delete(ref);
   }
 
-  function wireVideo(v: HTMLVideoElement, tile: SituationTile, fig: HTMLElement, delayMs: number): void {
+  function wireVideo(v: HTMLVideoElement, tile: SituationTile, fig: HTMLElement, delayMs: number, src: string): void {
     let start = tile.anchor.start;
     let end = tile.anchor.end;
     v.addEventListener("loadedmetadata", () => {
@@ -110,8 +110,11 @@ export function createWall(): WallView {
     v.addEventListener("error", () => fig.classList.add("err"));
     // staggered attach avoids a simultaneous decode burst; only a real autoplay
     // block (NotAllowedError) shows the START button.
+    // src rides a closure, NOT a data-src round-trip through the DOM: reading an
+    // attribute back launders the value into untrusted DOM text as far as any
+    // reader (and CodeQL js/xss-through-dom) can tell, and lets anything that
+    // touches the element rewrite what we load.
     setTimeout(() => {
-      const src = v.getAttribute("data-src");
       if (!src) return;
       v.src = src;
       v.play().catch((err: unknown) => {
@@ -133,12 +136,11 @@ export function createWall(): WallView {
       video.playsInline = true;
       video.loop = true;
       video.preload = "metadata";
-      video.setAttribute("data-src", src);
       fig.append(video);
       const cover = el("div", "cover errcover");
       cover.append(el("span", "nosig-label", "NO SIGNAL"));
       fig.append(cover);
-      wireVideo(video, tile, fig, index * 150);
+      wireVideo(video, tile, fig, index * 150, src);
     } else if (tile.mode !== "down" && !src) {
       // present media the desk chose not to serve (remote, embeds off)
       fig.append(el("div", "static"));

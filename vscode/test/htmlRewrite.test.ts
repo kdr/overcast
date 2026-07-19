@@ -75,7 +75,10 @@ test("map online: data: URIs untouched, remote links untouched, OSM toggle gates
   for (const out of [closed.html, open.html]) {
     assert.equal((out.match(/data:image\/[a-z+]+;base64/g) ?? []).length, dataUris.length);
     assert.ok(out.includes("https://www.openstreetmap.org/?mlat"), "remote deep link untouched");
-    assert.ok(out.includes("tile.openstreetmap.org"), "tile template in script untouched");
+    // the tile URL WITH its path, not the bare host — a bare-host substring reads
+    // as a host check arbitrary hosts can straddle (CodeQL
+    // js/incomplete-url-substring-sanitization)
+    assert.ok(out.includes(".tile.openstreetmap.org/"), "tile template in script untouched");
   }
 });
 

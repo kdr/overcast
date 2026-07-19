@@ -15,7 +15,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync } from "node:fs";
 import { extname, resolve, sep } from "node:path";
 import { realpathContained } from "../fs-path.js";
 
@@ -332,14 +332,29 @@ export abstract class LiveHttpd<EIn extends object = Record<string, unknown>> {
     const file = resolve(root, rel === "" ? "index.html" : rel);
     // traversal guard: the resolved path must stay inside the assets dir
     if (file !== root && !file.startsWith(root + sep)) return this.json(res, 404, { error: "not found" });
-    if (!existsSync(file) || !statSync(file).isFile()) return this.json(res, 404, { error: "not found" });
     // symlink-safe: a link inside the assets dir must not serve a file outside it
     if (!realpathContained(root, file)) return this.json(res, 404, { error: "not found" });
-    res.writeHead(200, {
-      "Content-Type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
-      "Cache-Control": "no-store",
-    });
-    res.end(readFileSync(file));
+    // Open ONCE, then stat and read THAT descriptor. The old exists → stat → read
+    // sequence re-resolved the path three times, so a symlink swapped in after the
+    // containment check could get served from outside the root (CodeQL
+    // js/file-system-race). A held fd is immune: it points at the inode we checked.
+    let fd: number;
+    try {
+      fd = openSync(file, "r");
+    } catch {
+      return this.json(res, 404, { error: "not found" });
+    }
+    try {
+      if (!fstatSync(fd).isFile()) return this.json(res, 404, { error: "not found" });
+      const body = readFileSync(fd);
+      res.writeHead(200, {
+        "Content-Type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
+        "Cache-Control": "no-store",
+      });
+      res.end(body);
+    } finally {
+      closeSync(fd);
+    }
   }
 
   // --- auth --------------------------------------------------------------------

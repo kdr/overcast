@@ -52,7 +52,22 @@ function textFromVttCue(raw: string): { speaker?: string; text: string } | undef
   if (!cleaned) return undefined;
   const voice = cleaned.match(/^<v\s+([^>]+)>(.*)<\/v>$/i);
   if (voice) return { speaker: voice[1].trim(), text: voice[2].trim() };
-  return { text: cleaned.replace(/<\/?[^>]+>/g, "").trim() };
+  return { text: stripCueTags(cleaned).trim() };
+}
+
+/** Strip WebVTT cue tags (`<b>`, `<v Name>`, `<00:00.500>`, …) to a FIXED POINT.
+ *  One pass is incomplete (CodeQL js/incomplete-multi-character-sanitization):
+ *  each match runs `<` → the next `>`, so interleaved brackets leave residue —
+ *  `<<b>b>hello<</i>i>` reduces to `b>helloi>`, not `hello`. Reports escape this
+ *  text downstream, so it's tidiness + defense in depth on provider input rather
+ *  than the last line of defense; loop until a pass changes nothing. */
+function stripCueTags(s: string): string {
+  let out = s;
+  for (;;) {
+    const next = out.replace(/<\/?[^<>]*>/g, "");
+    if (next === out) return out;
+    out = next;
+  }
 }
 
 /** Tinycloud full describe writes speech to a WebVTT sidecar. Convert it to a
@@ -69,7 +84,10 @@ function transcriptFromVttPath(path: string): string {
   for (const block of vtt.split(/\n\s*\n/)) {
     const lines = block.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     if (!lines.length || lines[0] === "WEBVTT") continue;
-    const cue = lines.findIndex((l) => /-->/u.test(l));
+    // a WebVTT timing line, i.e. `00:00:01.000 --> 00:00:04.000` — match the
+    // digit-arrow-digit shape, not a bare `-->` (which also reads as an HTML
+    // comment terminator, CodeQL js/bad-tag-filter, and matches cue TEXT)
+    const cue = lines.findIndex((l) => /\d\s*-->\s*\d/u.test(l));
     if (cue < 0) continue;
     const parsed = textFromVttCue(lines.slice(cue + 1).join(" "));
     if (!parsed?.text) continue;
