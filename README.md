@@ -4,17 +4,8 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@kdrrr/overcast"><img src="https://img.shields.io/npm/v/%40kdrrr%2Fovercast?logo=npm&color=cb3837" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/@kdrrr/overcast"><img src="https://img.shields.io/npm/dm/%40kdrrr%2Fovercast?logo=npm&color=cb3837" alt="npm downloads" /></a>
   <a href="https://github.com/kdr/overcast/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/kdr/overcast/ci.yml?branch=main&logo=githubactions&logoColor=white&label=ci" alt="ci" /></a>
-  <a href="https://github.com/kdr/overcast/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/kdr/overcast/codeql.yml?branch=main&logo=github&label=codeql" alt="codeql" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license: Apache-2.0" /></a>
-</p>
-
-<p align="center">
-  <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/%40kdrrr%2Fovercast?logo=nodedotjs&logoColor=white&color=5FA04E" alt="node version" /></a>
-  <img src="https://img.shields.io/badge/TypeScript-ESM-3178C6?logo=typescript&logoColor=white" alt="TypeScript ESM" />
-  <a href="https://github.com/earendil-works/pi"><img src="https://img.shields.io/badge/built%20on-pi-8A2BE2" alt="built on pi" /></a>
-  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome" /></a>
 </p>
 
 # overcast
