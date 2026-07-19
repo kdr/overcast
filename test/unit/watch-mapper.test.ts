@@ -139,6 +139,85 @@ test("runWatch fills transcript from tinycloud's speech.vtt sidecar", async () =
   }
 });
 
+test("runWatch strips cue tags inside a <v> voice cue, at any nesting", async () => {
+  // tinycloud VTTs lean on `<v Name>`, and that branch used to return the body
+  // verbatim — so nested <b>/<i>/timestamp tags rode straight into the
+  // transcript. Interleaved brackets need the depth-aware strip too: a single
+  // regex pass over `<<b>b>` matches `<` to the FIRST `>` and leaves `b>`.
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchvoice-"));
+  try {
+    const vtt = join(dir, "speech.vtt");
+    writeFileSync(vtt, `WEBVTT
+
+1
+00:00:00.000 --> 00:00:01.000
+<v Ada Lovelace><b>bold</b> and <i>italic</i></v>
+
+2
+00:00:01.000 --> 00:00:02.000
+<v Alan Turing><00:00:01.500>timed <<b>b>nested</v>
+`);
+    const json = JSON.stringify({ status: "ready", data: { title: "clip", summary: "s", transcript: "", describe: { vtt_path: vtt }, segments: [] } });
+    const script = join(dir, "watch.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
+    const transcript = String((rec.payload as Record<string, unknown>).transcript);
+
+    assert.match(transcript, /Ada Lovelace: bold and italic/);
+    assert.match(transcript, /Alan Turing: timed nested/);
+    // no markup of any kind survives — neither whole tags nor bracket residue
+    assert.doesNotMatch(transcript, /[<>]/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runWatch cue stripping stays linear on deeply nested provider text", async () => {
+  // the fixed-point loop this replaced peeled ONE nesting layer per pass, so a
+  // crafted sidecar cost O(n^2) and could stall the mapper. 200k nested opens is
+  // ~seconds-to-minutes quadratic; linear it is instant.
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchdeep-"));
+  try {
+    const vtt = join(dir, "speech.vtt");
+    // text OUTSIDE the nested wrapper must survive; text inside it is markup
+    const nested = "keep" + "<".repeat(200_000) + "inner" + ">".repeat(200_000) + "tail";
+    writeFileSync(vtt, `WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\n${nested}\n`);
+    const json = JSON.stringify({ status: "ready", data: { title: "clip", summary: "s", transcript: "", describe: { vtt_path: vtt }, segments: [] } });
+    const script = join(dir, "watch.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+
+    const started = Date.now();
+    const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
+    const elapsed = Date.now() - started;
+
+    const transcript = String((rec.payload as Record<string, unknown>).transcript);
+    assert.equal(transcript, "keeptail", "nested wrapper stripped, surrounding text kept");
+    assert.ok(elapsed < 10_000, `cue strip should be linear, took ${elapsed}ms`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runWatch: an UNPAIRED bracket is spoken text, not markup", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchgt-"));
+  try {
+    const vtt = join(dir, "speech.vtt");
+    // a lone `<` must NOT swallow the rest of the cue — a plain depth counter
+    // does exactly that, silently truncating real spoken content
+    writeFileSync(vtt, `WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nif 2 > 1 and x < y then <b>ship</b> it\n`);
+    const json = JSON.stringify({ status: "ready", data: { title: "clip", summary: "s", transcript: "", describe: { vtt_path: vtt }, segments: [] } });
+    const script = join(dir, "watch.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
+    assert.equal(String((rec.payload as Record<string, unknown>).transcript), "if 2 > 1 and x < y then ship it");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("watch resolves capture_id handles before dispatching to a provider", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-watchcap-"));
   const media = join(dir, "clip.mp4");

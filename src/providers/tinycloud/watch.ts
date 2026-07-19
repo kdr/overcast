@@ -3,7 +3,7 @@
 // boundary (invariant #3). A comprehensive describe → flat payload with
 // content / transcript / detailed keys.
 
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
 import {
@@ -51,25 +51,95 @@ function textFromVttCue(raw: string): { speaker?: string; text: string } | undef
   const cleaned = raw.replace(/\s+/g, " ").trim();
   if (!cleaned) return undefined;
   const voice = cleaned.match(/^<v\s+([^>]+)>(.*)<\/v>$/i);
-  if (voice) return { speaker: voice[1].trim(), text: voice[2].trim() };
-  return { text: cleaned.replace(/<\/?[^>]+>/g, "").trim() };
+  // strip BOTH halves of a voice cue, not just the fallback branch — tinycloud
+  // VTTs lean on `<v Name>`, and its body routinely carries nested `<b>`/`<i>`/
+  // timestamp tags that would otherwise survive verbatim into the transcript
+  if (voice) return { speaker: stripCueTags(voice[1]).trim(), text: stripCueTags(voice[2]).trim() };
+  return { text: stripCueTags(cleaned).trim() };
+}
+
+/** Strip WebVTT cue tags (`<b>`, `<v Name>`, `<00:00.500>`, …) in ONE pass.
+ *
+ *  A single regex pass is incomplete (CodeQL
+ *  js/incomplete-multi-character-sanitization): each match runs `<` → the next
+ *  `>`, so interleaved brackets leave residue — `<<b>b>hello` keeps a stray
+ *  `b>`. Re-running that regex to a fixed point fixes the residue but peels only
+ *  ONE nesting layer per pass, so deeply nested text costs O(n²).
+ *
+ *  A mark stack gets both. Each `<` records the output length at that point; the
+ *  matching `>` rewinds the output to it, dropping the whole region — at any
+ *  nesting depth, in one traversal, amortized O(n).
+ *
+ *  A bracket only counts as markup when it PAIRS. An unmatched `<` (spoken
+ *  "x < y") and an unmatched `>` ("2 > 1") are ordinary text and survive intact
+ *  — a plain depth counter gets this wrong, swallowing the rest of the cue after
+ *  a lone `<`. This matches the fixed point's semantics exactly; it is only
+ *  faster. */
+function stripCueTags(s: string): string {
+  const out: string[] = [];
+  const marks: number[] = []; // output length at each so-far-unmatched '<'
+  for (const ch of s) {
+    if (ch === "<") {
+      marks.push(out.length);
+      out.push(ch);
+    } else if (ch === ">" && marks.length > 0) {
+      out.length = marks.pop() as number; // rewind over the matched <…> region
+    } else {
+      out.push(ch);
+    }
+  }
+  return out.join("");
+}
+
+/** Cap for the provider-written sidecars (speech VTT, describe markdown). Real
+ *  ones for hour-long media land in the low MBs; past this we're being handed
+ *  something else. */
+const MAX_SIDECAR_BYTES = 16 * 1024 * 1024;
+
+/** Read at most `maxBytes` of a file as utf8, or undefined if it can't be read.
+ *  Sizes and reads the SAME descriptor, so nothing is re-resolved by path. */
+function readCappedUtf8(path: string, maxBytes: number): string | undefined {
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return undefined;
+  }
+  try {
+    const want = Math.min(fstatSync(fd).size, maxBytes);
+    const buf = Buffer.alloc(want);
+    let read = 0;
+    while (read < want) {
+      const n = readSync(fd, buf, read, want - read, read);
+      if (n <= 0) break;
+      read += n;
+    }
+    return buf.subarray(0, read).toString("utf8");
+  } catch {
+    return undefined;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** Tinycloud full describe writes speech to a WebVTT sidecar. Convert it to a
  * readable speaker transcript so watch records expose spoken words inline. */
 function transcriptFromVttPath(path: string): string {
-  if (!existsSync(path)) return "";
-  let vtt = "";
-  try {
-    vtt = readFileSync(path, "utf8");
-  } catch {
-    return "";
-  }
+  // Bounded read off ONE descriptor: the sidecar is provider-controlled, so an
+  // unbounded readFileSync can be handed an arbitrarily large file, and the
+  // existsSync-then-read it replaces was the same check-then-use race this
+  // change set has been closing elsewhere. Over the cap we keep the leading
+  // bytes — a truncated transcript beats none, and beats an OOM.
+  const vtt = readCappedUtf8(path, MAX_SIDECAR_BYTES);
+  if (vtt === undefined) return "";
   const out: Array<{ speaker?: string; text: string }> = [];
   for (const block of vtt.split(/\n\s*\n/)) {
     const lines = block.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     if (!lines.length || lines[0] === "WEBVTT") continue;
-    const cue = lines.findIndex((l) => /-->/u.test(l));
+    // a WebVTT timing line, i.e. `00:00:01.000 --> 00:00:04.000` — match the
+    // digit-arrow-digit shape, not a bare `-->` (which also reads as an HTML
+    // comment terminator, CodeQL js/bad-tag-filter, and matches cue TEXT)
+    const cue = lines.findIndex((l) => /\d\s*-->\s*\d/u.test(l));
     if (cue < 0) continue;
     const parsed = textFromVttCue(lines.slice(cue + 1).join(" "));
     if (!parsed?.text) continue;
@@ -125,13 +195,11 @@ function contentMarkdown(data: Record<string, unknown>): string {
   if (data.describe && typeof data.describe === "object") {
     const d = data.describe as Record<string, unknown>;
     const mdPath = d.markdown_path;
-    if (typeof mdPath === "string" && existsSync(mdPath)) {
-      try {
-        const md = readFileSync(mdPath, "utf8");
-        if (md.trim()) return md;
-      } catch {
-        /* fall through to synthesized content */
-      }
+    if (typeof mdPath === "string") {
+      // same capped, single-descriptor read as the VTT sidecar — both are
+      // provider-written files reached by path
+      const md = readCappedUtf8(mdPath, MAX_SIDECAR_BYTES);
+      if (md && md.trim()) return md;
     }
   }
 

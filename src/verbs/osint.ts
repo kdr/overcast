@@ -5,7 +5,7 @@
 import { join, basename, dirname } from "node:path";
 import { copyFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
+import { makeRecord, errRecord, stripUrlTail, type OvercastRecord } from "../record.js";
 import { sniffExt } from "../media/fetch.js";
 import {
   builtinDescriptor,
@@ -65,7 +65,7 @@ function scanFlagError(ctx: VerbContext, verb = "scan"): OvercastRecord | undefi
 }
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|m2ts|mts|ts|wmv|flv|3gp|3g2|ogv|mxf)$/i;
-const isVideoRef = (ref: string): boolean => !/^https?:\/\//i.test(ref) && VIDEO_RE.test(ref.replace(/[?#].*$/, ""));
+const isVideoRef = (ref: string): boolean => !/^https?:\/\//i.test(ref) && VIDEO_RE.test(stripUrlTail(ref));
 const isLocalVisualRef = (ref: string): boolean => isVideoRef(ref) || isImage(ref);
 
 function localMediaRefs(ctx: VerbContext): string[] {

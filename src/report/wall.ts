@@ -8,7 +8,7 @@
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
-import { findingStatusMap, isReady, recordTimeMs, type OvercastRecord } from "../record.js";
+import { findingStatusMap, isReady, recordTimeMs, stripUrlTail, type OvercastRecord } from "../record.js";
 import { escapeRegex } from "../text.js";
 import { isRegisterableMediaRecord } from "../verbs/media-ref.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
@@ -452,7 +452,7 @@ function newestFirst(records: OvercastRecord[]): OvercastRecord[] {
  *  `<stem>_t<seconds>.jpg` — not a loose prefix (a_tool_t12.jpg must never
  *  light a.mp4's S badge just because "a_tool_t" starts with "a_t"). */
 function frameFileRe(ref: string): RegExp {
-  const b = basename(ref.replace(/[?#].*$/, ""));
+  const b = basename(stripUrlTail(ref));
   const dot = b.lastIndexOf(".");
   const stem = dot > 0 ? b.slice(0, dot) : b;
   return new RegExp(`^${escapeRegex(stem)}_t\\d+\\.jpg$`, "i");

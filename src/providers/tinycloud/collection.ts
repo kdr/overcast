@@ -4,14 +4,14 @@
 // `ask --index` drives tcAsk. Each function returns the mapped record plus the
 // few extracted ids the verb needs to update its local mirror (state/index.ts).
 
-import { makeRecord, type OvercastRecord } from "../../record.js";
+import { makeRecord, stripUrlTail, type OvercastRecord } from "../../record.js";
 import { runTinycloud, type RunTinycloudOpts, type TinycloudOutcome } from "./envelope.js";
 
 const META = (op: string) => ({ provider: "tinycloud", model: "cloudglue", op });
 
 const base = (ref: unknown): string => {
   const s = typeof ref === "string" ? ref : "";
-  return s.replace(/[?#].*$/, "").replace(/\/+$/, "").split("/").pop() || s;
+  return stripUrlTail(s).replace(/\/+$/, "").split("/").pop() || s;
 };
 
 /** Normalize a collection file's status into ready / processing / failed. */

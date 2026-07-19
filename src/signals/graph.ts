@@ -9,7 +9,7 @@
  * suggested leads never enter the graph. Entity harvesting reads the SAME text
  * ask/brief index (`indexableDocument`), so raw boxes/vectors/dumps stay out.
  */
-import { memoryRecords, recordCaptureTimeMs, recordStub, type OvercastRecord } from "../record.js";
+import { memoryRecords, recordCaptureTimeMs, recordStub, stripUrlTail, type OvercastRecord } from "../record.js";
 import { indexableDocument } from "../providers/memory/fields.js";
 import { buildDeviceClusters } from "./devices.js";
 import { buildThreads } from "./threads.js";
@@ -156,7 +156,7 @@ function str(v: unknown): string | undefined {
 }
 
 function baseName(ref: string): string {
-  const parts = ref.replace(/[?#].*$/, "").split(/[\\/]/);
+  const parts = stripUrlTail(ref).split(/[\\/]/);
   return parts[parts.length - 1] || ref;
 }
 

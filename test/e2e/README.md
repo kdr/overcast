@@ -212,7 +212,7 @@ external assets — plus the live monitoring page (`phase6_situation`):
 token-authed `serve` on an ephemeral port (discovered via `runtime.json`), the
 `/api/state` auth boundary (401 without the token, 200 + JSON snapshot with it) +
 the static console shell, a cross-process `situation set` the running server
-consumes (`control.json` swept on its ~2s tick), and a graceful `situation stop`
+consumes (patches under `control.d/` drained on its ~2s tick), and a graceful `situation stop`
 that exits the serving process + sweeps `runtime.json` — plus the
 global archive (`phase9_archive`): bucket init/add/dedup/show under an isolated
 `OVERCAST_HOME`, `capture archive:…` pulls, `ask --archive`, the setup wizard

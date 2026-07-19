@@ -4,13 +4,14 @@
 // the source detection record remains the full audit trail.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { cropStill, modalityFromExt, probe, type CropBox } from "../media/ffmpeg.js";
 import { fetchMediaToCase } from "../media/fetch.js";
 import { badNumber } from "./validate.js";
 import { stampArchive } from "../archive.js";
+import { writeFileAtomic } from "../fs-atomic.js";
 import type { VerbSpec } from "../registry/types.js";
 
 type CropKind = "face" | "object";
@@ -273,7 +274,10 @@ function extFromMime(mime: string): string {
 }
 
 function materializeDataUrl(url: string, outDir: string, id: string): string {
-  const match = /^data:([^;,]+)?((?:;[^,]*)*),(.*)$/is.exec(url);
+  // `[^;,]` inside the parameter repetition (NOT `[^,]`, which can also match the
+  // `;` the outer group consumes): the ambiguous form backtracks exponentially on
+  // a crafted `data:;;;;…` URL from an untrusted provider (CodeQL js/redos).
+  const match = /^data:([^;,]+)?((?:;[^;,]*)*),(.*)$/is.exec(url);
   if (!match) throw new Error("invalid data URL");
   const mime = match[1] || "image/jpeg";
   const params = match[2] || "";
@@ -281,7 +285,18 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
   const frameDir = join(outDir, ".frames");
   mkdirSync(frameDir, { recursive: true });
   const out = join(frameDir, `${safePart(id)}${extFromMime(mime)}`);
-  if (existsSync(out)) return out;
+  // Cache hit = the file is simply THERE. That inference is only sound because
+  // frames are published by an atomic rename below: a file at `out` is always
+  // whole. The previous `wx`-claim approach created an EMPTY file up front, so a
+  // crash (or a concurrent claimer) between claim and write cached a zero-byte
+  // frame permanently — complete-or-absent removes the partial state entirely.
+  // Returning here also skips decoding up to 64MB of base64 on a repeat crop.
+  try {
+    closeSync(openSync(out, "r"));
+    return out;
+  } catch {
+    /* not materialized yet — decode and publish below */
+  }
   // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
   // a huge inline data URL from an untrusted provider must not OOM the process.
   const isBase64 = params.toLowerCase().includes(";base64");
@@ -292,8 +307,11 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
   if (estBytes > THUMBNAIL_MAX_BYTES) {
     throw new Error(`inline data URL too large (~${estBytes} bytes, cap ${THUMBNAIL_MAX_BYTES})`);
   }
-  const buf = isBase64 ? Buffer.from(data, "base64") : Buffer.from(decodeURIComponent(data));
-  writeFileSync(out, buf);
+  // temp-then-rename (the shared state-store helper): a reader never sees a
+  // partial frame, and a crash leaves only a .tmp behind — never a poisoned cache
+  // entry. Two crops racing the same id both publish identical bytes, so
+  // last-writer-wins is harmless.
+  writeFileAtomic(out, isBase64 ? Buffer.from(data, "base64") : Buffer.from(decodeURIComponent(data)));
   return out;
 }
 

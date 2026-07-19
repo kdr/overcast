@@ -7,7 +7,7 @@
 //
 // Like the chair, the LLM gets NO tool that can OPEN the listener: /situation
 // on is an operator command (invariant #10). The agent controls a running page
-// through the `situation` verb's agent-safe ops (status/set/stop → control.json,
+// through the `situation` verb's agent-safe ops (status/set/stop → control patches,
 // consumed by this in-process server's poll tick like any other).
 //
 // The TUI server is a VIEWER: it never owns a monitor cadence (--every). In a
@@ -117,7 +117,13 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
         // honor it instead of restarting over it (Bugbot #98/high: the restart
         // used to clearStaleStop it away and bring the page straight back up).
         const next = openCase(cur);
-        if (readControl(next)?.control.stop === true) {
+        // readControl returns the APPLYABLE PREFIX, so a stop it can see is one
+        // the server's own tick can see too — honor it whether or not something
+        // further down the log is unreadable. Gating this on a blocked log (as
+        // an earlier pass did) makes the page start and then get stopped by that
+        // same tick a moment later: a flash-start for no reason. A stop hidden
+        // BEHIND a blocker is invisible to both of us, which is symmetric.
+        if (readControl(next)?.stop === true) {
           optedOut = true;
           desired = false;
           sessionToken = undefined;

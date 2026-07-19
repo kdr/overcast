@@ -12,7 +12,7 @@
 //          action (the chair rule) — the agent tool and TUI slash are refused
 //          here (use /situation on in the TUI; it runs in-process).
 //   status / set / stop — the control plane, agent-safe: they only read
-//          .overcast/situation/runtime.json or write control.json, which the
+//          .overcast/situation/runtime.json or append a control patch, which the
 //          serving process applies on its next poll tick (~2s).
 
 import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
@@ -34,6 +34,8 @@ import {
   inProcessSituationCaseDir,
   parsePanels,
   readControl,
+  blockedControlPath,
+  controlSnapshot,
   readRuntime,
   runtimeAlive,
   runtimeServing,
@@ -190,6 +192,10 @@ export const situationVerb: VerbSpec = {
         return [err("situation set: nothing to set (pass --panels/--source/--since/--limit/--theme/--query, or --clear <keys>)")];
       }
       const merged = writeControl(cc, { ...parsed.config, ...(clear ? { clear } : {}) });
+      // an unreadable patch earlier in the log holds everything behind it, this
+      // write included — say so instead of reporting a clean apply. ONE call:
+      // the value is used twice below and two folds could disagree.
+      const blockedBy = blockedControlPath(cc);
       const rt = readRuntime(cc);
       // "running" must reflect a server actually SERVING (pid alive AND the port
       // is up), not just a live/reused pid (Bugbot #98/med) — else `set` tells
@@ -203,9 +209,12 @@ export const situationVerb: VerbSpec = {
             op: "set",
             control: merged,
             running,
-            note: running
-              ? `applied by the live page within ~2s (${rt!.displayUrl})`
-              : "no situation is running — the control applies when one starts",
+            ...(blockedBy ? { blocked: true, blocked_path: blockedBy } : {}),
+            note: blockedBy
+              ? `queued, but an earlier control patch cannot be read (${blockedBy}) — THIS command sits behind it and will not apply until that patch is removed or repaired (earlier readable ones still apply)`
+              : running
+                ? `applied by the live page within ~2s (${rt!.displayUrl})`
+                : "no situation is running — the control applies when one starts",
             ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
           },
           meta: { provider: "situation", case: ctx.case.dir },
@@ -227,6 +236,7 @@ export const situationVerb: VerbSpec = {
         // control is honored by the rebound server's first tick. A genuinely
         // fresh serve is unaffected: every serve clears a stale stop at start.
         writeControl(cc, { stop: true } satisfies SituationControl);
+        const stopBlockedBy = blockedControlPath(cc);
         return [
           makeRecord({
             verb: "situation",
@@ -234,7 +244,10 @@ export const situationVerb: VerbSpec = {
             payload: {
               op: "stop",
               running: false,
-              note: "no situation is running — stop queued (honored by a server starting on this case; a fresh serve clears it)",
+              ...(stopBlockedBy ? { blocked: true, blocked_path: stopBlockedBy } : {}),
+              note: stopBlockedBy
+                ? `stop queued, but an earlier control patch cannot be read (${stopBlockedBy}) — it will NOT be honored until that patch is removed or repaired`
+                : "no situation is running — stop queued (honored by a server starting on this case; a fresh serve clears it)",
               ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
             },
             meta: { provider: "situation", case: ctx.case.dir },
@@ -244,6 +257,13 @@ export const situationVerb: VerbSpec = {
       }
       writeControl(cc, { stop: true } satisfies SituationControl);
       let delivered = "control";
+      // ONE snapshot for the payload below: calling blockedControlPath twice
+      // lets a concurrent drain report blocked:true beside a path that is gone
+      const stopBlockedBy = blockedControlPath(cc);
+      // whether a SIGTERM actually went out. Tracked as a fact rather than sniffed
+      // out of `delivered`: that string says "not signal" in one of its
+      // force-ignored variants, so any substring test on it is a trap.
+      let signalled = false;
       // --force SIGTERM is ONLY for a dedicated CLI serve pane. For a `/situation
       // on` (mode "tui") the runtime pid IS the whole TUI session, so signalling
       // it would kill the operator's editor (Bugbot #98/high) — the in-process
@@ -257,6 +277,7 @@ export const situationVerb: VerbSpec = {
           try {
             process.kill(rt.pid, "SIGTERM");
             delivered = "control+signal";
+            signalled = true;
           } catch {
             /* already exiting */
           }
@@ -274,6 +295,17 @@ export const situationVerb: VerbSpec = {
             pid: rt!.pid,
             url: rt!.displayUrl,
             delivered,
+            // A stop that rides the QUEUE ALONE is subject to a blocked log; one
+            // that was also signalled has already killed the process, so
+            // reporting it as stuck would contradict what just happened.
+            ...(!signalled && stopBlockedBy
+              ? {
+                  blocked: true,
+                  blocked_path: stopBlockedBy,
+                  blocked_note:
+                    "an earlier control patch cannot be read — this stop will NOT be honored until that patch is removed or repaired",
+                }
+              : {}),
             ...(cc.dir !== ctx.case.dir ? { steered_case: cc.dir } : {}),
           },
           meta: { provider: "situation", case: ctx.case.dir },
@@ -356,7 +388,7 @@ export const situationVerb: VerbSpec = {
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       // the loser of a bind race lands here and returns WITHOUT touching
-      // runtime.json/control.json, so it can't clobber the winner's state.
+      // runtime.json or the control patches, so it can't clobber the winner's state.
       return [
         err(
           code === "EADDRINUSE"
@@ -507,13 +539,26 @@ async function statusRecord(ctx: VerbContext, cc: Case = ctx.case): Promise<Over
   // running = pid alive AND the recorded port is actually served (Bugbot #98/med:
   // a read-only surface must not report "live" off a reused pid alone).
   const running = runtimeAlive(rt) && (await runtimeServing(rt));
-  const pending = readControl(cc)?.control ?? null;
+  const snap = controlSnapshot(cc);
+  const pending = snap.control ?? null;
+  // an unreadable patch holds everything behind it, so `pending` here is the
+  // APPLYABLE prefix, not the whole queue — say so rather than showing a clean
+  // (and possibly empty) view of a stuck control log
+  const blockedBy = snap.blockedBy;
   return makeRecord({
     verb: "situation",
     format: "json",
     payload: {
       op: "status",
       running,
+      ...(blockedBy
+        ? {
+            blocked: true,
+            blocked_path: blockedBy,
+            blocked_note:
+              "a control patch cannot be read — the pending control shown is the APPLYABLE PREFIX; anything queued behind that patch is not applying",
+          }
+        : {}),
       ...(rt && running
         ? {
             url: rt.url,

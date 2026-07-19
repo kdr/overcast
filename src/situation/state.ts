@@ -1,4 +1,4 @@
-// Situation control plane = two small files under .overcast/situation/, in the
+// Situation control plane = a small file tree under .overcast/situation/, in the
 // same file-based style as seen.json / sources.json — because the serving
 // process (a terminal pane or the TUI extension) and the controllers (the
 // `situation set|stop|status` verb run by the CLI, the agent tool, or the chair
@@ -7,11 +7,15 @@
 //   runtime.json — written by the server on start, removed on exit. Discovery:
 //     "is a situation live, where". Never contains the pairing token (the token
 //     lives only in the terminal QR / pairing URL).
-//   control.json — written by `situation set` / `situation stop` (atomic
-//     replace, merging any not-yet-consumed control), consumed by the server on
-//     its next poll tick (~2s). `stop: true` shuts the server down gracefully.
+//   control.d/ — an APPEND-ONLY patch directory. `situation set` /
+//     `situation stop` each write ONE new file; the server folds them in
+//     filename (= write) order on its next poll tick (~2s) and removes what it
+//     consumed. `stop: true` shuts the server down gracefully. Deliberately not
+//     a single mutable file: see the note above `controlDir` for why that shape
+//     kept failing.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { writeFileAtomic } from "../fs-atomic.js";
@@ -157,64 +161,214 @@ export function parsePanels(raw: string | undefined): SituationPanel[] | undefin
   return [...new Set(items)] as SituationPanel[];
 }
 
-/** Merge a control patch onto any pending (unconsumed) control and write it
- *  atomically. Two quick `situation set`s compose instead of clobbering. Clears
- *  compose by ORDER: a clear in the patch drops the key from pending (so the
- *  clear wins), and an assignment in the patch drops the key from pending.clear
- *  (so the re-set wins) — the server can then apply clears before assignments
- *  without reordering the operator's intent. */
-export function writeControl(c: Case, patch: SituationControl): SituationControl {
-  const pending: SituationControl = { ...(readControl(c)?.control ?? {}) };
-  if (patch.clear?.length) for (const key of patch.clear) delete pending[key];
-  if (pending.clear?.length) {
-    const kept = pending.clear.filter((key) => patch[key] === undefined);
-    if (kept.length) pending.clear = kept;
-    else delete pending.clear;
+/** The control plane is an APPEND-ONLY PATCH DIRECTORY, not a shared mutable
+ *  file, because every failure this thing has had came from the latter.
+ *
+ *  History, so the shape isn't re-litigated: control.json was one file that
+ *  `situation set` read-modify-wrote and the server consumed. That needed a lock
+ *  (concurrent sets clobbered each other), the lock needed a stale-steal (a
+ *  crashed holder wedged it), the steal needed a deadline (it could spin), the
+ *  server needed a NON-blocking acquire (waiting parked the event loop and
+ *  stalled the live page), and the consume needed a restore path (a transient
+ *  read error would destroy the operator's command) which itself could clobber a
+ *  newer write. Each fix was correct and each exposed the next edge.
+ *
+ *  Writing one file per patch removes the shared mutable state instead:
+ *    - no read-modify-write, so no lost update and no lock to hold, wait on,
+ *      steal, or leave abandoned;
+ *    - no waiting anywhere, so neither a CLI writer nor the in-process TUI
+ *      writer can park the event loop that serves /media and SSE;
+ *    - a patch that can't be read is simply left for the next tick — it is its
+ *      own file, so there is no claim to restore and nothing to clobber.
+ *  Merge order is filename order, which is write order. */
+let patchSeq = 0;
+
+function controlDir(c: Case): string {
+  return join(situationDir(c), "control.d");
+}
+
+/** Fold one patch onto the pending state. Clears compose by ORDER: a clear in
+ *  the patch drops the key from pending (the clear wins), and an assignment in
+ *  the patch drops the key from pending.clear (the re-set wins) — so the server
+ *  can apply clears before assignments without reordering operator intent. */
+function foldControl(pending: SituationControl, patch: SituationControl): SituationControl {
+  const next: SituationControl = { ...pending };
+  if (patch.clear?.length) for (const key of patch.clear) delete next[key];
+  if (next.clear?.length) {
+    const kept = next.clear.filter((key) => patch[key] === undefined);
+    if (kept.length) next.clear = kept;
+    else delete next.clear;
   }
-  const merged: SituationControl = { ...pending, ...patch };
-  if (pending.clear?.length && patch.clear?.length) merged.clear = [...new Set([...pending.clear, ...patch.clear])];
-  mkdirSync(situationDir(c), { recursive: true });
-  writeFileAtomic(controlFile(c), JSON.stringify(merged, null, 2) + "\n");
+  const merged: SituationControl = { ...next, ...patch };
+  if (next.clear?.length && patch.clear?.length) merged.clear = [...new Set([...next.clear, ...patch.clear])];
   return merged;
 }
 
-export function readControl(c: Case): { control: SituationControl; mtimeMs: number } | undefined {
-  const file = controlFile(c);
+/** Pending patch files, oldest first. Includes a legacy single control.json
+ *  written by an older process, folded as the OLDEST entry so an in-flight
+ *  upgrade doesn't strand it. */
+function pendingPatchFiles(c: Case): string[] {
+  const out: string[] = [];
+  const legacy = controlFile(c);
   try {
-    if (!existsSync(file)) return undefined;
-    const mtimeMs = statSync(file).mtimeMs;
-    return { control: JSON.parse(readFileSync(file, "utf8")) as SituationControl, mtimeMs };
+    statSync(legacy);
+    out.push(legacy);
   } catch {
-    return undefined;
+    /* none — the normal case */
   }
+  try {
+    out.push(...readdirSync(controlDir(c)).filter((f) => f.endsWith(".json")).sort().map((f) => join(controlDir(c), f)));
+  } catch {
+    /* directory absent = nothing pending */
+  }
+  return out;
 }
 
-/** Consume (delete) the control file the server just applied — but only when
- *  its mtime still matches what was read, so a `situation set` racing the
- *  consume isn't silently dropped (it survives to the next tick). */
-export function consumeControl(c: Case, mtimeMs: number): void {
-  const file = controlFile(c);
-  try {
-    if (existsSync(file) && statSync(file).mtimeMs === mtimeMs) rmSync(file, { force: true });
-  } catch {
-    /* another writer landed mid-consume — leave it for the next tick */
+/** Fold pending patches IN ORDER, and report which files were consumed.
+ *
+ *  Read failure STOPS the fold rather than skipping past it. The patches are an
+ *  ordered log: applying a later one while an earlier one stays pending would
+ *  replay the earlier patch on the NEXT tick, after the later one already
+ *  landed — an old assignment silently undoing a newer clear. Stopping keeps
+ *  the suffix pending as a unit, so order survives.
+ *
+ *  A patch that reads but does not PARSE is consumed and dropped: it carries no
+ *  content, so skipping it cannot reorder anything, and leaving it would wedge
+ *  the queue forever.
+ *
+ *  Deliberate consequence: a patch that can never be read blocks the ones behind
+ *  it. That is visible (the page stops following commands) and preferable to
+ *  applying operator intent out of order, which would be silent. */
+function foldPending(files: string[]): { control?: SituationControl; consumed: string[]; blockedBy?: string } {
+  let control: SituationControl | undefined;
+  const consumed: string[] = [];
+  let blockedBy: string | undefined;
+  for (const file of files) {
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") continue; // already drained by a concurrent take — nothing to hold
+      blockedBy = file;
+      break; // genuinely unreadable: ordered log, stop here rather than skip ahead
+    }
+    consumed.push(file);
+    try {
+      control = foldControl(control ?? {}, JSON.parse(raw) as SituationControl);
+    } catch {
+      /* corrupt: consumed and dropped; no content, so no reordering */
+    }
   }
+  return { control, consumed, blockedBy };
 }
 
-/** Before a FRESH serve binds, drop a stale `stop: true` still sitting in
- *  control.json (Bugbot #98/high): it's left over from an earlier `situation
- *  stop` whose server died before its poll tick consumed it, and would instantly
- *  kill the new server on its first control tick. The stop key is removed; any
- *  set-before-start config is preserved (deleting the file only if nothing else
- *  remains). */
+/** Append ONE patch. No read-modify-write, so concurrent writers cannot lose
+ *  each other's updates and nothing needs to be locked. Returns the resulting
+ *  pending state for the caller's display. */
+export function writeControl(c: Case, patch: SituationControl): SituationControl {
+  // Snapshot BEFORE appending. Peeking afterwards would let a concurrent take
+  // drain our own file first, so the value handed back to `situation set` could
+  // omit the very update it just made — misreporting to an operator or agent.
+  const before = readControl(c);
+  mkdirSync(controlDir(c), { recursive: true });
+  // Name sorts by write order. The millisecond alone is NOT enough — two sets
+  // in the same tick would then be ordered by the random suffix, silently
+  // inverting "a later clear beats an earlier assignment" — so a monotonic
+  // per-process sequence breaks the tie. Across processes a same-millisecond
+  // tie is arbitrary, which is honest: those writes are concurrent.
+  const name = [
+    String(Date.now()).padStart(15, "0"),
+    String(++patchSeq).padStart(6, "0"),
+    process.pid,
+    randomBytes(4).toString("hex"),
+  ].join("-") + ".json";
+  writeFileAtomic(join(controlDir(c), name), JSON.stringify(patch, null, 2) + "\n");
+  return foldControl(before ?? {}, patch);
+}
+
+/** Non-destructive PEEK at the pending state (the verb's display, the
+ *  extension's stop check). The server's apply path uses takeControl. */
+export function readControl(c: Case): SituationControl | undefined {
+  return foldPending(pendingPatchFiles(c)).control;
+}
+
+/** The PATH of the unreadable patch holding the queue, if any: pending commands
+ *  BEHIND it cannot be applied yet. Callers surface this rather than reporting a
+ *  clean success for something the server cannot take — a `situation set` that
+ *  says "applied within ~2s" while the log is stuck is a lie to the operator.
+ *
+ *  Returns the path, not a boolean, so the operator is pointed at the actual
+ *  file. The blocker can be the LEGACY control.json rather than anything under
+ *  control.d/ (an interrupted upgrade), and a note naming only the directory
+ *  sends them looking in the wrong place. */
+export function blockedControlPath(c: Case): string | undefined {
+  return controlSnapshot(c).blockedBy;
+}
+
+/** Pending control AND the blocker, from ONE fold. Callers that report both must
+ *  use this: two separate folds can be split by a concurrent drain and disagree
+ *  — `blocked: true` beside a `blocked_path` that has since been consumed, or a
+ *  pending control that does not match the blocked verdict shown next to it. */
+export function controlSnapshot(c: Case): { control?: SituationControl; blockedBy?: string } {
+  const { control, blockedBy } = foldPending(pendingPatchFiles(c));
+  return { control, blockedBy };
+}
+
+/** TAKE the pending control: fold every pending patch and remove the files that
+ *  were consumed. Never blocks and never waits.
+ *
+ *  A patch is deleted only after it has been READ, so a transient IO error
+ *  leaves it pending for the next tick rather than destroying the operator's
+ *  command. A corrupt patch IS deleted — otherwise it would wedge the tick loop
+ *  forever. A crash between read and delete replays that patch, which is
+ *  harmless: applying a config patch twice is idempotent, and replaying beats
+ *  dropping. */
+export function takeControl(c: Case): SituationControl | undefined {
+  const { control, consumed } = foldPending(pendingPatchFiles(c));
+  for (const file of consumed) {
+    try {
+      rmSync(file, { force: true });
+    } catch {
+      /* left behind; a re-read replays an idempotent patch */
+    }
+  }
+  return control;
+}
+
+/** Before a FRESH serve binds, drop a stale `stop: true` still pending: it's
+ *  left over from an earlier `situation stop` whose server died before its poll
+ *  tick consumed it, and would instantly kill the new server on its first
+ *  control tick. The stop is removed; any set-before-start config is preserved.
+ *
+ *  Operates on exactly the files it READ, so a `situation set` landing
+ *  concurrently is left untouched rather than swept up — the same rule the take
+ *  follows. Runs once, before the server binds. */
 export function clearStaleStop(c: Case): void {
-  const cur = readControl(c)?.control;
-  if (!cur || cur.stop !== true) return;
-  const { stop: _stop, ...rest } = cur;
-  try {
-    if (Object.keys(rest).length === 0) rmSync(controlFile(c), { force: true });
-    else writeFileAtomic(controlFile(c), JSON.stringify(rest, null, 2) + "\n");
-  } catch {
-    /* best-effort; the server also ignores a stop it can't attribute */
+  // Neutralize a stale stop WHEREVER it sits, patch by patch. Folding only the
+  // applyable prefix (as this did) misses a `stop: true` queued behind an
+  // unreadable patch: the fresh serve starts fine, then dies the moment that
+  // patch is repaired and the take reaches the stop — precisely the failure this
+  // helper exists to prevent.
+  //
+  // Rewriting each offending patch IN PLACE, under its own name, keeps every
+  // other property that took several rounds to get right: order is preserved
+  // (same filename, same sort position), an unreadable patch is skipped rather
+  // than swept up, surviving config is written before anything is removed, and
+  // a failed rewrite leaves that patch untouched.
+  for (const file of pendingPatchFiles(c)) {
+    let patch: SituationControl;
+    try {
+      patch = JSON.parse(readFileSync(file, "utf8")) as SituationControl;
+    } catch {
+      continue; // unreadable or corrupt — not ours to touch
+    }
+    if (patch?.stop !== true) continue;
+    const { stop: _stop, ...rest } = patch;
+    try {
+      if (Object.keys(rest).length > 0) writeFileAtomic(file, JSON.stringify(rest, null, 2) + "\n");
+      else rmSync(file, { force: true }); // the patch carried nothing but the stop
+    } catch {
+      /* best-effort; the server also ignores a stop it can't attribute */
+    }
   }
 }

@@ -6,7 +6,7 @@
 #       (OVERCAST_SITUATION_PORT=0), discovered via .overcast/situation/runtime.json.
 #   (c) the auth boundary on /api/state — 401 without the token, 200 (+ JSON
 #       snapshot) with it — plus the static console shell at / (served, secret-free).
-#   (d) a cross-process `situation set` the running server consumes (control.json
+#   (d) a cross-process `situation set` the running server consumes (patches under
 #       written, then swept on the ~2s control tick).
 #   (e) a graceful `situation stop` that exits the serving process + sweeps
 #       runtime.json.
@@ -19,7 +19,7 @@ source "$DIR/lib.sh"
 casedir="$SMOKE_DIR/case_situation"; mkdir -p "$casedir"
 sitdir="$casedir/.overcast/situation"
 rtfile="$sitdir/runtime.json"
-ctlfile="$sitdir/control.json"
+ctldir="$sitdir/control.d"
 TOKEN="sit_tok_phase6"
 
 serve_pid=""
@@ -115,13 +115,27 @@ save_json "phase6_situation_set" "$setout" >/dev/null
 assert_eq "situation.set_op" "set" "$(jq -r '.payload.op' <<<"$setout")" "set emits a set op"
 assert_eq "situation.set_running" "true" "$(jq -r '.payload.running' <<<"$setout")" "set sees the live server"
 assert_eq "situation.set_control" "8" "$(jq -r '.payload.control.limit' <<<"$setout")" "set records the new limit"
-# the serving process consumes (deletes) control.json once it applies the patch
+# The serving process drains the patch directory once it applies the set. Assert
+# the APPLIED EFFECT, not just the drain: this previously waited on control.json
+# disappearing, and when the control plane became a patch directory that file
+# stopped existing at all — so the check passed without verifying anything.
 i=0
-while [ -f "$ctlfile" ] && [ "$i" -lt 30 ]; do sleep 0.5; i=$((i + 1)); done
-if [ ! -f "$ctlfile" ]; then
-  ok "situation.set_consumed" "the live server consumed control.json (applied the set)"
+while [ "$(find "$ctldir" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')" != "0" ] && [ "$i" -lt 30 ]; do
+  sleep 0.5; i=$((i + 1))
+done
+pending_left="$(find "$ctldir" -name '*.json' 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$pending_left" != "0" ]; then
+  fail "situation.set_consumed" "control patches not drained within ~15s ($pending_left left)"
+elif command -v curl >/dev/null 2>&1 && [ -n "${base:-}" ]; then
+  # the drain is only meaningful if the server actually took the value on
+  applied="$(curl -s --max-time 10 "$base/api/state?token=$TOKEN" 2>/dev/null | jq -r '.config.limit' 2>/dev/null)"
+  if [ "$applied" = "8" ]; then
+    ok "situation.set_consumed" "the live server drained the patch AND applied limit=8"
+  else
+    fail "situation.set_consumed" "patch drained but server config.limit is '$applied', expected 8"
+  fi
 else
-  fail "situation.set_consumed" "control.json not consumed within ~15s"
+  ok "situation.set_consumed" "the live server drained the pending control patch (no curl to confirm the value)"
 fi
 
 # (e) a graceful stop exits the serving process + sweeps runtime.json

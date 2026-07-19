@@ -15,9 +15,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, readFileSync } from "node:fs";
 import { extname, resolve, sep } from "node:path";
-import { realpathContained } from "../fs-path.js";
+import { openContainedFile } from "../fs-path.js";
 
 export interface LiveHttpdOptions {
   /** Bind address; default loopback. Never bind wildcard unless asked to. */
@@ -332,14 +332,22 @@ export abstract class LiveHttpd<EIn extends object = Record<string, unknown>> {
     const file = resolve(root, rel === "" ? "index.html" : rel);
     // traversal guard: the resolved path must stay inside the assets dir
     if (file !== root && !file.startsWith(root + sep)) return this.json(res, 404, { error: "not found" });
-    if (!existsSync(file) || !statSync(file).isFile()) return this.json(res, 404, { error: "not found" });
-    // symlink-safe: a link inside the assets dir must not serve a file outside it
-    if (!realpathContained(root, file)) return this.json(res, 404, { error: "not found" });
-    res.writeHead(200, {
-      "Content-Type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
-      "Cache-Control": "no-store",
-    });
-    res.end(readFileSync(file));
+    // symlink-safe AND race-safe: the old exists → stat → read sequence re-resolved
+    // the path at each step, so a link swapped in after the containment check could
+    // be served from outside the root (CodeQL js/file-system-race). openContainedFile
+    // hands back a descriptor already proven to BE the contained file; read that.
+    const fd = openContainedFile(root, file);
+    if (fd === undefined) return this.json(res, 404, { error: "not found" });
+    try {
+      const body = readFileSync(fd);
+      res.writeHead(200, {
+        "Content-Type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
+        "Cache-Control": "no-store",
+      });
+      res.end(body);
+    } finally {
+      closeSync(fd);
+    }
   }
 
   // --- auth --------------------------------------------------------------------

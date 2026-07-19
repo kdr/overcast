@@ -64,12 +64,20 @@ function piPackageJsonPath() {
 
 function main() {
   const pkgPath = piPackageJsonPath();
-  if (!pkgPath || !existsSync(pkgPath)) {
-    // pi not installed yet (e.g. running before deps) — nothing to brand.
+  // read-then-handle, not existsSync-then-read: the exists check is a TOCTOU
+  // race (CodeQL js/file-system-race) and the read has to be fault-tolerant
+  // anyway — pi may not be installed yet (e.g. running before deps).
+  let raw;
+  try {
+    raw = pkgPath ? readFileSync(pkgPath, "utf8") : undefined;
+  } catch {
+    raw = undefined;
+  }
+  if (raw === undefined) {
     console.error("[brand-pi] pi-coding-agent not found; skipping rebrand");
     return;
   }
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  const pkg = JSON.parse(raw);
   pkg.piConfig = pkg.piConfig ?? {};
   if (pkg.piConfig.name === BRAND) {
     return; // already branded

@@ -9,7 +9,7 @@
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { isReady, recordTimeMs, type OvercastRecord } from "../record.js";
+import { isReady, recordTimeMs, stripUrlTail, type OvercastRecord } from "../record.js";
 import { buildWallModel, type WallTile } from "../report/wall.js";
 import { buildMapModel } from "../report/map.js";
 import { parseSince } from "../providers/memory/local.js";
@@ -125,7 +125,7 @@ const POINTS_CAP = 500;
 const STILLS_CAP = 12;
 
 const REMOTE_RE = /^https?:\/\//i;
-const IMAGE_RE = /\.(avif|bmp|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
+const IMAGE_RE = /\.(avif|bmp|gif|jpe?g|png|webp)$/i;
 
 // Source classes that drive panel auto-selection ("takes a guess based on the
 // sources you've configured") — a configured source lights its panel even
@@ -327,7 +327,7 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
       summary: p.summary,
       ref: p.ref,
       url: str(pl.url),
-      thumb: p.ref && IMAGE_RE.test(p.ref) ? mediaRefFor(p.ref, fileExists) : null,
+      thumb: p.ref && IMAGE_RE.test(stripUrlTail(p.ref)) ? mediaRefFor(p.ref, fileExists) : null,
       track: trackOf.get(p.recordId) ?? null,
       heading: num(pl.true_track),
       velocity: num(pl.velocity),
@@ -339,7 +339,7 @@ export function buildSituationModel(records: OvercastRecord[], opts: BuildSituat
   // --- stills: freshest capture per recapture-ish source ----------------------
   const stillCandidates = records.filter((r) => {
     if (!isReady(r) || !r.media?.ref || !withinSince(r)) return false;
-    if (r.verb === "screenshot") return IMAGE_RE.test(r.media.ref);
+    if (r.verb === "screenshot") return IMAGE_RE.test(stripUrlTail(r.media.ref));
     if (r.verb !== "capture") return false;
     const source = str(payloadOf(r).source);
     return source != null && STILL_SOURCE_TYPES.has(source);

@@ -8,7 +8,7 @@
 import { existsSync } from "node:fs";
 import { basename, resolve, sep, isAbsolute } from "node:path";
 import { realpathContained } from "../fs-path.js";
-import { isReady, type OvercastRecord } from "../record.js";
+import { isReady, stripUrlTail, type OvercastRecord } from "../record.js";
 import type { Case } from "../case.js";
 import { ARCHIVE_REF_PREFIX, bucketPathStatus, bucketRecordForPath, listBucketItems, openBucket, parseArchiveRef, resolveBucketPath } from "../archive.js";
 
@@ -53,7 +53,7 @@ const IMAGE_RE = /\.(jpe?g|png|webp|bmp|tiff?|gif|avif|heic)$/i;
 
 /** Whether a ref looks like audio/video the senses/indexes can use. */
 export const isAv = (ref: string): boolean => /^https?:\/\//i.test(ref) || AV_RE.test(ref);
-export const isImage = (ref: string): boolean => /^https?:\/\//i.test(ref) || IMAGE_RE.test(ref.replace(/[?#].*$/, ""));
+export const isImage = (ref: string): boolean => /^https?:\/\//i.test(ref) || IMAGE_RE.test(stripUrlTail(ref));
 
 /** Whether a case RECORD is registerable case media: a captured/sensed verb, an
  *  AV `media.ref`, and NOT a face SEARCH (whose media is the query image, not a

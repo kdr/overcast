@@ -11,25 +11,26 @@
 //     trick), so local media streams through the server. The servable set is an
 //     ALLOWLIST derived from the current model — only media the page actually
 //     shows resolves; nothing else on disk is reachable, even with the token.
-//   control.json — the cross-process control plane (.overcast/situation/):
-//     `situation set/stop` (CLI, agent tool, chair→agent) writes it; the server
-//     applies it on the next poll tick. See src/situation/state.ts.
+//   control.d/ — the cross-process control plane (.overcast/situation/):
+//     `situation set/stop` (CLI, agent tool, chair→agent) appends a patch; the
+//     server folds and drains them on the next poll tick. See
+//     src/situation/state.ts.
 //
 // Deliberately pi-free and case-driven, so it runs identically under the CLI
 // verb (own terminal pane) and the TUI extension (/situation on).
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createReadStream, statSync } from "node:fs";
+import { closeSync, createReadStream, fstatSync, statSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { LiveHttpd, MEDIA_CONTENT_TYPES, type LiveHttpdOptions } from "../live/httpd.js";
 import { reportRemoteMediaEnabled, normalizeHtmlTheme } from "../report/html.js";
 import { posterFrame } from "../media/ffmpeg.js";
 import { listSources } from "../state/source.js";
-import { realpathContained } from "../fs-path.js";
+import { openContainedFile, realpathContained } from "../fs-path.js";
 import type { Case } from "../case.js";
 import { buildSituationModel, type SituationMediaRef, type SituationModel } from "./model.js";
-import { consumeControl, readControl, type SituationConfig, type SituationControl } from "./state.js";
+import { takeControl, type SituationConfig, type SituationControl } from "./state.js";
 import type { SituationSnapshot, SituationWireEvent } from "./wire.js";
 
 type SituationEventInput = SituationWireEvent extends infer E
@@ -50,7 +51,7 @@ const CONTROL_MS = 2000;
 export interface SituationServerOptions extends LiveHttpdOptions {
   case: Case;
   version: string;
-  /** initial view config (CLI flags); mutated at runtime by control.json */
+  /** initial view config (CLI flags); mutated at runtime by control patches */
   config?: SituationConfig;
   /** the monitor cadence string the serving process owns ("5m"), display only —
    *  passes are driven by the caller via monitorStarted/monitorEnded */
@@ -59,7 +60,7 @@ export interface SituationServerOptions extends LiveHttpdOptions {
   pollMs?: number;
   /** false disables the ffmpeg poster pass (tests / no-ffmpeg hosts) */
   posters?: boolean;
-  /** fired when control.json requests a stop — the owner shuts the loop down */
+  /** fired when a control patch requests a stop — the owner shuts the loop down */
   onStopRequested?: (reason: string) => void;
   /** injectable clock for tests */
   now?: () => number;
@@ -138,11 +139,12 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
    *  retune/stop from the agent/CLI/chair lands within a couple seconds. */
   private async applyControlTick(): Promise<void> {
     if (this.stopRequested) return;
-    const ctl = readControl(this.case);
-    if (!ctl) return;
-    const { stop, ...patch } = ctl.control;
+    // fold-then-drain: a `situation set` racing this tick appends a NEW patch
+    // that the next tick picks up, rather than being consumed unapplied
+    const control = takeControl(this.case);
+    if (!control) return;
+    const { stop, ...patch } = control;
     this.applyConfig(patch);
-    consumeControl(this.case, ctl.mtimeMs);
     if (stop === true) {
       this.stopRequested = true;
       this.announceStopping("stop requested via situation stop");
@@ -167,7 +169,7 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     if (!this.stopRequested) await this.pollRebuildTick();
   }
 
-  /** Apply a config patch (from control.json), dropping invalid values rather
+  /** Apply a config patch (from a control patch file), dropping invalid values rather
    *  than failing the tick — the writer already validated; this is the belt.
    *  `clear` keys are DROPPED first (back to default/auto) — the only way to
    *  remove a filter from a long-running serve (Bugbot #98/med) — then any
@@ -457,16 +459,14 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     const id = url.pathname.split("/")[2] ?? "";
     const path = this.mediaMap.get(id) ?? this.prevMediaMap.get(id);
     if (!path) return this.json(res, 404, { error: "not found" });
-    // re-verify containment at serve time (defense in depth; catches a symlink
-    // swap between snapshot build and this request) — never stream outside the case.
-    if (!realpathContained(this.case.dir, path)) return this.json(res, 404, { error: "not found" });
-    let st: ReturnType<typeof statSync>;
-    try {
-      st = statSync(path);
-    } catch {
-      return this.json(res, 404, { error: "not found" });
-    }
-    if (!st.isFile()) return this.json(res, 404, { error: "not found" });
+    // Re-verify containment at serve time (defense in depth; catches a symlink
+    // swap between snapshot build and this request) — never stream outside the
+    // case. Containment, size, and the bytes all come off ONE descriptor: a
+    // check → statSync(path) → createReadStream(path) chain re-resolves the path
+    // three times, so a swap mid-sequence streams a file the check never saw.
+    const fd = openContainedFile(this.case.dir, path);
+    if (fd === undefined) return this.json(res, 404, { error: "not found" });
+    const st = fstatSync(fd);
     const headers: Record<string, string | number> = {
       "Content-Type": MEDIA_CONTENT_TYPES[extname(path).toLowerCase()] ?? "application/octet-stream",
       "Accept-Ranges": "bytes",
@@ -474,30 +474,42 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
       // short private cache keeps the loop windows from refetching
       "Cache-Control": "private, max-age=300",
     };
-    if (req.method === "HEAD") {
-      res.writeHead(200, { ...headers, "Content-Length": st.size });
-      return void res.end();
-    }
-    const range = req.headers.range;
-    if (typeof range === "string" && range.trim() !== "") {
-      const parsed = parseRange(range, st.size);
-      if (!parsed) {
-        res.writeHead(416, { "Content-Range": `bytes */${st.size}` });
+    // ONE disposal path for the descriptor. Only a created stream takes
+    // ownership (autoClose); every other outcome — HEAD, 416, and crucially a
+    // THROW from writeHead on an already-destroyed socket — falls through to the
+    // finally. Closing per-branch (as this did) leaks on the throw, and /media is
+    // the hot route, so a client that hangs up mid-header would bleed fds.
+    let adopted = false;
+    try {
+      if (req.method === "HEAD") {
+        res.writeHead(200, { ...headers, "Content-Length": st.size });
         return void res.end();
       }
-      res.writeHead(206, {
-        ...headers,
-        "Content-Range": `bytes ${parsed.start}-${parsed.end}/${st.size}`,
-        "Content-Length": parsed.end - parsed.start + 1,
-      });
-      const stream = createReadStream(path, { start: parsed.start, end: parsed.end });
+      const range = req.headers.range;
+      if (typeof range === "string" && range.trim() !== "") {
+        const parsed = parseRange(range, st.size);
+        if (!parsed) {
+          res.writeHead(416, { "Content-Range": `bytes */${st.size}` });
+          return void res.end();
+        }
+        res.writeHead(206, {
+          ...headers,
+          "Content-Range": `bytes ${parsed.start}-${parsed.end}/${st.size}`,
+          "Content-Length": parsed.end - parsed.start + 1,
+        });
+        const stream = createReadStream("", { fd, start: parsed.start, end: parsed.end, autoClose: true });
+        adopted = true;
+        stream.on("error", () => res.destroy());
+        return void stream.pipe(res);
+      }
+      res.writeHead(200, { ...headers, "Content-Length": st.size });
+      const stream = createReadStream("", { fd, autoClose: true });
+      adopted = true;
       stream.on("error", () => res.destroy());
-      return void stream.pipe(res);
+      stream.pipe(res);
+    } finally {
+      if (!adopted) closeSync(fd);
     }
-    res.writeHead(200, { ...headers, "Content-Length": st.size });
-    const stream = createReadStream(path);
-    stream.on("error", () => res.destroy());
-    stream.pipe(res);
   }
 }
 
