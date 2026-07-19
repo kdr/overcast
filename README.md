@@ -2,6 +2,33 @@
   <img src="assets/branding/logo.png" alt="overcast" width="420" />
 </p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@kdrrr/overcast"><img src="https://img.shields.io/npm/v/%40kdrrr%2Fovercast?logo=npm&color=cb3837" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@kdrrr/overcast"><img src="https://img.shields.io/npm/dm/%40kdrrr%2Fovercast?logo=npm&color=cb3837" alt="npm downloads" /></a>
+  <a href="https://github.com/kdr/overcast/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/kdr/overcast/ci.yml?branch=main&logo=githubactions&logoColor=white&label=ci" alt="ci" /></a>
+  <a href="https://github.com/kdr/overcast/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/kdr/overcast/codeql.yml?branch=main&logo=github&label=codeql" alt="codeql" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license: Apache-2.0" /></a>
+</p>
+
+<p align="center">
+  <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/%40kdrrr%2Fovercast?logo=nodedotjs&logoColor=white&color=5FA04E" alt="node version" /></a>
+  <img src="https://img.shields.io/badge/TypeScript-ESM-3178C6?logo=typescript&logoColor=white" alt="TypeScript ESM" />
+  <a href="https://github.com/earendil-works/pi"><img src="https://img.shields.io/badge/built%20on-pi-8A2BE2" alt="built on pi" /></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome" /></a>
+</p>
+
+<p align="center">
+  <em>Created by <a href="https://github.com/kdr/kdr">Kevin Dela Rosa</a> — co-founder &amp; CTO @ <a href="https://cloudglue.dev/">Cloudglue</a></em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/kdr/kdr"><img src="https://img.shields.io/badge/GitHub-kdr-181717?logo=github&logoColor=white" alt="GitHub @kdr" /></a>
+  <a href="https://kevindelarosa.com/"><img src="https://img.shields.io/badge/Portfolio-kevindelarosa.com-0A66C2?logo=googlechrome&logoColor=white" alt="Portfolio" /></a>
+  <a href="https://x.com/kdrwins"><img src="https://img.shields.io/badge/X-@kdrwins-000000?logo=x&logoColor=white" alt="X @kdrwins" /></a>
+  <a href="https://www.linkedin.com/in/kdrwins/"><img src="https://img.shields.io/badge/LinkedIn-kdrwins-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
+  <a href="https://scholar.google.com/citations?user=8Pc5MiUAAAAJ&hl=en"><img src="https://img.shields.io/badge/Google%20Scholar-publications-4285F4?logo=googlescholar&logoColor=white" alt="Google Scholar" /></a>
+</p>
+
 # overcast
 
 **Video OSINT agent: senses + OSINT reach for any agent.**
@@ -822,6 +849,19 @@ message showing the version or command-registry drift.
 - **[SUPPORT.md](SUPPORT.md)** — where to get help.
 - Questions and ideas → [Discussions](https://github.com/kdr/overcast/discussions);
   bugs and features → [Issues](https://github.com/kdr/overcast/issues/new/choose).
+
+## Creator
+
+overcast is built by **[Kevin Dela Rosa](https://github.com/kdr/kdr)** (`@kdr`),
+co-founder & CTO of [Cloudglue](https://cloudglue.dev/) and creator of
+[Tinycloud](https://www.tinycloud.sh/) — the default perception backend here. He
+presented *Autonomous Video Hunter*, on AI agents for real-time video OSINT, at
+**DEF CON 33**.
+
+Find him at [kevindelarosa.com](https://kevindelarosa.com/) ·
+[GitHub](https://github.com/kdr/kdr) · [X](https://x.com/kdrwins) ·
+[LinkedIn](https://www.linkedin.com/in/kdrwins/) ·
+[Google Scholar](https://scholar.google.com/citations?user=8Pc5MiUAAAAJ&hl=en)
 
 ## License
 
