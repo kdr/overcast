@@ -1,8 +1,8 @@
 # Authoring overcast providers
 
 > For how providers fit into end-to-end investigations (setup, scan/monitor,
-> ask/brief, indexes), see [`flows.md`](flows.md). This doc is the provider
-> authoring + binding reference.
+> ask/brief, indexes), see [`field-manual.md`](field-manual.md). This doc is the
+> provider authoring + binding reference.
 
 overcast binds verbs to backends through **providers**. There is one wire
 contract (the **record**) and one wired transport: `exec` (the default). The
@@ -1132,7 +1132,7 @@ default is `local-grep`, which scans indexable fields from `.overcast/records`
 Only primary evidence records are eligible for memory and briefs: read/meta and
 operational bookkeeping records (`ask`, `brief`, `case`, `setup`, `doctor`,
 `index`, `target`, `source`, `prebrief`, legacy `collection`, etc.) are excluded even if they contain matching
-text. Root `finding`s follow the same rule as flows.md's searchability table:
+text. Root `finding`s follow the same rule as field-manual.md's searchability table:
 accepted findings are evidence, but `suggested` (until accepted) and dismissed
 findings are quarantined from memory/briefs. Remote indexes stay explicit
 through the case index mirror and

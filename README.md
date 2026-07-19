@@ -69,68 +69,78 @@ Come see it run live, or [read the abstract](https://info.defcon.org/defcon34/co
 
 ---
 
+## Quickstart
+
+```bash
+npm i -g @kdrrr/overcast && overcast doctor     # install + preflight
+
+# 1 — point a case at a target, sweep public sources, ask with citations
+overcast case setup --name dock-incident \
+  --target "white van at pier 9" --source web:"pier 9 dock incident" --yes
+overcast scan --pull                            # enumerate sources → capture → sense each hit
+overcast ask "every white van, with timestamps" # answer cites record.id + timestamp
+overcast brief --export brief.html              # story-first analyst report
+
+# 2 — or analyze a clip directly
+overcast watch ./clip.mp4                        # full video understanding → a cited record
+overcast listen ./clip.mp4                       # speech + audio-scene transcript
+overcast face ./clip.mp4 --match ./suspect.jpg   # find this person across the clip, ranked
+```
+
+A **case is just a directory** with a `.overcast/` store — switch cases with
+`cd` or `--case <dir>`. pi's per-directory sessions are the case history.
+
+**→ Full worked examples** — person search, OSINT pulls, continuous monitoring,
+visual / audio / voice DBs, the control-room wall, detection crops, and more —
+live in the **[Field Manual](docs/field-manual.md)** (`docs/field-manual.md`).
+
+---
+
 ## Install
-
-### Prerequisites
-
-- **Node.js ≥ 22** (with npm) — required to install and run overcast. The
-  compiled `bun` binary bundles its own runtime, but `npm i -g` needs Node 22+.
-- **FFmpeg** — `ffmpeg` + `ffprobe` on your `PATH` (the internal media toolkit
-  for `enhance`, frame extraction, detection crops, and `view`).
-  `brew install ffmpeg` · `apt install ffmpeg` · <https://ffmpeg.org/download.html>
-  (or point `OVERCAST_FFMPEG` / `OVERCAST_FFPROBE` at specific binaries).
-- **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** — the
-  default `watch` / `listen` / `face` / `index` backend (Cloudglue); set
-  `CLOUDGLUE_API_KEY`. overcast needs **tinycloud ≥ 0.3.12**
-  (`npm i -g @cloudglue/tinycloud@0.3.12` or `tinycloud update`): 0.3.12
-  (`watch.speech.v1`) inlines the VERBATIM speech in the watch envelope
-  (`segments[].speech`), so `watch`/`listen` transcripts come from a single
-  call — on the older 0.3.10/0.3.11 (empty `segments`) `listen` falls back to
-  fetching the cues through the `caption` verb, which `--diarize` still uses on
-  every version. `face` + `index` need ≥ 0.3.4; the image `see`/`extract` verbs
-  (≥ 0.3.7) sit behind the opt-in `see` provider; override the invocation with
-  `OVERCAST_TINYCLOUD_CMD`.
-- **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search:
-  `npm install -g @tobilu/qmd`. The first qmd rebuild downloads/caches
-  `embeddinggemma-300M-Q8_0` for embeddings. Plain `ask` does not require qmd.
-- **yt-dlp** on `PATH` — for the `youtube` and generic `dl` sources, and for
-  fetching post pages on `tiktok` / `x` / `instagram` / `telegram` (direct-CDN
-  media still downloads with curl). `dl` handles any yt-dlp-supported host
-  (Rumble, BitChute, Odysee, Vimeo, Reddit, …).
-- **ExifTool** / **c2patool** — optional, only for the forensic senses:
-  `exif` (metadata + GPS) needs `exiftool`; `verify` (C2PA / Content Credentials)
-  needs `c2patool`. `brew install exiftool c2patool` · `apt install libimage-exiftool-perl`.
-  Both report `needs_credentials` (exit 13) when absent, so the rest of overcast is unaffected.
-- **Playwright** — optional, only for browser screen capture: the `screenshot`
-  verb and the `browser` source render a page (or a local `.html` export) to a
-  PNG via headless Chromium. `npm install --include=optional` then
-  `npx playwright install chromium`. Missing → `needs_credentials` (exit 13);
-  `overcast doctor` probes it.
-
-`overcast doctor` verifies core prerequisites and reports qmd when installed or
-configured.
 
 ```bash
 npm i -g @kdrrr/overcast          # the CLI + pi package  →  `overcast`
 overcast doctor                 # preflight: pi, ffmpeg/ffprobe, Cloudglue, providers
 ```
 
-Update to the newest release, or run a verb one-off without installing:
-
-```bash
-npm i -g @kdrrr/overcast@latest   # update an existing global install
-npx @kdrrr/overcast doctor        # run any verb without a global install
-```
-
-Or grab the **standalone binary** (no Node required) for your platform from the
+`npx @kdrrr/overcast doctor` runs any verb without a global install;
+`npm i -g @kdrrr/overcast@latest` updates one. Or grab a **standalone binary**
+(no Node required) for your platform from the
 [latest release](https://github.com/kdr/overcast/releases/latest) —
 `overcast-<os>-<arch>.tar.gz` (ships its `theme/` + `examples/` sidecars) — or
-build it locally:
+build it with `npm run build:bun` → `dist/bin/overcast`.
 
-```bash
-tar -xzf overcast-darwin-arm64.tar.gz   # → ./overcast (+ sidecars); put it on PATH
-npm run build:bun                       # …or build locally → dist/bin/overcast
-```
+**Prerequisites**
+
+- **Node.js ≥ 22** (with npm) — to install and run overcast. The compiled `bun`
+  binary bundles its own runtime, but `npm i -g` needs Node 22+.
+- **FFmpeg** — `ffmpeg` + `ffprobe` on your `PATH` (the internal media toolkit
+  for `enhance`, frame extraction, detection crops, and `view`).
+  `brew install ffmpeg` · `apt install ffmpeg` (or point `OVERCAST_FFMPEG` /
+  `OVERCAST_FFPROBE` at specific binaries).
+- **[tinycloud CLI](https://www.npmjs.com/package/@cloudglue/tinycloud)** +
+  `CLOUDGLUE_API_KEY` — the default `watch` / `listen` / `face` / `index` backend
+  (Cloudglue). Needs **≥ 0.3.12** (single-call verbatim transcripts); `face` +
+  `index` need ≥ 0.3.4, the opt-in image `see` provider ≥ 0.3.7.
+  `npm i -g @cloudglue/tinycloud@0.3.12` or `tinycloud update`.
+
+Optional, feature-gated backends — each reports cleanly (`needs_credentials`)
+when absent, so the rest of overcast is unaffected:
+
+- **yt-dlp** on `PATH` — the `youtube` / `dl` sources and post-page fetches on
+  `tiktok` / `x` / `instagram` / `telegram`.
+- **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search
+  (`npm install -g @tobilu/qmd`); plain `ask` does not need it.
+- **ExifTool** / **c2patool** — the `exif` (metadata + GPS) and `verify` (C2PA /
+  Content Credentials) forensic senses. `brew install exiftool c2patool`.
+- **Playwright** — browser capture for the `screenshot` verb and `browser`
+  source. `npm install --include=optional` then `npx playwright install chromium`.
+- **uv-managed Python** — local face / CLIP / CLAP / audio / voice DBs and the
+  split `enhance` ops (`scripts/visual-db-uv.sh`).
+
+`overcast doctor` verifies core prerequisites and reports optional backends when
+installed or configured. Full version nuances and env knobs →
+[docs/configuration.md](docs/configuration.md).
 
 ---
 
@@ -202,16 +212,9 @@ skills (`lineup`…`crime-board`) are exercised end-to-end against real media in
 steers the agent to start with zero-config `ask`, rebuild qmd before semantic
 queries, use `ask --deep` for configured semantic memory, and bind remote indexes
 with `index attach` instead of note bookkeeping. Case memory is evidence-only:
-case setup/doctor/index/target/source/prebrief/read bookkeeping is excluded from `ask` and `brief`.
-Face/object detection records index only compact summaries/counts/moments, not
-raw box arrays or thumbnails; `crop` records are searchable evidence artifacts
-with source record/media/crop-source/time/class/id/box provenance. Use
-`face --thumbnails` when you want face crop records to preserve and crop from
-provider frame images when available. When a local video is
-added to an index before it has been watched, `index add` creates missing
-`watch` evidence for local-grep/qmd memory instead of relying on detections.
-Confirmed `case clear --yes` also drops configured materialized memory indexes
-such as qmd before clearing local state.
+setup/doctor/index/target/source/prebrief/read bookkeeping is excluded from `ask`
+and `brief`. See the [Field Manual](docs/field-manual.md) for the agent's memory
+model in depth.
 
 ---
 
@@ -243,561 +246,89 @@ code --install-extension ../.dev/overcast-*.vsix
 
 ---
 
-## Quickstart
+## Live control room
 
-```bash
-# 0) optional: prepare a reusable provider profile once per machine/profile
-overcast provider setup plan --preset cloudglue --profile default --json
-overcast provider setup apply --preset cloudglue --profile default --yes --json
-overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
+overcast runs as a live operation, not just a batch tool:
 
-# 1) analyze a video → a reusable, time-anchored record
-overcast watch ./clip.mp4 --json
+- **Man in the chair** — remote-drive the running TUI session from your phone
+  (`/chair on tailnet`, or launch with `overcast --chair`): a live assistant
+  stream, steer / follow-up / ABORT prompts (typed or spoken via the browser's
+  speech recognition), and a read-only case glance, over a token-authed
+  localhost/tailnet HTTP+SSE bridge (pair with Tailscale or an SSH tunnel).
+- **Situation room** — `situation` serves a self-updating monitoring page (wall
+  tiles + reverse-chron scan/monitor feed + live GPS map + refreshing
+  webcam/browser stills), auto-picked from the case's sources; `/situation on`
+  runs the same page in-process, bound to the session.
+- **Reports** — `brief` answers "what does the evidence say?" (story-first,
+  short by default), `case status` is the mission board ("where is this case?"),
+  and `case records` is the append-only audit log ("what exactly happened?"). The
+  `/debrief` prompt drives the analyst loop over them.
 
-# 2) run first-run case setup, give it a target + a source, sweep it
-overcast case setup --name "dock-incident" --target "white van at pier 9" --source web:"pier 9 dock incident" --yes
-overcast case setup status --json
-overcast scan --pull --json            # enumerate sources → capture → sense each hit
-
-# 3) ask questions over everything the case has accumulated (with citations)
-overcast ask "every white van, with timestamps" --json
-overcast brief --export ./brief.html
-overcast case status --export ./status.html --theme csi
-overcast case records --export ./records.html --theme csi
-
-# 4) add a human observation anchored to evidence
-overcast note "rear plate is missing" --ref <watch-record-id> --at 12-18 --tag vehicle --json
-
-# 5) faces: detect, or find a specific person in a clip
-overcast face ./clip.mp4 --thumbnails --json          # who is in this video + frame thumbnails for exact crops
-overcast face ./clip.mp4 --match ./suspect.jpg --json # find this person (JPEG/PNG query image), ranked by similarity
-overcast crop <face-record-id> --all --class face --json # write cropped face images as evidence
-
-# 6) objects: bind the OWLv2 detector, find boxes, and crop them
-scripts/visual-db-uv.sh --detect     # uv-installs torch + transformers + scipy (prints DETECT_PY)
-export DETECT_PY=…; overcast provider setup apply --preset owl-local --yes   # binds see:owl-local ($DETECT_PY + a portable shipped: ref)
-overcast see ./clip.mp4 --detect "person, car, license plate" --json
-overcast crop <see-record-id> --all --class person --json
-
-# 6b) when did X happen? tile the clip, ask a VLM which cell, then verify the frame
-overcast grid ./clip.mp4 --count 16 --json               # one contact sheet + cell→timestamp map
-overcast see <montage-path> --prompt "which numbered cells show X?" --json
-overcast see frame://<watch-record>@<seconds> --prompt "is X happening here?" --json  # verify at the frame
-overcast grid ./clip.mp4 --view                          # clickable numbered board that seeks the clip
-
-# 7) index the target's videos, then search across ALL of them
-overcast index create faces --type face --json
-overcast index attach existing-face-index --type face --json       # or bind an existing remote index
-overcast index add --all --to <face-col-id> --json   # register every captured/sensed video
-overcast index add ./local.mp4 --to <face-col-id> --json # creates missing watch evidence locally
-overcast face --match ./suspect.jpg --index <face-col-id> --json   # find them across the index
-
-# 8) visual DBs: logos/landmarks with RANSAC, faces with a uv Python
-scripts/visual-db-uv.sh --face
-overcast index create logos --type image-ransac --local --json
-overcast index add ./starbucks-logo.jpg --to logos --json
-overcast image match ./clip.mp4 --index logos --fps 0.7 --draw --json
-overcast index create localfaces --type deepface-local --local --json
-overcast index add ./suspect.jpg --to localfaces --json
-overcast face ./clip.mp4 --match ./suspect.jpg --index localfaces --fps 0.5 --max-frames 32 --json
-
-# 8b) face-cluster DB: group everyone across clips into people, then browse
-overcast index create people --type face-cluster --local --json  # or: case setup --index people:face-cluster
-overcast cluster add ./clipA.mp4 --index people --fps 0.5 --max-frames 20 --json  # ingest → assign-or-create
-overcast cluster add ./clipB.mp4 --index people --json
-overcast cluster identify ./who.jpg --index people --json         # most-similar person (or "new person")
-overcast cluster recluster --index people --json                  # re-tidy groups as the DB grows
-overcast cluster label p_1 "Jane Doe" --index people --json       # names survive recluster
-overcast cluster view --index people --json                       # self-contained HTML contact sheet
-
-# 9) semantic (CLIP) search: find images/video moments by text or by example image
-scripts/visual-db-uv.sh --clip
-overcast index create scenes --type basic-clip --local --granularity frame --json
-overcast similar add ./clip.mp4 --index scenes --json          # embed + cache (videos frame-sampled)
-overcast similar search "a red car at night" --index scenes --json   # text → image/video moments
-overcast similar match ./reference.jpg --index scenes --json         # image → image/video moments
-
-# 9b) audio DBs: Shazam-style exact matching (audio-fp) + CLAP audio similarity (basic-clap)
-scripts/visual-db-uv.sh --audio           # numpy/scipy fingerprint deps (add --clap for CLAP embeddings)
-overcast index create jingles --type audio-fp --local --json
-overcast audio add ./original.mp4 --to jingles --json                 # fingerprint (video → audio track)
-overcast audio match ./suspect.mp4 --index jingles --json             # which recording + WHERE (offset)
-overcast audio match ./suspect.mp4 --index jingles --min-margin 2 --json # reject sped-up re-uploads
-overcast audio match ./suspect.mp4 --index jingles --draw --json      # + SVG alignment plot (embeds in briefs)
-overcast audio match ./a.mp3 ./b.mp3 --json                           # clip-to-clip, no index
-overcast index create sounds --type basic-clap --local --json         # CLAP audio-embedding DB
-overcast similar add ./clip.wav --index sounds --json                 # embed + cache (10s audio windows)
-overcast similar search "crowd chanting" --index sounds --json        # text → audio moments
-
-# 9c) voice DB: speaker verification (voice-print) — find a reference VOICE, not a recording
-scripts/visual-db-uv.sh --voice           # pyannote stack (same as enhance --ops separate; no token needed)
-overcast index create voices --type voice-print --local --json
-overcast voice add ./interview.mp4 --index voices --json              # enroll (video → audio track)
-overcast voice match ./sample.wav --index voices --json               # which members contain this speaker?
-overcast voice match ./clip.mp4 ./sample.wav --json                   # WHERE the speaker talks in a clip
-overcast voice match ./clip.mp4 ./sample.wav --diarize --json         # overlap-aware tier (HF_TOKEN gated)
-
-# 10) launch the interactive agent (pi TUI) in the current case
-overcast
-# … optionally with an opening message (a non-verb token after --tui is the
-# agent's first prompt — real verbs still win and dispatch the CLI)
-overcast --tui "walk me through case setup"
-```
-
-A **case is just a directory** with a `.overcast/` store — switch cases with
-`cd` or `--case <dir>`. pi's per-directory sessions are the case history.
-
-**Man in the chair** — remote-drive the live TUI session from your phone: run
-`/chair on tailnet` (or launch with `overcast --chair`), scan the QR that
-appears, and the chair console opens in your phone browser — live assistant
-stream, steer / follow-up prompts (typed or spoken: the composer's `mic`
-button dictates via the browser's speech recognition), ABORT, and a read-only
-case glance. The bridge is a token-authed localhost/tailnet HTTP+SSE server
-(no TLS by itself — pair it with Tailscale or an SSH tunnel; the pairing token
-rides in the QR URL's `#fragment` and rotates on `/chair off`).
-
-Voice needs a **secure origin** — browsers only grant the mic over HTTPS or
-`localhost`, so a plain-HTTP tailnet URL can't dictate (the mic button shows a
-`🔒` "needs HTTPS" hint). For voice from a phone, run **`/chair on --serve`**:
-it fronts the bridge with `tailscale serve` (real HTTPS cert) and bakes that
-HTTPS origin into the QR, so scanning it lands on a secure page with voice
-working. `/chair on` also auto-detects an existing `tailscale serve`, and
-`/chair on --url https://host` (or `OVERCAST_CHAIR_URL`) sets the origin
-explicitly.
-
-`--serve` prerequisites (one-time): Tailscale installed + signed in, with
-**MagicDNS + HTTPS Certificates enabled** for your tailnet (admin console → DNS,
-[kb/1153](https://tailscale.com/kb/1153/enabling-https)); the phone must be on
-the same tailnet. See flow 23 in [`docs/flows.md`](docs/flows.md) for the full
-setup + fallbacks.
-
-Use the three report surfaces for different jobs:
-
-- `brief` answers "what does the evidence say?" **Short by default**, story-first:
-  a Verdict block (the analyst `tldr` note leading; the machine coverage line,
-  goal-progress headline, and a "since last brief" delta demoted to one meta
-  line), then one story per **line of investigation** (question → answer so far →
-  linked findings with visual proof → latest evidence → NEXT move), findings not
-  linked to any line, the triage queue (each lead with its trigger score + source
-  excerpt), ONE coverage table (configured sources + ad-hoc sweeps, never-scanned
-  flagged), and a newest-first record trail. `--full` swaps in the verbatim
-  chronological per-record timeline (the audit dump). It reports over the same
-  evidence-only boundary as case memory, so setup/read/meta records — and
-  un-accepted **suggested** findings — are excluded. In a terminal, `brief` and
-  `case status` print the markdown report directly (`--json` for the record
-  envelope).
-- `case records` answers "what exactly happened?" It is the append-only audit log
-  and includes operational records such as setup, target/source changes, index
-  work, asks, briefs, and status checks.
-- `case status` answers "where is this case right now?" It's a **mission board**:
-  a goal headline + per-target threads on a stage ladder
-  (cold → collecting → leads → corroborated → answered/dead-end), a per-source
-  coverage funnel, scan/monitor/brief freshness, and a **triage** queue of
-  suggested findings — with setup health, store counts, and match visualizations
-  below. It is a dashboard, not evidence for later memory or briefs.
-
-Run the **`/debrief`** prompt to drive the analyst loop over these surfaces:
-triage the suggested leads (`finding accept <id> --target <line>` to attribute
-the finding to a line of investigation, or `dismiss`), write one
-`thread:<target-id>` note narrating each line of investigation, close resolved
-lines, refresh the `tldr` note, then export the brief.
-
-Direct CLI HTML exports default to the compatible `plain` theme unless
-`--theme csi` is set. Agent/TUI tool calls default `.html` exports to `csi` for
-these report surfaces, while preserving an explicit `--theme plain`.
-
-For end-to-end recipes — first-run setup, person search, OSINT pulls, continuous
-monitoring, qmd memory, detection crops, the control-room wall, and more — see
-**[`docs/flows.md`](docs/flows.md)** (common flows & usage patterns).
+Full setup, secure-origin voice, fallbacks, and the report anatomy →
+**[Field Manual](docs/field-manual.md)**.
 
 ---
 
 ## Verbs
 
-Run `overcast commands --json` for the authoritative registry, or
-`overcast <verb> --help` for a man page. (`overcast --help` shows the full
-surface + env vars.)
+overcast is ~35 verbs across four groups; each is a standalone CLI command that
+emits a portable JSON **record**:
 
-**Senses** — turn media into records
-| verb | does |
-|---|---|
-| `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue) |
-| `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
-| `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM / the opt-in tinycloud `see`+`extract` provider, ≥ 0.3.7) |
-| `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
-| `image` | match images/video frames against a local OpenCV RANSAC image index |
-| `audio` | Shazam-style exact audio matching against a local `audio-fp` index (time-offset alignment), or clip-to-clip `audio match <query> <reference>`; `--min-margin` rejects sped re-uploads, `--draw` renders an SVG alignment plot for briefs |
-| `voice` | speaker verification: enroll voices into a local `voice-print` index (`voice add`), rank members containing a reference speaker (`voice match <sample> --index`), or locate WHERE a speaker talks in a clip (`voice match <clip> <sample>`; `--diarize` for the overlap-aware pyannote tier). Rank scores, not liveness — clones can score high |
-| `cluster` | local face DB: ingest faces → group into people (assign-or-create), `identify`, `recluster`, `label`, HTML `view` |
-| `similar` | cross-modal semantic search over a local CLIP (`basic-clip`) or CLAP (`basic-clap`) index — `search` by text, `match` by image/audio, video/audio moments included |
-| `exif` | embedded metadata from an image or video (ExifTool) — GPS (`payload.gps`), capture time, camera make/model/serial/lens (the fingerprint `devices` groups by), editing software; `--geocode` reverse-geocodes via the opt-in geocode provider |
-| `verify` | C2PA / Content Credentials provenance check (c2patool) — `has_manifest`, signer, claim generator, validation state; no credentials is a clean record, not an error |
-| `screenshot` | render a web page or a local `.html` export to a PNG evidence record via headless Chromium (playwright optional dep); `--full-page`, `--viewport WxH`, `--wait ms` |
-| `enhance` | denoise / normalize / upscale via system ffmpeg, a bound restore model, or the provider ops — `--ops separate` (per-speaker tracks, `--summarize` to transcribe each), `--ops segment --prompt` (text-prompted masks + cutouts), `--ops ela` (ELA/noise/luminance forensic overlays), `--ops panorama` (stitch a panning video into one wide still) — one evidence record per artifact |
-| `reconstruct` | **speculative** camera reposition from a still — `--rotate`/`--elevate`/`--zoom`, `--ops sweep` (360° turntable), `--ops model` (image→3D GLB), `--ops depth` — via a bound fal provider; a hypothesis renderer, never evidence (`payload.caveat`, quarantined from ask/brief) |
-| `chronolocate` | chronolocation from the sun/shadows — pure offline solar math, no key: verify a claimed capture time (`--at-time`) or solve the time window a shadow bearing implies (`--shadow-azimuth`) |
+- **Senses** (media → records) — `watch` `listen` `see` `face` `image` `audio`
+  `voice` `cluster` `similar` `exif` `verify` `screenshot` `enhance`
+  `reconstruct` `chronolocate`
+- **Inspect** (look at the evidence) — `view` `crop` `grid` `wall` `situation`
+  `map` `devices` `graph`
+- **OSINT** (search / capture / monitor) — `scan` `capture` `monitor` `index`
+  `archive` `target` `source` `note` `finding` `prebrief`
+- **Read** (synthesize the case) — `ask` `brief` `case`
 
-**Inspect** — look at the evidence
-| verb | does |
-|---|---|
-| `view` | open media in a scrubbable local HTML player (timeline markers, spectrogram); on an `enhance` split-op parent, a gallery of the tracks (audio + spectrograms) or cutouts |
-| `crop` | materialize face/object detections as cropped image records with provenance |
-| `grid` | tile timestamped frames into one contact sheet for single-call VLM triage (cell → timestamp map); `--view` for a clickable, numbered HTML board that seeks the clip |
-| `wall` | control-room monitor wall — every case video muted + looping its best evidence moment, case state overlaid |
-| `situation` | **monitor the situation** — a live, token-authed local page (default `127.0.0.1:7374`) over the case: wall tiles + reverse-chron scan/monitor feed + live gps map + refreshing webcam/browser stills, self-updating as records land; `serve` (default) is operator-only, `status`/`set`/`stop` are the agent-safe control plane, `--every` makes it own the monitor cadence |
-| `map` | plot every case record carrying `payload.gps` on one self-contained HTML map — markers link back to their source records; `--offline` for a no-egress coordinate scatter |
-| `devices` | group case `exif` records by camera fingerprint (serial = strong link, make+model+lens = weak) into shared-device clusters; `--findings` emits serial-linked suggested findings |
-| `graph` | **connect the dots** — build the case knowledge graph (records, media, targets, findings, cluster people, device fingerprints, places, typed entities) and render it as one self-contained interactive HTML force-graph; `--focus <node>` for a 2-hop view, `--extract` adds an opt-in brain-LLM entity pass (leads, not proof) |
+Plus pi's base verbs (`read` `write` `edit` `bash` `grep` `find` `ls`).
 
-**OSINT** — search / capture / monitor
-| verb | does |
-|---|---|
-| `scan` | sweep registered sources for the target; if no sources are enabled, scan local case media/indexes; `--pull` to capture + sense external hits |
-| `capture` | fetch a URL / scan-hit / local path into the case |
-| `monitor` | scan on a loop, diff the seen-set, pipe new items into a sense (`--once` / `--every`) |
-| `index` | index media into searchable corpora: remote media/entities/face indexes, plus local `image-ransac`, `deepface-local`, `face-cluster`, `basic-clip`, `audio-fp`, `basic-clap`, and `voice-print` DBs |
-| `archive` | global cross-case media buckets under `~/.overcast/archive` — `init` / `add` (sha256-deduped, tags/notes/provenance) / `list` / `show` / `remove` / `setup` (bucket index wizard); reuse from any case via `archive:<bucket>/<item>` refs and `--index archive:<bucket>/<index>` |
-| `target` | a **line of investigation**: `add --question`, `list`, `close <id> --as answered\|dead-end --note`, `reopen` — closed lines stop seeding scans |
-| `source` / `note` | where to look, and human-authored observations |
-| `finding` | manual + **auto-suggested** findings (`create` / `list` / `accept` / `dismiss`). Score triggers (face / image / similar / cluster / audio match) + target text hits auto-emit `suggested` leads via a hook on every verb; `finding list --state triage` queues them, `accept` promotes a lead to evidence (`--target <id\|value>` stamps it onto a line of investigation so it renders in that thread), `dismiss` blocks re-suggestion. Leads are quarantined from ask/brief until accepted |
-| `prebrief` | stand up a case (name + target + source) in one shot |
-
-**Read** — synthesize the case
-| verb | does |
-|---|---|
-| `ask` | natural-language query over case memory → answer with `record.id` + `media.at` citations; `--deep` uses configured semantic memory such as qmd; `--index <id>` answers over a media-descriptions index (`--probe` for moment search); `--archive <bucket>` asks over a global archive bucket |
-| `brief` | analyst report — **short by default** (verdict + delta / per-line-of-investigation stories / unattached findings / triage with score + excerpt / one coverage table / newest-first trail), `--full` for the verbatim timeline; `--export` to md/html; prints the md report in a terminal |
-| `case` | inspect/manage the case: `init` / `setup` / `status` (mission board) / `info` / `records` / `memory` / `clear` (`memory get <id> --field <name> --offset/--limit` pages a large record field in full) |
-
-**Config / SDK / dist** — `setup` (bind providers + brain LLM), `provider`
-(init/list/describe), `doctor` (preflight), `skills` (generate/install).
-
-**Base verbs** come from pi: `read` `write` `edit` `bash` `grep` `find` `ls`.
-
-### Case setup
-
-`case setup` is the first-run case wizard and the later setup-management
-surface. It saves the mutable current setup to `.overcast/setup.json` and emits
-immutable `case` history records with `payload.op = "startup_setup"` or
-`"startup_setup_update"`. Those operational setup records are excluded from
-case memory/briefs; setup notes are emitted as normal `note` evidence.
-Setup always configures one local case-search backend: `local-grep` by default,
-or `qmd` when you want configured local semantic memory. Local memory defaults
-to `note`, `watch`, `listen`, `see`, and `scan` evidence, including source/search
-metadata from web, YouTube, TikTok, and similar scans. Remote collections are
-additive and optional: `face-analysis` / `media-descriptions` / `entities` are
-tinycloud-backed for scale and portability. When setup applies with local videos
-routed to remote collections, overcast starts collection creation/ingestion
-immediately; use `--no-index` to save the setup without starting remote ingest.
-
-```bash
-overcast case setup plan --target "@pier9" --memory local-grep --source "web:pier 9" --index "media:media" --json
-overcast case setup --name "dock-incident" --target "@pier9" --memory local-grep --source "web:pier 9" --yes --json
-overcast case setup edit --provider "listen:elevenlabs,see:owl-local" --auto-sense "watch,listen" --auto-index-new --findings suggest --yes --json
-overcast case setup show --json
-overcast case setup edit --target "new subject" --source "youtube:@channel" --yes --json
-```
-
-When a case is local-media-only, `overcast scan` does not dead-end on missing
-sources: it scans local setup/media/index state, and if an image target plus a
-face-analysis or local image/face index exist it suggests or runs the relevant
-match. Local visual DB scans search candidate case media against stored reference
-images, not the target image by itself, and cap candidate fan-out with
-`--limit` (default 5). Use `overcast scan --local` to force this local scan even
-after adding external sources.
-
-### Global archive
-
-Media that should outlive one case — reference footage, known faces, recurring
-locations, signature audio — lives in the **archive**: named, case-shaped
-buckets under `~/.overcast/archive/<bucket>` (relocate with `OVERCAST_HOME` /
-`--home`). Items are sha256-deduped `capture` records carrying tags, notes, and
-origin provenance; there is no registry file — the directory listing IS the
-bucket list. A fresh bucket needs zero setup (`ask --archive` searches it via
-local-grep); `archive setup <bucket>` is the plan/`--yes` wizard that stands up
-indexes (local `deepface-local` / `basic-clip` / `image-ransac` / `audio-fp` /
-`basic-clap` / `voice-print` / `face-cluster`, remote Cloudglue `media-descriptions` /
-`face-analysis` / `entities`) plus a memory backend (`local-grep` / `qmd`),
-backfilling existing bucket media.
-
-```bash
-overcast archive init ref-footage --name "Reference footage"
-overcast archive add rec_ab12cd34 --to ref-footage --tags drone --note "known drone, case 44"
-overcast archive setup ref-footage --index faces:deepface-local,clip:basic-clip,voices:voice-print --auto-index-new --yes
-
-# from INSIDE any case:
-overcast face --match suspect.jpg --index archive:ref-footage/faces
-overcast similar search "white van at night" --index archive:ref-footage/clip
-overcast voice match sample.wav --index archive:ref-footage/voices   # speaker verification
-overcast watch archive:ref-footage/clip_9f3a.mp4        # sense in place, no copy
-overcast capture archive:ref-footage/clip_9f3a.mp4      # pull a copy + provenance
-overcast ask "what do I have on the blue warehouse?" --archive ref-footage
-```
-
-Cross-case match evidence persists to the **current** case (stamped
-`meta.archive`); the bucket holds the media, mirror, and DB artifacts. Because
-a bucket is a case-shaped folder, everything else works via
-`--case ~/.overcast/archive/<bucket>` (e.g. `case memory index rebuild` for a
-bucket's qmd index).
+**Full per-verb reference + every built-in source ref →
+[docs/verbs.md](docs/verbs.md).** The authoritative registry is
+`overcast commands --json`; `overcast <verb> --help` is a man page for any verb,
+and `overcast --help` shows the full surface + env vars.
 
 ---
 
-## Providers
+## Providers & configuration
 
-overcast binds verbs to backends through **providers** over one wire contract
-(the loose **record**). The `exec` transport (a command) is what ships today;
-`http` and `in-proc` are reserved in the binding shape but not yet wired. Rebind
-a verb with **no code changes**:
+Every verb runs over one provider contract, so you can rebind any sense to
+another backend — or your own script — with **no code changes**:
 
 ```bash
-overcast provider setup apply --verb see --choice fal --yes           # fal.ai Florence-2 caption/OCR (FAL_KEY)
-overcast provider setup apply --verb listen --choice elevenlabs --yes # ElevenLabs Scribe STT (ELEVENLABS_API_KEY)
-overcast setup memory qmd       # optional local semantic case search
-overcast case memory index rebuild --memory qmd --json
-overcast ask "where did we see the white van?" --deep --json
+overcast provider setup apply --verb see --choice fal --yes     # e.g. fal.ai for `see`
+overcast provider create myfeed --kind source                    # scaffold your own source
+overcast provider install ./myfeed --yes                         # register it — no fork
 ```
 
-Shipped provider scripts live in [`providers/`](providers) (sources / senses /
-engines), each dir carrying a **`provider.json` manifest**; the catalog + source
-registry are built by scanning those at runtime, and bindings reference the
-scripts as location-independent `shipped:<relpath>` refs resolved at run time, so
-profiles survive the install moving. **Add your own provider** by authoring a
-manifest package and installing it — no code changes, no fork:
+Shipped providers carry a `provider.json` manifest and are scanned at runtime;
+bindings reference scripts as location-independent `shipped:` refs, so profiles
+survive the install moving. A source package makes a new `scan`/`monitor` type; a
+sense package a new `--choice`.
 
-```bash
-overcast provider create myfeed --kind source   # scaffold a package (provider.json + script)
-overcast provider install ./myfeed --yes         # register it (→ installed: refs, catalog, doctor)
-overcast provider list --installed               # or remove / --upgrade
-```
-
-A source package makes a new `scan`/`monitor` type; a sense package a new
-`--choice`. For a throwaway backend, the un-manifested escape hatch (a bare
-script bound by raw `exec:` / `OVERCAST_SOURCE_<TYPE>_CMD`) still works — the
-teaching demos are in [`examples/providers/`](examples/providers). Full authoring
-guide + manifest schema: [`docs/providers.md`](docs/providers.md).
-
-Provider setup has two levels:
-
-- **Profile/global setup**: run once per machine/profile to choose reusable
-  backends. Use `provider setup plan` first, then `provider setup apply --yes`.
-- **Case setup**: per investigation, choose which configured provider outputs
-  are eligible for local memory/indexing and which senses should run
-  automatically on newly captured media.
-  Runtime execution follows the active profile binding; case setup records
-  provider policy/choice metadata and can clear built-ins such as
-  `enhance:ffmpeg`, but it does not pin an old exec command after the profile is
-  rebound.
-
-```bash
-# reusable profile setup
-overcast provider setup show --profile recon --json
-overcast provider setup plan --preset fal --profile recon --json
-overcast provider setup apply --preset fal --profile recon --yes --json
-overcast provider setup apply --verb listen --choice elevenlabs --profile recon --yes --json
-overcast provider init listen --profile recon --json
-overcast doctor --profile recon --json
-
-# per-case policy that uses the active profile
-overcast case setup edit \
-  --provider "listen:elevenlabs,see:owl-local" \
-  --provider-indexable "listen,see" \
-  --auto-sense "watch,listen" \
-  --auto-index-new \
-  --findings suggest \
-  --yes --json
-
-overcast monitor --once --json          # new media follows the setup automation policy
-overcast finding list --state triage --json   # queue auto-suggested leads (open + suggested)
-overcast finding accept <finding-id> --json    # promote a lead into ask/brief evidence
-overcast finding dismiss <finding-id> --json   # reject a lead (never re-suggested)
-```
-
-Findings default to `--findings suggest` (score/text triggers auto-emit
-`suggested` leads on every verb; tune the score floors with
-`case setup --findings-threshold face=75,similar=85,cluster=70,image_inliers=1`).
-`--findings review` is the legacy text-only mode; `--findings off` disables it.
-`finding list` alone shows only `open` findings — pass `--state triage` (or
-`--state suggested`) to see the auto-suggested leads.
-
-Use `overcast case setup edit --no-auto-index-new --yes --json` to turn off
-automatic indexing later without clearing the rest of the case automation
-policy.
-
-`scan --pull` and `monitor` share per-hit processing semantics: resolve
-`media.ref` or `payload.url`, capture when needed, run the explicit `--pipe` or
-setup automation/default watch, then classify the item as completed, pending,
-credential-blocked, or failed. Hits with no fetchable ref/url emit explicit
-errors in both commands. `monitor` marks hard failures seen after surfacing the
-error, while pending/credential gaps remain retryable.
-
-Catalog presets: `cloudglue`, `hf`, `fal`, `elevenlabs`, `owl-local`,
-`local-models`, `deepface-local`, `basic-clip`, `audio-fp`, `basic-clap`, and
-`voice-print`.
-Single choices use `--verb <watch|listen|see|face|similar|audio|voice|enhance|screenshot|reconstruct> --choice <id>`,
-such as `listen:elevenlabs`, `see:fal`, `see:hf`, `see:owl-local`,
-`face:deepface-local`, `similar:basic-clip`, `audio:audio-fp`, `voice:voice-print`,
-`enhance:ffmpeg`, `screenshot:playwright`, or `reconstruct:fal`.
-
-The local image DB is selected by local index type. Local face detection/matching
-can be selected as a profile provider with `face:deepface-local`, while the searchable
-local face DB is selected by the `deepface-local` index type. Create the uv-managed
-Python once, then create local indexes inside cases. `case setup --index` is for
-remote/default index creation today; use `index create --local` for visual DBs.
-
-```bash
-scripts/visual-db-uv.sh          # OpenCV/Numpy image matching
-scripts/visual-db-uv.sh --face   # plus DeepFace/TensorFlow face matching
-overcast doctor --json              # reports uv + visual-db readiness
-overcast provider setup apply --verb face --choice deepface-local --profile local --yes --json
-
-overcast index create logos --type image-ransac --local --json
-overcast index add ./logo.jpg --to logos --json
-overcast image match ./video.mp4 --index logos --fps 0.7 --draw --json
-
-overcast index create localfaces --type deepface-local --local --json
-overcast index add ./person.jpg --to localfaces --json
-overcast face ./video.mp4 --match ./person.jpg --index localfaces --fps 0.5 --max-frames 32 --json
-```
-
-Local-grep/qmd memory indexes ingest the resulting Overcast JSON records and
-human summaries, not binary media, embeddings, extracted frames, boxed crops, or
-match visualization images. Keep visual matching in the typed local indexes, and
-use notes/watch/listen/see summaries when you need text-searchable context.
-For video matching, omit both sampling flags for provider defaults, pass `--fps`
-for cadence, and add `--max-frames` when you want a hard cap.
-
-| class | verbs | shipped providers |
-|---|---|---|
-| **sense** | watch / listen / see / face / image / audio / voice / similar / cluster / enhance / reconstruct / exif / verify / screenshot (`chronolocate` is pure local solar math — no provider) | Cloudglue (default), the brain LLM (default `see`), local CLIP (`similar`), local CLAP (audio `similar`), local voice-print / wespeaker (`voice`), Hugging Face, fal.ai (see/enhance/`reconstruct`), ElevenLabs, ffmpeg, ExifTool (`exif`), c2patool (`verify`), headless Chromium / Playwright (`screenshot`), Nominatim (opt-in `exif --geocode`) |
-| **source** | scan / capture / monitor | youtube (yt-dlp), dl (any yt-dlp host), tiktok / x / instagram / telegram / lens / yandeximg / facesearch (Apify), web (Tavily/Brave), dork (Serper.dev — Google dorking), shodan (Shodan host recon), gdelttv (GDELT TV, no key), overpass (OpenStreetMap features, no key), firms (NASA FIRMS active fires), dispatch (Socrata police calls-for-service, no key), flights (OpenSky ADS-B), webcam (Windy Webcams), browser (headless Chromium page render), and the opt-in **identity** sources username / person / phone / property / plate (Apify — authorized use only) |
-| **memory** | ask / brief | `local-grep` case search (always on); optional lifecycle-managed qmd semantic search; typed tinycloud media indexes via `ask --index` |
-
-Built-in source refs:
-
-- `youtube:@handle` — enumerate a channel's videos (`youtube:shorts:@handle` / `youtube:streams:@handle` for those tabs; `--limit 0` = the whole channel/playlist).
-- `youtube:playlists:@handle` — enumerate a channel's playlists TAB: one hit per playlist, each carrying a `youtube:playlist:<id>` ref ready for `source add`.
-- `youtube:search:<query>` or `youtube:<keyword>` — YouTube keyword search.
-- `youtube:playlist:<id>` or `youtube:<full YouTube URL>` — enumerate a playlist/video URL. `scan … --pull --transcript` (or `capture <url> --transcript`) pulls captions + full metadata per video with NO video download (`--thumb` = thumbnail image; `--lang` picks the caption language).
-- `tiktok:@user` — enumerate a TikTok profile.
-- `tiktok:#tag` — enumerate a TikTok hashtag.
-- `x:@handle` — enumerate an X (Twitter) profile's posts.
-- `x:<query>` or `x:#tag` — X advanced search (`from:`, `filter:native_video`, `min_faves:`, …).
-- `x:video:<query>` / `x:image:<query>` — only X posts with native video / images (media targeting).
-- `web:<query>` — web search through Tavily, falling back to Brave when Tavily is unset.
-- `lens:<image url or local path>` — Google Lens reverse image search (Apify): exact + visual page matches for an image.
-- `yandeximg:<image url or local path>` — Yandex reverse image search (Apify) — the reverse-image twin of `lens`, strongest for faces/places; ships a working default actor (`OVERCAST_YANDEX_ACTOR` / `OVERCAST_YANDEX_IMAGE_KEY` to override).
-- `dl:<url>` — generic yt-dlp fetcher for any supported host (Rumble, BitChute, Odysee, VK, Bilibili, Vimeo, Dailymotion, Reddit, Facebook, …). A channel/playlist/user URL enumerates via yt-dlp flat-playlist so `scan`/`monitor` work; a single-video URL stays capture-only (`[]`), routing ad-hoc `capture <url>`.
-- `instagram:@handle` / `instagram:#tag` / `instagram:<post URL>` — Instagram posts & reels (Apify); `--since` honored server-side.
-- `telegram:<channel>` / `telegram:<t.me URL>` — public Telegram channel posts (Apify, no login); stable `t.me/<channel>/<id>` per-post URL for clean monitor dedup.
-- `gdelttv:"<query>"` — GDELT 2.0 TV API broadcast-news clips (**no key**) → bounded Internet-Archive `.mp4?start=…&end=…` segments; `--since` maps to the GDELT date window.
-- `overpass:key=value@around:<radius>,<lat>,<lng>` / `overpass:key=value@<south,west,north,east>` / raw OverpassQL — OpenStreetMap features via the Overpass API (**no key**); each element carries `payload.gps` so hits plot on `map`, and `media.ref` is the OSM element page.
-- `firms:<west,south,east,north>` — NASA FIRMS active-fire hotspots for a bbox (free `FIRMS_MAP_KEY`); `--since Nd` maps to dayrange 1–10; hits carry `payload.gps` + a FIRMS fire-map deep link.
-- `dispatch:sf` / `dispatch:seattle` / `dispatch:<domain>/<dataset>[@<datefield>]` — police CAD / calls-for-service feeds on the Socrata SODA API (**no key**; optional `SOCRATA_APP_TOKEN` raises rate limits): real-time dispatched 911 calls with auto-detected gps/call-type/id columns; hits carry `payload.gps` (→ `map`) and a stable per-row deep link, and the rolling real-time windows (SF ~48h) make it a strong `monitor --every` fit.
-- `flights:<west,south,east,north>` / `flights:<icao24>` / `flights:<callsign>` — live ADS-B aircraft positions via OpenSky (**anonymous works**; optional `OPENSKY_CLIENT_ID`/`OPENSKY_CLIENT_SECRET` OAuth2 raises rate limits); hits carry `payload.gps` so they plot on `map` and `monitor --every` builds a track.
-- `webcam:<lat>,<lng>[,radius]` / `webcam:country:<ISO2>` / `webcam:category:<slug>` / `webcam:<id>` — live public webcams (Windy Webcams API); each hit's `media.ref` is the current still, re-captured every `monitor` pass (`recapture`).
-- `facesearch:<image url or local path>` — **opt-in** reverse **face** search (Apify); ToS/privacy-gated, never a default source.
-- `dork:<google dork>` — Google dorking via Serper.dev: real Google SERPs that **honor operators** (`site:`, `filetype:`, `inurl:`, `intitle:`, `ext:`, `-term`, `OR`), unlike `web`. The result page is captured as evidence. **Authorized recon only**, never a default source.
-- `shodan:<search query>` / `shodan:<ip>` — host/service/banner intelligence via Shodan: search filters (`org:`, `net:`, `ssl:`, `product:`, `port:`, …) or a bare IP → full host lookup. Hits carry ip/port/org/product/cpe/vulns/geo; `media.ref` is the `shodan.io/host/<ip>` report page (`#<port>-<transport>` fragment so each service is distinct). Strong `monitor` fit. **Authorized recon only**, never a default source. **Opt-in (sensitive):** `OVERCAST_SHODAN_SCREENSHOTS=1` also materializes exposed-host screenshots (RDP/VNC/HTTP/camera → `see`/`face`/`crop`) and surfaces RTSP stream endpoints — real unwitting hosts, off by default.
-- `browser:<url>` — rendered-page capture via headless Chromium (Playwright optional dep, **no key**). Each `fetch` re-renders the page's current state to a PNG (`recapture` — `monitor --source browser --pull` becomes a page-watch that flows into image `auto_sense`). The one-shot counterpart is the `screenshot` verb. Private/loopback targets refused by default (`OVERCAST_ALLOW_PRIVATE_FETCH=1` to allow).
-
-**Identity / records sources** (Apify — `APIFY_TOKEN`; opt-in, live PII on real people, **authorized use only**, never a default source):
-
-- `username:<handle>` — social/forum **account discovery** via Maigret (accounts across 3000+ sites → profile URL + name/bio/avatar per hit). The username twin of `facesearch`.
-- `person:<Full Name>` (optional `@<location>`) — **people-search / skip-trace** via Apify (current + prior addresses, phones, emails, aliases, relatives, age). **Not an FCRA report** — no employment/credit/tenant use.
-- `phone:<E.164>` — reverse phone / **number OSINT** via PhoneInfoga (offline parse: carrier guess / country / validity + grouped web footprint).
-- `property:<street, city, ST zip>` — address → **county assessor / tax / recorder records** (owner, assessed/market value, tax + sale history).
-- `plate:<ST>:<plate>` — license plate → **vehicle spec** (VIN / year / make / model) via a **bound** actor. No default — US plate data is DPPA-restricted; set `OVERCAST_PLATE_ACTOR` (or `OVERCAST_SOURCE_PLATE_CMD`). **Vehicle spec only, not the owner.**
-
-### Profiles
-
-A **profile** is a named set of bindings — per-verb providers plus the brain LLM —
-persisted under `~/.overcast/profiles/` (`OVERCAST_HOME`). Build one by binding
-into it, then select it per command (or for the whole session):
-
-```bash
-# build / extend a profile named "fal"
-overcast provider setup apply --verb see --choice fal --yes --profile fal        # catalog choice → shipped: ref
-overcast setup provider watch "exec:bash examples/providers/bash/watch.sh {{input}}" --profile fal  # raw bind (your own script)
-overcast setup llm anthropic claude-sonnet-4-6 --profile fal
-
-# use it: per command …
-overcast see ./img.jpg --json --profile fal
-# … or for the session
-OVERCAST_PROFILE=fal overcast see ./img.jpg --json
-
-overcast setup show --profile fal     # inspect a profile's bindings
-```
-
-The default profile is `default`. Point `--home <dir>` at a different store to
-keep profiles per-case or per-project. To build ready-made presets (e.g. `fal`,
-`cloudglue`, `recon`) from the bundled providers:
-
-```bash
-bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profile <name>
-```
+- **Bind backends, profiles, findings tuning, local visual/audio/voice DBs, and
+  the full environment-variable surface** → **[docs/configuration.md](docs/configuration.md)**
+- **Author your own provider** (manifest schema, `provider install`) →
+  **[docs/providers.md](docs/providers.md)**
 
 ---
 
-## Environment variables
+## Documentation
 
-`overcast --help` prints the full, current list. Highlights:
+| Doc | What's in it |
+| --- | --- |
+| [docs/field-manual.md](docs/field-manual.md) | **Field Manual** — the operational playbook: the quickstart cookbook + end-to-end investigation flows (scan → capture → sense → ask/brief), the live control room, and the case memory model. |
+| [docs/verbs.md](docs/verbs.md) | Verb & source reference — every verb and built-in source ref. |
+| [docs/configuration.md](docs/configuration.md) | Binding backends, the profile system, findings tuning, local DBs, and environment variables. |
+| [docs/providers.md](docs/providers.md) | Authoring your own provider — manifests, `provider install`, the binding model. |
+| [RESPONSIBLE_USE.md](RESPONSIBLE_USE.md) | Dual-use / acceptable-use policy and per-source legal constraints. |
+| [SECURITY.md](SECURITY.md) | Trust model and vulnerability disclosure. |
+| [CLAUDE.md](CLAUDE.md) | Architecture guide (written for agents, accurate for humans) — invariants, stack, verb surface. |
 
-**Default perception (tinycloud / Cloudglue)**
-- `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)
-- `CLOUDGLUE_BASE_URL` — endpoint (default `https://api.cloudglue.dev`)
-- `TINYCLOUD_HTTP_RETRIES`, `TINYCLOUD_MODEL_RETRIES`, `TINYCLOUD_UPLOAD_IDLE_TIMEOUT_MS`, `TINYCLOUD_JOB_WAIT_TIMEOUT_MS` — tinycloud 0.3.7 Cloudglue retry/upload/job-wait knobs (HTTP + model retries default 5) inherited by overcast's default providers
-- `OVERCAST_QMD_CMD`, `OVERCAST_QMD_MODEL` — optional qmd case-search command/model (`embeddinggemma-300M-Q8_0` by default; install with `npm install -g @tobilu/qmd`, then rebuild before querying qmd)
-
-**Opt-in sense providers** (bind via `setup provider <verb> <spec>`)
-- `HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` — fallback `see` captioner (when the brain LLM has no vision) + `enhance`; `HF_SEE_MODEL` (default `google/gemma-3-27b-it`), `HF_ENHANCE_IMAGE_MODEL` / `HF_ENHANCE_AUDIO_MODEL` / `HF_ENHANCE_ENDPOINT`. `see` defaults to the brain LLM when it's image-capable — `OVERCAST_SEE_BRAIN=off` (or `setup provider see builtin:hf`) forces this HF captioner instead. Also gates the **local** `enhance --ops separate` (pyannote diarization): its model is a **gated** HF repo — set `HF_TOKEN` **and** accept the license at <https://huggingface.co/pyannote/speaker-diarization-community-1> ("Agree and access repository") once before first use.
-- `FAL_KEY` (or `FAL_API_KEY`) — `see` (florence-2), `enhance` image (esrgan) / audio (deepfilternet3), plus the split ops `enhance --ops separate` (sam-audio) / `--ops segment` (sam-3); `FAL_SEE_MODEL`, `FAL_ENHANCE_IMAGE_MODEL`, `FAL_ENHANCE_AUDIO_MODEL`, `FAL_SEPARATE_MODEL`, `FAL_SEGMENT_MODEL`
-- `OC_VISUAL_DB_PY` — the **local-models** `enhance` toolbox: on-device `--ops separate` (pyannote, gated — see `HF_TOKEN`) and `--ops segment` (GroundingDINO + SAM 2.1, ungated); set up with `scripts/visual-db-uv.sh --enhance`
-- `OVERCAST_VOICE_MODEL` / `OC_VOICE_DEVICE` — the `voice` speaker-verification DB (default `pyannote/wespeaker-voxceleb-resnet34-LM`, **ungated**, CC-BY-4.0; device `cpu`). The model is pinned per voice-print index at create time. Only `voice match --diarize` needs `HF_TOKEN` + the accepted pyannote license (same gate as `enhance --ops separate`); everything else runs token-free. Set up with `scripts/visual-db-uv.sh --voice`
-- `ELEVENLABS_API_KEY` (or `XI_API_KEY`) — `listen` (Scribe STT) + `enhance` audio (voice isolation); `ELEVENLABS_STT_MODEL` (default `scribe_v1`)
-
-**OSINT sources**
-- `TAVILY_API_KEY` (preferred) / `BRAVE_API_KEY` — the `web` search source
-- `SERPER_API_KEY` — the `dork` source (Google dorking via Serper.dev — real Google SERPs that honor operators). Authorized recon only
-- `SHODAN_API_KEY` — the `shodan` source (host/service/banner intelligence). Authorized recon only
-- `FIRMS_MAP_KEY` — the `firms` active-fire source (free NASA FIRMS map key)
-- `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` — optional OAuth2 for the `flights` ADS-B source (anonymous access works; creds raise rate limits)
-- `APIFY_TOKEN` — the `tiktok`, `x`, `instagram`, `telegram`, `lens`, `yandeximg`, `facesearch` sources AND the opt-in identity sources `username`/`person`/`phone`/`property`/`plate` (enumerate; fetch uses yt-dlp / direct CDN). Actor overrides: `OVERCAST_X_ACTOR`, `OVERCAST_INSTAGRAM_ACTOR`, `OVERCAST_TELEGRAM_ACTOR`, `OVERCAST_LENS_ACTOR`, `OVERCAST_YANDEX_ACTOR` (+ `OVERCAST_YANDEX_IMAGE_KEY`), `OVERCAST_FACE_SEARCH_ACTOR`, `OVERCAST_MAIGRET_ACTOR`, `OVERCAST_PERSON_ACTOR`, `OVERCAST_PHONE_ACTOR`, `OVERCAST_PROPERTY_ACTOR`
-- `OVERCAST_PLATE_ACTOR` — **required** for the `plate` source (no default — US plate data is DPPA-restricted; bind an Apify actor, or use `OVERCAST_SOURCE_PLATE_CMD` for a direct plate API). Vehicle spec only, not the owner
-- `WINDY_API_KEY` — the `webcam` source (Windy Webcams API; free tier covers scan + still capture + monitor). Base override: `OVERCAST_WEBCAM_API`
-- `gdelttv`, `overpass`, `dispatch`, and `browser` need **no key** (`dispatch` optionally takes a `SOCRATA_APP_TOKEN` to raise rate limits)
-- `youtube` and `dl` need `yt-dlp` on `PATH` (no key)
-- `OVERCAST_SOURCE_<TYPE>_CMD` — one-off override for a source provider command (to *add* a persistent source type, author a `provider.json` package + `provider install`)
-
-**Runtime / session** — `OVERCAST_HOME` (profiles, default `~/.overcast`),
-`OVERCAST_CASE` / `OVERCAST_PROFILE` (set by the launcher from `--case` / `--profile`),
-`OVERCAST_MEDIA_DIR` (set by overcast for exec providers), `OVERCAST_PI_ONLINE`.
-
-**Man in the chair** — `OVERCAST_CHAIR=1` auto-starts the remote bridge on TUI
-launch (same as `--chair`); `OVERCAST_CHAIR_BIND` (default `127.0.0.1` — keep it
-off public interfaces; `/chair on tailnet` binds your Tailscale address) /
-`OVERCAST_CHAIR_PORT` (default `7373`); `OVERCAST_CHAIR_TOKEN` pins the pairing
-token (default: a fresh random token every `/chair on`); `OVERCAST_CHAIR_URL`
-sets the public HTTPS origin the QR points at (same as `/chair on --url`, for
-voice over a reverse proxy); `OVERCAST_TAILSCALE_CMD` overrides the `tailscale`
-invocation used by `--serve` / auto-detect (custom path or offline tests).
-
-**Situation** — `OVERCAST_SITUATION=1` auto-starts the live monitoring page on TUI
-launch (same as `--situation`); `OVERCAST_SITUATION_BIND` (default `127.0.0.1` —
-keep it off public interfaces) / `OVERCAST_SITUATION_PORT` (default `7374`);
-`OVERCAST_SITUATION_TOKEN` pins the pairing token (default: a fresh random token per
-serve); `OVERCAST_SITUATION_URL` sets the explicit public origin its QR points at;
-`OVERCAST_SITUATION_MAX_PASSES` caps `situation --every` monitor passes
-(testing/scheduling). Remote (scraped) thumbnails/video embed in the page only when
-`OVERCAST_REPORT_REMOTE_MEDIA=1` (off = no IP beacon to the investigated host).
-
-**Visual DBs** — `OC_VISUAL_DB_PY` / `OVERCAST_VISUAL_DB_PY`
-override the Python used by local `image-ransac` and `deepface-local` indexes. If
-unset, overcast auto-detects `.dev/visual-db-py/bin/python` created by
-`scripts/visual-db-uv.sh`, then falls back to `python3`.
-
-**Brain LLM** — BYO via pi-ai: *any* pi-ai provider key works
-(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …). Cloudglue is also a
-pickable brain in `/model` when its key is set — never forced.
+Authoritative, always-current: `overcast commands --json` (the verb registry),
+`overcast <verb> --help` (a man page), `overcast doctor` (what's installed).
 
 ---
 

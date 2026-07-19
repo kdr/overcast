@@ -98,6 +98,7 @@ jobs:
         with:
           files: .dev/*.vsix
           fail_on_unmatched_files: true
+          generate_release_notes: true
       - name: Upload the .vsix as a workflow artifact (manual run)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
@@ -144,6 +145,7 @@ jobs:
         with:
           files: dist/release/*.tar.gz
           fail_on_unmatched_files: true
+          generate_release_notes: true
       - name: Upload binaries as workflow artifacts (manual run)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
