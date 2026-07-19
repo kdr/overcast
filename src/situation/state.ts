@@ -176,19 +176,41 @@ export function parsePanels(raw: string | undefined): SituationPanel[] | undefin
  *  interleaving would be the worse trade. A lock left by a killed process is
  *  stolen once it goes stale. */
 const LOCK_STALE_MS = 5_000;
-const LOCK_WAIT_MS = 2_000;
+/** Writers are short CLI/agent calls; the critical section is a parse + atomic
+ *  write of a tiny file (sub-millisecond), so a contended writer realistically
+ *  waits one sleep. The budget only bounds the pathological case. */
+const LOCK_WAIT_MS = 250;
+const LOCK_POLL_MS = 5;
 
 function sleepSync(ms: number): void {
   // no sync sleep in Node; wait on a private SharedArrayBuffer nobody notifies
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function withControlLock<T>(c: Case, fn: () => T): T {
+/** Acquire, run, release. `waitMs: 0` makes it a SINGLE non-blocking attempt.
+ *
+ *  `Atomics.wait` parks the whole thread, so any waiting here freezes the event
+ *  loop of whatever process is calling — including the situation server, where a
+ *  stall would take /media and SSE down with it. So the server's take never
+ *  waits (see takeControl): it retries on its own poll tick, which is what a
+ *  polling loop is for. Only short-lived writer calls wait at all, and only
+ *  briefly.
+ *
+ *  `ifBusy` decides what a failed acquisition means. Writers PROCEED: dropping
+ *  an operator's command to avoid a rare interleaving is the worse trade. The
+ *  server SKIPS: the control stays pending and the next tick claims it. */
+function withControlLock<T>(
+  c: Case,
+  fn: () => T,
+  opts: { waitMs?: number; ifBusy?: "proceed" | "skip" } = {},
+): T | undefined {
+  const waitMs = opts.waitMs ?? LOCK_WAIT_MS;
+  const ifBusy = opts.ifBusy ?? "proceed";
   const lock = `${controlFile(c)}.lock`;
   mkdirSync(situationDir(c), { recursive: true });
-  const deadline = Date.now() + LOCK_WAIT_MS;
+  const deadline = Date.now() + waitMs;
   let held = false;
-  while (Date.now() < deadline) {
+  for (;;) {
     try {
       closeSync(openSync(lock, "wx")); // atomic create = acquire
       held = true;
@@ -196,13 +218,18 @@ function withControlLock<T>(c: Case, fn: () => T): T {
     } catch {
       try {
         // a holder that died leaves the file behind; steal it once it's stale
-        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) rmSync(lock, { force: true });
-        else sleepSync(10);
+        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) {
+          rmSync(lock, { force: true });
+          continue;
+        }
       } catch {
-        /* vanished under us — loop and try to acquire */
+        continue; // vanished under us — try to acquire
       }
+      if (Date.now() >= deadline) break;
+      sleepSync(LOCK_POLL_MS);
     }
   }
+  if (!held && ifBusy === "skip") return undefined;
   try {
     return fn();
   } finally {
@@ -223,7 +250,9 @@ function withControlLock<T>(c: Case, fn: () => T): T {
  *  (so the re-set wins) — the server can then apply clears before assignments
  *  without reordering the operator's intent. */
 export function writeControl(c: Case, patch: SituationControl): SituationControl {
-  return withControlLock(c, () => writeControlLocked(c, patch));
+  // a writer must never come away having done nothing — ifBusy defaults to
+  // "proceed", so the non-undefined return is guaranteed
+  return withControlLock(c, () => writeControlLocked(c, patch)) as SituationControl;
 }
 
 function writeControlLocked(c: Case, patch: SituationControl): SituationControl {
@@ -273,7 +302,10 @@ export function readControl(c: Case): SituationControl | undefined {
  *  next line, so that window is negligible — and losing a control to a crash is
  *  strictly better than deleting a live one the server never looked at. */
 export function takeControl(c: Case): SituationControl | undefined {
-  return withControlLock(c, () => takeControlLocked(c));
+  // NEVER wait: this runs on the situation server's poll tick, and blocking here
+  // would stall /media and SSE for the whole process. A contended tick simply
+  // finds the control still pending ~2s later.
+  return withControlLock(c, () => takeControlLocked(c), { waitMs: 0, ifBusy: "skip" });
 }
 
 function takeControlLocked(c: Case): SituationControl | undefined {

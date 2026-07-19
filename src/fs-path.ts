@@ -27,35 +27,42 @@ function inodeIdentityReliable(): boolean {
   return process.platform !== "win32";
 }
 
-/** Open `target` for reading and prove the OPEN DESCRIPTOR is the file that
- *  passed containment. `realpathContained` validates a path STRING; anything the
- *  caller then does with that string re-resolves it, so a symlink swapped in
- *  between lands on a different inode (TOCTOU) — the containment check says yes
- *  about one file while the server streams another.
+/** Open `target` for reading and return a descriptor proven to be a file inside
+ *  `root`. `realpathContained` validates a path STRING; anything the caller then
+ *  does with that string re-resolves it, so a symlink swapped in between lands
+ *  on a different inode (TOCTOU) — containment says yes about one file while the
+ *  server streams another.
  *
- *  Opening first and matching the resolved path's dev+ino against the
- *  descriptor's closes the window from both sides: a swap BEFORE the open is
- *  caught by containment (which now runs against the new resolved path), and a
- *  swap AFTER it by the inode mismatch. Everything downstream must use the fd,
- *  never the path — handing the path back would reopen the race.
+ *  Two layers, because neither is sufficient alone:
  *
- *  Returns undefined for anything unreadable, not a regular file, or outside
- *  root. The caller owns closing the fd. */
+ *  1. Resolve FIRST, then open the RESOLVED path. `realpathSync` output contains
+ *     no symlinks, so the open cannot be redirected by swapping the caller's
+ *     path or any link along it. This is the layer that carries platforms where
+ *     inode identity is unusable.
+ *  2. On POSIX, confirm the descriptor is the file that path still names, via
+ *     dev+ino. That catches a component swapped in the remaining window between
+ *     the resolve and the open.
+ *
+ *  Windows is deliberately layer 1 only: Node fills dev/ino there from a
+ *  different source per call and can report 0 or a disagreeing pair for an
+ *  UNCHANGED file, so enforcing it would 404 every asset rather than catch
+ *  anything. The residual exposure is a directory component replaced by a
+ *  junction inside that narrow window, which needs write access within the root
+ *  already — strictly better than the path-string check this replaced, and the
+ *  best Node's API supports there.
+ *
+ *  Everything downstream must use the fd, never the path — handing the path back
+ *  would reopen the race. Returns undefined for anything unreadable, not a
+ *  regular file, or outside root. The caller owns closing the fd. */
 export function openContainedFile(root: string, target: string): number | undefined {
   let fd: number | undefined;
   try {
-    fd = openSync(target, "r");
-    const opened = fstatSync(fd);
-    if (!opened.isFile()) throw new Error("not a regular file");
     const realRoot = realpathSync(root);
     const real = realpathSync(target);
-    if (real !== realRoot && !real.startsWith(realRoot + sep)) throw new Error("outside root");
-    // Identity check only where inode identity is meaningful. POSIX dev+ino
-    // uniquely names the file, so a mismatch proves a swap. Windows reports
-    // these from a different source per call and can hand back 0 or a
-    // disagreeing pair for an UNCHANGED file — enforcing it there would 404
-    // every static asset and /media response. Fall back to the realpath
-    // containment above, which is what this guarded before the fd was added.
+    if (real !== realRoot && !real.startsWith(realRoot + sep)) return undefined;
+    fd = openSync(real, "r"); // the resolved path — no links left to swap
+    const opened = fstatSync(fd);
+    if (!opened.isFile()) throw new Error("not a regular file");
     if (inodeIdentityReliable()) {
       const resolved = statSync(real);
       if (resolved.dev !== opened.dev || resolved.ino !== opened.ino) {

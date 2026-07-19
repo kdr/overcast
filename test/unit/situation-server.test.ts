@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, openSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -148,6 +148,34 @@ test("situation control: takeControl claims atomically — a set racing the take
     writeFileSync(controlFile(c), "{not json", "utf8");
     assert.equal(takeControl(c), undefined, "corrupt control ignored");
     assert.equal(readControl(c), undefined, "and cleared, so it can't loop forever");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation control: a contended take never blocks the server's event loop", () => {
+  // withControlLock waits via Atomics.wait, which parks the whole thread — on
+  // the situation server that would stall /media and SSE. The server's take must
+  // therefore never wait: it skips and retries on the next poll tick.
+  const { dir, c } = tmpCase();
+  try {
+    writeControl(c, { limit: 7 });
+    const lock = `${controlFile(c)}.lock`;
+    closeSync(openSync(lock, "wx")); // stand in for another process holding it
+
+    const t0 = Date.now();
+    const taken = takeControl(c);
+    const elapsed = Date.now() - t0;
+    assert.equal(taken, undefined, "a contended take yields rather than waiting");
+    assert.ok(elapsed < 50, `take blocked for ${elapsed}ms`);
+    assert.deepEqual(readControl(c), { limit: 7 }, "control stays pending for the next tick — not lost");
+
+    // a WRITER, by contrast, must not come away having dropped the command
+    const wrote = writeControl(c, { theme: "plain" });
+    assert.deepEqual(wrote, { limit: 7, theme: "plain" }, "writer still lands its patch");
+
+    rmSync(lock, { force: true });
+    assert.deepEqual(takeControl(c), { limit: 7, theme: "plain" }, "take works once the lock frees");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
