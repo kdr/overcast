@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCase } from "../../src/case.ts";
 import { SituationServer, parseRange } from "../../src/situation/server.ts";
-import { writeControl, readControl, clearStaleStop, readRuntime, writeRuntime, clearRuntime, runtimeAlive } from "../../src/situation/state.ts";
+import { writeControl, readControl, takeControl, controlFile, situationDir, clearStaleStop, readRuntime, writeRuntime, clearRuntime, runtimeAlive } from "../../src/situation/state.ts";
 
 function tmpCase() {
   const dir = mkdtempSync(join(tmpdir(), "oc-situation-"));
@@ -118,6 +118,33 @@ test("situation server: tick() applies control.json and fires onStopRequested on
     assert.equal(stopReason, "control");
   } finally {
     await s.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation control: takeControl claims atomically — a set racing the take is never consumed unseen", () => {
+  const { dir, c } = tmpCase();
+  try {
+    writeControl(c, { limit: 4, source: "web" });
+    // the take returns the pending control AND leaves nothing behind
+    assert.deepEqual(takeControl(c), { limit: 4, source: "web" });
+    assert.equal(readControl(c), undefined, "control consumed by the take");
+    assert.equal(takeControl(c), undefined, "nothing pending is not an error");
+
+    // THE RACE: a `situation set` landing after a take must survive for the next
+    // tick. The old stat-mtime-then-unlink consume could delete this one having
+    // never applied it — the operator's command vanishing with no error.
+    takeControl(c);
+    writeControl(c, { theme: "plain" });
+    assert.deepEqual(readControl(c)?.control, { theme: "plain" }, "post-take write still pending");
+    assert.deepEqual(takeControl(c), { theme: "plain" }, "and is delivered whole on the next take");
+
+    // a corrupt/truncated control is dropped rather than wedging the tick loop
+    mkdirSync(situationDir(c), { recursive: true });
+    writeFileSync(controlFile(c), "{not json", "utf8");
+    assert.equal(takeControl(c), undefined, "corrupt control ignored");
+    assert.equal(readControl(c), undefined, "and cleared, so it can't loop forever");
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

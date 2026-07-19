@@ -29,7 +29,7 @@ import { listSources } from "../state/source.js";
 import { openContainedFile, realpathContained } from "../fs-path.js";
 import type { Case } from "../case.js";
 import { buildSituationModel, type SituationMediaRef, type SituationModel } from "./model.js";
-import { consumeControl, readControl, type SituationConfig, type SituationControl } from "./state.js";
+import { takeControl, type SituationConfig, type SituationControl } from "./state.js";
 import type { SituationSnapshot, SituationWireEvent } from "./wire.js";
 
 type SituationEventInput = SituationWireEvent extends infer E
@@ -138,11 +138,13 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
    *  retune/stop from the agent/CLI/chair lands within a couple seconds. */
   private async applyControlTick(): Promise<void> {
     if (this.stopRequested) return;
-    const ctl = readControl(this.case);
-    if (!ctl) return;
-    const { stop, ...patch } = ctl.control;
+    // take-then-apply: the control is claimed atomically, so a `situation set`
+    // racing this tick lands a NEW control.json for the next one rather than
+    // being deleted unapplied
+    const control = takeControl(this.case);
+    if (!control) return;
+    const { stop, ...patch } = control;
     this.applyConfig(patch);
-    consumeControl(this.case, ctl.mtimeMs);
     if (stop === true) {
       this.stopRequested = true;
       this.announceStopping("stop requested via situation stop");

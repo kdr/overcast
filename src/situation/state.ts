@@ -11,7 +11,7 @@
 //     replace, merging any not-yet-consumed control), consumed by the server on
 //     its next poll tick (~2s). `stop: true` shuts the server down gracefully.
 
-import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
+import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { writeFileAtomic } from "../fs-atomic.js";
@@ -197,17 +197,39 @@ export function readControl(c: Case): { control: SituationControl; mtimeMs: numb
   }
 }
 
-/** Consume (delete) the control file the server just applied — but only when
- *  its mtime still matches what was read, so a `situation set` racing the
- *  consume isn't silently dropped (it survives to the next tick). */
-export function consumeControl(c: Case, mtimeMs: number): void {
+/** TAKE the pending control: claim it and return it in ONE atomic step.
+ *
+ *  The old read → apply → `statSync` → `rmSync` shape could not be made safe. A
+ *  `situation set`/`stop` landing between the mtime check and the unlink was
+ *  deleted having never been applied — the operator's command vanished with no
+ *  error, which is the worst failure mode this control plane has. Narrowing the
+ *  window (dropping the existsSync, pairing mtime+body off one descriptor) makes
+ *  it rarer, not correct.
+ *
+ *  `rename(2)` is atomic: this either moves the current control.json aside or
+ *  fails because there is nothing pending. A writer that lands a microsecond
+ *  later publishes a NEW control.json (writeControl is itself an atomic rename),
+ *  which the next tick takes. No update can be consumed unseen.
+ *
+ *  Trade-off, deliberately: a crash between the take and applyConfig loses that
+ *  one control instead of replaying it. Apply is an in-memory call on the very
+ *  next line, so that window is negligible — and losing a control to a crash is
+ *  strictly better than deleting a live one the server never looked at. */
+export function takeControl(c: Case): SituationControl | undefined {
   const file = controlFile(c);
+  const taken = `${file}.taken`;
   try {
-    // no existsSync pre-check — a missing file throws ENOENT into the catch below,
-    // which is the same outcome without the check-then-use race
-    if (statSync(file).mtimeMs === mtimeMs) rmSync(file, { force: true });
+    renameSync(file, taken); // atomic claim; ENOENT = nothing pending
   } catch {
-    /* another writer landed mid-consume — leave it for the next tick */
+    return undefined;
+  }
+  try {
+    return JSON.parse(readFileSync(taken, "utf8")) as SituationControl;
+  } catch {
+    return undefined; // corrupt/truncated — dropped along with the file
+  } finally {
+    // a crash before this leaves one stale .taken; the next rename replaces it
+    rmSync(taken, { force: true });
   }
 }
 
