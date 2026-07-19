@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -211,6 +211,45 @@ test("situation control: an unreadable patch waits; a corrupt one is dropped", (
   }
 });
 
+test("situation control: an unreadable patch HOLDS the ones behind it (order)", () => {
+  // patches are an ordered log. Skipping an unreadable one and applying a later
+  // one would replay the skipped patch on the NEXT tick, after the later one
+  // already landed — an old assignment silently undoing a newer clear.
+  const { dir, c } = tmpCase();
+  const cdir = join(situationDir(c), "control.d");
+  let blocked: string | undefined;
+  try {
+    writeControl(c, { source: "web" });
+    blocked = readdirSync(cdir)[0] && join(cdir, readdirSync(cdir)[0]);
+    chmodSync(blocked as string, 0o000); // stand in for a transient read failure
+    writeControl(c, { clear: ["source"] }); // the NEWER intent, behind the block
+
+    assert.equal(takeControl(c), undefined, "nothing is applied past the blocked patch");
+    assert.equal(readdirSync(cdir).length, 2, "both patches still pending, in order");
+
+    chmodSync(blocked as string, 0o600); // the transient failure clears
+    assert.deepEqual(takeControl(c), { clear: ["source"] }, "now both apply, in the right order");
+    assert.equal(readdirSync(cdir).length, 0, "drained");
+  } finally {
+    if (blocked) { try { chmodSync(blocked, 0o600); } catch { /* gone */ } }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation control: writeControl's return always includes the caller's own patch", () => {
+  // the return is what `situation set` shows the operator; a concurrent drain
+  // must not make it report a control that omits the update just made
+  const { dir, c } = tmpCase();
+  try {
+    assert.deepEqual(writeControl(c, { limit: 4 }), { limit: 4 });
+    assert.deepEqual(writeControl(c, { theme: "plain" }), { limit: 4, theme: "plain" }, "folded onto pending");
+    takeControl(c); // the server drains everything
+    assert.deepEqual(writeControl(c, { source: "web" }), { source: "web" }, "still reports the caller's patch");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("situation control: concurrent writeControl across PROCESSES loses no update", async () => {
   // writeControl is a read-modify-write, so two `situation set`s racing from
   // different processes (the agent and a CLI in another terminal) could both
@@ -367,14 +406,18 @@ test("situation state: clearStaleStop keeps a patch it could not read", () => {
   try {
     writeControl(c, { stop: true });
     const cdir = join(situationDir(c), "control.d");
-    // a patch that cannot be parsed stands in for one that cannot be read
+    // genuinely UNREADABLE, not merely corrupt — a corrupt patch carries no
+    // content and is consumed, while an unreadable one may be a real command
     const unread = join(cdir, "999999999999999-000001-0-unreadable.json");
-    writeFileSync(unread, "{not json", "utf8");
-
-    clearStaleStop(c);
-
-    assert.ok(existsSync(unread), "the unread patch survived the stale-stop sweep");
-    assert.equal(readdirSync(cdir).length, 1, "only the consumed stop patch was removed");
+    writeFileSync(unread, JSON.stringify({ theme: "plain" }), "utf8");
+    chmodSync(unread, 0o000);
+    try {
+      clearStaleStop(c);
+      assert.ok(existsSync(unread), "the unread patch survived the stale-stop sweep");
+      assert.equal(readdirSync(cdir).length, 1, "only the consumed stop patch was removed");
+    } finally {
+      chmodSync(unread, 0o600);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

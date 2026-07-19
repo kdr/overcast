@@ -238,10 +238,49 @@ function pendingPatchFiles(c: Case): string[] {
   return out;
 }
 
+/** Fold pending patches IN ORDER, and report which files were consumed.
+ *
+ *  Read failure STOPS the fold rather than skipping past it. The patches are an
+ *  ordered log: applying a later one while an earlier one stays pending would
+ *  replay the earlier patch on the NEXT tick, after the later one already
+ *  landed — an old assignment silently undoing a newer clear. Stopping keeps
+ *  the suffix pending as a unit, so order survives.
+ *
+ *  A patch that reads but does not PARSE is consumed and dropped: it carries no
+ *  content, so skipping it cannot reorder anything, and leaving it would wedge
+ *  the queue forever.
+ *
+ *  Deliberate consequence: a patch that can never be read blocks the ones behind
+ *  it. That is visible (the page stops following commands) and preferable to
+ *  applying operator intent out of order, which would be silent. */
+function foldPending(files: string[]): { control?: SituationControl; consumed: string[] } {
+  let control: SituationControl | undefined;
+  const consumed: string[] = [];
+  for (const file of files) {
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      break; // ordered log — stop here, do not skip ahead
+    }
+    consumed.push(file);
+    try {
+      control = foldControl(control ?? {}, JSON.parse(raw) as SituationControl);
+    } catch {
+      /* corrupt: consumed and dropped; no content, so no reordering */
+    }
+  }
+  return { control, consumed };
+}
+
 /** Append ONE patch. No read-modify-write, so concurrent writers cannot lose
  *  each other's updates and nothing needs to be locked. Returns the resulting
  *  pending state for the caller's display. */
 export function writeControl(c: Case, patch: SituationControl): SituationControl {
+  // Snapshot BEFORE appending. Peeking afterwards would let a concurrent take
+  // drain our own file first, so the value handed back to `situation set` could
+  // omit the very update it just made — misreporting to an operator or agent.
+  const before = readControl(c);
   mkdirSync(controlDir(c), { recursive: true });
   // Name sorts by write order. The millisecond alone is NOT enough — two sets
   // in the same tick would then be ordered by the random suffix, silently
@@ -255,21 +294,13 @@ export function writeControl(c: Case, patch: SituationControl): SituationControl
     randomBytes(4).toString("hex"),
   ].join("-") + ".json";
   writeFileAtomic(join(controlDir(c), name), JSON.stringify(patch, null, 2) + "\n");
-  return readControl(c) ?? patch;
+  return foldControl(before ?? {}, patch);
 }
 
 /** Non-destructive PEEK at the pending state (the verb's display, the
  *  extension's stop check). The server's apply path uses takeControl. */
 export function readControl(c: Case): SituationControl | undefined {
-  let pending: SituationControl | undefined;
-  for (const file of pendingPatchFiles(c)) {
-    try {
-      pending = foldControl(pending ?? {}, JSON.parse(readFileSync(file, "utf8")) as SituationControl);
-    } catch {
-      /* unreadable or corrupt — takeControl decides its fate, a peek doesn't */
-    }
-  }
-  return pending;
+  return foldPending(pendingPatchFiles(c)).control;
 }
 
 /** TAKE the pending control: fold every pending patch and remove the files that
@@ -282,26 +313,15 @@ export function readControl(c: Case): SituationControl | undefined {
  *  harmless: applying a config patch twice is idempotent, and replaying beats
  *  dropping. */
 export function takeControl(c: Case): SituationControl | undefined {
-  let pending: SituationControl | undefined;
-  for (const file of pendingPatchFiles(c)) {
-    let raw: string;
-    try {
-      raw = readFileSync(file, "utf8");
-    } catch {
-      continue; // transient — leave it for the next tick
-    }
-    try {
-      pending = foldControl(pending ?? {}, JSON.parse(raw) as SituationControl);
-    } catch {
-      /* corrupt — fall through and delete so it can't block every future tick */
-    }
+  const { control, consumed } = foldPending(pendingPatchFiles(c));
+  for (const file of consumed) {
     try {
       rmSync(file, { force: true });
     } catch {
       /* left behind; a re-read replays an idempotent patch */
     }
   }
-  return pending;
+  return control;
 }
 
 /** Before a FRESH serve binds, drop a stale `stop: true` still pending: it's
@@ -313,25 +333,13 @@ export function takeControl(c: Case): SituationControl | undefined {
  *  concurrently is left untouched rather than swept up — the same rule the take
  *  follows. Runs once, before the server binds. */
 export function clearStaleStop(c: Case): void {
-  // Track exactly which files were READ. Deleting the whole listing would
-  // discard a patch that failed to read — an operator command thrown away
-  // without ever being looked at, which is the rule the take follows and this
-  // must too. An unread patch simply survives to the first tick.
-  const read: string[] = [];
-  let pending: SituationControl | undefined;
-  for (const file of pendingPatchFiles(c)) {
-    try {
-      const patch = JSON.parse(readFileSync(file, "utf8")) as SituationControl;
-      pending = foldControl(pending ?? {}, patch);
-      read.push(file);
-    } catch {
-      /* unreadable or corrupt — leave it; the first take decides its fate */
-    }
-  }
-  if (!pending || pending.stop !== true) return;
-  const { stop: _stop, ...rest } = pending;
+  // deletes exactly what it CONSUMED — an unread patch is a command nobody has
+  // looked at, so sweeping it up would discard it silently
+  const { control, consumed } = foldPending(pendingPatchFiles(c));
+  if (!control || control.stop !== true) return;
+  const { stop: _stop, ...rest } = control;
   try {
-    for (const file of read) rmSync(file, { force: true });
+    for (const file of consumed) rmSync(file, { force: true });
     if (Object.keys(rest).length > 0) writeControl(c, rest);
   } catch {
     /* best-effort; the server also ignores a stop it can't attribute */
