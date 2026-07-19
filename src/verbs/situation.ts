@@ -209,7 +209,7 @@ export const situationVerb: VerbSpec = {
             running,
             ...(blocked ? { blocked: true } : {}),
             note: blocked
-              ? "queued, but an earlier control patch cannot be read — nothing applies until it is removed or repaired (see .overcast/situation/control.d)"
+              ? "queued, but an earlier control patch cannot be read — THIS command sits behind it and will not apply until that patch is removed or repaired (earlier readable ones still apply; see .overcast/situation/control.d)"
               : running
                 ? `applied by the live page within ~2s (${rt!.displayUrl})`
                 : "no situation is running — the control applies when one starts",
@@ -543,7 +543,7 @@ async function statusRecord(ctx: VerbContext, cc: Case = ctx.case): Promise<Over
         ? {
             blocked: true,
             blocked_note:
-              "a control patch cannot be read — pending commands behind it are NOT applying (see .overcast/situation/control.d)",
+              "a control patch cannot be read — the pending control shown is the APPLYABLE PREFIX; anything queued behind that patch is not applying (see .overcast/situation/control.d)",
           }
         : {}),
       ...(rt && running
