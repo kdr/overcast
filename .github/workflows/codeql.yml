@@ -36,6 +36,16 @@ jobs:
           # security-extended adds higher-signal security queries beyond the
           # default set; drop to `security-and-quality` if noise is too high.
           queries: security-extended
+          # Scan shipped source only. Test files are not distributed and handle
+          # no attacker input, but their ASSERTIONS trip the taint/URL queries:
+          # `assert.match(html, /tile\.openstreetmap\.org/)` reads as an
+          # unanchored host check, a fixture server's `hits[req.url]` counter as
+          # property injection. Rewriting assertions to appease a syntactic query
+          # makes them worse at their actual job, so scope the queries instead.
+          config: |
+            paths-ignore:
+              - test
+              - vscode/test
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3

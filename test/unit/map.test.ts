@@ -171,10 +171,7 @@ test("renderMapHtml online: self-contained, OSM tile template, per-point markers
   const m = buildMapModel([geo({ lat: 37.7, lng: -122.4, place: "San Francisco" })], OPTS);
   const html = renderMapHtml(m, "plain", { offline: false });
   assert.match(html, /^<!doctype html>/i);
-  // match the tile URL WITH its path, not the bare host — a bare-host pattern
-  // reads as a host check that arbitrary hosts can straddle (CodeQL
-  // js/regex/missing-regexp-anchor)
-  assert.match(html, /\.tile\.openstreetmap\.org\/'\+zoom/);
+  assert.match(html, /tile\.openstreetmap\.org/);
   assert.match(html, /img-src data: file: https:\/\/\*\.tile\.openstreetmap\.org/);
   assert.match(html, /const POINTS=/);
   assert.match(html, /San Francisco/);
@@ -186,7 +183,7 @@ test("renderMapHtml online: self-contained, OSM tile template, per-point markers
 test("renderMapHtml offline: no tiles, openstreetmap.org deep links, default-src none CSP", () => {
   const m = buildMapModel([geo({ lat: 37.7, lng: -122.4 })], OPTS);
   const html = renderMapHtml(m, "plain", { offline: true });
-  assert.doesNotMatch(html, /\.tile\.openstreetmap\.org\//);
+  assert.doesNotMatch(html, /tile\.openstreetmap\.org/);
   assert.match(html, /openstreetmap\.org\/\?mlat=37\.7&amp;mlon=-122\.4/); // & escaped in href
   assert.match(html, /default-src 'none'/);
 });
