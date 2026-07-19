@@ -2,7 +2,9 @@
 
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
-import { closeSync, fstatSync, openSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, realpathSync, statSync } from "node:fs";
+
+const { O_RDONLY, O_NOFOLLOW } = constants;
 
 /** True if `target` (which must already exist) resolves — THROUGH symlinks — to a
  *  path inside `root` (or root itself). Callers do the lexical + existence checks;
@@ -33,23 +35,29 @@ function inodeIdentityReliable(): boolean {
  *  on a different inode (TOCTOU) — containment says yes about one file while the
  *  server streams another.
  *
- *  Two layers, because neither is sufficient alone:
+ *  Three layers, because each covers a hole the others leave:
  *
  *  1. Resolve FIRST, then open the RESOLVED path. `realpathSync` output contains
- *     no symlinks, so the open cannot be redirected by swapping the caller's
- *     path or any link along it. This is the layer that carries platforms where
- *     inode identity is unusable.
- *  2. On POSIX, confirm the descriptor is the file that path still names, via
- *     dev+ino. That catches a component swapped in the remaining window between
- *     the resolve and the open.
+ *     no symlinks, so the open cannot be redirected by a link along the caller's
+ *     path. Legitimate symlinked assets still work — they were resolved.
+ *  2. Open with `O_NOFOLLOW`, so if the final component is REPLACED by a symlink
+ *     in the window between the resolve and the open, the open fails outright.
+ *     Without this the dev/ino check below cannot help: the open and the stat
+ *     both follow the new link and agree on the escaped target, confirming only
+ *     that the fd matches what the path names NOW — not that it is inside root.
+ *  3. On POSIX, dev+ino between the descriptor and the path, which rejects an
+ *     identity change landing between the open and the stat.
  *
- *  Windows is deliberately layer 1 only: Node fills dev/ino there from a
- *  different source per call and can report 0 or a disagreeing pair for an
- *  UNCHANGED file, so enforcing it would 404 every asset rather than catch
- *  anything. The residual exposure is a directory component replaced by a
- *  junction inside that narrow window, which needs write access within the root
- *  already — strictly better than the path-string check this replaced, and the
- *  best Node's API supports there.
+ *  Windows gets layer 1 only: `O_NOFOLLOW` is not supported there, and Node
+ *  fills dev/ino from a different source per call — it can report 0 or a
+ *  disagreeing pair for an UNCHANGED file, so enforcing layer 3 would 404 every
+ *  asset rather than catch anything.
+ *
+ *  Residual, documented rather than implied away: a DIRECTORY component of the
+ *  resolved path swapped for a link inside the same window (O_NOFOLLOW only
+ *  guards the final component), and a hard link or file substituted at the
+ *  resolved path itself. Both require write access inside the root already,
+ *  which is game over for a static asset dir regardless.
  *
  *  Everything downstream must use the fd, never the path — handing the path back
  *  would reopen the race. Returns undefined for anything unreadable, not a
@@ -60,7 +68,8 @@ export function openContainedFile(root: string, target: string): number | undefi
     const realRoot = realpathSync(root);
     const real = realpathSync(target);
     if (real !== realRoot && !real.startsWith(realRoot + sep)) return undefined;
-    fd = openSync(real, "r"); // the resolved path — no links left to swap
+    // O_NOFOLLOW is POSIX-only; `?? 0` degrades to a plain read elsewhere
+    fd = openSync(real, O_RDONLY | (O_NOFOLLOW ?? 0));
     const opened = fstatSync(fd);
     if (!opened.isFile()) throw new Error("not a regular file");
     if (inodeIdentityReliable()) {
