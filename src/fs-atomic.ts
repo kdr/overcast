@@ -13,12 +13,16 @@ import { writeFileSync, renameSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { randomBytes } from "node:crypto";
 
-export function writeFileAtomic(file: string, data: string): void {
+export function writeFileAtomic(file: string, data: string | Buffer): void {
   const dir = dirname(file);
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.${basename(file)}.${randomBytes(6).toString("hex")}.tmp`);
   try {
-    writeFileSync(tmp, data, "utf8");
+    // Buffers pass through unencoded — the crop frame cache publishes binary
+    // image bytes through this same rename, so "complete or absent" holds for
+    // media artifacts too, not just the JSON state stores.
+    if (typeof data === "string") writeFileSync(tmp, data, "utf8");
+    else writeFileSync(tmp, data);
     renameSync(tmp, file);
   } catch (err) {
     try {

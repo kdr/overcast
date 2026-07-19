@@ -4,13 +4,14 @@
 // the source detection record remains the full audit trail.
 
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { cropStill, modalityFromExt, probe, type CropBox } from "../media/ffmpeg.js";
 import { fetchMediaToCase } from "../media/fetch.js";
 import { badNumber } from "./validate.js";
 import { stampArchive } from "../archive.js";
+import { writeFileAtomic } from "../fs-atomic.js";
 import type { VerbSpec } from "../registry/types.js";
 
 type CropKind = "face" | "object";
@@ -284,39 +285,33 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
   const frameDir = join(outDir, ".frames");
   mkdirSync(frameDir, { recursive: true });
   const out = join(frameDir, `${safePart(id)}${extFromMime(mime)}`);
-  // ONE atomic `wx` open does both jobs: it claims the slot and answers "is this
-  // already materialized?". EEXIST is the cache hit — return before decoding, so
-  // a repeat crop never re-runs up to 64MB of base64. Everything after writes to
-  // the DESCRIPTOR, never the path, so there is no second resolution to race
-  // (an existsSync/open probe followed by a path write is exactly the
-  // check-then-use pair CodeQL js/file-system-race flags).
-  let fd: number;
+  // Cache hit = the file is simply THERE. That inference is only sound because
+  // frames are published by an atomic rename below: a file at `out` is always
+  // whole. The previous `wx`-claim approach created an EMPTY file up front, so a
+  // crash (or a concurrent claimer) between claim and write cached a zero-byte
+  // frame permanently — complete-or-absent removes the partial state entirely.
+  // Returning here also skips decoding up to 64MB of base64 on a repeat crop.
   try {
-    fd = openSync(out, "wx");
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "EEXIST") return out; // id-addressed: same content
-    throw e;
+    closeSync(openSync(out, "r"));
+    return out;
+  } catch {
+    /* not materialized yet — decode and publish below */
   }
-  try {
-    // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
-    // a huge inline data URL from an untrusted provider must not OOM the process.
-    const isBase64 = params.toLowerCase().includes(";base64");
-    // For base64, decoded ≈ 3/4 of the ASCII char count. For percent/plain, use the
-    // UTF-8 BYTE length (data.length is UTF-16 units and underestimates multibyte) —
-    // an upper bound on the decoded buffer, so a Unicode-crafted URL can't slip past.
-    const estBytes = isBase64 ? Math.floor((data.length * 3) / 4) : Buffer.byteLength(data, "utf8");
-    if (estBytes > THUMBNAIL_MAX_BYTES) {
-      throw new Error(`inline data URL too large (~${estBytes} bytes, cap ${THUMBNAIL_MAX_BYTES})`);
-    }
-    writeFileSync(fd, isBase64 ? Buffer.from(data, "base64") : Buffer.from(decodeURIComponent(data)));
-  } catch (e) {
-    // never leave the empty file we just claimed behind — the next call would
-    // read it as a cache hit and crop a zero-byte frame
-    closeSync(fd);
-    rmSync(out, { force: true });
-    throw e;
+  // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
+  // a huge inline data URL from an untrusted provider must not OOM the process.
+  const isBase64 = params.toLowerCase().includes(";base64");
+  // For base64, decoded ≈ 3/4 of the ASCII char count. For percent/plain, use the
+  // UTF-8 BYTE length (data.length is UTF-16 units and underestimates multibyte) —
+  // an upper bound on the decoded buffer, so a Unicode-crafted URL can't slip past.
+  const estBytes = isBase64 ? Math.floor((data.length * 3) / 4) : Buffer.byteLength(data, "utf8");
+  if (estBytes > THUMBNAIL_MAX_BYTES) {
+    throw new Error(`inline data URL too large (~${estBytes} bytes, cap ${THUMBNAIL_MAX_BYTES})`);
   }
-  closeSync(fd);
+  // temp-then-rename (the shared state-store helper): a reader never sees a
+  // partial frame, and a crash leaves only a .tmp behind — never a poisoned cache
+  // entry. Two crops racing the same id both publish identical bytes, so
+  // last-writer-wins is harmless.
+  writeFileAtomic(out, isBase64 ? Buffer.from(data, "base64") : Buffer.from(decodeURIComponent(data)));
   return out;
 }
 
