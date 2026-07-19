@@ -2,6 +2,12 @@
   <img src="assets/branding/logo.png" alt="overcast" width="420" />
 </p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@kdrrr/overcast"><img src="https://img.shields.io/npm/v/%40kdrrr%2Fovercast?logo=npm&color=cb3837" alt="npm version" /></a>
+  <a href="https://github.com/kdr/overcast/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/kdr/overcast/ci.yml?branch=main&logo=githubactions&logoColor=white&label=ci" alt="ci" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license: Apache-2.0" /></a>
+</p>
+
 # overcast
 
 **Video OSINT agent: senses + OSINT reach for any agent.**
@@ -24,6 +30,22 @@ from any harness. The brain LLM is BYO; the default perception backend is the
 [Tinycloud Video Agent CLI](https://www.npmjs.com/package/@cloudglue/tinycloud).
 Every verb runs over one provider contract, so you can rebind any sense to
 another backend or your own script with no code changes.
+
+---
+
+## 📣 News
+
+**overcast is at [DEF CON 34](https://info.defcon.org/defcon34/content/?id=66515)
+Demo Labs** — *"Overcast: Video OSINT Agent. Point It at 100 Videos, Ask
+Anything"*, presented by Kevin Dela Rosa. Two sessions, both in
+LVCC L1, Exhibit Hall West 3 – 902 (Demo Labs Track 6):
+
+| Session | When |
+| --- | --- |
+| 1 | Fri, Aug 7, 2026 · 12:00–12:45 PDT |
+| 2 | Sat, Aug 8, 2026 · 16:00–16:45 PDT |
+
+Come see it run live, or [read the abstract](https://info.defcon.org/defcon34/content/?id=66515).
 
 ---
 
@@ -829,3 +851,17 @@ Licensed under the [Apache License 2.0](LICENSE). Built on top of
 [pi](https://github.com/earendil-works/pi). You are responsible for how you use
 this tool and for complying with all applicable laws and the terms of any
 third-party services you configure — see [RESPONSIBLE_USE.md](RESPONSIBLE_USE.md).
+
+## Credits
+
+Created by **[Kevin Dela Rosa](https://github.com/kdr)** — co-founder & CTO of
+[Cloudglue](https://cloudglue.dev/) and creator of
+[Tinycloud](https://www.tinycloud.sh/), the default perception backend here.
+
+<p align="center">
+  <a href="https://github.com/kdr"><img src="https://img.shields.io/badge/GitHub-kdr-181717?logo=github&logoColor=white" alt="GitHub @kdr" /></a>
+  <a href="https://kevindelarosa.com/"><img src="https://img.shields.io/badge/Portfolio-kevindelarosa.com-0A66C2?logo=googlechrome&logoColor=white" alt="Portfolio" /></a>
+  <a href="https://x.com/kdrwins"><img src="https://img.shields.io/badge/X-%40kdrwins-000000?logo=x&logoColor=white" alt="X @kdrwins" /></a>
+  <a href="https://www.linkedin.com/in/kdrwins/"><img src="https://img.shields.io/badge/LinkedIn-kdrwins-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
+  <a href="https://scholar.google.com/citations?user=8Pc5MiUAAAAJ&hl=en"><img src="https://img.shields.io/badge/Google%20Scholar-publications-4285F4?logo=googlescholar&logoColor=white" alt="Google Scholar" /></a>
+</p>
