@@ -11,7 +11,7 @@
 //     replace, merging any not-yet-consumed control), consumed by the server on
 //     its next poll tick (~2s). `stop: true` shuts the server down gracefully.
 
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { connect } from "node:net";
 import { join } from "node:path";
@@ -175,209 +175,158 @@ export function parsePanels(raw: string | undefined): SituationPanel[] | undefin
  *  proceed anyway. Dropping the operator's command to protect against a rare
  *  interleaving would be the worse trade. A lock left by a killed process is
  *  stolen once it goes stale. */
-const LOCK_STALE_MS = 5_000;
-/** Writers are short CLI/agent calls; the critical section is a parse + atomic
- *  write of a tiny file (sub-millisecond), so a contended writer realistically
- *  waits one sleep. The budget only bounds the pathological case. */
-const LOCK_WAIT_MS = 250;
-const LOCK_POLL_MS = 5;
-
-function sleepSync(ms: number): void {
-  // no sync sleep in Node; wait on a private SharedArrayBuffer nobody notifies
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-/** Acquire, run, release. `waitMs: 0` makes it a SINGLE non-blocking attempt.
+/** The control plane is an APPEND-ONLY PATCH DIRECTORY, not a shared mutable
+ *  file, because every failure this thing has had came from the latter.
  *
- *  `Atomics.wait` parks the whole thread, so any waiting here freezes the event
- *  loop of whatever process is calling — including the situation server, where a
- *  stall would take /media and SSE down with it. So the server's take never
- *  waits (see takeControl): it retries on its own poll tick, which is what a
- *  polling loop is for. Only short-lived writer calls wait at all, and only
- *  briefly.
+ *  History, so the shape isn't re-litigated: control.json was one file that
+ *  `situation set` read-modify-wrote and the server consumed. That needed a lock
+ *  (concurrent sets clobbered each other), the lock needed a stale-steal (a
+ *  crashed holder wedged it), the steal needed a deadline (it could spin), the
+ *  server needed a NON-blocking acquire (waiting parked the event loop and
+ *  stalled the live page), and the consume needed a restore path (a transient
+ *  read error would destroy the operator's command) which itself could clobber a
+ *  newer write. Each fix was correct and each exposed the next edge.
  *
- *  `ifBusy` decides what a failed acquisition means. Writers PROCEED: dropping
- *  an operator's command to avoid a rare interleaving is the worse trade. The
- *  server SKIPS: the control stays pending and the next tick claims it. */
-function withControlLock<T>(
-  c: Case,
-  fn: () => T,
-  opts: { waitMs?: number; ifBusy?: "proceed" | "skip" } = {},
-): T | undefined {
-  const waitMs = opts.waitMs ?? LOCK_WAIT_MS;
-  const ifBusy = opts.ifBusy ?? "proceed";
-  const lock = `${controlFile(c)}.lock`;
-  mkdirSync(situationDir(c), { recursive: true });
-  const deadline = Date.now() + waitMs;
-  let held = false;
-  for (;;) {
-    try {
-      closeSync(openSync(lock, "wx")); // atomic create = acquire
-      held = true;
-      break;
-    } catch {
-      /* contended, or the lock path is unusable (EACCES/ENOSPC/read-only) */
-    }
-    try {
-      // a holder that died leaves the file behind; steal it once it's stale
-      if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) rmSync(lock, { force: true });
-    } catch {
-      /* vanished or unreadable — fall through; the deadline still governs */
-    }
-    // EVERY path reaches this. An earlier version `continue`d past it when the
-    // lock file could not be stat'd, so an openSync failing for a reason other
-    // than contention (a read-only or full disk) span forever with no sleep —
-    // on the server's control tick that hangs the event loop, the exact failure
-    // the non-blocking take was added to prevent. With waitMs 0 this breaks on
-    // the first miss, which is what makes that take a single attempt.
-    if (Date.now() >= deadline) break;
-    sleepSync(LOCK_POLL_MS);
-  }
-  if (!held && ifBusy === "skip") return undefined;
-  try {
-    return fn();
-  } finally {
-    if (held) {
-      try {
-        rmSync(lock, { force: true });
-      } catch {
-        /* best effort; a leftover lock goes stale and is stolen */
-      }
-    }
-  }
+ *  Writing one file per patch removes the shared mutable state instead:
+ *    - no read-modify-write, so no lost update and no lock to hold, wait on,
+ *      steal, or leave abandoned;
+ *    - no waiting anywhere, so neither a CLI writer nor the in-process TUI
+ *      writer can park the event loop that serves /media and SSE;
+ *    - a patch that can't be read is simply left for the next tick — it is its
+ *      own file, so there is no claim to restore and nothing to clobber.
+ *  Merge order is filename order, which is write order. */
+let patchSeq = 0;
+
+function controlDir(c: Case): string {
+  return join(situationDir(c), "control.d");
 }
 
-/** Merge a control patch onto any pending (unconsumed) control and write it
- *  atomically. Two quick `situation set`s compose instead of clobbering. Clears
- *  compose by ORDER: a clear in the patch drops the key from pending (so the
- *  clear wins), and an assignment in the patch drops the key from pending.clear
- *  (so the re-set wins) — the server can then apply clears before assignments
- *  without reordering the operator's intent. */
-export function writeControl(c: Case, patch: SituationControl): SituationControl {
-  // a writer must never come away having done nothing — ifBusy defaults to
-  // "proceed", so the non-undefined return is guaranteed
-  return withControlLock(c, () => writeControlLocked(c, patch)) as SituationControl;
-}
-
-function writeControlLocked(c: Case, patch: SituationControl): SituationControl {
-  const pending: SituationControl = { ...(readControl(c) ?? {}) };
-  if (patch.clear?.length) for (const key of patch.clear) delete pending[key];
-  if (pending.clear?.length) {
-    const kept = pending.clear.filter((key) => patch[key] === undefined);
-    if (kept.length) pending.clear = kept;
-    else delete pending.clear;
+/** Fold one patch onto the pending state. Clears compose by ORDER: a clear in
+ *  the patch drops the key from pending (the clear wins), and an assignment in
+ *  the patch drops the key from pending.clear (the re-set wins) — so the server
+ *  can apply clears before assignments without reordering operator intent. */
+function foldControl(pending: SituationControl, patch: SituationControl): SituationControl {
+  const next: SituationControl = { ...pending };
+  if (patch.clear?.length) for (const key of patch.clear) delete next[key];
+  if (next.clear?.length) {
+    const kept = next.clear.filter((key) => patch[key] === undefined);
+    if (kept.length) next.clear = kept;
+    else delete next.clear;
   }
-  const merged: SituationControl = { ...pending, ...patch };
-  if (pending.clear?.length && patch.clear?.length) merged.clear = [...new Set([...pending.clear, ...patch.clear])];
-  mkdirSync(situationDir(c), { recursive: true });
-  writeFileAtomic(controlFile(c), JSON.stringify(merged, null, 2) + "\n");
+  const merged: SituationControl = { ...next, ...patch };
+  if (next.clear?.length && patch.clear?.length) merged.clear = [...new Set([...next.clear, ...patch.clear])];
   return merged;
 }
 
+/** Pending patch files, oldest first. Includes a legacy single control.json
+ *  written by an older process, folded as the OLDEST entry so an in-flight
+ *  upgrade doesn't strand it. */
+function pendingPatchFiles(c: Case): string[] {
+  const out: string[] = [];
+  const legacy = controlFile(c);
+  try {
+    statSync(legacy);
+    out.push(legacy);
+  } catch {
+    /* none — the normal case */
+  }
+  try {
+    out.push(...readdirSync(controlDir(c)).filter((f) => f.endsWith(".json")).sort().map((f) => join(controlDir(c), f)));
+  } catch {
+    /* directory absent = nothing pending */
+  }
+  return out;
+}
+
+/** Append ONE patch. No read-modify-write, so concurrent writers cannot lose
+ *  each other's updates and nothing needs to be locked. Returns the resulting
+ *  pending state for the caller's display. */
+export function writeControl(c: Case, patch: SituationControl): SituationControl {
+  mkdirSync(controlDir(c), { recursive: true });
+  // Name sorts by write order. The millisecond alone is NOT enough — two sets
+  // in the same tick would then be ordered by the random suffix, silently
+  // inverting "a later clear beats an earlier assignment" — so a monotonic
+  // per-process sequence breaks the tie. Across processes a same-millisecond
+  // tie is arbitrary, which is honest: those writes are concurrent.
+  const name = [
+    String(Date.now()).padStart(15, "0"),
+    String(++patchSeq).padStart(6, "0"),
+    process.pid,
+    randomBytes(4).toString("hex"),
+  ].join("-") + ".json";
+  writeFileAtomic(join(controlDir(c), name), JSON.stringify(patch, null, 2) + "\n");
+  return readControl(c) ?? patch;
+}
+
+/** Non-destructive PEEK at the pending state (the verb's display, the
+ *  extension's stop check). The server's apply path uses takeControl. */
 export function readControl(c: Case): SituationControl | undefined {
-  try {
-    // A plain read is safe: writeControl publishes through an atomic rename, so
-    // a reader sees a whole control or none — never a half-written one. This is
-    // a non-destructive PEEK (the verb's pending display, the extension's stop
-    // check); the server's apply path uses takeControl below, which claims the
-    // file instead of reading it.
-    return JSON.parse(readFileSync(controlFile(c), "utf8")) as SituationControl;
-  } catch {
-    return undefined;
-  }
-}
-
-/** TAKE the pending control: claim it and return it in ONE atomic step.
- *
- *  The old read → apply → `statSync` → `rmSync` shape could not be made safe. A
- *  `situation set`/`stop` landing between the mtime check and the unlink was
- *  deleted having never been applied — the operator's command vanished with no
- *  error, which is the worst failure mode this control plane has. Narrowing the
- *  window (dropping the existsSync, pairing mtime+body off one descriptor) makes
- *  it rarer, not correct.
- *
- *  `rename(2)` is atomic: this either moves the current control.json aside or
- *  fails because there is nothing pending. A writer that lands a microsecond
- *  later publishes a NEW control.json (writeControl is itself an atomic rename),
- *  which the next tick takes. No update can be consumed unseen.
- *
- *  Trade-off, deliberately: a crash between the take and applyConfig loses that
- *  one control instead of replaying it. Apply is an in-memory call on the very
- *  next line, so that window is negligible — and losing a control to a crash is
- *  strictly better than deleting a live one the server never looked at. */
-export function takeControl(c: Case): SituationControl | undefined {
-  // NEVER wait: this runs on the situation server's poll tick, and blocking here
-  // would stall /media and SSE for the whole process. A contended tick simply
-  // finds the control still pending ~2s later.
-  return withControlLock(c, () => takeControlLocked(c), { waitMs: 0, ifBusy: "skip" });
-}
-
-function takeControlLocked(c: Case): SituationControl | undefined {
-  const file = controlFile(c);
-  // a UNIQUE claim name per take: a fixed `.taken` assumes rename replaces an
-  // existing destination, which POSIX does but Windows does not — one leftover
-  // from a crash would then block every future claim, and pending controls would
-  // never be applied again.
-  const taken = `${file}.taken.${process.pid}.${randomBytes(4).toString("hex")}`;
-  try {
-    renameSync(file, taken); // atomic claim; ENOENT = nothing pending
-  } catch {
-    return undefined;
-  }
-
-  let raw: string;
-  try {
-    raw = readFileSync(taken, "utf8");
-  } catch {
-    // A TRANSIENT IO error is not corruption — deleting here would destroy the
-    // operator's command. Put it back for the next tick, but only if nothing
-    // newer is already pending: a control written since our claim is the more
-    // recent intent and must not be clobbered by our restore.
+  let pending: SituationControl | undefined;
+  for (const file of pendingPatchFiles(c)) {
     try {
-      closeSync(openSync(file, "r")); // newer control exists → drop ours
-      rmSync(taken, { force: true });
+      pending = foldControl(pending ?? {}, JSON.parse(readFileSync(file, "utf8")) as SituationControl);
     } catch {
-      try {
-        renameSync(taken, file);
-      } catch {
-        /* best effort — the claim is lost, but nothing newer was overwritten */
-      }
+      /* unreadable or corrupt — takeControl decides its fate, a peek doesn't */
     }
-    return undefined;
   }
-
-  let parsed: SituationControl | undefined;
-  try {
-    parsed = JSON.parse(raw) as SituationControl;
-  } catch {
-    parsed = undefined; // genuinely corrupt — dropped with the file below
-  }
-  try {
-    rmSync(taken, { force: true });
-  } catch {
-    // must NOT suppress the return: a throw here would discard a control the
-    // caller is about to apply. A leftover claim file is harmless.
-  }
-  return parsed;
+  return pending;
 }
 
-/** Before a FRESH serve binds, drop a stale `stop: true` still sitting in
- *  control.json (Bugbot #98/high): it's left over from an earlier `situation
- *  stop` whose server died before its poll tick consumed it, and would instantly
- *  kill the new server on its first control tick. The stop key is removed; any
- *  set-before-start config is preserved (deleting the file only if nothing else
- *  remains). */
+/** TAKE the pending control: fold every pending patch and remove the files that
+ *  were consumed. Never blocks and never waits.
+ *
+ *  A patch is deleted only after it has been READ, so a transient IO error
+ *  leaves it pending for the next tick rather than destroying the operator's
+ *  command. A corrupt patch IS deleted — otherwise it would wedge the tick loop
+ *  forever. A crash between read and delete replays that patch, which is
+ *  harmless: applying a config patch twice is idempotent, and replaying beats
+ *  dropping. */
+export function takeControl(c: Case): SituationControl | undefined {
+  let pending: SituationControl | undefined;
+  for (const file of pendingPatchFiles(c)) {
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      continue; // transient — leave it for the next tick
+    }
+    try {
+      pending = foldControl(pending ?? {}, JSON.parse(raw) as SituationControl);
+    } catch {
+      /* corrupt — fall through and delete so it can't block every future tick */
+    }
+    try {
+      rmSync(file, { force: true });
+    } catch {
+      /* left behind; a re-read replays an idempotent patch */
+    }
+  }
+  return pending;
+}
+
+/** Before a FRESH serve binds, drop a stale `stop: true` still pending: it's
+ *  left over from an earlier `situation stop` whose server died before its poll
+ *  tick consumed it, and would instantly kill the new server on its first
+ *  control tick. The stop is removed; any set-before-start config is preserved.
+ *
+ *  Operates on exactly the files it READ, so a `situation set` landing
+ *  concurrently is left untouched rather than swept up — the same rule the take
+ *  follows. Runs once, before the server binds. */
 export function clearStaleStop(c: Case): void {
-  withControlLock(c, () => clearStaleStopLocked(c));
-}
-
-function clearStaleStopLocked(c: Case): void {
-  const cur = readControl(c);
-  if (!cur || cur.stop !== true) return;
-  const { stop: _stop, ...rest } = cur;
+  const files = pendingPatchFiles(c);
+  let pending: SituationControl | undefined;
+  for (const file of files) {
+    try {
+      pending = foldControl(pending ?? {}, JSON.parse(readFileSync(file, "utf8")) as SituationControl);
+    } catch {
+      /* unreadable/corrupt — leave it; the first take deals with it */
+    }
+  }
+  if (!pending || pending.stop !== true) return;
+  const { stop: _stop, ...rest } = pending;
   try {
-    if (Object.keys(rest).length === 0) rmSync(controlFile(c), { force: true });
-    else writeFileAtomic(controlFile(c), JSON.stringify(rest, null, 2) + "\n");
+    for (const file of files) rmSync(file, { force: true });
+    if (Object.keys(rest).length > 0) writeControl(c, rest);
   } catch {
     /* best-effort; the server also ignores a stop it can't attribute */
   }
