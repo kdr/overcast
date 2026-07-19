@@ -4,7 +4,7 @@
 // the source detection record remains the full audit trail.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
 import { cropStill, modalityFromExt, probe, type CropBox } from "../media/ffmpeg.js";
@@ -284,6 +284,16 @@ function materializeDataUrl(url: string, outDir: string, id: string): string {
   const frameDir = join(outDir, ".frames");
   mkdirSync(frameDir, { recursive: true });
   const out = join(frameDir, `${safePart(id)}${extFromMime(mime)}`);
+  // Cache probe BEFORE the decode: the name is id-addressed, so an openable file
+  // already holds this exact content and a repeat crop must not re-decode up to
+  // the 64MB cap. Opening (rather than existsSync-ing) keeps this off the
+  // check-then-use path — the write below is `wx` and races safely regardless.
+  try {
+    closeSync(openSync(out, "r"));
+    return out;
+  } catch {
+    /* not materialized yet — decode below */
+  }
   // Cap the decode too (http thumbnails go through the capped fetchMediaToCase):
   // a huge inline data URL from an untrusted provider must not OOM the process.
   const isBase64 = params.toLowerCase().includes(";base64");

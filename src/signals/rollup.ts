@@ -14,7 +14,7 @@
  * wins, so a whole sweep collapses to one "sweep" group. Records without it fall
  * through to the media-chain rules — so this works today without stamping runs.
  */
-import { recordTimeMs, type OvercastRecord } from "../record.js";
+import { recordTimeMs, stripUrlTail, type OvercastRecord } from "../record.js";
 
 export interface TimelineGroup {
   key: string;
@@ -38,7 +38,7 @@ function timeMs(r: OvercastRecord): number {
 }
 
 function baseName(ref: string): string {
-  const parts = ref.replace(/[?#].*$/, "").split(/[\\/]/);
+  const parts = stripUrlTail(ref).split(/[\\/]/);
   return parts[parts.length - 1] || ref;
 }
 

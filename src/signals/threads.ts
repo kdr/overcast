@@ -24,7 +24,7 @@
  *   collecting           ← ≥1 evidence record linked
  *   cold                 ← nothing linked yet
  */
-import { findingStatusMap, isMemoryRecord, isReady, recordTimeMs, type OvercastRecord } from "../record.js";
+import { findingStatusMap, isMemoryRecord, isReady, recordTimeMs, stripUrlTail, type OvercastRecord } from "../record.js";
 import { SENSE_VERBS } from "./pulse.js";
 import { isRootFindingRecord } from "../verbs/finding.js";
 import { targetMatchesEvidence, payloadText } from "./triggers.js";
@@ -97,7 +97,7 @@ function timeOf(r: OvercastRecord): number {
 }
 
 function baseName(ref: string): string {
-  const parts = ref.replace(/[?#].*$/, "").split(/[\\/]/);
+  const parts = stripUrlTail(ref).split(/[\\/]/);
   return (parts[parts.length - 1] || ref).toLowerCase();
 }
 

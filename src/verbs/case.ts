@@ -5,7 +5,7 @@
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { findingStatusMap, makeRecord, errRecord, recordTimeMs, PRIMARY_TEXT_FIELDS, type OvercastRecord } from "../record.js";
+import { findingStatusMap, makeRecord, errRecord, recordTimeMs, stripUrlTail, PRIMARY_TEXT_FIELDS, type OvercastRecord } from "../record.js";
 import { openCase, recordFiles } from "../case.js";
 import { humanSize } from "../render.js";
 import { collectVisualRefs, isHtmlExportPath, mdToPlainHtml, normalizeHtmlTheme, recordToTimelineRecord, renderCsiStatusReport, renderCsiTimelineReport } from "../report/html.js";
@@ -387,7 +387,7 @@ function setupFromExistingRegistries(ctx: VerbContext, caseName: string): CaseSe
 }
 
 function isImageTargetRef(ref: string): boolean {
-  return /\.(avif|bmp|gif|jpe?g|png|tiff?|webp)(?:[?#].*)?$/i.test(ref);
+  return /\.(avif|bmp|gif|jpe?g|png|tiff?|webp)$/i.test(stripUrlTail(ref));
 }
 
 function buildSetupChange(ctx: VerbContext, base: CaseSetup, op: "startup_setup" | "startup_setup_update", apply: boolean): SetupChange {

@@ -72,7 +72,11 @@ function ensureQuietStartup(): void {
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     }
-    const settings: Record<string, unknown> = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    // `=== undefined`, not truthiness: an EMPTY settings.json is corrupt, not
+    // absent, and must reach JSON.parse so it throws to the outer catch and we
+    // skip the write — same as any other unparseable content.
+    const settings: Record<string, unknown> =
+      raw === undefined ? {} : (JSON.parse(raw) as Record<string, unknown>);
     if (settings.quietStartup === undefined) {
       settings.quietStartup = true;
       mkdirSync(agentDir, { recursive: true });

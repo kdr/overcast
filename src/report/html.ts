@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { envEnabled } from "../env.js";
-import { collectVisualRefs, PRIMARY_TEXT_FIELDS, recordStub, type OvercastRecord } from "../record.js";
+import { collectVisualRefs, PRIMARY_TEXT_FIELDS, recordStub, stripUrlTail, type OvercastRecord } from "../record.js";
 import { escapeHtml } from "./components.js";
 // mission is the shared model layer for thread cards / triage / coverage; the
 // graph is acyclic because escapeHtml + collectVisualRefs live below both
@@ -87,7 +87,7 @@ export interface TimelineSynthesis {
 }
 
 // (collectVisualRefs moved to record.ts — re-exported above.)
-const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i;
+const VISUAL_EXT_RE = /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i;
 
 export interface TimelineReport {
   title: string;
@@ -724,7 +724,7 @@ const VIDEO_EXT_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpe?g|ogv|3gp)$/i;
  *  serves extensionless variants under video.twimg.com) or a local video file. */
 function isVideoMediaRef(ref: string): boolean {
   if (/^https?:\/\//i.test(ref)) {
-    const path = ref.replace(/[?#].*$/, "");
+    const path = stripUrlTail(ref);
     return VIDEO_EXT_RE.test(path) || /^https?:\/\/video\.twimg\.com\//i.test(ref);
   }
   return VIDEO_EXT_RE.test(ref);
@@ -759,7 +759,7 @@ function mediaEmbed(record: TimelineRecord): string {
           parts.push(`<video class="embed" controls preload="none"${poster ? ` poster="${escapeHtml(poster)}"` : ""} src="${escapeHtml(src)}"></video>`);
         }
       }
-    } else if (/^https?:\/\//i.test(ref) && VISUAL_EXT_RE.test(ref)) {
+    } else if (/^https?:\/\//i.test(ref) && VISUAL_EXT_RE.test(stripUrlTail(ref))) {
       parts.push(remoteOk ? `<img class="embed" alt="${escapeHtml(ref)}" src="${escapeHtml(ref)}">` : remoteBlockedEmbed(ref));
     } else {
       const t = imageTag(ref);

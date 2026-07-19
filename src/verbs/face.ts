@@ -9,7 +9,7 @@
 //   face <video> --index <id>         → list     (stored detections for that video)
 
 import { existsSync } from "node:fs";
-import { isReady, makeRecord, errRecord, type OvercastRecord } from "../record.js";
+import { isReady, makeRecord, errRecord, stripUrlTail, type OvercastRecord } from "../record.js";
 import { runFace, type FaceOp, type FaceParams } from "../providers/tinycloud/face.js";
 import { tinycloudBaseFromRun, TC_SUBCOMMANDS, TINYCLOUD_TIMEOUT_MS } from "../providers/tinycloud/envelope.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
@@ -31,7 +31,7 @@ const err = (message: string): OvercastRecord => errRecord("face", message);
 const FACE_QUERY_IMAGE_RE = /\.(jpe?g|png)$/i;
 
 function faceQueryImageError(ref: string): string | undefined {
-  const clean = ref.replace(/[?#].*$/, "");
+  const clean = stripUrlTail(ref);
   return FACE_QUERY_IMAGE_RE.test(clean)
     ? undefined
     : `--match image must be a JPEG or PNG: ${ref} (tinycloud face preflight rejects webp/heic/gif/bmp/tiff/avif; webp support in 0.3.7 is see/extract-only)`;

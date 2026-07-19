@@ -19,14 +19,14 @@
 // verb (own terminal pane) and the TUI extension (/situation on).
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createReadStream, statSync } from "node:fs";
+import { closeSync, createReadStream, fstatSync, statSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { LiveHttpd, MEDIA_CONTENT_TYPES, type LiveHttpdOptions } from "../live/httpd.js";
 import { reportRemoteMediaEnabled, normalizeHtmlTheme } from "../report/html.js";
 import { posterFrame } from "../media/ffmpeg.js";
 import { listSources } from "../state/source.js";
-import { realpathContained } from "../fs-path.js";
+import { openContainedFile, realpathContained } from "../fs-path.js";
 import type { Case } from "../case.js";
 import { buildSituationModel, type SituationMediaRef, type SituationModel } from "./model.js";
 import { consumeControl, readControl, type SituationConfig, type SituationControl } from "./state.js";
@@ -457,16 +457,14 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     const id = url.pathname.split("/")[2] ?? "";
     const path = this.mediaMap.get(id) ?? this.prevMediaMap.get(id);
     if (!path) return this.json(res, 404, { error: "not found" });
-    // re-verify containment at serve time (defense in depth; catches a symlink
-    // swap between snapshot build and this request) — never stream outside the case.
-    if (!realpathContained(this.case.dir, path)) return this.json(res, 404, { error: "not found" });
-    let st: ReturnType<typeof statSync>;
-    try {
-      st = statSync(path);
-    } catch {
-      return this.json(res, 404, { error: "not found" });
-    }
-    if (!st.isFile()) return this.json(res, 404, { error: "not found" });
+    // Re-verify containment at serve time (defense in depth; catches a symlink
+    // swap between snapshot build and this request) — never stream outside the
+    // case. Containment, size, and the bytes all come off ONE descriptor: a
+    // check → statSync(path) → createReadStream(path) chain re-resolves the path
+    // three times, so a swap mid-sequence streams a file the check never saw.
+    const fd = openContainedFile(this.case.dir, path);
+    if (fd === undefined) return this.json(res, 404, { error: "not found" });
+    const st = fstatSync(fd);
     const headers: Record<string, string | number> = {
       "Content-Type": MEDIA_CONTENT_TYPES[extname(path).toLowerCase()] ?? "application/octet-stream",
       "Accept-Ranges": "bytes",
@@ -474,7 +472,10 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
       // short private cache keeps the loop windows from refetching
       "Cache-Control": "private, max-age=300",
     };
+    // every exit below must dispose of the fd: the streams adopt it (autoClose),
+    // the non-streaming replies close it themselves.
     if (req.method === "HEAD") {
+      closeSync(fd);
       res.writeHead(200, { ...headers, "Content-Length": st.size });
       return void res.end();
     }
@@ -482,6 +483,7 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     if (typeof range === "string" && range.trim() !== "") {
       const parsed = parseRange(range, st.size);
       if (!parsed) {
+        closeSync(fd);
         res.writeHead(416, { "Content-Range": `bytes */${st.size}` });
         return void res.end();
       }
@@ -490,12 +492,12 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
         "Content-Range": `bytes ${parsed.start}-${parsed.end}/${st.size}`,
         "Content-Length": parsed.end - parsed.start + 1,
       });
-      const stream = createReadStream(path, { start: parsed.start, end: parsed.end });
+      const stream = createReadStream("", { fd, start: parsed.start, end: parsed.end, autoClose: true });
       stream.on("error", () => res.destroy());
       return void stream.pipe(res);
     }
     res.writeHead(200, { ...headers, "Content-Length": st.size });
-    const stream = createReadStream(path);
+    const stream = createReadStream("", { fd, autoClose: true });
     stream.on("error", () => res.destroy());
     stream.pipe(res);
   }

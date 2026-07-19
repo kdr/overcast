@@ -2,7 +2,7 @@
 
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
-import { realpathSync } from "node:fs";
+import { closeSync, fstatSync, openSync, realpathSync, statSync } from "node:fs";
 
 /** True if `target` (which must already exist) resolves — THROUGH symlinks — to a
  *  path inside `root` (or root itself). Callers do the lexical + existence checks;
@@ -16,6 +16,40 @@ export function realpathContained(root: string, target: string): boolean {
     return real === realRoot || real.startsWith(realRoot + sep);
   } catch {
     return false;
+  }
+}
+
+/** Open `target` for reading and prove the OPEN DESCRIPTOR is the file that
+ *  passed containment. `realpathContained` validates a path STRING; anything the
+ *  caller then does with that string re-resolves it, so a symlink swapped in
+ *  between lands on a different inode (TOCTOU) — the containment check says yes
+ *  about one file while the server streams another.
+ *
+ *  Opening first and matching the resolved path's dev+ino against the
+ *  descriptor's closes the window from both sides: a swap BEFORE the open is
+ *  caught by containment (which now runs against the new resolved path), and a
+ *  swap AFTER it by the inode mismatch. Everything downstream must use the fd,
+ *  never the path — handing the path back would reopen the race.
+ *
+ *  Returns undefined for anything unreadable, not a regular file, or outside
+ *  root. The caller owns closing the fd. */
+export function openContainedFile(root: string, target: string): number | undefined {
+  let fd: number | undefined;
+  try {
+    fd = openSync(target, "r");
+    const opened = fstatSync(fd);
+    if (!opened.isFile()) throw new Error("not a regular file");
+    const realRoot = realpathSync(root);
+    const real = realpathSync(target);
+    if (real !== realRoot && !real.startsWith(realRoot + sep)) throw new Error("outside root");
+    const resolved = statSync(real);
+    if (resolved.dev !== opened.dev || resolved.ino !== opened.ino) {
+      throw new Error("path no longer resolves to the opened file");
+    }
+    return fd;
+  } catch {
+    if (fd !== undefined) closeSync(fd);
+    return undefined;
   }
 }
 
