@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -354,6 +354,27 @@ test("situation state: clearStaleStop drops a leftover stop:true (keeps config)"
     pending = readControl(c);
     assert.equal(pending?.source, "youtube");
     assert.equal(pending?.clear, undefined, "pending clear cancelled by a re-set");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("situation state: clearStaleStop keeps a patch it could not read", () => {
+  // it deletes what it CONSUMED, not everything it listed — an unreadable patch
+  // is an operator command nobody has looked at yet, so sweeping it up would
+  // discard it silently. Same rule takeControl follows.
+  const { dir, c } = tmpCase();
+  try {
+    writeControl(c, { stop: true });
+    const cdir = join(situationDir(c), "control.d");
+    // a patch that cannot be parsed stands in for one that cannot be read
+    const unread = join(cdir, "999999999999999-000001-0-unreadable.json");
+    writeFileSync(unread, "{not json", "utf8");
+
+    clearStaleStop(c);
+
+    assert.ok(existsSync(unread), "the unread patch survived the stale-stop sweep");
+    assert.equal(readdirSync(cdir).length, 1, "only the consumed stop patch was removed");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

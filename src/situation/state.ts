@@ -313,19 +313,25 @@ export function takeControl(c: Case): SituationControl | undefined {
  *  concurrently is left untouched rather than swept up — the same rule the take
  *  follows. Runs once, before the server binds. */
 export function clearStaleStop(c: Case): void {
-  const files = pendingPatchFiles(c);
+  // Track exactly which files were READ. Deleting the whole listing would
+  // discard a patch that failed to read — an operator command thrown away
+  // without ever being looked at, which is the rule the take follows and this
+  // must too. An unread patch simply survives to the first tick.
+  const read: string[] = [];
   let pending: SituationControl | undefined;
-  for (const file of files) {
+  for (const file of pendingPatchFiles(c)) {
     try {
-      pending = foldControl(pending ?? {}, JSON.parse(readFileSync(file, "utf8")) as SituationControl);
+      const patch = JSON.parse(readFileSync(file, "utf8")) as SituationControl;
+      pending = foldControl(pending ?? {}, patch);
+      read.push(file);
     } catch {
-      /* unreadable/corrupt — leave it; the first take deals with it */
+      /* unreadable or corrupt — leave it; the first take decides its fate */
     }
   }
   if (!pending || pending.stop !== true) return;
   const { stop: _stop, ...rest } = pending;
   try {
-    for (const file of files) rmSync(file, { force: true });
+    for (const file of read) rmSync(file, { force: true });
     if (Object.keys(rest).length > 0) writeControl(c, rest);
   } catch {
     /* best-effort; the server also ignores a stop it can't attribute */
