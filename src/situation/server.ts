@@ -11,9 +11,10 @@
 //     trick), so local media streams through the server. The servable set is an
 //     ALLOWLIST derived from the current model — only media the page actually
 //     shows resolves; nothing else on disk is reachable, even with the token.
-//   control.json — the cross-process control plane (.overcast/situation/):
-//     `situation set/stop` (CLI, agent tool, chair→agent) writes it; the server
-//     applies it on the next poll tick. See src/situation/state.ts.
+//   control.d/ — the cross-process control plane (.overcast/situation/):
+//     `situation set/stop` (CLI, agent tool, chair→agent) appends a patch; the
+//     server folds and drains them on the next poll tick. See
+//     src/situation/state.ts.
 //
 // Deliberately pi-free and case-driven, so it runs identically under the CLI
 // verb (own terminal pane) and the TUI extension (/situation on).
@@ -50,7 +51,7 @@ const CONTROL_MS = 2000;
 export interface SituationServerOptions extends LiveHttpdOptions {
   case: Case;
   version: string;
-  /** initial view config (CLI flags); mutated at runtime by control.json */
+  /** initial view config (CLI flags); mutated at runtime by control patches */
   config?: SituationConfig;
   /** the monitor cadence string the serving process owns ("5m"), display only —
    *  passes are driven by the caller via monitorStarted/monitorEnded */
@@ -59,7 +60,7 @@ export interface SituationServerOptions extends LiveHttpdOptions {
   pollMs?: number;
   /** false disables the ffmpeg poster pass (tests / no-ffmpeg hosts) */
   posters?: boolean;
-  /** fired when control.json requests a stop — the owner shuts the loop down */
+  /** fired when a control patch requests a stop — the owner shuts the loop down */
   onStopRequested?: (reason: string) => void;
   /** injectable clock for tests */
   now?: () => number;
@@ -138,9 +139,8 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
    *  retune/stop from the agent/CLI/chair lands within a couple seconds. */
   private async applyControlTick(): Promise<void> {
     if (this.stopRequested) return;
-    // take-then-apply: the control is claimed atomically, so a `situation set`
-    // racing this tick lands a NEW control.json for the next one rather than
-    // being deleted unapplied
+    // fold-then-drain: a `situation set` racing this tick appends a NEW patch
+    // that the next tick picks up, rather than being consumed unapplied
     const control = takeControl(this.case);
     if (!control) return;
     const { stop, ...patch } = control;
@@ -169,7 +169,7 @@ export class SituationServer extends LiveHttpd<SituationEventInput> {
     if (!this.stopRequested) await this.pollRebuildTick();
   }
 
-  /** Apply a config patch (from control.json), dropping invalid values rather
+  /** Apply a config patch (from a control patch file), dropping invalid values rather
    *  than failing the tick — the writer already validated; this is the belt.
    *  `clear` keys are DROPPED first (back to default/auto) — the only way to
    *  remove a filter from a long-running serve (Bugbot #98/med) — then any

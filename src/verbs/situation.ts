@@ -12,7 +12,7 @@
 //          action (the chair rule) — the agent tool and TUI slash are refused
 //          here (use /situation on in the TUI; it runs in-process).
 //   status / set / stop — the control plane, agent-safe: they only read
-//          .overcast/situation/runtime.json or write control.json, which the
+//          .overcast/situation/runtime.json or append a control patch, which the
 //          serving process applies on its next poll tick (~2s).
 
 import { makeRecord, errRecord, type OvercastRecord } from "../record.js";
@@ -382,7 +382,7 @@ export const situationVerb: VerbSpec = {
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       // the loser of a bind race lands here and returns WITHOUT touching
-      // runtime.json/control.json, so it can't clobber the winner's state.
+      // runtime.json or the control patches, so it can't clobber the winner's state.
       return [
         err(
           code === "EADDRINUSE"

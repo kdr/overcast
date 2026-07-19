@@ -227,7 +227,7 @@ test("situation status reports offline / stale runtime; stop writes a stop contr
     assert.equal(stopped.state, "ready");
     assert.equal((stopped.payload as Record<string, unknown>).running, false);
     assert.equal(readRuntime(openCase(dir)), undefined);
-    assert.equal(readControl(c)?.stop, true, "stop queued in control.json");
+    assert.equal(readControl(c)?.stop, true, "stop queued as a control patch");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

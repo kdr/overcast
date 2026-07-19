@@ -96,7 +96,7 @@ test("situation server: /media serves only allowlisted case media (Range 206), 4
   }
 });
 
-test("situation server: tick() applies control.json and fires onStopRequested on stop", async () => {
+test("situation server: tick() applies a control patch and fires onStopRequested on stop", async () => {
   const { dir, c } = tmpCase();
   let stopReason: string | undefined;
   const s = server(dir, { onStopRequested: (r) => (stopReason = r) });

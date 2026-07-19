@@ -1,4 +1,4 @@
-// Situation control plane = two small files under .overcast/situation/, in the
+// Situation control plane = a small file tree under .overcast/situation/, in the
 // same file-based style as seen.json / sources.json — because the serving
 // process (a terminal pane or the TUI extension) and the controllers (the
 // `situation set|stop|status` verb run by the CLI, the agent tool, or the chair
@@ -7,9 +7,12 @@
 //   runtime.json — written by the server on start, removed on exit. Discovery:
 //     "is a situation live, where". Never contains the pairing token (the token
 //     lives only in the terminal QR / pairing URL).
-//   control.json — written by `situation set` / `situation stop` (atomic
-//     replace, merging any not-yet-consumed control), consumed by the server on
-//     its next poll tick (~2s). `stop: true` shuts the server down gracefully.
+//   control.d/ — an APPEND-ONLY patch directory. `situation set` /
+//     `situation stop` each write ONE new file; the server folds them in
+//     filename (= write) order on its next poll tick (~2s) and removes what it
+//     consumed. `stop: true` shuts the server down gracefully. Deliberately not
+//     a single mutable file: see the note above `controlDir` for why that shape
+//     kept failing.
 
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -158,23 +161,6 @@ export function parsePanels(raw: string | undefined): SituationPanel[] | undefin
   return [...new Set(items)] as SituationPanel[];
 }
 
-/** Serialize every MUTATION of the control file through an O_EXCL lock.
- *
- *  writeControl is a read-modify-write: it folds the operator's patch onto
- *  whatever is still pending. Two `situation set`s racing (the agent and a CLI
- *  in another terminal, say) could both read the same pending state and the
- *  slower publish would clobber the faster one — an operator command lost with
- *  no error, the exact failure this control plane is supposed to have stopped
- *  having. A take landing mid-RMW could likewise resurrect an applied control.
- *
- *  So the lock covers ALL of the mutators (write / take / clearStaleStop), not
- *  just the pair that happened to be reported. Held for microseconds around a
- *  small JSON file.
- *
- *  Never fails the caller: if the lock can't be acquired within the budget we
- *  proceed anyway. Dropping the operator's command to protect against a rare
- *  interleaving would be the worse trade. A lock left by a killed process is
- *  stolen once it goes stale. */
 /** The control plane is an APPEND-ONLY PATCH DIRECTORY, not a shared mutable
  *  file, because every failure this thing has had came from the latter.
  *

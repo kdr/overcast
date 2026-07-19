@@ -233,7 +233,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   authenticated `/media` route with Range (a page served from http:// can't load
   `file://` like the static wall); remote embeds gated by
   `OVERCAST_REPORT_REMOTE_MEDIA`. Control plane = `.overcast/situation/`
-  (`runtime.json` discovery + `control.json`, consumed on the ~2s poll tick), so
+  (`runtime.json` discovery + an append-only `control.d/` patch log, drained on
+  the ~2s poll tick), so
   `situation set`/`stop` (CLI, agent tool, or chair→agent) retune/stop a running
   page cross-process. `/situation on` in the TUI runs the SAME server in-process,
   bound to the session lifecycle, as a viewer (the agent feeds it). Operational:

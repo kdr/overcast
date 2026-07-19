@@ -7,7 +7,7 @@
 //
 // Like the chair, the LLM gets NO tool that can OPEN the listener: /situation
 // on is an operator command (invariant #10). The agent controls a running page
-// through the `situation` verb's agent-safe ops (status/set/stop → control.json,
+// through the `situation` verb's agent-safe ops (status/set/stop → control patches,
 // consumed by this in-process server's poll tick like any other).
 //
 // The TUI server is a VIEWER: it never owns a monitor cadence (--every). In a
