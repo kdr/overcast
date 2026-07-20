@@ -36,7 +36,7 @@ ci "$REPO_ROOT/../overcast.video" "overcast.video (sibling marketing site)"
 
 # Optional live-e2e media wiring — no-ops without OC_E2E_MEDIA_URL, caches after
 # the first fetch, and must never block startup.
-if [ -x "$REPO_ROOT/scripts/fetch-e2e-media.sh" ]; then
+if [ -f "$REPO_ROOT/scripts/fetch-e2e-media.sh" ]; then
   bash "$REPO_ROOT/scripts/fetch-e2e-media.sh" \
     || echo "[cursor-update] WARNING: e2e media fetch failed — continuing (media-gated cases SKIP)." >&2
 fi

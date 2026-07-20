@@ -76,18 +76,29 @@ function resolveChromiumExecutable(chromium) {
     const symlinked = join(root, "chromium");
     if (isFile(symlinked)) return symlinked;
     // Otherwise scan the versioned browser dirs for a usable chrome build,
-    // preferring full chrome over the headless shell.
+    // preferring full chrome over the headless shell. Two passes over ALL dirs
+    // (full-chrome layouts first, headless_shell only as the fallback) so a full
+    // chrome in any dir wins even when a chromium_headless_shell-<rev> dir sorts
+    // earlier in readdir order.
     try {
-      for (const d of readdirSync(root)) {
-        if (!/^chromium(_headless_shell)?-\d/.test(d)) continue;
-        for (const rel of [
+      const dirs = readdirSync(root).filter((d) => /^chromium(_headless_shell)?-\d/.test(d));
+      const layouts = [
+        [
           ["chrome-linux", "chrome"],
           ["chrome-linux64", "chrome"],
           ["chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"],
+        ],
+        [
           ["chrome-linux", "headless_shell"],
-        ]) {
-          const bin = join(root, d, ...rel);
-          if (isFile(bin)) return bin;
+          ["chrome-mac", "headless_shell"],
+        ],
+      ];
+      for (const rels of layouts) {
+        for (const d of dirs) {
+          for (const rel of rels) {
+            const bin = join(root, d, ...rel);
+            if (isFile(bin)) return bin;
+          }
         }
       }
     } catch {
