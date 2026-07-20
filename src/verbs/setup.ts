@@ -564,36 +564,18 @@ export const doctorVerb: VerbSpec = {
       });
     }
 
-    // Mirrors resolveChromiumExecutable() in providers/engines/screenshot/render.mjs:
-    // honor OVERCAST_PLAYWRIGHT_EXECUTABLE, then playwright's default, then a Chromium
-    // build actually on disk under PLAYWRIGHT_BROWSERS_PATH (managed cloud images
-    // pin a different revision than the installed playwright expects), so doctor
-    // reports green wherever the renderer will in fact launch.
+    // Delegates to the ONE Chromium resolver the renderer launches with —
+    // providers/engines/screenshot/chromium-exec.mjs (override → playwright's
+    // default → the build actually on disk under PLAYWRIGHT_BROWSERS_PATH; managed
+    // cloud images pin a different revision than the installed playwright expects)
+    // — so doctor reports green exactly where the renderer will in fact launch.
+    const chromiumExecMjs = join(packageRoot(), "providers", "engines", "screenshot", "chromium-exec.mjs");
     const playwrightProbe = [
-      "const { existsSync, statSync, readdirSync } = await import('node:fs');",
-      "const { join } = await import('node:path');",
-      "const isFile = (p) => { try { return statSync(p).isFile(); } catch { return false; } };",
       "try {",
+      "  const { pathToFileURL } = await import('node:url');",
       "  const { chromium } = await import('playwright');",
-      "  let p = process.env.OVERCAST_PLAYWRIGHT_EXECUTABLE;",
-      "  if (!(p && isFile(p))) {",
-      "    p = undefined;",
-      "    try { const d = chromium.executablePath(); if (d && existsSync(d)) p = d; } catch {}",
-      "    const root = process.env.PLAYWRIGHT_BROWSERS_PATH;",
-      "    if (!p && root && existsSync(root)) {",
-      "      if (isFile(join(root, 'chromium'))) p = join(root, 'chromium');",
-      "      else {",
-      "        const dirs = readdirSync(root).filter((d) => /^chromium(_headless_shell)?-\\d/.test(d));",
-      "        const layouts = [",
-      "          [['chrome-linux','chrome'],['chrome-linux64','chrome'],['chrome-mac','Chromium.app','Contents','MacOS','Chromium']],",
-      "          [['chrome-linux','headless_shell'],['chrome-mac','headless_shell']],",
-      "        ];",
-      "        outer: for (const rels of layouts) for (const d of dirs) for (const r of rels) {",
-      "          const b = join(root, d, ...r); if (isFile(b)) { p = b; break outer; }",
-      "        }",
-      "      }",
-      "    }",
-      "  }",
+      "  const { resolveChromiumExecutable } = await import(pathToFileURL(process.env.OC_CHROMIUM_EXEC_MJS).href);",
+      "  const p = resolveChromiumExecutable(chromium);",
       "  if (!p) throw new Error('Chromium browser payload missing');",
       "  console.log(p);",
       "} catch (e) {",
@@ -601,7 +583,11 @@ export const doctorVerb: VerbSpec = {
       "  process.exit(1);",
       "}",
     ].join("\n");
-    const playwright = await execCapture(nodeProbeExecutable(), ["-e", playwrightProbe], { cwd: packageRoot(), timeoutMs: 15_000 })
+    const playwright = await execCapture(nodeProbeExecutable(), ["-e", playwrightProbe], {
+      cwd: packageRoot(),
+      timeoutMs: 15_000,
+      env: { ...process.env, OC_CHROMIUM_EXEC_MJS: chromiumExecMjs },
+    })
       .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
     checks.push({
       name: "playwright",

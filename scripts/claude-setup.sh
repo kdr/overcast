@@ -27,9 +27,12 @@
 #   - cloud-only by default (CLAUDE_CODE_REMOTE=true); locally it exits 0
 #     silently unless OC_CLAUDE_SETUP_LOCAL=1 opts in
 #   - fast on resumed/warm sessions: skips npm ci + build — but only when a
-#     PREVIOUS full run actually SUCCEEDED (success stamp under gitignored
-#     .dev/, written after setup-dev exits 0 — mere existence of node_modules/
-#     dist can be the debris of a half-failed cold start and must retry full)
+#     PREVIOUS full run actually SUCCEEDED on the CURRENT package-lock.json
+#     (the stamp under gitignored .dev/ records the lockfile hash — mere
+#     existence of node_modules/dist can be the debris of a half-failed cold
+#     start, and a resume that pulled dependency changes must npm ci again)
+#   - a failed warm refresh clears the stamp and falls back to a full setup in
+#     the SAME session, so a broken warm state can't wedge every later resume
 #   - never blocks a session on the optional bits (setup-dev degrades those)
 set -euo pipefail
 cd "${CLAUDE_PROJECT_DIR:-$(dirname "${BASH_SOURCE[0]}")/..}"
@@ -39,10 +42,20 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ] && [ "${OC_CLAUDE_SETUP_LOCAL:-}" != 
 fi
 
 SETUP_STAMP=.dev/claude-setup-ok
-if [ -f "$SETUP_STAMP" ] && [ -d node_modules ] && [ -f dist/bin/overcast.js ]; then
-  echo "[claude-setup] warm session — prior setup succeeded, refreshing media wiring only."
-  bash scripts/setup-dev.sh --skip-install --skip-build
-else
+LOCK_HASH="$( { sha256sum package-lock.json 2>/dev/null || shasum -a 256 package-lock.json; } | awk '{print $1}' )"
+
+full_setup() {
+  rm -f "$SETUP_STAMP"
   bash scripts/setup-dev.sh   # set -e: the stamp below is only reached on success
-  mkdir -p .dev && touch "$SETUP_STAMP"
+  mkdir -p .dev && printf '%s\n' "$LOCK_HASH" >"$SETUP_STAMP"
+}
+
+if [ "$(cat "$SETUP_STAMP" 2>/dev/null)" = "$LOCK_HASH" ] && [ -d node_modules ] && [ -f dist/bin/overcast.js ]; then
+  echo "[claude-setup] warm session — prior setup succeeded on this lockfile, refreshing media wiring only."
+  if ! bash scripts/setup-dev.sh --skip-install --skip-build; then
+    echo "[claude-setup] warm refresh failed — clearing the stamp and retrying a full setup." >&2
+    full_setup
+  fi
+else
+  full_setup
 fi

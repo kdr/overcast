@@ -30,43 +30,23 @@ op="${1:-run}"; shift || true
 case "$op" in
   init)
     need_node
-    # same probe as `overcast doctor` (setup.ts): playwright resolvable + the
-    # Chromium payload on disk. Runs from the engine dir so node resolves the
-    # optional dep from the package's node_modules, like render.mjs does.
-    # Mirrors resolveChromiumExecutable() in render.mjs (and setup.ts doctor):
-    # override → playwright default → a build actually on disk under
-    # PLAYWRIGHT_BROWSERS_PATH (the cloud `chromium` symlink, else a rev scan).
-    probe='const { existsSync, statSync, readdirSync } = await import("node:fs");
-      const { join } = await import("node:path");
-      const isFile = (p) => { try { return statSync(p).isFile(); } catch { return false; } };
-      try {
+    # same probe as `overcast doctor` (setup.ts): playwright resolvable + a
+    # launchable Chromium on disk, via the ONE shared resolver render.mjs
+    # launches with (chromium-exec.mjs — override → playwright default → the
+    # PLAYWRIGHT_BROWSERS_PATH build). Runs from the engine dir so node resolves
+    # the optional dep from the package's node_modules, like render.mjs does.
+    probe='try {
+        const { pathToFileURL } = await import("node:url");
         const { chromium } = await import("playwright");
-        let p = process.env.OVERCAST_PLAYWRIGHT_EXECUTABLE;
-        if (!(p && isFile(p))) {
-          p = undefined;
-          try { const d = chromium.executablePath(); if (d && existsSync(d)) p = d; } catch {}
-          const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
-          if (!p && root && existsSync(root)) {
-            if (isFile(join(root, "chromium"))) p = join(root, "chromium");
-            else {
-              const dirs = readdirSync(root).filter((d) => /^chromium(_headless_shell)?-\d/.test(d));
-              const layouts = [
-                [["chrome-linux","chrome"],["chrome-linux64","chrome"],["chrome-mac","Chromium.app","Contents","MacOS","Chromium"]],
-                [["chrome-linux","headless_shell"],["chrome-mac","headless_shell"]],
-              ];
-              outer: for (const rels of layouts) for (const d of dirs) for (const r of rels) {
-                const b = join(root, d, ...r); if (isFile(b)) { p = b; break outer; }
-              }
-            }
-          }
-        }
+        const { resolveChromiumExecutable } = await import(pathToFileURL(process.env.OC_CHROMIUM_EXEC_MJS).href);
+        const p = resolveChromiumExecutable(chromium);
         if (!p) throw new Error("Chromium browser payload missing");
         console.log(p);
       } catch (e) {
         console.error(e && e.message ? e.message : String(e));
         process.exit(13);
       }'
-    if ! out="$(cd "$here" && "${NODE_CMD[@]}" -e "$probe" 2>&1)"; then
+    if ! out="$(cd "$here" && OC_CHROMIUM_EXEC_MJS="$here/chromium-exec.mjs" "${NODE_CMD[@]}" -e "$probe" 2>&1)"; then
       printf '%s\n' "$out" | head -1 >&2
       echo "run \`npm install --include=optional\` and \`npx playwright install chromium\`" >&2
       exit 13
