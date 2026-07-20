@@ -21,6 +21,8 @@ record-mapping/registry/provider logic offline with the fixtures in
 ## Quick start
 
 ```bash
+bash scripts/setup-dev.sh   # fresh clone: deps + build + optional media fetch + tool report
+
 npm test                 # unit tests (offline, no creds)
 npm run test:e2e         # offline e2e (fixture providers)
 
@@ -46,6 +48,27 @@ bash test/e2e/live/run.sh 10 11 70   # just watch, listen, headless
   `listen`) — if those are unset, `see`/`listen` fall back to a frame / audio
   extracted from the videos. Cases trim short, cached sub-clips with the system
   ffmpeg before hitting cloud backends, and SKIP any medium that's unset/missing.
+
+  **Fetching test media automatically** — instead of hand-filling the paths,
+  set `OC_E2E_MEDIA_URL` (an unlisted HTTP(S) URL of the media bundle zip,
+  provided out-of-band as a Secret/env var — never committed) and run:
+
+  ```bash
+  bash scripts/fetch-e2e-media.sh     # or: npm run e2e:media
+  ```
+
+  The script downloads the bundle (a zip with a root `manifest.env` mapping
+  `VAR=relative/path` plus the media files), caches it **outside the repo**
+  (default `~/.cache/overcast-e2e-media`, override `OC_E2E_MEDIA_DIR`), verifies
+  `OC_E2E_MEDIA_SHA256` when set, and splices the resulting absolute paths into
+  `.env` under a managed marker block
+  (`# >>> overcast e2e media … >>>` / `# <<< overcast e2e media <<<`) — nothing
+  outside the markers is touched, so keys and hand edits survive. It is
+  idempotent (re-runs reuse the cache; `OC_E2E_MEDIA_FORCE=1` re-downloads) and
+  no-ops with exit 0 when the URL is unset, so it's safe to run anywhere —
+  missing media just means those cases SKIP. It never prints the URL (it may
+  carry a token). The suite is **not** wired to call it automatically; run it
+  once per machine (or bake it into a VM snapshot).
 - **Local detector (`see --detect`)** — `DETECT_PY` = a python with
   `torch`/`transformers`/`scipy`/`pillow` (OWLv2). If unset, the case probes
   `python3`/`python` and skips when the deps are missing.
@@ -227,6 +250,12 @@ Each run writes to `./.dev/smoke/live-<UTC>/` (gitignored): `report.md` (summary
 table + a **Detailed checks** section per assertion with the *condition under
 test*, the *exact command*, and an *output snippet*), plus raw JSON. The run exits
 non-zero if any case fails.
+
+Run dirs accumulate (offline runs land in `./.dev/smoke/<UTC>/` too). Prune them
+with `scripts/clean-dev.sh` (or `npm run dev:clean`): default keeps the newest 5
+runs; `--days N` prunes by age, `--scratch` also sweeps ad-hoc scratch dirs and
+logs in `.dev/`, `--purge` removes all of `.dev/` including the visual-db venv,
+`--dry-run` previews.
 
 ### Runner knobs
 
