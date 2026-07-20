@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readdirSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -36,6 +36,15 @@ function ctx(dir: string, over: Partial<VerbContext> = {}): VerbContext {
   };
 }
 
+// chmod 0o000 does NOT make a file unreadable for root (DAC is bypassed), so the
+// blocker branch never fires in a root sandbox/CI. A DIRECTORY at the patch path
+// makes readFileSync throw EISDIR — the same non-ENOENT "genuinely unreadable"
+// branch the control fold treats as a blocker — deterministically for every uid.
+function makeUnreadable(path: string): void {
+  rmSync(path, { force: true, recursive: true });
+  mkdirSync(path);
+}
+
 /** seed a case whose control log is held by an unreadable patch */
 function blockedCase(): { dir: string; blocker: string } {
   const dir = mkdtempSync(join(tmpdir(), "oc-sitblocked-"));
@@ -45,8 +54,7 @@ function blockedCase(): { dir: string; blocker: string } {
   const cdir = join(situationDir(c), "control.d");
   const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
   const blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
-  writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
-  chmodSync(blocker, 0o000);
+  makeUnreadable(blocker);
   return { dir, blocker };
 }
 
@@ -103,15 +111,13 @@ test("situation: a LEGACY control.json blocker is named, not hidden behind contr
     c.ensure();
     writeControl(c, { limit: 3 }); // a normal patch under control.d/
     legacy = join(situationDir(c), "control.json");
-    writeFileSync(legacy, JSON.stringify({ theme: "plain" }), "utf8");
-    chmodSync(legacy, 0o000);
+    makeUnreadable(legacy);
 
     const [status] = await situationVerb.run(ctx(dir, { input: "status", surface: "agent" }));
     const sp = status.payload as Record<string, unknown>;
     assert.equal(sp.blocked, true);
     assert.equal(sp.blocked_path, legacy, "points at control.json, not the control.d directory");
   } finally {
-    if (legacy) { try { chmodSync(legacy, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -133,7 +139,6 @@ test("situation status and stop BOTH surface a blocked control log", async () =>
     assert.equal(tp.blocked, true, "a queued stop reports that it will not be honored yet");
     assert.match(String(tp.note), /NOT be honored/i);
   } finally {
-    try { chmodSync(blocker, 0o600); } catch { /* gone */ }
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -150,15 +155,13 @@ test("situation set reports a BLOCKED control log instead of a clean apply", asy
     const cdir = join(situationDir(c), "control.d");
     const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
     blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
-    writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
-    chmodSync(blocker, 0o000);
+    makeUnreadable(blocker);
 
     const recs = await situationVerb.run(ctx(dir, { input: "set", surface: "agent", opts: { limit: 5 } }));
     const p = recs[0].payload as Record<string, unknown>;
     assert.equal(p.blocked, true, "the blocked queue is surfaced");
     assert.match(String(p.note), /cannot be read/i, "the note explains why nothing applies");
   } finally {
-    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
   }
 });

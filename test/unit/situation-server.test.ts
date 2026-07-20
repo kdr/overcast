@@ -18,6 +18,21 @@ function tmpCase() {
   return { dir, c };
 }
 
+// chmod 0o000 does NOT make a file unreadable for root (root bypasses DAC), so a
+// "transient read failure" stand-in built on it reads straight through in a root
+// sandbox/CI and the blocker branch never fires. A DIRECTORY at the patch path
+// makes readFileSync throw EISDIR instead — the same non-ENOENT "genuinely
+// unreadable" branch the control fold treats as a blocker (state.ts) — for every
+// uid. restorePatch swaps the real patch back in to model the failure clearing.
+function makeUnreadable(path: string): void {
+  rmSync(path, { force: true, recursive: true });
+  mkdirSync(path);
+}
+function restorePatch(path: string, patch: unknown): void {
+  rmSync(path, { force: true, recursive: true });
+  writeFileSync(path, JSON.stringify(patch), "utf8");
+}
+
 function server(dir: string, over: Partial<ConstructorParameters<typeof SituationServer>[0]> = {}) {
   return new SituationServer({
     case: openCase(dir),
@@ -221,17 +236,16 @@ test("situation control: an unreadable patch HOLDS the ones behind it (order)", 
   try {
     writeControl(c, { source: "web" });
     blocked = readdirSync(cdir)[0] && join(cdir, readdirSync(cdir)[0]);
-    chmodSync(blocked as string, 0o000); // stand in for a transient read failure
+    makeUnreadable(blocked as string); // stand in for a transient read failure
     writeControl(c, { clear: ["source"] }); // the NEWER intent, behind the block
 
     assert.equal(takeControl(c), undefined, "nothing is applied past the blocked patch");
     assert.equal(readdirSync(cdir).length, 2, "both patches still pending, in order");
 
-    chmodSync(blocked as string, 0o600); // the transient failure clears
+    restorePatch(blocked as string, { source: "web" }); // the transient failure clears
     assert.deepEqual(takeControl(c), { clear: ["source"] }, "now both apply, in the right order");
     assert.equal(readdirSync(cdir).length, 0, "drained");
   } finally {
-    if (blocked) { try { chmodSync(blocked, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -540,14 +554,12 @@ test("situation control: pending and blocked come from ONE fold", () => {
     writeControl(c, { source: "web" });
     const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
     blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
-    writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
-    chmodSync(blocker, 0o000);
+    makeUnreadable(blocker);
 
     const snap = controlSnapshot(c);
     assert.deepEqual(snap.control, { source: "web" }, "the applyable prefix");
     assert.equal(snap.blockedBy, blocker, "and the blocker, from the same fold");
   } finally {
-    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
   }
 });
