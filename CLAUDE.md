@@ -490,13 +490,16 @@ The startup update script runs `npm ci` for the root, `vscode/`, and the sibling
 are already installed system-wide. Standard verb/test/build commands live in the
 `## Commands` section above and in `package.json` — reference those, not copies.
 
-`scripts/setup-dev.sh` is the shared repo-setup layer (deps + build + optional
-`scripts/fetch-e2e-media.sh` media wiring); a Cursor update script can call it for
-the overcast repo instead of a bare `npm ci`, but it does NOT cover the sibling
-`overcast.video` repo, so keep that repo's `npm ci` if you rely on it. Do NOT point
-the Cursor update script at `scripts/claude-setup.sh`: that wrapper is gated on
-`CLAUDE_CODE_REMOTE=true` (a Claude Code cloud SessionStart hook) and no-ops under
-Cursor.
+The source-controlled update script is `scripts/cursor-update.sh` — point the
+Cursor environment "Update Script" field at it
+(`bash /agent/repos/overcast/scripts/cursor-update.sh`). It does a guarded per-repo
+`npm ci` (root + `vscode/` + the sibling `overcast.video`) plus the optional
+`scripts/fetch-e2e-media.sh` media wiring, and nothing else — no build, tests, or
+`npm i -g` (those are on-demand / snapshot-layer). Do NOT point the Cursor update
+script at `scripts/claude-setup.sh`: that wrapper is gated on `CLAUDE_CODE_REMOTE=true`
+(a Claude Code cloud SessionStart hook) and no-ops under Cursor. (`scripts/setup-dev.sh`
+is the richer shared repo-setup layer — deps + build + media — but it builds and
+covers only the overcast repo, so it is not the update-script default.)
 
 This cloud workspace mounts two sibling repos under `/agent/repos/`: this one
 (`overcast`, the CLI toolkit) and `overcast.video` (a Vite + React + Tailwind
