@@ -506,9 +506,11 @@ This cloud workspace mounts two sibling repos under `/agent/repos/`: this one
 marketing site — `npm run dev` on `http://localhost:5173`, `npm run lint` =
 oxlint, `npm run build` = `tsc -b && vite build`; see its own `README.md`).
 
-Non-obvious caveats for this environment:
+Non-obvious caveats (Cursor Cloud — the Claude Code on the web section below notes
+where that environment differs; conceptual items here like offline-by-default,
+which Secrets matter, the fast test loop, and "no ESLint" apply in both):
 
-- **`bun` is NOT installed.** The dev build (`tsup`/`vite`), typecheck, `npm test`,
+- **`bun` is NOT installed** (in Cursor Cloud). The dev build (`tsup`/`vite`), typecheck, `npm test`,
  and offline `npm run test:e2e` all run under `node`. Only `npm run build:bun` and
  `npm run test:e2e:live` need bun (plus live creds) and are not runnable as-is.
 - **Run the built CLI as `node dist/bin/overcast.js`** (no global `overcast` bin on
@@ -575,17 +577,24 @@ right or the session comes up inert:
   npm i -g @cloudglue/tinycloud || true                   # default watch/listen/face/index backend
   ```
 
+  (The `npm i -g` runs as root here, so it installs cleanly; if a variant of this
+  environment instead has an npm global prefix of `/`, use the writable-prefix
+  workaround from the tinycloud caveat in the Cursor Cloud section above.)
+
 - **Repo build** = the `SessionStart` hook (`.claude/settings.json` →
   `scripts/claude-setup.sh` → `scripts/setup-dev.sh`): `npm ci` + build + e2e-media
   fetch, run after launch inside the clone on every session start. Cloud-only by
   default (`CLAUDE_CODE_REMOTE=true`; `OC_CLAUDE_SETUP_LOCAL=1` opts a dev box in),
   with a warm-session fast path gated on a `.dev/claude-setup-ok` success stamp.
 
-Environment-specific caveats (differ from the Cursor Cloud notes above):
+Environment-specific caveats (deltas from the Cursor Cloud notes above; the
+conceptual ones there — offline-by-default, which Secrets matter, the fast test
+loop, `node dist/bin/overcast.js` to run the CLI, no ESLint — hold here too):
 
-- **`bun` IS present** here (unlike Cursor Cloud), so `npm run test:e2e:live` can
-  build the real binary — but `OVERCAST_USE_NODE=1` (run `node dist/bin/overcast.js`)
-  is the safe default and is usually pre-set.
+- **`bun` is usually available** here (this environment ships it, unlike Cursor
+  Cloud), so `npm run test:e2e:live` can build the real binary. Don't rely on it
+  unconditionally, though: `OVERCAST_USE_NODE=1` (run `node dist/bin/overcast.js`)
+  is the safe default, is usually pre-set, and is the fallback if `bun` is absent.
 - **Chromium for `screenshot`/`browser:`** — the image pre-installs a Chromium under
   `PLAYWRIGHT_BROWSERS_PATH` (e.g. `/opt/pw-browsers`) with
   `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, and its revision often differs from the one
