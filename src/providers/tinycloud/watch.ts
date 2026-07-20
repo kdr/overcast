@@ -305,10 +305,15 @@ export async function runWatch(
       payload: { content: "", transcript: "", detailed: data },
       media: { ref: input },
       meta: { provider: "tinycloud", model: "cloudglue" },
-      error: withProxyEgressHint(
-        envError ||
-          `tinycloud watch failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
-      ),
+      // a cred gap (exit 13) is a missing key, not a transport failure — no proxy
+      // hint there (matches the no-JSON path + runTinycloud's needs_credentials arm)
+      error:
+        res.code === 13
+          ? envError || "tinycloud watch needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
+          : withProxyEgressHint(
+              envError ||
+                `tinycloud watch failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
+            ),
       // exit 13 is the cred-gap convention even when JSON parsed — classify it as
       // needs_credentials (not a hard error), matching the no-JSON path + runExecProvider.
       state: res.code === 13 ? "needs_credentials" : "error",
