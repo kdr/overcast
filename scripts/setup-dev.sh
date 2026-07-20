@@ -165,7 +165,11 @@ if [ -f .env ]; then
   [ -n "${OC_E2E_MEDIA_SHA256:-}" ] || OC_E2E_MEDIA_SHA256="$(dotenv_val OC_E2E_MEDIA_SHA256)"
   export OC_E2E_MEDIA_URL OC_E2E_MEDIA_SHA256
 fi
-bash scripts/fetch-e2e-media.sh
+# Media is OPTIONAL by design — a hosting outage or bad sha must not abort dev
+# setup (media-gated e2e cases just SKIP). The fetch script's own error output
+# says what went wrong.
+bash scripts/fetch-e2e-media.sh \
+  || echo "[setup-dev] WARNING: e2e media fetch failed — continuing (media-gated e2e cases will SKIP)." >&2
 
 # --- sanity check the built CLI ------------------------------------------------
 if node dist/bin/overcast.js version --json >/dev/null 2>&1; then

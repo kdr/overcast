@@ -114,17 +114,29 @@ else
   else
     echo "[e2e-media] WARNING: OC_E2E_MEDIA_SHA256 not set — skipping integrity verification."
   fi
-  rm -f "$STAMP"                # invalidate until the new unpack completes
-  mv "$ZIP.tmp" "$ZIP"
-  rm -rf "$UNPACK"
-  mkdir -p "$UNPACK"
+  # Unpack to a STAGING dir and validate before touching the existing cache —
+  # a sha-valid zip that fails to unzip or lacks a root manifest.env must not
+  # destroy a previously good zip/unpacked/stamp trio.
+  UNPACK_TMP="$UNPACK.tmp.$$"
+  rm -rf "$UNPACK_TMP"
+  mkdir -p "$UNPACK_TMP"
   # NOTE: Info-ZIP unzip refuses `../` path components by default — do not pass
   # the `-:` flag (it re-enables extraction traversal).
-  unzip -q -o "$ZIP" -d "$UNPACK"
-  if [ ! -f "$MANIFEST" ]; then
-    echo "[e2e-media] ERROR: bundle has no manifest.env at its root — not a valid media bundle." >&2
+  if ! unzip -q -o "$ZIP.tmp" -d "$UNPACK_TMP"; then
+    rm -rf "$UNPACK_TMP" "$ZIP.tmp"
+    echo "[e2e-media] ERROR: bundle failed to unzip — discarded the download (existing cache untouched)." >&2
     exit 1
   fi
+  if [ ! -f "$UNPACK_TMP/manifest.env" ]; then
+    rm -rf "$UNPACK_TMP" "$ZIP.tmp"
+    echo "[e2e-media] ERROR: bundle has no manifest.env at its root — discarded the download (existing cache untouched)." >&2
+    exit 1
+  fi
+  # Commit the new bundle: swap artifacts in, stamp last.
+  rm -f "$STAMP"
+  mv "$ZIP.tmp" "$ZIP"
+  rm -rf "$UNPACK"
+  mv "$UNPACK_TMP" "$UNPACK"
   printf '%s %s\n' "$URL_HASH" "$ZIP_SHA" >"$STAMP"
 fi
 
@@ -132,12 +144,16 @@ fi
 # Values are double-quoted in the managed block so paths containing spaces
 # survive both bash `source` (run.sh) and the CLI's dotenv parser (src/env.ts),
 # which both unquote. The bundle is SEMI-TRUSTED and .env gets bash-sourced, so
-# var names and paths are strictly validated: names must be identifier-shaped,
-# paths a conservative charset (no quotes/$/backticks/backslashes — nothing a
+# var names and paths are strictly validated: names must be OC_-namespaced
+# media vars (never PATH/LD_PRELOAD/provider keys — the spliced block is
+# typically the LAST assignment and would win when .env is sourced) and outside
+# the OC_E2E_MEDIA_ control namespace this script itself reads; paths a
+# conservative charset (no quotes/$/backticks/backslashes — nothing a
 # double-quoted bash expansion could execute), no absolute/../ traversal, and
 # no symlinked components (a zip can carry symlinks that point outside the
 # cache; unzip restores them and -e would happily follow).
-VAR_RE='^[A-Za-z_][A-Za-z0-9_]*$'
+VAR_RE='^OC_[A-Z0-9_]+$'
+VAR_DENY_RE='^OC_E2E_MEDIA_'
 REL_RE='^[A-Za-z0-9._/ -]+$'
 has_symlink_component() { # <relpath> — true if any component under $UNPACK is a symlink
   local p="$UNPACK" seg
@@ -157,8 +173,8 @@ while IFS= read -r line || [ -n "$line" ]; do
   var="${line%%=*}"
   rel="${line#*=}"
   [ -n "$var" ] && [ -n "$rel" ] && [ "$var" != "$line" ] || continue
-  if ! [[ "$var" =~ $VAR_RE ]] || ! [[ "$rel" =~ $REL_RE ]]; then
-    echo "[e2e-media] WARNING: manifest entry with an invalid var name or unsafe path characters — rejected." >&2
+  if ! [[ "$var" =~ $VAR_RE ]] || [[ "$var" =~ $VAR_DENY_RE ]] || ! [[ "$rel" =~ $REL_RE ]]; then
+    echo "[e2e-media] WARNING: manifest entry with a non-OC_ / reserved var name or unsafe path characters — rejected." >&2
     continue
   fi
   case "/$rel/" in
