@@ -21,13 +21,18 @@ need
 [ -f "$input" ] || { jq -nc --arg i "$input" '{verb:"see",format:"json",payload:{caption:"",ocr:"",detections:[]},error:("image not found: "+$i),state:"error"}'; exit 0; }
 
 case "$(echo "${input##*.}" | tr 'A-Z' 'a-z')" in jpg|jpeg) mime=image/jpeg ;; webp) mime=image/webp ;; *) mime=image/png ;; esac
-b64="$(base64 -i "$input" 2>/dev/null | tr -d '\n')" || b64="$(base64 "$input" | tr -d '\n')"
+
+# The base64 data URL can exceed a single command-line argument's limit (Linux
+# MAX_ARG_STRLEN is 128KB), so build the request body in a temp file and hand it
+# to curl via @file — never pass the payload as an argument.
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+{ printf '{"image_url":"data:%s;base64,' "$mime"; base64 -w0 "$input" 2>/dev/null || base64 "$input" | tr -d '\n'; printf '"}'; } >"$tmp/req"
 
 # florence-2 sub-endpoint: detailed caption, or OCR
 sub="more-detailed-caption"; [ "$ocr" = "1" ] && sub="ocr"
 resp="$(curl -s -m 90 -X POST "https://fal.run/$MODEL/$sub" \
   -H "Authorization: Key $KEY" -H "Content-Type: application/json" \
-  -d "{\"image_url\":\"data:$mime;base64,$b64\"}")"
+  --data-binary @"$tmp/req")"
 
 text="$(jq -r '.results // .output // empty' <<<"$resp" 2>/dev/null)"
 err="$(jq -r '(.detail // .error // empty)' <<<"$resp" 2>/dev/null)"
