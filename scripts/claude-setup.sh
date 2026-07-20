@@ -1,19 +1,37 @@
 #!/bin/bash
-# claude-setup.sh — session-start hook for cloud coding-agent environments
-# (Claude Code "Setup script", Cursor Cloud startup, CI warm-up).
+# claude-setup.sh — SessionStart hook for Claude Code cloud sessions.
 #
-# Thin wrapper over scripts/setup-dev.sh: npm ci + build + e2e media fetch
-# (only when the OC_E2E_MEDIA_URL / OC_E2E_MEDIA_SHA256 secrets are configured
-# — otherwise a clean no-op) + CLI sanity check + optional-tool report.
-# Idempotent; everything optional degrades to e2e SKIPs, so a missing key or
-# media-hosting outage can never brick a session.
+# IMPORTANT: this is NOT for the cloud environment's "Setup script" field.
+# That field runs BEFORE Claude Code launches, as root, with the repo NOT as
+# the working directory (a bare `npm install` there fails with
+# "Could not read package.json: … open '/package.json'" and the non-zero exit
+# blocks the session). Per the Claude Code web docs, the Setup script field is
+# for SYSTEM tools (apt packages — snapshot-cached), e.g.:
 #
-# Want more in the session image? Call setup-dev.sh directly with flags:
-#   bash scripts/setup-dev.sh --tinycloud      # + the tinycloud CLI (Cloudglue senses)
-#   bash scripts/setup-dev.sh --system-deps    # + brew/apt ffmpeg, exiftool, yt-dlp, …
-#   bash scripts/setup-dev.sh --venv all       # + the uv Python venv (multi-GB torch)
-#   bash scripts/setup-dev.sh --full           # all of the above
+#   #!/bin/bash
+#   apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl yt-dlp || true
+#   npm i -g @cloudglue/tinycloud || true
+#
+# …while REPO setup (this script) runs as a SessionStart hook — wired in
+# .claude/settings.json via "$CLAUDE_PROJECT_DIR"/scripts/claude-setup.sh —
+# which executes after launch, inside the clone, on every session start.
+#
+# Behavior:
+#   - cloud-only by default (CLAUDE_CODE_REMOTE=true); locally it exits 0
+#     silently unless OC_CLAUDE_SETUP_LOCAL=1 opts in
+#   - fast on resumed/warm sessions: skips npm ci + build when node_modules
+#     and dist/ already exist (media fetch stays — it's a cheap cached no-op)
+#   - never blocks a session on the optional bits (setup-dev degrades those)
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "${CLAUDE_PROJECT_DIR:-$(dirname "${BASH_SOURCE[0]}")/..}"
 
-npm run dev:setup
+if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ] && [ "${OC_CLAUDE_SETUP_LOCAL:-}" != "1" ]; then
+  exit 0   # local session — dev machines manage their own node_modules/dist
+fi
+
+if [ -d node_modules ] && [ -f dist/bin/overcast.js ]; then
+  echo "[claude-setup] warm session — deps + dist present, refreshing media wiring only."
+  bash scripts/setup-dev.sh --skip-install --skip-build
+else
+  bash scripts/setup-dev.sh
+fi
