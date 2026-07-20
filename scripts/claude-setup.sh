@@ -71,9 +71,14 @@ full_setup() {
   mkdir -p .dev && printf '%s\n' "$LOCK_HASH" >"$SETUP_STAMP"
 }
 
-if [ "$(cat "$SETUP_STAMP" 2>/dev/null)" = "$LOCK_HASH" ] && [ -d node_modules ] && [ -f dist/bin/overcast.js ]; then
-  echo "[claude-setup] warm session — prior setup succeeded on this lockfile, refreshing media wiring only."
-  if ! bash scripts/setup-dev.sh --skip-install --skip-build; then
+if [ "$(cat "$SETUP_STAMP" 2>/dev/null)" = "$LOCK_HASH" ] && [ -d node_modules ]; then
+  # Warm path: deps already match this lockfile, so skip the slow npm ci — but
+  # ALWAYS rebuild (tsup is seconds). A resume that pulled SOURCE-only changes
+  # leaves the lockfile hash unchanged, so skipping the build here would keep the
+  # session on stale compiled CLI; rebuilding every warm start avoids that. Media
+  # wiring refreshes too.
+  echo "[claude-setup] warm session — deps match this lockfile; skipping npm ci, rebuilding + refreshing media."
+  if ! bash scripts/setup-dev.sh --skip-install; then
     echo "[claude-setup] warm refresh failed — clearing the stamp and retrying a full setup." >&2
     full_setup
   fi

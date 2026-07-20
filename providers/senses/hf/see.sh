@@ -46,7 +46,7 @@ instruction="${prompt:-Describe this image in detail (people, objects, text, set
 # Stage the data URL in a temp file, feed it to jq via --rawfile, and hand the
 # request body to curl via @file — no huge string is ever passed as an argument.
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-{ printf 'data:%s;base64,' "$mime"; base64 -w0 "$input" 2>/dev/null || base64 "$input" | tr -d '\n'; } >"$tmp/url"
+{ printf 'data:%s;base64,' "$mime"; base64 <"$input" | tr -d '\n'; } >"$tmp/url"
 jq -nc --arg m "$MODEL" --arg t "$instruction" --rawfile url "$tmp/url" \
   '{model:$m, max_tokens:400, messages:[{role:"user", content:[{type:"text",text:$t},{type:"image_url",image_url:{url:$url}}]}]}' >"$tmp/req"
 

@@ -26,7 +26,7 @@ case "$(echo "${input##*.}" | tr 'A-Z' 'a-z')" in jpg|jpeg) mime=image/jpeg ;; w
 # MAX_ARG_STRLEN is 128KB), so build the request body in a temp file and hand it
 # to curl via @file — never pass the payload as an argument.
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-{ printf '{"image_url":"data:%s;base64,' "$mime"; base64 -w0 "$input" 2>/dev/null || base64 "$input" | tr -d '\n'; printf '"}'; } >"$tmp/req"
+{ printf '{"image_url":"data:%s;base64,' "$mime"; base64 <"$input" | tr -d '\n'; printf '"}'; } >"$tmp/req"
 
 # florence-2 sub-endpoint: detailed caption, or OCR
 sub="more-detailed-caption"; [ "$ocr" = "1" ] && sub="ocr"
