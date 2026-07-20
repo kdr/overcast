@@ -98,16 +98,25 @@ if [ "$SYSTEM_DEPS" = "1" ]; then
     brew install "${missing[@]}" || echo "[setup-dev] WARNING: brew install had failures — continuing (missing tools degrade/SKIP)." >&2
   elif command -v apt-get >/dev/null 2>&1; then
     # c2patool + shellcheck-current aren't reliably in apt; install what is.
+    # Tool → apt package name mapping (exiftool ships as libimage-exiftool-perl).
     aptpkgs=()
     for t in "${missing[@]}"; do
-      case "$t" in c2patool) echo "[setup-dev] NOTE: c2patool is not apt-packaged — install from https://github.com/contentauth/c2patool releases." ;;
-                   *) aptpkgs+=("$t") ;; esac
+      case "$t" in
+        c2patool) echo "[setup-dev] NOTE: c2patool is not apt-packaged — install from https://github.com/contentauth/c2patool releases." ;;
+        exiftool) aptpkgs+=(libimage-exiftool-perl) ;;
+        *)        aptpkgs+=("$t") ;;
+      esac
     done
     if [ "${#aptpkgs[@]}" -gt 0 ]; then
       SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
       echo "[setup-dev] installing via apt-get: ${aptpkgs[*]}"
-      $SUDO apt-get update -qq && $SUDO apt-get install -y -qq "${aptpkgs[@]}" \
-        || echo "[setup-dev] WARNING: apt-get install had failures (no sudo? offline?) — continuing." >&2
+      $SUDO apt-get update -qq || echo "[setup-dev] WARNING: apt-get update failed — trying installs anyway." >&2
+      # One package per transaction: a single unknown package (e.g. yt-dlp on an
+      # old distro) must not abort the rest.
+      for p in "${aptpkgs[@]}"; do
+        $SUDO apt-get install -y -qq "$p" \
+          || echo "[setup-dev] WARNING: apt-get install $p failed (not packaged for this distro? no sudo?) — continuing." >&2
+      done
     fi
   else
     echo "[setup-dev] WARNING: no brew/apt-get found — install manually: ${missing[*]}" >&2
@@ -132,11 +141,14 @@ if [ -n "$VENV_MODE" ]; then
   echo "[setup-dev] building the visual-db Python venv (mode: --$VENV_MODE — torch stacks are multi-GB)…"
   bash scripts/visual-db-uv.sh "--$VENV_MODE"
   VENV_PY="${OVERCAST_VISUAL_DB_VENV:-$REPO_ROOT/.dev/visual-db-py}/bin/python"
-  # Wire the venv into .env only when the keys are absent — never overwrite a
-  # hand-set value.
+  # Wire the venv into .env only when a key has no NON-EMPTY value yet — an
+  # empty `OC_VISUAL_DB_PY=` placeholder (copied from .env.example) must not
+  # block wiring, and a hand-set value is never overwritten. Appending is safe
+  # either way: last assignment wins for both bash source and the CLI parser.
+  # Values are double-quoted so a repo path with spaces survives sourcing.
   touch .env
-  grep -q '^OC_VISUAL_DB_PY=' .env || printf 'OC_VISUAL_DB_PY=%s\n' "$VENV_PY" >>.env
-  grep -q '^DETECT_PY=' .env || printf 'DETECT_PY=%s\n' "$VENV_PY" >>.env
+  grep -Eq '^OC_VISUAL_DB_PY=.+' .env || printf 'OC_VISUAL_DB_PY="%s"\n' "$VENV_PY" >>.env
+  grep -Eq '^DETECT_PY=.+' .env || printf 'DETECT_PY="%s"\n' "$VENV_PY" >>.env
   echo "[setup-dev] venv ready; OC_VISUAL_DB_PY / DETECT_PY wired into .env (existing values kept)."
 fi
 

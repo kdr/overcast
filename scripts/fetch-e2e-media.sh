@@ -131,7 +131,24 @@ fi
 # --- resolve manifest entries to absolute cache paths ------------------------
 # Values are double-quoted in the managed block so paths containing spaces
 # survive both bash `source` (run.sh) and the CLI's dotenv parser (src/env.ts),
-# which both unquote.
+# which both unquote. The bundle is SEMI-TRUSTED and .env gets bash-sourced, so
+# var names and paths are strictly validated: names must be identifier-shaped,
+# paths a conservative charset (no quotes/$/backticks/backslashes — nothing a
+# double-quoted bash expansion could execute), no absolute/../ traversal, and
+# no symlinked components (a zip can carry symlinks that point outside the
+# cache; unzip restores them and -e would happily follow).
+VAR_RE='^[A-Za-z_][A-Za-z0-9_]*$'
+REL_RE='^[A-Za-z0-9._/ -]+$'
+has_symlink_component() { # <relpath> — true if any component under $UNPACK is a symlink
+  local p="$UNPACK" seg
+  local IFS='/'
+  for seg in $1; do
+    [ -n "$seg" ] || continue
+    p="$p/$seg"
+    [ -L "$p" ] && return 0
+  done
+  return 1
+}
 block_body=""
 wired=""
 while IFS= read -r line || [ -n "$line" ]; do
@@ -140,11 +157,19 @@ while IFS= read -r line || [ -n "$line" ]; do
   var="${line%%=*}"
   rel="${line#*=}"
   [ -n "$var" ] && [ -n "$rel" ] && [ "$var" != "$line" ] || continue
+  if ! [[ "$var" =~ $VAR_RE ]] || ! [[ "$rel" =~ $REL_RE ]]; then
+    echo "[e2e-media] WARNING: manifest entry with an invalid var name or unsafe path characters — rejected." >&2
+    continue
+  fi
   case "/$rel/" in
     //*|*/../*|*/./*)
       echo "[e2e-media] WARNING: manifest entry $var has an absolute or traversal path — rejected." >&2
       continue ;;
   esac
+  if has_symlink_component "$rel"; then
+    echo "[e2e-media] WARNING: manifest entry $var resolves through a symlink — rejected." >&2
+    continue
+  fi
   abs="$UNPACK/$rel"
   if [ -e "$abs" ]; then
     block_body="${block_body}${var}=\"${abs}\""$'\n'
@@ -163,20 +188,29 @@ trap 'rm -f "$block_tmp"' EXIT
   printf '%s\n' "$BLOCK_END"
 } >"$block_tmp"
 
+# Markers are matched as WHOLE lines (-x) everywhere — a substring occurrence
+# (say, inside a comment) must neither count as "block present" nor desync the
+# awk splice below, and the awk guards against an unterminated block instead of
+# silently truncating everything after the begin marker.
 env_tmp="$(mktemp "$ENV_FILE.tmp.XXXXXX")"
 if [ ! -f "$ENV_FILE" ]; then
   cat "$block_tmp" >"$env_tmp"
-elif grep -qF "$BLOCK_BEGIN" "$ENV_FILE"; then
-  if ! grep -qF "$BLOCK_END" "$ENV_FILE"; then
+elif grep -qxF "$BLOCK_BEGIN" "$ENV_FILE"; then
+  if ! grep -qxF "$BLOCK_END" "$ENV_FILE"; then
     rm -f "$env_tmp"
     echo "[e2e-media] ERROR: env file has the begin marker but no end marker — fix it by hand, then re-run." >&2
     exit 1
   fi
-  awk -v begin="$BLOCK_BEGIN" -v end="$BLOCK_END" -v blockfile="$block_tmp" '
+  if ! awk -v begin="$BLOCK_BEGIN" -v end="$BLOCK_END" -v blockfile="$block_tmp" '
     $0 == begin { while ((getline l < blockfile) > 0) print l; skipping = 1; next }
     $0 == end   { skipping = 0; next }
     !skipping   { print }
-  ' "$ENV_FILE" >"$env_tmp"
+    END         { if (skipping) exit 3 }
+  ' "$ENV_FILE" >"$env_tmp"; then
+    rm -f "$env_tmp"
+    echo "[e2e-media] ERROR: managed block markers are malformed (end before begin?) — fix the env file by hand, then re-run." >&2
+    exit 1
+  fi
 else
   cat "$ENV_FILE" >"$env_tmp"
   printf '\n' >>"$env_tmp"
