@@ -273,7 +273,9 @@ export async function runWatch(
           ? "tinycloud watch produced no JSON output"
           : res.code === 13
             ? "tinycloud watch needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
-            : `tinycloud watch exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
+            : // a MITM-proxied bun fetch dies before any JSON is printed, so the
+              // no-JSON exit path needs the egress hint too (matches listen)
+              withProxyEgressHint(`tinycloud watch exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 500))}`),
       // exit 13 = missing creds, matching runExecProvider + the source providers
       state: res.code === 13 ? "needs_credentials" : "error",
     });

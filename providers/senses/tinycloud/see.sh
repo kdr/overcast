@@ -16,6 +16,16 @@ set -uo pipefail
 
 read -r -a TC <<<"${OVERCAST_TINYCLOUD_CMD:-tinycloud}"
 
+# OVERCAST_TINYCLOUD_DIRECT_EGRESS: tinycloud is a bun-compiled binary and bun's
+# fetch can't traverse a TLS-re-terminating (MITM) egress proxy — same knob and
+# semantics as tinycloudChildEnv in src/providers/tinycloud/envelope.ts, applied
+# here because this script spawns tinycloud itself (runExecProvider passes the
+# ambient env through). This script only runs tinycloud + jq, so unsetting the
+# proxy vars process-wide is equivalent to stripping tinycloud's child env.
+case "$(printf '%s' "${OVERCAST_TINYCLOUD_DIRECT_EGRESS:-}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy ;;
+esac
+
 need() {
   [ -n "${CLOUDGLUE_API_KEY:-}" ] || [ -f "$HOME/.tinycloud/config.json" ] || {
     echo "see (tinycloud) needs CLOUDGLUE_API_KEY or ~/.tinycloud/config.json (https://app.cloudglue.dev)" >&2

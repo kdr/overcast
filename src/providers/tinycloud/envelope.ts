@@ -301,7 +301,9 @@ export async function runTinycloud(
           ? "tinycloud produced no JSON output"
           : credGap
             ? "tinycloud needs credentials (set CLOUDGLUE_API_KEY or run `tinycloud setup cloudglue`)"
-            : `tinycloud exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 400))}`,
+            : // a MITM-proxied bun fetch dies before any JSON is printed, so the
+              // no-JSON exit path needs the egress hint too
+              withProxyEgressHint(`tinycloud exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 400))}`),
     };
   }
 

@@ -308,11 +308,13 @@ export async function runListen(
       payload: { transcript: "", segments: [], language: null },
       media: { ref: input },
       meta: { provider: "tinycloud", model: "cloudglue" },
-      error:
-        envError ||
-        (res.code === 13
+      // the envelope error rides the SAME bun-fetch transport as an exit failure,
+      // so it gets the same MITM-proxy hint (matches runWatch + runTinycloud)
+      error: envError
+        ? withProxyEgressHint(envError)
+        : res.code === 13
           ? "tinycloud listen needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
-          : withProxyEgressHint(`tinycloud listen failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`)),
+          : withProxyEgressHint(`tinycloud listen failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`),
       state: res.code === 13 ? "needs_credentials" : "error",
     });
   }
