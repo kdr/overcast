@@ -452,7 +452,9 @@ binding**; case setup records expected choices/policy and can clear built-ins li
 ```bash
 bash scripts/setup-dev.sh # one-shot dev init: npm ci + build + optional e2e-media fetch + tool report
                           # (--tinycloud installs the tinycloud CLI; --venv [mode] builds the uv
-                          #  Python venv + wires OC_VISUAL_DB_PY/DETECT_PY; --full = both)
+                          #  Python venv + wires OC_VISUAL_DB_PY/DETECT_PY; --system-deps installs
+                          #  missing system tools via brew/apt (ffmpeg, exiftool, yt-dlp, …);
+                          #  --full = all of the above)
 npm run build            # tsup (dev/library build) + vite chair-console build
 npm run typecheck        # tsc --noEmit (src + web/chair)
 npm test                 # unit tests (offline; fixtures)

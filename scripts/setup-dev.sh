@@ -16,7 +16,10 @@
 #                                        # scripts/visual-db-uv.sh (default mode:
 #                                        # all — multi-GB torch download) and wire
 #                                        # OC_VISUAL_DB_PY / DETECT_PY into .env
-#   scripts/setup-dev.sh --full          # --tinycloud + --venv all
+#   scripts/setup-dev.sh --system-deps   # also best-effort install missing system
+#                                        # tools via brew/apt (ffmpeg, exiftool,
+#                                        # yt-dlp; + c2patool/shellcheck on brew)
+#   scripts/setup-dev.sh --full          # --tinycloud + --venv all + --system-deps
 #
 # Everything optional stays optional: no creds, media, bun, or Python needed
 # for the core dev loop (build / typecheck / npm test / offline e2e). The
@@ -31,6 +34,7 @@ SKIP_INSTALL=0
 SKIP_BUILD=0
 RUN_TESTS=0
 INSTALL_TINYCLOUD=0
+SYSTEM_DEPS=0
 VENV_MODE=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -38,12 +42,13 @@ while [ "$#" -gt 0 ]; do
     --skip-build)   SKIP_BUILD=1; shift ;;
     --test)         RUN_TESTS=1; shift ;;
     --tinycloud)    INSTALL_TINYCLOUD=1; shift ;;
+    --system-deps)  SYSTEM_DEPS=1; shift ;;
     --venv)
       VENV_MODE="all"
       if [ "$#" -gt 1 ] && [[ "$2" != --* ]]; then VENV_MODE="$2"; shift; fi
       shift ;;
-    --full)         INSTALL_TINYCLOUD=1; VENV_MODE="${VENV_MODE:-all}"; shift ;;
-    -h|--help) sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --full)         INSTALL_TINYCLOUD=1; SYSTEM_DEPS=1; VENV_MODE="${VENV_MODE:-all}"; shift ;;
+    -h|--help) sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "[setup-dev] unknown arg: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -75,6 +80,40 @@ else
   npm run build
 fi
 
+# --- system tools (opt-in; brew on macOS, apt-get on Debian/Ubuntu) ------------
+# Best-effort and non-fatal: only installs what's MISSING, and a tool that can't
+# be installed (no package manager, no sudo, not packaged for the distro) is
+# just reported — its verbs/cases degrade or SKIP cleanly, like everything else.
+if [ "$SYSTEM_DEPS" = "1" ]; then
+  # ffmpeg = the internal media toolkit (invariant: system prerequisite, not
+  # bundled); exiftool/c2patool = the exif/verify forensic senses; yt-dlp = the
+  # youtube/dl sources + post-page fetches; shellcheck = the CI shell lint.
+  want=(ffmpeg exiftool yt-dlp c2patool shellcheck)
+  missing=()
+  for t in "${want[@]}"; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
+  if [ "${#missing[@]}" -eq 0 ]; then
+    echo "[setup-dev] system tools all present — nothing to install."
+  elif command -v brew >/dev/null 2>&1; then
+    echo "[setup-dev] installing via brew: ${missing[*]}"
+    brew install "${missing[@]}" || echo "[setup-dev] WARNING: brew install had failures — continuing (missing tools degrade/SKIP)." >&2
+  elif command -v apt-get >/dev/null 2>&1; then
+    # c2patool + shellcheck-current aren't reliably in apt; install what is.
+    aptpkgs=()
+    for t in "${missing[@]}"; do
+      case "$t" in c2patool) echo "[setup-dev] NOTE: c2patool is not apt-packaged — install from https://github.com/contentauth/c2patool releases." ;;
+                   *) aptpkgs+=("$t") ;; esac
+    done
+    if [ "${#aptpkgs[@]}" -gt 0 ]; then
+      SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+      echo "[setup-dev] installing via apt-get: ${aptpkgs[*]}"
+      $SUDO apt-get update -qq && $SUDO apt-get install -y -qq "${aptpkgs[@]}" \
+        || echo "[setup-dev] WARNING: apt-get install had failures (no sudo? offline?) — continuing." >&2
+    fi
+  else
+    echo "[setup-dev] WARNING: no brew/apt-get found — install manually: ${missing[*]}" >&2
+  fi
+fi
+
 # --- tinycloud CLI (opt-in; the default watch/listen/face/index backend) -------
 if [ "$INSTALL_TINYCLOUD" = "1" ]; then
   if command -v tinycloud >/dev/null 2>&1; then
@@ -103,10 +142,15 @@ fi
 
 # --- optional e2e media (no-ops without OC_E2E_MEDIA_URL) ----------------------
 # fetch-e2e-media.sh reads its knobs from the environment; also honor a .env
-# that already carries OC_E2E_MEDIA_URL so setup works either way.
-if [ -z "${OC_E2E_MEDIA_URL:-}" ] && [ -f .env ]; then
-  OC_E2E_MEDIA_URL="$(sed -n 's/^OC_E2E_MEDIA_URL=//p' .env | tail -1)"
-  OC_E2E_MEDIA_SHA256="${OC_E2E_MEDIA_SHA256:-$(sed -n 's/^OC_E2E_MEDIA_SHA256=//p' .env | tail -1)}"
+# that already carries them, so setup works either way. Bridge by SOURCING .env
+# in a subshell — the same semantics as the live runner (quotes, inline values)
+# — never by scraping lines. Real env vars win; .env fills each gap
+# INDEPENDENTLY (a Secret-provided URL still picks up a .env-only sha).
+if [ -f .env ]; then
+  dotenv_val() { ( set +u; # shellcheck disable=SC1091
+    . ./.env >/dev/null 2>&1; eval "printf '%s' \"\${$1:-}\"" ); }
+  [ -n "${OC_E2E_MEDIA_URL:-}" ]    || OC_E2E_MEDIA_URL="$(dotenv_val OC_E2E_MEDIA_URL)"
+  [ -n "${OC_E2E_MEDIA_SHA256:-}" ] || OC_E2E_MEDIA_SHA256="$(dotenv_val OC_E2E_MEDIA_SHA256)"
   export OC_E2E_MEDIA_URL OC_E2E_MEDIA_SHA256
 fi
 bash scripts/fetch-e2e-media.sh
@@ -125,7 +169,7 @@ for tool in ffmpeg ffprobe bun uv exiftool c2patool shellcheck tinycloud; do
   if command -v "$tool" >/dev/null 2>&1; then
     echo "  present: $tool"
   else
-    echo "  missing: $tool (optional)"
+    echo "  missing: $tool (optional — re-run with --system-deps to install what brew/apt can)"
   fi
 done
 echo "  (ffmpeg/ffprobe: media ops · bun: binary build + default live-e2e runner ·"
