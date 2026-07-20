@@ -510,9 +510,15 @@ Non-obvious caveats (Cursor Cloud — the Claude Code on the web section below n
 where that environment differs; conceptual items here like offline-by-default,
 which Secrets matter, the fast test loop, and "no ESLint" apply in both):
 
-- **`bun` is NOT installed** (in Cursor Cloud). The dev build (`tsup`/`vite`), typecheck, `npm test`,
- and offline `npm run test:e2e` all run under `node`. Only `npm run build:bun` and
- `npm run test:e2e:live` need bun (plus live creds) and are not runnable as-is.
+- **`bun` is not in the base Cursor Cloud image — install it (snapshot-layer).**
+ The whole node dev loop works without it: the dev build (`tsup`/`vite`), typecheck,
+ `npm test`, and offline `npm run test:e2e` all run under `node`, and the live suite
+ runs under `node` with `OVERCAST_USE_NODE=1`. bun is only needed to compile the
+ real binary (`npm run build:bun`) and as the live suite's default runner. Install
+ it once with `bash scripts/setup-dev.sh --bun` (or `curl -fsSL https://bun.sh/install
+ | bash`) → it lands in `~/.bun` and appends `~/.bun/bin` to `~/.bashrc`, so a saved
+ VM snapshot keeps it for later sessions (same snapshot-layer pattern as the
+ tinycloud CLI above — keep it OUT of the update script).
 - **Run the built CLI as `node dist/bin/overcast.js`** (no global `overcast` bin on
  PATH); `npm run dev` (`tsx bin/overcast.ts`) runs it from source. A local case is
  just a folder — `case init` in any dir, or `--case <dir>`.

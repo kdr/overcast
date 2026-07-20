@@ -12,6 +12,9 @@
 #   scripts/setup-dev.sh --skip-build    # reuse existing dist/
 #   scripts/setup-dev.sh --test          # also run unit + offline e2e suites
 #   scripts/setup-dev.sh --tinycloud     # also npm i -g the tinycloud CLI (>= 0.3.12)
+#   scripts/setup-dev.sh --bun           # also install the bun runtime (build:bun +
+#                                        # the default live-e2e runner; node fallback
+#                                        # via OVERCAST_USE_NODE=1)
 #   scripts/setup-dev.sh --venv [mode]   # also build the uv Python venv via
 #                                        # scripts/visual-db-uv.sh (default mode:
 #                                        # all — multi-GB torch download) and wire
@@ -19,7 +22,7 @@
 #   scripts/setup-dev.sh --system-deps   # also best-effort install missing system
 #                                        # tools via brew/apt (ffmpeg, exiftool,
 #                                        # yt-dlp; + c2patool/shellcheck on brew)
-#   scripts/setup-dev.sh --full          # --tinycloud + --venv all + --system-deps
+#   scripts/setup-dev.sh --full          # --tinycloud + --bun + --venv all + --system-deps
 #
 # Everything optional stays optional: no creds, media, bun, or Python needed
 # for the core dev loop (build / typecheck / npm test / offline e2e). The
@@ -34,6 +37,7 @@ SKIP_INSTALL=0
 SKIP_BUILD=0
 RUN_TESTS=0
 INSTALL_TINYCLOUD=0
+INSTALL_BUN=0
 SYSTEM_DEPS=0
 VENV_MODE=""
 while [ "$#" -gt 0 ]; do
@@ -42,13 +46,14 @@ while [ "$#" -gt 0 ]; do
     --skip-build)   SKIP_BUILD=1; shift ;;
     --test)         RUN_TESTS=1; shift ;;
     --tinycloud)    INSTALL_TINYCLOUD=1; shift ;;
+    --bun)          INSTALL_BUN=1; shift ;;
     --system-deps)  SYSTEM_DEPS=1; shift ;;
     --venv)
       VENV_MODE="all"
       if [ "$#" -gt 1 ] && [[ "$2" != --* ]]; then VENV_MODE="$2"; shift; fi
       shift ;;
-    --full)         INSTALL_TINYCLOUD=1; SYSTEM_DEPS=1; VENV_MODE="${VENV_MODE:-all}"; shift ;;
-    -h|--help) sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --full)         INSTALL_TINYCLOUD=1; INSTALL_BUN=1; SYSTEM_DEPS=1; VENV_MODE="${VENV_MODE:-all}"; shift ;;
+    -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "[setup-dev] unknown arg: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -134,6 +139,26 @@ if [ "$INSTALL_TINYCLOUD" = "1" ]; then
   fi
   # No creds needed to install — CLOUDGLUE_API_KEY is read at runtime from the
   # environment (.env / Secrets) when watch/listen/face/index verbs run.
+fi
+
+# --- bun runtime (opt-in; build:bun + the default live-e2e runner) -------------
+# Needed only for the COMPILED binary path (`npm run build:bun`, and the live e2e
+# suite's default runner); the whole node dev loop + `OVERCAST_USE_NODE=1` live
+# runs work without it. Installs to ~/.bun via the official installer (no root),
+# which also appends ~/.bun/bin to the shell profile so later sessions resolve it.
+if [ "$INSTALL_BUN" = "1" ]; then
+  if command -v bun >/dev/null 2>&1; then
+    echo "[setup-dev] bun already installed ($(bun --version 2>/dev/null)) — skipping."
+  else
+    echo "[setup-dev] installing bun (https://bun.sh/install)…"
+    if curl -fsSL https://bun.sh/install | bash; then
+      export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+      export PATH="$BUN_INSTALL/bin:$PATH"
+      echo "[setup-dev] bun $(bun --version 2>/dev/null) installed (open a new shell or PATH=\"\$HOME/.bun/bin:\$PATH\")."
+    else
+      echo "[setup-dev] WARNING: bun install failed — continuing (build:bun unavailable; use OVERCAST_USE_NODE=1)." >&2
+    fi
+  fi
 fi
 
 # --- uv Python venv (opt-in; local visual/audio DB + enhance providers) --------
