@@ -574,7 +574,8 @@ right or the session comes up inert:
   Code launches, **as root, with `cwd=/`** (the repo is NOT the working directory),
   and its output is snapshot-cached. A bare `npm install`/`npm run …` here fails
   with `ENOENT: … open '/package.json'` and the non-zero exit blocks the session.
-  Put ONLY package-manager installs here:
+  Put ONLY package-manager installs here — this exact content is source-controlled
+  as `scripts/claude-cloud-system-setup.sh` (paste that file):
 
   ```bash
   #!/bin/bash

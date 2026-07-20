@@ -5,8 +5,9 @@
 # That field runs BEFORE Claude Code launches, as root, with the repo NOT as
 # the working directory (a bare `npm install` there fails with
 # "Could not read package.json: … open '/package.json'" and the non-zero exit
-# blocks the session). Per the Claude Code web docs, the Setup script field is
-# for SYSTEM tools (apt packages — snapshot-cached), e.g.:
+# blocks the session). Per the Claude Code web docs, the Setup script field is for
+# SYSTEM tools (apt packages — snapshot-cached). That content is source-controlled
+# as a ready-to-paste script — scripts/claude-cloud-system-setup.sh — namely:
 #
 #   #!/bin/bash
 #   apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl || true
