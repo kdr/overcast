@@ -553,3 +553,44 @@ Non-obvious caveats for this environment:
  also need their provider Secrets; anything unset just SKIPs. Prune accumulated
  run output with `npm run dev:clean` (`scripts/clean-dev.sh`).
 - **No ESLint.** Lint in CI is `shellcheck -S warning` over `*.sh` only.
+
+## Claude Code on the web (cloud sessions)
+
+Repo setup on Claude Code on the web splits across **two** places — get the split
+right or the session comes up inert:
+
+- **Environment "Setup script" field** = SYSTEM tools only. It runs BEFORE Claude
+  Code launches, **as root, with `cwd=/`** (the repo is NOT the working directory),
+  and its output is snapshot-cached. A bare `npm install`/`npm run …` here fails
+  with `ENOENT: … open '/package.json'` and the non-zero exit blocks the session.
+  Put ONLY package-manager installs here:
+
+  ```bash
+  #!/bin/bash
+  apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl || true
+  pip install -U --break-system-packages yt-dlp || true   # apt yt-dlp is too old for current YouTube
+  npm i -g @cloudglue/tinycloud || true                   # default watch/listen/face/index backend
+  ```
+
+- **Repo build** = the `SessionStart` hook (`.claude/settings.json` →
+  `scripts/claude-setup.sh` → `scripts/setup-dev.sh`): `npm ci` + build + e2e-media
+  fetch, run after launch inside the clone on every session start. Cloud-only by
+  default (`CLAUDE_CODE_REMOTE=true`; `OC_CLAUDE_SETUP_LOCAL=1` opts a dev box in),
+  with a warm-session fast path gated on a `.dev/claude-setup-ok` success stamp.
+
+Environment-specific caveats (differ from the Cursor Cloud notes above):
+
+- **`bun` IS present** here (unlike Cursor Cloud), so `npm run test:e2e:live` can
+  build the real binary — but `OVERCAST_USE_NODE=1` (run `node dist/bin/overcast.js`)
+  is the safe default and is usually pre-set.
+- **Chromium for `screenshot`/`browser:`** — the image pre-installs a Chromium under
+  `PLAYWRIGHT_BROWSERS_PATH` (e.g. `/opt/pw-browsers`) with
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, and its revision often differs from the one
+  the pinned `playwright` expects. The screenshot engine
+  (`providers/engines/screenshot/render.mjs`, `resolveChromiumExecutable`) and the
+  `doctor` probe auto-detect the on-disk build, so this needs no extra step;
+  `OVERCAST_PLAYWRIGHT_EXECUTABLE` is the override if it can't be found.
+- **Live e2e media** — set `OC_E2E_MEDIA_URL` (+ `OC_E2E_MEDIA_SHA256`) as Secrets;
+  the hook's `fetch-e2e-media.sh` wires the paths into `.env`. Provider Secrets
+  (`CLOUDGLUE_API_KEY`, `APIFY_TOKEN`, `SERPER_API_KEY`, …) flow from the session
+  env; anything unset just SKIPs.

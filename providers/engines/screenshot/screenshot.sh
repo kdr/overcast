@@ -33,11 +33,31 @@ case "$op" in
     # same probe as `overcast doctor` (setup.ts): playwright resolvable + the
     # Chromium payload on disk. Runs from the engine dir so node resolves the
     # optional dep from the package's node_modules, like render.mjs does.
-    probe='const { existsSync } = await import("node:fs");
+    # Mirrors resolveChromiumExecutable() in render.mjs (and setup.ts doctor):
+    # override → playwright default → a build actually on disk under
+    # PLAYWRIGHT_BROWSERS_PATH (the cloud `chromium` symlink, else a rev scan).
+    probe='const { existsSync, statSync, readdirSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const isFile = (p) => { try { return statSync(p).isFile(); } catch { return false; } };
       try {
         const { chromium } = await import("playwright");
-        const p = chromium.executablePath();
-        if (!p || !existsSync(p)) throw new Error("Chromium browser payload missing");
+        let p = process.env.OVERCAST_PLAYWRIGHT_EXECUTABLE;
+        if (!(p && isFile(p))) {
+          p = undefined;
+          try { const d = chromium.executablePath(); if (d && existsSync(d)) p = d; } catch {}
+          const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+          if (!p && root && existsSync(root)) {
+            if (isFile(join(root, "chromium"))) p = join(root, "chromium");
+            else for (const d of readdirSync(root)) {
+              if (!/^chromium(_headless_shell)?-\d/.test(d)) continue;
+              for (const r of [["chrome-linux","chrome"],["chrome-linux64","chrome"],["chrome-linux","headless_shell"]]) {
+                const b = join(root, d, ...r); if (isFile(b)) { p = b; break; }
+              }
+              if (p) break;
+            }
+          }
+        }
+        if (!p) throw new Error("Chromium browser payload missing");
         console.log(p);
       } catch (e) {
         console.error(e && e.message ? e.message : String(e));

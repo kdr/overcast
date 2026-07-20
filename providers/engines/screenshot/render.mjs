@@ -24,7 +24,7 @@
 // semantics, same accepted DNS-rebind TOCTOU residual as the fetch guard.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { lookup } from "node:dns/promises";
@@ -41,6 +41,61 @@ const HARD_CAP_MAX = 165_000;
 const VIEWPORT_DEFAULT = { width: 1280, height: 800 };
 const VIEWPORT_MIN = 320;
 const VIEWPORT_MAX = 4096;
+
+const isFile = (p) => {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+};
+
+// Resolve the Chromium binary to launch. On managed cloud images (Claude Code on
+// the web, some CI) a Chromium build is pre-installed under PLAYWRIGHT_BROWSERS_PATH
+// with PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1, and its revision can differ from the one
+// the installed `playwright` pins — so chromium.executablePath() points at a
+// revision dir that doesn't exist and the default launch fails with "executable
+// doesn't exist". Precedence: an explicit OVERCAST_PLAYWRIGHT_EXECUTABLE override,
+// then playwright's own default (the normal local-dev path), then whatever chromium
+// build actually IS on disk under PLAYWRIGHT_BROWSERS_PATH (the `chromium` symlink
+// cloud images provide, else a scan of chromium-<rev>/ dirs). Returns undefined to
+// let playwright try its default (preserving the existing missing-payload error).
+function resolveChromiumExecutable(chromium) {
+  const override = process.env.OVERCAST_PLAYWRIGHT_EXECUTABLE;
+  if (override && isFile(override)) return override;
+  try {
+    const def = chromium.executablePath();
+    if (def && existsSync(def)) return def;
+  } catch {
+    /* playwright present but no browser registered — fall through to the scan */
+  }
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (root && existsSync(root)) {
+    // Cloud images expose a stable `chromium` symlink pointing straight at the
+    // pre-installed chrome binary (e.g. /opt/pw-browsers/chromium).
+    const symlinked = join(root, "chromium");
+    if (isFile(symlinked)) return symlinked;
+    // Otherwise scan the versioned browser dirs for a usable chrome build,
+    // preferring full chrome over the headless shell.
+    try {
+      for (const d of readdirSync(root)) {
+        if (!/^chromium(_headless_shell)?-\d/.test(d)) continue;
+        for (const rel of [
+          ["chrome-linux", "chrome"],
+          ["chrome-linux64", "chrome"],
+          ["chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"],
+          ["chrome-linux", "headless_shell"],
+        ]) {
+          const bin = join(root, d, ...rel);
+          if (isFile(bin)) return bin;
+        }
+      }
+    } catch {
+      /* unreadable dir — give up, launch with the default */
+    }
+  }
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // arg parsing (long flags only, mirroring the shipped provider scripts)
@@ -357,7 +412,8 @@ async function main() {
   let browser;
   try {
     try {
-      browser = await chromium.launch({ headless: true });
+      const executablePath = resolveChromiumExecutable(chromium);
+      browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
       activeBrowser = browser; // now killable by the watchdog / signal handlers
     } catch (e) {
       const msg = String(e && e.message ? e.message : e);

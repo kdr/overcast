@@ -9,8 +9,15 @@
 # for SYSTEM tools (apt packages — snapshot-cached), e.g.:
 #
 #   #!/bin/bash
-#   apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl yt-dlp || true
-#   npm i -g @cloudglue/tinycloud || true
+#   apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl || true
+#   # yt-dlp from apt is too old for current YouTube — install the latest from PyPI:
+#   pip install -U --break-system-packages yt-dlp || true
+#   npm i -g @cloudglue/tinycloud || true   # default watch/listen/face/index backend
+#
+# The `screenshot`/`browser:` renderer needs Chromium: the managed cloud image
+# usually pre-installs one under PLAYWRIGHT_BROWSERS_PATH (the engine auto-detects
+# it — no extra step). If it doesn't, add `npx playwright install chromium` to the
+# hook, or point OVERCAST_PLAYWRIGHT_EXECUTABLE at a chrome binary.
 #
 # …while REPO setup (this script) runs as a SessionStart hook — wired in
 # .claude/settings.json via "$CLAUDE_PROJECT_DIR"/scripts/claude-setup.sh —

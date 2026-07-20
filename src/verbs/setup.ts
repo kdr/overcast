@@ -564,13 +564,35 @@ export const doctorVerb: VerbSpec = {
       });
     }
 
+    // Mirrors resolveChromiumExecutable() in providers/engines/screenshot/render.mjs:
+    // honor OVERCAST_PLAYWRIGHT_EXECUTABLE, then playwright's default, then a Chromium
+    // build actually on disk under PLAYWRIGHT_BROWSERS_PATH (managed cloud images
+    // pin a different revision than the installed playwright expects), so doctor
+    // reports green wherever the renderer will in fact launch.
     const playwrightProbe = [
-      "const { existsSync } = await import('node:fs');",
+      "const { existsSync, statSync, readdirSync } = await import('node:fs');",
+      "const { join } = await import('node:path');",
+      "const isFile = (p) => { try { return statSync(p).isFile(); } catch { return false; } };",
       "try {",
       "  const { chromium } = await import('playwright');",
-      "  const executablePath = chromium.executablePath();",
-      "  if (!executablePath || !existsSync(executablePath)) throw new Error('Chromium browser payload missing');",
-      "  console.log(executablePath);",
+      "  let p = process.env.OVERCAST_PLAYWRIGHT_EXECUTABLE;",
+      "  if (!(p && isFile(p))) {",
+      "    p = undefined;",
+      "    try { const d = chromium.executablePath(); if (d && existsSync(d)) p = d; } catch {}",
+      "    const root = process.env.PLAYWRIGHT_BROWSERS_PATH;",
+      "    if (!p && root && existsSync(root)) {",
+      "      if (isFile(join(root, 'chromium'))) p = join(root, 'chromium');",
+      "      else for (const d of readdirSync(root)) {",
+      "        if (!/^chromium(_headless_shell)?-\\d/.test(d)) continue;",
+      "        for (const r of [['chrome-linux','chrome'],['chrome-linux64','chrome'],['chrome-linux','headless_shell']]) {",
+      "          const b = join(root, d, ...r); if (isFile(b)) { p = b; break; }",
+      "        }",
+      "        if (p) break;",
+      "      }",
+      "    }",
+      "  }",
+      "  if (!p) throw new Error('Chromium browser payload missing');",
+      "  console.log(p);",
       "} catch (e) {",
       "  console.error(e && e.message ? e.message : String(e));",
       "  process.exit(1);",
