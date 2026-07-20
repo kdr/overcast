@@ -41,11 +41,12 @@
 # Behavior:
 #   - cloud-only by default (CLAUDE_CODE_REMOTE=true); locally it exits 0
 #     silently unless OC_CLAUDE_SETUP_LOCAL=1 opts in
-#   - fast on resumed/warm sessions: skips npm ci + build — but only when a
-#     PREVIOUS full run actually SUCCEEDED on the CURRENT package-lock.json
-#     (the stamp under gitignored .dev/ records the lockfile hash — mere
-#     existence of node_modules/dist can be the debris of a half-failed cold
-#     start, and a resume that pulled dependency changes must npm ci again)
+#   - fast on resumed/warm sessions: skips the slow npm ci (but ALWAYS rebuilds,
+#     so a source-only resume isn't left on stale compiled CLI) — and only skips
+#     npm ci when a PREVIOUS full run SUCCEEDED on the CURRENT package-lock.json
+#     (the stamp under gitignored .dev/ records the lockfile hash — mere existence
+#     of node_modules can be debris of a half-failed cold start, and a resume that
+#     pulled dependency changes must npm ci again)
 #   - a failed warm refresh clears the stamp and falls back to a full setup in
 #     the SAME session, so a broken warm state can't wedge every later resume
 #   - never blocks a session on the optional bits (setup-dev degrades those)
