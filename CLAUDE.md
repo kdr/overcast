@@ -612,14 +612,21 @@ loop, `node dist/bin/overcast.js` to run the CLI, no ESLint — hold here too):
   the hook's `fetch-e2e-media.sh` wires the paths into `.env`. Provider Secrets
   (`CLOUDGLUE_API_KEY`, `APIFY_TOKEN`, `SERPER_API_KEY`, …) flow from the session
   env; anything unset just SKIPs.
-- **Egress policy must allow Cloudglue's STORAGE host, not just its API.** The
-  default `watch`/`listen`/`face`/`see:tinycloud` senses upload media to
-  `storage.cloudglue.dev` (separate from `api.cloudglue.dev`). If the environment's
-  network policy allows the API host but denies `storage.cloudglue.dev:443`, every
-  Cloudglue sense fails with a transient `500 … socket connection was closed
-  unexpectedly` (`cloud_ready:false`) and the whole sense-dependent chain
-  (`index`/`findings`/`case_search`/`brief`/`graph`/`wall`) cascades red in the live
-  suite — a policy denial, NOT a repo/CA bug (confirm via
-  `curl -sS "$HTTPS_PROXY/__agentproxy/status"` → `recentRelayFailures`). Allowlist
-  `storage.cloudglue.dev` (and keep `api.cloudglue.dev`) for the default backend to
-  work; the keyless/Apify/HF/ElevenLabs sources are unaffected.
+- **The `tinycloud` CLI (a `bun` binary) can't reach the network through a
+  TLS-re-terminating egress proxy** — so on Claude Code on the web the default
+  `watch`/`listen`/`face`/`see:tinycloud` senses fail even with a valid
+  `CLOUDGLUE_API_KEY`. `bun`'s `fetch` completes the proxy `CONNECT` (`200
+  Connection Established`) but then dies on the MITM TLS handshake with `Cloudglue
+  returned a transient error (500): The socket connection was closed unexpectedly`
+  (`cloud_ready:false`) — and `NODE_EXTRA_CA_CERTS` does NOT fix it (bun 1.3.11
+  ignores it for tunneled TLS; reproduce with `bun -e 'await
+  fetch("https://example.com")'` failing while `node -e 'await
+  fetch("https://example.com")'` returns 200). This is a **bun+proxy limitation,
+  not an egress-allowlist, CA, or Cloudglue-API problem** — the REST API works
+  directly (`curl -F file=@… https://api.cloudglue.dev/v1/files` → 200), and every
+  node/curl-based provider (HF, ElevenLabs, Apify sources, yt-dlp) is unaffected.
+  The whole sense-dependent chain (`index`/`findings`/`case_search`/`brief`/`graph`/
+  `wall`) cascades red in the live suite as a result. There's no local fix — the
+  tinycloud binary embeds its own bun runtime, so the system bun version is
+  irrelevant; run the Cloudglue senses from an environment with direct egress (or a
+  non-MITM network policy), or wait for a bun release that proxies TLS correctly.
