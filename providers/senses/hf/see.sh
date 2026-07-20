@@ -38,15 +38,19 @@ need_token
 case "$(echo "${input##*.}" | tr 'A-Z' 'a-z')" in
   jpg|jpeg) mime="image/jpeg" ;; png) mime="image/png" ;; webp) mime="image/webp" ;; gif) mime="image/gif" ;; *) mime="image/png" ;;
 esac
-b64="$(base64 -i "$input" 2>/dev/null | tr -d '\n')" || b64="$(base64 "$input" | tr -d '\n')"
-
 instruction="${prompt:-Describe this image in detail (people, objects, text, setting).}"
 [ "$ocr" = "1" ] && instruction="$instruction Also transcribe any visible text (OCR)."
 
-req="$(jq -nc --arg m "$MODEL" --arg t "$instruction" --arg url "data:$mime;base64,$b64" \
-  '{model:$m, max_tokens:400, messages:[{role:"user", content:[{type:"text",text:$t},{type:"image_url",image_url:{url:$url}}]}]}')"
+# The base64 data URL can be hundreds of KB — larger than a single command-line
+# argument may be (Linux MAX_ARG_STRLEN is 128KB), so it must NEVER ride argv.
+# Stage the data URL in a temp file, feed it to jq via --rawfile, and hand the
+# request body to curl via @file — no huge string is ever passed as an argument.
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+{ printf 'data:%s;base64,' "$mime"; base64 <"$input" | tr -d '\n'; } >"$tmp/url"
+jq -nc --arg m "$MODEL" --arg t "$instruction" --rawfile url "$tmp/url" \
+  '{model:$m, max_tokens:400, messages:[{role:"user", content:[{type:"text",text:$t},{type:"image_url",image_url:{url:$url}}]}]}' >"$tmp/req"
 
-resp="$(curl -s -X POST "$ENDPOINT" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$req")"
+resp="$(curl -s -X POST "$ENDPOINT" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data-binary @"$tmp/req")"
 caption="$(jq -r '.choices[0].message.content // empty' <<<"$resp" 2>/dev/null)"
 hferr="$(jq -r '(.error.message // .error // .message // empty)' <<<"$resp" 2>/dev/null)"
 

@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerSituation } from "../../src/extension/situation.ts";
@@ -86,20 +86,19 @@ test("situation rebind honors a stop it can SEE, even with a blocked patch behin
   // server's tick can also see. Gating on "is anything further down unreadable"
   // makes the page start and get stopped a moment later — a flash-start.
   const dir = mkdtempSync(join(tmpdir(), "oc-sitrebind-"));
-  let blocker: string | undefined;
   try {
     const c = openCase(dir);
     c.ensure();
     writeControl(c, { stop: true }); // visible in the prefix
     const cdir = join(situationDir(c), "control.d");
     const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
-    blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
-    writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
-    chmodSync(blocker, 0o000); // unreadable, but AFTER the stop
+    // unreadable, but AFTER the stop — a DIRECTORY at the patch path throws
+    // EISDIR on read (the same non-ENOENT blocker branch), root-proof unlike
+    // chmod 0o000, which root reads straight through
+    mkdirSync(join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`));
 
     assert.equal(readControl(c)?.stop, true, "the stop is still visible in the applyable prefix");
   } finally {
-    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
   }
 });

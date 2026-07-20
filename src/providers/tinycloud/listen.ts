@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
 import { execCapture, renderCommand, parseFirstJson } from "../exec.js";
-import { segmentSpeechCues, tinycloudBase } from "./envelope.js";
+import { segmentSpeechCues, tinycloudBase, tinycloudChildEnv, withProxyEgressHint } from "./envelope.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --speech-only --json";
 
@@ -110,7 +110,7 @@ async function captionTranscript(
       // actual transcription work when the enrichment isn't cached yet, so a
       // shorter default here would drop verbatim cues that were still coming.
       timeoutMs: opts.timeoutMs ?? 15 * 60_000,
-      env: opts.env,
+      env: tinycloudChildEnv(opts.env),
       signal: opts.signal,
     });
     if (res.code !== 0) return undefined;
@@ -232,7 +232,7 @@ export async function runListen(
   }
   const res = await execCapture(cmd, args, {
     timeoutMs: opts.timeoutMs ?? 15 * 60_000,
-    env: opts.env,
+    env: tinycloudChildEnv(opts.env),
     signal: opts.signal,
   });
 
@@ -252,7 +252,7 @@ export async function runListen(
           ? "tinycloud listen produced no JSON output"
           : res.code === 13
             ? "tinycloud listen needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
-            : `tinycloud listen exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
+            : withProxyEgressHint(`tinycloud listen exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 500))}`),
       // exit 13 = missing creds, matching runExecProvider + the source providers
       state: res.code === 13 ? "needs_credentials" : "error",
     });
@@ -308,11 +308,15 @@ export async function runListen(
       payload: { transcript: "", segments: [], language: null },
       media: { ref: input },
       meta: { provider: "tinycloud", model: "cloudglue" },
+      // the envelope error rides the SAME bun-fetch transport as an exit failure,
+      // so it gets the same MITM-proxy hint (matches runWatch + runTinycloud) —
+      // except a cred gap (exit 13), which is a missing key, not a transport failure
       error:
-        envError ||
-        (res.code === 13
-          ? "tinycloud listen needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
-          : `tinycloud listen failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`),
+        res.code === 13
+          ? envError || "tinycloud listen needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
+          : withProxyEgressHint(
+              envError || `tinycloud listen failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
+            ),
       state: res.code === 13 ? "needs_credentials" : "error",
     });
   }

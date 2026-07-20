@@ -490,16 +490,35 @@ The startup update script runs `npm ci` for the root, `vscode/`, and the sibling
 are already installed system-wide. Standard verb/test/build commands live in the
 `## Commands` section above and in `package.json` — reference those, not copies.
 
+The source-controlled update script is `scripts/cursor-update.sh` — point the
+Cursor environment "Update Script" field at it
+(`bash /agent/repos/overcast/scripts/cursor-update.sh`). It does a guarded per-repo
+`npm ci` (root + `vscode/` + the sibling `overcast.video`) plus the optional
+`scripts/fetch-e2e-media.sh` media wiring, and nothing else — no build, tests, or
+`npm i -g` (those are on-demand / snapshot-layer). Do NOT point the Cursor update
+script at `scripts/claude-setup.sh`: that wrapper is gated on `CLAUDE_CODE_REMOTE=true`
+(a Claude Code cloud SessionStart hook) and no-ops under Cursor. (`scripts/setup-dev.sh`
+is the richer shared repo-setup layer — deps + build + media — but it builds and
+covers only the overcast repo, so it is not the update-script default.)
+
 This cloud workspace mounts two sibling repos under `/agent/repos/`: this one
 (`overcast`, the CLI toolkit) and `overcast.video` (a Vite + React + Tailwind
 marketing site — `npm run dev` on `http://localhost:5173`, `npm run lint` =
 oxlint, `npm run build` = `tsc -b && vite build`; see its own `README.md`).
 
-Non-obvious caveats for this environment:
+Non-obvious caveats (Cursor Cloud — the Claude Code on the web section below notes
+where that environment differs; conceptual items here like offline-by-default,
+which Secrets matter, the fast test loop, and "no ESLint" apply in both):
 
-- **`bun` is NOT installed.** The dev build (`tsup`/`vite`), typecheck, `npm test`,
- and offline `npm run test:e2e` all run under `node`. Only `npm run build:bun` and
- `npm run test:e2e:live` need bun (plus live creds) and are not runnable as-is.
+- **`bun` is not in the base Cursor Cloud image — install it (snapshot-layer).**
+ The whole node dev loop works without it: the dev build (`tsup`/`vite`), typecheck,
+ `npm test`, and offline `npm run test:e2e` all run under `node`, and the live suite
+ runs under `node` with `OVERCAST_USE_NODE=1`. bun is only needed to compile the
+ real binary (`npm run build:bun`) and as the live suite's default runner. Install
+ it once with `bash scripts/setup-dev.sh --bun` (or `curl -fsSL https://bun.sh/install
+ | bash`) → it lands in `~/.bun` and appends `~/.bun/bin` to `~/.bashrc`, so a saved
+ VM snapshot keeps it for later sessions (same snapshot-layer pattern as the
+ tinycloud CLI above — keep it OUT of the update script).
 - **Run the built CLI as `node dist/bin/overcast.js`** (no global `overcast` bin on
  PATH); `npm run dev` (`tsx bin/overcast.ts`) runs it from source. A local case is
  just a folder — `case init` in any dir, or `--case <dir>`.
@@ -517,6 +536,22 @@ Non-obvious caveats for this environment:
  tinycloud CLI + `CLOUDGLUE_API_KEY` for the default `watch`/`listen`/`face`/`index`
  senses; a brain-LLM key (BYO, e.g. `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`) for the
  agent TUI and the default vision `see`; OSINT source keys per `.env.example`.
+- **Installing global npm CLIs (e.g. the tinycloud binary) needs a writable
+ prefix.** The default `node` on PATH here (`/exec-daemon/node`) has its npm global
+ prefix set to `/`, so a bare `npm i -g @cloudglue/tinycloud` fails with
+ `EACCES … mkdir '/usr/lib/node_modules'`. Install into a user-writable prefix and
+ put it on PATH once (snapshot-cached for later sessions):
+ `export NPM_CONFIG_PREFIX="$HOME/.npm-global"` → `npm i -g @cloudglue/tinycloud`
+ → add `$HOME/.npm-global/bin` to PATH (e.g. in `~/.bashrc`). This installs
+ tinycloud ≥ 0.3.12 (verified: watch/listen/face light up with real Cloudglue once
+ `CLOUDGLUE_API_KEY` is set + e2e media is fetched). This is snapshot/system-layer
+ work — keep it OUT of the update script (a hard `npm i -g` failure there would
+ block session startup), like the apt/system tools noted in `scripts/claude-setup.sh`.
+- **Live e2e media** is fetched by `scripts/fetch-e2e-media.sh` when the
+ `OC_E2E_MEDIA_URL` (+ optional `OC_E2E_MEDIA_SHA256`) Secrets are set — it caches a
+ bundle outside the repo and splices absolute paths into a managed `.env` block. Run
+ the live suite with `OVERCAST_USE_NODE=1 npm run test:e2e:live` (no bun here);
+ cases without their key/tool/clip SKIP (counted as pass).
 - **Fast test loop.** After one `npm run build`, reuse `dist/` with
  `SKIP_BUILD=1 npm run test:e2e`. Offline unit + e2e suites need no network/creds;
  the live suite (`npm run test:e2e:live`) does and is not runnable here without
@@ -529,3 +564,76 @@ Non-obvious caveats for this environment:
  also need their provider Secrets; anything unset just SKIPs. Prune accumulated
  run output with `npm run dev:clean` (`scripts/clean-dev.sh`).
 - **No ESLint.** Lint in CI is `shellcheck -S warning` over `*.sh` only.
+
+## Claude Code on the web (cloud sessions)
+
+Repo setup on Claude Code on the web splits across **two** places — get the split
+right or the session comes up inert:
+
+- **Environment "Setup script" field** = SYSTEM tools only. It runs BEFORE Claude
+  Code launches, **as root, with `cwd=/`** (the repo is NOT the working directory),
+  and its output is snapshot-cached. A bare `npm install`/`npm run …` here fails
+  with `ENOENT: … open '/package.json'` and the non-zero exit blocks the session.
+  Put ONLY package-manager installs here — this exact content is source-controlled
+  as `scripts/claude-cloud-system-setup.sh` (paste that file):
+
+  ```bash
+  #!/bin/bash
+  apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl || true
+  pip install -U --break-system-packages yt-dlp || true   # apt yt-dlp is too old for current YouTube
+  npm i -g @cloudglue/tinycloud || true                   # default watch/listen/face/index backend
+  ```
+
+  (The `npm i -g` runs as root here, so it installs cleanly; if a variant of this
+  environment instead has an npm global prefix of `/`, use the writable-prefix
+  workaround from the tinycloud caveat in the Cursor Cloud section above.)
+
+- **Repo build** = the `SessionStart` hook (`.claude/settings.json` →
+  `scripts/claude-setup.sh` → `scripts/setup-dev.sh`): `npm ci` + build + e2e-media
+  fetch, run after launch inside the clone on every session start. Cloud-only by
+  default (`CLAUDE_CODE_REMOTE=true`; `OC_CLAUDE_SETUP_LOCAL=1` opts a dev box in),
+  with a warm-session fast path gated on a `.dev/claude-setup-ok` success stamp.
+
+Environment-specific caveats (deltas from the Cursor Cloud notes above; the
+conceptual ones there — offline-by-default, which Secrets matter, the fast test
+loop, `node dist/bin/overcast.js` to run the CLI, no ESLint — hold here too):
+
+- **`bun` is usually available** here (this environment ships it, unlike Cursor
+  Cloud), so `npm run test:e2e:live` can build the real binary. Don't rely on it
+  unconditionally, though: `OVERCAST_USE_NODE=1` (run `node dist/bin/overcast.js`)
+  is the safe default, is usually pre-set, and is the fallback if `bun` is absent.
+- **Chromium for `screenshot`/`browser:`** — the image pre-installs a Chromium under
+  `PLAYWRIGHT_BROWSERS_PATH` (e.g. `/opt/pw-browsers`) with
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, and its revision often differs from the one
+  the pinned `playwright` expects. The screenshot engine
+  (`providers/engines/screenshot/render.mjs`, `resolveChromiumExecutable`) and the
+  `doctor` probe auto-detect the on-disk build, so this needs no extra step;
+  `OVERCAST_PLAYWRIGHT_EXECUTABLE` is the override if it can't be found.
+- **Live e2e media** — set `OC_E2E_MEDIA_URL` (+ `OC_E2E_MEDIA_SHA256`) as Secrets;
+  the hook's `fetch-e2e-media.sh` wires the paths into `.env`. Provider Secrets
+  (`CLOUDGLUE_API_KEY`, `APIFY_TOKEN`, `SERPER_API_KEY`, …) flow from the session
+  env; anything unset just SKIPs.
+- **The `tinycloud` CLI (a `bun` binary) can't reach the network through a
+  TLS-re-terminating egress proxy** — so on Claude Code on the web the default
+  `watch`/`listen`/`face`/`see:tinycloud` senses fail even with a valid
+  `CLOUDGLUE_API_KEY`. `bun`'s `fetch` completes the proxy `CONNECT` (`200
+  Connection Established`) but then dies on the MITM TLS handshake with `Cloudglue
+  returned a transient error (500): The socket connection was closed unexpectedly`
+  (`cloud_ready:false`) — and `NODE_EXTRA_CA_CERTS` does NOT fix it (bun 1.3.11
+  ignores it for tunneled TLS; reproduce with `bun -e 'await
+  fetch("https://example.com")'` failing while `node -e 'await
+  fetch("https://example.com")'` returns 200). This is a **bun+proxy limitation,
+  not an egress-allowlist, CA, or Cloudglue-API problem** — the REST API works
+  directly (`curl -F file=@… https://api.cloudglue.dev/v1/files` → 200), and every
+  node/curl-based provider (HF, ElevenLabs, Apify sources, yt-dlp) is unaffected.
+  The whole sense-dependent chain (`index`/`findings`/`case_search`/`brief`/`graph`/
+  `wall`) cascades red in the live suite as a result. **The fix:** set
+  `OVERCAST_TINYCLOUD_DIRECT_EGRESS=1` — overcast then strips the proxy vars from
+  the tinycloud subprocess only, so its bun runtime connects DIRECTLY (this
+  environment allows direct egress; verified: `watch`/`face` go `ready` with it
+  set). This deliberately bypasses the egress proxy for tinycloud traffic, so it's
+  opt-in (like `OVERCAST_ALLOW_PRIVATE_FETCH`), never a default; leave it off if
+  your policy forbids bypassing the proxy. A tinycloud error while a proxy is set
+  now carries this hint. Long-term the real fix is upstream (bun applying the proxy
+  CA to tunneled TLS); the embedded runtime means the system bun version is
+  irrelevant.

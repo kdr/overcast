@@ -28,6 +28,10 @@ import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { lookup } from "node:dns/promises";
+// Chromium binary resolution (override → playwright default → the build actually
+// on disk under PLAYWRIGHT_BROWSERS_PATH) — shared with the screenshot.sh init
+// probe and `overcast doctor`, see chromium-exec.mjs.
+import { resolveChromiumExecutable } from "./chromium-exec.mjs";
 
 const NAV_TIMEOUT_DEFAULT = 30_000;
 const NAV_TIMEOUT_MAX = 120_000;
@@ -357,7 +361,8 @@ async function main() {
   let browser;
   try {
     try {
-      browser = await chromium.launch({ headless: true });
+      const executablePath = resolveChromiumExecutable(chromium);
+      browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
       activeBrowser = browser; // now killable by the watchdog / signal handlers
     } catch (e) {
       const msg = String(e && e.message ? e.message : e);

@@ -13,9 +13,56 @@
 //   needs_download(3) error(1)   — (exit codes in parens).
 
 import { execCapture, parseFirstJson } from "../exec.js";
-import { redactSecrets } from "../../env.js";
+import { redactSecrets, envEnabled } from "../../env.js";
 import { tokenizeCommand } from "../sources/index.js";
 import type { RecordState } from "../../record.js";
+
+/** Proxy env vars stripped from the tinycloud subprocess when
+ *  OVERCAST_TINYCLOUD_DIRECT_EGRESS is set (see tinycloudChildEnv). */
+const PROXY_ENV_KEYS = [
+  "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+  "http_proxy", "https_proxy", "all_proxy",
+] as const;
+
+/** The env for the tinycloud child. tinycloud is a `bun`-compiled binary, and
+ *  bun's `fetch` cannot complete tunneled TLS through a TLS-re-terminating
+ *  (MITM) egress proxy — it finishes the proxy CONNECT but never applies the
+ *  proxy CA to the post-CONNECT handshake, so every Cloudglue call dies with
+ *  "the socket connection was closed unexpectedly" even with a valid key. When
+ *  the operator affirmatively sets OVERCAST_TINYCLOUD_DIRECT_EGRESS, strip the
+ *  proxy vars from tinycloud's env so bun connects DIRECTLY (node/curl-based
+ *  providers keep the proxy). This deliberately bypasses the egress proxy for
+ *  tinycloud traffic only — opt-in, like OVERCAST_ALLOW_PRIVATE_FETCH. */
+export function tinycloudChildEnv(overrideEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv | undefined {
+  if (!envEnabled("OVERCAST_TINYCLOUD_DIRECT_EGRESS")) return overrideEnv;
+  const base: NodeJS.ProcessEnv = { ...(overrideEnv ?? process.env) };
+  for (const k of PROXY_ENV_KEYS) delete base[k];
+  return base;
+}
+
+/** True when a proxy is configured but the direct-egress escape hatch is off —
+ *  the condition under which a bun-fetch "socket closed" failure is most likely
+ *  the MITM-proxy incompatibility, so the error can point at the fix. */
+function proxyLikelyBlocking(): boolean {
+  if (envEnabled("OVERCAST_TINYCLOUD_DIRECT_EGRESS")) return false;
+  return PROXY_ENV_KEYS.some((k) => (process.env[k] ?? "").trim() !== "");
+}
+
+/** Append the direct-egress hint to a tinycloud error when a MITM proxy is the
+ *  likely cause (proxy set, OVERCAST_TINYCLOUD_DIRECT_EGRESS off). tinycloud's
+ *  bun runtime can't traverse a TLS-re-terminating proxy, so its calls fail with
+ *  socket/500 errors even with a valid key; point the operator at the fix.
+ *  Safe to call on any tinycloud error string (no-op when no proxy is set). */
+export function withProxyEgressHint(error: string): string {
+  if (!error || !proxyLikelyBlocking()) return error;
+  return (
+    error +
+    " — note: a proxy is set and tinycloud's bun runtime can't traverse a" +
+    " TLS-re-terminating (MITM) proxy, so its calls fail with socket/500 errors;" +
+    " set OVERCAST_TINYCLOUD_DIRECT_EGRESS=1 to let tinycloud connect directly" +
+    " (bypasses the egress proxy for tinycloud only)."
+  );
+}
 
 /** The base tinycloud command (tokenized). Override the whole invocation with
  *  `OVERCAST_TINYCLOUD_CMD` (a path to a binary, or a wrapper like
@@ -238,7 +285,7 @@ export async function runTinycloud(
   const args = [...lead, ...subArgs];
   const res = await execCapture(cmd, args, {
     timeoutMs: opts.timeoutMs ?? TINYCLOUD_TIMEOUT_MS,
-    env: opts.env,
+    env: tinycloudChildEnv(opts.env),
     signal: opts.signal,
   });
 
@@ -254,7 +301,9 @@ export async function runTinycloud(
           ? "tinycloud produced no JSON output"
           : credGap
             ? "tinycloud needs credentials (set CLOUDGLUE_API_KEY or run `tinycloud setup cloudglue`)"
-            : `tinycloud exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 400))}`,
+            : // a MITM-proxied bun fetch dies before any JSON is printed, so the
+              // no-JSON exit path needs the egress hint too
+              withProxyEgressHint(`tinycloud exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 400))}`),
     };
   }
 
@@ -273,11 +322,12 @@ export async function runTinycloud(
   // Attach a message only for non-success states; ready/pending carry none.
   let error: string | undefined;
   if (state === "error") {
-    error =
+    error = withProxyEgressHint(
       envError ||
-      (res.code !== 0
-        ? `tinycloud exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 400))}`
-        : "tinycloud reported a failure");
+        (res.code !== 0
+          ? `tinycloud exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 400))}`
+          : "tinycloud reported a failure"),
+    );
   } else if (state === "needs_credentials") {
     error =
       envError ||

@@ -30,20 +30,23 @@ op="${1:-run}"; shift || true
 case "$op" in
   init)
     need_node
-    # same probe as `overcast doctor` (setup.ts): playwright resolvable + the
-    # Chromium payload on disk. Runs from the engine dir so node resolves the
-    # optional dep from the package's node_modules, like render.mjs does.
-    probe='const { existsSync } = await import("node:fs");
-      try {
+    # same probe as `overcast doctor` (setup.ts): playwright resolvable + a
+    # launchable Chromium on disk, via the ONE shared resolver render.mjs
+    # launches with (chromium-exec.mjs — override → playwright default → the
+    # PLAYWRIGHT_BROWSERS_PATH build). Runs from the engine dir so node resolves
+    # the optional dep from the package's node_modules, like render.mjs does.
+    probe='try {
+        const { pathToFileURL } = await import("node:url");
         const { chromium } = await import("playwright");
-        const p = chromium.executablePath();
-        if (!p || !existsSync(p)) throw new Error("Chromium browser payload missing");
+        const { resolveChromiumExecutable } = await import(pathToFileURL(process.env.OC_CHROMIUM_EXEC_MJS).href);
+        const p = resolveChromiumExecutable(chromium);
+        if (!p) throw new Error("Chromium browser payload missing");
         console.log(p);
       } catch (e) {
         console.error(e && e.message ? e.message : String(e));
         process.exit(13);
       }'
-    if ! out="$(cd "$here" && "${NODE_CMD[@]}" -e "$probe" 2>&1)"; then
+    if ! out="$(cd "$here" && OC_CHROMIUM_EXEC_MJS="$here/chromium-exec.mjs" "${NODE_CMD[@]}" -e "$probe" 2>&1)"; then
       printf '%s\n' "$out" | head -1 >&2
       echo "run \`npm install --include=optional\` and \`npx playwright install chromium\`" >&2
       exit 13

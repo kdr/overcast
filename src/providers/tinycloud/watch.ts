@@ -11,7 +11,7 @@ import {
   renderCommand,
   parseFirstJson,
 } from "../exec.js";
-import { segmentSpeechCues, tinycloudBase } from "./envelope.js";
+import { segmentSpeechCues, tinycloudBase, tinycloudChildEnv, withProxyEgressHint } from "./envelope.js";
 import type { ProviderDescriptor } from "../../profile.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --json";
@@ -256,7 +256,7 @@ export async function runWatch(
   const res = await execCapture(cmd, args, {
     // full multimodal describe is legitimately slow; allow generous headroom.
     timeoutMs: opts.timeoutMs ?? 15 * 60_000,
-    env: opts.env,
+    env: tinycloudChildEnv(opts.env),
     signal: opts.signal,
   });
 
@@ -273,7 +273,9 @@ export async function runWatch(
           ? "tinycloud watch produced no JSON output"
           : res.code === 13
             ? "tinycloud watch needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
-            : `tinycloud watch exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
+            : // a MITM-proxied bun fetch dies before any JSON is printed, so the
+              // no-JSON exit path needs the egress hint too (matches listen)
+              withProxyEgressHint(`tinycloud watch exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 500))}`),
       // exit 13 = missing creds, matching runExecProvider + the source providers
       state: res.code === 13 ? "needs_credentials" : "error",
     });
@@ -303,9 +305,15 @@ export async function runWatch(
       payload: { content: "", transcript: "", detailed: data },
       media: { ref: input },
       meta: { provider: "tinycloud", model: "cloudglue" },
+      // a cred gap (exit 13) is a missing key, not a transport failure — no proxy
+      // hint there (matches the no-JSON path + runTinycloud's needs_credentials arm)
       error:
-        envError ||
-        `tinycloud watch failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
+        res.code === 13
+          ? envError || "tinycloud watch needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
+          : withProxyEgressHint(
+              envError ||
+                `tinycloud watch failed (exit ${res.code}): ${redactSecrets(res.stderr.trim().slice(0, 500))}`,
+            ),
       // exit 13 is the cred-gap convention even when JSON parsed — classify it as
       // needs_credentials (not a hard error), matching the no-JSON path + runExecProvider.
       state: res.code === 13 ? "needs_credentials" : "error",

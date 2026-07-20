@@ -262,7 +262,32 @@ logs in `.dev/`, `--purge` removes all of `.dev/` including the visual-db venv,
 `OVERCAST_USE_NODE=1` (node instead of bun) · `SKIP_BUILD=1` (reuse `dist/`) ·
 `OC_TIMEOUT=<secs>` (per-command timeout, default 300) · `OC_E2E_CLAUDE=1` (opt in
 to `89_skill_claude`, which drives the real `claude` CLI headless — spends Claude
-credit + uses the machine's Claude auth + runs Bash headless).
+credit + uses the machine's Claude auth + runs Bash headless) ·
+`OVERCAST_TINYCLOUD_DIRECT_EGRESS=1` (see below — required for the Cloudglue cases
+behind a TLS-re-terminating egress proxy).
+
+### Cloud / proxied environments (Claude Code on the web, some CI)
+
+When the suite runs behind a **TLS-re-terminating (MITM) egress proxy**, the
+`tinycloud` CLI is a `bun` binary and bun can't complete the tunneled TLS
+handshake through such a proxy — so **every Cloudglue case** (`10_watch`,
+`11_listen` Cloudglue leg, `12_see` tinycloud leg, `14_face`, `15_crop`,
+`23_index`, and everything built on that evidence: `24_case_search`, `30_read`,
+`33_wall`, `34_graph`, findings) fails with `500 … socket connection was closed
+unexpectedly`. Set **`OVERCAST_TINYCLOUD_DIRECT_EGRESS=1`** so overcast strips the
+proxy vars from the tinycloud subprocess and bun connects directly (opt-in — it
+bypasses the egress proxy for tinycloud traffic only; requires the environment to
+permit direct egress). node/curl-based providers (HF, ElevenLabs, Apify, yt-dlp)
+are unaffected and need nothing.
+
+Env/Secrets a fully-green cloud run wants (all optional — unset → SKIP):
+`OVERCAST_USE_NODE=1` (no bun) · `OVERCAST_TINYCLOUD_DIRECT_EGRESS=1` (MITM proxy) ·
+`OC_E2E_MEDIA_URL` (+ `OC_E2E_MEDIA_SHA256`) for the media bundle · the provider
+keys from [`.env.example`](../../.env.example) (`CLOUDGLUE_API_KEY`, `HF_TOKEN`,
+`ELEVENLABS_API_KEY`, `FAL_KEY`, `APIFY_TOKEN`, `SERPER_API_KEY`, `SHODAN_API_KEY`,
+`WINDY_API_KEY`, `FIRMS_MAP_KEY`, a brain key like `ANTHROPIC_API_KEY`). System
+tools (`ffmpeg`, `exiftool`, latest `yt-dlp` via PyPI, the `tinycloud` CLI) install
+in the environment's Setup-script field — see `scripts/claude-setup.sh`.
 
 ## Man in the chair (`/chair`) — manual smoke
 

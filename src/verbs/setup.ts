@@ -564,19 +564,30 @@ export const doctorVerb: VerbSpec = {
       });
     }
 
+    // Delegates to the ONE Chromium resolver the renderer launches with —
+    // providers/engines/screenshot/chromium-exec.mjs (override → playwright's
+    // default → the build actually on disk under PLAYWRIGHT_BROWSERS_PATH; managed
+    // cloud images pin a different revision than the installed playwright expects)
+    // — so doctor reports green exactly where the renderer will in fact launch.
+    const chromiumExecMjs = join(packageRoot(), "providers", "engines", "screenshot", "chromium-exec.mjs");
     const playwrightProbe = [
-      "const { existsSync } = await import('node:fs');",
       "try {",
+      "  const { pathToFileURL } = await import('node:url');",
       "  const { chromium } = await import('playwright');",
-      "  const executablePath = chromium.executablePath();",
-      "  if (!executablePath || !existsSync(executablePath)) throw new Error('Chromium browser payload missing');",
-      "  console.log(executablePath);",
+      "  const { resolveChromiumExecutable } = await import(pathToFileURL(process.env.OC_CHROMIUM_EXEC_MJS).href);",
+      "  const p = resolveChromiumExecutable(chromium);",
+      "  if (!p) throw new Error('Chromium browser payload missing');",
+      "  console.log(p);",
       "} catch (e) {",
       "  console.error(e && e.message ? e.message : String(e));",
       "  process.exit(1);",
       "}",
     ].join("\n");
-    const playwright = await execCapture(nodeProbeExecutable(), ["-e", playwrightProbe], { cwd: packageRoot(), timeoutMs: 15_000 })
+    const playwright = await execCapture(nodeProbeExecutable(), ["-e", playwrightProbe], {
+      cwd: packageRoot(),
+      timeoutMs: 15_000,
+      env: { ...process.env, OC_CHROMIUM_EXEC_MJS: chromiumExecMjs },
+    })
       .catch((e) => ({ code: 1, stdout: "", stderr: (e as Error).message }));
     checks.push({
       name: "playwright",
