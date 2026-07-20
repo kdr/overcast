@@ -32,7 +32,11 @@ uv venv --allow-existing --python "$PYVER" "$VENV"
 
 "$VENV/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 || true
 uv pip install --python "$VENV/bin/python" --upgrade pip wheel setuptools
-uv pip install --python "$VENV/bin/python" opencv-python numpy
+# Pin opencv-python < 5: the 5.0.x wheels ship an EMPTY cv2/data/ (no bundled
+# haarcascade XMLs), which breaks DeepFace's default opencv face detector
+# ("Confirm that opencv is installed…"). 4.x bundles them. Installed FIRST so the
+# later deepface/clip/etc. installs keep this resolved version.
+uv pip install --python "$VENV/bin/python" "opencv-python<5" numpy
 
 install_voice() {   # pyannote: enhance --ops separate diarization + `voice` speaker match
   uv pip install --python "$VENV/bin/python" "pyannote.audio>=4.0" torch torchaudio
