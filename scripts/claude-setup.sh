@@ -19,8 +19,10 @@
 # Behavior:
 #   - cloud-only by default (CLAUDE_CODE_REMOTE=true); locally it exits 0
 #     silently unless OC_CLAUDE_SETUP_LOCAL=1 opts in
-#   - fast on resumed/warm sessions: skips npm ci + build when node_modules
-#     and dist/ already exist (media fetch stays — it's a cheap cached no-op)
+#   - fast on resumed/warm sessions: skips npm ci + build — but only when a
+#     PREVIOUS full run actually SUCCEEDED (success stamp under gitignored
+#     .dev/, written after setup-dev exits 0 — mere existence of node_modules/
+#     dist can be the debris of a half-failed cold start and must retry full)
 #   - never blocks a session on the optional bits (setup-dev degrades those)
 set -euo pipefail
 cd "${CLAUDE_PROJECT_DIR:-$(dirname "${BASH_SOURCE[0]}")/..}"
@@ -29,9 +31,11 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ] && [ "${OC_CLAUDE_SETUP_LOCAL:-}" != 
   exit 0   # local session — dev machines manage their own node_modules/dist
 fi
 
-if [ -d node_modules ] && [ -f dist/bin/overcast.js ]; then
-  echo "[claude-setup] warm session — deps + dist present, refreshing media wiring only."
+SETUP_STAMP=.dev/claude-setup-ok
+if [ -f "$SETUP_STAMP" ] && [ -d node_modules ] && [ -f dist/bin/overcast.js ]; then
+  echo "[claude-setup] warm session — prior setup succeeded, refreshing media wiring only."
   bash scripts/setup-dev.sh --skip-install --skip-build
 else
-  bash scripts/setup-dev.sh
+  bash scripts/setup-dev.sh   # set -e: the stamp below is only reached on success
+  mkdir -p .dev && touch "$SETUP_STAMP"
 fi
