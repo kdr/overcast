@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/claude-setup.sh\""
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/claude-setup.sh\"",
+            "timeout": 1800
           }
         ]
       }

@@ -28,6 +28,14 @@ case "$(printf '%s' "${OVERCAST_TINYCLOUD_DIRECT_EGRESS:-}" | tr -d '[:space:]' 
   1|true|yes|on) unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy ;;
 esac
 
+# Mirror withProxyEgressHint (envelope.ts) for tinycloud-call failures: when a
+# proxy is set and the knob is OFF (on, the vars were just unset → empty check),
+# point the operator at the fix instead of an opaque socket/JSON error.
+egress_hint() {
+  [ -n "${HTTP_PROXY:-}${HTTPS_PROXY:-}${ALL_PROXY:-}${http_proxy:-}${https_proxy:-}${all_proxy:-}" ] || return 0
+  printf '%s' " — note: a proxy is set and tinycloud's bun runtime can't traverse a TLS-re-terminating (MITM) proxy, so its calls fail with socket/500 errors; set OVERCAST_TINYCLOUD_DIRECT_EGRESS=1 to let tinycloud connect directly (bypasses the egress proxy for tinycloud only)."
+}
+
 need() {
   [ -n "${CLOUDGLUE_API_KEY:-}" ] || [ -f "$HOME/.tinycloud/config.json" ] || {
     echo "see (tinycloud) needs CLOUDGLUE_API_KEY or ~/.tinycloud/config.json (https://app.cloudglue.dev)" >&2
@@ -111,7 +119,7 @@ if ! jq -e . >/dev/null 2>&1 <<<"$env_line"; then
     cred_record "tinycloud needs credentials (set CLOUDGLUE_API_KEY)"
   fi
   [ "$code" = "3" ] && pending_record
-  fail_record "tinycloud returned invalid JSON (exit $code)"
+  fail_record "tinycloud returned invalid JSON (exit $code)$(egress_hint)"
 fi
 
 # --- envelope → loose record: status + exit code decide state (never trust
@@ -122,16 +130,16 @@ if [ "$status" = "needs_credentials" ] || [ "$status" = "needs_auth" ] || [ "$co
   cred_record "${err:-tinycloud needs credentials (set CLOUDGLUE_API_KEY)}"
 fi
 [ "$code" = "3" ] && pending_record
-[ -n "$err" ] && fail_record "$err"
+[ -n "$err" ] && fail_record "$err$(egress_hint)"
 case "$status" in
-  error|failed) fail_record "tinycloud reported an error" ;;
+  error|failed) fail_record "tinycloud reported an error$(egress_hint)" ;;
   pending|in_progress|processing|running|queued|paused|needs_upload|needs_download) # defensive: --background is never passed here
     pending_record ;;
-  ready|completed|success|ok|"") [ "$code" != "0" ] && fail_record "tinycloud exited $code despite a ready envelope" ;;
+  ready|completed|success|ok|"") [ "$code" != "0" ] && fail_record "tinycloud exited $code despite a ready envelope$(egress_hint)" ;;
   *) [ "$code" = "0" ] && {
        pending_record
      }
-     fail_record "unexpected tinycloud status '${status:-none}' (exit $code)" ;;
+     fail_record "unexpected tinycloud status '${status:-none}' (exit $code)$(egress_hint)" ;;
 esac
 
 if [ "$PROVIDER" = "tinycloud:see" ]; then

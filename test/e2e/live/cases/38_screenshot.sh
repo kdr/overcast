@@ -10,13 +10,12 @@ LIVE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; source "$LIVE/lib.sh"
 C=screenshot
 
 have_cmd node || { skip "$C" "no node on PATH (the screenshot engine runs under system node)"; exit 0; }
-# playwright resolvable + Chromium payload present?
-if ! (cd "$PWD/providers/engines/screenshot" && node -e '
-  const { existsSync } = await import("node:fs");
-  const { chromium } = await import("playwright");
-  const p = chromium.executablePath();
-  if (!p || !existsSync(p)) throw new Error("no chromium payload");
-' >/dev/null 2>&1); then
+# playwright resolvable + a launchable Chromium present? Gate on the engine's
+# OWN init probe (the shared resolveChromiumExecutable in chromium-exec.mjs) so
+# the case runs exactly where render.mjs/doctor would launch — including cloud
+# images whose pre-installed PLAYWRIGHT_BROWSERS_PATH build is a different
+# revision than the installed playwright pins (executablePath() alone misses it).
+if ! bash "$PWD/providers/engines/screenshot/screenshot.sh" init >/dev/null 2>&1; then
   skip "$C" "playwright/Chromium not installed (npm install --include=optional && npx playwright install chromium)"
   exit 0
 fi
