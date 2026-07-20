@@ -19,6 +19,21 @@
 # it — no extra step). If it doesn't, add `npx playwright install chromium` to the
 # hook, or point OVERCAST_PLAYWRIGHT_EXECUTABLE at a chrome binary.
 #
+# Session ENV VARS to set in the environment config (Secrets / env — NOT installed
+# here; these are read at runtime, not by this script):
+#   - provider keys: CLOUDGLUE_API_KEY (default senses), a brain key
+#     (ANTHROPIC_API_KEY/…), plus OSINT keys per .env.example (APIFY_TOKEN,
+#     SERPER_API_KEY, SHODAN_API_KEY, WINDY_API_KEY, FIRMS_MAP_KEY, HF_TOKEN, …)
+#   - OVERCAST_USE_NODE=1        — run the CLI/live-suite under node (no bun needed)
+#   - OVERCAST_TINYCLOUD_DIRECT_EGRESS=1 — REQUIRED for the Cloudglue senses
+#     (watch/listen/face) when egress goes through a TLS-re-terminating (MITM)
+#     proxy: tinycloud is a bun binary and bun can't do tunneled TLS through such
+#     a proxy, so its calls fail with "socket connection closed unexpectedly".
+#     This makes tinycloud connect directly (opt-in; bypasses the proxy for
+#     tinycloud only). Omit it if your policy forbids bypassing the egress proxy.
+#   - OC_E2E_MEDIA_URL (+ OC_E2E_MEDIA_SHA256) — the live-e2e media bundle (wired
+#     into .env by fetch-e2e-media.sh, which this hook runs)
+#
 # …while REPO setup (this script) runs as a SessionStart hook — wired in
 # .claude/settings.json via "$CLAUDE_PROJECT_DIR"/scripts/claude-setup.sh —
 # which executes after launch, inside the clone, on every session start.
