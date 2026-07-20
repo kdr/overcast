@@ -22,7 +22,9 @@ read -r -a TC <<<"${OVERCAST_TINYCLOUD_CMD:-tinycloud}"
 # here because this script spawns tinycloud itself (runExecProvider passes the
 # ambient env through). This script only runs tinycloud + jq, so unsetting the
 # proxy vars process-wide is equivalent to stripping tinycloud's child env.
-case "$(printf '%s' "${OVERCAST_TINYCLOUD_DIRECT_EGRESS:-}" | tr '[:upper:]' '[:lower:]')" in
+# trim + lowercase, matching envEnabled exactly — Secrets commonly append a
+# trailing newline/space, and "true\n" must still count as affirmative
+case "$(printf '%s' "${OVERCAST_TINYCLOUD_DIRECT_EGRESS:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in
   1|true|yes|on) unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy ;;
 esac
 

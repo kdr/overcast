@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -64,7 +64,6 @@ test("situation stop: a --force SIGTERM is not reported as blocked", async () =>
   // blocked flag on any substring of it is a trap. A stop that already killed
   // the process must never be reported as stuck behind the queue.
   const dir = mkdtempSync(join(tmpdir(), "oc-sitforce-"));
-  let blocker: string | undefined;
   const srv = createServer(() => {});
   // a DISPOSABLE process to receive the SIGTERM — using our own pid here makes
   // the verb kill the test runner, which is a silent, detail-free failure
@@ -82,9 +81,7 @@ test("situation stop: a --force SIGTERM is not reported as blocked", async () =>
     writeControl(c, { limit: 2 });
     const cdir = join(situationDir(c), "control.d");
     const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
-    blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
-    writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
-    chmodSync(blocker, 0o000);
+    makeUnreadable(join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`));
 
     const [rec] = await situationVerb.run(ctx(dir, { input: "stop", surface: "cli", opts: { force: true } }));
     const p = rec.payload as Record<string, unknown>;
@@ -95,7 +92,6 @@ test("situation stop: a --force SIGTERM is not reported as blocked", async () =>
   } finally {
     try { victim.kill("SIGKILL"); } catch { /* already gone */ }
     srv.close();
-    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
   }
 });

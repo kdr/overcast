@@ -53,7 +53,13 @@ set -euo pipefail
 cd "${CLAUDE_PROJECT_DIR:-$(dirname "${BASH_SOURCE[0]}")/..}"
 
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ] && [ "${OC_CLAUDE_SETUP_LOCAL:-}" != "1" ]; then
-  exit 0   # local session — dev machines manage their own node_modules/dist
+  # local session — dev machines manage their own node_modules/dist. Say so on
+  # stderr rather than exiting silently: if some OTHER startup surface (e.g. a
+  # Cursor Cloud Update Script) was pointed here by mistake, a mute exit 0 would
+  # look like a successful setup while installing nothing.
+  echo "[claude-setup] skipped: not a Claude Code cloud session (CLAUDE_CODE_REMOTE != true)." >&2
+  echo "[claude-setup] Cursor Cloud startup → scripts/cursor-update.sh; full dev setup → scripts/setup-dev.sh; force this hook locally → OC_CLAUDE_SETUP_LOCAL=1." >&2
+  exit 0
 fi
 
 SETUP_STAMP=.dev/claude-setup-ok

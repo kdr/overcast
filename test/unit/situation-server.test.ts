@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync, chmodSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -426,15 +426,10 @@ test("situation state: clearStaleStop keeps a patch it could not read", () => {
     // genuinely UNREADABLE, not merely corrupt — a corrupt patch carries no
     // content and is consumed, while an unreadable one may be a real command
     const unread = join(cdir, "999999999999999-000001-0-unreadable.json");
-    writeFileSync(unread, JSON.stringify({ theme: "plain" }), "utf8");
-    chmodSync(unread, 0o000);
-    try {
-      clearStaleStop(c);
-      assert.ok(existsSync(unread), "the unread patch survived the stale-stop sweep");
-      assert.equal(readdirSync(cdir).length, 1, "only the consumed stop patch was removed");
-    } finally {
-      chmodSync(unread, 0o600);
-    }
+    makeUnreadable(unread);
+    clearStaleStop(c);
+    assert.ok(existsSync(unread), "the unread patch survived the stale-stop sweep");
+    assert.equal(readdirSync(cdir).length, 1, "only the consumed stop patch was removed");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -456,8 +451,7 @@ test("situation state: clearStaleStop keeps surviving config APPLYABLE (position
     const firstName = readdirSync(cdir)[0];
     const firstMs = Number(firstName.split("-")[0]);
     blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
-    writeFileSync(blocker, JSON.stringify({ limit: 9 }), "utf8");
-    chmodSync(blocker, 0o000); // an unreadable patch sitting AFTER the config
+    makeUnreadable(blocker); // an unreadable patch sitting AFTER the config
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); // clock > blocker
 
     clearStaleStop(c);
@@ -467,7 +461,6 @@ test("situation state: clearStaleStop keeps surviving config APPLYABLE (position
     assert.deepEqual(applied?.panels, ["map"], "config still applies despite the later blocker");
     assert.equal(applied?.theme, "plain");
   } finally {
-    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -483,22 +476,20 @@ test("situation state: clearStaleStop neutralizes a stop queued BEHIND a blocker
     writeControl(c, { panels: ["map"] });          // readable prefix
     const firstMs = Number(readdirSync(cdir)[0].split("-")[0]);
     blocker = join(cdir, `${String(firstMs + 1).padStart(15, "0")}-000001-0-blocked.json`);
-    writeFileSync(blocker, JSON.stringify({ theme: "plain" }), "utf8");
-    chmodSync(blocker, 0o000);
+    makeUnreadable(blocker);
     // let the clock pass the blocker's stamp, or the stop lands in the PREFIX
     // and the test passes against the very implementation it targets
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
     writeControl(c, { stop: true });               // the stale stop, BEHIND it
 
     clearStaleStop(c);
-    chmodSync(blocker, 0o600);                     // the blocker is repaired
+    restorePatch(blocker, { theme: "plain" });     // the blocker is repaired
 
     const applied = takeControl(c);
     assert.equal(applied?.stop, undefined, "the stale stop cannot come back and kill the server");
     assert.deepEqual(applied?.panels, ["map"], "everything else still applies");
     assert.equal(applied?.theme, "plain", "the once-blocked patch applies too");
   } finally {
-    if (blocker) { try { chmodSync(blocker, 0o600); } catch { /* gone */ } }
     rmSync(dir, { recursive: true, force: true });
   }
 });
