@@ -72,7 +72,9 @@ function scanBrowsersDir(root) {
 }
 
 export function resolveChromiumExecutable(chromium) {
-  const override = process.env.OVERCAST_PLAYWRIGHT_EXECUTABLE;
+  // trim: cloud Secrets commonly append a trailing newline/space, which would
+  // silently fail the file check (same normalization the DIRECT_EGRESS knob gets)
+  const override = (process.env.OVERCAST_PLAYWRIGHT_EXECUTABLE ?? "").trim();
   if (override && isFile(override)) return override;
   try {
     const def = chromium.executablePath();
