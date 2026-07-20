@@ -490,6 +490,14 @@ The startup update script runs `npm ci` for the root, `vscode/`, and the sibling
 are already installed system-wide. Standard verb/test/build commands live in the
 `## Commands` section above and in `package.json` — reference those, not copies.
 
+`scripts/setup-dev.sh` is the shared repo-setup layer (deps + build + optional
+`scripts/fetch-e2e-media.sh` media wiring); a Cursor update script can call it for
+the overcast repo instead of a bare `npm ci`, but it does NOT cover the sibling
+`overcast.video` repo, so keep that repo's `npm ci` if you rely on it. Do NOT point
+the Cursor update script at `scripts/claude-setup.sh`: that wrapper is gated on
+`CLAUDE_CODE_REMOTE=true` (a Claude Code cloud SessionStart hook) and no-ops under
+Cursor.
+
 This cloud workspace mounts two sibling repos under `/agent/repos/`: this one
 (`overcast`, the CLI toolkit) and `overcast.video` (a Vite + React + Tailwind
 marketing site — `npm run dev` on `http://localhost:5173`, `npm run lint` =
@@ -517,6 +525,22 @@ Non-obvious caveats for this environment:
  tinycloud CLI + `CLOUDGLUE_API_KEY` for the default `watch`/`listen`/`face`/`index`
  senses; a brain-LLM key (BYO, e.g. `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`) for the
  agent TUI and the default vision `see`; OSINT source keys per `.env.example`.
+- **Installing global npm CLIs (e.g. the tinycloud binary) needs a writable
+ prefix.** The default `node` on PATH here (`/exec-daemon/node`) has its npm global
+ prefix set to `/`, so a bare `npm i -g @cloudglue/tinycloud` fails with
+ `EACCES … mkdir '/usr/lib/node_modules'`. Install into a user-writable prefix and
+ put it on PATH once (snapshot-cached for later sessions):
+ `export NPM_CONFIG_PREFIX="$HOME/.npm-global"` → `npm i -g @cloudglue/tinycloud`
+ → add `$HOME/.npm-global/bin` to PATH (e.g. in `~/.bashrc`). This installs
+ tinycloud ≥ 0.3.12 (verified: watch/listen/face light up with real Cloudglue once
+ `CLOUDGLUE_API_KEY` is set + e2e media is fetched). This is snapshot/system-layer
+ work — keep it OUT of the update script (a hard `npm i -g` failure there would
+ block session startup), like the apt/system tools noted in `scripts/claude-setup.sh`.
+- **Live e2e media** is fetched by `scripts/fetch-e2e-media.sh` when the
+ `OC_E2E_MEDIA_URL` (+ optional `OC_E2E_MEDIA_SHA256`) Secrets are set — it caches a
+ bundle outside the repo and splices absolute paths into a managed `.env` block. Run
+ the live suite with `OVERCAST_USE_NODE=1 npm run test:e2e:live` (no bun here);
+ cases without their key/tool/clip SKIP (counted as pass).
 - **Fast test loop.** After one `npm run build`, reuse `dist/` with
  `SKIP_BUILD=1 npm run test:e2e`. Offline unit + e2e suites need no network/creds;
  the live suite (`npm run test:e2e:live`) does and is not runnable here without
