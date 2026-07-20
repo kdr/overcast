@@ -626,7 +626,13 @@ loop, `node dist/bin/overcast.js` to run the CLI, no ESLint — hold here too):
   directly (`curl -F file=@… https://api.cloudglue.dev/v1/files` → 200), and every
   node/curl-based provider (HF, ElevenLabs, Apify sources, yt-dlp) is unaffected.
   The whole sense-dependent chain (`index`/`findings`/`case_search`/`brief`/`graph`/
-  `wall`) cascades red in the live suite as a result. There's no local fix — the
-  tinycloud binary embeds its own bun runtime, so the system bun version is
-  irrelevant; run the Cloudglue senses from an environment with direct egress (or a
-  non-MITM network policy), or wait for a bun release that proxies TLS correctly.
+  `wall`) cascades red in the live suite as a result. **The fix:** set
+  `OVERCAST_TINYCLOUD_DIRECT_EGRESS=1` — overcast then strips the proxy vars from
+  the tinycloud subprocess only, so its bun runtime connects DIRECTLY (this
+  environment allows direct egress; verified: `watch`/`face` go `ready` with it
+  set). This deliberately bypasses the egress proxy for tinycloud traffic, so it's
+  opt-in (like `OVERCAST_ALLOW_PRIVATE_FETCH`), never a default; leave it off if
+  your policy forbids bypassing the proxy. A tinycloud error while a proxy is set
+  now carries this hint. Long-term the real fix is upstream (bun applying the proxy
+  CA to tunneled TLS); the embedded runtime means the system bun version is
+  irrelevant.
