@@ -450,11 +450,18 @@ binding**; case setup records expected choices/policy and can clear built-ins li
 ## Commands
 
 ```bash
+bash scripts/setup-dev.sh # one-shot dev init: npm ci + build + optional e2e-media fetch + tool report
+                          # (--tinycloud installs the tinycloud CLI; --venv [mode] builds the uv
+                          #  Python venv + wires OC_VISUAL_DB_PY/DETECT_PY; --system-deps installs
+                          #  missing system tools via brew/apt (ffmpeg, exiftool, yt-dlp, …);
+                          #  --full = all of the above)
 npm run build            # tsup (dev/library build) + vite chair-console build
 npm run typecheck        # tsc --noEmit (src + web/chair)
 npm test                 # unit tests (offline; fixtures)
 npm run test:e2e         # offline e2e (fixture providers, no creds)
 npm run test:e2e:live    # LIVE real-data e2e (builds bun binary, sources .env)
+npm run e2e:media        # fetch the hosted live-e2e media bundle (needs OC_E2E_MEDIA_URL)
+npm run dev:clean        # prune old e2e run output in .dev/ (scripts/clean-dev.sh)
 npm run build:bun        # bun build --compile → dist/bin/overcast
 overcast commands --json # dump the verb registry (authoritative)
 overcast doctor          # preflight: pi, providers, creds, ffmpeg
@@ -514,4 +521,11 @@ Non-obvious caveats for this environment:
  `SKIP_BUILD=1 npm run test:e2e`. Offline unit + e2e suites need no network/creds;
  the live suite (`npm run test:e2e:live`) does and is not runnable here without
  `.env` keys + media.
+- **Running the LIVE suite here.** Set `OC_E2E_MEDIA_URL` (+ optional
+ `OC_E2E_MEDIA_SHA256`) as a Secret, run `bash scripts/fetch-e2e-media.sh` once
+ (downloads the unlisted media bundle to `~/.cache/overcast-e2e-media` and splices
+ the paths into `.env` under a managed block), then
+ `OVERCAST_USE_NODE=1 npm run test:e2e:live` (bun is absent). Cloud-backed cases
+ also need their provider Secrets; anything unset just SKIPs. Prune accumulated
+ run output with `npm run dev:clean` (`scripts/clean-dev.sh`).
 - **No ESLint.** Lint in CI is `shellcheck -S warning` over `*.sh` only.
