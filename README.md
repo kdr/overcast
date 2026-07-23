@@ -128,7 +128,13 @@ Optional, feature-gated backends — each reports cleanly (`needs_credentials`)
 when absent, so the rest of overcast is unaffected:
 
 - **yt-dlp** on `PATH` — the `youtube` / `dl` sources and post-page fetches on
-  `tiktok` / `x` / `instagram` / `telegram`.
+  `tiktok` / `x` / `instagram` / `telegram`. Install a build **with curl_cffi
+  impersonation**: `pipx install "yt-dlp[default,curl-cffi]"` or a standalone
+  [release binary](https://github.com/yt-dlp/yt-dlp#installation) (self-updates
+  via `yt-dlp -U`). brew/apt builds lack impersonation, so TLS-fingerprinting
+  hosts (e.g. domain-restricted Vimeo embeds) fail — `overcast doctor` flags
+  this. `OVERCAST_YTDLP_CMD` picks a specific binary; `OVERCAST_YTDLP_ARGS`
+  injects flags (e.g. `--referer` / `--impersonate`) into every call.
 - **[qmd](https://github.com/tobi/qmd)** — optional local semantic case search
   (`npm install -g @tobilu/qmd`); plain `ask` does not need it.
 - **ExifTool** / **c2patool** — the `exif` (metadata + GPS) and `verify` (C2PA /

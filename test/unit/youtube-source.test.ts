@@ -120,6 +120,42 @@ test("youtube playlists:@handle enumerates the playlists TAB: one hit per playli
   }
 });
 
+test("yt-dlp calls honor OVERCAST_YTDLP_ARGS (extras injected ahead of script flags) and OVERCAST_YTDLP_CMD (binary override)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-knobs-"));
+  try {
+    const desc = builtinDescriptor("youtube");
+    assert.ok(desc);
+    // OVERCAST_YTDLP_ARGS: the extra flags must reach yt-dlp's argv BEFORE the
+    // script-set flags (script flags win on conflict — the artifact contract).
+    const { env, log } = shimEnv(dir, "flat_videos");
+    env.OVERCAST_YTDLP_ARGS = "--referer https://www.axon.com/ --impersonate chrome";
+    const hits = await enumerateSource(desc!, { query: "@acme", limit: 5, env });
+    assert.equal(hits.length, 1);
+    const argv = readFileSync(log, "utf8");
+    assert.match(argv, /^--referer https:\/\/www\.axon\.com\/ --impersonate chrome .*--flat-playlist/m);
+    // OVERCAST_YTDLP_CMD: an absolute path used INSTEAD of `yt-dlp` on PATH —
+    // proven by the custom shim (not on PATH) writing the argv log.
+    const customDir = join(dir, "custom");
+    mkdirSync(customDir, { recursive: true });
+    const custom = join(customDir, "my-ytdlp");
+    writeFileSync(custom, SHIM, { mode: 0o755 });
+    chmodSync(custom, 0o755);
+    const log2 = join(dir, "custom.log");
+    writeFileSync(log2, "");
+    const env2: NodeJS.ProcessEnv = {
+      ...process.env,
+      FAKE_MODE: "flat_videos",
+      FAKE_LOG: log2,
+      OVERCAST_YTDLP_CMD: custom,
+    };
+    const hits2 = await enumerateSource(desc!, { query: "@acme", limit: 5, env: env2 });
+    assert.equal(hits2.length, 1);
+    assert.match(readFileSync(log2, "utf8"), /https:\/\/www\.youtube\.com\/@acme\/videos/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("youtube --limit 0 = uncapped: no --playlist-end for channels, ytsearchall for searches", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
   try {

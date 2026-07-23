@@ -683,6 +683,47 @@ export const doctorVerb: VerbSpec = {
         : "optional — install c2patool for the `verify` sense (`brew install c2patool` / `cargo install c2patool`)",
     });
 
+    // yt-dlp — optional system CLI backing the youtube/dl sources + the
+    // tiktok/x/instagram/telegram post-page fetches. Honor OVERCAST_YTDLP_CMD
+    // (the same knob the shipped source scripts read). Presence alone isn't the
+    // whole story: TLS-fingerprinting hosts (e.g. domain-restricted Vimeo
+    // embeds) need curl_cffi impersonation, which brew/apt builds lack — probe
+    // `--list-impersonate-targets` (local, no network) and flag an
+    // impersonation-less install so the failure isn't silent until a 401
+    // mid-investigation. Versions are date-based (YYYY.MM.DD); YouTube
+    // routinely breaks old extractors, so nudge past ~90 days too.
+    const ytdlpCmd = (process.env.OVERCAST_YTDLP_CMD || "yt-dlp").trim().split(/\s+/);
+    const ytdlp = await execCapture(ytdlpCmd[0], [...ytdlpCmd.slice(1), "--version"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    if (ytdlp.code === 0) {
+      const ytdlpVersion = ytdlp.stdout.trim().split("\n")[0] ?? "";
+      const imp = await execCapture(ytdlpCmd[0], [...ytdlpCmd.slice(1), "--list-impersonate-targets"], { timeoutMs: 15_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+      // available targets list a plain source column ("curl_cffi"); an
+      // impersonation-less build suffixes every row "(unavailable)" / "(not
+      // available)" (a pre-impersonation yt-dlp fails the flag entirely).
+      const impersonation = imp.code === 0 && `${imp.stdout}\n${imp.stderr}`
+        .split("\n")
+        .some((l) => /curl_cffi/i.test(l) && !/unavailable|not available/i.test(l));
+      const vm = ytdlpVersion.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})/);
+      const ageDays = vm ? Math.floor((Date.now() - Date.UTC(Number(vm[1]), Number(vm[2]) - 1, Number(vm[3]))) / 86_400_000) : undefined;
+      checks.push({
+        name: "yt-dlp",
+        ok: true,
+        detail: `optional youtube/dl source fetcher available (${ytdlpVersion})` +
+          (impersonation
+            ? "; curl_cffi impersonation OK"
+            : "; NO curl_cffi impersonation — TLS-fingerprinting hosts (e.g. Vimeo embeds) will fail; reinstall via `pipx install \"yt-dlp[default,curl-cffi]\"` or a standalone release binary (brew/apt builds lack it), or point OVERCAST_YTDLP_CMD at one that has it") +
+          (ageDays !== undefined && ageDays > 90
+            ? `; released ~${ageDays} days ago — update it (YouTube routinely breaks old extractors; standalone builds self-update via \`yt-dlp -U\`)`
+            : ""),
+      });
+    } else {
+      checks.push({
+        name: "yt-dlp",
+        ok: false,
+        detail: "optional — install yt-dlp for the `youtube`/`dl` sources (`pipx install \"yt-dlp[default,curl-cffi]\"` or a standalone release binary from https://github.com/yt-dlp/yt-dlp — brew/apt builds lack curl_cffi impersonation)",
+      });
+    }
+
     // geocode — OPT-IN reverse-geocode provider for `exif --geocode`. Report
     // whether a provider is bound and whether curl is present (its default dep).
     const geocodeBound = Boolean(ctx.profile.providers?.geocode);

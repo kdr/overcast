@@ -7,6 +7,19 @@ set -euo pipefail
 op="${1:-enumerate}"; shift || true
 ACTOR="clockworks~tiktok-scraper"
 
+# yt-dlp fetches honor OVERCAST_YTDLP_CMD (binary/wrapper override) and
+# OVERCAST_YTDLP_ARGS (extra flags for every call, e.g. --referer/--impersonate
+# for TLS-fingerprinting hosts). Both word-split on purpose; script-set flags
+# come after the extras so the -o artifact contract always wins.
+run_ytdlp() {
+  # shellcheck disable=SC2086
+  ${OVERCAST_YTDLP_CMD:-yt-dlp} ${OVERCAST_YTDLP_ARGS:-} "$@"
+}
+have_ytdlp() {
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  command -v "${ytcmd[0]}" >/dev/null 2>&1
+}
+
 case "$op" in
   init)
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN (https://apify.com)" >&2; exit 13; }
@@ -72,7 +85,7 @@ case "$op" in
   fetch)
     # enumerate uses Apify, but fetch downloads with yt-dlp — verify it's present
     # so a capture fails clearly instead of erroring mid-download.
-    if ! command -v yt-dlp >/dev/null 2>&1; then
+    if ! have_ytdlp; then
       echo "tiktok fetch needs yt-dlp on PATH (enumerate uses APIFY_TOKEN; fetch uses yt-dlp)" >&2
       exit 13
     fi
@@ -82,7 +95,7 @@ case "$op" in
       --out) out="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
-    if yt-dlp -o "$out" "$url" >&2; then
+    if run_ytdlp -o "$out" "$url" >&2; then
       # yt-dlp may append an extension; resolve the actual file written (newest
       # match first, so a stale sibling can't be picked over the fresh download)
       real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"

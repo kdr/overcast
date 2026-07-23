@@ -20,8 +20,10 @@
 #                                        # all — multi-GB torch download) and wire
 #                                        # OC_VISUAL_DB_PY / DETECT_PY into .env
 #   scripts/setup-dev.sh --system-deps   # also best-effort install missing system
-#                                        # tools via brew/apt (ffmpeg, exiftool,
-#                                        # yt-dlp; + c2patool/shellcheck on brew)
+#                                        # tools via brew/apt (ffmpeg, exiftool;
+#                                        # + c2patool/shellcheck on brew) and
+#                                        # yt-dlp via uv tool/pipx/pip with the
+#                                        # curl-cffi impersonation extra
 #   scripts/setup-dev.sh --full          # --tinycloud + --bun + --venv all + --system-deps
 #
 # Everything optional stays optional: no creds, media, bun, or Python needed
@@ -91,9 +93,10 @@ fi
 # just reported — its verbs/cases degrade or SKIP cleanly, like everything else.
 if [ "$SYSTEM_DEPS" = "1" ]; then
   # ffmpeg = the internal media toolkit (invariant: system prerequisite, not
-  # bundled); exiftool/c2patool = the exif/verify forensic senses; yt-dlp = the
-  # youtube/dl sources + post-page fetches; shellcheck = the CI shell lint.
-  want=(ffmpeg exiftool yt-dlp c2patool shellcheck)
+  # bundled); exiftool/c2patool = the exif/verify forensic senses; shellcheck =
+  # the CI shell lint. yt-dlp is deliberately NOT in this list — it gets its own
+  # install chain below (brew/apt builds lack curl_cffi impersonation).
+  want=(ffmpeg exiftool c2patool shellcheck)
   missing=()
   for t in "${want[@]}"; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
   if [ "${#missing[@]}" -eq 0 ]; then
@@ -116,8 +119,8 @@ if [ "$SYSTEM_DEPS" = "1" ]; then
       SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
       echo "[setup-dev] installing via apt-get: ${aptpkgs[*]}"
       $SUDO apt-get update -qq || echo "[setup-dev] WARNING: apt-get update failed — trying installs anyway." >&2
-      # One package per transaction: a single unknown package (e.g. yt-dlp on an
-      # old distro) must not abort the rest.
+      # One package per transaction: a single unavailable package must not abort
+      # the rest.
       for p in "${aptpkgs[@]}"; do
         $SUDO apt-get install -y -qq "$p" \
           || echo "[setup-dev] WARNING: apt-get install $p failed (not packaged for this distro? no sudo?) — continuing." >&2
@@ -125,6 +128,58 @@ if [ "$SYSTEM_DEPS" = "1" ]; then
     fi
   else
     echo "[setup-dev] WARNING: no brew/apt-get found — install manually: ${missing[*]}" >&2
+  fi
+
+  # yt-dlp — the youtube/dl sources + tiktok/x/instagram/telegram post-page
+  # fetches. Installed via its OWN chain, not brew/apt: TLS-fingerprinting hosts
+  # (e.g. domain-restricted Vimeo embeds) need curl_cffi impersonation, which
+  # the brew formula's sealed venv can't grow (you can't pip-inject it) and the
+  # stale apt package never ships. Newest-first channels that carry the
+  # [default,curl-cffi] extras: uv tool → pipx → pip3 --user; brew/apt only as
+  # a warned last resort. An EXISTING install is left alone — `overcast doctor`
+  # reports impersonation-less builds, and replacing a user's install under
+  # them is ruder than flagging it.
+  if command -v yt-dlp >/dev/null 2>&1; then
+    echo "[setup-dev] yt-dlp already installed ($(yt-dlp --version 2>/dev/null || echo '?')) — leaving it (run \`overcast doctor\` to check impersonation support)."
+  else
+    ytdlp_done=""
+    if command -v uv >/dev/null 2>&1; then
+      echo "[setup-dev] installing yt-dlp via uv tool (with curl-cffi impersonation)…"
+      if uv tool install "yt-dlp[default,curl-cffi]"; then ytdlp_done=1; fi
+    fi
+    if [ -z "$ytdlp_done" ] && command -v pipx >/dev/null 2>&1; then
+      echo "[setup-dev] installing yt-dlp via pipx (with curl-cffi impersonation)…"
+      if pipx install "yt-dlp[default,curl-cffi]"; then ytdlp_done=1; fi
+    fi
+    if [ -z "$ytdlp_done" ] && command -v pip3 >/dev/null 2>&1; then
+      echo "[setup-dev] installing yt-dlp via pip3 --user (with curl-cffi impersonation)…"
+      # PEP 668 distros (Debian 12+/Ubuntu 24+) refuse a bare --user install;
+      # retry with --break-system-packages (older pips don't know the flag,
+      # hence the two-step rather than passing it unconditionally).
+      if pip3 install --user -U "yt-dlp[default,curl-cffi]" \
+         || pip3 install --user --break-system-packages -U "yt-dlp[default,curl-cffi]"; then
+        ytdlp_done=1
+      fi
+    fi
+    if [ -n "$ytdlp_done" ]; then
+      if command -v yt-dlp >/dev/null 2>&1; then
+        echo "[setup-dev] yt-dlp $(yt-dlp --version 2>/dev/null || echo '?') installed (impersonation-capable)."
+      else
+        echo "[setup-dev] yt-dlp installed but not on PATH yet — add ~/.local/bin (pipx/pip/uv's bin dir) to PATH, or point OVERCAST_YTDLP_CMD at it."
+      fi
+    else
+      # last resort: the package-manager build (no curl_cffi — TLS-fingerprinting
+      # hosts will fail; doctor flags it).
+      echo "[setup-dev] WARNING: no uv/pipx/pip3 usable — falling back to brew/apt for yt-dlp (that build lacks curl_cffi impersonation; hosts like Vimeo embeds will fail)." >&2
+      if command -v brew >/dev/null 2>&1; then
+        brew install yt-dlp || echo "[setup-dev] WARNING: brew install yt-dlp failed — install manually (https://github.com/yt-dlp/yt-dlp#installation)." >&2
+      elif command -v apt-get >/dev/null 2>&1; then
+        SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+        $SUDO apt-get install -y -qq yt-dlp || echo "[setup-dev] WARNING: apt-get install yt-dlp failed — install manually (https://github.com/yt-dlp/yt-dlp#installation)." >&2
+      else
+        echo "[setup-dev] WARNING: install yt-dlp manually: https://github.com/yt-dlp/yt-dlp#installation" >&2
+      fi
+    fi
   fi
 fi
 
@@ -206,16 +261,17 @@ fi
 
 # --- optional tools report ------------------------------------------------------
 echo "[setup-dev] optional tools:"
-for tool in ffmpeg ffprobe bun uv exiftool c2patool shellcheck tinycloud; do
+for tool in ffmpeg ffprobe bun uv yt-dlp exiftool c2patool shellcheck tinycloud; do
   if command -v "$tool" >/dev/null 2>&1; then
     echo "  present: $tool"
   else
-    echo "  missing: $tool (optional — re-run with --system-deps to install what brew/apt can)"
+    echo "  missing: $tool (optional — re-run with --system-deps to install what brew/apt/pipx can)"
   fi
 done
 echo "  (ffmpeg/ffprobe: media ops · bun: binary build + default live-e2e runner ·"
-echo "   uv: local visual/audio DB venv via scripts/visual-db-uv.sh · exiftool/c2patool:"
-echo "   forensic senses · shellcheck: CI shell lint · tinycloud: default cloud senses)"
+echo "   uv: local visual/audio DB venv via scripts/visual-db-uv.sh · yt-dlp:"
+echo "   youtube/dl sources · exiftool/c2patool: forensic senses · shellcheck:"
+echo "   CI shell lint · tinycloud: default cloud senses)"
 
 # --- tests (opt-in) -------------------------------------------------------------
 if [ "$RUN_TESTS" = "1" ]; then

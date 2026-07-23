@@ -453,8 +453,8 @@ binding**; case setup records expected choices/policy and can clear built-ins li
 bash scripts/setup-dev.sh # one-shot dev init: npm ci + build + optional e2e-media fetch + tool report
                           # (--tinycloud installs the tinycloud CLI; --venv [mode] builds the uv
                           #  Python venv + wires OC_VISUAL_DB_PY/DETECT_PY; --system-deps installs
-                          #  missing system tools via brew/apt (ffmpeg, exiftool, yt-dlp, …);
-                          #  --full = all of the above)
+                          #  missing system tools via brew/apt (ffmpeg, exiftool, …) + yt-dlp via
+                          #  uv tool/pipx/pip with curl-cffi impersonation; --full = all of the above)
 npm run build            # tsup (dev/library build) + vite chair-console build
 npm run typecheck        # tsc --noEmit (src + web/chair)
 npm test                 # unit tests (offline; fixtures)
@@ -580,7 +580,7 @@ right or the session comes up inert:
   ```bash
   #!/bin/bash
   apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl || true
-  pip install -U --break-system-packages yt-dlp || true   # apt yt-dlp is too old for current YouTube
+  pip install -U --break-system-packages "yt-dlp[default,curl-cffi]" || true   # apt yt-dlp is too old for current YouTube; curl-cffi = impersonation for TLS-fingerprinting hosts
   npm i -g @cloudglue/tinycloud || true                   # default watch/listen/face/index backend
   ```
 

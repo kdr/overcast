@@ -17,6 +17,19 @@ set -euo pipefail
 op="${1:-enumerate}"; shift || true
 ACTOR="${OVERCAST_INSTAGRAM_ACTOR:-apify~instagram-scraper}"
 
+# yt-dlp post-page fetches honor OVERCAST_YTDLP_CMD (binary/wrapper override) and
+# OVERCAST_YTDLP_ARGS (extra flags for every call, e.g. --referer/--impersonate
+# for TLS-fingerprinting hosts). Both word-split on purpose; script-set flags
+# come after the extras so the -o/-S artifact contract always wins.
+run_ytdlp() {
+  # shellcheck disable=SC2086
+  ${OVERCAST_YTDLP_CMD:-yt-dlp} ${OVERCAST_YTDLP_ARGS:-} "$@"
+}
+have_ytdlp() {
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  command -v "${ytcmd[0]}" >/dev/null 2>&1
+}
+
 case "$op" in
   init)
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN (https://apify.com)" >&2; exit 13; }
@@ -102,11 +115,11 @@ case "$op" in
         # a post page URL — needs yt-dlp (and usually login for Instagram); the
         # enumerate media.ref points at the direct CDN asset instead, so this
         # branch is a fallback.
-        if ! command -v yt-dlp >/dev/null 2>&1; then
+        if ! have_ytdlp; then
           echo "instagram fetch of a post page needs yt-dlp; the direct CDN asset (media.ref) downloads with curl" >&2
           exit 13
         fi
-        if yt-dlp -S "res:720" -o "$out" "$url" >&2; then
+        if run_ytdlp -S "res:720" -o "$out" "$url" >&2; then
           real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"
           [ -n "$real" ] && [ -s "$real" ] || { echo "instagram fetch produced no file for $url" >&2; exit 1; }
           case "$(printf '%s' "${real##*.}" | tr '[:upper:]' '[:lower:]')" in
