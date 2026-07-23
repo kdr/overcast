@@ -41,10 +41,21 @@ run_ytdlp() {
 # impersonation — brew/apt builds lack it, and TLS-fingerprinting hosts
 # (e.g. domain-restricted Vimeo embeds) 401 without it.
 need_ytdlp() {
+  local -a ytcmd
   read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
-  if ! command -v "${ytcmd[0]}" >/dev/null 2>&1; then
-    cat >&2 <<'MSG'
-youtube source requires `yt-dlp` (not found on PATH). Install one of:
+  # A bare/single-token command → `command -v` confirms it's on PATH without
+  # spawning. A WRAPPER form (OVERCAST_YTDLP_CMD="bash /path/yt-dlp") → a
+  # first-token check only proves the INTERPRETER exists, so execute the whole
+  # invocation (`--version`, offline+fast, like `overcast doctor`) to validate
+  # the script path too — a bad wrapper then fails here with the exit-13 setup
+  # message instead of erroring mid-fetch.
+  if [ "${#ytcmd[@]}" -gt 1 ]; then
+    "${ytcmd[@]}" --version >/dev/null 2>&1 && return 0
+  else
+    command -v "${ytcmd[0]}" >/dev/null 2>&1 && return 0
+  fi
+  cat >&2 <<'MSG'
+youtube source requires a runnable `yt-dlp` (not found on PATH / OVERCAST_YTDLP_CMD not runnable). Install one of:
   • pipx install "yt-dlp[default,curl-cffi]"   (or: pip3 install --user -U "yt-dlp[default,curl-cffi]")
   • a standalone release binary (bundles impersonation, self-updates via `yt-dlp -U`):
     https://github.com/yt-dlp/yt-dlp#installation
@@ -52,8 +63,7 @@ youtube source requires `yt-dlp` (not found on PATH). Install one of:
     hosts like Vimeo embeds will fail)
 Then re-run, or bind your own: overcast source add youtube:<ref>
 MSG
-    exit 13
-  fi
+  exit 13
 }
 
 op="${1:-enumerate}"; shift || true

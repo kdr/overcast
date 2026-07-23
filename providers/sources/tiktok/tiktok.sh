@@ -20,8 +20,16 @@ run_ytdlp() {
   "${ytcmd[@]}" ${ytargs[@]+"${ytargs[@]}"} "$@"
 }
 have_ytdlp() {
+  local -a ytcmd
   read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
-  command -v "${ytcmd[0]}" >/dev/null 2>&1
+  # single token → `command -v` (no spawn); wrapper form ("bash /path/yt-dlp") →
+  # execute `--version` so a bad script path fails the check instead of erroring
+  # mid-fetch (a first-token check only proves the interpreter exists).
+  if [ "${#ytcmd[@]}" -gt 1 ]; then
+    "${ytcmd[@]}" --version >/dev/null 2>&1
+  else
+    command -v "${ytcmd[0]}" >/dev/null 2>&1
+  fi
 }
 
 case "$op" in

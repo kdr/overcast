@@ -177,6 +177,31 @@ test("OVERCAST_YTDLP_ARGS tokens with glob chars stay literal (no pathname expan
   }
 });
 
+test("OVERCAST_YTDLP_CMD wrapper form is validated end-to-end: a bad wrapper script path fails cleanly (exit 13), not mid-fetch", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-wrap-"));
+  try {
+    const script = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "providers", "sources", "youtube", "youtube.sh");
+    // a WRAPPER form whose interpreter (bash) exists but whose script path does
+    // NOT — a first-token `command -v bash` check would wrongly pass (Bugbot #127)
+    const bad = spawnSync("bash", [script, "enumerate", "--query", "@acme", "--limit", "2"], {
+      cwd: dir,
+      env: { ...process.env, OVERCAST_YTDLP_CMD: `bash ${join(dir, "no-such-ytdlp")}` },
+    });
+    assert.equal(bad.status, 13, `expected exit 13 (needs setup); got ${bad.status}: ${bad.stderr}`);
+    assert.match(bad.stderr.toString(), /not runnable/);
+    // a wrapper whose script IS present (the shim) passes the check and enumerates
+    const { env, log } = shimEnv(dir, "flat_videos");
+    const good = spawnSync("bash", [script, "enumerate", "--query", "@acme", "--limit", "2"], {
+      cwd: dir,
+      env: { ...env, OVERCAST_YTDLP_CMD: `bash ${join(dir, "bin", "yt-dlp")}` },
+    });
+    assert.equal(good.status, 0, good.stderr?.toString());
+    assert.match(readFileSync(log, "utf8"), /--version/, "the wrapper presence probe runs the resolved command");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("youtube --limit 0 = uncapped: no --playlist-end for channels, ytsearchall for searches", async () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-yt-"));
   try {
