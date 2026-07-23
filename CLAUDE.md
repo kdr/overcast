@@ -580,7 +580,11 @@ right or the session comes up inert:
   ```bash
   #!/bin/bash
   apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl || true
-  pip install -U --break-system-packages "yt-dlp[default,curl-cffi]" || true   # apt yt-dlp is too old for current YouTube; curl-cffi = impersonation for TLS-fingerprinting hosts
+  # apt yt-dlp is too old for current YouTube; curl-cffi = impersonation for
+  # TLS-fingerprinting hosts. Plain-yt-dlp fallback: a failed extra rolls back
+  # the whole pip transaction, and impersonation-less beats absent.
+  pip install -U --break-system-packages "yt-dlp[default,curl-cffi]" \
+    || pip install -U --break-system-packages yt-dlp || true
   npm i -g @cloudglue/tinycloud || true                   # default watch/listen/face/index backend
   ```
 

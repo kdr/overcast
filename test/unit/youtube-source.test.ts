@@ -12,9 +12,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   builtinDescriptor,
   enumerateBudgetMs,
@@ -151,6 +153,25 @@ test("yt-dlp calls honor OVERCAST_YTDLP_ARGS (extras injected ahead of script fl
     const hits2 = await enumerateSource(desc!, { query: "@acme", limit: 5, env: env2 });
     assert.equal(hits2.length, 1);
     assert.match(readFileSync(log2, "utf8"), /https:\/\/www\.youtube\.com\/@acme\/videos/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("OVERCAST_YTDLP_ARGS tokens with glob chars stay literal (no pathname expansion against the cwd)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-glob-"));
+  try {
+    const { env, log } = shimEnv(dir, "flat_videos");
+    // the trap: a cwd file that an UNQUOTED expansion of `trap?ref` would
+    // glob-match, silently rewriting the injected arg (Bugbot #127)
+    writeFileSync(join(dir, "trapXref"), "");
+    env.OVERCAST_YTDLP_ARGS = "--referer trap?ref";
+    const script = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "providers", "sources", "youtube", "youtube.sh");
+    const res = spawnSync("bash", [script, "enumerate", "--query", "@acme", "--limit", "2"], { cwd: dir, env });
+    assert.equal(res.status, 0, res.stderr?.toString());
+    const argv = readFileSync(log, "utf8");
+    assert.match(argv, /--referer trap\?ref /, "the glob-char token must reach yt-dlp verbatim");
+    assert.doesNotMatch(argv, /trapXref/, "the token must NOT be rewritten by pathname expansion");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

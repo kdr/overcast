@@ -143,13 +143,18 @@ if [ "$SYSTEM_DEPS" = "1" ]; then
     echo "[setup-dev] yt-dlp already installed ($(yt-dlp --version 2>/dev/null || echo '?')) — leaving it (run \`overcast doctor\` to check impersonation support)."
   else
     ytdlp_done=""
+    # --force on uv/pipx: we only get here when yt-dlp is NOT on PATH, so a
+    # pre-existing uv/pipx install is orphaned (its bin dir off PATH) or broken —
+    # without --force those installers exit non-zero on "already installed" and
+    # the chain would wrongly fall through to the impersonation-less brew/apt
+    # fallback (the exact shadowing trap this chain exists to avoid).
     if command -v uv >/dev/null 2>&1; then
       echo "[setup-dev] installing yt-dlp via uv tool (with curl-cffi impersonation)…"
-      if uv tool install "yt-dlp[default,curl-cffi]"; then ytdlp_done=1; fi
+      if uv tool install --force "yt-dlp[default,curl-cffi]"; then ytdlp_done=1; fi
     fi
     if [ -z "$ytdlp_done" ] && command -v pipx >/dev/null 2>&1; then
       echo "[setup-dev] installing yt-dlp via pipx (with curl-cffi impersonation)…"
-      if pipx install "yt-dlp[default,curl-cffi]"; then ytdlp_done=1; fi
+      if pipx install --force "yt-dlp[default,curl-cffi]"; then ytdlp_done=1; fi
     fi
     if [ -z "$ytdlp_done" ] && command -v pip3 >/dev/null 2>&1; then
       echo "[setup-dev] installing yt-dlp via pip3 --user (with curl-cffi impersonation)…"

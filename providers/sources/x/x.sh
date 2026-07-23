@@ -28,11 +28,15 @@ ACTOR="${OVERCAST_X_ACTOR:-kaitoeasyapi~twitter-x-data-tweet-scraper-pay-per-res
 
 # yt-dlp post-page fetches honor OVERCAST_YTDLP_CMD (binary/wrapper override) and
 # OVERCAST_YTDLP_ARGS (extra flags for every call, e.g. --referer/--impersonate
-# for TLS-fingerprinting hosts). Both word-split on purpose; script-set flags
-# come after the extras so the -o/-S artifact contract always wins.
+# for TLS-fingerprinting hosts). Both whitespace-split via `read -a` — never an
+# unquoted expansion, so glob chars in a referer/UA token stay literal. Script
+# flags come after the extras so the -o/-S artifact contract wins on conflict.
 run_ytdlp() {
-  # shellcheck disable=SC2086
-  ${OVERCAST_YTDLP_CMD:-yt-dlp} ${OVERCAST_YTDLP_ARGS:-} "$@"
+  local -a ytcmd ytargs
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  read -r -a ytargs <<<"${OVERCAST_YTDLP_ARGS:-}"
+  # ${arr[@]+…} guards the empty-array expansion (bash 3.2 + set -u errors on it)
+  "${ytcmd[@]}" ${ytargs[@]+"${ytargs[@]}"} "$@"
 }
 have_ytdlp() {
   read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"

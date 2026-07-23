@@ -26,12 +26,19 @@ set -uo pipefail
 # (e.g. a pipx or standalone-binary install shadowed on PATH by an older brew
 # one), and OVERCAST_YTDLP_ARGS injects extra flags into EVERY call (e.g.
 # "--referer https://embedding-site/ --impersonate chrome" for domain-restricted
-# embeds on TLS-fingerprinting hosts). Both word-split on purpose; script-set
-# flags come AFTER the extras, so the artifact contract (-o/-f/--dump-json)
-# always wins.
+# embeds on TLS-fingerprinting hosts). Both are whitespace-split via `read -a` —
+# never an unquoted expansion, so a glob char in a referer/UA token (?, *) stays
+# literal instead of pathname-expanding against the cwd. Script-set flags come
+# AFTER the extras, so on a CONFLICT the artifact contract (-o/-f/--dump-json)
+# wins; but a flag this script deliberately OMITS (e.g. --flat-playlist is
+# dropped on --since recency scans so --dateafter sees upload_date) CAN be
+# reintroduced by ARGS — keep it to request-shaping flags.
 run_ytdlp() {
-  # shellcheck disable=SC2086
-  ${OVERCAST_YTDLP_CMD:-yt-dlp} ${OVERCAST_YTDLP_ARGS:-} "$@"
+  local -a ytcmd ytargs
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  read -r -a ytargs <<<"${OVERCAST_YTDLP_ARGS:-}"
+  # ${arr[@]+…} guards the empty-array expansion (bash 3.2 + set -u errors on it)
+  "${ytcmd[@]}" ${ytargs[@]+"${ytargs[@]}"} "$@"
 }
 
 # Surface a clear, actionable message if yt-dlp is missing so the user knows how
