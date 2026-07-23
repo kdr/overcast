@@ -33,9 +33,11 @@ test("agent system prompt states the concrete case working directory and anchors
     // the RESOLVED absolute case dir must appear verbatim so the agent never guesses
     assert.match(prompt, /WORKING DIRECTORY\. This session's case directory is:/);
     assert.ok(prompt.includes(c.dir), `expected the resolved case dir ${c.dir} in the prompt`);
-    // the anti-footgun guidance: no cd-to-parent / sibling-path invention
-    assert.match(prompt, /Do NOT `cd` to a parent directory or invent a/);
-    assert.match(prompt, /run `pwd`/);
+    // the anti-footgun guidance: shell cwd not assumed, no cd-to-parent /
+    // sibling-path invention
+    assert.match(prompt, /NOT guaranteed to be the case directory/);
+    assert.match(prompt, /`cd` to a\s+parent directory/);
+    assert.match(prompt, /running `pwd`/);
   } finally {
     if (prev === undefined) delete process.env.OVERCAST_CASE;
     else process.env.OVERCAST_CASE = prev;

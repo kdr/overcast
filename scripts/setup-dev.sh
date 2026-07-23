@@ -135,47 +135,60 @@ if [ "$SYSTEM_DEPS" = "1" ]; then
   # (e.g. domain-restricted Vimeo embeds) need curl_cffi impersonation, which
   # the brew formula's sealed venv can't grow (you can't pip-inject it) and the
   # stale apt package never ships. Newest-first channels that carry the
-  # [default,curl-cffi] extras: uv tool → pipx → pip3 --user; brew/apt only as
-  # a warned last resort. An EXISTING install is left alone — `overcast doctor`
-  # reports impersonation-less builds, and replacing a user's install under
-  # them is ruder than flagging it.
+  # [default,curl-cffi] extras: uv tool → pipx → pip3 --user; the same chain
+  # WITHOUT the extras when they fail (a current plain build beats a stale
+  # brew/apt one); brew/apt only as a warned last resort. An EXISTING install
+  # is left alone — `overcast doctor` reports impersonation-less builds, and
+  # replacing a user's install under them is ruder than flagging it.
   if command -v yt-dlp >/dev/null 2>&1; then
     echo "[setup-dev] yt-dlp already installed ($(yt-dlp --version 2>/dev/null || echo '?')) — leaving it (run \`overcast doctor\` to check impersonation support)."
   else
-    ytdlp_done=""
+    # One tier = try every present installer for one package spec.
     # --force on uv/pipx: we only get here when yt-dlp is NOT on PATH, so a
     # pre-existing uv/pipx install is orphaned (its bin dir off PATH) or broken —
     # without --force those installers exit non-zero on "already installed" and
     # the chain would wrongly fall through to the impersonation-less brew/apt
     # fallback (the exact shadowing trap this chain exists to avoid).
-    if command -v uv >/dev/null 2>&1; then
-      echo "[setup-dev] installing yt-dlp via uv tool (with curl-cffi impersonation)…"
-      if uv tool install --force "yt-dlp[default,curl-cffi]"; then ytdlp_done=1; fi
-    fi
-    if [ -z "$ytdlp_done" ] && command -v pipx >/dev/null 2>&1; then
-      echo "[setup-dev] installing yt-dlp via pipx (with curl-cffi impersonation)…"
-      if pipx install --force "yt-dlp[default,curl-cffi]"; then ytdlp_done=1; fi
-    fi
-    if [ -z "$ytdlp_done" ] && command -v pip3 >/dev/null 2>&1; then
-      echo "[setup-dev] installing yt-dlp via pip3 --user (with curl-cffi impersonation)…"
-      # PEP 668 distros (Debian 12+/Ubuntu 24+) refuse a bare --user install;
-      # retry with --break-system-packages (older pips don't know the flag,
-      # hence the two-step rather than passing it unconditionally).
-      if pip3 install --user -U "yt-dlp[default,curl-cffi]" \
-         || pip3 install --user --break-system-packages -U "yt-dlp[default,curl-cffi]"; then
-        ytdlp_done=1
+    # pip3's second attempt: PEP 668 distros (Debian 12+/Ubuntu 24+) refuse a
+    # bare --user install; retry with --break-system-packages (older pips don't
+    # know the flag, hence two-step rather than passing it unconditionally).
+    try_ytdlp_install() {
+      if command -v uv >/dev/null 2>&1; then
+        echo "[setup-dev] installing $1 via uv tool…"
+        uv tool install --force "$1" && return 0
       fi
+      if command -v pipx >/dev/null 2>&1; then
+        echo "[setup-dev] installing $1 via pipx…"
+        pipx install --force "$1" && return 0
+      fi
+      if command -v pip3 >/dev/null 2>&1; then
+        echo "[setup-dev] installing $1 via pip3 --user…"
+        pip3 install --user -U "$1" && return 0
+        pip3 install --user --break-system-packages -U "$1" && return 0
+      fi
+      return 1
+    }
+    ytdlp_done=""
+    if try_ytdlp_install "yt-dlp[default,curl-cffi]"; then
+      ytdlp_done=1
+    elif try_ytdlp_install "yt-dlp"; then
+      # the curl-cffi extra failed (no wheel for this platform? transient build
+      # error?) and pip-style installers roll back the WHOLE transaction — a
+      # current plain build still beats a stale brew/apt one (doctor flags the
+      # missing impersonation).
+      ytdlp_done=1
+      echo "[setup-dev] WARNING: the curl-cffi extras install failed — installed plain yt-dlp instead (no impersonation; TLS-fingerprinting hosts like Vimeo embeds will fail; \`overcast doctor\` flags this)." >&2
     fi
     if [ -n "$ytdlp_done" ]; then
       if command -v yt-dlp >/dev/null 2>&1; then
-        echo "[setup-dev] yt-dlp $(yt-dlp --version 2>/dev/null || echo '?') installed (impersonation-capable)."
+        echo "[setup-dev] yt-dlp $(yt-dlp --version 2>/dev/null || echo '?') installed."
       else
         echo "[setup-dev] yt-dlp installed but not on PATH yet — add ~/.local/bin (pipx/pip/uv's bin dir) to PATH, or point OVERCAST_YTDLP_CMD at it."
       fi
     else
       # last resort: the package-manager build (no curl_cffi — TLS-fingerprinting
       # hosts will fail; doctor flags it).
-      echo "[setup-dev] WARNING: no uv/pipx/pip3 usable — falling back to brew/apt for yt-dlp (that build lacks curl_cffi impersonation; hosts like Vimeo embeds will fail)." >&2
+      echo "[setup-dev] WARNING: no uv/pipx/pip3 present, or every install attempt failed — falling back to brew/apt for yt-dlp (that build lacks curl_cffi impersonation; hosts like Vimeo embeds will fail)." >&2
       if command -v brew >/dev/null 2>&1; then
         brew install yt-dlp || echo "[setup-dev] WARNING: brew install yt-dlp failed — install manually (https://github.com/yt-dlp/yt-dlp#installation)." >&2
       elif command -v apt-get >/dev/null 2>&1; then
