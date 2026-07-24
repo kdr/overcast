@@ -11,8 +11,11 @@
 #
 #   #!/bin/bash
 #   apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl || true
-#   # yt-dlp from apt is too old for current YouTube — install the latest from PyPI:
-#   pip install -U --break-system-packages yt-dlp || true
+#   # yt-dlp from apt is too old for current YouTube — latest from PyPI, with
+#   # curl-cffi impersonation (TLS-fingerprinting hosts 401 without it); a
+#   # failed extra rolls back the whole pip transaction, hence the plain fallback:
+#   pip install -U --break-system-packages "yt-dlp[default,curl-cffi]" \
+#     || pip install -U --break-system-packages yt-dlp || true
 #   npm i -g @cloudglue/tinycloud || true   # default watch/listen/face/index backend
 #
 # The `screenshot`/`browser:` renderer needs Chromium: the managed cloud image

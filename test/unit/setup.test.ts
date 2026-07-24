@@ -420,6 +420,76 @@ test("doctor flags a missing exiftool/c2patool (override → nonexistent) with a
   }
 });
 
+const FAKE_YTDLP = join(HERE, "..", "fixtures", "fake-ytdlp.sh");
+
+test("doctor honors OVERCAST_YTDLP_CMD and reports curl_cffi impersonation as OK", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-yt-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-yt-"));
+  const prev = process.env.OVERCAST_YTDLP_CMD;
+  process.env.OVERCAST_YTDLP_CMD = `bash ${FAKE_YTDLP}`;
+  try {
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    const yt = checks.find((c) => c.name === "yt-dlp");
+    assert.equal(yt?.ok, true);
+    assert.match(yt?.detail ?? "", /curl_cffi impersonation OK/);
+    assert.doesNotMatch(yt?.detail ?? "", /released ~\d+ days ago/, "a current version must not trip the staleness nudge");
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_YTDLP_CMD;
+    else process.env.OVERCAST_YTDLP_CMD = prev;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor flags an impersonation-less + stale yt-dlp build (the brew/apt shape)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-yt2-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-yt2-"));
+  const prev = process.env.OVERCAST_YTDLP_CMD;
+  const prevImp = process.env.FAKE_YTDLP_IMPERSONATION;
+  const prevVer = process.env.FAKE_YTDLP_VERSION;
+  process.env.OVERCAST_YTDLP_CMD = `bash ${FAKE_YTDLP}`;
+  process.env.FAKE_YTDLP_IMPERSONATION = "0";
+  process.env.FAKE_YTDLP_VERSION = "2020.01.01"; // always > 90 days old
+  try {
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    const yt = checks.find((c) => c.name === "yt-dlp");
+    assert.equal(yt?.ok, true, "present-but-degraded stays ok (most hosts still work)");
+    assert.match(yt?.detail ?? "", /NO curl_cffi impersonation/);
+    assert.match(yt?.detail ?? "", /yt-dlp\[default,curl-cffi\]/);
+    assert.match(yt?.detail ?? "", /released ~\d+ days ago/);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_YTDLP_CMD;
+    else process.env.OVERCAST_YTDLP_CMD = prev;
+    if (prevImp === undefined) delete process.env.FAKE_YTDLP_IMPERSONATION;
+    else process.env.FAKE_YTDLP_IMPERSONATION = prevImp;
+    if (prevVer === undefined) delete process.env.FAKE_YTDLP_VERSION;
+    else process.env.FAKE_YTDLP_VERSION = prevVer;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor flags a missing yt-dlp (override → nonexistent) with the impersonation-capable install hint", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-yt3-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-yt3-"));
+  const prev = process.env.OVERCAST_YTDLP_CMD;
+  process.env.OVERCAST_YTDLP_CMD = "oc-no-such-ytdlp-binary";
+  try {
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    const yt = checks.find((c) => c.name === "yt-dlp");
+    assert.equal(yt?.ok, false);
+    assert.match(yt?.detail ?? "", /yt-dlp\[default,curl-cffi\]/);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_YTDLP_CMD;
+    else process.env.OVERCAST_YTDLP_CMD = prev;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("isTinycloudDefault distinguishes the default binding from a custom one", () => {
   assert.equal(isTinycloudDefault("tinycloud watch {{input}} --json"), true);
   assert.equal(isTinycloudDefault("python3 listen.py"), false);

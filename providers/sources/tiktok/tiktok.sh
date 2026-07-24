@@ -7,6 +7,31 @@ set -euo pipefail
 op="${1:-enumerate}"; shift || true
 ACTOR="clockworks~tiktok-scraper"
 
+# yt-dlp fetches honor OVERCAST_YTDLP_CMD (binary/wrapper override) and
+# OVERCAST_YTDLP_ARGS (extra flags for every call, e.g. --referer/--impersonate
+# for TLS-fingerprinting hosts). Both whitespace-split via `read -a` — never an
+# unquoted expansion, so glob chars in a referer/UA token stay literal. Script
+# flags come after the extras so the -o artifact contract wins on conflict.
+run_ytdlp() {
+  local -a ytcmd ytargs
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  read -r -a ytargs <<<"${OVERCAST_YTDLP_ARGS:-}"
+  # ${arr[@]+…} guards the empty-array expansion (bash 3.2 + set -u errors on it)
+  "${ytcmd[@]}" ${ytargs[@]+"${ytargs[@]}"} "$@"
+}
+have_ytdlp() {
+  local -a ytcmd
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  # single token → `command -v` (no spawn); wrapper form ("bash /path/yt-dlp") →
+  # execute `--version` so a bad script path fails the check instead of erroring
+  # mid-fetch (a first-token check only proves the interpreter exists).
+  if [ "${#ytcmd[@]}" -gt 1 ]; then
+    "${ytcmd[@]}" --version >/dev/null 2>&1
+  else
+    command -v "${ytcmd[0]}" >/dev/null 2>&1
+  fi
+}
+
 case "$op" in
   init)
     [ -n "${APIFY_TOKEN:-}" ] || { echo "set APIFY_TOKEN (https://apify.com)" >&2; exit 13; }
@@ -72,7 +97,7 @@ case "$op" in
   fetch)
     # enumerate uses Apify, but fetch downloads with yt-dlp — verify it's present
     # so a capture fails clearly instead of erroring mid-download.
-    if ! command -v yt-dlp >/dev/null 2>&1; then
+    if ! have_ytdlp; then
       echo "tiktok fetch needs yt-dlp on PATH (enumerate uses APIFY_TOKEN; fetch uses yt-dlp)" >&2
       exit 13
     fi
@@ -82,7 +107,7 @@ case "$op" in
       --out) out="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
-    if yt-dlp -o "$out" "$url" >&2; then
+    if run_ytdlp -o "$out" "$url" >&2; then
       # yt-dlp may append an extension; resolve the actual file written (newest
       # match first, so a stale sibling can't be picked over the fresh download)
       real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"

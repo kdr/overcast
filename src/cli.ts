@@ -151,7 +151,9 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["OVERCAST_PLATE_ACTOR", "Apify actor id for the `plate` source (no default — US plate data is DPPA-restricted; you must bind one)"],
       ["OVERCAST_YANDEX_ACTOR / OVERCAST_YANDEX_IMAGE_KEY", "override the `yandeximg` Apify actor + its image-input field"],
       ["OVERCAST_SOURCE_<TYPE>_CMD", "Override/add a source provider command (e.g. OVERCAST_SOURCE_YOUTUBE_CMD)"],
-      ["(keyless sources)", "youtube/dl need yt-dlp on PATH; gdelttv/overpass/dispatch/browser need no key"],
+      ["OVERCAST_YTDLP_CMD", "override the yt-dlp binary/wrapper for all yt-dlp-backed sources (e.g. a pipx/standalone install shadowed on PATH)"],
+      ["OVERCAST_YTDLP_ARGS", "extra flags injected into every yt-dlp call (e.g. --referer/--impersonate for domain-restricted embeds)"],
+      ["(keyless sources)", "youtube/dl need yt-dlp on PATH (install with curl-cffi impersonation — pipx install \"yt-dlp[default,curl-cffi]\" — not brew/apt); gdelttv/overpass/dispatch/browser need no key"],
     ],
   },
   {

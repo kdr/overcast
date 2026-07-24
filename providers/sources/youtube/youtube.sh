@@ -15,20 +15,55 @@
 # `thumb` pulls the thumbnail image. Default `video` downloads as before.
 set -uo pipefail
 
-# yt-dlp is required. Surface a clear, actionable message if it's missing so the
-# user knows exactly how to install it (exit 13 = needs setup; overcast maps the
-# stderr into the record's error).
+# yt-dlp is required. Every invocation goes through run_ytdlp so two env knobs
+# apply uniformly: OVERCAST_YTDLP_CMD overrides the binary/wrapper (e.g. a pipx
+# or standalone-binary install shadowed on PATH by an older brew one), and
+# OVERCAST_YTDLP_ARGS injects extra flags into EVERY call (e.g. "--referer
+# https://embedding-site/ --impersonate chrome" for domain-restricted embeds on
+# TLS-fingerprinting hosts). Both are whitespace-split via `read -a` — never an
+# unquoted expansion, so a glob char in a referer/UA token (?, *) stays literal
+# instead of pathname-expanding against the cwd. Script-set flags come AFTER
+# the extras, so on a CONFLICT the artifact contract (-o/-f/--dump-json) wins;
+# but a flag this script deliberately OMITS (e.g. --flat-playlist is dropped on
+# --since recency scans so --dateafter sees upload_date) CAN be reintroduced by
+# ARGS — keep it to request-shaping flags (referer/impersonate/proxy/cookies).
+run_ytdlp() {
+  local -a ytcmd ytargs
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  read -r -a ytargs <<<"${OVERCAST_YTDLP_ARGS:-}"
+  # ${arr[@]+…} guards the empty-array expansion (bash 3.2 + set -u errors on it)
+  "${ytcmd[@]}" ${ytargs[@]+"${ytargs[@]}"} "$@"
+}
+
+# Surface a clear, actionable message if yt-dlp is missing so the user knows
+# exactly how to install it (exit 13 = needs setup; overcast maps the stderr
+# into the record's error). Lead with channels that carry curl_cffi
+# impersonation — brew/apt builds lack it, and TLS-fingerprinting hosts
+# (e.g. domain-restricted Vimeo embeds) 401 without it.
 need_ytdlp() {
-  if ! command -v yt-dlp >/dev/null 2>&1; then
-    cat >&2 <<'MSG'
-youtube source requires `yt-dlp` (not found on PATH). Install one of:
-  • brew install yt-dlp
-  • pipx install yt-dlp   (or: pip3 install --user yt-dlp)
-  • https://github.com/yt-dlp/yt-dlp#installation
+  local -a ytcmd
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  # A bare/single-token command → `command -v` confirms it's on PATH without
+  # spawning. A WRAPPER form (OVERCAST_YTDLP_CMD="bash /path/yt-dlp") → a
+  # first-token check only proves the INTERPRETER exists, so execute the whole
+  # invocation (`--version`, offline+fast, like `overcast doctor`) to validate
+  # the script path too — a bad wrapper then fails here with the exit-13 setup
+  # message instead of erroring mid-fetch.
+  if [ "${#ytcmd[@]}" -gt 1 ]; then
+    "${ytcmd[@]}" --version >/dev/null 2>&1 && return 0
+  else
+    command -v "${ytcmd[0]}" >/dev/null 2>&1 && return 0
+  fi
+  cat >&2 <<'MSG'
+youtube source requires a runnable `yt-dlp` (not found on PATH / OVERCAST_YTDLP_CMD not runnable). Install one of:
+  • pipx install "yt-dlp[default,curl-cffi]"   (or: pip3 install --user -U "yt-dlp[default,curl-cffi]")
+  • a standalone release binary (bundles impersonation, self-updates via `yt-dlp -U`):
+    https://github.com/yt-dlp/yt-dlp#installation
+  • brew install yt-dlp   (works, but lacks curl_cffi impersonation — TLS-fingerprinting
+    hosts like Vimeo embeds will fail)
 Then re-run, or bind your own: overcast source add youtube:<ref>
 MSG
-    exit 13
-  fi
+  exit 13
 }
 
 op="${1:-enumerate}"; shift || true
@@ -129,7 +164,7 @@ case "$op" in
     # the --dump-json stdout, so routine yt-dlp warnings don't corrupt the JSON.
     errf="$(mktemp)"
     # shellcheck disable=SC2086
-    raw="$(yt-dlp $flat $date_args --dump-json $end_args "$target" 2>"$errf")"; code=$?
+    raw="$(run_ytdlp $flat $date_args --dump-json $end_args "$target" 2>"$errf")"; code=$?
     # exit 101 is yt-dlp's "stopped by --break-*/--max-downloads" code — the
     # success path ONLY when THIS script passed --break-on-reject (the bounded
     # recency scan). A user/global yt-dlp config tripping 101 on its own
@@ -209,7 +244,7 @@ case "$op" in
         # "$tbase".* on a failed RETRY would delete the artifact a previous
         # successful capture of the same video still points at.
         workdir="$(mktemp -d)"; wbase="$workdir/cap"
-        yt-dlp --skip-download --no-playlist --write-subs --write-auto-subs \
+        run_ytdlp --skip-download --no-playlist --write-subs --write-auto-subs \
           --sub-langs "${lang},${lang}-orig" --sub-format vtt \
           --write-info-json -o "$wbase" "$url" >&2
         ytcode=$?
@@ -336,7 +371,7 @@ case "$op" in
         # scratch-dir lifecycle as transcript: only the final image reaches the
         # stable --out base, so a failed retry can't disturb prior artifacts.
         workdir="$(mktemp -d)"; wbase="$workdir/cap"
-        if ! yt-dlp --skip-download --no-playlist --write-thumbnail \
+        if ! run_ytdlp --skip-download --no-playlist --write-thumbnail \
               --convert-thumbnails jpg -o "$wbase" "$url" >&2; then
           rm -rf "$workdir"
           echo "youtube thumbnail fetch failed for $url" >&2; exit 1
@@ -357,7 +392,7 @@ case "$op" in
         # --no-playlist like the other kinds: a watch?v=…&list=… SHARE link slips
         # past the pure-playlist guard above, and without it yt-dlp would download
         # the entire list over one --out base.
-        if ! yt-dlp --no-playlist -f "best[height<=720]/best" -o "$out" "$url" >&2; then
+        if ! run_ytdlp --no-playlist -f "best[height<=720]/best" -o "$out" "$url" >&2; then
           echo "youtube fetch failed for $url" >&2; exit 1
         fi
         # yt-dlp may add an extension; resolve the actual file (newest match first)

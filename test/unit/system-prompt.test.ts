@@ -22,6 +22,37 @@ test("agent system prompt teaches the index/search lifecycle", () => {
   assert.match(prompt, /If direct TikTok sensing fails/);
 });
 
+test("agent system prompt states the concrete case working directory and anchors file output to it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-prompt-cwd-"));
+  const prev = process.env.OVERCAST_CASE;
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    process.env.OVERCAST_CASE = dir;
+    const prompt = buildSystemPrompt();
+    // the RESOLVED absolute case dir must appear verbatim so the agent never guesses
+    assert.match(prompt, /WORKING DIRECTORY\. This session's case directory is:/);
+    assert.ok(prompt.includes(c.dir), `expected the resolved case dir ${c.dir} in the prompt`);
+    // the anti-footgun guidance: shell cwd not assumed, no cd-to-parent /
+    // sibling-path invention
+    assert.match(prompt, /NOT guaranteed to be the case directory/);
+    assert.match(prompt, /`cd` to a\s+parent directory/);
+    assert.match(prompt, /running `pwd`/);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_CASE;
+    else process.env.OVERCAST_CASE = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("agent system prompt carries the yt-dlp impersonation + domain-restricted-embed guidance", () => {
+  const prompt = buildSystemPrompt();
+  assert.match(prompt, /yt-dlp\[default,curl-cffi\]/);
+  assert.match(prompt, /player\.vimeo\.com\/video\/<id>/);
+  assert.match(prompt, /OVERCAST_YTDLP_ARGS/);
+  assert.match(prompt, /OVERCAST_YTDLP_CMD/);
+});
+
 test("agent system prompt hides setup hint after completed setup", () => {
   const dir = mkdtempSync(join(tmpdir(), "oc-prompt-"));
   const prev = process.env.OVERCAST_CASE;

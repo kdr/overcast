@@ -26,6 +26,31 @@ set -euo pipefail
 op="${1:-enumerate}"; shift || true
 ACTOR="${OVERCAST_X_ACTOR:-kaitoeasyapi~twitter-x-data-tweet-scraper-pay-per-result-cheapest}"
 
+# yt-dlp post-page fetches honor OVERCAST_YTDLP_CMD (binary/wrapper override) and
+# OVERCAST_YTDLP_ARGS (extra flags for every call, e.g. --referer/--impersonate
+# for TLS-fingerprinting hosts). Both whitespace-split via `read -a` — never an
+# unquoted expansion, so glob chars in a referer/UA token stay literal. Script
+# flags come after the extras so the -o/-S artifact contract wins on conflict.
+run_ytdlp() {
+  local -a ytcmd ytargs
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  read -r -a ytargs <<<"${OVERCAST_YTDLP_ARGS:-}"
+  # ${arr[@]+…} guards the empty-array expansion (bash 3.2 + set -u errors on it)
+  "${ytcmd[@]}" ${ytargs[@]+"${ytargs[@]}"} "$@"
+}
+have_ytdlp() {
+  local -a ytcmd
+  read -r -a ytcmd <<<"${OVERCAST_YTDLP_CMD:-yt-dlp}"
+  # single token → `command -v` (no spawn); wrapper form ("bash /path/yt-dlp") →
+  # execute `--version` so a bad script path fails the check instead of erroring
+  # mid-fetch (a first-token check only proves the interpreter exists).
+  if [ "${#ytcmd[@]}" -gt 1 ]; then
+    "${ytcmd[@]}" --version >/dev/null 2>&1
+  else
+    command -v "${ytcmd[0]}" >/dev/null 2>&1
+  fi
+}
+
 # epoch seconds → YYYY-MM-DD (UTC). BSD date first (-r epoch), then GNU (-d @).
 epoch_to_date() {
   date -u -r "$1" +%Y-%m-%d 2>/dev/null || date -u -d "@$1" +%Y-%m-%d 2>/dev/null || echo ""
@@ -154,13 +179,13 @@ case "$op" in
       *)
         # a post page URL — yt-dlp extracts the video (photos have no yt-dlp path;
         # enumerate points photo hits at the pbs.twimg.com asset instead)
-        if ! command -v yt-dlp >/dev/null 2>&1; then
+        if ! have_ytdlp; then
           echo "x fetch needs yt-dlp on PATH for post URLs (direct twimg.com media downloads with curl)" >&2
           exit 13
         fi
         # cap resolution (X posts can carry very large HLS masters — a 19-min
         # post at full res is ~240MB; 720p keeps fetches inside the exec timeout)
-        if yt-dlp -S "res:720" -o "$out" "$url" >&2; then
+        if run_ytdlp -S "res:720" -o "$out" "$url" >&2; then
           # yt-dlp may append an extension; resolve the actual file written (newest
           # match first, so a stale sibling can't be picked over the fresh download)
           real="$out"; [ -f "$out" ] || real="$(ls -t "${out%.*}".* 2>/dev/null | head -1)"

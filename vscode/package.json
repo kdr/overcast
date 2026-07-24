@@ -2,7 +2,7 @@
   "name": "overcast",
   "displayName": "Overcast",
   "description": "The situation room in your editor — senses on your media (watch, listen, see, faces, EXIF via right-click), OSINT on your sources, and a wall to monitor the situation: maps, graphs, briefs, live feeds.",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "publisher": "kdrrr",
   "private": true,
   "preview": true,

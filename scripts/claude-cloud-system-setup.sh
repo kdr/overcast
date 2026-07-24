@@ -49,9 +49,15 @@
 apt-get update && apt-get install -y ffmpeg libimage-exiftool-perl || true
 
 # yt-dlp powers the youtube/dl sources. The apt build lags badly and current
-# YouTube breaks it, so install the latest from PyPI. (If `pip` isn't on PATH,
-# `python3 -m pip …` or an `apt-get install -y python3-pip` first does the same.)
-pip install -U --break-system-packages yt-dlp || true
+# YouTube breaks it, so install the latest from PyPI — WITH the curl-cffi extra:
+# TLS-fingerprinting hosts (e.g. domain-restricted Vimeo embeds) 401 without
+# impersonation. If the extra can't resolve/build on this image, pip rolls back
+# the WHOLE transaction, so fall back to plain yt-dlp — impersonation-less
+# beats absent (`overcast doctor` flags the degraded build). (If `pip` isn't on
+# PATH, `python3 -m pip …` or an `apt-get install -y python3-pip` first does
+# the same.)
+pip install -U --break-system-packages "yt-dlp[default,curl-cffi]" \
+  || pip install -U --break-system-packages yt-dlp || true
 
 # tinycloud CLI — the default Cloudglue backend for watch/listen/face/index. A
 # global npm install as root lands it on PATH for the session. (If this image's

@@ -194,7 +194,9 @@ is the annotated template. Highlights:
 - `OVERCAST_PLATE_ACTOR` — **required** for the `plate` source (no default — US plate data is DPPA-restricted; bind an Apify actor, or use `OVERCAST_SOURCE_PLATE_CMD` for a direct plate API). Vehicle spec only, not the owner
 - `WINDY_API_KEY` — the `webcam` source (Windy Webcams API; free tier covers scan + still capture + monitor). Base override: `OVERCAST_WEBCAM_API`
 - `gdelttv`, `overpass`, `dispatch`, and `browser` need **no key** (`dispatch` optionally takes a `SOCRATA_APP_TOKEN` to raise rate limits)
-- `youtube` and `dl` need `yt-dlp` on `PATH` (no key)
+- `youtube` and `dl` need `yt-dlp` on `PATH` (no key) — install a build with curl_cffi impersonation (`pipx install "yt-dlp[default,curl-cffi]"` or a [standalone release binary](https://github.com/yt-dlp/yt-dlp#installation); brew/apt builds lack it, so TLS-fingerprinting hosts like domain-restricted Vimeo embeds fail — `overcast doctor` flags this)
+- `OVERCAST_YTDLP_CMD` — override the `yt-dlp` binary/wrapper every yt-dlp-backed source uses (e.g. a pipx or standalone install shadowed on `PATH` by an older brew one)
+- `OVERCAST_YTDLP_ARGS` — extra flags injected into **every** yt-dlp call (e.g. `--referer https://embedding-site/ --impersonate chrome` for domain-restricted embeds). Script-set flags win on a *conflict* (`-o`/`-f`/`--dump-json` can't be clobbered), but a flag a provider deliberately *omits* — e.g. `--flat-playlist` is dropped during `--since` recency scans so `--dateafter` sees upload dates — CAN be reintroduced and silently break listing semantics. Keep it to request-shaping flags: `--referer`, `--impersonate`, `--proxy`, `--cookies*`
 - `OVERCAST_SOURCE_<TYPE>_CMD` — one-off override for a source provider command (to *add* a persistent source type, author a `provider.json` package + `provider install`)
 
 **Runtime / session** — `OVERCAST_HOME` (profiles, default `~/.overcast`),

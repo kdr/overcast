@@ -12,9 +12,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   builtinDescriptor,
   enumerateBudgetMs,
@@ -115,6 +117,86 @@ test("youtube playlists:@handle enumerates the playlists TAB: one hit per playli
     assert.match(argv, /--flat-playlist/);
     assert.match(argv, /--playlist-end 3/);
     assert.match(argv, /https:\/\/www\.youtube\.com\/@acme\/playlists/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("yt-dlp calls honor OVERCAST_YTDLP_ARGS (extras injected ahead of script flags) and OVERCAST_YTDLP_CMD (binary override)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-knobs-"));
+  try {
+    const desc = builtinDescriptor("youtube");
+    assert.ok(desc);
+    // OVERCAST_YTDLP_ARGS: the extra flags must reach yt-dlp's argv BEFORE the
+    // script-set flags (script flags win on conflict — the artifact contract).
+    const { env, log } = shimEnv(dir, "flat_videos");
+    env.OVERCAST_YTDLP_ARGS = "--referer https://www.axon.com/ --impersonate chrome";
+    const hits = await enumerateSource(desc!, { query: "@acme", limit: 5, env });
+    assert.equal(hits.length, 1);
+    const argv = readFileSync(log, "utf8");
+    assert.match(argv, /^--referer https:\/\/www\.axon\.com\/ --impersonate chrome .*--flat-playlist/m);
+    // OVERCAST_YTDLP_CMD: an absolute path used INSTEAD of `yt-dlp` on PATH —
+    // proven by the custom shim (not on PATH) writing the argv log.
+    const customDir = join(dir, "custom");
+    mkdirSync(customDir, { recursive: true });
+    const custom = join(customDir, "my-ytdlp");
+    writeFileSync(custom, SHIM, { mode: 0o755 });
+    chmodSync(custom, 0o755);
+    const log2 = join(dir, "custom.log");
+    writeFileSync(log2, "");
+    const env2: NodeJS.ProcessEnv = {
+      ...process.env,
+      FAKE_MODE: "flat_videos",
+      FAKE_LOG: log2,
+      OVERCAST_YTDLP_CMD: custom,
+    };
+    const hits2 = await enumerateSource(desc!, { query: "@acme", limit: 5, env: env2 });
+    assert.equal(hits2.length, 1);
+    assert.match(readFileSync(log2, "utf8"), /https:\/\/www\.youtube\.com\/@acme\/videos/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("OVERCAST_YTDLP_ARGS tokens with glob chars stay literal (no pathname expansion against the cwd)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-glob-"));
+  try {
+    const { env, log } = shimEnv(dir, "flat_videos");
+    // the trap: a cwd file that an UNQUOTED expansion of `trap?ref` would
+    // glob-match, silently rewriting the injected arg (Bugbot #127)
+    writeFileSync(join(dir, "trapXref"), "");
+    env.OVERCAST_YTDLP_ARGS = "--referer trap?ref";
+    const script = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "providers", "sources", "youtube", "youtube.sh");
+    const res = spawnSync("bash", [script, "enumerate", "--query", "@acme", "--limit", "2"], { cwd: dir, env });
+    assert.equal(res.status, 0, res.stderr?.toString());
+    const argv = readFileSync(log, "utf8");
+    assert.match(argv, /--referer trap\?ref /, "the glob-char token must reach yt-dlp verbatim");
+    assert.doesNotMatch(argv, /trapXref/, "the token must NOT be rewritten by pathname expansion");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("OVERCAST_YTDLP_CMD wrapper form is validated end-to-end: a bad wrapper script path fails cleanly (exit 13), not mid-fetch", () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-yt-wrap-"));
+  try {
+    const script = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "providers", "sources", "youtube", "youtube.sh");
+    // a WRAPPER form whose interpreter (bash) exists but whose script path does
+    // NOT — a first-token `command -v bash` check would wrongly pass (Bugbot #127)
+    const bad = spawnSync("bash", [script, "enumerate", "--query", "@acme", "--limit", "2"], {
+      cwd: dir,
+      env: { ...process.env, OVERCAST_YTDLP_CMD: `bash ${join(dir, "no-such-ytdlp")}` },
+    });
+    assert.equal(bad.status, 13, `expected exit 13 (needs setup); got ${bad.status}: ${bad.stderr}`);
+    assert.match(bad.stderr.toString(), /not runnable/);
+    // a wrapper whose script IS present (the shim) passes the check and enumerates
+    const { env, log } = shimEnv(dir, "flat_videos");
+    const good = spawnSync("bash", [script, "enumerate", "--query", "@acme", "--limit", "2"], {
+      cwd: dir,
+      env: { ...env, OVERCAST_YTDLP_CMD: `bash ${join(dir, "bin", "yt-dlp")}` },
+    });
+    assert.equal(good.status, 0, good.stderr?.toString());
+    assert.match(readFileSync(log, "utf8"), /--version/, "the wrapper presence probe runs the resolved command");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
