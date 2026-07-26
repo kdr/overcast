@@ -329,7 +329,11 @@ export function recordTimeMs(rec: Pick<OvercastRecord, "meta">): number {
 export function exifCaptureMs(created: unknown): number | undefined {
   if (typeof created !== "string" || !created.trim()) return undefined;
   let iso = created.trim().replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3").replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) iso += "Z";
+  // a DATE-only value ("YYYY-MM-DD", e.g. an EDGAR filing date) has no time part,
+  // so a bare "Z" would make Date.parse reject it ("2025-03-01Z") — pin it to
+  // midnight UTC instead. Otherwise a zone-less date-time just gets the "Z".
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) iso += "T00:00:00Z";
+  else if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) iso += "Z";
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? ms : undefined;
 }

@@ -1,0 +1,32 @@
+{
+  "manifest_version": 1,
+  "name": "edgar",
+  "version": "1.0.0",
+  "description": "SEC EDGAR corporate filings (submissions by CIK, or full-text search by company/query). No key (SEC requires a descriptive User-Agent). Each filing becomes one scan record with payload.created = filing date and media.ref = the sec.gov/Archives filing document.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "edgar",
+      "label": "SEC EDGAR filings",
+      "summary": "SEC EDGAR corporate filings (submissions by CIK, or full-text search by company/query). No key (SEC requires a descriptive User-Agent). Each filing becomes one scan record with payload.created = filing date and media.ref = the sec.gov/Archives filing document.",
+      "base": [
+        "bash",
+        "shipped:providers/sources/edgar/edgar.sh"
+      ],
+      "needs": "none (public SEC EDGAR API) — SEC requires a descriptive User-Agent (OVERCAST_HTTP_UA overrides the default; a URL/parens value SEC would reject is ignored)",
+      "timeoutMs": 480000,
+      "doctor": {
+        "check": "keyless",
+        "okNote": "keyless SEC EDGAR API — SEC requires a descriptive User-Agent (OVERCAST_HTTP_UA overrides the default); heavy polling is rate-limited (~10 req/s)"
+      },
+      "refForms": [
+        {
+          "form": "edgar:<CIK>"
+        },
+        {
+          "form": "edgar:\"<company or full-text query>\""
+        }
+      ]
+    }
+  ]
+}
