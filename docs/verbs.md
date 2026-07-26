@@ -159,6 +159,16 @@ bucket's qmd index).
 - `shodan:<search query>` / `shodan:<ip>` — host/service/banner intelligence via Shodan: search filters (`org:`, `net:`, `ssl:`, `product:`, `port:`, …) or a bare IP → full host lookup. Hits carry ip/port/org/product/cpe/vulns/geo; `media.ref` is the `shodan.io/host/<ip>` report page (`#<port>-<transport>` fragment so each service is distinct). Strong `monitor` fit. **Authorized recon only**, never a default source. **Opt-in (sensitive):** `OVERCAST_SHODAN_SCREENSHOTS=1` also materializes exposed-host screenshots (RDP/VNC/HTTP/camera → `see`/`face`/`crop`) and surfaces RTSP stream endpoints — real unwitting hosts, off by default.
 - `browser:<url>` — rendered-page capture via headless Chromium (Playwright optional dep, **no key**). Each `fetch` re-renders the page's current state to a PNG (`recapture` — `monitor --source browser --pull` becomes a page-watch that flows into image `auto_sense`). The one-shot counterpart is the `screenshot` verb. Private/loopback targets refused by default (`OVERCAST_ALLOW_PRIVATE_FETCH=1` to allow).
 
+## Financial sources (the money trail)
+
+The PUBLIC money trail as scan records — real bank/transaction data is out of
+scope. Each transaction/filing becomes one `scan` record: `payload.created` = the
+event time, `media.ref` = a stable per-item deep link, and **no gps** (the trail
+plots on `graph`, not `map`).
+
+- `chain:btc:<address>` / `chain:eth:<address>` — public blockchain transaction history: BTC via mempool.space (**keyless**), ETH via Etherscan (free `ETHERSCAN_API_KEY`). Each tx becomes a scan record — `payload.created` = the block time, `media.ref` = a per-tx explorer deep link (`mempool.space/tx/…` / `etherscan.io/tx/…`), `amount` normalized to whole units (sats→BTC, wei→ETH), `direction` `in`|`out`|`self` (from whether the queried address is on the input side, output side, or both), and `counterparties[]`. The explicit `btc:`/`eth:` prefix is **required** (v1) — a bare address is rejected. `--since` filters by block time.
+- `edgar:<CIK>` / `edgar:"<company or full-text query>"` — SEC EDGAR corporate filings (**no key**; SEC 403s a blank/bot User-Agent, so a descriptive one carrying a contact email is sent — `OVERCAST_HTTP_UA` overrides the default). A bare 1–10 digit CIK (optional leading `CIK`) → the company's recent filings (submissions API); anything else → EDGAR full-text search. Each filing becomes a scan record — `payload.created` = the filing date, `media.ref` = the `sec.gov/Archives` filing document, plus `form`/`accession`/`cik`/`company`. `--since` filters by filing date.
+
 ## Identity / records sources
 
 Apify-backed (`APIFY_TOKEN`); opt-in, live PII on real people, **authorized use

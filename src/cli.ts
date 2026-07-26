@@ -144,6 +144,7 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
       ["SERPER_API_KEY", "Serper.dev key for the `dork` source (Google dorking — operators honored; authorized recon only)"],
       ["SHODAN_API_KEY", "Shodan key for the `shodan` host/service recon source (authorized recon only)"],
       ["FIRMS_MAP_KEY", "NASA FIRMS map key (free) for the `firms` active-fire source"],
+      ["ETHERSCAN_API_KEY", "Etherscan key (free) for the `chain` source's ETH leg (`chain:eth:`); the BTC leg (`chain:btc:`) and `edgar` are keyless"],
       ["OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET", "optional OpenSky OAuth2 for the `flights` ADS-B source (anonymous works; creds raise rate limits)"],
       ["WINDY_API_KEY", "Windy Webcams key for the `webcam` live-cam source"],
       ["SOCRATA_APP_TOKEN", "optional Socrata app token for the `dispatch` police-CAD source (keyless works; a token raises rate limits)"],

@@ -273,7 +273,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   dispatch police-CAD-calls / flights ADS-B-aircraft / webcam live-cams / facesearch reverse-face /
   dork Google-dorking / shodan host-recon / browser rendered-page-capture /
   username account-discovery / person people-search / phone reverse-phone /
-  property assessor-records / plate license-plate;
+  property assessor-records / plate license-plate /
+  chain crypto-tx-history / edgar SEC-filings;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `--transcript`/`--thumb`
   fetch-kind overrides (yt-dlp sources: captions+metadata / thumbnail instead of
   the video, no video download; `--lang` picks caption language);
@@ -344,6 +345,17 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   plate→vehicle SPEC via a bound actor — no default, `OVERCAST_PLATE_ACTOR`
   required, US owner data is DPPA-restricted). `dork`/`shodan`, `browser`, and every
   identity source are authorized-recon-only / opt-in, never a default binding.
+  And the **financial** sources (the public money trail — real bank/transaction
+  data is out of scope; each tx/filing is one scan record with `payload.created` =
+  the event time, a stable per-item `media.ref`, and **no gps** → plots on `graph`,
+  not `map`): `chain:btc:<address>` (BTC tx history via mempool.space, **keyless**)
+  / `chain:eth:<address>` (ETH tx history via Etherscan, free `ETHERSCAN_API_KEY`;
+  the explicit `btc:`/`eth:` prefix is required, amount normalized sats→BTC / wei→ETH,
+  `direction` in|out|self + `counterparties`), and `edgar:<CIK>` /
+  `edgar:"<company or full-text query>"` (SEC EDGAR corporate filings, **keyless** —
+  SEC requires a descriptive contact-email User-Agent, `OVERCAST_HTTP_UA` default is
+  compliant; bare CIK → submissions API, else full-text search; `media.ref` = the
+  `sec.gov/Archives` filing document).
 - **State** — `archive` (GLOBAL cross-case media buckets — case-shaped folders
   under `<home>/archive/<bucket>`, no registry file: `init | list | show | add |
   remove | setup`; items are sha256-deduped `capture` records with tags/notes/

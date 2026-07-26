@@ -1,0 +1,38 @@
+{
+  "manifest_version": 1,
+  "name": "chain",
+  "version": "1.0.0",
+  "description": "Public blockchain transaction history (BTC via mempool.space, keyless; ETH via Etherscan, free ETHERSCAN_API_KEY). Each tx becomes one scan record with payload.created = block time and media.ref = a per-tx explorer deep link. No gps.",
+  "entries": [
+    {
+      "kind": "source",
+      "type": "chain",
+      "label": "Blockchain tx history (BTC / ETH)",
+      "summary": "Public blockchain transaction history (BTC via mempool.space, keyless; ETH via Etherscan, free ETHERSCAN_API_KEY). Each tx becomes one scan record with payload.created = block time and media.ref = a per-tx explorer deep link.",
+      "env": [
+        "ETHERSCAN_API_KEY"
+      ],
+      "base": [
+        "bash",
+        "shipped:providers/sources/chain/chain.sh"
+      ],
+      "needs": "chain:btc: is keyless (mempool.space); chain:eth: needs a free ETHERSCAN_API_KEY (https://etherscan.io/apis)",
+      "doctor": {
+        "check": "env_any",
+        "env": [
+          "ETHERSCAN_API_KEY"
+        ],
+        "okNote": "ETHERSCAN_API_KEY present (chain:eth: tx history) — chain:btc: is keyless via mempool.space either way",
+        "missingNote": "ETHERSCAN_API_KEY missing (chain:eth: needs it, free at https://etherscan.io/apis) — chain:btc: still works keyless via mempool.space"
+      },
+      "refForms": [
+        {
+          "form": "chain:btc:<address>"
+        },
+        {
+          "form": "chain:eth:<address>"
+        }
+      ]
+    }
+  ]
+}
