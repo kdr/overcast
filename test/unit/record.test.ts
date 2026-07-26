@@ -12,7 +12,21 @@ import {
   appendRecordJSONL,
   readRecordsJSONL,
   readAllRecords,
+  exifCaptureMs,
+  recordCaptureTimeMs,
 } from "../../src/record.ts";
+
+test("exifCaptureMs parses a DATE-only value (EDGAR filing date) to midnight UTC, not NaN", () => {
+  // Regression: a bare YYYY-MM-DD used to get a lone "Z" ("2025-03-01Z") that
+  // Date.parse rejects, so capture-time ranking fell back to ingest time.
+  assert.equal(exifCaptureMs("2025-03-01"), Date.parse("2025-03-01T00:00:00Z"));
+  // exif colon dates + zoned datetimes still parse.
+  assert.equal(exifCaptureMs("2019:01:01 00:00:00"), Date.parse("2019-01-01T00:00:00Z"));
+  assert.equal(exifCaptureMs("2024-01-02T03:04:05Z"), Date.parse("2024-01-02T03:04:05Z"));
+  // a day-only payload.created drives recordCaptureTimeMs (not ingest fallback)
+  const rec = makeRecord({ verb: "scan", format: "json", payload: { created: "2025-03-01" } });
+  assert.equal(recordCaptureTimeMs(rec), Date.parse("2025-03-01T00:00:00Z"));
+});
 
 test("newRecordId is prefixed + unique", () => {
   const a = newRecordId();

@@ -193,7 +193,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   camera `serial`/`lens` (device-linking fingerprint), dimensions; shipped
   `exiftool` provider, raw tag dump stays in-provider; `--geocode` reverse-geocodes
   the GPS to `payload.place` via an **opt-in** bound `geocode` provider — catalog
-  choice `geocode:nominatim`, no key, never default), `verify` (C2PA / Content Credentials provenance
+  choice `geocode:nominatim`, no key, never default; the `geocode` provider also
+  has a **forward** mode (`--query "<address>"` → `{lat,lng,place}`, keyless
+  Nominatim `/search`) — the address→point step the `overcast-canvass` skill uses
+  to fan `overpass`/`webcam` camera sources around a location), `verify` (C2PA / Content Credentials provenance
   via `c2patool` → `has_manifest`, signer, claim generator, validation state; no
   credentials is a clean `ready` record, not an error — distinct from source-post
   provenance in `src/verbs/provenance.ts`), `screenshot` (browser screen capture —
@@ -262,7 +265,19 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   map — markers link back to source, geocoded place + thumbnail + capture time;
   online = inlined-JS OSM raster tiles at view time, `--offline` = coordinate
   scatter + openstreetmap.org deep links, no egress; `--since`/`--limit`/`--theme`/
-  `--no-open`; recency uses exif capture time, not ingest),
+  `--no-open`; `--near <lat,lng>`/`--radius <m>` (default 500) or
+  `--bbox <minLat,minLng,maxLat,maxLng>` spatially pre-filter the plotted points
+  (same fence semantics as `geofence`, shared `src/geo.ts` primitives);
+  recency uses exif capture time, not ingest),
+ `geofence` (the geofence-warrant query — every case record whose `payload.gps`
+ falls inside a `--near <lat,lng>` circle (`--radius <m>`, default 500) or a
+ `--bbox` box (inclusive, non-wrapping) captured within `--since`/`--until`
+ (capture-time-aware like `map`; undated records that intersect spatially are
+ KEPT, `capture_time` null); pure local read over gps-bearing records (`exif` +
+ geo sources dispatch/firms/flights/overpass), no provider/network; ONE rollup
+ record — matches newest-first, per-verb counts, query echoed back; empty
+ intersection = clean `ready` + guidance, not an error; haversine/bbox math in
+ `src/geo.ts`),
  `devices` (case-wide rollup grouping `exif` records by camera fingerprint —
  serial-only strong link, make+model+lens weak fallback; one entry per file; a
  pure read over case memory, `--min`, `--findings` emits serial-linked suggested
@@ -282,15 +297,16 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
  (the anchor never trims), `--limit` trims lowest-degree leaf entities first,
  `--since` (capture-time-aware like `map`; co-filters `--extract`; an in-window
  finding pulls its out-of-window source record back in), `--theme
- plain|csi`, `--no-open`). `map` + `devices` + `graph` are operational (out of
- `ask`/`brief` evidence).
+ plain|csi`, `--no-open`). `map` + `geofence` + `devices` + `graph` are
+ operational (out of `ask`/`brief` evidence).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens + yandeximg reverse-image / dl generic-yt-dlp capture / instagram / telegram /
   gdelttv broadcast-TV / overpass OSM-features / firms active-fires /
   dispatch police-CAD-calls / flights ADS-B-aircraft / webcam live-cams / facesearch reverse-face /
   dork Google-dorking / shodan host-recon / browser rendered-page-capture /
   username account-discovery / person people-search / phone reverse-phone /
-  property assessor-records / plate license-plate;
+  property assessor-records / plate license-plate /
+  chain crypto-tx-history / edgar SEC-filings;
   `--since` recency; `--pull`/`--pipe` to capture+sense; `--transcript`/`--thumb`
   fetch-kind overrides (yt-dlp sources: captions+metadata / thumbnail instead of
   the video, no video download; `--lang` picks caption language);
@@ -361,6 +377,17 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   plate→vehicle SPEC via a bound actor — no default, `OVERCAST_PLATE_ACTOR`
   required, US owner data is DPPA-restricted). `dork`/`shodan`, `browser`, and every
   identity source are authorized-recon-only / opt-in, never a default binding.
+  And the **financial** sources (the public money trail — real bank/transaction
+  data is out of scope; each tx/filing is one scan record with `payload.created` =
+  the event time, a stable per-item `media.ref`, and **no gps** → plots on `graph`,
+  not `map`): `chain:btc:<address>` (BTC tx history via mempool.space, **keyless**)
+  / `chain:eth:<address>` (ETH tx history via Etherscan, free `ETHERSCAN_API_KEY`;
+  the explicit `btc:`/`eth:` prefix is required, amount normalized sats→BTC / wei→ETH,
+  `direction` in|out|self + `counterparties`), and `edgar:<CIK>` /
+  `edgar:"<company or full-text query>"` (SEC EDGAR corporate filings, **keyless** —
+  SEC requires a descriptive contact-email User-Agent, `OVERCAST_HTTP_UA` default is
+  compliant; bare CIK → submissions API, else full-text search; `media.ref` = the
+  `sec.gov/Archives` filing document).
 - **State** — `archive` (GLOBAL cross-case media buckets — case-shaped folders
   under `<home>/archive/<bucket>`, no registry file: `init | list | show | add |
   remove | setup`; items are sha256-deduped `capture` records with tags/notes/
@@ -453,7 +480,7 @@ exif verify screenshot chronolocate` + root `finding`s + `cluster` ingest/identi
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index archive target source
-prebrief wall situation grid map devices graph reconstruct` — reconstruct deliberately: synthesized pixels
+prebrief wall situation grid map geofence devices graph reconstruct` — reconstruct deliberately: synthesized pixels
 stay out of evidence, `payload.caveat` on every record —, finding review-rows,
 dismissed **and suggested** findings (a
 suggested lead is quarantined until `finding accept` promotes it), cluster DB

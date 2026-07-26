@@ -45,6 +45,7 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 - `wall` — Open a control-room monitor wall: case videos looping at their evidence moments.
 - `situation` — Monitor the situation: a live web page over the case — wall + feed + map + stills, updating as records land (serve | status | set | stop).
 - `map` — Plot every case record carrying GPS coordinates on a self-contained HTML map.
+- `geofence` — List every case record whose GPS falls inside a radius/box within a time window.
 - `devices` — Correlate case media by camera fingerprint (make/model/serial/lens) and report shared-device clusters.
 - `graph` — Build the case knowledge graph and render it as a self-contained interactive HTML viewer.
 - `scan` — Sweep sources, or local case media/indexes when no sources exist; emit scan.hit records (--pull to capture+sense).
@@ -117,6 +118,8 @@ Built-in source refs for `source add <type>:<ref>`:
 - `phone:<E.164>` — reverse phone / number OSINT via Apify (PhoneInfoga): offline parse (carrier guess / country / validity) + grouped web footprint. Authorized use only.
 - `property:<street, city, ST zip>` — address → county assessor / tax / recorder records via Apify: owner / assessed value / tax + sale history. Authorized use only.
 - `plate:<ST>:<plate>` — license plate → vehicle spec (VIN / year / make / model) via a BOUND Apify actor. No default actor (US plate data is DPPA-restricted — set `OVERCAST_PLATE_ACTOR`); vehicle SPEC only, not the owner. Authorized use only.
+- `chain:btc:<address>` / `chain:eth:<address>` — public blockchain tx history (the money trail): BTC via mempool.space (keyless), ETH via Etherscan (free `ETHERSCAN_API_KEY`). Each tx → a scan record with `payload.created` = block time, a per-tx explorer `media.ref`, normalized `amount` + `direction` + `counterparties`. No gps → plots on `graph`, not `map`.
+- `edgar:<CIK>` / `edgar:"<company or full-text query>"` — SEC EDGAR corporate filings (no key; SEC needs a descriptive contact-email User-Agent). Bare CIK → the company's recent filings; else full-text search. Each filing → a scan record with `payload.created` = filing date and a `sec.gov/Archives` `media.ref`.
 
 `overcast commands --json` dumps the authoritative verb registry. Full man
 pages are in [reference/verbs.md](reference/verbs.md) (progressive disclosure —
