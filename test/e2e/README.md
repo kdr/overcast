@@ -98,7 +98,11 @@ telegram·identity / yt-dlp youtube, plus the keyless map/OSINT feeds
 gdelttv·dispatch·overpass·flights and the FIRMS_MAP_KEY-gated firms —
 each source's mapped-record contract asserted: top-level `payload.gps` for
 dispatch/overpass/firms/flights, per-row/element deep-link `media.ref`
-throughout) · `21_pipeline`
+throughout) · `20b_finance_sources` (the follow-the-money sources: keyless
+`chain:btc:` via mempool.space + `edgar:` SEC filings (CIK and full-text), the
+`ETHERSCAN_API_KEY`-gated `chain:eth:` leg — each tx/filing ONE scan record with
+`payload.created` = event time, a stable per-item deep-link `media.ref`, and NO
+gps) · `21_pipeline`
 (source→capture→sense) · `26_x_copycat` (x keyword text search + user-scoped
 video capture from the CDN + headless agent x sweep + headless
 overcast-copycat-sweep skill invocation with brief HTML export) ·
@@ -176,7 +180,7 @@ non-overlapping segments, triggers across the clip, rejects a different speaker)
 `outputs[]` fan-out + non-negotiable caveat + viewer routing; the `--ops model` 3D
 mesh lift gated on `OC_RECONSTRUCT_3D_E2E=1`).
 
-**Skill workflow cases (`80`–`89`)** — one per shipped CSI/crime-trope skill,
+**Skill workflow cases (`80`–`94`)** — one per shipped CSI/crime-trope skill,
 each driving the skill's documented `overcast … --json` command chain against real
 media and asserting on the emitted records + saving the skill's artifact (brief /
 gallery / wall HTML) into the run dir:
@@ -208,7 +212,14 @@ csi `map` export with the call coordinates → finding stamped onto the line;
 skips cleanly if the rolling window is empty). `92_skill_connect_dots` drives
 `overcast-connect-the-dots` with no creds at all (notes sharing an email/handle →
 finding on the line → `graph --theme csi` board asserting entity harvest + thread
-edges in the HTML → 2-hop `--focus` view on the shared email).
+edges in the HTML → 2-hop `--focus` view on the shared email). `93_skill_bolo`
+drives `overcast-bolo` against real face media (reference face registered as an
+image target → `face --match` auto-emits a `suggested` finding onto that line →
+triage queue → `finding accept` promotes it to evidence; deepface-local or
+Cloudglue matcher, skips without either). `94_skill_canvass` drives
+`overcast-canvass` keyless (forward-geocode an address via the shipped Nominatim
+geocode provider → fan the OSM `overpass` camera source around the point →
+canvass `map` export → the `WINDY_API_KEY`-gated `webcam` leg).
 
 The **offline suite** (`test/e2e/cases/phase*.sh`, run by `npm run test:e2e`)
 exercises the same CLI surface with fixture providers; the notes below
@@ -218,8 +229,11 @@ in `test/e2e/cases/`. It runs the core senses over a generated clip
 quarantine via a fixture provider (`phase2_reconstruct`), the OSINT round-trip
 over a committed fixture source — `prebrief` → target/source → `scan --pull` →
 `monitor --once` diff (`phase3_osint`), the example providers' `describe` +
-profile-resolution contract (`phase8_providers`), and headless browser capture +
-the SSRF loopback guard via the fixture engine (`phase9_screenshot`).
+profile-resolution contract (`phase8_providers`), headless browser capture +
+the SSRF loopback guard via the fixture engine (`phase9_screenshot`), and the
+geofence-warrant query — seeded gps records at known coordinates/times, the
+in-fence + in-window subset (newest-first, undated kept), the error/empty
+surfaces, and `map --near`/`--bbox` spatial pre-filtering (`phase11_geofence`).
 
 It also covers setup management (`phase4_setup`): `case setup
 plan`, apply with target/note/source, `show`, `edit`, saved `.overcast/setup.json`,
