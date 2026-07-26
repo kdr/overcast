@@ -106,20 +106,36 @@ case "$op" in
         fi
         # mempool.space's /txs returns only the most-recent page (~50: mempool + the
         # first confirmed page). Paginate the confirmed chain (/txs/chain/<last_txid>,
-        # 25 per page) until we have at least --limit txs or run out — bounded (≤12
-        # pages) so a busy address can't spin, and each page validated as an array.
+        # 25 per page), bounded to ≤12 pages so a busy address can't spin. Count
+        # toward --limit only the txs a --since window would KEEP (confirmed +
+        # block_time >= cutoff) so unconfirmed/older txs don't stop us short, and
+        # halt once the oldest fetched tx is already past the window (older pages can
+        # only be older). A mid-pagination fetch/parse FAILURE is a hard error, never
+        # a silent partial scan; an empty page is the genuine end of history.
         txs="$resp"
-        have="$(printf '%s' "$txs" | jq 'length')"
+        recompute_have() {
+          if [ -n "$cutepoch" ]; then
+            have="$(printf '%s' "$txs" | jq --argjson c "$cutepoch" '[.[]|select((.status.block_time // -1) >= $c)]|length')"
+            pastwin="$(printf '%s' "$txs" | jq --argjson c "$cutepoch" '(((.[-1]//{}).status.block_time) // -1) as $bt | if ($bt >= 0 and $bt < $c) then 1 else 0 end')"
+          else
+            have="$(printf '%s' "$txs" | jq 'length')"; pastwin=0
+          fi
+        }
+        recompute_have
         last="$(printf '%s' "$txs" | jq -r '.[-1].txid // empty')"
         pages=1
-        while [ "$have" -lt "$limit" ] && [ -n "$last" ] && [ "$pages" -lt 12 ]; do
-          page="$(curl -fsS -m 45 -H "User-Agent: $UA" "$BTC_API/address/$addr/txs/chain/$last")" || break
-          printf '%s' "$page" | jq -e 'type == "array"' >/dev/null 2>&1 || break
+        while [ "$have" -lt "$limit" ] && [ -n "$last" ] && [ "$pastwin" -eq 0 ] && [ "$pages" -lt 12 ]; do
+          if ! page="$(curl -fsS -m 45 -H "User-Agent: $UA" "$BTC_API/address/$addr/txs/chain/$last")"; then
+            echo "chain btc pagination request failed at page $pages (chain/$last) — not a clean end-of-history" >&2; exit 1
+          fi
+          if ! printf '%s' "$page" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "chain btc pagination: unexpected non-array response: $(printf '%s' "$page" | head -c 200)" >&2; exit 1
+          fi
           plen="$(printf '%s' "$page" | jq 'length')"
           [ "$plen" -eq 0 ] && break
           txs="$(printf '%s\n%s' "$txs" "$page" | jq -s 'add')"
-          have="$(printf '%s' "$txs" | jq 'length')"
           last="$(printf '%s' "$page" | jq -r '.[-1].txid // empty')"
+          recompute_have
           pages=$((pages + 1))
         done
         printf '%s' "$txs" | jq -c --arg addr "$addrlc" --argjson n "$limit" --arg cutiso "$cutiso" '

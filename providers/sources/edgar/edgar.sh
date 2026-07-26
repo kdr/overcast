@@ -129,16 +129,34 @@ case "$op" in
         | sort_by(.created // "") | reverse | .[0:$n]'
     else
       # ---- full-text search (efts): hits.hits[]._source carries adsh / ciks /
-      # file_type / file_date / display_names; _id = "<accession>:<primaryDoc>" ----
+      # file_type / file_date / display_names; _id = "<accession>:<primaryDoc>".
+      # EFTS is Elasticsearch-backed and returns only ~10 hits/page, so a single
+      # request silently caps well under --limit. Paginate with &from=<offset>,
+      # accumulating hits until we have --limit (or a short page ends results),
+      # bounded to ≤20 pages. Then hand the merged hits to the mapper below. ----
       qenc="$(jq -rn --arg v "$query" '$v|@uri')"
-      if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$FTS_API?q=$qenc")"; then
-        echo "edgar full-text request failed for '$query'" >&2; exit 1
-      fi
-      # A valid response is a JSON object with a hits.hits array (zero matches →
-      # []); a non-JSON body is a HARD error, never a fake-empty scan.
-      if ! printf '%s' "$resp" | jq -e 'type == "object" and (.hits.hits | type == "array")' >/dev/null 2>&1; then
-        echo "edgar full-text: unexpected response for '$query': $(printf '%s' "$resp" | head -c 200)" >&2; exit 1
-      fi
+      allhits="[]"; from=0; ftpages=0
+      while : ; do
+        if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$FTS_API?q=$qenc&from=$from")"; then
+          echo "edgar full-text request failed for '$query' (from=$from)" >&2; exit 1
+        fi
+        # A valid response is a JSON object with a hits.hits array (zero matches →
+        # []); a non-JSON body is a HARD error, never a fake-empty scan.
+        if ! printf '%s' "$resp" | jq -e 'type == "object" and (.hits.hits | type == "array")' >/dev/null 2>&1; then
+          echo "edgar full-text: unexpected response for '$query': $(printf '%s' "$resp" | head -c 200)" >&2; exit 1
+        fi
+        phits="$(printf '%s' "$resp" | jq -c '.hits.hits')"
+        pcount="$(printf '%s' "$phits" | jq 'length')"
+        allhits="$(printf '%s\n%s' "$allhits" "$phits" | jq -sc 'add')"
+        acount="$(printf '%s' "$allhits" | jq 'length')"
+        ftpages=$((ftpages + 1))
+        [ "$acount" -ge "$limit" ] && break     # have enough to satisfy --limit
+        [ "$pcount" -lt 10 ] && break            # short page → end of results
+        [ "$ftpages" -ge 20 ] && break           # safety bound
+        from=$((from + 10))
+      done
+      # wrap the merged hits back into the {hits:{hits:…}} shape the mapper reads
+      resp="$(printf '%s' "$allhits" | jq -c '{hits:{hits:.}}')"
       printf '%s' "$resp" | jq -c --argjson n "$limit" --arg cut "$cutdate" '
         [ (.hits.hits // [])[]
           | (._source // {}) as $s
