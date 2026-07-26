@@ -340,12 +340,12 @@ Emits `media.enhanced` records.
 
 ### `overcast reconstruct`
 
-Scene reconstruction: hold the camera at a captured moment, then move it. Give an image (or a video + --at to pick the frame) and either camera moves — `--rotate <deg>` (0 front / 90 right / 180 behind, negative = left) with optional `--elevate <-30..90>` and `--zoom <0..10>` — or an op: `--ops sweep` synthesizes --count camera stops around 360° and assembles a labeled contact sheet + turntable video, `--ops model` lifts a textured 3D mesh (GLB) you can orbit in the built-in viewer, `--ops depth` estimates a depth map rendered as a drag-to-parallax hologram. Every output is GENERATIVE — synthesized pixels stamped with payload.caveat, excluded from ask/brief evidence and findings triggers; use it to form hypotheses (what's around the corner? what would a second camera have seen?), then verify with real captures. Needs a bound provider (no built-in): `overcast provider setup apply --verb reconstruct --choice fal --yes` (FAL_KEY). `view <record-id>` reopens the gallery / 3D orbit / parallax viewer; --view opens it immediately.
+Scene reconstruction: hold the camera at a captured moment, then move it. Give an image (or a video + --at to pick the frame) and either camera moves — `--rotate <deg>` (0 front / 90 right / 180 behind, negative = left) with optional `--elevate <-30..90>` and `--zoom <0..10>` — or an op: `--ops sweep` synthesizes --count camera stops around 360° and assembles a labeled contact sheet + turntable video, `--ops model` lifts a textured 3D mesh (GLB) you can orbit in the built-in viewer, `--ops depth` estimates a depth map rendered as a drag-to-parallax hologram, `--ops age` is the sketch artist: age (+N) or de-age (-N) the SUBJECT OF A REAL PHOTO by `--age-years <±years>` (-40..+60; missing-person age progression). The aged image is a speculative synthesized LIKENESS — NEVER use it as a probe for face/cluster/similar matching or to identify anyone; composing a face from a text description (no real photo to anchor to) is deliberately unsupported. Every output is GENERATIVE — synthesized pixels stamped with payload.caveat, excluded from ask/brief evidence and findings triggers; use it to form hypotheses (what's around the corner? what would a second camera have seen? what might they look like today?), then verify with real captures. Needs a bound provider (no built-in): `overcast provider setup apply --verb reconstruct --choice fal --yes` (FAL_KEY). `view <record-id>` reopens the gallery / 3D orbit / parallax viewer; --view opens it immediately.
 
 ```
 overcast reconstruct <input> [options]
 
-  Speculatively reposition the camera in a still (rotate/elevate/zoom, turntable sweep, 3D model, depth) via a bound generative provider — a hypothesis renderer, never evidence.
+  Speculatively reposition the camera in a still (rotate/elevate/zoom, turntable sweep, 3D model, depth) or age-progress the subject of a real photo (--ops age) via a bound generative provider — a hypothesis renderer, never evidence.
 
 Arguments:
   input            Image (or video with --at) — path, record id, frame://rec@sec, or archive:<bucket>/<item>
@@ -354,8 +354,9 @@ Options:
   --rotate <number>      Camera azimuth in degrees (0 front, 90 right, 180 behind; negative = left)
   --elevate <number>     Camera elevation in degrees (-30 low-angle … 0 eye-level … 60 high … 90 bird's-eye)
   --zoom <number>        Camera distance 0-10 (0 wide, 5 as-shot, 10 close-up)
-  --ops <string>         Reconstruction op: view (default with --rotate) | sweep | model | depth
+  --ops <string>         Reconstruction op: view (default with --rotate) | sweep | model | depth | age (default with --age-years)
   --count <number>       Sweep: number of synthesized camera stops around 360° (2-24, default 8)
+  --age-years <number>   Age op: years to age (+N) or de-age (-N) the subject (-40..+60) — output is a synthesized likeness, never a face-match probe
   --at <string>          Video input: timestamp (SS or MM:SS) of the frame to reconstruct from
   --prompt <string>      Extra scene hint forwarded to the view-synthesis model
   --seed <number>        Generation seed for reproducibility

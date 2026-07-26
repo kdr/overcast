@@ -65,6 +65,25 @@ assert_eq "$C.depth.kind" "depth" "$(jq -r '.[1].payload.kind' <<<"$dp")" "depth
 dv="$(oc "$CASE" view "$(jq -r '.[0].id' <<<"$dp")" --no-open --json)"
 assert_eq "$C.depth.viewer" "parallax" "$(echo "$dv" | jq -r '.payload.mode')" "parallax viewer routed"
 
+# --- speculative age progression (+20y, one still — cheap) -------------------
+cond "age the photo's subject +20 years (identity-preserving edit) — a synthesized likeness"
+ag="$(OC_TIMEOUT=300 oc "$CASE" reconstruct "$IMG" --ops age --age-years +20 --json | jq -sc '.')"
+save_json "38_reconstruct_age" "$ag" >/dev/null
+assert_eq "$C.age.state" "ready" "$(jq -r '.[0].state' <<<"$ag")" "age parent ready"
+assert_eq "$C.age.kind" "age" "$(jq -r '.[1].payload.kind' <<<"$ag")" "aged-still child"
+assert_eq "$C.age.years" "20" "$(jq -r '.[1].payload.age_years' <<<"$ag")" "age delta echoed on the child"
+# the EXTENDED caveat: generic banner + likeness / never-a-match-probe language
+agcv="$(jq -r '.[1].payload.caveat' <<<"$ag")"
+if grep -q "NOT photographic evidence" <<<"$agcv" \
+   && grep -q "not a photograph of the subject" <<<"$agcv" \
+   && grep -q "face/cluster/similar" <<<"$agcv"; then
+  ok "$C.age.caveat" "extended likeness caveat stamped"
+else
+  fail "$C.age.caveat" "caveat missing age language: $agcv"
+fi
+agref="$(jq -r '.[1].media.ref' <<<"$ag")"
+if [ -s "$agref" ]; then ok "$C.age.output" "aged still on disk ($(wc -c <"$agref" | tr -d ' ') bytes)"; else fail "$C.age.output" "missing: $agref"; fi
+
 # --- evidence quarantine on REAL records --------------------------------------
 cond "reconstructions never surface as ask evidence"
 aq="$(oc "$CASE" ask "synthesized camera view" --json | primary_rec)"
