@@ -9,10 +9,10 @@ import { makeRecord, memoryRecords } from "../../src/record.ts";
 import { findingVerb } from "../../src/verbs/finding.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
 
-function ctx(dir: string, input: string | undefined, rest: string[] = [], opts: VerbContext["opts"] = {}): VerbContext {
+function ctx(dir: string, input: string | undefined, rest: string[] = [], opts: VerbContext["opts"] = {}, surface?: VerbContext["surface"]): VerbContext {
   const c = openCase(dir);
   c.ensure();
-  return { input, rest, opts, case: c, profile: defaultProfile() };
+  return { input, rest, opts, case: c, profile: defaultProfile(), surface };
 }
 
 test("finding create makes a root finding anchored to evidence", async () => {
@@ -66,6 +66,68 @@ test("finding create --ref accepts a path relative to the CASE dir (not just cwd
     } finally {
       rmSync(outside, { force: true });
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("finding create/review attribute the actor — agent-tool calls stamp agent, CLI stays human", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-finding-actor-"));
+  try {
+    // create: the "who" is the invoking surface, not a constant — an
+    // agent-invoked create must not masquerade as a human-typed one.
+    const [byHuman] = await findingVerb.run(ctx(dir, "create", ["operator-typed"], {}, "cli"));
+    assert.equal(byHuman.meta?.provider, "human");
+    const [byAgent] = await findingVerb.run(ctx(dir, "create", ["agent-created"], {}, "agent"));
+    assert.equal(byAgent.meta?.provider, "agent");
+    // unknown surface (direct library use) keeps the human default
+    const [byUnknown] = await findingVerb.run(ctx(dir, "create", ["no surface"]));
+    assert.equal(byUnknown.meta?.provider, "human");
+
+    // review rows carry the same attribution as "<who>-review"
+    const c = openCase(dir);
+    c.writeRecord(byAgent);
+    const [review] = await findingVerb.run(ctx(dir, "accept", [byAgent.id], {}, "agent"));
+    assert.equal(review.state, "ready", review.error ?? "");
+    assert.equal(review.meta?.provider, "agent-review");
+    c.writeRecord(byHuman);
+    const [cliReview] = await findingVerb.run(ctx(dir, "dismiss", [byHuman.id], {}, "cli"));
+    assert.equal(cliReview.meta?.provider, "human-review");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("finding accept/dismiss --note records the review rationale on the review record", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-finding-note-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    const root = makeRecord({ verb: "finding", payload: { text: "possible reupload", status: "suggested", source_record: "rec_x", source_verb: "image", trigger: "signal:image-match" }, meta: { case: c.dir } });
+    c.writeRecord(root);
+
+    const [accepted] = await findingVerb.run(ctx(dir, "accept", [root.id], { note: "homography verified against the original frame" }));
+    assert.equal(accepted.state, "ready", accepted.error ?? "");
+    assert.equal((accepted.payload as Record<string, unknown>).note, "homography verified against the original frame");
+
+    const [dismissed] = await findingVerb.run(ctx(dir, "dismiss", [root.id], { note: "thumbnail collision, different event" }));
+    assert.equal((dismissed.payload as Record<string, unknown>).note, "thumbnail collision, different event");
+
+    // an empty --note is a usage error, not a silent drop
+    const [bad] = await findingVerb.run(ctx(dir, "accept", [root.id], { note: "  " }));
+    assert.equal(bad.state, "error");
+    assert.match(bad.error ?? "", /--note requires a value/);
+
+    // no --note stays optional: no note key on the review payload
+    const [plain] = await findingVerb.run(ctx(dir, "accept", [root.id]));
+    assert.equal(plain.state, "ready");
+    assert.equal("note" in (plain.payload as Record<string, unknown>), false);
+
+    // --note on CREATE is a usage error, never a silent drop — the shared flag
+    // list exposes it to every action, but create's rationale is the text.
+    const [misplaced] = await findingVerb.run(ctx(dir, "create", ["confirmed"], { note: "should not vanish" }));
+    assert.equal(misplaced.state, "error");
+    assert.match(misplaced.error ?? "", /--note applies to accept\/dismiss/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

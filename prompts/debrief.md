@@ -12,8 +12,9 @@ Work through these steps in order, using the tools:
    `finding accept <id> --target <target_id>` (it becomes evidence in ask/brief;
    `--target` attributes it to a line of investigation so it renders inside that
    thread — pass the target id or value, omit only when no line fits) or
-   `finding dismiss <id>` (a dismissed lead never re-suggests). Say why in one
-   line per decision.
+   `finding dismiss <id>` (a dismissed lead never re-suggests). Pass the why in
+   one line per decision via `--note "…"` so the rationale is recorded on the
+   review record, not just said in chat.
 
 2. **Read the mission board.** Run `case status --json` and look at
    `pulse`/`threads` — each target is a line of investigation with a stage

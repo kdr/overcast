@@ -78,6 +78,15 @@ function textFromArgs(ctx: VerbContext): string {
   return [ctx.rest[0], ...ctx.rest.slice(1)].filter(Boolean).join(" ").trim();
 }
 
+/** Who performed a manual finding action: the operator typing at the CLI/TUI
+ *  (`human`) or the LLM invoking the agent tool on their behalf (`agent`).
+ *  Stamped on meta.provider so the audit trail carries a real "who" instead of
+ *  a constant — in a single-operator tool, human-typed vs agent-invoked is the
+ *  attribution that matters (an injected agent can run `finding create`/`accept`;
+ *  the record must say the agent did). Unknown surface = direct library use;
+ *  treated as human. */
+const actorOf = (ctx: VerbContext): "human" | "agent" => (ctx.surface === "agent" ? "agent" : "human");
+
 export function isRootFindingRecord(rec: OvercastRecord): boolean {
   if (rec.verb !== "finding" || rec.state === "error" || typeof rec.payload !== "object" || rec.payload == null) return false;
   const p = rec.payload as Record<string, unknown>;
@@ -92,7 +101,10 @@ export const findingVerb: VerbSpec = {
   description:
     "Creates manual findings and lists/reviews automated findings. Score/text triggers emit `suggested` findings (leads) that stay OUT of memory/brief evidence until reviewed — " +
     "`finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). " +
-    "Review records reference the original finding; dismissed findings remain auditable.",
+    "Review records reference the original finding; dismissed findings remain auditable. " +
+    "NOTE the asymmetry: only AUTOMATED leads are quarantined. `finding create` is the operator's own promotion act — it writes an `open` finding that is evidence " +
+    "immediately, with no review step. The guarantee is deliberate + attributed + reversible, not reviewed: meta.provider records who ran it (`human` at the CLI/TUI, " +
+    "`agent` via the agent tool), `--note` on accept/dismiss records why, and `dismiss` retracts a created finding from evidence.",
   args: [
     { name: "action", summary: "create | list | accept | dismiss (default: list)", choices: ["create", "list", "accept", "dismiss"] },
     { name: "id", summary: "finding id for accept/dismiss, or text for create" },
@@ -100,6 +112,7 @@ export const findingVerb: VerbSpec = {
   flags: [
     { name: "state", summary: "list: open | suggested | accepted | dismissed | all | triage (open+suggested), or a comma-list", type: "string" },
     { name: "target", summary: "create/accept/dismiss: the target line this finding supports (id or value; stamps target_id so it renders in that line of investigation)", type: "string" },
+    { name: "note", summary: "accept/dismiss: why — the review rationale, recorded on the review record for the audit trail", type: "string" },
     { name: "ref", summary: "create: source record id, capture id, media path, or URL", type: "string" },
     { name: "at", summary: "create: evidence timestamp seconds, hh:mm:ss, or start-end", type: "string" },
     { name: "confidence", summary: "create: confidence marker or score", type: "string" },
@@ -113,6 +126,11 @@ export const findingVerb: VerbSpec = {
     if (action === "create") {
       const text = textFromArgs(ctx);
       if (!text) return [err("finding create requires finding text")];
+      // --note is the REVIEW rationale (accept/dismiss only). On create the
+      // rationale IS the finding text — reject a misplaced --note instead of
+      // silently dropping words the operator meant to persist (the audit-trail
+      // guarantee; `archive setup` rejects a misplaced --note the same way).
+      if (ctx.opts.note != null) return [err("--note applies to accept/dismiss (the review rationale); fold create rationale into the finding text")];
       for (const f of ["target", "ref", "at", "confidence"] as const) {
         if (ctx.opts[f] != null && !String(ctx.opts[f]).trim()) return [err(`--${f} requires a value`)];
       }
@@ -181,7 +199,7 @@ export const findingVerb: VerbSpec = {
       if (resolvedTarget) payload.target_id = resolvedTarget.id;
       if (ctx.opts.confidence) payload.confidence = String(ctx.opts.confidence);
       if (evidenceRef) payload.ref = evidenceRef;
-      return [makeRecord({ verb: "finding", format: "json", payload, media, meta: { case: ctx.case.dir, provider: "human", ...(archiveBucket ? { archive: archiveBucket } : {}) }, state: "ready" })];
+      return [makeRecord({ verb: "finding", format: "json", payload, media, meta: { case: ctx.case.dir, provider: actorOf(ctx), ...(archiveBucket ? { archive: archiveBucket } : {}) }, state: "ready" })];
     }
     if (action === "list") {
       const filter = (ctx.opts.state ? String(ctx.opts.state) : "open").trim().toLowerCase();
@@ -226,13 +244,29 @@ export const findingVerb: VerbSpec = {
       if (!resolved.entry) return [err(resolved.error!)];
       reviewTargetId = resolved.entry.id;
     }
+    // --note = the WHY of the review, persisted on the review record so the
+    // audit trail explains the judgment, not just its outcome (parity with
+    // `target close --note`).
+    let reviewNote: string | undefined;
+    if (ctx.opts.note != null) {
+      reviewNote = String(ctx.opts.note).trim();
+      if (!reviewNote) return [err("--note requires a value")];
+    }
     return [
       makeRecord({
         verb: "finding",
         format: "json",
-        payload: { finding_id: id, status, reviewed_at: new Date().toISOString(), ...(reviewTargetId ? { target_id: reviewTargetId } : {}) },
+        payload: {
+          finding_id: id,
+          status,
+          reviewed_at: new Date().toISOString(),
+          ...(reviewNote ? { note: reviewNote } : {}),
+          ...(reviewTargetId ? { target_id: reviewTargetId } : {}),
+        },
         media: original.media,
-        meta: { case: ctx.case.dir, provider: "human-review" },
+        // "<who>-review": human-review = the operator at the CLI/TUI,
+        // agent-review = the LLM ran accept/dismiss through the agent tool.
+        meta: { case: ctx.case.dir, provider: `${actorOf(ctx)}-review` },
         state: "ready",
       }),
     ];
