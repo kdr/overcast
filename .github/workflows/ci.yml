@@ -48,7 +48,7 @@ jobs:
       - run: npm run --prefix vscode build
       - run: npm run --prefix vscode test
       - run: mkdir -p .dev && npm run --prefix vscode package
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: overcast-vscode-vsix
           path: .dev/*.vsix
