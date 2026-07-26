@@ -122,6 +122,12 @@ test("finding accept/dismiss --note records the review rationale on the review r
     const [plain] = await findingVerb.run(ctx(dir, "accept", [root.id]));
     assert.equal(plain.state, "ready");
     assert.equal("note" in (plain.payload as Record<string, unknown>), false);
+
+    // --note on CREATE is a usage error, never a silent drop — the shared flag
+    // list exposes it to every action, but create's rationale is the text.
+    const [misplaced] = await findingVerb.run(ctx(dir, "create", ["confirmed"], { note: "should not vanish" }));
+    assert.equal(misplaced.state, "error");
+    assert.match(misplaced.error ?? "", /--note applies to accept\/dismiss/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -126,6 +126,11 @@ export const findingVerb: VerbSpec = {
     if (action === "create") {
       const text = textFromArgs(ctx);
       if (!text) return [err("finding create requires finding text")];
+      // --note is the REVIEW rationale (accept/dismiss only). On create the
+      // rationale IS the finding text — reject a misplaced --note instead of
+      // silently dropping words the operator meant to persist (the audit-trail
+      // guarantee; `archive setup` rejects a misplaced --note the same way).
+      if (ctx.opts.note != null) return [err("--note applies to accept/dismiss (the review rationale); fold create rationale into the finding text")];
       for (const f of ["target", "ref", "at", "confidence"] as const) {
         if (ctx.opts[f] != null && !String(ctx.opts[f]).trim()) return [err(`--${f} requires a value`)];
       }
