@@ -90,6 +90,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 url=""
 for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
 case "$url" in
+  *mempool.space*txs/chain*)  echo '[]'; exit 0 ;;   # confirmed-chain pagination: no more pages
   *mempool.space*)  [ -f "$here/mempool.json" ]   && cat "$here/mempool.json"   && exit 0; exit 22 ;;
   *etherscan.io*)   [ -f "$here/etherscan.json" ] && cat "$here/etherscan.json" && exit 0; exit 22 ;;
   *)                exit 22 ;;
@@ -201,6 +202,34 @@ test("enumerateSource(chain eth): wei→ETH normalization, direction, etherscan.
     const outbound = recs.find((r) => (r.payload as Record<string, unknown>).txid === "0xhashOUT")!;
     assert.equal((outbound.payload as Record<string, unknown>).direction, "out");
     assert.equal((outbound.payload as Record<string, unknown>).amount, 0.42);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("enumerateSource(chain eth): a null `to` (contract creation) doesn't crash the whole enumerate", async () => {
+  // Bugbot: counterparties ran ascii_downcase on raw .to/.from — a null `to`
+  // (contract-creation tx) aborted the jq map and failed the entire ETH scan.
+  const resp = {
+    status: "1",
+    message: "OK",
+    result: [
+      { timeStamp: "1700000000", hash: "0xhashCREATE", from: ETH_ADDR, to: null, value: "0" },
+      { timeStamp: "1710000000", hash: "0xhashIN", from: "0x000000000000000000000000000000000000beef", to: ETH_ADDR, value: "1000000000000000000" },
+    ],
+  };
+  const { env, dir } = withCurlStub({ etherscan: resp });
+  try {
+    const recs = await enumerateSource(
+      { type: "chain", base: builtinDescriptor("chain")!.base },
+      { query: `eth:${ETH_ADDR}`, env: { ...env, ETHERSCAN_API_KEY: "test-key" } },
+    );
+    assert.equal(recs.length, 2, "both txs map even though one has a null `to`");
+    const create = recs.find((r) => (r.payload as Record<string, unknown>).txid === "0xhashCREATE")!;
+    assert.equal(create.state, "ready");
+    assert.equal((create.payload as Record<string, unknown>).direction, "out");
+    // the null `to` yields no counterparty rather than aborting the mapper
+    assert.deepEqual((create.payload as Record<string, unknown>).counterparties, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

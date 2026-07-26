@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # overcast source provider: edgar (SEC EDGAR corporate filings — turn a company's
 # filing history into scan records, one per filing). NO key: the SEC APIs are
-# public, but they 403 a blank/bot User-Agent, so we always send a descriptive one
-# (OVERCAST_HTTP_UA, same knob as overpass/chain).
+# public, but they 403 a blank/bot User-Agent — AND, empirically, any UA bearing a
+# URL or parentheses. So edgar sends a plain `product/version email` UA and, unlike
+# overpass/chain, does NOT trust the shared OVERCAST_HTTP_UA blindly: if that knob
+# is set to the URL/parens form those sources document, it is rejected here and the
+# compliant default is used instead (an explicit SEC-safe OVERCAST_HTTP_UA is kept).
 #
 # Bind with:  overcast source add 'edgar:320193'         # by CIK (Apple) -> submissions API
 #             overcast source add 'edgar:Tesla Inc'      # by name/query -> full-text search
@@ -21,9 +24,11 @@ SUB_API="https://data.sec.gov/submissions"
 FTS_API="https://efts.sec.gov/LATEST/search-index"
 # SEC REQUIRES a descriptive User-Agent carrying a CONTACT EMAIL (their fair-access
 # policy 403s blank/bot UAs — AND, empirically, UAs bearing a URL or parentheses;
-# only the plain `product/version email` shape passes). Default to a compliant one;
-# override via OVERCAST_HTTP_UA (must keep an email or SEC 403s the request).
+# only the plain `product/version email` shape passes). Take OVERCAST_HTTP_UA if
+# set, but fall back to a compliant default when the resolved UA looks SEC-unsafe
+# (contains a URL or parentheses) so the shared knob can't silently 403 EDGAR.
 UA="${OVERCAST_HTTP_UA:-overcast-osint/0.0.8 research@overcast.video}"
+case "$UA" in *"("*|*")"*|*"http"*) UA="overcast-osint/0.0.8 research@overcast.video" ;; esac
 
 op="${1:-enumerate}"; shift || true
 
@@ -149,7 +154,12 @@ case "$op" in
           | (if ($cik != "" and $accnd != "")
                then ("https://www.sec.gov/Archives/edgar/data/" + $cik + "/" + $accnd
                      + (if $doc != "" then "/" + $doc else "/" end))
-               else "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany" end) as $url
+               # No CIK/accession to build an Archives link — fall back to a UNIQUE
+               # EDGAR full-text deep link keyed on the accession (or the hit _id),
+               # so distinct incomplete filings do not collapse to one monitor dedup
+               # key (a single static browse-edgar URL would).
+               else ("https://efts.sec.gov/LATEST/search-index?q=%22"
+                     + ((if $acc != "" then $acc else $id end) | @uri) + "%22") end) as $url
           | {
               title: (($form | if . == "" then "filing" else . end) + " filed " + ($date // "?")
                       + (if $company != "" then " — " + $company else "" end)),

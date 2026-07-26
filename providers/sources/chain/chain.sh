@@ -22,7 +22,10 @@
 # Implements: enumerate --query <q> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
 BTC_API="https://mempool.space/api"
-ETH_API="https://api.etherscan.io/api"
+# Etherscan V2 (chainid-scoped). The legacy V1 host (api.etherscan.io/api with no
+# chainid) is being shut down, so use v2/api?chainid=1 — `chain:eth:` is Ethereum
+# mainnet (chainid 1) by definition, so this is fixed, not a new env knob.
+ETH_API="https://api.etherscan.io/v2/api"
 KEY="${ETHERSCAN_API_KEY:-}"
 # a descriptive UA is polite (and mempool/etherscan tolerate a blank one, unlike
 # SEC EDGAR); override via OVERCAST_HTTP_UA, same knob as overpass/edgar.
@@ -88,6 +91,10 @@ case "$op" in
         if ! printf '%s' "$addr" | grep -qE '^[A-Za-z0-9]+$'; then
           echo "chain: '$addr' is not a valid BTC address (expected base58 / bech32 alphanumerics)" >&2; exit 1
         fi
+        # bech32 addresses are case-insensitive (mempool returns them lowercase), so
+        # match case-insensitively; base58 is a plain string match once both sides
+        # are lowercased. Counterparties still EMIT the original-case address.
+        addrlc="$(printf '%s' "$addr" | tr '[:upper:]' '[:lower:]')"
         if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$BTC_API/address/$addr/txs")"; then
           echo "chain btc enumerate request failed for '$addr' (check the address)" >&2; exit 1
         fi
@@ -97,17 +104,35 @@ case "$op" in
         if ! printf '%s' "$resp" | jq -e 'type == "array"' >/dev/null 2>&1; then
           echo "chain btc enumerate: unexpected response: $(printf '%s' "$resp" | head -c 200)" >&2; exit 1
         fi
-        printf '%s' "$resp" | jq -c --arg addr "$addr" --argjson n "$limit" --arg cutiso "$cutiso" '
+        # mempool.space's /txs returns only the most-recent page (~50: mempool + the
+        # first confirmed page). Paginate the confirmed chain (/txs/chain/<last_txid>,
+        # 25 per page) until we have at least --limit txs or run out — bounded (≤12
+        # pages) so a busy address can't spin, and each page validated as an array.
+        txs="$resp"
+        have="$(printf '%s' "$txs" | jq 'length')"
+        last="$(printf '%s' "$txs" | jq -r '.[-1].txid // empty')"
+        pages=1
+        while [ "$have" -lt "$limit" ] && [ -n "$last" ] && [ "$pages" -lt 12 ]; do
+          page="$(curl -fsS -m 45 -H "User-Agent: $UA" "$BTC_API/address/$addr/txs/chain/$last")" || break
+          printf '%s' "$page" | jq -e 'type == "array"' >/dev/null 2>&1 || break
+          plen="$(printf '%s' "$page" | jq 'length')"
+          [ "$plen" -eq 0 ] && break
+          txs="$(printf '%s\n%s' "$txs" "$page" | jq -s 'add')"
+          have="$(printf '%s' "$txs" | jq 'length')"
+          last="$(printf '%s' "$page" | jq -r '.[-1].txid // empty')"
+          pages=$((pages + 1))
+        done
+        printf '%s' "$txs" | jq -c --arg addr "$addrlc" --argjson n "$limit" --arg cutiso "$cutiso" '
           map(
             ([ .vin[]? | .prevout // {} ]) as $ins
             | ([ .vout[]? // {} ]) as $outs
-            | ([ $ins[]  | select(.scriptpubkey_address == $addr) | (.value // 0) ] | add // 0) as $sent
-            | ([ $outs[] | select(.scriptpubkey_address == $addr) | (.value // 0) ] | add // 0) as $recv
+            | ([ $ins[]  | select((.scriptpubkey_address // "" | ascii_downcase) == $addr) | (.value // 0) ] | add // 0) as $sent
+            | ([ $outs[] | select((.scriptpubkey_address // "" | ascii_downcase) == $addr) | (.value // 0) ] | add // 0) as $recv
             | (if $sent > 0 and $recv > 0 then "self" elif $sent > 0 then "out" elif $recv > 0 then "in" else "in" end) as $dir
             | (if $dir == "out" then $sent elif $dir == "in" then $recv else (if $sent > $recv then $sent else $recv end) end) as $amtSats
             | ($amtSats / 100000000) as $amt
-            | ([ $ins[]  | select(.scriptpubkey_address != $addr) | .scriptpubkey_address // empty ]) as $senders
-            | ([ $outs[] | select(.scriptpubkey_address != $addr) | .scriptpubkey_address // empty ]) as $recipients
+            | ([ $ins[]  | select((.scriptpubkey_address // "" | ascii_downcase) != $addr) | .scriptpubkey_address // empty ]) as $senders
+            | ([ $outs[] | select((.scriptpubkey_address // "" | ascii_downcase) != $addr) | .scriptpubkey_address // empty ]) as $recipients
             | (if $dir == "in" then $senders elif $dir == "out" then $recipients else ($senders + $recipients) end
                | map(select(. != null and . != "")) | unique) as $cps
             | ($ins  | length) as $nin
@@ -149,7 +174,7 @@ case "$op" in
         fi
         addrenc="$(jq -rn --arg v "$addr" '$v|@uri')"
         addrlc="$(printf '%s' "$addr" | tr '[:upper:]' '[:lower:]')"
-        if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$ETH_API?module=account&action=txlist&address=$addrenc&sort=desc&apikey=$KEY")"; then
+        if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$ETH_API?chainid=1&module=account&action=txlist&address=$addrenc&sort=desc&apikey=$KEY")"; then
           echo "chain eth enumerate request failed for '$addr' (check the address and ETHERSCAN_API_KEY)" >&2; exit 1
         fi
         # Etherscan wraps everything in {status,message,result}. status "1" = a real
@@ -177,7 +202,7 @@ case "$op" in
             | (if $from == $addr and $to == $addr then "self" elif $from == $addr then "out" elif $to == $addr then "in" else "in" end) as $dir
             | ((.value // "0" | tonumber) / 1e18) as $amt
             | (if $dir == "out" then [ .to ] elif $dir == "in" then [ .from ] else [ .from, .to ] end
-               | map(ascii_downcase) | map(select(. != null and . != "" and . != $addr)) | unique) as $cps
+               | map(select(. != null and . != "")) | map(ascii_downcase) | map(select(. != $addr)) | unique) as $cps
             | ((.timeStamp // "0" | tonumber)) as $ts
             | (if $ts > 0 then ($ts | todate) else null end) as $iso
             | (($cps[0] // "?") | if length > 18 then .[0:18] + "…" else . end) as $cp0
