@@ -46,6 +46,10 @@ export interface MapModel {
   /** ALL valid-gps-bearing records, before the --since filter — lets the empty
    *  case distinguish "no GPS at all" from "filtered out by --since". */
   gpsTotal: number;
+  /** records passing gps + the optional spatial fence, BEFORE --since — lets the
+   *  empty case tell a spatial miss (0) from a time-window miss (>0), so the note
+   *  points at --near/--bbox vs --since/--until, not both. */
+  spatialPassing: number;
   /** longitude span may be shifted past ±180 (maxLng>180) for a cluster that
    *  straddles the antimeridian; consumers unwrap point lng into [minLng,maxLng]. */
   bounds: MapBounds | null;
@@ -184,6 +188,7 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
     points,
     total,
     gpsTotal,
+    spatialPassing: all.length,
     bounds,
     counts,
   };

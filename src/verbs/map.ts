@@ -85,10 +85,19 @@ export const mapVerb: VerbSpec = {
     if (model.points.length === 0) {
       // distinguish "no GPS at all" from "GPS records exist but were filtered out"
       // so the guidance points at the actual problem (like wall's empty-case note).
+      // Distinguish three empty cases so the guidance points at the ACTUAL filter:
+      // no gps at all; gps records excluded by the spatial fence (widen --near/--bbox);
+      // or gps records inside the fence but excluded by the time window (widen/drop
+      // --since/--until — widening the fence can't recover those). Mirrors geofence.
+      const plural = model.gpsTotal === 1 ? "" : "s";
       const note =
         model.gpsTotal === 0
           ? "no GPS-bearing records — run `exif <media>` on media with embedded GPS (a phone photo, a geotagged clip)"
-          : `${model.gpsTotal} GPS-bearing record${model.gpsTotal === 1 ? "" : "s"} in the case, but none match the current filter — widen or drop --since/--near/--bbox`;
+          : spatial && model.spatialPassing === 0
+            ? `${model.gpsTotal} GPS-bearing record${plural} in the case, but none fall inside --near/--bbox — widen (or drop) the fence`
+            : spatial
+              ? `${model.spatialPassing} record${model.spatialPassing === 1 ? "" : "s"} fall inside the fence but outside the --since/--until window — widen (or drop) the time window`
+              : `${model.gpsTotal} GPS-bearing record${plural} in the case, but all fall outside the --since/--until window — widen (or drop) it`;
       return [
         makeRecord({
           verb: "map",
