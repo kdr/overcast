@@ -28,6 +28,17 @@ see [configuration.md](configuration.md).
 | `reconstruct` | **speculative** camera reposition from a still — `--rotate`/`--elevate`/`--zoom`, `--ops sweep` (360° turntable), `--ops model` (image→3D GLB), `--ops depth`, `--ops age --age-years <±N>` (age-progress / de-age the subject of a REAL photo, −40..+60 — the output is a synthesized LIKENESS with an extended caveat: NEVER a `face`/`cluster`/`similar` match probe, and composite-from-text-description is an explicit non-goal) — via a bound fal provider; a hypothesis renderer, never evidence (`payload.caveat`, quarantined from ask/brief) |
 | `chronolocate` | chronolocation from the sun/shadows — pure offline solar math, no key: verify a claimed capture time (`--at-time`) or solve the time window a shadow bearing implies (`--shadow-azimuth`) |
 
+**Deliberately out of scope — no deception detection.** overcast does not and
+will not ship deception detection, voice-stress analysis, or micro-expression
+"lie detection". This is a principled choice, not an oversight or a roadmap
+gap: the underlying methods have no validated scientific accuracy, and a verb
+that outputs "72% likely lying" would manufacture confident-sounding junk. The
+senses already hold the opposite bar — `voice` scores identity, explicitly NOT
+liveness or truthfulness (clones score high; every record carries
+`payload.caveat`), and `reconstruct`'s synthesized pixels are quarantined out
+of evidence. For **descriptive** acoustics — tone, ambience, what the audio
+scene contains — use `listen --describe`; for WHO is speaking, use `voice`.
+
 **Inspect** — look at the evidence
 | verb | does |
 |---|---|
