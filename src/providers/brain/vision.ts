@@ -176,7 +176,9 @@ export async function resolveBrainModel(profile: Profile, opts: { requireImage?:
   // dynamic providers may need a one-off refresh to populate their list.
   let model = choice.model ? models.getModel(choice.provider, choice.model) : undefined;
   if (!model) {
-    await models.refresh(choice.provider).catch(() => {});
+    // pi ≥0.81 refreshes all configured dynamic providers at once (the
+    // per-provider refresh(id) signature is gone); static providers are skipped.
+    await models.refresh().catch(() => {});
     model = choice.model
       ? models.getModel(choice.provider, choice.model)
       : models.getModels(choice.provider).find((m) => (opts.requireImage ? supportsImage(m) : true));

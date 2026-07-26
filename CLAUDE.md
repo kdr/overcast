@@ -19,7 +19,7 @@ package** (extension + skills + prompts + theme), a **standalone bun binary**, a
 ## Stack (pinned)
 
 - `@earendil-works/pi-ai`, `pi-agent-core`, `pi-tui`, `pi-coding-agent` —
-  **exactly `0.80.3`**. Don't float these; treat upgrades as reviewed changes.
+  **exactly `0.82.1`**. Don't float these; treat upgrades as reviewed changes.
 - `@cloudglue/cloudglue-js` — the default sense backend (via the tinycloud CLI,
   `exec`). Cloudglue is **also** a pickable *brain* LLM provider (anthropic-messages
   API) so it appears in `/model` — never forced. The tinycloud CLI is a runtime

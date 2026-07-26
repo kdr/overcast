@@ -12,4 +12,4 @@ over="$(jq -r '.overcast' <<<"$out")"
 pi="$(jq -r '.pi' <<<"$out")"
 
 assert_nonempty "version.overcast" "$over" "overcast version present"
-assert_eq "version.pi_pinned" "0.80.3" "$pi" "pi pinned at 0.80.3"
+assert_eq "version.pi_pinned" "0.82.1" "$pi" "pi pinned at 0.82.1"
