@@ -91,9 +91,9 @@ if [ "$forward" = 1 ]; then
     | (if ($lngA|type)=="number" then $lngA elif ($lngB|type)=="number" then $lngB else null end) as $lng
     | (if ($o|has("display_name")) then "nominatim" else "photon" end) as $prov
     | (if (($o|has("display_name")) and (($o.display_name|type)=="string")) then $o.display_name
-       elif ($o|has("properties")) then
+       elif (($o.properties|type)=="object") then
          ([$o.properties.name,$o.properties.street,$o.properties.district,$o.properties.city,$o.properties.county,$o.properties.state,$o.properties.country]
-          | map(select(. != null and . != "")) | join(", "))
+          | map(select(type=="string" and . != "")) | join(", "))
        else null end) as $place
     | (($lat|type)=="number" and ($lng|type)=="number"
         and $lat>=-90 and $lat<=90 and $lng>=-180 and $lng<=180) as $ok
