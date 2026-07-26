@@ -62,7 +62,7 @@ invariants that matter most for contributors:
    `overcast skills generate` and commit the result. CI fails if `skills/` is out
    of sync.
 4. **Pinned dependencies stay pinned.** `@earendil-works/pi-*` are fixed at
-   **exactly `0.80.3`**. Don't float them; a pi bump is a deliberate, reviewed
+   **exactly `0.82.1`**. Don't float them; a pi bump is a deliberate, reviewed
    change (Dependabot is configured to ignore them).
 5. **The record is loose.** The output contract is
    `{ id, verb, format, payload, media?, meta?, error?, state? }` and nothing

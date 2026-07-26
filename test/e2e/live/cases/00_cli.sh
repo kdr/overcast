@@ -6,7 +6,7 @@ C=cli
 
 cond "the binary reports its version and the pinned pi version"
 ver="$(ocg version --json)"
-assert_eq "$C.version" "0.80.3" "$(echo "$ver" | jq -r '.pi')" "pi pinned at 0.80.3"
+assert_eq "$C.version" "0.82.1" "$(echo "$ver" | jq -r '.pi')" "pi pinned at 0.82.1"
 assert_nonempty "$C.binary_runs" "$(echo "$ver" | jq -r '.overcast')" "binary reports overcast version"
 
 cond "the verb registry exposes the public verbs"

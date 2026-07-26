@@ -77,10 +77,10 @@
     "brand": "node scripts/brand-pi.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.80.3",
-    "@earendil-works/pi-ai": "0.80.3",
-    "@earendil-works/pi-coding-agent": "0.80.3",
-    "@earendil-works/pi-tui": "0.80.3",
+    "@earendil-works/pi-agent-core": "0.82.1",
+    "@earendil-works/pi-ai": "0.82.1",
+    "@earendil-works/pi-coding-agent": "0.82.1",
+    "@earendil-works/pi-tui": "0.82.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -92,5 +92,8 @@
   },
   "optionalDependencies": {
     "playwright": "^1.61.1"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   }
 }
