@@ -133,7 +133,11 @@ case "$op" in
       # EFTS is Elasticsearch-backed and returns only ~10 hits/page, so a single
       # request silently caps well under --limit. Paginate with &from=<offset>,
       # accumulating hits until we have --limit (or a short page ends results),
-      # bounded to ≤20 pages. Then hand the merged hits to the mapper below. ----
+      # bounded to ≤20 pages. Then hand the merged hits to the mapper below.
+      # NOTE: efts orders by RELEVANCE and exposes no server-side date sort, so
+      # --limit caps the most-RELEVANT filings (the mapper date-sorts that set for
+      # display); for exhaustive newest-first chronology use edgar:<CIK>, and pass
+      # --since to bound the window server-side (startdt below). ----
       qenc="$(jq -rn --arg v "$query" '$v|@uri')"
       # Push --since to the SERVER (efts startdt) so pagination retrieves in-window
       # filings: efts orders by relevance, so stopping at --limit RAW hits and

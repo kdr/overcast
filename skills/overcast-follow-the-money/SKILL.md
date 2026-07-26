@@ -45,7 +45,9 @@ overcast source add "edgar:Tesla Inc" --json                               # or 
 ```
 
 2. Scan the trail. Each tx/filing is one cited `scan` record; `--since` filters by
-   block/filing time, `--limit` caps newest-first:
+   block/filing time, `--limit` caps newest-first (the `edgar:<CIK>` path is
+   chronological; an `edgar:"<query>"` full-text scan is **relevance-ranked** —
+   use a CIK for strict newest-first coverage):
 
 ```bash
 overcast scan --source chain --limit 25 --json          # newest transactions
