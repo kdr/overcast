@@ -135,9 +135,15 @@ case "$op" in
       # accumulating hits until we have --limit (or a short page ends results),
       # bounded to ≤20 pages. Then hand the merged hits to the mapper below. ----
       qenc="$(jq -rn --arg v "$query" '$v|@uri')"
+      # Push --since to the SERVER (efts startdt) so pagination retrieves in-window
+      # filings: efts orders by relevance, so stopping at --limit RAW hits and
+      # filtering client-side could miss in-window filings ranked lower / on later
+      # pages. With startdt every returned hit is already in-window.
+      dateparam=""
+      [ -n "$cutdate" ] && dateparam="&dateRange=custom&startdt=$cutdate&enddt=$(date -u +%Y-%m-%d)"
       allhits="[]"; from=0; ftpages=0
       while : ; do
-        if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$FTS_API?q=$qenc&from=$from")"; then
+        if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$FTS_API?q=$qenc&from=$from$dateparam")"; then
           echo "edgar full-text request failed for '$query' (from=$from)" >&2; exit 1
         fi
         # A valid response is a JSON object with a hits.hits array (zero matches →

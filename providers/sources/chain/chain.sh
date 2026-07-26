@@ -122,7 +122,10 @@ case "$op" in
           fi
         }
         recompute_have
-        last="$(printf '%s' "$txs" | jq -r '.[-1].txid // empty')"
+        # the /txs/chain/ cursor must be a CONFIRMED txid — mempool (unconfirmed)
+        # txs sort first and have no confirmed page, so paginating from one 404s.
+        # No confirmed tx → don't paginate (end of history, not an error).
+        last="$(printf '%s' "$txs" | jq -r '[.[] | select(.status.block_time != null)] | (.[-1].txid // empty)')"
         pages=1
         while [ "$have" -lt "$limit" ] && [ -n "$last" ] && [ "$pastwin" -eq 0 ] && [ "$pages" -lt 12 ]; do
           if ! page="$(curl -fsS -m 45 -H "User-Agent: $UA" "$BTC_API/address/$addr/txs/chain/$last")"; then
@@ -134,7 +137,7 @@ case "$op" in
           plen="$(printf '%s' "$page" | jq 'length')"
           [ "$plen" -eq 0 ] && break
           txs="$(printf '%s\n%s' "$txs" "$page" | jq -s 'add')"
-          last="$(printf '%s' "$page" | jq -r '.[-1].txid // empty')"
+          last="$(printf '%s' "$txs" | jq -r '[.[] | select(.status.block_time != null)] | (.[-1].txid // empty)')"
           recompute_have
           pages=$((pages + 1))
         done
@@ -178,7 +181,7 @@ case "$op" in
               }
           )
           | map(select($cutiso == "" or (.created != null and .created >= $cutiso)))
-          | sort_by(.created // "") | reverse | .[0:$n]'
+          | sort_by(.created // "9999") | reverse | .[0:$n]'
         ;;
 
       eth)
@@ -190,7 +193,10 @@ case "$op" in
         fi
         addrenc="$(jq -rn --arg v "$addr" '$v|@uri')"
         addrlc="$(printf '%s' "$addr" | tr '[:upper:]' '[:lower:]')"
-        if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$ETH_API?chainid=1&module=account&action=txlist&address=$addrenc&sort=desc&apikey=$KEY")"; then
+        # page=1 + offset=<limit> makes Etherscan return the newest --limit txs in one
+        # call (offset is the page size, max 10000; our limit is ≤200) — otherwise a
+        # busy address silently returns only the API's default page.
+        if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$ETH_API?chainid=1&module=account&action=txlist&address=$addrenc&sort=desc&page=1&offset=$limit&apikey=$KEY")"; then
           echo "chain eth enumerate request failed for '$addr' (check the address and ETHERSCAN_API_KEY)" >&2; exit 1
         fi
         # Etherscan wraps everything in {status,message,result}. status "1" = a real
@@ -240,7 +246,7 @@ case "$op" in
               }
           ]
           | map(select($cutiso == "" or (.created != null and .created >= $cutiso)))
-          | sort_by(.created // "") | reverse | .[0:$n]'
+          | sort_by(.created // "9999") | reverse | .[0:$n]'
         ;;
 
       *) echo "chain: unknown chain '$kind' (v1 supports btc / eth — use chain:btc:<address> or chain:eth:<address>)" >&2; exit 1 ;;
