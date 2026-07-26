@@ -175,7 +175,12 @@ case "$op" in
                 # (no block_time) carry null and sort last under a --since window.
                 created: $iso,
                 published: $iso,
-                snippet: ("value " + ($amt|tostring) + " BTC · " + ($nin|tostring) + " inputs · " + ($nout|tostring) + " outputs"),
+                snippet: ("value " + ($amt|tostring) + " BTC · " + ($nin|tostring) + " inputs · " + ($nout|tostring) + " outputs"
+                          + (if ($cps | length) > 0
+                             then " · " + (if $dir == "in" then "from " elif $dir == "out" then "to " else "with " end)
+                                  + ($cps[0:12] | join(", "))
+                                  + (if ($cps | length) > 12 then " +" + (($cps | length) - 12 | tostring) + " more" else "" end)
+                             else "" end)),
                 counterparties: $cps,
                 amount: $amt,
                 asset: "BTC",
