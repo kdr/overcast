@@ -21,6 +21,9 @@ URL="${OVERCAST_GEOCODE_URL:-https://nominatim.openstreetmap.org}"
 # Forward-search path under $URL. Nominatim serves forward geocoding at /search;
 # a Photon endpoint uses /api — set OVERCAST_GEOCODE_FORWARD_PATH=api for Photon.
 FWD_PATH="${OVERCAST_GEOCODE_FORWARD_PATH:-search}"; FWD_PATH="${FWD_PATH#/}"
+# an empty override (or a lone "/" stripped to empty) would hit $URL/ and yield an
+# unusable HTML body read as a false no-match — fall back to the Nominatim default.
+[ -n "$FWD_PATH" ] || FWD_PATH="search"
 
 need_deps() {
   for bin in curl jq; do
