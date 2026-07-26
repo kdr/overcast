@@ -68,6 +68,40 @@ else
   assert_eq "$C.map.pending" "pending" "$mstate" "no GPS in case → map is transient pending guidance, not an error"
 fi
 
+# --- geofence: spatial+time query anchored on the photo's real GPS ---
+if [ "$HAS_GPS" = "true" ]; then
+  GLAT="$(jq -r '.payload.gps.lat' <<<"$xout")"
+  GLNG="$(jq -r '.payload.gps.lng' <<<"$xout")"
+  XID="$(jq -r '.id' <<<"$xout")"
+  cond "geofence returns the exif record for a radius query around its own GPS"
+  gfout="$(oc "$CASE" geofence --near "$GLAT,$GLNG" --radius 1000 --json)"
+  save_json "34_geofence" "$gfout" >/dev/null
+  assert_eq "$C.geofence.state" "ready" "$(jq -r '.state' <<<"$gfout")" "geofence ready"
+  if jq -e --arg id "$XID" '.payload.matches[] | select(.record_id == $id)' <<<"$gfout" >/dev/null; then
+    ok "$C.geofence.hit" "exif record inside the 1000 m fence ($(jq -r '.payload.count' <<<"$gfout") match(es))"
+  else
+    fail "$C.geofence.hit" "exif record $XID missing from geofence matches"
+  fi
+  # a fence on the far side of the planet returns zero matches with guidance
+  zout="$(oc "$CASE" geofence --near 0,0 --radius 100 --json)"
+  save_json "34_geofence_miss" "$zout" >/dev/null
+  assert_eq "$C.geofence.miss" "0" "$(jq -r '.payload.count' <<<"$zout")" "far-away fence matches nothing"
+  assert_nonempty "$C.geofence.miss_note" "$(jq -r '.payload.note // empty' <<<"$zout")" "empty fence carries guidance"
+  # map --near: the spatial pre-filter renders a filtered map around the point
+  cond "map --near renders the spatially filtered evidence map"
+  mnear="$(oc "$CASE" map --near "$GLAT,$GLNG" --radius 1000 --no-open --json)"
+  save_json "34_map_near" "$mnear" >/dev/null
+  assert_eq "$C.map_near.state" "ready" "$(jq -r '.state' <<<"$mnear")" "filtered map ready"
+  mnhtml="$(jq -r '.payload.viewer' <<<"$mnear")"
+  if [ -f "$mnhtml" ] && [ "$(jq -r '.payload.points' <<<"$mnear")" -ge 1 ]; then
+    ok "$C.map_near.html" "filtered map written ($(jq -r '.payload.points' <<<"$mnear") pt(s) in fence)"
+  else
+    fail "$C.map_near.html" "no filtered map at $mnhtml"
+  fi
+else
+  skip "$C.geofence" "photo has no GPS — set OC_EXIF_IMAGE to a geotagged photo to exercise geofence/map --near"
+fi
+
 # --- geocode: opt-in LIVE Nominatim reverse geocode ---
 if [ "$HAS_GPS" = "true" ] && have_cmd curl; then
   GEO_SH="$PWD/providers/senses/geocode/geocode.sh"

@@ -255,7 +255,19 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   map — markers link back to source, geocoded place + thumbnail + capture time;
   online = inlined-JS OSM raster tiles at view time, `--offline` = coordinate
   scatter + openstreetmap.org deep links, no egress; `--since`/`--limit`/`--theme`/
-  `--no-open`; recency uses exif capture time, not ingest),
+  `--no-open`; `--near <lat,lng>`/`--radius <m>` (default 500) or
+  `--bbox <minLat,minLng,maxLat,maxLng>` spatially pre-filter the plotted points
+  (same fence semantics as `geofence`, shared `src/geo.ts` primitives);
+  recency uses exif capture time, not ingest),
+ `geofence` (the geofence-warrant query — every case record whose `payload.gps`
+ falls inside a `--near <lat,lng>` circle (`--radius <m>`, default 500) or a
+ `--bbox` box (inclusive, non-wrapping) captured within `--since`/`--until`
+ (capture-time-aware like `map`; undated records that intersect spatially are
+ KEPT, `capture_time` null); pure local read over gps-bearing records (`exif` +
+ geo sources dispatch/firms/flights/overpass), no provider/network; ONE rollup
+ record — matches newest-first, per-verb counts, query echoed back; empty
+ intersection = clean `ready` + guidance, not an error; haversine/bbox math in
+ `src/geo.ts`),
  `devices` (case-wide rollup grouping `exif` records by camera fingerprint —
  serial-only strong link, make+model+lens weak fallback; one entry per file; a
  pure read over case memory, `--min`, `--findings` emits serial-linked suggested
@@ -275,8 +287,8 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
  (the anchor never trims), `--limit` trims lowest-degree leaf entities first,
  `--since` (capture-time-aware like `map`; co-filters `--extract`; an in-window
  finding pulls its out-of-window source record back in), `--theme
- plain|csi`, `--no-open`). `map` + `devices` + `graph` are operational (out of
- `ask`/`brief` evidence).
+ plain|csi`, `--no-open`). `map` + `geofence` + `devices` + `graph` are
+ operational (out of `ask`/`brief` evidence).
 - **OSINT** — `scan` / `capture` / `monitor` (sources: youtube / tiktok / x / web /
   lens + yandeximg reverse-image / dl generic-yt-dlp capture / instagram / telegram /
   gdelttv broadcast-TV / overpass OSM-features / firms active-fires /
@@ -446,7 +458,7 @@ exif verify screenshot chronolocate` + root `finding`s + `cluster` ingest/identi
 bound memory providers — `local-grep` (always on) and optional `qmd` (semantic;
 `setup memory qmd`, then rebuild before querying). Read/meta and operational
 records (`ask brief case setup doctor provider skills index archive target source
-prebrief wall situation grid map devices graph reconstruct` — reconstruct deliberately: synthesized pixels
+prebrief wall situation grid map geofence devices graph reconstruct` — reconstruct deliberately: synthesized pixels
 stay out of evidence, `payload.caveat` on every record —, finding review-rows,
 dismissed **and suggested** findings (a
 suggested lead is quarantined until `finding accept` promotes it), cluster DB
