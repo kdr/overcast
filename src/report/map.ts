@@ -11,7 +11,7 @@
 
 import { basename } from "node:path";
 import { isReady, recordCaptureTimeMs, type OvercastRecord } from "../record.js";
-import { finiteNum, validLat, validLng } from "../geo.js";
+import { finiteNum, inBbox, inRadius, validLat, validLng, type GeoPoint } from "../geo.js";
 import { escapeHtml, summarizePayload, imageSrc, reportCsp, type HtmlTheme } from "./html.js";
 
 export interface MapPoint {
@@ -63,6 +63,11 @@ export interface BuildMapOptions {
    *  the situation server rebuilds the model on every store change and serves
    *  thumbs over HTTP instead, so inlining would be pure wasted I/O there. */
   thumbs?: boolean;
+  /** spatial pre-filter (map --near/--radius/--bbox): drop points outside the
+   *  radius/box, in the same pass as gps validation + --since. gpsTotal stays
+   *  PRE-filter (like --since) so the empty state can distinguish "no gps at
+   *  all" from "everything filtered out". */
+  spatial?: { center?: GeoPoint; radiusMeters?: number; bbox?: MapBounds };
 }
 
 function asObj(v: unknown): Record<string, unknown> | undefined {
@@ -105,6 +110,8 @@ function lngBounds(lngs: number[]): { minLng: number; maxLng: number } {
 export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions): MapModel {
   const all: Array<{ point: MapPoint; t: number }> = [];
   const counts: Record<string, number> = {};
+  const spatial = opts.spatial;
+  let gpsTotal = 0;
 
   for (const rec of records) {
     if (!isReady(rec)) continue;
@@ -114,6 +121,15 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
     const lat = validLat(gps.lat);
     const lng = validLng(gps.lng);
     if (lat === undefined || lng === undefined) continue;
+    gpsTotal++;
+
+    // spatial pre-filter (--near/--bbox): same pass as the gps validation above
+    // and the --since filter below; gpsTotal (just counted) stays pre-filter.
+    if (spatial) {
+      const pt = { lat, lng };
+      if (spatial.center && spatial.radiusMeters != null && !inRadius(pt, spatial.center, spatial.radiusMeters)) continue;
+      if (spatial.bbox && !inBbox(pt, spatial.bbox)) continue;
+    }
 
     // recency for --since / sort / --limit uses the CAPTURE time (exif
     // payload.created) when present — an old geotagged photo ingested today must
@@ -167,7 +183,7 @@ export function buildMapModel(records: OvercastRecord[], opts: BuildMapOptions):
     generatedAt: new Date(opts.now ?? Date.now()).toISOString(),
     points,
     total,
-    gpsTotal: all.length,
+    gpsTotal,
     bounds,
     counts,
   };

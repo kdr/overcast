@@ -10,6 +10,7 @@ import { openHtmlPlayer } from "../media/view.js";
 import { normalizeHtmlTheme } from "../report/html.js";
 import { buildMapModel, renderMapHtml } from "../report/map.js";
 import { parseSince } from "../providers/memory/local.js";
+import { resolveSpatialFlags } from "./geofence.js";
 import type { VerbSpec } from "../registry/types.js";
 
 // Sentinel default: an unset --export resolves against the case's mediaDir (like
@@ -27,12 +28,17 @@ export const mapVerb: VerbSpec = {
     "self-contained HTML map — one marker per point with its record id, media thumbnail, geocoded place (when " +
     "`exif --geocode` set it), and capture time, linking back to the source. Online mode fetches OSM raster tiles " +
     "in the browser at view time (no CDN dependency; the map JS is inlined); --offline degrades to a coordinate " +
-    "scatter with per-point openstreetmap.org links and no network egress. --no-open writes the map and emits its " +
+    "scatter with per-point openstreetmap.org links and no network egress. --near <lat,lng> (--radius meters, " +
+    "default 500) or --bbox <minLat,minLng,maxLat,maxLng> spatially filter the plotted points — the same fence " +
+    "semantics as `geofence`. --no-open writes the map and emits its " +
     "path instead of launching. Live tiles reveal the viewer's IP + the investigated location to OpenStreetMap.",
   args: [],
   flags: [
     { name: "limit", summary: "Max points, most-recent first", type: "number", default: 500 },
     { name: "since", summary: "Only records since (e.g. 24h, 7d, 2026-06-01)", type: "string" },
+    { name: "near", summary: "Only points within --radius meters of 'lat,lng'", type: "string" },
+    { name: "radius", summary: "Radius in meters around --near (default 500)", type: "number" },
+    { name: "bbox", summary: "Only points inside 'minLat,minLng,maxLat,maxLng' (inclusive, non-wrapping)", type: "string" },
     { name: "offline", summary: "No tile fetch: coordinate scatter + openstreetmap.org links only", type: "boolean" },
     { name: "export", summary: "Map HTML path", type: "string", default: MAP_DEFAULT_EXPORT },
     { name: "no-open", summary: "Write the map but don't launch it", type: "boolean" },
@@ -57,6 +63,11 @@ export const mapVerb: VerbSpec = {
       if (cutoff == null) return [err(`invalid --since: ${ctx.opts.since} (try 24h, 7d, or 2026-06-01)`)];
       sinceCutoff = cutoff;
     }
+    // --near/--radius/--bbox: the shared spatial-flag trio (geofence.ts owns the
+    // resolution so the two verbs' fence semantics can't drift). Optional here.
+    const spatialResolved = resolveSpatialFlags(ctx.opts);
+    if (spatialResolved.error) return [err(spatialResolved.error)];
+    const spatial = spatialResolved.spatial;
     const offline = ctx.opts.offline === true;
     const rawExport = ctx.opts.export != null ? String(ctx.opts.export) : MAP_DEFAULT_EXPORT;
     const htmlPath = rawExport === MAP_DEFAULT_EXPORT ? join(ctx.case.mediaDir, "map.html") : resolve(rawExport);
@@ -67,6 +78,7 @@ export const mapVerb: VerbSpec = {
       caseDir: ctx.case.dir,
       limit,
       sinceCutoff,
+      spatial,
     });
 
     // nothing to map → transient pending guidance, no artifact (wall precedent)
@@ -76,7 +88,7 @@ export const mapVerb: VerbSpec = {
       const note =
         model.gpsTotal === 0
           ? "no GPS-bearing records — run `exif <media>` on media with embedded GPS (a phone photo, a geotagged clip)"
-          : `${model.gpsTotal} GPS-bearing record${model.gpsTotal === 1 ? "" : "s"} in the case, but none match the current filter — widen or drop --since`;
+          : `${model.gpsTotal} GPS-bearing record${model.gpsTotal === 1 ? "" : "s"} in the case, but none match the current filter — widen or drop --since/--near/--bbox`;
       return [
         makeRecord({
           verb: "map",
