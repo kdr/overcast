@@ -162,8 +162,8 @@ test("mapVerb: empty-case note distinguishes no-GPS from --since-filtered", asyn
     const p = filtered[0].payload as Record<string, unknown>;
     assert.equal(p.gps_total, 1);
     // no spatial fence here → the miss is purely temporal; the note must point at
-    // the --since/--until window, not the fence (Bugbot #134).
-    assert.match(String(p.note), /but all fall outside the --since\/--until window/);
+    // the --since window (map has no --until), not the fence (Bugbot #134).
+    assert.match(String(p.note), /but all fall outside the --since window/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

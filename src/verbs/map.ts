@@ -88,7 +88,8 @@ export const mapVerb: VerbSpec = {
       // Distinguish three empty cases so the guidance points at the ACTUAL filter:
       // no gps at all; gps records excluded by the spatial fence (widen --near/--bbox);
       // or gps records inside the fence but excluded by the time window (widen/drop
-      // --since/--until — widening the fence can't recover those). Mirrors geofence.
+      // --since — widening the fence can't recover those). Mirrors geofence, but map
+      // filters time with --since only (no --until), so the note says --since.
       const plural = model.gpsTotal === 1 ? "" : "s";
       const note =
         model.gpsTotal === 0
@@ -96,8 +97,8 @@ export const mapVerb: VerbSpec = {
           : spatial && model.spatialPassing === 0
             ? `${model.gpsTotal} GPS-bearing record${plural} in the case, but none fall inside --near/--bbox — widen (or drop) the fence`
             : spatial
-              ? `${model.spatialPassing} record${model.spatialPassing === 1 ? "" : "s"} fall inside the fence but outside the --since/--until window — widen (or drop) the time window`
-              : `${model.gpsTotal} GPS-bearing record${plural} in the case, but all fall outside the --since/--until window — widen (or drop) it`;
+              ? `${model.spatialPassing} record${model.spatialPassing === 1 ? "" : "s"} fall inside the fence but outside the --since window — widen (or drop) --since`
+              : `${model.gpsTotal} GPS-bearing record${plural} in the case, but all fall outside the --since window — widen (or drop) --since`;
       return [
         makeRecord({
           verb: "map",
