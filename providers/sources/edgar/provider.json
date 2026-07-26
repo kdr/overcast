@@ -13,7 +13,8 @@
         "bash",
         "shipped:providers/sources/edgar/edgar.sh"
       ],
-      "needs": "none (public SEC EDGAR API) — SEC requires a descriptive User-Agent (OVERCAST_HTTP_UA overrides the default)",
+      "needs": "none (public SEC EDGAR API) — SEC requires a descriptive User-Agent (OVERCAST_HTTP_UA overrides the default; a URL/parens value SEC would reject is ignored)",
+      "timeoutMs": 480000,
       "doctor": {
         "check": "keyless",
         "okNote": "keyless SEC EDGAR API — SEC requires a descriptive User-Agent (OVERCAST_HTTP_UA overrides the default); heavy polling is rate-limited (~10 req/s)"

@@ -128,7 +128,7 @@ case "$op" in
         last="$(printf '%s' "$txs" | jq -r '[.[] | select(.status.block_time != null)] | (.[-1].txid // empty)')"
         pages=1
         while [ "$have" -lt "$limit" ] && [ -n "$last" ] && [ "$pastwin" -eq 0 ] && [ "$pages" -lt 12 ]; do
-          if ! page="$(curl -fsS -m 45 -H "User-Agent: $UA" "$BTC_API/address/$addr/txs/chain/$last")"; then
+          if ! page="$(curl -fsS -m 20 -H "User-Agent: $UA" "$BTC_API/address/$addr/txs/chain/$last")"; then
             echo "chain btc pagination request failed at page $pages (chain/$last) — not a clean end-of-history" >&2; exit 1
           fi
           if ! printf '%s' "$page" | jq -e 'type == "array"' >/dev/null 2>&1; then
@@ -152,13 +152,17 @@ case "$op" in
             | ($amtSats / 100000000) as $amt
             | ([ $ins[]  | select((.scriptpubkey_address // "" | ascii_downcase) != $addr) | .scriptpubkey_address // empty ]) as $senders
             | ([ $outs[] | select((.scriptpubkey_address // "" | ascii_downcase) != $addr) | .scriptpubkey_address // empty ]) as $recipients
+            # transaction-order (deduped later) — the title uses the FIRST-seen
+            # counterparty, not the alphabetically-first one that `unique` returns,
+            # so it points at a meaningful lead; the counterparties SET stays unique.
             | (if $dir == "in" then $senders elif $dir == "out" then $recipients else ($senders + $recipients) end
-               | map(select(. != null and . != "")) | unique) as $cps
+               | map(select(. != null and . != ""))) as $cpsOrdered
+            | ($cpsOrdered | unique) as $cps
             | ($ins  | length) as $nin
             | ($outs | length) as $nout
             | (.status.block_time // null) as $bt
             | (if $bt != null then ($bt | todate) else null end) as $iso
-            | (($cps[0] // "?") | if length > 18 then .[0:18] + "…" else . end) as $cp0
+            | (($cpsOrdered[0] // "?") | if length > 18 then .[0:18] + "…" else . end) as $cp0
             | ("https://mempool.space/tx/" + .txid) as $url
             | {
                 title: (($amt|tostring) + " BTC " + $dir
@@ -224,10 +228,11 @@ case "$op" in
             | (if $from == $addr and $to == $addr then "self" elif $from == $addr then "out" elif $to == $addr then "in" else "in" end) as $dir
             | ((.value // "0" | tonumber) / 1e18) as $amt
             | (if $dir == "out" then [ .to ] elif $dir == "in" then [ .from ] else [ .from, .to ] end
-               | map(select(. != null and . != "")) | map(ascii_downcase) | map(select(. != $addr)) | unique) as $cps
+               | map(select(. != null and . != "")) | map(ascii_downcase) | map(select(. != $addr))) as $cpsOrdered
+            | ($cpsOrdered | unique) as $cps
             | ((.timeStamp // "0" | tonumber)) as $ts
             | (if $ts > 0 then ($ts | todate) else null end) as $iso
-            | (($cps[0] // "?") | if length > 18 then .[0:18] + "…" else . end) as $cp0
+            | (($cpsOrdered[0] // "?") | if length > 18 then .[0:18] + "…" else . end) as $cp0
             | ("https://etherscan.io/tx/" + .hash) as $url
             | {
                 title: (($amt|tostring) + " ETH " + $dir

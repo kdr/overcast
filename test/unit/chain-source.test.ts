@@ -35,8 +35,9 @@ test("builtinDescriptor resolves the shipped chain source (BTC keyless, ETH keye
   assert.match(d!.needs ?? "", /btc/i);
   assert.match(d!.needs ?? "", /keyless|mempool/i);
   assert.match(d!.needs ?? "", /ETHERSCAN_API_KEY/);
-  // a fast HTTP source → the DEFAULT (undefined) exec budget, not the Apify one.
-  assert.equal(d!.timeoutMs, undefined);
+  // the BTC leg paginates the confirmed chain, so it carries an explicit exec
+  // budget (5 min) sized to the bounded page count — distinct from the Apify one.
+  assert.equal(d!.timeoutMs, 300000);
   assert.notEqual(d!.timeoutMs, APIFY_RUN_SYNC_TIMEOUT_MS);
 });
 
@@ -47,7 +48,7 @@ test("builtinDescriptor: OVERCAST_SOURCE_CHAIN_CMD rebinds the command, keeps ty
     assert.ok(d);
     assert.equal(d!.type, "chain");
     assert.deepEqual(d!.base, ["bash", "/x y/chain.sh"]); // quote-aware tokenization
-    assert.equal(d!.timeoutMs, undefined);
+    assert.equal(d!.timeoutMs, 300000); // the manifest exec budget persists through a command rebind
   } finally {
     delete process.env.OVERCAST_SOURCE_CHAIN_CMD;
   }

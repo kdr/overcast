@@ -147,7 +147,7 @@ case "$op" in
       [ -n "$cutdate" ] && dateparam="&dateRange=custom&startdt=$cutdate&enddt=$(date -u +%Y-%m-%d)"
       allhits="[]"; from=0; ftpages=0
       while : ; do
-        if ! resp="$(curl -fsS -m 45 -H "User-Agent: $UA" "$FTS_API?q=$qenc&from=$from$dateparam")"; then
+        if ! resp="$(curl -fsS -m 20 -H "User-Agent: $UA" "$FTS_API?q=$qenc&from=$from$dateparam")"; then
           echo "edgar full-text request failed for '$query' (from=$from)" >&2; exit 1
         fi
         # A valid response is a JSON object with a hits.hits array (zero matches →

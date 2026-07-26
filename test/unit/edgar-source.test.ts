@@ -31,7 +31,8 @@ test("builtinDescriptor resolves the shipped edgar source (keyless, default budg
   // EDGAR is keyless — its `needs` says so, and flags the SEC User-Agent policy.
   assert.match(d!.needs ?? "", /none|public/i);
   assert.match(d!.needs ?? "", /User-Agent/i);
-  assert.equal(d!.timeoutMs, undefined);
+  // full-text search paginates efts, so edgar carries an explicit exec budget.
+  assert.equal(d!.timeoutMs, 480000);
 });
 
 test("normalizeSince: the forms edgar.sh accepts survive unchanged", () => {

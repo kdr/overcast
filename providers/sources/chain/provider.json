@@ -17,6 +17,7 @@
         "shipped:providers/sources/chain/chain.sh"
       ],
       "needs": "chain:btc: is keyless (mempool.space); chain:eth: needs a free ETHERSCAN_API_KEY (https://etherscan.io/apis)",
+      "timeoutMs": 300000,
       "doctor": {
         "check": "env_any",
         "env": [
