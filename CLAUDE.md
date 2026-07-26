@@ -186,7 +186,10 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   camera `serial`/`lens` (device-linking fingerprint), dimensions; shipped
   `exiftool` provider, raw tag dump stays in-provider; `--geocode` reverse-geocodes
   the GPS to `payload.place` via an **opt-in** bound `geocode` provider — catalog
-  choice `geocode:nominatim`, no key, never default), `verify` (C2PA / Content Credentials provenance
+  choice `geocode:nominatim`, no key, never default; the `geocode` provider also
+  has a **forward** mode (`--query "<address>"` → `{lat,lng,place}`, keyless
+  Nominatim `/search`) — the address→point step the `overcast-canvass` skill uses
+  to fan `overpass`/`webcam` camera sources around a location), `verify` (C2PA / Content Credentials provenance
   via `c2patool` → `has_manifest`, signer, claim generator, validation state; no
   credentials is a clean `ready` record, not an error — distinct from source-post
   provenance in `src/verbs/provenance.ts`), `screenshot` (browser screen capture —
