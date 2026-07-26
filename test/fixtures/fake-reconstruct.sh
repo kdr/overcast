@@ -9,14 +9,15 @@ set -uo pipefail
 op="${1:-run}"
 case "$op" in
   init) exit 0 ;;
-  describe) echo '{"verb":"reconstruct","kind":"media.reconstruction","ops":["view","sweep","model","depth"]}'; exit 0 ;;
+  describe) echo '{"verb":"reconstruct","kind":"media.reconstruction","ops":["view","sweep","model","depth","age"]}'; exit 0 ;;
 esac
-input=""; ops="view"; rotate=""; count=""
+input=""; ops="view"; rotate=""; count=""; age_years=""
 while [ "$#" -gt 0 ]; do case "$1" in
-  --input)   input="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --ops)     ops="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --rotate)  rotate="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --count)   count="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --input)     input="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --ops)       ops="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --rotate)    rotate="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --count)     count="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --age-years) age_years="${2:-}"; shift 2 2>/dev/null || shift ;;
   # --elevate/--zoom/--prompt/--seed accepted-and-ignored via the catch-all
   --elevate|--zoom|--prompt|--seed) shift 2 2>/dev/null || shift ;;
   --*) shift ;;
@@ -54,6 +55,13 @@ case "$ops" in
   depth)
     d="$OUT/${base}_depth.png"; cp "$input" "$d"
     emit depth "$(jq -nc --arg r "$d" '[{kind:"depth",ref:$r}]')" '{}'
+    ;;
+  age)
+    # like the others: NO caveat emitted — the verb must stamp the EXTENDED
+    # age caveat (synthesized likeness / never a match probe) regardless.
+    a="$OUT/${base}_age${age_years:-0}.png"; cp "$input" "$a"
+    emit age "$(jq -nc --arg r "$a" --arg y "${age_years:-0}" '[{kind:"age",ref:$r,age_years:($y|tonumber),seed:7}]')" \
+      "$(jq -nc --arg y "${age_years:-0}" '{age_years:($y|tonumber)}')"
     ;;
   *)
     jq -nc --arg e "unknown ops $ops" '{verb:"reconstruct",format:"json",payload:{},error:$e,state:"error"}'

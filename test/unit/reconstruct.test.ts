@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hasReconstructFanOut, fanOutReconstruct, RECONSTRUCT_CAVEAT } from "../../src/verbs/reconstruct-fanout.ts";
+import { hasReconstructFanOut, fanOutReconstruct, reconstructCaveat, RECONSTRUCT_CAVEAT, RECONSTRUCT_AGE_CAVEAT } from "../../src/verbs/reconstruct-fanout.ts";
 import { reconstructVerb, maybeReconstructViewer } from "../../src/verbs/reconstruct.ts";
 import { viewVerb } from "../../src/verbs/senses.ts";
 import { renderReconstructGallery } from "../../src/report/html.ts";
@@ -47,9 +47,11 @@ test("reconstruct is registered with the camera flags and quarantined from evide
   const v = findVerb("reconstruct");
   assert.ok(v, "verb registered");
   const flags = new Set(v!.flags.map((f) => f.name));
-  for (const f of ["rotate", "elevate", "zoom", "ops", "count", "at", "seed", "view"]) {
+  for (const f of ["rotate", "elevate", "zoom", "ops", "count", "at", "seed", "view", "age-years"]) {
     assert.ok(flags.has(f), `flag --${f} declared`);
   }
+  const opsFlag = v!.flags.find((f) => f.name === "ops")!;
+  assert.ok(opsFlag.choices?.includes("age"), "--ops accepts age");
   assert.equal(v!.group, "sense");
   // the deliberate exception: a sense verb whose records are synthesized pixels
   // must never feed ask/brief evidence or findings triggers.
@@ -127,6 +129,54 @@ test("reconstruct rejects out-of-range camera values before calling the provider
   assert.match(badCount[0].error ?? "", /--count 99 out of range/);
 });
 
+// ---- age op: caveat extension + gating -------------------------------------------
+
+test("reconstructCaveat appends the likeness/match-probe addendum for the age op only", () => {
+  assert.equal(reconstructCaveat("view"), RECONSTRUCT_CAVEAT, "non-age op keeps the generic banner");
+  assert.equal(reconstructCaveat("age"), RECONSTRUCT_AGE_CAVEAT, "age op gets the extended caveat");
+  assert.match(RECONSTRUCT_AGE_CAVEAT, /not a photograph of the subject/);
+  assert.match(RECONSTRUCT_AGE_CAVEAT, /face\/cluster\/similar/);
+  // a provider's more specific wording is kept, the addendum still appended…
+  const custom = reconstructCaveat("age", "my provider caveat");
+  assert.match(custom, /^my provider caveat\./);
+  assert.match(custom, /not a photograph of the subject/);
+  // …and never doubled when it's already there.
+  assert.equal(reconstructCaveat("age", RECONSTRUCT_AGE_CAVEAT), RECONSTRUCT_AGE_CAVEAT);
+});
+
+test("fanOutReconstruct stamps the EXTENDED caveat on age parent and child", () => {
+  const parent = makeRecord({
+    verb: "reconstruct", format: "json",
+    payload: { op: "age", age_years: 20, outputs: [{ kind: "age", ref: "/m/subject_age20.png", age_years: 20 }] },
+    media: { ref: "/m/subject.png" }, meta: { provider: "fal:kontext" }, state: "ready",
+  });
+  const recs = fanOutReconstruct(parent, { caseDir: "/case" });
+  assert.equal(recs.length, 2);
+  assert.equal((recs[0].payload as Record<string, unknown>).caveat, RECONSTRUCT_AGE_CAVEAT);
+  const cp = recs[1].payload as Record<string, unknown>;
+  assert.equal(cp.caveat, RECONSTRUCT_AGE_CAVEAT);
+  assert.match(cp.summary as string, /age progression of subject\.png \(\+20 years\)/);
+  assert.match(cp.summary as string, /never a face-match probe/);
+});
+
+test("reconstruct --ops age validates the delta before calling the provider", async () => {
+  const missing = await reconstructVerb.run(ctx(img, { ops: "age" }, FAKE));
+  assert.equal(missing[0].state, "error");
+  assert.match(missing[0].error ?? "", /--age-years <±years>/);
+  const big = await reconstructVerb.run(ctx(img, { ops: "age", "age-years": 80 }, FAKE));
+  assert.match(big[0].error ?? "", /--age-years 80 out of range/);
+  const low = await reconstructVerb.run(ctx(img, { ops: "age", "age-years": -50 }, FAKE));
+  assert.match(low[0].error ?? "", /--age-years -50 out of range/);
+  const zero = await reconstructVerb.run(ctx(img, { ops: "age", "age-years": 0 }, FAKE));
+  assert.match(zero[0].error ?? "", /no-op/);
+  const frac = await reconstructVerb.run(ctx(img, { ops: "age", "age-years": 2.5 }, FAKE));
+  assert.match(frac[0].error ?? "", /whole number/);
+  const cam = await reconstructVerb.run(ctx(img, { ops: "age", "age-years": 20, rotate: 45 }, FAKE));
+  assert.match(cam[0].error ?? "", /not a camera move/);
+  const stray = await reconstructVerb.run(ctx(img, { ops: "depth", "age-years": 20 }, FAKE));
+  assert.match(stray[0].error ?? "", /--age-years only applies to --ops age/);
+});
+
 // ---- verb end-to-end (fixture provider) ----------------------------------------
 
 test("reconstruct --rotate fans out a synthesized view with the caveat stamped", async () => {
@@ -143,6 +193,31 @@ test("reconstruct --rotate fans out a synthesized view with the caveat stamped",
   assert.equal(cp.caveat, RECONSTRUCT_CAVEAT);
   assert.ok(existsSync(child.media!.ref), "synthesized view written");
   assert.equal(child.meta?.case, dir);
+});
+
+test("reconstruct --ops age fans out an aged still carrying the extended caveat", async () => {
+  const recs = await reconstructVerb.run(ctx(img, { ops: "age", "age-years": 20 }, FAKE));
+  assert.equal(recs.length, 2, "parent + 1 aged-still child");
+  const [parent, child] = recs;
+  assert.equal(parent.state ?? "ready", "ready");
+  const pp = parent.payload as Record<string, unknown>;
+  const cp = child.payload as Record<string, unknown>;
+  assert.equal(pp.op, "age");
+  assert.equal(pp.caveat, RECONSTRUCT_AGE_CAVEAT, "fixture omits caveat; verb must stamp the EXTENDED one");
+  assert.equal(cp.kind, "age");
+  assert.equal(cp.age_years, 20);
+  assert.equal(cp.caveat, RECONSTRUCT_AGE_CAVEAT);
+  assert.ok(existsSync(child.media!.ref), "aged still written");
+  // quarantine: a synthesized likeness is NEVER ask/brief evidence
+  assert.equal(isMemoryRecord(parent), false);
+  assert.equal(isMemoryRecord(child), false);
+});
+
+test("--age-years alone implies --ops age (like --rotate implies view)", async () => {
+  const recs = await reconstructVerb.run(ctx(img, { "age-years": -10 }, FAKE));
+  assert.equal(recs.length, 2);
+  assert.equal((recs[0].payload as Record<string, unknown>).op, "age");
+  assert.equal((recs[1].payload as Record<string, unknown>).age_years, -10);
 });
 
 test("reconstruct --ops sweep assembles a contact sheet + turntable as children", async () => {
@@ -277,6 +352,25 @@ test("view on a synthesized view/sheet/turntable CHILD wraps it in the caveat ba
   const [tv] = await viewVerb.run({ input: byKind("turntable").id, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
   assert.equal((tv.payload as Record<string, unknown>).mode, "clip");
   assert.match(readFileSync(tv.media!.ref, "utf8"), /<video/);
+});
+
+test("view on an age CHILD wraps the likeness in the extended-caveat banner (never a bare OS-open)", async () => {
+  const c = openCase(dir);
+  c.ensure();
+  const recs = await reconstructVerb.run(ctx(img, { ops: "age", "age-years": 20 }, FAKE));
+  for (const r of recs) c.writeRecord(r);
+  const ageChild = recs.find((r) => (r.payload as Record<string, unknown>).kind === "age")!;
+  const [cv] = await viewVerb.run({ input: ageChild.id, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
+  assert.equal((cv.payload as Record<string, unknown>).mode, "still", "age child → bannered still viewer");
+  const chtml = readFileSync(cv.media!.ref, "utf8");
+  assert.match(chtml, /class="banner"/);
+  assert.match(chtml, /not a photograph of the subject/i, "banner carries the likeness warning");
+  assert.match(chtml, /face\/cluster\/similar/i, "banner carries the match-probe warning");
+  // the PARENT routes to the reconstruction gallery showing the aged still
+  const [pv] = await viewVerb.run({ input: recs[0].id, rest: [], opts: { "no-open": true }, case: c, profile: defaultProfile() });
+  assert.equal((pv.payload as Record<string, unknown>).mode, "reconstruction");
+  const phtml = readFileSync(pv.media!.ref, "utf8");
+  assert.match(phtml, /not a photograph of the subject/i, "gallery banner carries the extended caveat");
 });
 
 test("sweep sheet + turntable are scoped to the producing record id (re-runs don't clobber)", async () => {

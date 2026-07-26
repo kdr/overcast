@@ -13,10 +13,19 @@
 #                 e.g. fal-ai/hunyuan3d-v3/image-to-3d) -> GLB. Uses the fal
 #                 QUEUE API (submit + poll) — mesh generation runs minutes.
 #   --ops depth   estimate a depth map (Depth Anything V2) -> grayscale PNG
+#   --ops age     age (+N) / de-age (-N) the SUBJECT OF A REAL PHOTO by
+#                 --age-years <±years> via an identity-preserving instruction
+#                 edit (FLUX.1 Kontext, or any image-edit endpoint via
+#                 $FAL_RECONSTRUCT_AGE_MODEL) -> one aged still. The output is a
+#                 speculative synthesized LIKENESS — the emitted caveat says so
+#                 in words: never a face/cluster/similar match probe. There is
+#                 deliberately NO text-only composite path (a real anchor photo
+#                 is required, like every other op).
 # Bind:
 #   overcast provider setup apply --verb reconstruct --choice fal --yes
 # Models: $FAL_RECONSTRUCT_VIEW_MODEL, $FAL_RECONSTRUCT_MESH_MODEL,
-# $FAL_RECONSTRUCT_DEPTH_MODEL. Queue knobs: $FAL_QUEUE_POLL_S (5),
+# $FAL_RECONSTRUCT_DEPTH_MODEL, $FAL_RECONSTRUCT_AGE_MODEL. Queue knobs:
+# $FAL_QUEUE_POLL_S (5),
 # $FAL_QUEUE_TIMEOUT_S (600). Output lands in $OVERCAST_MEDIA_DIR/reconstruct;
 # the record's payload.outputs[] is fanned out into a child record per artifact.
 set -uo pipefail
@@ -24,6 +33,7 @@ set -uo pipefail
 VIEW_MODEL="${FAL_RECONSTRUCT_VIEW_MODEL:-fal-ai/qwen-image-edit-2511-multiple-angles}"
 MESH_MODEL="${FAL_RECONSTRUCT_MESH_MODEL:-fal-ai/trellis}"
 DEPTH_MODEL="${FAL_RECONSTRUCT_DEPTH_MODEL:-fal-ai/image-preprocessors/depth-anything/v2}"
+AGE_MODEL="${FAL_RECONSTRUCT_AGE_MODEL:-fal-ai/flux-pro/kontext}"
 QPOLL="${FAL_QUEUE_POLL_S:-5}"
 QTIMEOUT="${FAL_QUEUE_TIMEOUT_S:-600}"
 KEY="${FAL_KEY:-${FAL_API_KEY:-}}"
@@ -49,27 +59,28 @@ fal_upload() {
 op="${1:-run}"
 case "$op" in
   init)     need; exit 0 ;;
-  describe) echo "{\"verb\":\"reconstruct\",\"kind\":\"media.reconstruction\",\"ops\":[\"view\",\"sweep\",\"model\",\"depth\"],\"view_model\":\"$VIEW_MODEL\",\"mesh_model\":\"$MESH_MODEL\",\"depth_model\":\"$DEPTH_MODEL\",\"caveat\":\"synthesized imagery — not evidence\",\"needs\":[\"FAL_KEY\"]}"; exit 0 ;;
+  describe) echo "{\"verb\":\"reconstruct\",\"kind\":\"media.reconstruction\",\"ops\":[\"view\",\"sweep\",\"model\",\"depth\",\"age\"],\"view_model\":\"$VIEW_MODEL\",\"mesh_model\":\"$MESH_MODEL\",\"depth_model\":\"$DEPTH_MODEL\",\"age_model\":\"$AGE_MODEL\",\"caveat\":\"synthesized imagery — not evidence\",\"needs\":[\"FAL_KEY\"]}"; exit 0 ;;
 esac
 
-input=""; ops=""; rotate=""; elevate=""; zoom=""; count=""; prompt=""; seed=""
+input=""; ops=""; rotate=""; elevate=""; zoom=""; count=""; prompt=""; seed=""; age_years=""
 while [ "$#" -gt 0 ]; do case "$1" in
-  --input)   input="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --ops)     ops="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --rotate)  rotate="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --elevate) elevate="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --zoom)    zoom="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --count)   count="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --prompt)  prompt="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --seed)    seed="${2:-}"; shift 2 2>/dev/null || shift ;;
-  --*)       shift ;;
-  *)         input="$1"; shift ;;
+  --input)     input="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --ops)       ops="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --rotate)    rotate="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --elevate)   elevate="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --zoom)      zoom="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --count)     count="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --age-years) age_years="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --prompt)    prompt="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --seed)      seed="${2:-}"; shift 2 2>/dev/null || shift ;;
+  --*)         shift ;;
+  *)           input="$1"; shift ;;
 esac; done
 ops="$(printf '%s' "$ops" | tr '[:upper:]' '[:lower:]')"
 [ -n "$ops" ] || ops="view"
 case "$ops" in
-  view|sweep|model|depth) : ;;
-  *) emit_err "unknown --ops '$ops' (valid: view, sweep, model, depth)"; exit 0 ;;
+  view|sweep|model|depth|age) : ;;
+  *) emit_err "unknown --ops '$ops' (valid: view, sweep, model, depth, age)"; exit 0 ;;
 esac
 need
 [ -f "$input" ] || { emit_err "input not found: $input"; exit 0; }
@@ -93,7 +104,7 @@ hash10() {
   elif command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -c1-10
   else cksum | tr -d ' ' | cut -c1-10; fi
 }
-RUNSIG="$(printf '%s' "$input|$ops|$rotate|$elevate|$zoom|$count|$prompt|$seed" | hash10)"
+RUNSIG="$(printf '%s' "$input|$ops|$rotate|$elevate|$zoom|$count|$age_years|$prompt|$seed" | hash10)"
 
 # normalize any azimuth (incl. negatives / >360) into [0,360)
 norm_az() { awk -v a="${1:-0}" 'BEGIN{m=a%360; if(m<0)m+=360; printf "%g", m}'; }
@@ -228,6 +239,52 @@ do_model() {
   emit_ready "model" "$MESH_MODEL" "$(jq -nc --arg r "$out" '[{kind:"mesh",ref:$r,format:"glb"}]')" "{}"
 }
 
+# ---- --ops age : speculative age progression of the photo's subject ---------
+# Identity-preserving instruction edit (FLUX.1 Kontext default; any image-edit
+# endpoint via $FAL_RECONSTRUCT_AGE_MODEL — qwen/nano-banana style endpoints
+# take image_urls[], kontext-style take image_url). The verb validates the
+# delta; this re-checks so a raw exec bind fails cleanly too. Output caveat is
+# the EXTENDED age caveat: synthesized likeness, never a match probe.
+do_age() {
+  local n body resp url out rseed key ptext
+  case "$age_years" in
+    ''|+|-) emit_err "age needs --age-years <±years> (e.g. +20 to age forward, -10 to de-age)"; return ;;
+  esac
+  if ! printf '%s' "$age_years" | grep -Eq '^[+-]?[0-9]+$'; then
+    emit_err "--age-years must be a whole number of years (got '$age_years')"; return
+  fi
+  n=$((age_years))
+  if [ "$n" -eq 0 ]; then emit_err "--age-years 0 is a no-op — pass a non-zero delta"; return; fi
+  if [ "$n" -lt -40 ] || [ "$n" -gt 60 ]; then emit_err "--age-years $n out of range (-40 de-age … +60 age forward)"; return; fi
+  if [ "$n" -gt 0 ]; then
+    ptext="Age the person in this photo by $n years. Keep the same identity, facial structure, pose, expression, lighting and background — photorealistic natural aging only (skin texture, wrinkles, hair color and density). Change nothing else about the image."
+  else
+    ptext="Make the person in this photo $((0 - n)) years younger. Keep the same identity, facial structure, pose, expression, lighting and background — photorealistic natural de-aging only. Change nothing else about the image."
+  fi
+  [ -n "$prompt" ] && ptext="$ptext $prompt"
+  IURL="$(fal_upload "$input" "$IMIME")" || { emit_err "fal: image upload to storage failed"; return; }
+  case "$AGE_MODEL" in
+    *qwen*|*nano-banana*) key="image_urls" ;;
+    *)                    key="image_url" ;;
+  esac
+  body="$(jq -nc --arg u "$IURL" --arg k "$key" --arg p "$ptext" --arg s "$seed" '
+    {($k): (if $k == "image_urls" then [$u] else $u end), prompt:$p, output_format:"png", num_images:1}
+    + (if $s != "" then {seed:($s|tonumber)} else {} end)')"
+  resp="$(curl -s -m 300 -X POST "https://fal.run/$AGE_MODEL" -H "Authorization: Key $KEY" -H "Content-Type: application/json" -d "$body")"
+  url="$(jq -r '(.images[0].url // .image.url // empty)' <<<"$resp" 2>/dev/null)"
+  if [ -z "$url" ]; then
+    emit_err "$(jq -r '(.detail // .error // "age progression failed") | if type=="string" then . else tojson end' <<<"$resp" 2>/dev/null | head -c 300)"; return
+  fi
+  out="$OUTDIR/reconstruct/${base}_${RUNSIG}_age$(ntag "$n").png"
+  curl -fsS -m 300 -o "$out" "$url" && [ -s "$out" ] || { rm -f "$out"; emit_err "aged image download failed or empty"; return; }
+  rseed="$(jq -r '.seed // empty' <<<"$resp" 2>/dev/null)"
+  # shellcheck disable=SC2034  # dynamic scope: emit_ready reads this CAVEAT
+  local CAVEAT="$CAVEAT. This is a speculative synthesized likeness, not a photograph of the subject. Do NOT use it as a probe for face/cluster/similar matching or to identify anyone — it can invent identity-changing detail."
+  emit_ready "age" "$AGE_MODEL" \
+    "$(jq -nc --arg r "$out" --arg y "$n" --arg s "$rseed" '[{kind:"age",ref:$r,age_years:($y|tonumber)} + (if $s != "" then {seed:($s|tonumber)} else {} end)]')" \
+    "$(jq -nc --arg y "$n" '{age_years:($y|tonumber)}')"
+}
+
 # ---- --ops depth : monocular depth estimate ----------------------------------
 do_depth() {
   local resp url out
@@ -249,4 +306,5 @@ case "$ops" in
   sweep) do_sweep ;;
   model) do_model ;;
   depth) do_depth ;;
+  age)   do_age ;;
 esac

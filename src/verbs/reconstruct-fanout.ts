@@ -15,6 +15,27 @@ import { makeRecord, type OvercastRecord, type MediaRef } from "../record.js";
 export const RECONSTRUCT_CAVEAT =
   "generative reconstruction — synthesized by a model, speculative, NOT photographic evidence";
 
+/** The age op's non-removable extra sentence: an aged/de-aged face is a
+ *  synthesized LIKENESS. It must never be fed to face/cluster/similar as a
+ *  match probe — that would be manufacturing evidence. */
+const AGE_ADDENDUM =
+  "This is a speculative synthesized likeness, not a photograph of the subject. " +
+  "Do NOT use it as a probe for face/cluster/similar matching or to identify anyone — " +
+  "it can invent identity-changing detail.";
+
+/** The full caveat every `--ops age` record carries. */
+export const RECONSTRUCT_AGE_CAVEAT = `${RECONSTRUCT_CAVEAT}. ${AGE_ADDENDUM}`;
+
+/** Op-aware caveat resolution: keep the provider's (more specific) wording when
+ *  present, fall back to the generic banner — and for the age op APPEND the
+ *  likeness/match-probe addendum unless it's already there. A provider may add
+ *  wording, never subtract the addendum. */
+export function reconstructCaveat(op: unknown, current?: unknown): string {
+  const base = typeof current === "string" && current ? current : RECONSTRUCT_CAVEAT;
+  if (op !== "age") return base;
+  return base.includes("not a photograph of the subject") ? base : `${base}. ${AGE_ADDENDUM}`;
+}
+
 /** One artifact a reconstruct provider emitted (loose — providers add their own
  *  fields; we rely on `kind` + `ref` only). */
 interface ReconstructOutput {
@@ -54,6 +75,11 @@ function outputSummary(op: string, item: ReconstructOutput, sourceName: string):
   }
   if (item.kind === "depth") {
     return `estimated depth map of ${sourceName} — model-estimated, not measured`;
+  }
+  if (item.kind === "age") {
+    const yrs = num(item.age_years);
+    const delta = yrs !== undefined ? ` (${yrs > 0 ? `+${yrs}` : yrs} years)` : "";
+    return `speculative age progression of ${sourceName}${delta} — synthesized likeness, never a face-match probe`;
   }
   if (item.kind === "sheet") {
     return `sweep contact sheet of ${sourceName} (every synthesized camera stop) — synthesized, not evidence`;
@@ -95,15 +121,16 @@ const CASE_UNSET = "";
  * the caveat travels with the record wherever it's read or exported.
  */
 export function fanOutReconstruct(parent: OvercastRecord, opts: { caseDir?: string } = {}): OvercastRecord[] {
-  // stamp the caveat on any object-payload parent (even a non-fanout single
-  // record) so the forensic banner never depends on the provider.
+  // stamp the (op-aware) caveat on any object-payload parent (even a non-fanout
+  // single record) so the forensic banner never depends on the provider.
+  let op = "reconstruct";
   if (typeof parent.payload === "object" && parent.payload != null) {
     const pp = parent.payload as Record<string, unknown>;
-    if (typeof pp.caveat !== "string" || !pp.caveat) pp.caveat = RECONSTRUCT_CAVEAT;
+    if (typeof pp.op === "string") op = pp.op;
+    pp.caveat = reconstructCaveat(op, pp.caveat);
   }
   if (!hasReconstructFanOut(parent)) return [parent];
   const payload = parent.payload as Record<string, unknown>;
-  const op = typeof payload.op === "string" ? payload.op : "reconstruct";
   const outputs = payload.outputs as ReconstructOutput[];
   const caveat = typeof payload.caveat === "string" ? payload.caveat : RECONSTRUCT_CAVEAT;
   const sourceMedia = parent.media?.ref;
@@ -125,7 +152,7 @@ export function fanOutReconstruct(parent: OvercastRecord, opts: { caseDir?: stri
         source_record: parent.id,
         source_media: sourceMedia,
         ...rest,
-        caveat: typeof rest.caveat === "string" && rest.caveat ? rest.caveat : caveat,
+        caveat: reconstructCaveat(op, typeof rest.caveat === "string" && rest.caveat ? rest.caveat : caveat),
       },
       media,
       meta: {

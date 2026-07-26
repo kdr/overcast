@@ -2,7 +2,12 @@
 // enhance). Given a still (or a video frame via --at / frame://), a bound
 // provider synthesizes what the scene *would plausibly* look like from a camera
 // the investigator never had: reposition (rotate/elevate/zoom), a turntable
-// sweep, a liftable 3D mesh, or an estimated depth map.
+// sweep, a liftable 3D mesh, an estimated depth map — or, the sketch-artist op,
+// an age progression (`--ops age --age-years <±N>`) that ages/de-ages the
+// subject of a REAL photo. The age output is a synthesized LIKENESS: it must
+// never be fed to face/cluster/similar as a match probe (that would be
+// manufacturing evidence), and composite-from-text-description (no real photo
+// to anchor to) is an explicit NON-GOAL — there is no prompt-only image path.
 //
 // Forensic posture (deliberate, locked): every record carries `payload.caveat`
 // (stamped in reconstruct-fanout even if a provider forgets) and the verb is in
@@ -37,7 +42,13 @@ import { renderReconstructGallery, type ReconstructGalleryView } from "../report
 import { buildOrbitViewerHtml, buildParallaxViewerHtml, buildArtifactViewerHtml } from "../report/reconstruct-viewers.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
-const RECONSTRUCT_OPS: ReadonlySet<string> = new Set(["view", "sweep", "model", "depth"]);
+const RECONSTRUCT_OPS: ReadonlySet<string> = new Set(["view", "sweep", "model", "depth", "age"]);
+
+/** --age-years bounds: a plausible investigative window (missing-person age
+ *  progression / de-age to an old reference photo), and a guard against
+ *  prompting the model into pure fantasy. */
+const AGE_YEARS_MIN = -40;
+const AGE_YEARS_MAX = 60;
 
 function errorRecord(message: string): OvercastRecord {
   return makeRecord({
@@ -63,17 +74,21 @@ export const reconstructVerb: VerbSpec = {
   name: "reconstruct",
   group: "sense",
   summary:
-    "Speculatively reposition the camera in a still (rotate/elevate/zoom, turntable sweep, 3D model, depth) via a bound generative provider — a hypothesis renderer, never evidence.",
+    "Speculatively reposition the camera in a still (rotate/elevate/zoom, turntable sweep, 3D model, depth) or age-progress the subject of a real photo (--ops age) via a bound generative provider — a hypothesis renderer, never evidence.",
   description:
     "Scene reconstruction: hold the camera at a captured moment, then move it. Give an image (or a " +
     "video + --at to pick the frame) and either camera moves — `--rotate <deg>` (0 front / 90 right / " +
     "180 behind, negative = left) with optional `--elevate <-30..90>` and `--zoom <0..10>` — or an op: " +
     "`--ops sweep` synthesizes --count camera stops around 360° and assembles a labeled contact sheet + " +
     "turntable video, `--ops model` lifts a textured 3D mesh (GLB) you can orbit in the built-in viewer, " +
-    "`--ops depth` estimates a depth map rendered as a drag-to-parallax hologram. Every output is " +
+    "`--ops depth` estimates a depth map rendered as a drag-to-parallax hologram, `--ops age` is the " +
+    "sketch artist: age (+N) or de-age (-N) the SUBJECT OF A REAL PHOTO by `--age-years <±years>` " +
+    "(-40..+60; missing-person age progression). The aged image is a speculative synthesized LIKENESS — " +
+    "NEVER use it as a probe for face/cluster/similar matching or to identify anyone; composing a face " +
+    "from a text description (no real photo to anchor to) is deliberately unsupported. Every output is " +
     "GENERATIVE — synthesized pixels stamped with payload.caveat, excluded from ask/brief evidence and " +
     "findings triggers; use it to form hypotheses (what's around the corner? what would a second camera " +
-    "have seen?), then verify with real captures. Needs a bound provider (no built-in): " +
+    "have seen? what might they look like today?), then verify with real captures. Needs a bound provider (no built-in): " +
     "`overcast provider setup apply --verb reconstruct --choice fal --yes` (FAL_KEY). " +
     "`view <record-id>` reopens the gallery / 3D orbit / parallax viewer; --view opens it immediately.",
   args: [
@@ -83,8 +98,9 @@ export const reconstructVerb: VerbSpec = {
     { name: "rotate", summary: "Camera azimuth in degrees (0 front, 90 right, 180 behind; negative = left)", type: "number" },
     { name: "elevate", summary: "Camera elevation in degrees (-30 low-angle … 0 eye-level … 60 high … 90 bird's-eye)", type: "number" },
     { name: "zoom", summary: "Camera distance 0-10 (0 wide, 5 as-shot, 10 close-up)", type: "number" },
-    { name: "ops", summary: "Reconstruction op: view (default with --rotate) | sweep | model | depth", type: "string", choices: ["view", "sweep", "model", "depth"] },
+    { name: "ops", summary: "Reconstruction op: view (default with --rotate) | sweep | model | depth | age (default with --age-years)", type: "string", choices: ["view", "sweep", "model", "depth", "age"] },
     { name: "count", summary: "Sweep: number of synthesized camera stops around 360° (2-24, default 8)", type: "number" },
+    { name: "age-years", summary: "Age op: years to age (+N) or de-age (-N) the subject (-40..+60) — output is a synthesized likeness, never a face-match probe", type: "number" },
     { name: "at", summary: "Video input: timestamp (SS or MM:SS) of the frame to reconstruct from", type: "string" },
     { name: "prompt", summary: "Extra scene hint forwarded to the view-synthesis model", type: "string" },
     { name: "seed", summary: "Generation seed for reproducibility", type: "number" },
@@ -149,15 +165,19 @@ export const reconstructVerb: VerbSpec = {
       return [errorRecord(`reconstruct needs an image or a video frame (got ${p.modality})`)];
     }
 
-    // ---- op selection: --rotate/--elevate/--zoom imply the default `view` op.
+    // ---- op selection: --rotate/--elevate/--zoom imply the default `view` op;
+    // --age-years alone implies the `age` op (same convenience pattern).
     const rotate = optNum(ctx.opts.rotate);
     const elevate = optNum(ctx.opts.elevate);
     const zoom = optNum(ctx.opts.zoom);
+    const ageYears = optNum(ctx.opts["age-years"]);
     const camGiven = rotate !== undefined || elevate !== undefined || zoom !== undefined;
-    const op = ctx.opts.ops ? String(ctx.opts.ops).toLowerCase().trim() : camGiven ? "view" : "";
+    const op = ctx.opts.ops
+      ? String(ctx.opts.ops).toLowerCase().trim()
+      : camGiven ? "view" : ageYears !== undefined ? "age" : "";
     if (!op) {
       return [errorRecord(
-        "specify a reconstruction: --rotate <deg> (with optional --elevate/--zoom) repositions the camera; --ops sweep|model|depth for a turntable / 3D model / depth map",
+        "specify a reconstruction: --rotate <deg> (with optional --elevate/--zoom) repositions the camera; --ops sweep|model|depth for a turntable / 3D model / depth map; --ops age --age-years <±N> for a speculative age progression",
       )];
     }
     if (!RECONSTRUCT_OPS.has(op)) {
@@ -165,6 +185,27 @@ export const reconstructVerb: VerbSpec = {
     }
     if (op === "view" && !camGiven) {
       return [errorRecord("--ops view needs a camera move: --rotate <deg>, --elevate <deg>, and/or --zoom <0-10>")];
+    }
+    // ---- age op gating: a real anchor photo + a bounded, non-zero delta. The
+    // delta rides to the provider; everything else about intake is shared.
+    if (op === "age") {
+      if (ageYears === undefined) {
+        return [errorRecord("--ops age needs --age-years <±years> (e.g. +20 to age forward, -10 to de-age)")];
+      }
+      if (!Number.isInteger(ageYears)) {
+        return [errorRecord(`--age-years ${ageYears} must be a whole number of years`)];
+      }
+      if (ageYears < AGE_YEARS_MIN || ageYears > AGE_YEARS_MAX) {
+        return [errorRecord(`--age-years ${ageYears} out of range (${AGE_YEARS_MIN} de-age … +${AGE_YEARS_MAX} age forward)`)];
+      }
+      if (ageYears === 0) {
+        return [errorRecord("--age-years 0 is a no-op — pass a non-zero delta (e.g. +20 or -10)")];
+      }
+      if (camGiven) {
+        return [errorRecord("--ops age is a face/subject edit, not a camera move — drop --rotate/--elevate/--zoom (run a separate reconstruct for those)")];
+      }
+    } else if (ageYears !== undefined) {
+      return [errorRecord(`--age-years only applies to --ops age (got --ops ${op})`)];
     }
     // fail fast on values the view model would 422 on (its documented ranges).
     if (elevate !== undefined && (elevate < -30 || elevate > 90)) {
@@ -191,6 +232,7 @@ export const reconstructVerb: VerbSpec = {
     if (elevate !== undefined) extraArgs.push("--elevate", String(elevate));
     if (zoom !== undefined) extraArgs.push("--zoom", String(zoom));
     if (count !== undefined) extraArgs.push("--count", String(count));
+    if (op === "age" && ageYears !== undefined) extraArgs.push("--age-years", String(ageYears));
     if (ctx.opts.prompt) extraArgs.push("--prompt", String(ctx.opts.prompt));
     const seed = optNum(ctx.opts.seed);
     if (seed !== undefined) extraArgs.push("--seed", String(seed));
@@ -347,11 +389,11 @@ export function buildReconstructViewer(
     writeFileSync(out, html, "utf8");
     return out;
   }
-  // view / sweep → gallery of synthesized stops
+  // view / sweep / age → gallery of synthesized stills
   const views: ReconstructGalleryView[] = [];
   for (const c of children) {
     const cp = payloadOf(c);
-    if (cp.kind !== "view" || typeof c.media?.ref !== "string") continue;
+    if ((cp.kind !== "view" && cp.kind !== "age") || typeof c.media?.ref !== "string") continue;
     views.push({
       ref: c.media.ref,
       rotate: optNum(cp.azimuth ?? cp.rotate),
@@ -420,9 +462,10 @@ export function maybeReconstructViewer(ctx: VerbContext, rec: OvercastRecord): O
         writeFileSync(out, still, "utf8");
         mode = "still";
       }
-    } else if (p.kind === "view" || p.kind === "sheet" || p.kind === "turntable") {
-      // synthesized still / contact sheet / turntable → the same caveat-bannered
-      // wrapper, so the "not evidence" banner rides along with a raw PNG/MP4.
+    } else if (p.kind === "view" || p.kind === "sheet" || p.kind === "turntable" || p.kind === "age") {
+      // synthesized still / contact sheet / turntable / aged likeness → the same
+      // caveat-bannered wrapper, so the "not evidence" banner (and for age, the
+      // never-a-match-probe warning) rides along with a raw PNG/MP4.
       const artKind = p.kind === "turntable" ? "video" : "image";
       const html = buildArtifactViewerHtml(ref, artKind, viewerOpts);
       if (!html) return null;
@@ -444,7 +487,7 @@ export function maybeReconstructViewer(ctx: VerbContext, rec: OvercastRecord): O
 
   // parent records: op viewer over the fanned-out children.
   const op = p.op;
-  if (op !== "view" && op !== "sweep" && op !== "model" && op !== "depth") return null;
+  if (op !== "view" && op !== "sweep" && op !== "model" && op !== "depth" && op !== "age") return null;
   const children = ctx.case.records().filter(
     (r) => r.verb === "reconstruct" && (r.payload as Record<string, unknown> | undefined)?.source_record === rec.id,
   );

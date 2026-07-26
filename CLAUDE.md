@@ -177,7 +177,14 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   camera reposition + `--ops sweep` 360° stops → contact sheet + turntable mp4
   (Qwen-2511 multi-angle), `--ops model` image→3D GLB (Trellis/Hunyuan via the
   fal QUEUE API) rendered in an embedded no-dep WebGL orbit viewer, `--ops depth`
-  Depth-Anything map → drag-parallax viewer; same outputs[] fan-out as enhance;
+  Depth-Anything map → drag-parallax viewer, `--ops age --age-years <±N>` the
+  sketch artist: age-progress (+N) / de-age (−N) the subject of a REAL photo
+  (−40..+60, FLUX-Kontext-style identity-preserving edit,
+  `FAL_RECONSTRUCT_AGE_MODEL`) — the aged output is a synthesized LIKENESS
+  carrying an EXTENDED caveat and must NEVER be used as a `face`/`cluster`/
+  `similar` match probe (that = manufacturing evidence; composite-from-text-
+  description has no anchor and is an explicit NON-goal — no prompt-only path);
+  same outputs[] fan-out as enhance;
   EVERY record carries `payload.caveat` and the verb is in `OPERATIONAL_VERBS` —
   viewable/chainable but NEVER ask/brief evidence or findings input; no builtin,
   bind `provider setup apply --verb reconstruct --choice fal`),
