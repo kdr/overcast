@@ -152,17 +152,18 @@ case "$op" in
             | ($amtSats / 100000000) as $amt
             | ([ $ins[]  | select((.scriptpubkey_address // "" | ascii_downcase) != $addr) | .scriptpubkey_address // empty ]) as $senders
             | ([ $outs[] | select((.scriptpubkey_address // "" | ascii_downcase) != $addr) | .scriptpubkey_address // empty ]) as $recipients
-            # transaction-order (deduped later) — the title uses the FIRST-seen
-            # counterparty, not the alphabetically-first one that `unique` returns,
-            # so it points at a meaningful lead; the counterparties SET stays unique.
+            # ORDER-PRESERVING dedup: the first-seen counterparty the title uses
+            # (cps[0]) must also lead the snippet, so a high-fanout tx never names a
+            # counterparty in the title that is missing from the snippet first 12
+            # (jq `unique` sorts alphabetically and could drop it).
             | (if $dir == "in" then $senders elif $dir == "out" then $recipients else ($senders + $recipients) end
                | map(select(. != null and . != ""))) as $cpsOrdered
-            | ($cpsOrdered | unique) as $cps
+            | ($cpsOrdered | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end)) as $cps
             | ($ins  | length) as $nin
             | ($outs | length) as $nout
             | (.status.block_time // null) as $bt
             | (if $bt != null then ($bt | todate) else null end) as $iso
-            | (($cpsOrdered[0] // "?") | if length > 18 then .[0:18] + "…" else . end) as $cp0
+            | (($cps[0] // "?") | if length > 18 then .[0:18] + "…" else . end) as $cp0
             | ("https://mempool.space/tx/" + .txid) as $url
             | {
                 title: (($amt|tostring) + " BTC " + $dir
@@ -171,8 +172,12 @@ case "$op" in
                 url: $url,
                 source: "chain",
                 # graph/brief rank + --since-filter by payload.created = the BLOCK
-                # time (when the money moved), not scan ingest; unconfirmed txs
-                # (no block_time) carry null and sort last under a --since window.
+                # time (when the money moved) for CONFIRMED txs. Unconfirmed
+                # (mempool) txs have no block time → created:null: they sort NEWEST
+                # (most recent activity) and their recency falls back to ingest ≈
+                # broadcast time. On the `monitor` path the per-tx URL dedup means
+                # block time is NOT backfilled after confirmation — re-scan a fresh
+                # case for exact block times (broadcast ≈ block time for ranking).
                 created: $iso,
                 published: $iso,
                 snippet: ("value " + ($amt|tostring) + " BTC · " + ($nin|tostring) + " inputs · " + ($nout|tostring) + " outputs"
@@ -234,10 +239,10 @@ case "$op" in
             | ((.value // "0" | tonumber) / 1e18) as $amt
             | (if $dir == "out" then [ .to ] elif $dir == "in" then [ .from ] else [ .from, .to ] end
                | map(select(. != null and . != "")) | map(ascii_downcase) | map(select(. != $addr))) as $cpsOrdered
-            | ($cpsOrdered | unique) as $cps
+            | ($cpsOrdered | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end)) as $cps
             | ((.timeStamp // "0" | tonumber)) as $ts
             | (if $ts > 0 then ($ts | todate) else null end) as $iso
-            | (($cpsOrdered[0] // "?") | if length > 18 then .[0:18] + "…" else . end) as $cp0
+            | (($cps[0] // "?") | if length > 18 then .[0:18] + "…" else . end) as $cp0
             | ("https://etherscan.io/tx/" + .hash) as $url
             | {
                 title: (($amt|tostring) + " ETH " + $dir

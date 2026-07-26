@@ -200,8 +200,13 @@ focused workflows:
 | `overcast-verify-media` | "is this real?" triage — C2PA + exif + ELA |
 | `overcast-skip-trace` | authorized identity dossier via username → person → phone → property |
 | `overcast-audio-match` | same-recording hunt via audio fingerprints |
+| `overcast-bolo` | standing face/image watchlist ("BOLO") — auto-flag matches into a triage queue |
+| `overcast-canvass` | canvass public cameras near a location (OSM `overpass` + `webcam` + forward geocode) |
+| `overcast-follow-the-money` | trace the public money trail — crypto tx history + SEC EDGAR filings |
 
-Each is generated from `src/skill-gen.ts` (one source of truth). The CSI/crime-trope
+Most are generated from `src/skill-gen.ts` (one source of truth); the three
+newest workflow skills (`overcast-bolo`, `overcast-canvass`,
+`overcast-follow-the-money`) are authored directly under `skills/`. The CSI/crime-trope
 skills (`lineup`…`crime-board`) are exercised end-to-end against real media in
 `test/e2e/live/cases/80`–`90`; the visual-CoT localization skills
 (`pinpoint`…`presence-window`) in `test/e2e/live/cases/18_grid`.
@@ -284,7 +289,7 @@ emits a portable JSON **record**:
   `voice` `cluster` `similar` `exif` `verify` `screenshot` `enhance`
   `reconstruct` `chronolocate`
 - **Inspect** (look at the evidence) — `view` `crop` `grid` `wall` `situation`
-  `map` `devices` `graph`
+  `map` `geofence` `devices` `graph`
 - **OSINT** (search / capture / monitor) — `scan` `capture` `monitor` `index`
   `archive` `target` `source` `note` `finding` `prebrief`
 - **Read** (synthesize the case) — `ask` `brief` `case`

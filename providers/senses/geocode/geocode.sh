@@ -75,6 +75,17 @@ if [ "$forward" = 1 ]; then
     jq -nc --arg q "$q" '{verb:"geocode",format:"json",payload:{place:null,lat:null,lng:null,query:$q,mode:"forward",note:"no match (geocoder returned no usable result)"},state:"ready"}'
     exit 0
   fi
+  # A VALID search result is an ARRAY (empty [] = clean no-match) or a GeoJSON
+  # object with a `features` array (Photon). ANY OTHER JSON shape — an {error:…}
+  # / quota object, or a non-features object/scalar — is an API error, NOT
+  # "address not found": surface it as state:"error" so a misconfigured endpoint
+  # or a quota message can't masquerade as an empty result (and let the live case fail).
+  fshape="$(printf '%s' "$fresp" | jq -r 'if type=="array" then "ok" elif (type=="object" and (.features|type)=="array") then "ok" else "err" end')"
+  if [ "$fshape" = "err" ]; then
+    jq -nc --arg q "$q" --arg b "$(printf '%s' "$fresp" | head -c 200)" \
+      '{verb:"geocode",format:"json",payload:{query:$q,mode:"forward"},error:("forward geocode: unexpected/error response (not a search result): "+$b),state:"error"}'
+    exit 0
+  fi
   # Map both Nominatim (array of {lat,lon,display_name,address}) and GeoJSON
   # FeatureCollection shapes; validate WGS84 before emitting a point. Every field
   # access is null-safe and every `tonumber` is wrapped in try/catch, so a

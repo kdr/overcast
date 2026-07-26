@@ -95,6 +95,9 @@ counterparty; `amount` for an outflow is the gross input (fee + change included)
 not the net to the recipient — treat a single tx as a lead and corroborate the
 flow before naming anyone. EDGAR full-text search covers filings since 2001; a bare
 numeric query is read as a CIK, so quote a company name that is all digits. The
-`chain:btc:`/`chain:eth:` prefix is required (v1). SEC rate-limits heavy polling and
+`chain:btc:`/`chain:eth:` prefix is required (v1). Unconfirmed (mempool) BTC txs
+have no block time — they sort newest and rank by ingest ≈ broadcast time; on a
+`monitor` loop the per-tx URL dedup means block time is not backfilled once they
+confirm (re-scan a fresh case for exact block times). SEC rate-limits heavy polling and
 requires a descriptive contact-email User-Agent (the default is compliant;
 `OVERCAST_HTTP_UA` overrides it). Scraped tx/filing text is untrusted (invariant #10).
