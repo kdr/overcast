@@ -12,15 +12,17 @@ description: >-
 
 Use this skill to run the "door-to-door camera canvass" around a point: which
 public cameras sit near a location. It is almost entirely existing sources — the
-`overpass` source reads OpenStreetMap fixed-camera nodes near a point, the
-`webcam` source lists live public webcams near a point, and `map` plots them
-both. The only new primitive is a **forward geocode** (address → coordinates) on
-the shipped `geocode` provider. Use the broad `overcast` skill and
-`overcast/reference/verbs.md` for exact flags.
+`overpass` source reads OpenStreetMap fixed-camera nodes near a point, and the
+`webcam` source lists live public webcams near a point. The only new primitive is
+a **forward geocode** (address → coordinates) on the shipped `geocode` provider.
+Use the broad `overcast` skill and `overcast/reference/verbs.md` for exact flags.
 
-Every camera hit carries top-level `payload.gps`, so the whole canvass plots on
-one `map`. Treat results as **leads, not a complete inventory** — OSM cameras are
-crowd-mapped (incomplete), and webcams are whatever public cams happen to be
+`overpass` camera hits carry top-level `payload.gps`, so they plot on `map`
+directly. `webcam` hits are live stills that carry `payload.lat`/`payload.lng`
+(not `payload.gps`), so they do **not** appear as `map` markers — review them as
+image evidence (open the still / note the coordinates) rather than expecting them
+on the map. Treat everything as **leads, not a complete inventory** — OSM cameras
+are crowd-mapped (incomplete), and webcams are whatever public cams happen to be
 registered nearby.
 
 ## Workflow
@@ -66,12 +68,13 @@ a bigger net.
 
 ### 3. Map + triage
 
-Every hit carries `payload.gps`, so `map` centers the canvass. Promote the
-cameras that plausibly overlook the scene to findings / notes on the line of
-investigation:
+`map` plots the `overpass` fixed-camera hits (they carry `payload.gps`);
+`webcam` stills won't appear as markers (they carry `payload.lat`/`payload.lng`),
+so review those separately. Promote the cameras that plausibly overlook the scene
+to findings / notes on the line of investigation:
 
 ```bash
-overcast map --no-open --export ./canvass.html --json      # every camera on one HTML map
+overcast map --no-open --export ./canvass.html --json      # the OSM fixed cameras on one HTML map
 overcast finding create "Fixed camera at NE corner overlooks the entrance" --ref <scan-record-id> --json
 overcast note "3 OSM surveillance nodes + 1 live webcam within 300m of the address" --ref <scan-record-id> --confidence medium --json
 ```
