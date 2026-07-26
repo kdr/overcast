@@ -2,14 +2,14 @@
   "manifest_version": 1,
   "name": "geocode",
   "version": "1.0.0",
-  "description": "OPT-IN reverse geocoding for `exif --geocode` via OSM Nominatim (no key).",
+  "description": "OPT-IN geocoding via OSM Nominatim (no key): reverse (`exif --geocode`, gps->place) and forward (address->lat,lng).",
   "entries": [
     {
       "kind": "sense",
       "id": "nominatim",
       "verb": "geocode",
       "label": "OSM Nominatim reverse geocoder",
-      "summary": "OPT-IN reverse geocoding for `exif --geocode` (OSM Nominatim; no key, curl+jq, ~1 req/s usage policy — point OVERCAST_GEOCODE_URL at your own Nominatim/Photon for volume). Egresses the subject's coordinates to a third party, so it is never a default.",
+      "summary": "OPT-IN geocoding (OSM Nominatim; no key, curl+jq, ~1 req/s usage policy — point OVERCAST_GEOCODE_URL at your own Nominatim/Photon for volume). REVERSE (`exif --geocode`) turns gps->place; FORWARD (`--query \"<address>\"` / `--forward`) turns an address->{lat,lng,place} (the address->point step for camera-canvass workflows). Egresses the subject's coordinates or address to a third party, so it is never a default.",
       "indexableDefault": false,
       "descriptor": {
         "type": "exec",
