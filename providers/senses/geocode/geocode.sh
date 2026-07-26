@@ -70,22 +70,26 @@ if [ "$forward" = 1 ]; then
     exit 0
   fi
   # Map both Nominatim (array of {lat,lon,display_name,address}) and GeoJSON
-  # FeatureCollection shapes; validate WGS84 before emitting a point. jq indexes
-  # a missing field as null, so a malformed hit falls through to the no-match
-  # branch rather than crashing.
+  # FeatureCollection shapes; validate WGS84 before emitting a point. Every field
+  # access is null-safe and every `tonumber` is wrapped in try/catch, so a
+  # malformed hit ALWAYS falls through to the no-match record — the jq filter can
+  # never exit non-zero and leave the provider contract (one JSON record per run)
+  # unmet.
   printf '%s' "$fresp" | jq -c --arg q "$q" '
     (if type=="array" then (.[0] // null)
      elif (type=="object" and has("features") and (.features|length>0)) then .features[0]
      else null end) as $h
-    | (if ($h != null and ($h|type)=="object" and ($h|has("lat"))) then ($h.lat|tonumber)
-       elif ($h != null and ($h|type)=="object" and ($h|has("geometry"))) then ($h.geometry.coordinates[1])
-       else null end) as $lat
-    | (if ($h != null and ($h|type)=="object" and ($h|has("lon"))) then ($h.lon|tonumber)
-       elif ($h != null and ($h|type)=="object" and ($h|has("geometry"))) then ($h.geometry.coordinates[0])
-       else null end) as $lng
-    | (if ($h != null and ($h|type)=="object" and ($h|has("display_name"))) then $h.display_name
-       elif ($h != null and ($h|type)=="object" and ($h|has("properties"))) then
-         ([$h.properties.name,$h.properties.street,$h.properties.district,$h.properties.city,$h.properties.county,$h.properties.state,$h.properties.country]
+    | (if ($h|type)=="object" then $h else {} end) as $o
+    | (try ($o.lat|tonumber) catch null) as $latA
+    | (try ($o.lon|tonumber) catch null) as $lngA
+    | (try ($o.geometry.coordinates[1]) catch null) as $latB
+    | (try ($o.geometry.coordinates[0]) catch null) as $lngB
+    | (if ($latA|type)=="number" then $latA elif ($latB|type)=="number" then $latB else null end) as $lat
+    | (if ($lngA|type)=="number" then $lngA elif ($lngB|type)=="number" then $lngB else null end) as $lng
+    | (if ($o|has("display_name")) then "nominatim" else "photon" end) as $prov
+    | (if (($o|has("display_name")) and (($o.display_name|type)=="string")) then $o.display_name
+       elif ($o|has("properties")) then
+         ([$o.properties.name,$o.properties.street,$o.properties.district,$o.properties.city,$o.properties.county,$o.properties.state,$o.properties.country]
           | map(select(. != null and . != "")) | join(", "))
        else null end) as $place
     | (($lat|type)=="number" and ($lng|type)=="number"
@@ -93,9 +97,8 @@ if [ "$forward" = 1 ]; then
     | if $ok then {
         verb:"geocode", format:"json",
         payload:{ place:$place, lat:$lat, lng:$lng, query:$q, mode:"forward",
-                  address:($h.address // $h.properties // null),
-                  provider:(if ($h|has("display_name")) then "nominatim" else "photon" end) },
-        meta:{ provider:(if ($h|has("display_name")) then "nominatim" else "photon" end) },
+                  address:($o.address // $o.properties // null), provider:$prov },
+        meta:{ provider:$prov },
         state:"ready" }
       else {
         verb:"geocode", format:"json",

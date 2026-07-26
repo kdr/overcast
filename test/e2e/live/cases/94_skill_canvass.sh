@@ -30,12 +30,16 @@ save_json "94_canvass_geocode" "$gout" >/dev/null
 gstate="$(echo "$gout" | jq -r '.state // ""' 2>/dev/null)"
 glat="$(echo "$gout" | jq -r '.payload.lat // empty' 2>/dev/null)"
 glng="$(echo "$gout" | jq -r '.payload.lng // empty' 2>/dev/null)"
+# A provider ERROR must not pass as a skip (matches the overpass leg + this file's
+# header): an error means the geocode script regressed, not that the address is
+# absent. Only a clean no-match (state:ready, no coords) is the skippable "empty".
 if [ "$gstate" = "error" ]; then
-  skip "$C.geocode" "forward geocode request failed (Nominatim unreachable in this env) — geocode leg skipped"
+  gerr="$(echo "$gout" | jq -r '.error // "unknown error"' 2>/dev/null)"
+  fail "$C.geocode" "forward geocode errored (not a clean no-match): $gerr"
 elif [ -n "$glat" ] && echo "$glat" | grep -Eq '^-?[0-9]+(\.[0-9]+)?$'; then
   ok "$C.geocode" "forward geocode returned a numeric point (lat=$glat lng=$glng)"
 else
-  skip "$C.geocode" "forward geocode returned no match for the sample address — skipped"
+  skip "$C.geocode" "forward geocode returned no match for the sample address (empty result) — skipped"
 fi
 
 # 2) skill step: fan the OSM fixed-camera source around the point (keyless)
