@@ -529,7 +529,7 @@ Emits `situation` records.
 
 ### `overcast map`
 
-Gathers all case records with payload.gps{lat,lng} (primarily `exif`; any record qualifies) and renders a self-contained HTML map — one marker per point with its record id, media thumbnail, geocoded place (when `exif --geocode` set it), and capture time, linking back to the source. Online mode fetches OSM raster tiles in the browser at view time (no CDN dependency; the map JS is inlined); --offline degrades to a coordinate scatter with per-point openstreetmap.org links and no network egress. --near <lat,lng> (--radius meters, default 500) or --bbox <minLat,minLng,maxLat,maxLng> spatially filter the plotted points — the same fence semantics as `geofence`. --no-open writes the map and emits its path instead of launching. Live tiles reveal the viewer's IP + the investigated location to OpenStreetMap.
+Gathers all case records with payload.gps{lat,lng} (primarily `exif`; any record qualifies) and renders a self-contained HTML map — one marker per point with its record id, media thumbnail, geocoded place (when `exif --geocode` set it), and capture time, linking back to the source. Online mode fetches OSM raster tiles in the browser at view time (no CDN dependency; the map JS is inlined); --offline degrades to a coordinate scatter with per-point openstreetmap.org links and no network egress. --no-open writes the map and emits its path instead of launching. Live tiles reveal the viewer's IP + the investigated location to OpenStreetMap.
 
 ```
 overcast map  [options]
@@ -539,9 +539,6 @@ overcast map  [options]
 Options:
   --limit <number>       Max points, most-recent first (default: 500)
   --since <string>       Only records since (e.g. 24h, 7d, 2026-06-01)
-  --near <string>        Only points within --radius meters of 'lat,lng'
-  --radius <number>      Radius in meters around --near (default 500)
-  --bbox <string>        Only points inside 'minLat,minLng,maxLat,maxLng' (inclusive, non-wrapping)
   --offline              No tile fetch: coordinate scatter + openstreetmap.org links only
   --export <string>      Map HTML path (default: .overcast/media/map.html)
   --no-open              Write the map but don't launch it
@@ -551,28 +548,6 @@ Options:
 ```
 
 Emits `media.map` records.
-
-### `overcast geofence`
-
-The geofence query: gathers all case records carrying payload.gps{lat,lng} (`exif`, and geo sources like dispatch/firms/flights/overpass) and returns the ones intersecting a location fence — a --near <lat,lng> circle (--radius meters, default 500) or a --bbox <minLat,minLng,maxLat,maxLng> box (inclusive edges, non-wrapping) — captured within [--since, --until]. Recency uses the CAPTURE time (exif payload.created) when present, falling back to ingest time; undated records that intersect spatially are KEPT (they can't be excluded by time — the map/wall convention) with capture_time null. Pure local read, no network. Emits ONE operational rollup record (matches newest-first, per-verb counts, the query echoed back) — a viewer over evidence, never ask/brief evidence itself. An empty intersection is a clean ready record with guidance, not an error.
-
-```
-overcast geofence  [options]
-
-  List every case record whose GPS falls inside a radius/box within a time window.
-
-Options:
-  --near <string>        Fence center 'lat,lng' (circle mode; pairs with --radius)
-  --radius <number>      Circle radius in meters around --near (default 500)
-  --bbox <string>        Fence box 'minLat,minLng,maxLat,maxLng' (inclusive, non-wrapping)
-  --since <string>       Window start (e.g. 24h, 7d, 2026-06-01) — capture-time-aware
-  --until <string>       Window end (same grammar as --since)
-  --limit <number>       Max matches returned, most-recent first (default: 500)
-  --format <string>      Output surface: json | md | txt
-  --json                 Shorthand for --format json
-```
-
-Emits `geofence.result` records.
 
 ### `overcast devices`
 
