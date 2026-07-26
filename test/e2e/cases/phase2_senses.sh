@@ -49,8 +49,11 @@ if [ -f "$vhtml" ] && grep -q "OVERCAST VIEW" "$vhtml"; then ok "view.html_writt
 
 # crop: materialize face detections into local crop evidence records. The fake
 # tinycloud fixture exercises the real face envelope mapper before crop reads
-# the resulting face record by id.
-fout="$(OVERCAST_TINYCLOUD_CMD="bash $REPO/test/fixtures/fake-tinycloud.sh" $OVERCAST face "$clip" --json --case "$casedir" 2>/dev/null)"
+# the resulting face record by id. Isolated --home so a machine profile's real
+# `face` binding can't override the fixture (a bound run template deliberately
+# wins over OVERCAST_TINYCLOUD_CMD).
+fchome="$SMOKE_DIR/senses-face-home"; mkdir -p "$fchome"
+fout="$(OVERCAST_TINYCLOUD_CMD="bash $REPO/test/fixtures/fake-tinycloud.sh" $OVERCAST face "$clip" --json --case "$casedir" --home "$fchome" 2>/dev/null)"
 save_json "phase2_face_for_crop" "$fout" >/dev/null
 assert_eq "crop.face_state" "ready" "$(jq -r '.state' <<<"$fout")" "fixture face detect ready"
 face_id="$(jq -r '.id' <<<"$fout")"

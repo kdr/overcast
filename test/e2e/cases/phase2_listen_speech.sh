@@ -17,6 +17,10 @@ source "$DIR/lib.sh"
 
 FAKE_TC="bash $REPO/test/fixtures/fake-tinycloud-speech.sh"
 casedir="$SMOKE_DIR/case_listen_speech"; mkdir -p "$casedir"
+# Isolated --home so a machine profile's custom `listen` binding can't override
+# the fixture (only a binding pinned to the STOCK template falls back to
+# OVERCAST_TINYCLOUD_CMD; a custom run template wins over the env by design).
+lshome="$SMOKE_DIR/listen-speech-home"; mkdir -p "$lshome"
 
 # a real (tiny, silent) wav so media resolution sees an actual audio file
 wav="$SMOKE_DIR/talk.wav"
@@ -33,7 +37,7 @@ fi
 # 1) default listen (0.3.12 envelope): transcript = the inline verbatim speech,
 # single call — transcript_source=caption here means the two-call workaround
 # came back
-out="$(OVERCAST_TINYCLOUD_CMD="$FAKE_TC" $OVERCAST listen "$wav" --json --case "$casedir" 2>/dev/null)"
+out="$(OVERCAST_TINYCLOUD_CMD="$FAKE_TC" $OVERCAST listen "$wav" --json --case "$casedir" --home "$lshome" 2>/dev/null)"
 save_json "phase2_listen_speech" "$out" >/dev/null
 assert_eq "listen_speech.state" "ready" "$(jq -r '.state // "ready"' <<<"$out")" "default listen ready"
 assert_eq "listen_speech.source" "segments" "$(jq -r '.meta.transcript_source' <<<"$out")" "transcript came from the inline watch speech"
@@ -52,14 +56,14 @@ assert_eq "listen_speech.anchor" "[0,1.2]" "$(jq -c '.payload.segments[0].at' <<
 
 # 2) --diarize rides the caption pass (watch REJECTS --diarize — the fixture
 # fails hard like the real CLI if listen regresses to pushing it onto watch)
-dout="$(OVERCAST_TINYCLOUD_CMD="$FAKE_TC" $OVERCAST listen "$wav" --diarize --json --case "$casedir" 2>/dev/null)"
+dout="$(OVERCAST_TINYCLOUD_CMD="$FAKE_TC" $OVERCAST listen "$wav" --diarize --json --case "$casedir" --home "$lshome" 2>/dev/null)"
 save_json "phase2_listen_speech_diarize" "$dout" >/dev/null
 assert_eq "listen_speech.diarize_state" "ready" "$(jq -r '.state // "ready"' <<<"$dout")" "--diarize did not hit watch (ready)"
 assert_eq "listen_speech.diarize_speaker" "1" "$(jq -r '.payload.segments[0].speaker' <<<"$dout")" "speaker label lifted from diarized cues"
 
 # 3) legacy pre-0.3.12 envelope (segments: []): the caption verb still supplies
 # the verbatim cues
-lout="$(FAKE_TC_WATCH=nospeech OVERCAST_TINYCLOUD_CMD="$FAKE_TC" $OVERCAST listen "$wav" --json --case "$casedir" 2>/dev/null)"
+lout="$(FAKE_TC_WATCH=nospeech OVERCAST_TINYCLOUD_CMD="$FAKE_TC" $OVERCAST listen "$wav" --json --case "$casedir" --home "$lshome" 2>/dev/null)"
 save_json "phase2_listen_speech_legacy" "$lout" >/dev/null
 assert_eq "listen_speech.legacy_state" "ready" "$(jq -r '.state // "ready"' <<<"$lout")" "legacy envelope still yields a ready record"
 assert_eq "listen_speech.legacy_source" "caption" "$(jq -r '.meta.transcript_source' <<<"$lout")" "legacy fallback pulled the caption cues"
@@ -70,7 +74,7 @@ esac
 
 # 4) caption outage on a legacy envelope: the summary may stand in ONLY with an
 # explicit marker
-fout="$(FAKE_TC_WATCH=nospeech FAKE_TC_CAPTION=fail OVERCAST_TINYCLOUD_CMD="$FAKE_TC" $OVERCAST listen "$wav" --json --case "$casedir" 2>/dev/null)"
+fout="$(FAKE_TC_WATCH=nospeech FAKE_TC_CAPTION=fail OVERCAST_TINYCLOUD_CMD="$FAKE_TC" $OVERCAST listen "$wav" --json --case "$casedir" --home "$lshome" 2>/dev/null)"
 save_json "phase2_listen_speech_fallback" "$fout" >/dev/null
 assert_eq "listen_speech.fallback_state" "ready" "$(jq -r '.state // "ready"' <<<"$fout")" "caption outage still yields a ready record"
 assert_eq "listen_speech.fallback_source" "summary" "$(jq -r '.meta.transcript_source' <<<"$fout")" "summary fallback is marked transcript_source=summary"

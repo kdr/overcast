@@ -282,7 +282,7 @@ Full setup, secure-origin voice, fallbacks, and the report anatomy →
 
 ## Verbs
 
-overcast is ~35 verbs across four groups; each is a standalone CLI command that
+overcast is ~40 verbs across four groups; each is a standalone CLI command that
 emits a portable JSON **record**:
 
 - **Senses** (media → records) — `watch` `listen` `see` `face` `image` `audio`
