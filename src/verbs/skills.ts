@@ -126,6 +126,9 @@ const SHIPPED_SKILLS = [
   "overcast-verify-media",
   "overcast-skip-trace",
   "overcast-audio-match",
+  "overcast-bolo",
+  "overcast-canvass",
+  "overcast-follow-the-money",
 ] as const;
 
 /** Harnesses `skills install` knows how to target. */
