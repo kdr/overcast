@@ -205,6 +205,16 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   local-solar-time window(s) a shadow bearing implies on `--date`; location from
   `--lat`/`--lng` or a linked record's `payload.gps`; carries `payload.gps` (plots on
   `map`) + `payload.caveat` — a lead, not proof).
+- **Deliberately out of scope — no deception detection.** overcast does not and
+  will not ship deception detection, voice-stress analysis, or micro-expression
+  "lie detection". The underlying methods are not scientifically validated; a
+  verb emitting "72% likely lying" would be confident-sounding junk, the exact
+  opposite of the honesty bar the senses already hold (`voice` disclaims
+  liveness + carries `payload.caveat`; `reconstruct` is quarantined out of
+  evidence). This is a permanent, principled exclusion — not a roadmap gap, not
+  "coming soon". For DESCRIPTIVE acoustics (tone, ambience, the audio scene)
+  use `listen --describe`; for WHO is speaking (identity, never truthfulness)
+  use `voice`.
 - **Inspect** — `view` (self-contained HTML media player; `--at`, `--spectrogram`,
   `--no-open`; on an `enhance` split-op parent it renders a GALLERY of the fanned-out
   children — per-track audio + spectrograms for `separate`, cutouts for `segment`,
