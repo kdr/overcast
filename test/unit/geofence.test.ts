@@ -153,6 +153,8 @@ test("geofence: flag validation errors (missing fence, both fences, malformed va
     assert.match((await run(c, { bbox: "-1,170,1,-170" })).error!, /invalid --bbox/); // wrapping box
     assert.match((await run(c, { near: "1,2", radius: -5 })).error!, /invalid --radius/);
     assert.match((await run(c, { radius: 100 })).error!, /--radius requires --near/);
+    // a stray --radius alongside a valid --bbox is IGNORED, not a hard error (Bugbot #134)
+    assert.equal((await run(c, { bbox: "0,0,1,1", radius: 100 })).error, undefined);
     assert.match((await run(c, { near: "1,2", since: "not-a-date" })).error!, /invalid --since/);
     assert.match((await run(c, { near: "1,2", until: "nope" })).error!, /invalid --until/);
     assert.match((await run(c, { near: "1,2", limit: 0 })).error!, /invalid --limit/);

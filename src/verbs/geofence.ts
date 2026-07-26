@@ -27,7 +27,10 @@ export function resolveSpatialFlags(opts: Record<string, string | number | boole
   const nearRaw = opts.near != null ? String(opts.near) : "";
   const bboxRaw = opts.bbox != null ? String(opts.bbox) : "";
   if (nearRaw && bboxRaw) return { error: "--near and --bbox are mutually exclusive (pick one)" };
-  if (opts.radius != null && !nearRaw) return { error: "--radius requires --near <lat,lng>" };
+  // --radius only applies to circle (--near) mode; a stray --radius alongside
+  // --bbox is ignored (box mode does its own bounds), never a hard error. Only
+  // reject it when there is no fence at all for it to attach to.
+  if (opts.radius != null && !nearRaw && !bboxRaw) return { error: "--radius requires --near <lat,lng>" };
   if (bboxRaw) {
     const bbox = parseBboxArg(bboxRaw);
     if (!bbox) return { error: `invalid --bbox '${bboxRaw}' (expected minLat,minLng,maxLat,maxLng — WGS84, min <= max per axis, non-wrapping)` };
@@ -155,15 +158,14 @@ export const geofenceVerb: VerbSpec = {
     const counts: Record<string, number> = {};
     for (const m of matches) counts[m.verb] = (counts[m.verb] ?? 0) + 1;
 
-    const hasWindow = sinceCutoff != null || untilCutoff != null;
     const note =
       total > 0
         ? undefined
         : gpsTotal === 0
           ? "no GPS-bearing records — run `exif <media>` on media with embedded GPS, or scan a geo source (dispatch/firms/flights/overpass)"
           : spaceMatchOutsideWindow > 0
-            ? `${gpsTotal} GPS-bearing record${gpsTotal === 1 ? "" : "s"} in the case; ${spaceMatchOutsideWindow} fall inside the area but outside the --since/--until window — widen (or drop) the time window, or widen --radius/--bbox`
-            : `${gpsTotal} GPS-bearing record${gpsTotal === 1 ? "" : "s"} in the case, but none fall inside the area — widen --radius/--bbox${hasWindow ? " (the --since/--until window excluded nothing spatially in range)" : ""}`;
+            ? `${gpsTotal} GPS-bearing record${gpsTotal === 1 ? "" : "s"} in the case; ${spaceMatchOutsideWindow} fall inside the area but outside the --since/--until window — widen (or drop) the time window (they already pass the fence, so widening --radius/--bbox won't add them)`
+            : `${gpsTotal} GPS-bearing record${gpsTotal === 1 ? "" : "s"} in the case, but none fall inside the area — widen --radius/--bbox`;
 
     return [
       makeRecord({
