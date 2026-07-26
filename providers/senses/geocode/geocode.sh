@@ -18,6 +18,9 @@ set -uo pipefail
 
 UA="${OVERCAST_GEOCODE_UA:-overcast-osint/1.0 (geocode; set OVERCAST_GEOCODE_UA to identify)}"
 URL="${OVERCAST_GEOCODE_URL:-https://nominatim.openstreetmap.org}"
+# Forward-search path under $URL. Nominatim serves forward geocoding at /search;
+# a Photon endpoint uses /api — set OVERCAST_GEOCODE_FORWARD_PATH=api for Photon.
+FWD_PATH="${OVERCAST_GEOCODE_FORWARD_PATH:-search}"; FWD_PATH="${FWD_PATH#/}"
 
 need_deps() {
   for bin in curl jq; do
@@ -44,7 +47,7 @@ while [ "$#" -gt 0 ]; do case "$1" in
 esac; done
 need_deps
 
-# --- forward mode: address -> {lat,lng,place} (Nominatim /search) ------------
+# --- forward mode: address -> {lat,lng,place} (Nominatim /search, Photon /api) -
 if [ "$forward" = 1 ]; then
   q="$query"; [ -z "$q" ] && q="$input"
   q="$(printf '%s' "$q" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -56,7 +59,7 @@ if [ "$forward" = 1 ]; then
   fresp="$(curl -fsS -m 20 -A "$UA" --get \
     --data-urlencode "q=$q" --data-urlencode "format=jsonv2" \
     --data-urlencode "limit=1" --data-urlencode "addressdetails=1" \
-    "$URL/search" 2>"$ferrf")"; fcode=$?
+    "$URL/$FWD_PATH" 2>"$ferrf")"; fcode=$?
   ferr="$(cat "$ferrf")"; rm -f "$ferrf"
   if [ "$fcode" -ne 0 ]; then
     jq -nc --arg q "$q" --arg e "$ferr" \
@@ -77,13 +80,13 @@ if [ "$forward" = 1 ]; then
   # unmet.
   printf '%s' "$fresp" | jq -c --arg q "$q" '
     (if type=="array" then (.[0] // null)
-     elif (type=="object" and has("features") and (.features|length>0)) then .features[0]
+     elif (type=="object" and has("features") and (.features|type=="array") and (.features|length>0)) then .features[0]
      else null end) as $h
     | (if ($h|type)=="object" then $h else {} end) as $o
     | (try ($o.lat|tonumber) catch null) as $latA
     | (try ($o.lon|tonumber) catch null) as $lngA
-    | (try ($o.geometry.coordinates[1]) catch null) as $latB
-    | (try ($o.geometry.coordinates[0]) catch null) as $lngB
+    | (try ($o.geometry.coordinates[1]|tonumber) catch null) as $latB
+    | (try ($o.geometry.coordinates[0]|tonumber) catch null) as $lngB
     | (if ($latA|type)=="number" then $latA elif ($latB|type)=="number" then $latB else null end) as $lat
     | (if ($lngA|type)=="number" then $lngA elif ($lngB|type)=="number" then $lngB else null end) as $lng
     | (if ($o|has("display_name")) then "nominatim" else "photon" end) as $prov

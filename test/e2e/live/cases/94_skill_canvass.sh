@@ -25,15 +25,18 @@ RADIUS=1200
 
 # 1) skill step: forward-geocode an address -> a point (keyless Nominatim)
 cond "canvass skill: geocode --query forward-resolves an address to a numeric point"
-gout="$(bash "$GEOCODE_SH" --query "350 Fifth Ave, New York, NY" 2>/dev/null)"
+gout="$(bash "$GEOCODE_SH" --query "350 Fifth Ave, New York, NY" 2>/dev/null)"; grc=$?
 save_json "94_canvass_geocode" "$gout" >/dev/null
 gstate="$(echo "$gout" | jq -r '.state // ""' 2>/dev/null)"
 glat="$(echo "$gout" | jq -r '.payload.lat // empty' 2>/dev/null)"
 glng="$(echo "$gout" | jq -r '.payload.lng // empty' 2>/dev/null)"
-# A provider ERROR must not pass as a skip (matches the overpass leg + this file's
-# header): an error means the geocode script regressed, not that the address is
-# absent. Only a clean no-match (state:ready, no coords) is the skippable "empty".
-if [ "$gstate" = "error" ]; then
+# A provider ERROR or a CRASH (non-zero exit / empty / non-JSON output) must not
+# pass as a skip (matches the overpass leg + this file's header): both mean the
+# geocode script regressed, not that the address is absent. Only a clean no-match
+# (state:ready, no coords) is the skippable "empty" case.
+if [ "$grc" -ne 0 ] || [ -z "$gout" ] || ! echo "$gout" | jq -e . >/dev/null 2>&1; then
+  fail "$C.geocode" "forward geocode crashed / emitted no JSON record (exit=$grc)"
+elif [ "$gstate" = "error" ]; then
   gerr="$(echo "$gout" | jq -r '.error // "unknown error"' 2>/dev/null)"
   fail "$C.geocode" "forward geocode errored (not a clean no-match): $gerr"
 elif [ -n "$glat" ] && echo "$glat" | grep -Eq '^-?[0-9]+(\.[0-9]+)?$'; then
