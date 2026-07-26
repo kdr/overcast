@@ -109,7 +109,12 @@ w="$(oc "$CASE" wall --export "$WHTML" --theme csi --refresh 60 --no-open --json
 if [ -s "$WHTML" ] && grep -q 'data-csi-wall="true"' "$WHTML"; then
   ok "$C.wall" "CSI monitor wall exported: $WHTML ($(wc -c <"$WHTML" | tr -d ' ') bytes)"
 else
-  # a wall with no video tiles (image-only reference case) still emits a ready
-  # record; only fail if the verb itself errored.
-  assert_eq "$C.wall" "ready" "$(echo "$w" | jq -r '.state')" "wall verb ready"
+  # a wall with no video tiles (an image-only reference case) is a legitimate
+  # empty wall: wall.ts emits state:"pending" (no HTML) for zero registerable
+  # videos/tiles, or "ready" if tiles exist. Either is fine — only a hard error fails.
+  ws="$(echo "$w" | jq -r '.state')"
+  case "$ws" in
+    ready|pending) ok "$C.wall" "wall verb $ws (image-only reference → empty CSI wall is expected)" ;;
+    *)             fail "$C.wall" "wall verb state=$ws (expected ready or pending)" ;;
+  esac
 fi
