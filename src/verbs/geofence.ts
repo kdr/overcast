@@ -114,6 +114,9 @@ export const geofenceVerb: VerbSpec = {
     }
     const hits: Array<{ match: Match; t: number }> = [];
     let gpsTotal = 0;
+    // records that passed the spatial fence but were dropped by the time window —
+    // lets the empty-state note tell a spatial miss from a temporal one.
+    let spaceMatchOutsideWindow = 0;
     for (const rec of ctx.case.records()) {
       if (!isReady(rec)) continue;
       const payload = rec.payload && typeof rec.payload === "object" && !Array.isArray(rec.payload) ? (rec.payload as Record<string, unknown>) : undefined;
@@ -126,8 +129,8 @@ export const geofenceVerb: VerbSpec = {
       // undated ones (NaN — they can't be excluded by time), like map/wall.
       const t = recordCaptureTimeMs(rec);
       if (!Number.isNaN(t)) {
-        if (sinceCutoff != null && t < sinceCutoff) continue;
-        if (untilCutoff != null && t > untilCutoff) continue;
+        if (sinceCutoff != null && t < sinceCutoff) { spaceMatchOutsideWindow++; continue; }
+        if (untilCutoff != null && t > untilCutoff) { spaceMatchOutsideWindow++; continue; }
       }
       const at = rec.media?.at;
       hits.push({
@@ -152,12 +155,15 @@ export const geofenceVerb: VerbSpec = {
     const counts: Record<string, number> = {};
     for (const m of matches) counts[m.verb] = (counts[m.verb] ?? 0) + 1;
 
+    const hasWindow = sinceCutoff != null || untilCutoff != null;
     const note =
       total > 0
         ? undefined
         : gpsTotal === 0
           ? "no GPS-bearing records — run `exif <media>` on media with embedded GPS, or scan a geo source (dispatch/firms/flights/overpass)"
-          : `${gpsTotal} GPS-bearing record${gpsTotal === 1 ? "" : "s"} in the case, but none intersect the fence — widen --radius/--bbox or the --since/--until window`;
+          : spaceMatchOutsideWindow > 0
+            ? `${gpsTotal} GPS-bearing record${gpsTotal === 1 ? "" : "s"} in the case; ${spaceMatchOutsideWindow} fall inside the area but outside the --since/--until window — widen (or drop) the time window, or widen --radius/--bbox`
+            : `${gpsTotal} GPS-bearing record${gpsTotal === 1 ? "" : "s"} in the case, but none fall inside the area — widen --radius/--bbox${hasWindow ? " (the --since/--until window excluded nothing spatially in range)" : ""}`;
 
     return [
       makeRecord({

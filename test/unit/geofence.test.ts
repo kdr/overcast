@@ -132,7 +132,9 @@ test("geofence: exif capture time (payload.created) drives the window, not inges
     c.writeRecord(geo({ verb: "exif", gps: SF, created: "2019:01:01 00:00:00", time: "2021-06-01T00:00:00Z", ref: "old_capture.jpg" }));
     const rec = await run(c, { near: `${SF.lat},${SF.lng}`, radius: 100, since: "2020-06-01" });
     assert.equal(rec.payload.count, 0);
-    assert.match(rec.payload.note, /none intersect the fence/);
+    // spatially inside the fence but excluded by the time window — the note must
+    // point at the window, not claim a spatial miss (Bugbot #134).
+    assert.match(rec.payload.note, /inside the area but outside the --since\/--until window/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -174,7 +176,7 @@ test("geofence: empty intersection is a clean ready record with targeted guidanc
     const missed = await run(c, { near: "10,10", radius: 500 });
     assert.equal(missed.state, "ready");
     assert.equal(missed.payload.gps_total, 1);
-    assert.match(missed.payload.note, /none intersect the fence/);
+    assert.match(missed.payload.note, /none fall inside the area/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
