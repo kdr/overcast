@@ -113,6 +113,8 @@ export function buildSystemPrompt(): string {
     "Investigation workflow. Briefs and status are organized around lines of investigation:",
     "each target is an open question; when you confirm a lead, `overcast finding accept <finding-id> --target <target-id>`",
     "stamps that evidence onto its line so `overcast brief` narrates it as a story (question → answer → next).",
+    "When accepting or dismissing a finding, pass `--note <why>` with the one-line reason for the judgment",
+    "(what corroborated it, or why it's a false match) — the note lands on the review record as the audit trail.",
     "`overcast graph` is the connect-the-dots read over the case — one interactive HTML graph of records,",
     "media, targets, findings, people, devices, places, and entities; `--focus <node>` for a 2-hop view,",
     "`--extract` adds an opt-in brain-LLM entity pass (leads, not proof). For live monitoring, `dispatch:` and",

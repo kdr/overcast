@@ -363,8 +363,13 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
   triggers (face ≥75, image RANSAC, similar ≥85, cluster ≥70, voice ≥80, audio fingerprint,
   target-phrase matches) emit `status:"suggested"` leads that stay OUT of ask/brief evidence
   until reviewed — `finding list --state triage` queues them, `accept` promotes a
-  lead to evidence (`--target <id|value>` stamps it onto a line of investigation),
-  `dismiss` rejects it (never re-fires). Mode is
+  lead to evidence (`--target <id|value>` stamps it onto a line of investigation,
+  `--note <why>` records the review rationale on the review record),
+  `dismiss` rejects it (never re-fires). Only AUTOMATED leads are quarantined:
+  `finding create` is the operator's own promotion — an `open` finding that is
+  evidence immediately (deliberate + attributed + reversible, not reviewed;
+  `meta.provider` = `human` from the CLI/TUI vs `agent` via the agent tool,
+  review rows `human-review`/`agent-review`). Mode is
   `setup.findings` (`suggest` default | `review` legacy | `off`), thresholds via
   `case setup --findings-threshold`. `prebrief` stands up name+target+source in
   one shot.

@@ -873,7 +873,7 @@ Emits `note` records.
 
 ### `overcast finding`
 
-Creates manual findings and lists/reviews automated findings. Score/text triggers emit `suggested` findings (leads) that stay OUT of memory/brief evidence until reviewed — `finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). Review records reference the original finding; dismissed findings remain auditable.
+Creates manual findings and lists/reviews automated findings. Score/text triggers emit `suggested` findings (leads) that stay OUT of memory/brief evidence until reviewed — `finding list --state triage` queues them newest-first, `accept` promotes a lead into evidence, `dismiss` rejects it (a dismissed suggestion never re-fires for the same match). Review records reference the original finding; dismissed findings remain auditable. NOTE the asymmetry: only AUTOMATED leads are quarantined. `finding create` is the operator's own promotion act — it writes an `open` finding that is evidence immediately, with no review step. The guarantee is deliberate + attributed + reversible, not reviewed: meta.provider records who ran it (`human` at the CLI/TUI, `agent` via the agent tool), `--note` on accept/dismiss records why, and `dismiss` retracts a created finding from evidence.
 
 ```
 overcast finding [action] [id] [options]
@@ -887,6 +887,7 @@ Arguments:
 Options:
   --state <string>       list: open | suggested | accepted | dismissed | all | triage (open+suggested), or a comma-list
   --target <string>      create/accept/dismiss: the target line this finding supports (id or value; stamps target_id so it renders in that line of investigation)
+  --note <string>        accept/dismiss: why — the review rationale, recorded on the review record for the audit trail
   --ref <string>         create: source record id, capture id, media path, or URL
   --at <string>          create: evidence timestamp seconds, hh:mm:ss, or start-end
   --confidence <string>  create: confidence marker or score
