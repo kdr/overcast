@@ -61,6 +61,9 @@ export const OPERATIONAL_VERBS: ReadonlySet<string> = new Set([
   "collection",
   "devices",
   "doctor",
+  // geofence restates the gps-bearing evidence it intersects (like map) —
+  // the query result is a viewer/rollup, never re-cited as evidence itself.
+  "geofence",
   // graph restates evidence records as a rollup viewer (like map/devices) —
   // its node/edge dump must never be re-cited as evidence itself.
   "graph",
