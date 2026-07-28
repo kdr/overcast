@@ -174,14 +174,27 @@ is the annotated template. Highlights:
 > **Where a `.env` is honored.** overcast auto-loads `.env` from the working
 > directory and from `--case <dir>`. Those are routinely someone else's content
 > (a cloned repo, a downloaded dataset, a shared case folder), so from an
-> **untrusted** directory the keys that choose a *binary to spawn* or an
-> *endpoint to send a credential to* are ignored — `*_CMD`, `*_PY`, `*_BIN`,
-> `*_BASE_URL`, `*_ENDPOINT`, `*_API`, `*_HOST`, `*_ACTOR`, `OVERCAST_FFMPEG`,
-> `OVERCAST_FFPROBE`, `OVERCAST_HOME`, `PLAYWRIGHT_*`. Everything else still
-> loads, and a warning names exactly what was skipped. **Trusted roots** (full
-> power, no warning): the overcast package root — which is why the repo's own
-> `.env` keeps working for dev and e2e — and `OVERCAST_HOME`. Set
-> `OVERCAST_TRUST_DOTENV=1` to opt any other directory back in.
+> **untrusted** directory the *privileged* variables are ignored — four classes:
+>
+> 1. **overcast's own security switches** — `OVERCAST_TRUST_DOTENV`,
+>    `OVERCAST_ALLOW_PRIVATE_FETCH`, `OVERCAST_NO_DOTENV`,
+>    `OVERCAST_TINYCLOUD_DIRECT_EGRESS`, `OVERCAST_HOME`, `OVERCAST_FFMPEG`,
+>    `OVERCAST_FFPROBE`. (Blocking `OVERCAST_TRUST_DOTENV` here is what stops a
+>    dotenv promoting *itself* to trusted and then setting everything below.)
+> 2. **Code injection** into overcast or anything it spawns — `NODE_OPTIONS`,
+>    `NODE_EXTRA_CA_CERTS`, `PATH`, `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`,
+>    `PYTHONPATH`, `BASH_ENV`, `GIT_SSH_COMMAND`, ….
+> 3. **Traffic redirection** — `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`,
+>    `NO_PROXY` (either case).
+> 4. **Command / endpoint selection** — `*_CMD`, `*_PY`, `*_BIN`, `*_EXE`,
+>    `*_BASE_URL`, `*_ENDPOINT`, `*_API`, `*_URL`, `*_HOST`, `*_ACTOR`,
+>    `PLAYWRIGHT_*`.
+>
+> Everything else — API keys, media paths, tuning — still loads, and a warning
+> names exactly what was skipped. **Trusted roots** (full power, no warning): the
+> overcast package root, which is why the repo's own `.env` keeps working for dev
+> and e2e, and `OVERCAST_HOME`. Set `OVERCAST_TRUST_DOTENV=1` **in the real
+> environment** (not in a dotenv) to opt another directory back in.
 
 **Default perception (tinycloud / Cloudglue)**
 - `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)

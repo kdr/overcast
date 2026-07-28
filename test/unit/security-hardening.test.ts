@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -183,21 +183,65 @@ test("F9: a case setup may still SELECT a catalog provider", async () => {
 
 // --- F13: an untrusted dotenv cannot redirect calls or pick binaries -------
 
-test("F13: command/endpoint keys are classified as sensitive", () => {
+test("F13: privileged keys are classified as sensitive, ordinary ones are not", () => {
   for (const k of [
-    "CLOUDGLUE_BASE_URL",
-    "HF_ENHANCE_ENDPOINT",
-    "OVERCAST_TINYCLOUD_CMD",
-    "OC_VISUAL_DB_PY",
-    "OVERCAST_FFMPEG",
-    "OVERCAST_TELEGRAM_ACTOR",
-    "BTC_API",
+    // overcast's own security switches — the escalation vector
+    "OVERCAST_TRUST_DOTENV", "OVERCAST_ALLOW_PRIVATE_FETCH", "OVERCAST_NO_DOTENV",
+    "OVERCAST_TINYCLOUD_DIRECT_EGRESS", "OVERCAST_HOME", "OVERCAST_FFMPEG", "OVERCAST_FFPROBE",
+    // code injection into this process or its children
+    "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "PATH",
+    "PYTHONPATH", "BASH_ENV", "GIT_SSH_COMMAND",
+    // traffic redirection (both cases — curl and Node honour lowercase too)
+    "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "ALL_PROXY", "NO_PROXY",
+    // command / interpreter and endpoint selection
+    "OVERCAST_TINYCLOUD_CMD", "OC_VISUAL_DB_PY", "DETECT_PY", "CLOUDGLUE_BASE_URL",
+    "HF_ENHANCE_ENDPOINT", "BTC_API", "OVERCAST_TELEGRAM_ACTOR", "OC_E2E_MEDIA_URL",
+    "PLAYWRIGHT_BROWSERS_PATH", "overcast_trust_dotenv",
   ]) {
     assert.equal(isSensitiveDotEnvKey(k), true, `${k} should be sensitive`);
   }
-  for (const k of ["ANTHROPIC_API_KEY", "APIFY_TOKEN", "OC_VIDEO_SMALL", "OVERCAST_CASE"]) {
+  for (const k of [
+    "ANTHROPIC_API_KEY", "APIFY_TOKEN", "CLOUDGLUE_API_KEY", "OC_VIDEO_SMALL", "OVERCAST_CASE",
+    "SERPER_API_KEY", "HF_TOKEN", "OC_TIMEOUT", "OC_CLIP_TEXT", "FAL_KEY",
+  ]) {
     assert.equal(isSensitiveDotEnvKey(k), false, `${k} should NOT be sensitive`);
   }
+});
+
+test("F13: an untrusted dotenv cannot promote itself to trusted (two-stage escalation)", async () => {
+  // The real shape: cli.ts calls loadDotEnv(cwd) then loadDotEnv(caseDir,
+  // {override:true}). If stage 1 could set OVERCAST_TRUST_DOTENV, stage 2 would
+  // be treated as trusted and could then set endpoint/command vars AND turn the
+  // SSRF guard off. (Caught by Cursor Bugbot on PR #139.)
+  await withTmp("oc-sec-escalate-", async (root) => {
+    const cwd = join(root, "cwd");
+    const kase = join(root, "case");
+    mkdirSync(cwd);
+    mkdirSync(kase);
+    writeFileSync(join(cwd, ".env"), "OVERCAST_TRUST_DOTENV=1\n");
+    writeFileSync(
+      join(kase, ".env"),
+      "CLOUDGLUE_BASE_URL=https://collector.attacker.tld\nOVERCAST_ALLOW_PRIVATE_FETCH=1\n",
+    );
+    for (const k of ["OVERCAST_TRUST_DOTENV", "CLOUDGLUE_BASE_URL", "OVERCAST_ALLOW_PRIVATE_FETCH"]) {
+      delete process.env[k];
+    }
+    try {
+      loadDotEnv(cwd);
+      loadDotEnv(kase, { override: true });
+      assert.equal(process.env.OVERCAST_TRUST_DOTENV, undefined, "stage 1 must not self-promote");
+      assert.equal(process.env.CLOUDGLUE_BASE_URL, undefined, "stage 2 must stay untrusted");
+      assert.equal(
+        process.env.OVERCAST_ALLOW_PRIVATE_FETCH,
+        undefined,
+        "the SSRF guard must not be switchable from a dotenv",
+      );
+    } finally {
+      for (const k of ["OVERCAST_TRUST_DOTENV", "CLOUDGLUE_BASE_URL", "OVERCAST_ALLOW_PRIVATE_FETCH"]) {
+        delete process.env[k];
+      }
+    }
+  });
 });
 
 test("F13: an untrusted dotenv's endpoint override is ignored, ordinary keys load", async () => {

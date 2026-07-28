@@ -51,14 +51,18 @@ documented**. Understanding the trust model helps you report real issues:
   `/chair` bind to `127.0.0.1` by default and require a 256-bit bearer token.
   Binding to a wider interface (`--bind`, `tailnet`, `OVERCAST_*_BIND`) is an
   explicit operator choice; do it only on networks you trust.
-- **A dotenv outside a trusted root cannot pick binaries or endpoints.** overcast
-  auto-loads `.env` from the working directory and from `--case <dir>`, which are
-  routinely someone else's content. Command/interpreter and endpoint keys
-  (`*_CMD`, `*_PY`, `*_BASE_URL`, `*_ENDPOINT`, `*_API`, `*_ACTOR`,
-  `OVERCAST_FFMPEG`, …) are **ignored** from such a file, with a warning naming
-  what was skipped; ordinary keys still load. The overcast package root and
-  `OVERCAST_HOME` are trusted, and `OVERCAST_TRUST_DOTENV=1` opts any directory
-  back in.
+- **A dotenv outside a trusted root cannot pick binaries, endpoints, or
+  security settings.** overcast auto-loads `.env` from the working directory and
+  from `--case <dir>`, which are routinely someone else's content. Privileged
+  keys are **ignored** from such a file, with a warning naming what was skipped:
+  overcast's own switches (`OVERCAST_TRUST_DOTENV`, `OVERCAST_ALLOW_PRIVATE_FETCH`,
+  `OVERCAST_FFMPEG`, …), code-injection vectors (`NODE_OPTIONS`, `PATH`,
+  `LD_PRELOAD`, …), proxies, and command/endpoint selectors (`*_CMD`, `*_PY`,
+  `*_BASE_URL`, `*_ENDPOINT`, `*_API`, `*_ACTOR`, …). Ordinary keys still load.
+  The overcast package root and `OVERCAST_HOME` are trusted; setting
+  `OVERCAST_TRUST_DOTENV=1` **in the real environment** opts another directory
+  back in — it is deliberately not settable from a dotenv, which would let one
+  promote itself. See [`docs/configuration.md`](docs/configuration.md).
 - **A case directory selects providers, it does not supply commands.** A case's
   `.overcast/setup.json` may name a provider `choice`; the executable descriptor
   is resolved from the trusted catalog/manifest corpus or your profile in

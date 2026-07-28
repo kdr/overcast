@@ -36,8 +36,34 @@ function unquoteEnvValue(value: string): string {
  * explicit OVERCAST_TRUST_DOTENV=1) keeps its full power — that is the dev/e2e
  * workflow. Anywhere else these keys are skipped, loudly.
  */
-const SENSITIVE_DOTENV_KEY_RE =
-  /(?:^|_)(?:CMD|PY|BIN|EXE|EXECUTABLE)$|_(?:BASE_URL|ENDPOINT|API|APIURL|HOST|ACTOR)$|^OVERCAST_(?:FFMPEG|FFPROBE|HOME)$|^PLAYWRIGHT_/;
+const SENSITIVE_DOTENV_KEY_RE = new RegExp(
+  [
+    // 1. overcast's OWN security switches. These come first because they are the
+    //    escalation vector: a dotenv that can set OVERCAST_TRUST_DOTENV promotes
+    //    itself (and every later dotenv) to trusted, which re-opens all of the
+    //    below — and OVERCAST_ALLOW_PRIVATE_FETCH simply turns the SSRF guard off.
+    "^OVERCAST_(TRUST_DOTENV|ALLOW_PRIVATE_FETCH|NO_DOTENV|TINYCLOUD_DIRECT_EGRESS|HOME|FFMPEG|FFPROBE)$",
+    // 2. code injected into THIS process or anything it spawns.
+    "^(?:" +
+      [
+        "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "BASH_ENV", "ENV", "PATH",
+        "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+        "PYTHONPATH", "PYTHONSTARTUP", "PERL5LIB", "RUBYOPT", "GIT_SSH", "GIT_SSH_COMMAND",
+      ].join("|") +
+      ")$",
+    // 3. traffic redirection — points credentialed calls at a host of the
+    //    directory's choosing without naming any single provider's endpoint var.
+    "(^|_)(HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|FTP_PROXY)$",
+    // 4. command / interpreter selection (which binary actually runs).
+    "(^|_)(CMD|PY|BIN|EXE|EXECUTABLE|INTERPRETER|SHELL)$",
+    // 5. endpoint selection (where a credentialed call is sent).
+    "_(BASE_URL|ENDPOINT|API|APIURL|URL|HOST|ACTOR)$",
+    "^PLAYWRIGHT_",
+  ].join("|"),
+  // case-insensitive: the dotenv parser accepts lowercase names, and the proxy
+  // variables in particular are honored in both cases by curl and Node.
+  "i",
+);
 
 export function isSensitiveDotEnvKey(key: string): boolean {
   return SENSITIVE_DOTENV_KEY_RE.test(key);
@@ -108,9 +134,11 @@ export function loadDotEnv(dir = process.cwd(), opts: { override?: boolean } = {
     }
     if (skipped.length) {
       process.stderr.write(
-        `overcast: ignoring ${skipped.length} command/endpoint variable(s) from an untrusted dotenv ${file}: ` +
+        `overcast: ignoring ${skipped.length} privileged variable(s) from an untrusted dotenv ${file}: ` +
           `${skipped.join(", ")}\n` +
-          `  (they can redirect API calls or choose which binary runs — set OVERCAST_TRUST_DOTENV=1 to honor them)\n`,
+          `  (these choose which binary runs, where credentialed calls go, or whether\n` +
+          `   overcast's own guards apply — set OVERCAST_TRUST_DOTENV=1 in the real\n` +
+          `   environment to honor them)\n`,
       );
     }
   }
