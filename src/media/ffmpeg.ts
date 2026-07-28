@@ -55,7 +55,11 @@ export const FFPROBE_PATH = resolveTool("OVERCAST_FFPROBE", "ffprobe");
  */
 export function assertLocalMediaInput(input: string, what = "input"): void {
   if (existsSync(input)) return;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(input)) {
+  // A scheme needs at least TWO characters before the colon. A one-character
+  // prefix is a Windows drive letter (`C:\clip.mp4`), not a protocol — matching
+  // it would turn "file not found" into a bogus "non-local" refusal there. No
+  // real ffmpeg protocol is single-letter.
+  if (/^[a-z][a-z0-9+.-]+:/i.test(input)) {
     throw new Error(
       `refusing to hand a non-local ${what} to ffmpeg (${input}) — download it into the case first`,
     );

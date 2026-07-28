@@ -222,7 +222,10 @@ export class SituationServerManager implements vscode.Disposable {
     const port = vscode.workspace.getConfiguration("overcast").get<number>("situation.port", 0);
     if (typeof port === "number" && port > 0) args.push("--port", String(port));
     this.setState({ phase: "starting", message: "Starting the situation server…" });
-    const spawnFloor = Date.now() - 2000; // clock cushion for the freshness check
+    // The port we ASSIGNED, when we assigned one — 0 means "server picks a free
+    // port", which we cannot know in advance. Used below to verify the runtime
+    // descriptor names our child's listener and not some other loopback one.
+    const assignedPort = typeof port === "number" && port > 0 ? port : undefined;
     const child = await this.deps.bridge.spawnLongLived(args, {
       caseDir,
       env: { OVERCAST_SITUATION_TOKEN: token },
@@ -275,7 +278,17 @@ export class SituationServerManager implements vscode.Disposable {
       // remote host was accepted as "our child" — and then handed the bearer
       // token as the panel's iframe origin. Require the real pid, and require the
       // URL to be loopback on the port we assigned.
-      if (rt && rt.pid === child.pid && isLoopbackHost(rt.bind) && (await runtimeLive(rt))) {
+      if (
+        rt &&
+        rt.pid === child.pid &&
+        isLoopbackHost(rt.bind) &&
+        // When we pinned a port, the descriptor must name THAT port — otherwise a
+        // raced rewrite keeping the real pid could point us at another loopback
+        // listener. With no pinned port the server chose one we can't predict, so
+        // the pid + loopback checks carry it.
+        (assignedPort === undefined || rt.port === assignedPort) &&
+        (await runtimeLive(rt))
+      ) {
         runtime = rt;
         break;
       }
@@ -295,9 +308,10 @@ export class SituationServerManager implements vscode.Disposable {
     // asExternalUri handles remote/SSH port forwarding; fragments are
     // client-side so we re-append after conversion. Desktop = passthrough.
     // Final gate before the token is bound to an origin: the URL we are about to
-    // frame must be loopback on the port we assigned. (readRuntime already
+    // frame must be loopback on the port we pinned — or, when we pinned none, on
+    // the port the (pid-verified) descriptor reports. (The readiness loop already
     // matched the pid; this catches a torn/raced rewrite of the same file.)
-    if (!isOwnLoopbackUrl(runtime.url, runtime.port)) {
+    if (!isOwnLoopbackUrl(runtime.url, assignedPort ?? runtime.port)) {
       this.stopping = true;
       child.kill("SIGTERM");
       this.setState({

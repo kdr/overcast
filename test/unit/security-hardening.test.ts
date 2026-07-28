@@ -75,6 +75,13 @@ test("F3: ffmpeg sink refuses protocol refs, allows real local files", () => {
   assert.doesNotThrow(() => assertLocalMediaInput("/tmp/seq_%03d.jpg"));
   // a plain missing path falls through to ffmpeg's own error (unchanged behaviour)
   assert.doesNotThrow(() => assertLocalMediaInput("/tmp/definitely-missing.mp4"));
+  // a Windows drive letter is a ONE-character prefix, not a scheme — a missing
+  // C:\clip.mp4 must still reach ffmpeg's "file not found", not a bogus
+  // "non-local" refusal. (Caught by Cursor Bugbot on PR #139.)
+  assert.doesNotThrow(() => assertLocalMediaInput("C:\\videos\\clip.mp4"));
+  assert.doesNotThrow(() => assertLocalMediaInput("d:/videos/clip.mp4"));
+  // ...while two-character-and-longer schemes are still refused
+  assert.throws(() => assertLocalMediaInput("ws://10.0.0.1/x"), /non-local/);
 });
 
 test("F3: grid refuses a remote input with an actionable error", async () => {
