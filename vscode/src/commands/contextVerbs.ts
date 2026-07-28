@@ -11,7 +11,7 @@
 //   chronolocate [input] --lat --lng (--at-time | --shadow-azimuth [--date])
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { htmlPathsInPayload } from "../lib/cliOutput.ts";
+import { generatedViewerPaths } from "../lib/cliOutput.ts";
 import type { ExtDeps, OvercastRecord } from "../types.ts";
 
 const VIDEO_EXT = /\.(mp4|mov|mkv|webm|avi|m4v|mpg|mpeg|ts)$/i;
@@ -67,7 +67,7 @@ async function runAndRoute(
     result.records.find((r) => r.verb === verb) ?? result.records[0];
   if (!rec) return;
   const fromField = opts.artifact?.(rec.payload);
-  const artifact = fromField ?? htmlPathsInPayload(rec.payload)[0];
+  const artifact = fromField ?? generatedViewerPaths(rec.payload)[0];
   if (artifact) {
     await deps.router.openArtifact(artifact, `${verb} — ${path.basename(artifact)}`);
   } else if (rec.id) {

@@ -22,6 +22,12 @@
 # when creds ARE set but the token exchange fails.
 # Implements: enumerate --query <q> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 STATES="https://opensky-network.org/api/states/all"
 TOKEN_URL="https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
 
@@ -235,7 +241,7 @@ case "$op" in
     [ -n "$url" ] || { echo "flights fetch needs --url" >&2; exit 1; }
     # a hit's ref is the aircraft-profile page — download it and report the kind
     # by content type (overcast sniffs a missing extension).
-    if ! ct="$(curl -fsSL -m 120 -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+    if ! ct="$(oc_guarded_fetch "$url" "$out" -m 120)" || [ ! -s "$out" ]; then
       echo "flights fetch failed for $url" >&2; rm -f "$out"; exit 1
     fi
     case "$ct" in

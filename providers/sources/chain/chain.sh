@@ -21,6 +21,12 @@
 # NO gps (money has no coordinates) — plot the trail on `graph`, not `map`.
 # Implements: enumerate --query <q> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 BTC_API="https://mempool.space/api"
 # Etherscan V2 (chainid-scoped). The legacy V1 host (api.etherscan.io/api with no
 # chainid) is being shut down, so use v2/api?chainid=1 — `chain:eth:` is Ethereum
@@ -280,7 +286,7 @@ case "$op" in
     # page, so report kind:"page" (mirrors overpass/firms fetch).
     page="${out}.html"
     case "$out" in *.html|*.htm) page="$out" ;; esac
-    if curl -fsSL -m 60 -H "User-Agent: $UA" -o "$page" "$url"; then
+    if oc_guarded_fetch "$url" "$page" -m 60 -H "User-Agent: $UA" >/dev/null; then
       jq -nc --arg p "$page" --arg u "$url" '{kind:"page",path:$p,source:"chain",url:$u}'
     else
       echo "chain fetch failed for $url" >&2; rm -f "$page"; exit 1

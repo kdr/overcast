@@ -18,6 +18,12 @@
 # `map`; media.ref is the openstreetmap.org element page so `capture` stores it.
 # Implements: enumerate --query <q> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 API="https://overpass-api.de/api/interpreter"
 # overpass-api.de rejects requests with no/blank User-Agent (HTTP 406, content
 # negotiation) — always send a real one. Override via OVERCAST_HTTP_UA.
@@ -191,7 +197,7 @@ case "$op" in
     [ -n "$url" ] || { echo "overpass fetch needs --url" >&2; exit 1; }
     # a hit's ref is an openstreetmap.org element page — curl it as evidence and
     # report the kind by content type (overcast sniffs a missing extension).
-    if ! ct="$(curl -fsSL -m 60 -H "User-Agent: $UA" -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+    if ! ct="$(oc_guarded_fetch "$url" "$out" -m 60 -H "User-Agent: $UA")" || [ ! -s "$out" ]; then
       echo "overpass fetch failed for $url" >&2; rm -f "$out"; exit 1
     fi
     case "$ct" in

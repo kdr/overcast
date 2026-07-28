@@ -12,6 +12,7 @@ import { openCase } from "../case.js";
 import { loadProfile, resolveHome } from "../profile.js";
 import type { OvercastRecord } from "../record.js";
 import { persistRecords } from "../registry/persist.js";
+import { sanitizeTerminalText } from "../text.js";
 import { nativeReportFormat, renderForFormat, renderRecord } from "../render.js";
 import type { VerbContext } from "../registry/types.js";
 import { maybeScheduleCaseClearReset } from "./case-clear-reset.js";
@@ -45,7 +46,9 @@ export function emitResult(pi: ExtensionAPI, text: string): void {
 export function registerSlashCommands(pi: ExtensionAPI): void {
   pi.registerMessageRenderer<{ text: string }>(RESULT_TYPE, (message, _opts, _theme): Component | undefined => {
     const text = (message.details?.text as string) ?? "";
-    return new Text(text);
+    // pi-tui preserves ANSI/CSI/OSC verbatim, and this text can carry scraped
+    // record content — strip cursor-control bytes before it is painted.
+    return new Text(sanitizeTerminalText(text));
   });
 
   for (const name of SLASH_VERBS) {

@@ -142,3 +142,19 @@ cond "doctor --sources reports the browser renderer check"
 dout="$(ocrun "$SCASE" doctor --sources --json 2>/dev/null | jq -s '.')"
 dbrowser="$(jq -r '.[] | .. | objects | select(.name? == "source:browser") | .ok' <<<"$dout" 2>/dev/null | head -1)"
 [ -n "$dbrowser" ] && ok "$C.doctor.browser" "doctor surfaces source:browser (ok=$dbrowser)" || skip "$C.doctor.browser" "doctor --sources json shape lacks source:browser (non-fatal)"
+
+# --- 7) SSRF: a 3xx hop out of a permitted origin must not be captured ---
+# Regression for the review finding that Playwright never re-invokes a route
+# handler for a redirect-produced request, so the engine's host check was skipped
+# on the hop. The probe reproduces the bypass, proves the shipped per-hop
+# validation catches it, and asserts render.mjs still carries that pattern.
+cond "screenshot engine validates every redirect hop (SSRF regression probe)"
+if probe_out="$(node "$PWD/test/e2e/live/ssrf-redirect-probe.mjs" 2>&1)"; then
+  if grep -q "SKIP:" <<<"$probe_out"; then
+    skip "$C.redirect_guard" "playwright not resolvable for the probe"
+  else
+    ok "$C.redirect_guard" "$(grep -c '  PASS' <<<"$probe_out") redirect-guard checks passed"
+  fi
+else
+  fail "$C.redirect_guard" "$(grep '  FAIL' <<<"$probe_out" | head -3 | tr '\n' ' ')"
+fi

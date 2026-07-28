@@ -33,6 +33,12 @@
 # a materialized screenshot); the host intel itself rides in the loose payload.
 # Implements: enumerate --query <q> [--limit N] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 
 SHODAN="${SHODAN_API_KEY:-}"
 API="https://api.shodan.io"
@@ -225,7 +231,7 @@ case "$op" in
     # fake-clean capture. Don't double the suffix when --out already ends in html.
     page="${out}.html"
     case "$out" in *.html|*.htm) page="$out" ;; esac
-    if curl -fsSL -m 60 -o "$page" "$url"; then
+    if oc_guarded_fetch "$url" "$page" -m 60 >/dev/null; then
       jq -nc --arg p "$page" --arg u "$url" '{kind:"page",path:$p,source:"shodan",url:$u}'
     else
       echo "shodan fetch failed for $url (host page may require login)" >&2

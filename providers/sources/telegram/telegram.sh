@@ -14,6 +14,20 @@
 # media.ref is the post's first media asset (or the post url as a fallback).
 # Strong monitor fit: `overcast monitor --source telegram --every 15m`.
 set -euo pipefail
+
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) + URL host parsing — see
+# providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
+# Hosts whose media assets this source will download. `mediaUrls[0]` comes
+# VERBATIM out of a third-party Apify actor's JSON — untrusted, and the value
+# that decides what we curl — so the fetch branch is gated on a parsed host,
+# exactly as x.sh gates twimg. Everything else is refused loudly.
+TELEGRAM_MEDIA_HOSTS=(t.me .t.me .telesco.pe .cdn-telegram.org .telegram.org telegram.org)
+
 op="${1:-enumerate}"; shift || true
 ACTOR="${OVERCAST_TELEGRAM_ACTOR:-webfinity~telegram-channel-content-media-scraper-v2}"
 
@@ -135,8 +149,16 @@ case "$op" in
       *) shift ;;
     esac; done
     [ -n "$url" ] || { echo "telegram fetch needs --url" >&2; exit 1; }
-    case "$url" in
-      *://t.me/*)
+    # Route on the PARSED host, not a `*://t.me/*` glob — that glob matches the
+    # string anywhere, so https://evil.example/?x=://t.me/ would have taken the
+    # yt-dlp branch.
+    urlhost="$(oc_url_host "$url")"
+    if ! oc_host_allowed "$urlhost" "${TELEGRAM_MEDIA_HOSTS[@]}"; then
+      echo "telegram fetch refuses a non-Telegram media host: $urlhost (from $url)" >&2
+      exit 1
+    fi
+    case "$urlhost" in
+      t.me|*.t.me)
         # a post page URL (no direct media asset) — yt-dlp handles t.me embeds
         if ! have_ytdlp; then
           echo "telegram fetch of a post page needs yt-dlp on PATH" >&2; exit 13
@@ -154,8 +176,10 @@ case "$op" in
           echo "telegram fetch failed for $url" >&2; exit 1
         fi ;;
       *)
-        # a direct media asset — plain download, kind by content type
-        if ! ct="$(curl -fsSL -m 180 -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+        # a direct media asset on an allowlisted Telegram CDN host — guarded
+        # download (scheme-pinned hops, bounded redirects, private-address
+        # refusal), kind by content type
+        if ! ct="$(oc_guarded_fetch "$url" "$out" -m 180)" || [ ! -s "$out" ]; then
           echo "telegram fetch failed for $url" >&2; rm -f "$out"; exit 1
         fi
         case "$ct" in

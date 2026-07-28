@@ -23,6 +23,13 @@
 # they hold across actors. Actors bill per result with a small per-query
 # minimum — prefer fewer, broader queries over many narrow ones.
 set -euo pipefail
+
+# shared outbound-fetch guard + URL host parsing — see
+# providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 op="${1:-enumerate}"; shift || true
 ACTOR="${OVERCAST_X_ACTOR:-kaitoeasyapi~twitter-x-data-tweet-scraper-pay-per-result-cheapest}"
 
@@ -166,15 +173,19 @@ case "$op" in
       --out) out="${2:-}"; shift 2 2>/dev/null || shift ;;
       *) shift ;;
     esac; done
-    case "$url" in
-      *://video.twimg.com/*|*://pbs.twimg.com/*)
-        # direct CDN asset (the media.ref enumerate emits) — plain download, no
+    # Route on the PARSED host: `*://video.twimg.com/*` matched the string
+    # ANYWHERE in the URL, so https://evil.example/?x=://pbs.twimg.com/ took the
+    # direct-download branch.
+    urlhost="$(oc_url_host "$url")"
+    case "$urlhost" in
+      video.twimg.com|pbs.twimg.com)
+        # direct CDN asset (the media.ref enumerate emits) — guarded download, no
         # X auth. overcast sniffs/renames a missing extension after the fetch.
-        if ! curl -fsSL -o "$out" "$url"; then
+        if ! oc_guarded_fetch "$url" "$out" >/dev/null; then
           echo "x fetch failed for $url" >&2; exit 1
         fi
         [ -s "$out" ] || { echo "x fetch produced an empty file for $url" >&2; exit 1; }
-        kind="video"; case "$url" in *://pbs.twimg.com/*) kind="image" ;; esac
+        kind="video"; [ "$urlhost" = "pbs.twimg.com" ] && kind="image"
         jq -nc --arg p "$out" --arg k "$kind" '{kind:$k,path:$p,source:"x"}' ;;
       *)
         # a post page URL — yt-dlp extracts the video (photos have no yt-dlp path;

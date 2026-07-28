@@ -43,7 +43,7 @@ import { renderForFormat } from "../render.js";
 import { detectTailnetAddr } from "../chair/net.js";
 import { qrLines } from "../chair/qr.js";
 import { emitResult } from "./slash.js";
-import { osOpen } from "../media/view.js";
+import { osOpenPrivateUrl } from "../media/view.js";
 
 const QR_WIDGET_KEY = "situation-qr";
 
@@ -220,7 +220,10 @@ export function registerSituation(pi: ExtensionAPI): SituationHandle {
       every: null,
       mode: "tui",
     });
-    if (opts.open !== false) osOpen(s.pairingUrl);
+    // NOT osOpen: the pairing URL carries the bearer token, and osOpen would put
+    // it in the browser's argv (world-readable /proc on Linux). Redirect through
+    // a 0600 temp document instead — the QR/banner below is the manual path.
+    if (opts.open !== false) osOpenPrivateUrl(s.pairingUrl);
     showQr();
     await showStatus();
   }

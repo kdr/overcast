@@ -14,6 +14,12 @@
 # downloads directly (full-show download is copyright-restricted; the clip
 # service and thumbnails are public).
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 API="https://api.gdeltproject.org/api/v2/tv/tv"
 
 op="${1:-enumerate}"; shift || true
@@ -125,7 +131,7 @@ case "$op" in
     [ -n "$url" ] || { echo "gdelttv fetch needs --url" >&2; exit 1; }
     # a hit's ref is a bounded IA clip mp4 (or a thumbnail jpg fallback) — curl it
     # and report the kind by content type (overcast sniffs a missing extension).
-    if ! ct="$(curl -fsSL -m 180 -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+    if ! ct="$(oc_guarded_fetch "$url" "$out" -m 180)" || [ ! -s "$out" ]; then
       echo "gdelttv fetch failed for $url" >&2; rm -f "$out"; exit 1
     fi
     case "$ct" in

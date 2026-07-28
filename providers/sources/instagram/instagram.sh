@@ -14,6 +14,12 @@
 # so `capture` downloads it without login; the post page URL rides in payload.url.
 # CDN URLs are short-lived — capture soon after scanning (scan --pull is ideal).
 set -euo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 op="${1:-enumerate}"; shift || true
 ACTOR="${OVERCAST_INSTAGRAM_ACTOR:-apify~instagram-scraper}"
 
@@ -143,7 +149,7 @@ case "$op" in
         fi ;;
       *)
         # direct CDN asset (image or video) — plain download, kind by content type
-        if ! ct="$(curl -fsSL -m 180 -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+        if ! ct="$(oc_guarded_fetch "$url" "$out" -m 180)" || [ ! -s "$out" ]; then
           echo "instagram fetch failed for $url" >&2; rm -f "$out"; exit 1
         fi
         case "$ct" in

@@ -23,11 +23,31 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** The exact origin of the URL we are framing, for the CSP. A blanket `https:`
+ *  frame-src meant that if anything ever produced a remote iframeUrl (a planted
+ *  runtime.json did — see situationServer's ownership checks) the CSP would not
+ *  stop it, and the page would receive the bearer token in its fragment. Narrow
+ *  frame-src to the ONE origin actually being framed. */
+function frameOrigin(iframeUrl: string | undefined): string | undefined {
+  if (!iframeUrl) return undefined;
+  try {
+    const u = new URL(iframeUrl);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
+    return u.origin;
+  } catch {
+    return undefined;
+  }
+}
+
 function html(state: SituationState): string {
   const n = nonce();
+  // asExternalUri can rewrite the loopback URL for remote/SSH port forwarding,
+  // so the origin is computed from the URL we will actually frame rather than
+  // hardcoded to 127.0.0.1. When there is nothing to frame, allow nothing.
+  const origin = state.phase === "running" ? frameOrigin(state.iframeUrl) : undefined;
   const csp = [
     "default-src 'none'",
-    "frame-src http://127.0.0.1:* http://localhost:* https:",
+    `frame-src ${origin ?? "'none'"}`,
     "style-src 'unsafe-inline'",
     `script-src 'nonce-${n}'`,
   ].join("; ");

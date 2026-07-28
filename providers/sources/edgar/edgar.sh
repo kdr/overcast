@@ -20,6 +20,12 @@
 # form / accession / cik / company in the payload. NO gps.
 # Implements: enumerate --query <q> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 SUB_API="https://data.sec.gov/submissions"
 FTS_API="https://efts.sec.gov/LATEST/search-index"
 # SEC REQUIRES a descriptive User-Agent carrying a CONTACT EMAIL (their fair-access
@@ -219,7 +225,7 @@ case "$op" in
     [ -n "$url" ] || { echo "edgar fetch needs --url" >&2; exit 1; }
     # a hit's ref is a filing document (HTML/txt) — curl it as evidence and report
     # the kind by content type (default page). SEC needs the descriptive UA here too.
-    if ! ct="$(curl -fsSL -m 60 -H "User-Agent: $UA" -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+    if ! ct="$(oc_guarded_fetch "$url" "$out" -m 60 -H "User-Agent: $UA")" || [ ! -s "$out" ]; then
       echo "edgar fetch failed for $url" >&2; rm -f "$out"; exit 1
     fi
     case "$ct" in

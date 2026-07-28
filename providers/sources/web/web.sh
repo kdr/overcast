@@ -6,6 +6,12 @@
 # contract: enumerate --query <q> [--limit N] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
 
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 TAVILY="${TAVILY_API_KEY:-}"
 BRAVE="${BRAVE_API_KEY:-}"
 
@@ -89,7 +95,10 @@ case "$op" in
     # --out already ends in .html/.htm (uniqueName preserves URL extensions).
     page="${out}.html"
     case "$out" in *.html|*.htm) page="$out" ;; esac
-    if curl -fsSL -m 60 -o "$page" "$url"; then
+    # oc_guarded_fetch: -fsSL plus scheme pinning on every hop, a bounded redirect
+    # chain, and a private/loopback refusal on the address curl actually reached —
+    # so a public URL that 302s to 169.254.169.254 never lands as case evidence.
+    if oc_guarded_fetch "$url" "$page" -m 60 >/dev/null; then
       jq -nc --arg p "$page" --arg u "$url" '{kind:"page",path:$p,source:"web",url:$u}'
     else
       echo "web fetch failed for $url" >&2

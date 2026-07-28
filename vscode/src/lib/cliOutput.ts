@@ -102,22 +102,27 @@ export function recordForVerb(
   return records.find((r) => r.verb === verb);
 }
 
-/** Collect every .html path mentioned in a record payload (artifact routing). */
-export function htmlPathsInPayload(payload: unknown): string[] {
+/**
+ * Paths of viewers the CLI DECLARES it generated: map/graph/wall/view →
+ * `payload.viewer`, grid → `payload.view`.
+ *
+ * This deliberately replaces a walk that treated ANY `.html`-looking string
+ * anywhere in a payload as an openable artifact. `capture <url>` on a generic
+ * host downloads the remote page verbatim and puts its path in `payload.path`,
+ * so that walk handed attacker-authored HTML to the artifact panel — which
+ * strips the page's CSP, injects `script-src 'unsafe-inline'`, and renders it
+ * with `enableScripts: true`. Only overcast's own report writer produces the
+ * fields read here; downloaded content is opened as a text document instead.
+ */
+const VIEWER_PAYLOAD_FIELDS = ["viewer", "view"] as const;
+
+export function generatedViewerPaths(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const p = payload as Record<string, unknown>;
   const found: string[] = [];
-  const walk = (v: unknown): void => {
-    if (typeof v === "string") {
-      if (/\.html?$/i.test(v) && !/^https?:/i.test(v)) found.push(v);
-      return;
-    }
-    if (Array.isArray(v)) {
-      for (const x of v) walk(x);
-      return;
-    }
-    if (v && typeof v === "object") {
-      for (const x of Object.values(v)) walk(x);
-    }
-  };
-  walk(payload);
+  for (const field of VIEWER_PAYLOAD_FIELDS) {
+    const v = p[field];
+    if (typeof v === "string" && v && /\.html?$/i.test(v) && !/^https?:/i.test(v)) found.push(v);
+  }
   return [...new Set(found)];
 }

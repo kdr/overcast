@@ -17,6 +17,12 @@
 # media.ref is a FIRMS fire-map deep link centered on the point.
 # Implements: enumerate --query <q> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 API="https://firms.modaps.eosdis.nasa.gov/api"
 KEY="${FIRMS_MAP_KEY:-}"
 DEFAULT_SOURCE="VIIRS_SNPP_NRT"
@@ -266,7 +272,7 @@ case "$op" in
     # detection). curl it as evidence; report the kind by content type.
     page="${out}.html"
     case "$out" in *.html|*.htm) page="$out" ;; esac
-    if curl -fsSL -m 60 -o "$page" "$url"; then
+    if oc_guarded_fetch "$url" "$page" -m 60 >/dev/null; then
       jq -nc --arg p "$page" --arg u "$url" '{kind:"page",path:$p,source:"firms",url:$u}'
     else
       echo "firms fetch failed for $url" >&2; rm -f "$page"; exit 1

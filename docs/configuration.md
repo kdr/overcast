@@ -171,6 +171,18 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 `overcast --help` prints the full, current list; [`.env.example`](../.env.example)
 is the annotated template. Highlights:
 
+> **Where a `.env` is honored.** overcast auto-loads `.env` from the working
+> directory and from `--case <dir>`. Those are routinely someone else's content
+> (a cloned repo, a downloaded dataset, a shared case folder), so from an
+> **untrusted** directory the keys that choose a *binary to spawn* or an
+> *endpoint to send a credential to* are ignored — `*_CMD`, `*_PY`, `*_BIN`,
+> `*_BASE_URL`, `*_ENDPOINT`, `*_API`, `*_HOST`, `*_ACTOR`, `OVERCAST_FFMPEG`,
+> `OVERCAST_FFPROBE`, `OVERCAST_HOME`, `PLAYWRIGHT_*`. Everything else still
+> loads, and a warning names exactly what was skipped. **Trusted roots** (full
+> power, no warning): the overcast package root — which is why the repo's own
+> `.env` keeps working for dev and e2e — and `OVERCAST_HOME`. Set
+> `OVERCAST_TRUST_DOTENV=1` to opt any other directory back in.
+
 **Default perception (tinycloud / Cloudglue)**
 - `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)
 - `CLOUDGLUE_BASE_URL` — endpoint (default `https://api.cloudglue.dev`)

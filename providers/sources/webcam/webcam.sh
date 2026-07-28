@@ -20,6 +20,12 @@
 # LIVE clip, open the cam's player page (payload.url) and capture with the `dl`
 # source / yt-dlp. Strong monitor fit: `overcast monitor --source webcam --every 30m`.
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 API="${OVERCAST_WEBCAM_API:-https://api.windy.com/webcams/api/v3}"
 op="${1:-enumerate}"; shift || true
 
@@ -111,7 +117,7 @@ case "$op" in
     # content type. A detail/player PAGE (text/html) is saved as .html — it's not
     # senseable media, but keeps the evidence. For live video, use `dl`/yt-dlp on
     # the player URL instead.
-    if ! ct="$(curl -fsSL -m 120 -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+    if ! ct="$(oc_guarded_fetch "$url" "$out" -m 120)" || [ ! -s "$out" ]; then
       echo "webcam fetch failed for $url" >&2; rm -f "$out"; exit 1
     fi
     case "$ct" in

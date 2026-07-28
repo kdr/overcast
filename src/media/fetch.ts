@@ -8,7 +8,7 @@
 //   URL path ext (if a known media ext) → Content-Type → magic-byte sniff.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { lookup } from "node:dns/promises";
 import { OVERCAST_VERSION } from "../version.js";
@@ -268,6 +268,32 @@ export function kindForExt(ext: string): MediaKind {
   return "other";
 }
 
+// --- cache provenance -------------------------------------------------------
+// Each downloaded artifact gets a `<file>.src` sidecar holding the exact URL it
+// came from. The artifact NAME is a hash and nothing more; the sidecar is what
+// makes a cache hit trustworthy, so a hash collision (or a planted file) cannot
+// pass one URL's bytes off as another's.
+
+const CACHE_SIDECAR_SUFFIX = ".src";
+
+function writeCachedUrl(artifactPath: string, url: string): void {
+  try {
+    writeFileSync(`${artifactPath}${CACHE_SIDECAR_SUFFIX}`, url, "utf8");
+  } catch {
+    // Best-effort: a sidecar we couldn't write just means the next call
+    // re-downloads instead of hitting the cache. Never fail the fetch for it.
+  }
+}
+
+/** Does the cached artifact at `artifactPath` provably come from `url`? */
+function cachedUrlMatches(artifactPath: string, url: string): boolean {
+  try {
+    return readFileSync(`${artifactPath}${CACHE_SIDECAR_SUFFIX}`, "utf8") === url;
+  } catch {
+    return false; // no sidecar (or unreadable) → not provably ours → re-fetch
+  }
+}
+
 export interface FetchedMedia {
   /** local path of the downloaded artifact (inside the case media dir) */
   path: string;
@@ -326,7 +352,14 @@ export async function fetchMediaToCase(
   // The redirect loop re-checks each hop; this covers the initial URL + cache path.
   await assertFetchHostAllowed(url);
   mkdirSync(mediaDir, { recursive: true });
-  const hash = createHash("sha256").update(url).digest("hex").slice(0, 12);
+  // 32 hex chars = 128 bits. The old 12 (48 bits) put a second preimage within
+  // reach of an offline GPU search on a freely-varying URL (a query nonce), and
+  // BOTH the URL and the artifact are evidence: colliding two URLs in this flat,
+  // TTL-less namespace let an attacker's bytes be served as another URL's
+  // content to `see`/`exif`/`verify` — silent evidence substitution. The sidecar
+  // below closes it even against a full-digest collision by verifying the cache
+  // entry actually came from THIS url.
+  const hash = createHash("sha256").update(url).digest("hex").slice(0, 32);
 
   // A URL-path extension makes the name deterministic pre-fetch → cache hit.
   let pathname = "";
@@ -342,7 +375,12 @@ export async function fetchMediaToCase(
   const urlExt = pathname.match(URL_EXT_RE)?.[0]?.toLowerCase().replace(/^\.jpeg$/, ".jpg").replace(/^\.tif$/, ".tiff");
   if (urlExt) {
     const out = join(mediaDir, `url-${hash}${urlExt}`);
-    if (existsSync(out)) return { path: out, ext: urlExt, bytes: 0 };
+    // A cache HIT must prove it came from this exact URL. Without the sidecar
+    // check the name alone decided, so any collision (or a planted url-<hash>
+    // file dropped into the media dir) served attacker bytes as this URL's
+    // content, with no network request made at all. A missing/mismatched sidecar
+    // = re-download and overwrite, never a silent substitution.
+    if (existsSync(out) && cachedUrlMatches(out, url)) return { path: out, ext: urlExt, bytes: 0 };
   }
 
   const timeout = AbortSignal.timeout(timeoutMs);
@@ -402,5 +440,6 @@ export async function fetchMediaToCase(
     : ctExt ?? (sniffed !== ".bin" ? sniffed : uninformative ? urlExt ?? ".bin" : ".bin");
   const out = join(mediaDir, `url-${hash}${ext}`);
   writeFileSync(out, buf);
+  writeCachedUrl(out, url);
   return { path: out, contentType, ext, bytes: buf.byteLength };
 }
