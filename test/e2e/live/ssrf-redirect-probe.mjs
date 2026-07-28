@@ -49,6 +49,16 @@ const ok = http.createServer((req, res) => {
     res.writeHead(302, { Location: `http://127.0.0.1:${PORT_BAD}/secret` });
     return res.end();
   }
+  // /chain/<n> redirects n more times on the allowed origin, then lands on the
+  // blocked one — used to exhaust the hop budget while still redirecting.
+  const chain = /^\/chain\/(\d+)$/.exec(req.url ?? "");
+  if (chain) {
+    const n = Number(chain[1]);
+    const next =
+      n > 0 ? `http://127.0.0.1:${PORT_OK}/chain/${n - 1}` : `http://127.0.0.1:${PORT_BAD}/secret`;
+    res.writeHead(302, { Location: next });
+    return res.end();
+  }
   res.writeHead(200, { "Content-Type": "text/html" });
   res.end("<html><body><h1>PROBE-PUBLIC-PAGE</h1></body></html>");
 });
@@ -67,7 +77,7 @@ const blocked = (u) => {
   }
 };
 
-async function render({ perHop }) {
+async function render({ perHop, path = "/redirect" }) {
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext();
@@ -85,11 +95,12 @@ async function render({ perHop }) {
       } catch {
         return route.abort();
       }
-      for (let hop = 0; hop < MAX_REDIRECT_HOPS; hop++) {
+      for (let hop = 0; ; hop++) {
         const status = res.status();
         if (status < 300 || status >= 400) break;
         const loc = res.headers()["location"];
         if (!loc) break;
+        if (hop >= MAX_REDIRECT_HOPS) return route.abort(); // budget spent, still redirecting
         let next;
         try {
           next = new URL(loc, res.url());
@@ -111,7 +122,7 @@ async function render({ perHop }) {
     });
     const page = await context.newPage();
     try {
-      await page.goto(`http://127.0.0.1:${PORT_OK}/redirect`, { waitUntil: "load", timeout: 10_000 });
+      await page.goto(`http://127.0.0.1:${PORT_OK}${path}`, { waitUntil: "load", timeout: 10_000 });
     } catch {
       /* a blocked hop makes goto reject — that is the success path */
     }
@@ -138,6 +149,17 @@ check(
   "redirect.per_hop_blocks",
   !after.leaked && after.aborted.length > 0,
   `leaked=${after.leaked}, aborted ${after.aborted.length} hop(s)`,
+);
+
+// 2b. exhausting the hop budget while STILL on a 3xx must abort, not fulfil.
+// Fulfilling a redirect hands it to the browser, which follows it without
+// re-entering the handler — the same bypass, moved to the end of the chain.
+// (Caught by Cursor Bugbot on PR #139 in the first version of this fix.)
+const exhausted = await render({ perHop: true, path: `/chain/${MAX_REDIRECT_HOPS + 2}` });
+check(
+  "redirect.budget_exhaustion_aborts",
+  !exhausted.leaked,
+  `chain longer than MAX_REDIRECT_HOPS=${MAX_REDIRECT_HOPS} did not leak`,
 );
 
 // 3. a normal page still renders through fulfil

@@ -404,11 +404,16 @@ async function main() {
         } catch {
           return route.abort();
         }
-        for (let hop = 0; hop < MAX_REDIRECT_HOPS; hop++) {
+        // Loop until we hold a NON-redirect response. Running out of hops while
+        // still on a 3xx must ABORT, never fulfil: fulfilling a redirect hands it
+        // to the browser, which follows it without re-invoking this handler —
+        // reintroducing the exact bypass above at the end of the chain.
+        for (let hop = 0; ; hop++) {
           const status = res.status();
           if (status < 300 || status >= 400) break;
           const loc = res.headers()["location"];
-          if (!loc) break;
+          if (!loc) break; // a 3xx with no Location is inert — nothing to follow
+          if (hop >= MAX_REDIRECT_HOPS) return route.abort(); // budget spent, still redirecting
           let next;
           try {
             next = new URL(loc, res.url());

@@ -228,6 +228,56 @@ test("F13: OVERCAST_TRUST_DOTENV=1 restores the full-power behaviour", async () 
   });
 });
 
+// --- shell/TS guard parity -------------------------------------------------
+// The shipped shell fetchers carry their own copy of the blocked-range logic
+// (curl can't call into the TS guard). A copy that drifts either lets something
+// through or refuses legitimate public addresses — the 192.0.0.0/16-instead-of-
+// /24 slip Bugbot caught on PR #139. Pin them together.
+
+test("shell oc_ip_blocked agrees with the TS guard on every range boundary", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { assertFetchHostAllowed } = await import("../../src/media/fetch.ts");
+
+  const octets = [0, 8, 10, 100, 126, 127, 128, 169, 172, 192, 193, 223, 224, 239, 240, 255];
+  const seconds = [0, 1, 15, 16, 31, 32, 63, 64, 127, 128, 167, 168, 169, 253, 254, 255];
+  const cases: string[] = [];
+  for (const a of octets) for (const b of seconds) for (const c of [0, 1, 2, 255]) cases.push(`${a}.${b}.${c}.1`);
+
+  const lib = new URL("../../providers/engines/net/guarded-fetch.sh", import.meta.url).pathname;
+  const shell = execFileSync(
+    "bash",
+    ["-c", `. "${lib}"\nwhile read -r ip; do if oc_ip_blocked "$ip"; then echo B; else echo A; fi; done`],
+    { input: cases.join("\n") + "\n", encoding: "utf8" },
+  )
+    .trim()
+    .split("\n");
+
+  assert.equal(shell.length, cases.length, "one verdict per address");
+  const mismatches: string[] = [];
+  for (let i = 0; i < cases.length; i++) {
+    let tsBlocked = false;
+    try {
+      await assertFetchHostAllowed(`http://${cases[i]}/`);
+    } catch {
+      tsBlocked = true;
+    }
+    if (tsBlocked !== (shell[i] === "B")) mismatches.push(cases[i]);
+  }
+  assert.deepEqual(mismatches, [], `shell/TS disagree on: ${mismatches.slice(0, 10).join(", ")}`);
+});
+
+test("192.0.0.0/24 is blocked but the rest of 192.0.0.0/16 is not", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const lib = new URL("../../providers/engines/net/guarded-fetch.sh", import.meta.url).pathname;
+  const verdict = (ip: string) =>
+    execFileSync("bash", ["-c", `. "${lib}"; if oc_ip_blocked "${ip}"; then echo B; else echo A; fi`], {
+      encoding: "utf8",
+    }).trim();
+  assert.equal(verdict("192.0.0.1"), "B", "192.0.0.0/24 is an IETF protocol assignment");
+  assert.equal(verdict("192.0.1.1"), "A", "192.0.1.0/24 is ordinary public space");
+  assert.equal(verdict("192.0.66.1"), "A");
+});
+
 // --- F14: the media cache entry is bound to its source URL ----------------
 
 test("F14: a planted cache artifact is not served for another URL", async () => {

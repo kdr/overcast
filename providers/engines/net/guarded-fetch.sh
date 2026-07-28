@@ -56,11 +56,15 @@ oc_ip_blocked() {
       esac
       ;;
     *.*.*.*)
-      IFS=. read -r a b _c _d <<EOF
+      # Ranges must match isBlockedIPv4 in src/media/fetch.ts EXACTLY — a shell
+      # copy that drifts either lets something through or (as the 192.0.0.0/16
+      # slip did) refuses legitimate public addresses.
+      IFS=. read -r a b c _d <<EOF
 $ip
 EOF
       case "$a" in ''|*[!0-9]*) return 0 ;; esac   # unparseable → fail closed
       case "$b" in ''|*[!0-9]*) return 0 ;; esac
+      case "$c" in ''|*[!0-9]*) return 0 ;; esac
       [ "$a" -eq 127 ] && return 0                 # loopback
       [ "$a" -eq 10 ] && return 0                  # private
       [ "$a" -eq 0 ] && return 0                   # this-host
@@ -69,7 +73,9 @@ EOF
       [ "$a" -eq 192 ] && [ "$b" -eq 168 ] && return 0   # private
       [ "$a" -eq 172 ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ] && return 0
       [ "$a" -eq 100 ] && [ "$b" -ge 64 ] && [ "$b" -le 127 ] && return 0  # CGNAT
-      [ "$a" -eq 192 ] && [ "$b" -eq 0 ] && return 0     # 192.0.0.0/24
+      # 192.0.0.0/24 (IETF protocol assignments) — the THIRD octet is part of the
+      # test; without it this blocked all of 192.0.0.0/16.
+      [ "$a" -eq 192 ] && [ "$b" -eq 0 ] && [ "$c" -eq 0 ] && return 0
       return 1
       ;;
     *) return 0 ;;   # not an address we can classify → fail closed
