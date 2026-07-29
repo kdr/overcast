@@ -3,7 +3,7 @@
 // to the loose record at THIS boundary — provider envelopes never leak inward.
 
 import { spawn } from "node:child_process";
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
+import { closeSync, fstatSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -55,16 +55,14 @@ export function execCapture(
     }
 
     // stdoutToFile: hand the child a real file for stdout. The fd is dup'd into
-    // the child at spawn, so the parent copy closes right after; the file is
-    // read back (size-capped) once the child exits, and the temp dir is removed
-    // on EVERY settle path (done() below).
+    // the child at spawn; the PARENT keeps its copy open for the whole run —
+    // every later size check and the final read go through this ONE descriptor
+    // (fstat/read on the fd, never a path re-resolve — the same TOCTOU
+    // discipline as watch.ts's readCappedUtf8; CodeQL js/file-system-race).
     let outDir: string | undefined;
-    let outPath: string | undefined;
-    if (opts.stdoutToFile) {
-      outDir = mkdtempSync(join(tmpdir(), "oc-exec-"));
-      outPath = join(outDir, "stdout");
-    }
-    const outFd = outPath !== undefined ? openSync(outPath, "w") : undefined;
+    if (opts.stdoutToFile) outDir = mkdtempSync(join(tmpdir(), "oc-exec-"));
+    // w+ so the same descriptor the child writes is readable back
+    const outFd = outDir !== undefined ? openSync(join(outDir, "stdout"), "w+") : undefined;
 
     const child = spawn(command, args, {
       cwd: opts.cwd,
@@ -75,7 +73,6 @@ export function execCapture(
       // overcast providers receive input via argv ({{input}}), not stdin.
       stdio: ["ignore", outFd ?? "pipe", "pipe"],
     });
-    if (outFd !== undefined) closeSync(outFd); // child holds its own dup
 
     // Decode through StringDecoder so a multi-byte UTF-8 sequence split across a
     // chunk boundary isn't mangled into U+FFFD — chunk-independent `d.toString()`
@@ -89,13 +86,22 @@ export function execCapture(
     const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
+    let sizeTimer: NodeJS.Timeout | undefined;
     const done = (fn: () => void) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      // unlinking while a killed child still holds the fd is fine on unix — the
-      // file goes away when the last descriptor closes
-      if (outDir) rmSync(outDir, { recursive: true, force: true });
+      if (sizeTimer) clearInterval(sizeTimer);
+      // Cleanup must never block the settle — a throwing rm here would leave the
+      // promise hanging forever (Bugbot). fd first, then the dir (Windows can't
+      // unlink an open file; on unix a killed child's dup keeps the data alive
+      // until its descriptor closes and the unlink is still fine).
+      if (outFd !== undefined) {
+        try { closeSync(outFd); } catch { /* already closed */ }
+      }
+      if (outDir) {
+        try { rmSync(outDir, { recursive: true, force: true }); } catch { /* best-effort temp cleanup */ }
+      }
       fn();
     };
     if (opts.timeoutMs) {
@@ -105,31 +111,55 @@ export function execCapture(
       }, opts.timeoutMs);
     }
 
+    const overflow = () => {
+      child.kill("SIGKILL");
+      done(() => rejectP(new Error(`command output exceeded ${maxBuffer} bytes: ${command}`)));
+    };
     const guard = (chunk: Buffer): boolean => {
       bytes += chunk.length;
       if (bytes > maxBuffer) {
-        child.kill("SIGKILL");
-        done(() => rejectP(new Error(`command output exceeded ${maxBuffer} bytes: ${command}`)));
+        overflow();
         return false;
       }
       return true;
     };
+    // file-mode stdout grows on DISK, not in parent memory, so the data-event
+    // guard never sees it — poll the descriptor and kill an over-cap child
+    // MID-RUN, like pipe mode does (Bugbot: deferred maxBuffer). 500ms bounds
+    // the excursion; disk (unlike memory) survives half a second of overshoot.
+    if (outFd !== undefined) {
+      sizeTimer = setInterval(() => {
+        try {
+          if (bytes + fstatSync(outFd).size > maxBuffer) overflow();
+        } catch { /* fd closed by a concurrent settle */ }
+      }, 500);
+      sizeTimer.unref?.();
+    }
     child.stdout?.on("data", (d) => guard(d) && (stdout += outDec.write(d)));
     child.stderr?.on("data", (d) => guard(d) && (stderr += errDec.write(d)));
     child.on("error", (err) => done(() => rejectP(err)));
     child.on("close", (code) => {
-      if (outPath !== undefined) {
-        // file-mode stdout: the maxBuffer guard above only saw stderr, so apply
-        // the same ceiling to the file BEFORE reading it into memory.
+      if (outFd !== undefined) {
+        // file-mode stdout: enforce the ceiling, then read back — both through
+        // the SAME descriptor the child wrote (no path re-resolution, no
+        // check-then-use window). Whole-file decode, so no chunk-boundary
+        // multi-byte concerns.
         try {
-          const size = statSync(outPath).size;
+          const size = fstatSync(outFd).size;
           if (bytes + size > maxBuffer) {
             done(() => rejectP(new Error(`command output exceeded ${maxBuffer} bytes: ${command}`)));
             return;
           }
-          stdout = readFileSync(outPath, "utf8");
+          const buf = Buffer.alloc(size);
+          let read = 0;
+          while (read < size) {
+            const n = readSync(outFd, buf, read, size - read, read);
+            if (n <= 0) break;
+            read += n;
+          }
+          stdout = buf.subarray(0, read).toString("utf8");
         } catch {
-          stdout = ""; // already-settled paths (timeout/abort) may have removed it
+          stdout = ""; // an already-settled path (timeout/abort) closed the fd
         }
       } else {
         stdout += outDec.end();

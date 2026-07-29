@@ -54,7 +54,10 @@ export const watchVerb: VerbSpec = {
   description:
     "Runs the bound sense provider (default: tinycloud, exec) over a video file or URL " +
     "and emits a video.analysis record with markdown content, a transcript (when speech " +
-    "is present), and the full structured describe in `detailed`.",
+    "is present), and the full structured describe in `detailed`. `--segment` picks the " +
+    "provider's segmentation — shots (shot-detected boundaries; tune with " +
+    "--shot-min-seconds/--shot-max-seconds) | chapters | segments | uniform:<seconds> — " +
+    "instead of the provider default (uniform:20).",
   args: [{ name: "input", summary: "Video file path or URL", required: true }],
   flags: [
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },

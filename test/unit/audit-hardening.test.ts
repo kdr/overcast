@@ -88,6 +88,21 @@ test("execCapture stdoutToFile still enforces maxBuffer", async () => {
   );
 });
 
+test("execCapture stdoutToFile kills an over-cap child MID-RUN (not at exit)", async () => {
+  // pipe mode SIGKILLs on the data event; file mode must not let a child that
+  // blew the cap keep running (and growing the file) until it exits on its own.
+  const started = Date.now();
+  await assert.rejects(
+    execCapture(
+      process.execPath,
+      ["-e", "process.stdout.write('x'.repeat(64*1024)); setTimeout(() => {}, 30_000)"],
+      { maxBuffer: 1000, stdoutToFile: true },
+    ),
+    /output exceeded 1000 bytes/,
+  );
+  assert.ok(Date.now() - started < 10_000, "killed by the size poll, not the child's own 30s exit");
+});
+
 test("execCapture stdoutToFile keeps stderr on the pipe and utf-8 intact", async () => {
   const s = "café — 日本語 — 🎥";
   const r = await execCapture(
