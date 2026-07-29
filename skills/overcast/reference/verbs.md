@@ -22,6 +22,9 @@ Arguments:
 Options:
   --format <string>      Output surface: json | md | txt
   --json                 Shorthand for --format json
+  --segment <string>     Segmentation kind passed to the provider: shots | chapters | segments | uniform:<seconds> (default: the provider's own, uniform:20)
+  --shot-min-seconds <number> Min shot duration in seconds with --segment shots (e.g. 0.6 catches flash frames)
+  --shot-max-seconds <number> Max shot duration in seconds with --segment shots
 ```
 
 Emits `video.analysis` records.

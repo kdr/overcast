@@ -3,6 +3,9 @@
 // to the loose record at THIS boundary — provider envelopes never leak inward.
 
 import { spawn } from "node:child_process";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 export interface ExecResult {
@@ -26,6 +29,11 @@ export interface ExecOptions {
   extraPath?: string[];
   /** cap on captured stdout+stderr bytes (default 64 MB); over → kill + reject */
   maxBuffer?: number;
+  /** capture stdout via a temp FILE instead of a pipe. Some child runtimes
+   *  (tinycloud's embedded bun) issue a final non-blocking stdout write and
+   *  exit without draining it — a pipe then cuts the output at the 64 KiB pipe
+   *  buffer (invalid JSON); a regular file always takes the whole write. */
+  stdoutToFile?: boolean;
 }
 
 /**
@@ -46,6 +54,18 @@ export function execCapture(
       env[key] = opts.extraPath.join(sep) + sep + (env[key] ?? "");
     }
 
+    // stdoutToFile: hand the child a real file for stdout. The fd is dup'd into
+    // the child at spawn, so the parent copy closes right after; the file is
+    // read back (size-capped) once the child exits, and the temp dir is removed
+    // on EVERY settle path (done() below).
+    let outDir: string | undefined;
+    let outPath: string | undefined;
+    if (opts.stdoutToFile) {
+      outDir = mkdtempSync(join(tmpdir(), "oc-exec-"));
+      outPath = join(outDir, "stdout");
+    }
+    const outFd = outPath !== undefined ? openSync(outPath, "w") : undefined;
+
     const child = spawn(command, args, {
       cwd: opts.cwd,
       env,
@@ -53,8 +73,9 @@ export function execCapture(
       // ignore stdin so a child that reads stdin (e.g. some CLIs probing for
       // piped input) gets EOF immediately instead of blocking until timeout.
       // overcast providers receive input via argv ({{input}}), not stdin.
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", outFd ?? "pipe", "pipe"],
     });
+    if (outFd !== undefined) closeSync(outFd); // child holds its own dup
 
     // Decode through StringDecoder so a multi-byte UTF-8 sequence split across a
     // chunk boundary isn't mangled into U+FFFD — chunk-independent `d.toString()`
@@ -72,6 +93,9 @@ export function execCapture(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      // unlinking while a killed child still holds the fd is fine on unix — the
+      // file goes away when the last descriptor closes
+      if (outDir) rmSync(outDir, { recursive: true, force: true });
       fn();
     };
     if (opts.timeoutMs) {
@@ -90,11 +114,26 @@ export function execCapture(
       }
       return true;
     };
-    child.stdout.on("data", (d) => guard(d) && (stdout += outDec.write(d)));
-    child.stderr.on("data", (d) => guard(d) && (stderr += errDec.write(d)));
+    child.stdout?.on("data", (d) => guard(d) && (stdout += outDec.write(d)));
+    child.stderr?.on("data", (d) => guard(d) && (stderr += errDec.write(d)));
     child.on("error", (err) => done(() => rejectP(err)));
     child.on("close", (code) => {
-      stdout += outDec.end();
+      if (outPath !== undefined) {
+        // file-mode stdout: the maxBuffer guard above only saw stderr, so apply
+        // the same ceiling to the file BEFORE reading it into memory.
+        try {
+          const size = statSync(outPath).size;
+          if (bytes + size > maxBuffer) {
+            done(() => rejectP(new Error(`command output exceeded ${maxBuffer} bytes: ${command}`)));
+            return;
+          }
+          stdout = readFileSync(outPath, "utf8");
+        } catch {
+          stdout = ""; // already-settled paths (timeout/abort) may have removed it
+        }
+      } else {
+        stdout += outDec.end();
+      }
       stderr += errDec.end();
       done(() => resolveP({ code, stdout, stderr }));
     });

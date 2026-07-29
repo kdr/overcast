@@ -59,6 +59,11 @@ export const watchVerb: VerbSpec = {
   flags: [
     { name: "format", summary: "Output surface: json | md | txt", type: "string", choices: ["json", "md", "txt"] },
     { name: "json", summary: "Shorthand for --format json", type: "boolean" },
+    // free string (not choices): tinycloud's kinds include parameterized forms
+    // like uniform:<seconds>; the provider validates and errors loudly.
+    { name: "segment", summary: "Segmentation kind passed to the provider: shots | chapters | segments | uniform:<seconds> (default: the provider's own, uniform:20)", type: "string" },
+    { name: "shot-min-seconds", summary: "Min shot duration in seconds with --segment shots (e.g. 0.6 catches flash frames)", type: "number" },
+    { name: "shot-max-seconds", summary: "Max shot duration in seconds with --segment shots", type: "number" },
   ],
   outputKind: "video.analysis",
   providerKey: "watch",
@@ -90,11 +95,21 @@ export const watchVerb: VerbSpec = {
     const input = resolved.ref ?? ctx.input;
     // resolve the run template from the active profile binding (else default).
     const binding = providerBinding(ctx, "watch");
+    // segmentation flags thread through to the provider argv (tinycloud owns
+    // them; a custom provider receives them as extraArgs, the wrapper contract
+    // like listen's --diarize/--lang). Unset flags add nothing.
+    const segment = ctx.opts.segment ? String(ctx.opts.segment) : undefined;
+    const shotMin = ctx.opts["shot-min-seconds"] !== undefined ? Number(ctx.opts["shot-min-seconds"]) : undefined;
+    const shotMax = ctx.opts["shot-max-seconds"] !== undefined ? Number(ctx.opts["shot-max-seconds"]) : undefined;
+    const extraArgs: string[] = [];
+    if (segment) extraArgs.push("--segment", segment);
+    if (shotMin !== undefined) extraArgs.push("--shot-min-seconds", String(shotMin));
+    if (shotMax !== undefined) extraArgs.push("--shot-max-seconds", String(shotMax));
     // A custom provider already emits a record → dispatch by transport. Only the
     // tinycloud default needs envelope→record mapping.
     const rec = isCustomBinding(binding)
-      ? await runBoundProvider("watch", binding!, input, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal, home: ctx.home })
-      : await runWatch(input, { run: binding?.run, signal: ctx.signal });
+      ? await runBoundProvider("watch", binding!, input, { env: providerEnv(ctx.case.mediaDir), extraArgs, timeoutMs: 15 * 60_000, signal: ctx.signal, home: ctx.home })
+      : await runWatch(input, { run: binding?.run, segment, shotMinSeconds: shotMin, shotMaxSeconds: shotMax, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
     // trace back to the originating post (like listen) — for archived media the
     // capture that materialized it lives in the BUCKET, so look there

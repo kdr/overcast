@@ -239,6 +239,66 @@ test("watch resolves capture_id handles before dispatching to a provider", async
   }
 });
 
+test("runWatch passes --segment/--shot-*-seconds through to the default tinycloud argv", async () => {
+  // `watch --segment shots` used to be silently dropped: the default path
+  // hardcoded ["watch", input, "--json"], so every watch got uniform:20.
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchseg-"));
+  const prior = process.env.OVERCAST_TINYCLOUD_CMD;
+  try {
+    // a fake tinycloud that echoes the argv it received back inside the envelope
+    const script = join(dir, "tc.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '{"status":"ready","data":{"title":"argv","summary":"%s"}}\\n' "$*"\n`);
+    chmodSync(script, 0o755);
+    process.env.OVERCAST_TINYCLOUD_CMD = `bash ${script}`;
+
+    const rec = await runWatch("clip.mp4", { segment: "shots", shotMinSeconds: 0.6, shotMaxSeconds: 30 });
+    assert.equal(rec.state, "ready");
+    const argv = String(((rec.payload as Record<string, unknown>).detailed as Record<string, unknown>).summary);
+    assert.equal(argv, "watch clip.mp4 --segment shots --shot-min-seconds 0.6 --shot-max-seconds 30 --json");
+
+    // unset flags leave the default argv untouched
+    const plain = await runWatch("clip.mp4", {});
+    const plainArgv = String(((plain.payload as Record<string, unknown>).detailed as Record<string, unknown>).summary);
+    assert.equal(plainArgv, "watch clip.mp4 --json");
+  } finally {
+    if (prior === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;
+    else process.env.OVERCAST_TINYCLOUD_CMD = prior;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runWatch appends segmentation flags to a custom run template (wrapper contract)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchsegc-"));
+  try {
+    const script = join(dir, "tc.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '{"status":"ready","data":{"title":"argv","summary":"%s"}}\\n' "$*"\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("clip.mp4", { run: `bash ${script} {{input}}`, segment: "shots" });
+    const argv = String(((rec.payload as Record<string, unknown>).detailed as Record<string, unknown>).summary);
+    assert.equal(argv, "clip.mp4 --segment shots");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runWatch survives an envelope past the 64 KiB pipe buffer (stdoutToFile)", async () => {
+  // shot segmentation on long-form video pushes the envelope well past 64 KiB —
+  // exactly where the tinycloud bun-flush truncation used to sever the JSON.
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchbig-"));
+  try {
+    const summary = "s".repeat(128 * 1024);
+    writeFileSync(join(dir, "big.json"), JSON.stringify({ status: "ready", data: { title: "big", summary, segments: [] } }));
+    const script = join(dir, "tc.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\ncat "${join(dir, "big.json")}"\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
+    assert.equal(rec.state, "ready");
+    assert.ok(String((rec.payload as Record<string, unknown>).content).includes(summary), "full envelope parsed, not truncated at 65536");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runWatch returns an error record when the provider emits no JSON", async () => {
   const rec = await runWatch("x.mp4", { run: `bash -c 'echo not-json' {{input}}` });
   assert.equal(rec.state, "error");
@@ -257,6 +317,29 @@ test("runWatch maps an error envelope (status:error) to an error record", async 
   const rec = await runWatch("x.mp4", { run: `bash ${CASES} error {{input}}` });
   assert.equal(rec.state, "error");
   assert.match(rec.error ?? "", /quota exceeded/);
+});
+
+test("runWatch surfaces an OBJECT error envelope ({code,message}), not an empty exit message", async () => {
+  // a real Cloudglue job-timeout envelope: status error, data null, and the
+  // detail under error.message — the string-only check used to drop it.
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchobjerr-"));
+  try {
+    const json = JSON.stringify({
+      tinycloud: "1",
+      kind: "watch",
+      status: "error",
+      data: null,
+      error: { code: "upstream", message: "Describe job did not finish within 600s (still processing — retry).", retryable: true },
+    });
+    const script = join(dir, "watch.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\nexit 1\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("x.mp4", { run: `bash ${script} {{input}}` });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /Describe job did not finish within 600s/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("runWatch tags pending when the marker is nested under data", async () => {

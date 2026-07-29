@@ -234,6 +234,9 @@ export async function runListen(
     timeoutMs: opts.timeoutMs ?? 15 * 60_000,
     env: tinycloudChildEnv(opts.env),
     signal: opts.signal,
+    // tinycloud's embedded bun can exit without draining a >64 KiB pipe write,
+    // severing the JSON mid-envelope — a file stdout takes the whole write.
+    stdoutToFile: true,
   });
 
   // No parseable JSON at all → surface the exit code (parse JSON first, like
@@ -249,7 +252,9 @@ export async function runListen(
       meta: { provider: "tinycloud", model: "cloudglue" },
       error:
         res.code === 0
-          ? "tinycloud listen produced no JSON output"
+          ? res.stdout.trim()
+            ? `tinycloud listen printed ${res.stdout.length} chars but no parseable JSON (output may be malformed or truncated)`
+            : "tinycloud listen produced no JSON output"
           : res.code === 13
             ? "tinycloud listen needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
             : withProxyEgressHint(`tinycloud listen exited ${res.code}: ${redactSecrets(res.stderr.trim().slice(0, 500))}`),

@@ -62,6 +62,43 @@ test("execCapture decodes multibyte utf-8 without mangling (C7)", async () => {
   assert.equal(r.stdout, s);
 });
 
+// --- stdoutToFile: the tinycloud bun-flush workaround -------------------------
+
+test("execCapture stdoutToFile captures output past the 64 KiB pipe buffer", async () => {
+  // tinycloud's embedded bun exits without draining a >64 KiB pipe write, so
+  // tinycloud call sites capture stdout via a temp FILE instead of a pipe.
+  const n = 200 * 1024;
+  const r = await execCapture(
+    process.execPath,
+    ["-e", `process.stdout.write('y'.repeat(${n}))`],
+    { stdoutToFile: true },
+  );
+  assert.equal(r.code, 0);
+  assert.equal(r.stdout.length, n, "whole write captured, nothing severed at 65536");
+});
+
+test("execCapture stdoutToFile still enforces maxBuffer", async () => {
+  await assert.rejects(
+    execCapture(
+      process.execPath,
+      ["-e", "process.stdout.write('x'.repeat(1024*1024))"],
+      { maxBuffer: 1000, stdoutToFile: true },
+    ),
+    /output exceeded 1000 bytes/,
+  );
+});
+
+test("execCapture stdoutToFile keeps stderr on the pipe and utf-8 intact", async () => {
+  const s = "café — 日本語 — 🎥";
+  const r = await execCapture(
+    process.execPath,
+    ["-e", `process.stderr.write('warn'); process.stdout.write(${JSON.stringify(s)})`],
+    { stdoutToFile: true },
+  );
+  assert.equal(r.stdout, s);
+  assert.equal(r.stderr, "warn");
+});
+
 // --- C5: media-fetch SSRF guard ---------------------------------------------
 
 // a resolver that must never be consulted (literals skip DNS)

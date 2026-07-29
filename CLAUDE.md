@@ -132,7 +132,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 [`docs/providers.md`](docs/providers.md).
 
 - **Senses** — `watch` (shot-detect + all-modality describe → `content` /
-  `transcript` / `detailed`), `listen` (speech transcript; `--describe` for the
+  `transcript` / `detailed`; `--segment shots|chapters|segments|uniform:<s>`
+  picks the provider's segmentation, `--shot-min-seconds`/`--shot-max-seconds`
+  tune shot detection), `listen` (speech transcript; `--describe` for the
   full audio-scene, `--diarize`, `--lang`), `see` (caption / OCR / open-vocab
   `--detect` — **default: the brain LLM** when image-capable, i.e. a direct
   "describe this image" call; falls back to the Hugging Face captioner,

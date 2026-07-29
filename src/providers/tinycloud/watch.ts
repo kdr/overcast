@@ -11,7 +11,7 @@ import {
   renderCommand,
   parseFirstJson,
 } from "../exec.js";
-import { segmentSpeechCues, tinycloudBase, tinycloudChildEnv, withProxyEgressHint } from "./envelope.js";
+import { segmentSpeechCues, tinycloudBase, tinycloudChildEnv, tinycloudError, withProxyEgressHint } from "./envelope.js";
 import type { ProviderDescriptor } from "../../profile.js";
 
 const DEFAULT_RUN = "tinycloud watch {{input}} --json";
@@ -215,7 +215,13 @@ function contentMarkdown(data: Record<string, unknown>): string {
 export interface WatchOptions {
   /** override the run template (from the profile binding) */
   run?: string;
-  /** pass-through CLI opts (e.g. speechOnly) reserved for later phases */
+  /** segmentation kind forwarded to the provider (`--segment`):
+   *  shots | chapters | segments | uniform:<seconds> */
+  segment?: string;
+  /** min shot duration in seconds with segment=shots (`--shot-min-seconds`) */
+  shotMinSeconds?: number;
+  /** max shot duration in seconds with segment=shots (`--shot-max-seconds`) */
+  shotMaxSeconds?: number;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
@@ -234,9 +240,19 @@ export async function runWatch(
   const configured = opts.run?.trim();
   const defaultPath = !configured || configured === DEFAULT_RUN;
   const template = defaultPath ? DEFAULT_RUN : configured;
+  // Segmentation pass-through (`watch --segment shots`): the default path used
+  // to hardcode ["watch", input, "--json"], silently dropping the flags — every
+  // watch got tinycloud's uniform:20. Append them when set, on BOTH paths: the
+  // default speaks to tinycloud (which owns these flags), and a custom template
+  // receives them as its wrapper contract (like listen's --diarize/--lang) —
+  // unset flags append nothing, so existing bindings see an unchanged argv.
+  const segArgs: string[] = [];
+  if (opts.segment) segArgs.push("--segment", opts.segment);
+  if (opts.shotMinSeconds !== undefined) segArgs.push("--shot-min-seconds", String(opts.shotMinSeconds));
+  if (opts.shotMaxSeconds !== undefined) segArgs.push("--shot-max-seconds", String(opts.shotMaxSeconds));
   const argv = defaultPath
-    ? [...tinycloudBase(), "watch", input, "--json"]
-    : renderCommand(template, { input });
+    ? [...tinycloudBase(), "watch", input, ...segArgs, "--json"]
+    : [...renderCommand(template, { input }), ...segArgs];
   const [cmd, ...args] = argv;
 
   // A template that renders to no command (all tokens dropped) would reject at
@@ -258,6 +274,9 @@ export async function runWatch(
     timeoutMs: opts.timeoutMs ?? 15 * 60_000,
     env: tinycloudChildEnv(opts.env),
     signal: opts.signal,
+    // tinycloud's embedded bun can exit without draining a >64 KiB pipe write,
+    // severing the JSON mid-envelope — a file stdout takes the whole write.
+    stdoutToFile: true,
   });
 
   const parsed = parseFirstJson(res.stdout);
@@ -270,7 +289,9 @@ export async function runWatch(
       meta: { provider: "tinycloud", model: "cloudglue" },
       error:
         res.code === 0
-          ? "tinycloud watch produced no JSON output"
+          ? res.stdout.trim()
+            ? `tinycloud watch printed ${res.stdout.length} chars but no parseable JSON (output may be malformed or truncated)`
+            : "tinycloud watch produced no JSON output"
           : res.code === 13
             ? "tinycloud watch needs credentials (exit 13 — set CLOUDGLUE_API_KEY)"
             : // a MITM-proxied bun fetch dies before any JSON is printed, so the
@@ -288,10 +309,11 @@ export async function runWatch(
   // A non-zero exit OR an error envelope is a failure even if JSON parsed — the
   // record's state/error is authoritative, so surface it instead of a silent
   // empty "ready" record (would otherwise mark the video as successfully watched).
-  const envError =
-    (typeof envObj.error === "string" && envObj.error) ||
-    (typeof (data.error as string) === "string" && (data.error as string)) ||
-    "";
+  // string OR {code,message} object — a real Cloudglue job-timeout ships
+  // `error: {code:"upstream", message:"Describe job did not finish…"}`, which a
+  // string-only check silently dropped (the record then read `exit 1:` with an
+  // empty stderr excerpt). The shared extractor handles both shapes.
+  const envError = tinycloudError(envObj, data) ?? "";
   const errored =
     res.code !== 0 ||
     envObj.status === "error" ||
