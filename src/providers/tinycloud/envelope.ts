@@ -287,6 +287,9 @@ export async function runTinycloud(
     timeoutMs: opts.timeoutMs ?? TINYCLOUD_TIMEOUT_MS,
     env: tinycloudChildEnv(opts.env),
     signal: opts.signal,
+    // tinycloud's embedded bun can exit without draining a >64 KiB pipe write,
+    // severing the JSON mid-envelope — a file stdout takes the whole write.
+    stdoutToFile: true,
   });
 
   const parsed = parseFirstJson(res.stdout);

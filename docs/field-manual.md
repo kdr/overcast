@@ -431,6 +431,7 @@ When you already have a file.
 ```bash
 overcast case init --name "demo"
 overcast watch ./clip.mp4
+overcast watch ./clip.mp4 --segment shots --shot-min-seconds 0.6   # shot-detected segments instead of uniform:20
 overcast note "rear plate is missing" --ref <watch-record-id> --at 12-18 --tag vehicle
 overcast ask "What happened in the clip?"
 overcast view <watch-record-id>

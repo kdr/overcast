@@ -12,7 +12,7 @@ see [configuration.md](configuration.md).
 **Senses** — turn media into records
 | verb | does |
 |---|---|
-| `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue) |
+| `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue); `--segment shots\|chapters\|segments\|uniform:<s>` picks the provider's segmentation (`--shot-min-seconds`/`--shot-max-seconds` tune shot detection) |
 | `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
 | `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM / the opt-in tinycloud `see`+`extract` provider, ≥ 0.3.7) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
