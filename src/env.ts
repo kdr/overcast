@@ -43,7 +43,13 @@ const SENSITIVE_DOTENV_KEY_RE = new RegExp(
     //    itself (and every later dotenv) to trusted, which re-opens all of the
     //    below — and OVERCAST_ALLOW_PRIVATE_FETCH simply turns the SSRF guard off.
     "^OVERCAST_(TRUST_DOTENV|ALLOW_PRIVATE_FETCH|NO_DOTENV|TINYCLOUD_DIRECT_EGRESS|HOME|FFMPEG|FFPROBE)$",
-    // 2. code injected into THIS process or anything it spawns.
+    // 2. the CONFIG ROOT. `resolveHome()` falls back to `homedir()`, and
+    //    `os.homedir()` returns $HOME — so setting it redirects profiles,
+    //    installed provider packages, and `~/.tinycloud/config.json` (where the
+    //    Cloudglue key is read from) to a tree the directory chose. Same class as
+    //    OVERCAST_HOME above, which is why it belongs here too.
+    "^(?:HOME|USERPROFILE|HOMEDRIVE|HOMEPATH|XDG_CONFIG_HOME|XDG_DATA_HOME|APPDATA|LOCALAPPDATA)$",
+    // 3. code injected into THIS process or anything it spawns.
     "^(?:" +
       [
         "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "BASH_ENV", "ENV", "PATH",
@@ -51,12 +57,22 @@ const SENSITIVE_DOTENV_KEY_RE = new RegExp(
         "PYTHONPATH", "PYTHONSTARTUP", "PERL5LIB", "RUBYOPT", "GIT_SSH", "GIT_SSH_COMMAND",
       ].join("|") +
       ")$",
-    // 3. traffic redirection — points credentialed calls at a host of the
+    // 4. TLS trust. Turning verification off (or pointing it at another CA
+    //    bundle) makes every credentialed HTTPS call MITM-able even when the
+    //    endpoint vars in class 6 are stripped — same outcome, different lever.
+    "^(?:" +
+      [
+        "NODE_TLS_REJECT_UNAUTHORIZED", "SSLKEYLOGFILE", "SSL_CERT_FILE", "SSL_CERT_DIR",
+        "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "PYTHONHTTPSVERIFY", "GIT_SSL_NO_VERIFY",
+        "GIT_SSL_CAINFO",
+      ].join("|") +
+      ")$",
+    // 5. traffic redirection — points credentialed calls at a host of the
     //    directory's choosing without naming any single provider's endpoint var.
     "(^|_)(HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|FTP_PROXY)$",
-    // 4. command / interpreter selection (which binary actually runs).
+    // 6. command / interpreter selection (which binary actually runs).
     "(^|_)(CMD|PY|BIN|EXE|EXECUTABLE|INTERPRETER|SHELL)$",
-    // 5. endpoint selection (where a credentialed call is sent).
+    // 7. endpoint selection (where a credentialed call is sent).
     "_(BASE_URL|ENDPOINT|API|APIURL|URL|HOST|ACTOR)$",
     "^PLAYWRIGHT_",
   ].join("|"),

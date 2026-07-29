@@ -181,12 +181,20 @@ is the annotated template. Highlights:
 >    `OVERCAST_TINYCLOUD_DIRECT_EGRESS`, `OVERCAST_HOME`, `OVERCAST_FFMPEG`,
 >    `OVERCAST_FFPROBE`. (Blocking `OVERCAST_TRUST_DOTENV` here is what stops a
 >    dotenv promoting *itself* to trusted and then setting everything below.)
-> 2. **Code injection** into overcast or anything it spawns — `NODE_OPTIONS`,
+> 2. **The config root** — `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `APPDATA`, ….
+>    `os.homedir()` returns `$HOME`, so these redirect profiles, installed
+>    provider packages, and `~/.tinycloud/config.json` (where the Cloudglue key is
+>    read from) to a tree the directory chose.
+> 3. **Code injection** into overcast or anything it spawns — `NODE_OPTIONS`,
 >    `NODE_EXTRA_CA_CERTS`, `PATH`, `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`,
 >    `PYTHONPATH`, `BASH_ENV`, `GIT_SSH_COMMAND`, ….
-> 3. **Traffic redirection** — `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`,
+> 4. **TLS trust** — `NODE_TLS_REJECT_UNAUTHORIZED`, `SSL_CERT_FILE`,
+>    `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `GIT_SSL_NO_VERIFY`, …. Turning
+>    verification off MITMs credentialed calls even when the endpoint vars below
+>    are stripped.
+> 5. **Traffic redirection** — `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`,
 >    `NO_PROXY` (either case).
-> 4. **Command / endpoint selection** — `*_CMD`, `*_PY`, `*_BIN`, `*_EXE`,
+> 6. **Command / endpoint selection** — `*_CMD`, `*_PY`, `*_BIN`, `*_EXE`,
 >    `*_BASE_URL`, `*_ENDPOINT`, `*_API`, `*_URL`, `*_HOST`, `*_ACTOR`,
 >    `PLAYWRIGHT_*`.
 >

@@ -188,9 +188,15 @@ test("F13: privileged keys are classified as sensitive, ordinary ones are not", 
     // overcast's own security switches — the escalation vector
     "OVERCAST_TRUST_DOTENV", "OVERCAST_ALLOW_PRIVATE_FETCH", "OVERCAST_NO_DOTENV",
     "OVERCAST_TINYCLOUD_DIRECT_EGRESS", "OVERCAST_HOME", "OVERCAST_FFMPEG", "OVERCAST_FFPROBE",
+    // the config root: os.homedir() returns $HOME, so this redirects profiles,
+    // installed providers, and ~/.tinycloud/config.json (the Cloudglue key)
+    "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA",
     // code injection into this process or its children
     "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "PATH",
     "PYTHONPATH", "BASH_ENV", "GIT_SSH_COMMAND",
+    // TLS trust — MITM even when endpoint overrides are stripped
+    "NODE_TLS_REJECT_UNAUTHORIZED", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
+    "GIT_SSL_NO_VERIFY", "SSLKEYLOGFILE",
     // traffic redirection (both cases — curl and Node honour lowercase too)
     "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "ALL_PROXY", "NO_PROXY",
     // command / interpreter and endpoint selection
@@ -315,6 +321,53 @@ test("shell oc_ip_blocked agrees with the TS guard on every range boundary", asy
     if (tsBlocked !== (shell[i] === "B")) mismatches.push(cases[i]);
   }
   assert.deepEqual(mismatches, [], `shell/TS disagree on: ${mismatches.slice(0, 10).join(", ")}`);
+});
+
+test("shell oc_ip_blocked agrees with the TS guard on IPv6 forms too", async () => {
+  // The first version of the parity test covered ONLY dotted IPv4, which let a
+  // real divergence hide: `::ffff:7f00:1` (the hex spelling of ::ffff:127.0.0.1)
+  // was blocked by the TS guard and allowed by the shell. Caught by Cursor
+  // Bugbot on PR #139 — so the parity claim now includes IPv6.
+  const { execFileSync } = await import("node:child_process");
+  const { assertFetchHostAllowed } = await import("../../src/media/fetch.ts");
+  const lib = new URL("../../providers/engines/net/guarded-fetch.sh", import.meta.url).pathname;
+  const shell = (ip: string) =>
+    execFileSync("bash", ["-c", `. "${lib}"; if oc_ip_blocked "${ip}"; then echo B; else echo A; fi`], {
+      encoding: "utf8",
+    }).trim();
+
+  const addresses = [
+    // loopback / unspecified / link-local / unique-local
+    "::1", "::", "fe80::1", "fd00::1", "fc00::1",
+    // v4-mapped, dotted AND hex spellings of the same addresses
+    "::ffff:127.0.0.1", "::ffff:7f00:1", "0:0:0:0:0:ffff:7f00:1",
+    "::ffff:10.0.0.1", "::ffff:0a00:1",
+    "::ffff:192.168.0.1", "::ffff:c0a8:1",
+    "::ffff:169.254.169.254", "::ffff:a9fe:a9fe",
+    // v4-compatible
+    "::127.0.0.1", "::10.0.0.1", "::8.8.8.8",
+    // public, which must stay allowed in both spellings
+    "::ffff:8.8.8.8", "::ffff:0808:0808", "::ffff:1.1.1.1",
+    "2606:4700::1111", "2001:4860:4860::8888",
+  ];
+
+  const mismatches: string[] = [];
+  for (const ip of addresses) {
+    let tsBlocked = false;
+    try {
+      await assertFetchHostAllowed(`http://[${ip}]/`);
+    } catch {
+      tsBlocked = true;
+    }
+    if (tsBlocked !== (shell(ip) === "B")) mismatches.push(ip);
+  }
+  assert.deepEqual(mismatches, [], `shell/TS disagree on: ${mismatches.join(", ")}`);
+
+  // and garbage that is not an address at all fails CLOSED in the shell (curl
+  // never reports such a %{remote_ip}, but the guard must not shrug it off)
+  for (const junk of ["", "not-an-ip", "::ffff:zzzz:1", "999.1.1.1"]) {
+    assert.equal(shell(junk), "B", `${junk || "(empty)"} should fail closed`);
+  }
 });
 
 test("192.0.0.0/24 is blocked but the rest of 192.0.0.0/16 is not", async () => {

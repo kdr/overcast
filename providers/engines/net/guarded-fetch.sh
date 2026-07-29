@@ -35,7 +35,7 @@
 oc_ip_blocked() {
   # every temporary is `local`: this is sourced INTO provider scripts, so a bare
   # `ip`/`a`/`b`/`tail` would clobber the caller's variables of the same name.
-  local ip lower tail a b _c _d
+  local ip lower tail hi lo a b c _d
   ip="${1:-}"
   [ -n "$ip" ] || return 0   # unknown address → treat as blocked (fail closed)
   ip="${ip#[}"; ip="${ip%]}"
@@ -47,9 +47,26 @@ oc_ip_blocked() {
         ::|::1) return 0 ;;                       # unspecified / loopback
         fc??:*|fd??:*|fc::*|fd::*) return 0 ;;    # fc00::/7 unique-local
         fe8?:*|fe9?:*|fea?:*|feb?:*) return 0 ;;  # fe80::/10 link-local
-        ::ffff:*|::0:*)
-          # v4-mapped / v4-compatible: re-check the embedded dotted quad
-          tail="${lower##*:}"
+        ::ffff:*|0:0:0:0:0:ffff:*)
+          # v4-MAPPED. The tail is EITHER a dotted quad (::ffff:127.0.0.1) or two
+          # hex groups (::ffff:7f00:1) — the same address. ipv6ToBytes in
+          # src/media/fetch.ts decodes both, so the shell must too, or the
+          # shell/TS parity this file claims is simply false (it was: the hex
+          # form slipped through as "not blocked").
+          tail="${lower##*ffff:}"
+          case "$tail" in
+            *.*.*.*) oc_ip_blocked "$tail"; return $? ;;
+            *:*)
+              hi="${tail%%:*}"; lo="${tail##*:}"
+              case "$hi$lo" in ''|*[!0-9a-f]*) return 0 ;; esac  # unparseable → fail closed
+              hi=$((16#$hi)); lo=$((16#$lo))
+              oc_ip_blocked "$((hi >> 8)).$((hi & 255)).$((lo >> 8)).$((lo & 255))"
+              return $? ;;
+          esac
+          return 1 ;;
+        ::*)
+          # v4-COMPATIBLE (::1.2.3.4) — leading groups all zero, dotted tail.
+          tail="${lower#::}"
           case "$tail" in *.*.*.*) oc_ip_blocked "$tail"; return $? ;; esac
           return 1 ;;
         *) return 1 ;;
