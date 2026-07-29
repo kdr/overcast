@@ -12,9 +12,17 @@
 
 import type { OvercastRecord, RecordPayload, JsonMap } from "./record.js";
 import { redactSecrets } from "./env.js";
+import { sanitizeTerminalText } from "./text.js";
 
 const DEFAULT_BUDGET = 8000; // bytes; full-mode inline ceiling
 const DEFAULT_PREVIEW = 200; // chars; per-field preview width
+
+/** The ONE outbound text treatment every rendered record gets: secrets redacted,
+ *  then terminal control sequences stripped. Both halves matter — the payload can
+ *  carry a provider's leaked key AND an investigated page's cursor-control bytes. */
+function safeText(s: string): string {
+  return sanitizeTerminalText(redactSecrets(s));
+}
 
 /** Byte size of a record's payload (string as-is, object as JSON). */
 export function payloadBytes(rec: OvercastRecord): number {
@@ -214,13 +222,13 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
   const budget = opts.budget ?? DEFAULT_BUDGET;
   const previewChars = opts.previewChars ?? DEFAULT_PREVIEW;
   const h = head(rec);
-  if (rec.error) return `${h} error=${redactSecrets(rec.error)}`;
+  if (rec.error) return safeText(`${h} error=${rec.error}`);
 
   // full mode: inline only when the RENDERED output fits the budget (the pretty
   // form can be larger than the compact payload — gate on what's actually emitted).
   if (mode === "full") {
     const rendered = `${h}\n${renderFullPayload(rec.payload)}`;
-    if (opts.force || Buffer.byteLength(rendered, "utf8") <= budget) return rendered;
+    if (opts.force || Buffer.byteLength(rendered, "utf8") <= budget) return safeText(rendered);
     // else fall through to preview
   }
 
@@ -246,7 +254,7 @@ export function renderRecord(rec: OvercastRecord, opts: RenderOpts = {}): string
       ? `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; transient result not saved, rerun with --json for full output`
       : `\n  ⟶ payload ${humanSize(payloadBytes(rec))} not fully shown; read it with: ${pageCommand(rec, { withCase: true })}`
     : "";
-  return `${h} payload:\n${lines.join("\n")}${hint}`;
+  return safeText(`${h} payload:\n${lines.join("\n")}${hint}`);
 }
 
 // Text fields a record may carry its full human-readable body under: ask/brief
@@ -276,14 +284,20 @@ export function nativeReportFormat(rec: OvercastRecord): string | undefined {
  *   JSON) · default → the magnitude preview.
  */
 export function renderForFormat(rec: OvercastRecord, format?: string): string {
-  if (format === "json") return redactSecrets(JSON.stringify(rec, null, 2));
+  // sanitizeTerminalText on EVERY branch: a record's payload inlines scraped
+  // snippets, transcripts of untrusted media, and provider stderr, and the TUI
+  // (pi-tui) preserves ANSI/CSI/OSC verbatim — so without this an investigated
+  // page can repaint the analyst's screen with fabricated records. json is
+  // sanitized too: JSON.stringify escapes control chars inside string
+  // VALUES, but one in a key position or a non-string field would survive.
+  if (format === "json") return safeText(JSON.stringify(rec, null, 2));
   if (format === "md" || format === "txt") {
-    if (typeof rec.payload === "string") return redactSecrets(rec.payload);
+    if (typeof rec.payload === "string") return safeText(rec.payload);
     const p = rec.payload as JsonMap;
     for (const k of TEXT_PAYLOAD_FIELDS) {
-      if (typeof p[k] === "string" && p[k]) return redactSecrets(p[k] as string);
+      if (typeof p[k] === "string" && p[k]) return safeText(p[k] as string);
     }
-    return redactSecrets(JSON.stringify(rec.payload, null, 2));
+    return safeText(JSON.stringify(rec.payload, null, 2));
   }
-  return redactSecrets(renderRecord(rec, { mode: "preview" }));
+  return safeText(renderRecord(rec, { mode: "preview" }));
 }

@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const SECRET_NAME_RE = /(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|PASS|CREDENTIAL|AUTH)(?:_|$)/i;
 // High-precision provider key prefixes: redact a bare secret VALUE even when it
@@ -18,6 +20,108 @@ function unquoteEnvValue(value: string): string {
   return trimmed;
 }
 
+/**
+ * Env names an UNTRUSTED `.env` may not set.
+ *
+ * overcast auto-loads a dotenv from the process working directory and from
+ * `--case <dir>` — directories that are routinely someone else's content (a
+ * cloned repo, a downloaded dataset, a shared case folder). Two families of
+ * variable turn that into credential theft or code execution, because overcast
+ * pairs them with secrets it reads from the user's OWN home config:
+ *   • endpoint redirection — `CLOUDGLUE_BASE_URL`, `HF_ENHANCE_ENDPOINT`,
+ *     `*_API`, … send the resolved API key to a host the directory chose;
+ *   • command/interpreter selection — `OVERCAST_*_CMD`, `*_PY`, `OVERCAST_FFMPEG`,
+ *     … decide which binary gets spawned.
+ * A dotenv in a TRUSTED root (the overcast package root, OVERCAST_HOME, or an
+ * explicit OVERCAST_TRUST_DOTENV=1) keeps its full power — that is the dev/e2e
+ * workflow. Anywhere else these keys are skipped, loudly.
+ */
+const SENSITIVE_DOTENV_KEY_RE = new RegExp(
+  [
+    // 1. overcast's OWN security switches. These come first because they are the
+    //    escalation vector: a dotenv that can set OVERCAST_TRUST_DOTENV promotes
+    //    itself (and every later dotenv) to trusted, which re-opens all of the
+    //    below — and OVERCAST_ALLOW_PRIVATE_FETCH simply turns the SSRF guard off.
+    "^OVERCAST_(TRUST_DOTENV|ALLOW_PRIVATE_FETCH|NO_DOTENV|TINYCLOUD_DIRECT_EGRESS|HOME|FFMPEG|FFPROBE)$",
+    // 2. the CONFIG ROOT. `resolveHome()` falls back to `homedir()`, and
+    //    `os.homedir()` returns $HOME — so setting it redirects profiles,
+    //    installed provider packages, and `~/.tinycloud/config.json` (where the
+    //    Cloudglue key is read from) to a tree the directory chose. Same class as
+    //    OVERCAST_HOME above, which is why it belongs here too.
+    "^(?:HOME|USERPROFILE|HOMEDRIVE|HOMEPATH|XDG_CONFIG_HOME|XDG_DATA_HOME|APPDATA|LOCALAPPDATA)$",
+    // 3. code injected into THIS process or anything it spawns.
+    "^(?:" +
+      [
+        "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "BASH_ENV", "ENV", "PATH",
+        "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+        "PYTHONPATH", "PYTHONSTARTUP", "PERL5LIB", "RUBYOPT", "GIT_SSH", "GIT_SSH_COMMAND",
+      ].join("|") +
+      ")$",
+    // 4. TLS trust. Turning verification off (or pointing it at another CA
+    //    bundle) makes every credentialed HTTPS call MITM-able even when the
+    //    endpoint vars in class 6 are stripped — same outcome, different lever.
+    "^(?:" +
+      [
+        "NODE_TLS_REJECT_UNAUTHORIZED", "SSLKEYLOGFILE", "SSL_CERT_FILE", "SSL_CERT_DIR",
+        "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "PYTHONHTTPSVERIFY", "GIT_SSL_NO_VERIFY",
+        "GIT_SSL_CAINFO",
+      ].join("|") +
+      ")$",
+    // 5. traffic redirection — points credentialed calls at a host of the
+    //    directory's choosing without naming any single provider's endpoint var.
+    "(^|_)(HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|FTP_PROXY)$",
+    // 6. command / interpreter selection (which binary actually runs).
+    "(^|_)(CMD|PY|BIN|EXE|EXECUTABLE|INTERPRETER|SHELL)$",
+    // 7. endpoint selection (where a credentialed call is sent).
+    "_(BASE_URL|ENDPOINT|API|APIURL|URL|HOST|ACTOR)$",
+    "^PLAYWRIGHT_",
+  ].join("|"),
+  // case-insensitive: the dotenv parser accepts lowercase names, and the proxy
+  // variables in particular are honored in both cases by curl and Node.
+  "i",
+);
+
+export function isSensitiveDotEnvKey(key: string): boolean {
+  return SENSITIVE_DOTENV_KEY_RE.test(key);
+}
+
+let packageRootCache: string | null | undefined;
+
+/** The overcast package root (the dir holding its package.json), or null when it
+ *  can't be resolved — e.g. inside the bun-compiled binary's virtual /$bunfs. */
+function packageRoot(): string | null {
+  if (packageRootCache !== undefined) return packageRootCache;
+  packageRootCache = null;
+  try {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    if (dir.includes("$bunfs") || dir === "/") return packageRootCache;
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(dir, "package.json"))) {
+        packageRootCache = dir;
+        break;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    /* leave null */
+  }
+  return packageRootCache;
+}
+
+/** Is a dotenv in this directory allowed to set command/endpoint variables? */
+export function isTrustedDotEnvDir(dir: string): boolean {
+  if (envEnabled("OVERCAST_TRUST_DOTENV")) return true;
+  const target = resolvePath(dir);
+  const home = process.env.OVERCAST_HOME
+    ? resolvePath(process.env.OVERCAST_HOME)
+    : join(homedir(), ".overcast");
+  if (target === home) return true;
+  const root = packageRoot();
+  return root !== null && target === resolvePath(root);
+}
+
 export function loadDotEnv(dir = process.cwd(), opts: { override?: boolean } = {}): string | undefined {
   if (process.env.OVERCAST_NO_DOTENV === "1") return undefined;
   const file = join(dir, ".env");
@@ -33,6 +137,26 @@ export function loadDotEnv(dir = process.cwd(), opts: { override?: boolean } = {
     const m = raw.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
     if (!m) continue;
     parsed.set(m[1], unquoteEnvValue(m[2]));
+  }
+  // An untrusted directory's dotenv may carry ordinary settings, but not the
+  // keys that redirect a credentialed call or choose a binary to spawn.
+  if (!isTrustedDotEnvDir(dir)) {
+    const skipped: string[] = [];
+    for (const key of [...parsed.keys()]) {
+      if (isSensitiveDotEnvKey(key)) {
+        parsed.delete(key);
+        skipped.push(key);
+      }
+    }
+    if (skipped.length) {
+      process.stderr.write(
+        `overcast: ignoring ${skipped.length} privileged variable(s) from an untrusted dotenv ${file}: ` +
+          `${skipped.join(", ")}\n` +
+          `  (these choose which binary runs, where credentialed calls go, or whether\n` +
+          `   overcast's own guards apply — set OVERCAST_TRUST_DOTENV=1 in the real\n` +
+          `   environment to honor them)\n`,
+      );
+    }
   }
   if (opts.override) clearOverrideDotEnv(new Set(parsed.keys()));
   for (const [key, value] of parsed) {

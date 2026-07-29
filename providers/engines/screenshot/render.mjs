@@ -186,6 +186,10 @@ function isIpLiteralHost(host) {
   return parseLooseIPv4(h) !== null || ipv6ToBytes(h) !== null;
 }
 
+/** Redirect hops we will follow inside the route handler before giving up —
+ *  matches the MAX_REDIRECTS budget fetchMediaToCase uses in src/media/fetch.ts. */
+const MAX_REDIRECT_HOPS = 5;
+
 function allowPrivate() {
   const v = (process.env.OVERCAST_ALLOW_PRIVATE_FETCH ?? "").trim().toLowerCase();
   return v === "1" || v === "true" || v === "yes" || v === "on";
@@ -388,7 +392,45 @@ async function main() {
       }
       if (parsed.protocol === "http:" || parsed.protocol === "https:") {
         if (await hostBlocked(parsed.hostname)) return route.abort();
-        return route.continue();
+        // Playwright does NOT re-invoke a route handler for a request produced by
+        // FOLLOWING an HTTP redirect, so `route.continue()` alone let a public
+        // origin 302 straight into 169.254.169.254 / 127.0.0.1 with the guard
+        // above never seeing the target. Drive the chain ourselves instead:
+        // fetch with redirects disabled and validate each Location before taking
+        // the hop, so every host in the chain is checked exactly once.
+        let res;
+        try {
+          res = await route.fetch({ maxRedirects: 0 });
+        } catch {
+          return route.abort();
+        }
+        // Loop until we hold a NON-redirect response. Running out of hops while
+        // still on a 3xx must ABORT, never fulfil: fulfilling a redirect hands it
+        // to the browser, which follows it without re-invoking this handler —
+        // reintroducing the exact bypass above at the end of the chain.
+        for (let hop = 0; ; hop++) {
+          const status = res.status();
+          if (status < 300 || status >= 400) break;
+          const loc = res.headers()["location"];
+          if (!loc) break; // a 3xx with no Location is inert — nothing to follow
+          if (hop >= MAX_REDIRECT_HOPS) return route.abort(); // budget spent, still redirecting
+          let next;
+          try {
+            next = new URL(loc, res.url());
+          } catch {
+            return route.abort();
+          }
+          // A redirect may only stay on http(s): file:/data:/blob: targets would
+          // read local resources into the render (and thus into the PNG evidence).
+          if (next.protocol !== "http:" && next.protocol !== "https:") return route.abort();
+          if (await hostBlocked(next.hostname)) return route.abort();
+          try {
+            res = await route.fetch({ url: next.href, maxRedirects: 0 });
+          } catch {
+            return route.abort();
+          }
+        }
+        return route.fulfill({ response: res });
       }
       // file:// only for a local .html input, and ONLY within that file's own
       // directory subtree — an untrusted export must not pull `file:///etc/passwd`
@@ -413,6 +455,31 @@ async function main() {
     });
 
     const page = await context.newPage();
+    // Belt-and-braces to the per-request guard: whatever the page ends up ON is
+    // what gets photographed, so re-check the committed URL of every frame
+    // navigation. If anything reached a private host by a path the route handler
+    // did not see, the render is abandoned rather than captured.
+    let navBlocked = null;
+    page.on("framenavigated", (frame) => {
+      const u = frame.url();
+      if (!/^https?:/i.test(u)) return;
+      let host;
+      try {
+        host = new URL(u).hostname;
+      } catch {
+        return;
+      }
+      // fire-and-forget: the assertion after goto() is what acts on it. The
+      // .catch is not optional — an unhandled rejection here would kill the
+      // process and orphan the browser.
+      void hostBlocked(host)
+        .then((blocked) => {
+          if (blocked && !navBlocked) navBlocked = u;
+        })
+        .catch(() => {
+          if (!navBlocked) navBlocked = u; // couldn't classify → treat as blocked
+        });
+    });
     let settled = true;
     try {
       await page.goto(target, { waitUntil: "networkidle", timeout });
@@ -431,6 +498,30 @@ async function main() {
       }
     }
     if (wait > 0) await page.waitForTimeout(wait);
+    // Final gate before the shutter: the URL actually loaded must still be an
+    // allowed host. Covers the redirect/rebind cases the per-request handler
+    // cannot observe — nothing private is ever written to the PNG.
+    {
+      const finalUrl = page.url();
+      if (/^https?:/i.test(finalUrl)) {
+        let finalHost = null;
+        try {
+          finalHost = new URL(finalUrl).hostname;
+        } catch {
+          /* unparseable → treated as blocked below */
+        }
+        if (finalHost === null || (await hostBlocked(finalHost))) {
+          throw new Error(
+            `refusing to capture a private/loopback address (${finalHost ?? finalUrl}); set OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow: ${args.input}`,
+          );
+        }
+      }
+      if (navBlocked) {
+        throw new Error(
+          `refusing to capture — the page navigated to a private/loopback address (${navBlocked}); set OVERCAST_ALLOW_PRIVATE_FETCH=1 to allow: ${args.input}`,
+        );
+      }
+    }
     // type:"png" explicit so Playwright never infers it from the extension — the
     // source fetch path (--emit capture) passes an EXTENSIONLESS --out that
     // fetchSource sniffs + renames to .png afterward, and extension inference

@@ -171,6 +171,39 @@ bash examples/profiles/install-profiles.sh   # then: overcast <verb> … --profi
 `overcast --help` prints the full, current list; [`.env.example`](../.env.example)
 is the annotated template. Highlights:
 
+> **Where a `.env` is honored.** overcast auto-loads `.env` from the working
+> directory and from `--case <dir>`. Those are routinely someone else's content
+> (a cloned repo, a downloaded dataset, a shared case folder), so from an
+> **untrusted** directory the *privileged* variables are ignored — four classes:
+>
+> 1. **overcast's own security switches** — `OVERCAST_TRUST_DOTENV`,
+>    `OVERCAST_ALLOW_PRIVATE_FETCH`, `OVERCAST_NO_DOTENV`,
+>    `OVERCAST_TINYCLOUD_DIRECT_EGRESS`, `OVERCAST_HOME`, `OVERCAST_FFMPEG`,
+>    `OVERCAST_FFPROBE`. (Blocking `OVERCAST_TRUST_DOTENV` here is what stops a
+>    dotenv promoting *itself* to trusted and then setting everything below.)
+> 2. **The config root** — `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `APPDATA`, ….
+>    `os.homedir()` returns `$HOME`, so these redirect profiles, installed
+>    provider packages, and `~/.tinycloud/config.json` (where the Cloudglue key is
+>    read from) to a tree the directory chose.
+> 3. **Code injection** into overcast or anything it spawns — `NODE_OPTIONS`,
+>    `NODE_EXTRA_CA_CERTS`, `PATH`, `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`,
+>    `PYTHONPATH`, `BASH_ENV`, `GIT_SSH_COMMAND`, ….
+> 4. **TLS trust** — `NODE_TLS_REJECT_UNAUTHORIZED`, `SSL_CERT_FILE`,
+>    `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `GIT_SSL_NO_VERIFY`, …. Turning
+>    verification off MITMs credentialed calls even when the endpoint vars below
+>    are stripped.
+> 5. **Traffic redirection** — `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`,
+>    `NO_PROXY` (either case).
+> 6. **Command / endpoint selection** — `*_CMD`, `*_PY`, `*_BIN`, `*_EXE`,
+>    `*_BASE_URL`, `*_ENDPOINT`, `*_API`, `*_URL`, `*_HOST`, `*_ACTOR`,
+>    `PLAYWRIGHT_*`.
+>
+> Everything else — API keys, media paths, tuning — still loads, and a warning
+> names exactly what was skipped. **Trusted roots** (full power, no warning): the
+> overcast package root, which is why the repo's own `.env` keeps working for dev
+> and e2e, and `OVERCAST_HOME`. Set `OVERCAST_TRUST_DOTENV=1` **in the real
+> environment** (not in a dotenv) to opt another directory back in.
+
 **Default perception (tinycloud / Cloudglue)**
 - `CLOUDGLUE_API_KEY` — key for the default `watch`/`listen` + the turnkey brain (else `~/.tinycloud/config.json`)
 - `CLOUDGLUE_BASE_URL` — endpoint (default `https://api.cloudglue.dev`)

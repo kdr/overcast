@@ -111,8 +111,18 @@ else
       exit 1
     fi
     echo "[e2e-media] sha256 verified."
+  elif [ "${OC_E2E_MEDIA_ALLOW_UNVERIFIED:-}" = "1" ]; then
+    echo "[e2e-media] WARNING: OC_E2E_MEDIA_ALLOW_UNVERIFIED=1 — wiring an UNVERIFIED bundle (sha256 $ZIP_SHA)."
   else
-    echo "[e2e-media] WARNING: OC_E2E_MEDIA_SHA256 not set — skipping integrity verification."
+    rm -f "$ZIP.tmp"
+    # The bundle's manifest.env is spliced into .env, which run.sh bash-sources
+    # and the CLI auto-loads — so an unverified bundle is a code-execution path,
+    # not just bad test data. Refuse it rather than warn.
+    echo "[e2e-media] ERROR: OC_E2E_MEDIA_SHA256 is not set — refusing to wire an unverified bundle." >&2
+    echo "[e2e-media]        Downloaded sha256: $ZIP_SHA" >&2
+    echo "[e2e-media]        Set OC_E2E_MEDIA_SHA256 to that value once you trust the source," >&2
+    echo "[e2e-media]        or OC_E2E_MEDIA_ALLOW_UNVERIFIED=1 to bootstrap a new bundle deliberately." >&2
+    exit 1
   fi
   # Unpack to a STAGING dir and validate before touching the existing cache —
   # a sha-valid zip that fails to unzip or lacks a root manifest.env must not
@@ -152,8 +162,16 @@ fi
 # double-quoted bash expansion could execute), no absolute/../ traversal, and
 # no symlinked components (a zip can carry symlinks that point outside the
 # cache; unzip restores them and -e would happily follow).
-VAR_RE='^OC_[A-Z0-9_]+$'
-VAR_DENY_RE='^OC_E2E_MEDIA_'
+# EXPLICIT allowlist of the media-path vars a bundle may set — not a namespace
+# heuristic. `^OC_[A-Z0-9_]+$` minus the control prefix looked like "media vars
+# only", but it also admitted OC_VISUAL_DB_PY, which src/providers/local/vision.ts
+# reads as the INTERPRETER TO SPAWN for the local image/face/audio/CLIP/CLAP/voice
+# DBs — so a hostile bundle could ship an executable and have the next
+# `overcast image match` run it. Every name here is a path to a media FILE or
+# fixture DIR; anything command-, interpreter-, or path-shaped is denied outright
+# as a second net, and unknown names are rejected loudly (their cases SKIP).
+VAR_RE='^OC_(VIDEO_[A-Z0-9_]+|IMAGE|AUDIO|EXIF_IMAGE(_[0-9]+)?|ARCHIVE_(IMAGE|VIDEO)|CLUSTER_FIXTURE_DIR|CLIP_(IMAGE_REF|VIDEO)|LOCAL_(FACE_(IMAGE|VIDEO)|IMAGE_(REF|VIDEO_[AB]))|VOICE_(CLIP|REF|OTHER_VIDEO|SPEAKER_VIDEO))$'
+VAR_DENY_RE='^OC_E2E_MEDIA_|(^|_)(PY|CMD|BIN|EXE|EXECUTABLE|PATH|INTERPRETER|SHELL)$'
 REL_RE='^[A-Za-z0-9._/ -]+$'
 has_symlink_component() { # <relpath> — true if any component under $UNPACK is a symlink
   local p="$UNPACK" seg
@@ -174,7 +192,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   rel="${line#*=}"
   [ -n "$var" ] && [ -n "$rel" ] && [ "$var" != "$line" ] || continue
   if ! [[ "$var" =~ $VAR_RE ]] || [[ "$var" =~ $VAR_DENY_RE ]] || ! [[ "$rel" =~ $REL_RE ]]; then
-    echo "[e2e-media] WARNING: manifest entry with a non-OC_ / reserved var name or unsafe path characters — rejected." >&2
+    echo "[e2e-media] WARNING: manifest entry '$var' is not an allowlisted media var (or has unsafe path characters) — rejected." >&2
     continue
   fi
   case "/$rel/" in

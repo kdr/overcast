@@ -21,6 +21,12 @@
 # `--limit`/`--since` are ignored (one plate → one vehicle).
 # Implements: enumerate --query "<ST>:<plate>" | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 ACTOR="${OVERCAST_PLATE_ACTOR:-}"
 
 need() {
@@ -121,7 +127,7 @@ case "$op" in
     [ -n "$url" ] || { echo "plate fetch needs --url" >&2; exit 1; }
     page="${out}.html"
     case "$out" in *.html|*.htm) page="$out" ;; esac
-    if curl -fsSL -m 60 -o "$page" "$url"; then
+    if oc_guarded_fetch "$url" "$page" -m 60 >/dev/null; then
       jq -nc --arg p "$page" --arg u "$url" '{kind:"page",path:$p,source:"plate",url:$u}'
     else
       echo "plate fetch failed for $url" >&2; rm -f "$page"; exit 1

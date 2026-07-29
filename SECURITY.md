@@ -51,6 +51,22 @@ documented**. Understanding the trust model helps you report real issues:
   `/chair` bind to `127.0.0.1` by default and require a 256-bit bearer token.
   Binding to a wider interface (`--bind`, `tailnet`, `OVERCAST_*_BIND`) is an
   explicit operator choice; do it only on networks you trust.
+- **A dotenv outside a trusted root cannot pick binaries, endpoints, or
+  security settings.** overcast auto-loads `.env` from the working directory and
+  from `--case <dir>`, which are routinely someone else's content. Privileged
+  keys are **ignored** from such a file, with a warning naming what was skipped:
+  overcast's own switches (`OVERCAST_TRUST_DOTENV`, `OVERCAST_ALLOW_PRIVATE_FETCH`,
+  `OVERCAST_FFMPEG`, …), code-injection vectors (`NODE_OPTIONS`, `PATH`,
+  `LD_PRELOAD`, …), proxies, and command/endpoint selectors (`*_CMD`, `*_PY`,
+  `*_BASE_URL`, `*_ENDPOINT`, `*_API`, `*_ACTOR`, …). Ordinary keys still load.
+  The overcast package root and `OVERCAST_HOME` are trusted; setting
+  `OVERCAST_TRUST_DOTENV=1` **in the real environment** opts another directory
+  back in — it is deliberately not settable from a dotenv, which would let one
+  promote itself. See [`docs/configuration.md`](docs/configuration.md).
+- **A case directory selects providers, it does not supply commands.** A case's
+  `.overcast/setup.json` may name a provider `choice`; the executable descriptor
+  is resolved from the trusted catalog/manifest corpus or your profile in
+  `<home>`, never taken from the case folder.
 
 **In scope (please report):**
 
@@ -61,9 +77,14 @@ documented**. Understanding the trust model helps you report real issues:
   missing constant-time comparison.
 - SSRF beyond the documented residual — a way to reach internal/loopback/cloud-
   metadata hosts that defeats `assertFetchHostAllowed`, or an outbound fetch path
-  that never consults it. (The DNS-rebinding TOCTOU on the media/screenshot fetch
-  path is a **known residual** — see the code comments in `src/media/fetch.ts`;
-  a novel, more reliable bypass is still worth reporting.)
+  that never consults it. Two **known residuals**, both narrower than a report:
+  (a) the DNS-rebinding TOCTOU on the media/screenshot fetch path — see the code
+  comments in `src/media/fetch.ts`; (b) the shipped shell fetchers let `curl`
+  follow a redirect chain and then check the address it actually reached
+  (`providers/engines/net/guarded-fetch.sh`), so a redirect INTO a private host
+  still issues that one request — the body is deleted and never becomes a
+  capture record, but the request is not prevented. A novel or more reliable
+  bypass is still worth reporting.
 - Command / argument injection into a spawned binary (ffmpeg, yt-dlp, tinycloud,
   etc.) from a filename, URL, ref, or scraped field.
 - Credential/API-key leakage into persisted records, exported reports, logs, or

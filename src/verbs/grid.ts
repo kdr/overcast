@@ -77,6 +77,15 @@ export const gridVerb: VerbSpec = {
     if (resolved.error) return [err(resolved.error)];
     const input = resolved.ref ?? ctx.input;
 
+    // Local media only — the same rule `wall` and `read` already apply before
+    // they call in. Handing a remote ref to ffprobe/ffmpeg would make the
+    // SUBPROCESS fetch it, bypassing assertFetchHostAllowed entirely and turning
+    // ffmpeg's stderr into an internal-host probe. (ffmpeg.ts refuses it at the
+    // sink too; this is the caller-side error the analyst actually reads.)
+    if (/^https?:\/\//i.test(input)) {
+      return [err(`grid needs local media — ${input} is a remote URL; \`capture\` it into the case first`)];
+    }
+
     // grid tiles VIDEO frames — reject audio-only media that passes the AV gate
     // (resolveVideoArg accepts audio too). Probe once here and reuse it for the
     // window duration below. Lenient on a probe failure (proceed rather than block).

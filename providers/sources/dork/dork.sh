@@ -15,6 +15,12 @@
 # Implements the exec source contract:
 #   enumerate --query <dork> [--limit N] [--since S] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 
 SERPER="${SERPER_API_KEY:-}"
 
@@ -92,7 +98,7 @@ case "$op" in
     # --out already ends in .html/.htm (uniqueName preserves URL extensions).
     page="${out}.html"
     case "$out" in *.html|*.htm) page="$out" ;; esac
-    if curl -fsSL -m 60 -o "$page" "$url"; then
+    if oc_guarded_fetch "$url" "$page" -m 60 >/dev/null; then
       jq -nc --arg p "$page" --arg u "$url" '{kind:"page",path:$p,source:"dork",url:$u}'
     else
       echo "dork fetch failed for $url" >&2

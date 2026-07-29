@@ -12,6 +12,7 @@
 import { dirname, extname, join } from "node:path";
 import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, statSync } from "node:fs";
 import { execCapture, parseFirstJson } from "../exec.js";
+import { assertFetchHostAllowed } from "../../media/fetch.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
 import { resolveShippedArgv } from "../shipped-ref.js";
@@ -318,6 +319,22 @@ export async function fetchSource(
   desc: SourceDescriptor,
   opts: FetchOpts,
 ): Promise<OvercastRecord> {
+  // SSRF guard at the SINK: the fetcher we are about to spawn (curl/yt-dlp)
+  // performs the request itself, so this is the last place the private-address
+  // refusal can apply. captureRef checks too — this one makes the seam safe for
+  // every caller, including a future one that forgets. Same guard, same
+  // OVERCAST_ALLOW_PRIVATE_FETCH opt-out as fetchMediaToCase.
+  try {
+    await assertFetchHostAllowed(opts.url);
+  } catch (e) {
+    return makeRecord({
+      verb: "capture",
+      format: "json",
+      payload: { url: opts.url, source: desc.type },
+      error: (e as Error).message,
+      state: "error",
+    });
+  }
   // resolve any `shipped:` tokens in the base argv (see enumerateSource).
   let base: string[];
   try {

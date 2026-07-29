@@ -19,6 +19,12 @@
 # ~100k faces — for wiring tests, not real investigations).
 # Implements: enumerate --query <image> [--limit N] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 ACTOR="${OVERCAST_FACE_SEARCH_ACTOR:-nkactors~face-search}"
 op="${1:-enumerate}"; shift || true
 
@@ -120,7 +126,7 @@ case "$op" in
     [ -n "$url" ] || { echo "facesearch fetch needs --url" >&2; exit 1; }
     # download the match thumbnail/page and report kind by content type (an HTML
     # page gets a .html name so the sense gate won't route it to watch/listen).
-    if ! ct="$(curl -fsSL -m 120 -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+    if ! ct="$(oc_guarded_fetch "$url" "$out" -m 120)" || [ ! -s "$out" ]; then
       echo "facesearch fetch failed for $url" >&2; rm -f "$out"; exit 1
     fi
     case "$ct" in

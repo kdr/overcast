@@ -14,6 +14,7 @@ import { persistRecords } from "./persist.js";
 import { expandHome, expandHomeArg } from "../fs-path.js";
 import { renderRecord, pageCommand } from "../render.js";
 import { redactSecrets } from "../env.js";
+import { sanitizeTerminalText } from "../text.js";
 import { isHtmlExportPath } from "../report/html.js";
 import type { Case } from "../case.js";
 import type { Profile } from "../profile.js";
@@ -185,7 +186,9 @@ export function verbCallLine(spec: VerbSpec, args: Record<string, unknown>): str
   const primaryName = spec.args[0]?.name;
   const raw = primaryName ? args?.[primaryName] : undefined;
   if (raw === undefined || raw === null || raw === "") return tag;
-  let v = Array.isArray(raw) ? raw.map((x) => String(x)).join(" ") : String(raw);
+  // model-supplied, and the model's input can itself be attacker-authored
+  // (scraped content) — never let it carry cursor-control bytes into the HUD line
+  let v = sanitizeTerminalText(Array.isArray(raw) ? raw.map((x) => String(x)).join(" ") : String(raw));
   if (v.length > 80) v = v.slice(0, 79) + "…";
   return `${tag} ${HUD_DIM}▸${HUD_RESET} ${HUD_PALE}${v}${HUD_RESET}`;
 }
@@ -233,6 +236,9 @@ export function toAgentTool(spec: VerbSpec, deps: ToolDeps): ToolDefinition {
       } catch {
         text = "";
       }
+      // Belt-and-braces: renderRecord already sanitizes, but this is the last
+      // point before pi-tui (which PRESERVES ANSI/CSI/OSC) paints the string.
+      text = sanitizeTerminalText(text);
       if (!text) return new Text("", 0, 0);
       const lines = text.split("\n");
       if (options.expanded || lines.length <= COLLAPSED_RESULT_LINES) {

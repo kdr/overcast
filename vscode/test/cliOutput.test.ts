@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   failureFor,
   firstLine,
-  htmlPathsInPayload,
+  generatedViewerPaths,
   parseRecords,
 } from "../src/lib/cliOutput.ts";
 
@@ -55,15 +55,29 @@ test("firstLine: skips blank lines", () => {
   assert.equal(firstLine("\n\n  real message\nrest"), "real message");
 });
 
-test("htmlPathsInPayload: finds nested local html, skips remote", () => {
-  const payload = {
-    viewer: "/case/.overcast/media/map.html",
-    nested: { view: "/case/.overcast/media/tiny_grid_board.html" },
-    remote: "https://example.com/page.html",
-    other: "/case/media/clip.mp4",
-  };
-  assert.deepEqual(htmlPathsInPayload(payload), [
+test("generatedViewerPaths: reads the declared viewer fields, skips remote", () => {
+  assert.deepEqual(generatedViewerPaths({ viewer: "/case/.overcast/media/map.html" }), [
     "/case/.overcast/media/map.html",
+  ]);
+  assert.deepEqual(generatedViewerPaths({ view: "/case/.overcast/media/tiny_grid_board.html" }), [
     "/case/.overcast/media/tiny_grid_board.html",
   ]);
+  assert.deepEqual(generatedViewerPaths({ viewer: "https://example.com/page.html" }), []);
+  assert.deepEqual(generatedViewerPaths({ viewer: "/case/media/clip.mp4" }), []);
+});
+
+test("generatedViewerPaths: a downloaded page is NOT an openable artifact", () => {
+  // `capture <url>` on a generic host writes the remote page verbatim and puts
+  // its path in payload.path — the old any-.html walk routed that into a
+  // script-enabled webview. Only declared viewer fields count now.
+  const capture = {
+    capture_id: "cap_report_ab12cd34.html",
+    path: "/case/.overcast/media/report_ab12cd34.html",
+    kind: "page",
+    source: "web",
+    url: "https://attacker.example/report.html",
+  };
+  assert.deepEqual(generatedViewerPaths(capture), []);
+  // nesting doesn't resurrect it either
+  assert.deepEqual(generatedViewerPaths({ nested: { view: "/case/x.html" } }), []);
 });

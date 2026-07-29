@@ -13,12 +13,21 @@ function isProviderDescriptor(value: unknown): value is ProviderDescriptor {
 
 export function providerBinding(ctx: VerbContext, verb: string): ProviderDescriptor | undefined {
   const policy = loadSetup(ctx.case)?.providers?.[verb];
-  if (policy?.choice && findProviderChoice(verb, policy.choice, ctx.home)?.clearsBinding === true) return undefined;
+  const policyChoice = policy?.choice ? findProviderChoice(verb, policy.choice, ctx.home) : undefined;
+  if (policy?.choice && policyChoice?.clearsBinding === true) return undefined;
   const profileDescriptor = ctx.profile.providers?.[verb];
   if (isProviderDescriptor(profileDescriptor)) return profileDescriptor;
-  const descriptor = policy?.descriptor;
-  // loadSetup already heals policy descriptors on load (like loadProfile); this
-  // heal is idempotent defense-in-depth for any descriptor reaching us another way.
-  if (isProviderDescriptor(descriptor)) return healDescriptor(descriptor);
+  // A case directory is DATA, not configuration authority: `.overcast/setup.json`
+  // travels with a shared/published/synced case, so honoring its raw `descriptor`
+  // handed an attacker-authored folder the power to choose which binary the first
+  // sense verb spawns — with the full environment (API keys included). The case
+  // policy may still SELECT a provider, but the executable descriptor is taken
+  // from the trusted corpus (catalog + shipped/installed manifests) that
+  // `findProviderChoice` resolves, or from the profile in <home>. This is what
+  // CLAUDE.md already promised: "Provider execution always follows the active
+  // profile binding … never pins a stale exec descriptor."
+  if (policyChoice?.descriptor && isProviderDescriptor(policyChoice.descriptor)) {
+    return healDescriptor(policyChoice.descriptor);
+  }
   return ctx.profile.providers?.[verb];
 }

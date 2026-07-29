@@ -14,6 +14,12 @@
 # OVERCAST_LENS_ACTOR (default borderline~google-lens).
 # Implements: enumerate --query <image> [--limit N] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 ACTOR="${OVERCAST_LENS_ACTOR:-borderline~google-lens}"
 op="${1:-enumerate}"; shift || true
 
@@ -167,7 +173,7 @@ case "$op" in
     # a lens hit's ref is a matched page (or a direct image url) — download it
     # and report the kind by content type so pages get an .html name the sense
     # gate won't route to watch/listen.
-    if ! ct="$(curl -fsSL -m 120 -o "$out" -w '%{content_type}' "$url")" || [ ! -s "$out" ]; then
+    if ! ct="$(oc_guarded_fetch "$url" "$out" -m 120)" || [ ! -s "$out" ]; then
       echo "lens fetch failed for $url" >&2
       rm -f "$out"
       exit 1

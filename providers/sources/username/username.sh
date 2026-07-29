@@ -18,6 +18,12 @@
 # (account discovery has no recency axis).
 # Implements: enumerate --query <username> [--limit N] | fetch --url <u> --out <p> | init | describe
 set -uo pipefail
+# shared outbound-fetch guard (scheme pinning, bounded redirects, private-address
+# refusal on the FINAL hop) — see providers/engines/net/guarded-fetch.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../engines/net/guarded-fetch.sh
+. "$here/../../engines/net/guarded-fetch.sh"
+
 ACTOR="${OVERCAST_MAIGRET_ACTOR:-ntriqpro~maigret-actor}"
 TOPSITES="${OVERCAST_MAIGRET_TOPSITES:-500}"
 
@@ -94,7 +100,7 @@ case "$op" in
     # fake-clean capture. Don't double the suffix when --out already ends in html.
     page="${out}.html"
     case "$out" in *.html|*.htm) page="$out" ;; esac
-    if curl -fsSL -m 60 -o "$page" "$url"; then
+    if oc_guarded_fetch "$url" "$page" -m 60 >/dev/null; then
       jq -nc --arg p "$page" --arg u "$url" '{kind:"page",path:$p,source:"username",url:$u}'
     else
       echo "username fetch failed for $url" >&2; rm -f "$page"; exit 1

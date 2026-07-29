@@ -5,7 +5,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { assembleArgs, type CollectedValues } from "../lib/argAssembly.ts";
-import { htmlPathsInPayload } from "../lib/cliOutput.ts";
+import { generatedViewerPaths } from "../lib/cliOutput.ts";
 import type { ExtDeps, OvercastRecord, VerbSpecJSON } from "../types.ts";
 
 const GROUP_ORDER: VerbSpecJSON["group"][] = [
@@ -160,7 +160,7 @@ export async function routeResult(
   const rec = records.find((r) => r.verb === verb) ?? records[0];
   deps.router.refresh();
   if (!rec) return;
-  const artifacts = htmlPathsInPayload(rec.payload);
+  const artifacts = generatedViewerPaths(rec.payload);
   if (artifacts.length > 0) {
     await deps.router.openArtifact(artifacts[0], `${verb} — ${path.basename(artifacts[0])}`);
     return;

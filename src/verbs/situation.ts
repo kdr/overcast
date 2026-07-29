@@ -21,7 +21,7 @@ import { persistRecords } from "../registry/persist.js";
 import { normalizeHtmlTheme } from "../report/html.js";
 import { parseSince } from "../providers/memory/local.js";
 import { monitorVerb, parseInterval } from "./osint.js";
-import { osOpen } from "../media/view.js";
+import { osOpenPrivateUrl } from "../media/view.js";
 import { qrLines } from "../chair/qr.js";
 import { OVERCAST_VERSION } from "../version.js";
 import { SituationServer } from "../situation/server.js";
@@ -430,7 +430,8 @@ export const situationVerb: VerbSpec = {
       `situation: ${everyStr ? `monitor cadence ${everyStr} · ` : ""}Ctrl-C or \`overcast situation stop\` to stop`,
     ];
     process.stderr.write(banner.join("\n") + "\n");
-    if (ctx.opts["no-open"] !== true) osOpen(server.pairingUrl);
+    // NOT osOpen — see osOpenPrivateUrl: the token must never reach argv.
+    if (ctx.opts["no-open"] !== true) osOpenPrivateUrl(server.pairingUrl);
 
     checkpoint(
       ctx,

@@ -6,7 +6,7 @@ import { join, basename, dirname } from "node:path";
 import { copyFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { makeRecord, errRecord, stripUrlTail, type OvercastRecord } from "../record.js";
-import { sniffExt } from "../media/fetch.js";
+import { assertFetchHostAllowed, sniffExt } from "../media/fetch.js";
 import {
   builtinDescriptor,
   enumerateSource,
@@ -720,6 +720,19 @@ export async function captureRef(
   // (e.g. a scan.hit id that didn't resolve) must NOT be shipped to yt-dlp.
   if (!/^https?:\/\//i.test(ref)) {
     return err("capture", `could not resolve ref to media: ${ref} (not a local path or URL)`);
+  }
+  // SSRF guard at the ONE seam every provider-backed fetch flows through
+  // (`capture <url>`, `scan --pull`, `monitor`). The ref here is untrusted:
+  // a scraped hit's media.ref/payload.url, or an agent-supplied URL under
+  // invariant #10. Without this the shipped fetchers (curl/yt-dlp) would issue
+  // the request themselves, reaching loopback/link-local/private hosts —
+  // cloud metadata included — and persisting the body as case evidence.
+  // Same guard + same OVERCAST_ALLOW_PRIVATE_FETCH opt-out as see/exif/verify/
+  // screenshot; fetchSource re-checks so no future caller can bypass it.
+  try {
+    await assertFetchHostAllowed(ref);
+  } catch (e) {
+    return err("capture", (e as Error).message);
   }
   // Prefer the originating source provider (from the scan.hit); only fall back
   // to host-sniffing for ad-hoc URLs with no known source. A generic host maps

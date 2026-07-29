@@ -836,6 +836,12 @@ case "\${1:-}" in
 esac
 `);
     process.env.OVERCAST_SOURCE_CRED_CMD = `bash ${sourceScript}`;
+    // captureRef/fetchSource now run assertFetchHostAllowed, which fails CLOSED
+    // on a host it cannot resolve — and `example.test` is a reserved TLD that
+    // never resolves. This test is about credential-gap propagation, not the
+    // SSRF guard, so take the guard's documented opt-out rather than requiring
+    // DNS in an offline unit test.
+    process.env.OVERCAST_ALLOW_PRIVATE_FETCH = "1";
     const c = openCase(d);
     c.ensure();
     addSource(c, "cred:any");
@@ -850,6 +856,7 @@ esac
   } finally {
     if (prevSource === undefined) delete process.env.OVERCAST_SOURCE_CRED_CMD;
     else process.env.OVERCAST_SOURCE_CRED_CMD = prevSource;
+    delete process.env.OVERCAST_ALLOW_PRIVATE_FETCH;
     rmSync(d, { recursive: true, force: true });
   }
 });
@@ -1288,7 +1295,11 @@ test("scan auto-sense see passes case targets as owl-local labels", async () => 
     c.ensure();
     addSource(c, "fixture:pier9");
     addTarget(c, "license plate");
-    const seeScript = join(d, "see-detect.sh");
+    // The run string must mention detect.py for autoSeeOpts' label path, and the
+    // EXECUTABLE now has to come from the trusted profile — a case directory can
+    // select a provider but no longer supplies the command to spawn (see the
+    // "case setup.json descriptor is never executed" test below).
+    const seeScript = join(d, "detect.py.sh");
     writeFileSync(seeScript, [
       "#!/usr/bin/env bash",
       "set -euo pipefail",
@@ -1304,16 +1315,12 @@ test("scan auto-sense see passes case targets as owl-local labels", async () => 
     const setup = emptySetup("auto-see-detect");
     setup.completed = true;
     setup.automation = { auto_sense: ["see"], auto_index_new: false };
-    setup.providers = {
-      see: {
-        verb: "see",
-        choice: "owl-local",
-        descriptor: { type: "exec", run: `bash ${seeScript} {{input}}` },
-      },
-    };
+    setup.providers = { see: { verb: "see", choice: "owl-local" } };
     saveSetup(c, setup);
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, see: { type: "exec", run: `bash ${seeScript} {{input}}` } };
 
-    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile: defaultProfile() });
+    const recs = await scanVerb.run({ input: undefined, rest: [], opts: { pull: true }, case: c, profile });
     const see = recs.find((r) => r.verb === "see")!;
     assert.equal(see.state, "ready");
     assert.match((see.payload as Record<string, unknown>).args as string, /--detect license plate/);

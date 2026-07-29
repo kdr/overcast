@@ -57,8 +57,38 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+/** Loopback-only host check. `runtime.json` lives INSIDE the opened workspace,
+ *  so it is attacker-authorable repo content: without this a planted descriptor
+ *  could name any host, and we would both probe it and hand it the situation
+ *  bearer token as an iframe origin. The real server always binds loopback (or
+ *  a tailnet address the operator chose via the CLI, which the extension never
+ *  spawns), so anything else is a plant. */
+function isLoopbackHost(host: string | undefined): boolean {
+  if (!host) return false;
+  const h = host.trim().toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  return h === "127.0.0.1" || h === "::1" || h === "localhost" || h === "0.0.0.0" || /^127\./.test(h);
+}
+
+/** Is `url` an http(s) URL on loopback, on exactly the port we told the child to
+ *  use? Both halves matter — a plant that names the right port on a remote host
+ *  would otherwise receive the token. */
+function isOwnLoopbackUrl(url: string | undefined, expectedPort: number): boolean {
+  if (!url) return false;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+  if (!isLoopbackHost(u.hostname)) return false;
+  const port = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
+  return port === expectedPort;
+}
+
 function portServing(port: number, bind?: string): Promise<boolean> {
-  const host = bind && bind !== "0.0.0.0" ? bind : "127.0.0.1";
+  // Never probe a host the workspace file chose — loopback only.
+  const host = bind && isLoopbackHost(bind) && bind !== "0.0.0.0" ? bind : "127.0.0.1";
   return new Promise((resolve) => {
     const sock = net.connect({ port, host });
     let settled = false;
@@ -192,7 +222,10 @@ export class SituationServerManager implements vscode.Disposable {
     const port = vscode.workspace.getConfiguration("overcast").get<number>("situation.port", 0);
     if (typeof port === "number" && port > 0) args.push("--port", String(port));
     this.setState({ phase: "starting", message: "Starting the situation server…" });
-    const spawnFloor = Date.now() - 2000; // clock cushion for the freshness check
+    // The port we ASSIGNED, when we assigned one — 0 means "server picks a free
+    // port", which we cannot know in advance. Used below to verify the runtime
+    // descriptor names our child's listener and not some other loopback one.
+    const assignedPort = typeof port === "number" && port > 0 ? port : undefined;
     const child = await this.deps.bridge.spawnLongLived(args, {
       caseDir,
       env: { OVERCAST_SITUATION_TOKEN: token },
@@ -239,9 +272,21 @@ export class SituationServerManager implements vscode.Disposable {
     while (Date.now() < deadline) {
       if (this.child !== child || child.exitCode !== null) return; // exit handler spoke
       const rt = readRuntime(caseDir);
+      // Ownership must be PROVEN, not asserted. The old `startedAt >= spawnFloor`
+      // fallback was a timestamp the untrusted file itself supplies, so a repo
+      // shipping `.overcast/situation/runtime.json` with a future date and a
+      // remote host was accepted as "our child" — and then handed the bearer
+      // token as the panel's iframe origin. Require the real pid, and require the
+      // URL to be loopback on the port we assigned.
       if (
         rt &&
-        (rt.pid === child.pid || Date.parse(rt.startedAt) >= spawnFloor) &&
+        rt.pid === child.pid &&
+        isLoopbackHost(rt.bind) &&
+        // When we pinned a port, the descriptor must name THAT port — otherwise a
+        // raced rewrite keeping the real pid could point us at another loopback
+        // listener. With no pinned port the server chose one we can't predict, so
+        // the pid + loopback checks carry it.
+        (assignedPort === undefined || rt.port === assignedPort) &&
         (await runtimeLive(rt))
       ) {
         runtime = rt;
@@ -262,6 +307,19 @@ export class SituationServerManager implements vscode.Disposable {
     // runtime.url ends with "/" (verified) → pairing shape is `${url}#t=…`.
     // asExternalUri handles remote/SSH port forwarding; fragments are
     // client-side so we re-append after conversion. Desktop = passthrough.
+    // Final gate before the token is bound to an origin: the URL we are about to
+    // frame must be loopback on the port we pinned — or, when we pinned none, on
+    // the port the (pid-verified) descriptor reports. (The readiness loop already
+    // matched the pid; this catches a torn/raced rewrite of the same file.)
+    if (!isOwnLoopbackUrl(runtime.url, assignedPort ?? runtime.port)) {
+      this.stopping = true;
+      child.kill("SIGTERM");
+      this.setState({
+        phase: "error",
+        message: `The situation runtime descriptor named an unexpected address (${runtime.url}) — refusing to open it.`,
+      });
+      return;
+    }
     let base = runtime.url;
     try {
       base = (await vscode.env.asExternalUri(vscode.Uri.parse(runtime.url))).toString(true);

@@ -34,6 +34,38 @@ function resolveTool(envVar: string, bin: string): string {
 export const FFMPEG_PATH = resolveTool("OVERCAST_FFMPEG", "ffmpeg");
 export const FFPROBE_PATH = resolveTool("OVERCAST_FFPROBE", "ffprobe");
 
+/**
+ * Refuse a NON-LOCAL media input at the ffmpeg sink.
+ *
+ * ffmpeg/ffprobe speak http(s)/rtmp/rtsp/tcp/… themselves, so handing one an
+ * attacker-influenced ref makes the SUBPROCESS issue the request — the
+ * `assertFetchHostAllowed` guard in media/fetch.ts never runs, and ffmpeg's own
+ * stderr (surfaced in the verb's error record) turns it into an
+ * internal-host/port oracle. `wall` and `read` already skipped remote refs by
+ * hand before calling in; `grid` did not, which is the bypass this closes for
+ * every present and future caller.
+ *
+ * Everything internal reads media overcast has ALREADY materialized locally
+ * (the senses download a remote ref through `fetchMediaToCase` first), so the
+ * rule is: an existing local file always passes; anything that does not exist
+ * and looks like a protocol ref (`http://`, `rtsp://`, `concat:`, `async:`, …)
+ * is refused. A non-existent plain path still falls through to ffmpeg's own
+ * "No such file" error, and generated patterns like `seq_%03d.jpg` are
+ * unaffected.
+ */
+export function assertLocalMediaInput(input: string, what = "input"): void {
+  if (existsSync(input)) return;
+  // A scheme needs at least TWO characters before the colon. A one-character
+  // prefix is a Windows drive letter (`C:\clip.mp4`), not a protocol — matching
+  // it would turn "file not found" into a bogus "non-local" refusal there. No
+  // real ffmpeg protocol is single-letter.
+  if (/^[a-z][a-z0-9+.-]+:/i.test(input)) {
+    throw new Error(
+      `refusing to hand a non-local ${what} to ffmpeg (${input}) — download it into the case first`,
+    );
+  }
+}
+
 export interface ToolInfo {
   ok: boolean;
   path: string;
@@ -102,6 +134,7 @@ export interface ProbeResult {
 
 /** ffprobe a media file into a small structured summary. */
 export async function probe(path: string): Promise<ProbeResult> {
+  assertLocalMediaInput(path, "probe input");
   const { stdout } = await execFileP(
     FFPROBE_PATH,
     ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
@@ -164,6 +197,7 @@ export async function extractFrame(
   second: number,
   outDir: string,
 ): Promise<string> {
+  assertLocalMediaInput(input, "frame input");
   ensureDir(outDir);
   const out = join(outDir, `${basename(input, extname(input))}_t${Math.round(second)}.jpg`);
   await execFileP(
@@ -181,6 +215,7 @@ export async function extractFrame(
  *  returns undefined on any failure (caller falls back to no poster). */
 export async function posterFrame(input: string, outDir: string, second = 0.5): Promise<string | undefined> {
   try {
+    assertLocalMediaInput(input, "poster input");
     ensureDir(outDir);
     const out = join(outDir, `${basename(input, extname(input))}_poster.jpg`);
     if (existsSync(out)) return out;
@@ -210,6 +245,7 @@ export async function cropStill(
   out: string,
   second?: number,
 ): Promise<string> {
+  assertLocalMediaInput(input, "crop input");
   ensureDir(dirname(out));
   const x = Math.max(0, Math.floor(box.x));
   const y = Math.max(0, Math.floor(box.y));
@@ -317,6 +353,7 @@ export async function contactSheet(
   opts: ContactSheetOpts = {},
 ): Promise<ContactSheetResult> {
   if (seconds.length === 0) throw new Error("contact sheet needs at least one timestamp");
+  assertLocalMediaInput(input, "contact sheet input");
   ensureDir(outDir);
 
   const cellWidth = clampInt(opts.cellWidth ?? 320, 120, 960);
@@ -601,6 +638,7 @@ export async function imagesToVideo(
 
 /** Render an audio spectrogram to a PNG via ffmpeg's native showspectrumpic. */
 export async function spectrogram(input: string, outDir: string): Promise<string> {
+  assertLocalMediaInput(input, "spectrogram input");
   ensureDir(outDir);
   const out = join(outDir, `${basename(input, extname(input))}_spectrogram.png`);
   await execFileP(
@@ -665,6 +703,7 @@ export async function enhance(
   outDir: string,
   outPath?: string,
 ): Promise<EnhanceResult> {
+  assertLocalMediaInput(input, "enhance input");
   const p = await probe(input).catch(() => ({ modality: modalityFromExt(input) }) as ProbeResult);
   const modality = p.modality;
   const vFilters: string[] = [];
