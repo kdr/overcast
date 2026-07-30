@@ -638,6 +638,9 @@ overcast note "status page shows a partial outage" --ref <REC-id> --tag ops
 
 # also renders a LOCAL html export to an image (wall/map/brief screenshots)
 overcast brief --export brief.html && overcast screenshot ./brief.html
+# NB: a local .html renders with relative assets resolved AGAINST THE FILE
+# (css/img/fonts next to the export load; absolute paths and CDN urls do not) —
+# keep figure assets relative-and-adjacent, and give slow layouts `--wait <ms>`
 
 # standing page-watch: the SAME engine as a source, re-rendered every pass
 overcast source add browser:https://example.com/status

@@ -724,6 +724,8 @@ Options:
   --to <string>          add: target index id/name
   --from <string>        remove: index id/name to remove the video from
   --all                  add: register every video the case has captured or sensed (watch/listen/face)
+  --force                add: re-submit to the remote index even when the local mirror already lists the video as a member (reconciles a stale membership cache after server-side deletes/failures)
+  --batch <number>       add --all: submission wave size — pauses between waves until the previous wave stops processing (default 12; 0 = single unpaced pass)
   --remote               list: also query tinycloud for all account indexes
   --no-upload            add: don't upload (use an already-uploaded source)
   --no-download          add: don't materialize the source locally

@@ -431,8 +431,11 @@ export const providerVerb: VerbSpec = {
     if (action !== "describe" && action !== "init") {
       return [err("provider", `unknown provider action '${action}' (expected setup | install | remove | create | init | list | describe)`)];
     }
-    const verb = ctx.rest[0];
-    if (!verb) return [err("provider", `usage: provider ${action} <verb>`)];
+    // positional is canonical; `--verb <verb>` (provider setup's flag) is
+    // accepted here too — the field kept reaching for `describe --verb watch`
+    // and got a usage error for a form that reads perfectly well.
+    const verb = ctx.rest[0] ?? (typeof ctx.opts.verb === "string" && ctx.opts.verb.trim() ? ctx.opts.verb.trim() : undefined);
+    if (!verb) return [err("provider", `usage: provider ${action} <verb> (or --verb <verb>)`)];
     const desc = providers[verb];
     if (!desc) return [err("provider", `no provider bound for '${verb}' (try \`setup provider ${verb} <spec>\`)`)];
 
@@ -705,6 +708,17 @@ export const doctorVerb: VerbSpec = {
         .some((l) => /curl_cffi/i.test(l) && !/unavailable|not available/i.test(l));
       const vm = ytdlpVersion.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})/);
       const ageDays = vm ? Math.floor((Date.now() - Date.UTC(Number(vm[1]), Number(vm[2]) - 1, Number(vm[3]))) / 86_400_000) : undefined;
+      // yt-dlp needs an external JavaScript runtime for some YouTube formats
+      // ("No supported JavaScript runtime could be found" mid-download without
+      // one). Probe the runtimes yt-dlp's JS-interp searches for, on PATH.
+      let jsRuntime: string | undefined;
+      for (const rt of ["deno", "node", "bun"]) {
+        const probe = await execCapture(rt, ["--version"], { timeoutMs: 10_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+        if (probe.code === 0) {
+          jsRuntime = rt;
+          break;
+        }
+      }
       checks.push({
         name: "yt-dlp",
         ok: true,
@@ -712,6 +726,9 @@ export const doctorVerb: VerbSpec = {
           (impersonation
             ? "; curl_cffi impersonation OK"
             : "; NO curl_cffi impersonation — TLS-fingerprinting hosts (e.g. Vimeo embeds) will fail; reinstall via `pipx install \"yt-dlp[default,curl-cffi]\"` or a standalone release binary (brew/apt builds lack it), or point OVERCAST_YTDLP_CMD at one that has it") +
+          (jsRuntime
+            ? `; JS runtime OK (${jsRuntime})`
+            : "; NO JavaScript runtime on PATH — some YouTube formats fail with 'No supported JavaScript runtime could be found'; install one (`brew install deno` / node / bun)") +
           (ageDays !== undefined && ageDays > 90
             ? `; released ~${ageDays} days ago — update it (YouTube routinely breaks old extractors; standalone builds self-update via \`yt-dlp -U\`)`
             : ""),

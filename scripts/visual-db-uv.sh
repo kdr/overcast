@@ -15,7 +15,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENV="${OVERCAST_VISUAL_DB_VENV:-$ROOT/.dev/visual-db-py}"
+# Default venv location: repo-local .dev/ for a dev checkout, but the DURABLE
+# overcast home for an installed package — a venv inside the npm package dir is
+# wiped by any reinstall/upgrade. Override with OVERCAST_VISUAL_DB_VENV.
+if [ -e "$ROOT/.git" ]; then
+  DEFAULT_VENV="$ROOT/.dev/visual-db-py"
+else
+  DEFAULT_VENV="${OVERCAST_HOME:-$HOME/.overcast}/visual-db-py"
+fi
+VENV="${OVERCAST_VISUAL_DB_VENV:-$DEFAULT_VENV}"
 PYVER="${OVERCAST_VISUAL_DB_PYTHON:-3.12}"
 MODE="${1:-}"
 if [ -z "$MODE" ]; then
@@ -96,7 +104,8 @@ cat <<EOF
 visual DB Python ready:
   $VENV/bin/python
 
-Put this in .env if it is not already set:
+Put this in .env if it is not already set (overcast auto-discovers the repo
+.dev/ venv and the \$OVERCAST_HOME/visual-db-py venv without it):
   OC_VISUAL_DB_PY=$VENV/bin/python
 EOF
 

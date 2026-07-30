@@ -12,6 +12,23 @@ import type { Answer, MemoryIndexStatus, MemoryProvider, Passage, QueryOpts } fr
 
 export const DEFAULT_QMD_MODEL = "embeddinggemma-300M-Q8_0";
 
+/** Per-step rebuild timeout, derived from corpus size: 15 min floor + ~10 s of
+ *  headroom per doc (CPU embedding of a few hundred docs routinely blows a flat
+ *  15 min, and a killed embed leaves docs on disk with zero vectors).
+ *  OVERCAST_QMD_TIMEOUT_MS overrides the derived value outright. */
+export function qmdRebuildTimeoutMs(docCount: number): number {
+  const env = Number(process.env.OVERCAST_QMD_TIMEOUT_MS);
+  if (Number.isFinite(env) && env > 0) return env;
+  return Math.max(15 * 60_000, docCount * 10_000);
+}
+
+/** A step failure that reads like a timeout gets the recovery recipe appended —
+ *  the bare "command timed out after NNNms" gives no way forward. */
+function withTimeoutHint(error: string, docCount: number): string {
+  if (!/timed?\s*out/i.test(error)) return error;
+  return `${error} — embedding ${docCount} docs on CPU can exceed the derived timeout; raise OVERCAST_QMD_TIMEOUT_MS, or pre-build natively (\`qmd collection add\` + \`qmd embed\`) so the rebuild completes against cached embeddings`;
+}
+
 export interface QmdMemoryConfig {
   id?: string;
   command?: string;
@@ -221,7 +238,15 @@ export class QmdMemoryProvider implements MemoryProvider {
       manifest.model === this.model &&
       manifest.collection === this.collection &&
       manifest.fingerprint === fingerprint;
-    const state = compatible && manifest.state === "ready" ? "ready" : manifest ? (manifest.state === "error" ? "error" : "stale") : "missing";
+    // "building" is sticky on purpose: a rebuild that was killed mid-flight
+    // (SIGKILL, machine sleep) can't write its own error, and reporting it as
+    // "stale" made an interrupted PARTIAL index (docs on disk, zero vectors)
+    // indistinguishable from "just needs a refresh".
+    const state = compatible && manifest.state === "ready"
+      ? "ready"
+      : manifest
+        ? (manifest.state === "error" ? "error" : manifest.state === "building" ? "building" : "stale")
+        : "missing";
     return {
       provider: this.id,
       backend: this.backend,
@@ -232,7 +257,11 @@ export class QmdMemoryProvider implements MemoryProvider {
       model: this.model,
       config: { collection: this.collection, command: this.command, index: this.indexName },
       updated: manifest?.updated,
-      error: state === "error" ? manifest?.error : undefined,
+      error: state === "error"
+        ? manifest?.error
+        : state === "building"
+          ? `a rebuild started ${manifest?.updated ?? "(unknown)"} and hasn't finished — if none is running it was interrupted (partial index); re-run \`case memory index rebuild\``
+          : undefined,
     };
   }
 
@@ -253,7 +282,9 @@ export class QmdMemoryProvider implements MemoryProvider {
       documents: docs.length,
       records: records.length,
       fingerprint: docsFingerprint(docs),
-      state: "stale",
+      // "building" until the add+embed steps finish — see status() for why an
+      // interrupted rebuild must not read as plain "stale".
+      state: "building",
       updated: new Date().toISOString(),
     };
     mkdirSync(dirname(this.manifestFile), { recursive: true });
@@ -268,16 +299,17 @@ export class QmdMemoryProvider implements MemoryProvider {
       index: this.indexName,
     };
     await this.removeCollection(vars);
+    const stepTimeoutMs = qmdRebuildTimeoutMs(docs.length);
     const template = this.indexTemplate ?? "{{cmd}} --index {{index}} collection add {{docs}} --name {{collection}} --format json";
     const argv = renderTemplate(template, vars);
     if (argv.length) {
-      const res = await execCapture(argv[0], argv.slice(1), { timeoutMs: 15 * 60_000 }).catch((e) => ({
+      const res = await execCapture(argv[0], argv.slice(1), { timeoutMs: stepTimeoutMs }).catch((e) => ({
         code: 127,
         stdout: "",
         stderr: (e as Error).message,
       }));
       if (res.code !== 0) {
-        const error = redactSecrets(res.stderr || res.stdout || `qmd exited ${res.code}`);
+        const error = withTimeoutHint(redactSecrets(res.stderr || res.stdout || `qmd exited ${res.code}`), docs.length);
         this.writeManifest({ ...manifest, state: "error", error, updated: new Date().toISOString() });
         return { ...(await this.status()), state: "error", error };
       }
@@ -285,13 +317,13 @@ export class QmdMemoryProvider implements MemoryProvider {
     const embedTemplate = this.embedTemplate ?? "{{cmd}} --index {{index}} embed -c {{collection}} --no-gpu --max-docs-per-batch 64";
     const embedArgv = renderTemplate(embedTemplate, vars);
     if (embedArgv.length) {
-      const res = await execCapture(embedArgv[0], embedArgv.slice(1), { timeoutMs: 15 * 60_000 }).catch((e) => ({
+      const res = await execCapture(embedArgv[0], embedArgv.slice(1), { timeoutMs: stepTimeoutMs }).catch((e) => ({
         code: 127,
         stdout: "",
         stderr: (e as Error).message,
       }));
       if (res.code !== 0) {
-        const error = redactSecrets(res.stderr || res.stdout || `qmd embed exited ${res.code}`);
+        const error = withTimeoutHint(redactSecrets(res.stderr || res.stdout || `qmd embed exited ${res.code}`), docs.length);
         this.writeManifest({ ...manifest, state: "error", error, updated: new Date().toISOString() });
         return { ...(await this.status()), state: "error", error };
       }
@@ -369,7 +401,9 @@ export class QmdMemoryProvider implements MemoryProvider {
   async answer(q: string, opts: QueryOpts = {}): Promise<Answer> {
     const st = await this.status();
     if (st.state !== "ready") {
-      const reason = st.state === "error" && st.error ? ` (${st.error})` : "";
+      // error AND building both carry an actionable reason (building = a rebuild
+      // in flight, or an interrupted partial index) — always surface it.
+      const reason = st.error ? ` (${st.error})` : "";
       return {
         text: `qmd index is ${st.state}${reason}; run \`overcast case memory index rebuild --memory ${this.id}\` before querying qmd.`,
         citations: [],

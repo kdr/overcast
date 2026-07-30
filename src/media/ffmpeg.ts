@@ -177,6 +177,29 @@ export async function probe(path: string): Promise<ProbeResult> {
   };
 }
 
+/** probe() that never throws — undefined when ffprobe is missing, the input
+ *  is non-local, or the file doesn't parse. For OPTIONAL post-download /
+ *  pre-sense stream checks that must not turn a working pipeline into an error
+ *  on boxes without ffprobe. */
+export async function probeSafe(path: string): Promise<ProbeResult | undefined> {
+  try {
+    return await probe(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The warning stamped on records whose VIDEO source carries no audio stream.
+ *  Two field failures hide behind a silent audio track: a yt-dlp format that
+ *  advertises audio but delivers video-only (data loss nobody flags), and a
+ *  sense provider that fabricates `audio_description` spans for a file with no
+ *  audio signal at all (trust loss). One shared sentence so capture + watch
+ *  can't drift. */
+export function noAudioStreamWarning(p: ProbeResult | undefined): string | undefined {
+  if (!p || !p.hasVideo || p.hasAudio || p.modality !== "video") return undefined;
+  return "no audio stream in this video (ffprobe) — audio was likely dropped at download (yt-dlp formats can advertise aac but deliver video-only; retry with `-S vcodec:h264` or check `yt-dlp -F`), and any audio/speech description a provider returns for it is fabricated";
+}
+
 /** Ensure a directory exists and return it. */
 function ensureDir(dir: string): string {
   mkdirSync(dir, { recursive: true });

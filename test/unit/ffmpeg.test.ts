@@ -7,6 +7,8 @@ import { join } from "node:path";
 import {
   FFMPEG_PATH,
   probe,
+  probeSafe,
+  noAudioStreamWarning,
   extractFrame,
   enhance,
   defaultOps,
@@ -14,6 +16,7 @@ import {
   parseFrameRef,
   parseTimecode,
   parseAtSpan,
+  type ProbeResult,
 } from "../../src/media/ffmpeg.ts";
 
 let dir: string;
@@ -191,4 +194,37 @@ test("spectrogram renders a PNG from audio via showspectrumpic", async () => {
   const out = await spectrogram(wav, join(dir, "spec"));
   assert.ok(existsSync(out));
   assert.match(out, /_spectrogram\.png$/);
+});
+
+// ---- field report §2.6/§2.7: silent-video detection ---------------------------
+
+test("noAudioStreamWarning fires ONLY for a real video with no audio stream", () => {
+  const base: ProbeResult = { hasVideo: true, hasAudio: false, streams: [], modality: "video" };
+  assert.match(noAudioStreamWarning(base) ?? "", /no audio stream/);
+  assert.match(noAudioStreamWarning(base) ?? "", /fabricated/, "names the fabricated-audio-description trap");
+  assert.equal(noAudioStreamWarning({ ...base, hasAudio: true }), undefined, "audio present = no warning");
+  assert.equal(noAudioStreamWarning({ ...base, modality: "image" }), undefined, "a still image never warns");
+  assert.equal(noAudioStreamWarning({ ...base, hasVideo: false, modality: "audio" }), undefined, "audio-only media never warns");
+  assert.equal(noAudioStreamWarning(undefined), undefined, "no probe (no ffprobe / URL) = no claim either way");
+});
+
+test("probeSafe never throws: garbage file and missing file both probe to undefined", async () => {
+  const junk = join(dir, "junk.mp4");
+  writeFileSync(junk, "not media");
+  assert.equal(await probeSafe(junk), undefined);
+  assert.equal(await probeSafe(join(dir, "nope.mp4")), undefined);
+  assert.equal(await probeSafe("https://example.com/clip.mp4"), undefined, "non-local inputs are refused, safely");
+});
+
+test("a video-only clip probes hasAudio=false and trips the warning end-to-end", async () => {
+  const silent = join(dir, "silent.mp4");
+  execFileSync(FFMPEG_PATH, [
+    "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=1",
+    "-pix_fmt", "yuv420p", silent,
+  ], { stdio: "ignore" });
+  const p = await probeSafe(silent);
+  assert.ok(p);
+  assert.equal(p!.hasVideo, true);
+  assert.equal(p!.hasAudio, false);
+  assert.match(noAudioStreamWarning(p) ?? "", /no audio stream/);
 });

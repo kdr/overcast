@@ -15,7 +15,7 @@ const base = (ref: unknown): string => {
 };
 
 /** Normalize a collection file's status into ready / processing / failed. */
-function fileStatus(f: unknown): "ready" | "processing" | "failed" | "other" {
+export function fileStatus(f: unknown): "ready" | "processing" | "failed" | "other" {
   const s = f && typeof f === "object" && typeof (f as Record<string, unknown>).status === "string" ? ((f as Record<string, unknown>).status as string).toLowerCase() : "";
   if (/(ready|complete|done|success|indexed)/.test(s)) return "ready";
   if (/(fail|error)/.test(s)) return "failed";

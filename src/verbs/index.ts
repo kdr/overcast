@@ -25,6 +25,7 @@ import {
   tcCollectionDelete,
   tcCollectionRemove,
   tcCollectionEntities,
+  fileStatus,
 } from "../providers/tinycloud/collection.js";
 import {
   listIndexes,
@@ -155,6 +156,100 @@ function indexRecord(rec: OvercastRecord): OvercastRecord {
 /** A non-failure outcome: the op was accepted (an async add lands as `pending`
  *  while it ingests, but the membership intent is real). */
 const accepted = (rec: OvercastRecord) => rec.state === "ready" || rec.state === "pending";
+
+// ---- add --all batching (backpressure) --------------------------------------
+// Firing hundreds of `collections add` calls back-to-back collapses server-side
+// (observed in the field: 401 files in one pass → 236 failed; the same corpus
+// re-added in waited waves of 10–20 recovered 100%). `add --all` therefore
+// submits in WAVES and pauses between them until the previous wave stops
+// processing (or a bounded wait elapses). `--batch 0` restores the single pass.
+
+const DEFAULT_ADD_BATCH = 12;
+
+/** Split items into submission waves; size <= 0 or Infinity = one wave. */
+export function chunkBatches<T>(items: T[], size: number): T[][] {
+  if (!Number.isFinite(size) || size <= 0 || items.length === 0) return items.length ? [items] : [];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** File ids a collection-show entry may carry (tinycloud 0.3.x variants). */
+function showEntryIds(f: unknown): string[] {
+  if (!f || typeof f !== "object") return [];
+  const o = f as Record<string, unknown>;
+  return [o.file_id, o.fileId, o.cloudglue_file_id, o.id].filter((v): v is string => typeof v === "string" && v.length > 0);
+}
+
+/** Backpressure signals from one collection-show page: how many of THIS wave's
+ *  files are still processing (when observable — the provider lists at most ~50
+ *  files, so a wave can be entirely invisible), how many listed files are
+ *  processing overall (a congestion proxy), and how many wave files we saw. */
+export function batchBackpressure(
+  files: unknown[],
+  waveIds: Set<string>,
+): { waveProcessing: number; waveObserved: number; processing: number } {
+  let waveProcessing = 0;
+  let waveObserved = 0;
+  let processing = 0;
+  for (const f of files) {
+    const status = fileStatus(f);
+    if (status === "processing") processing++;
+    if (showEntryIds(f).some((id) => waveIds.has(id))) {
+      waveObserved++;
+      if (status === "processing") waveProcessing++;
+    }
+  }
+  return { waveProcessing, waveObserved, processing };
+}
+
+function envNum(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null || !raw.trim()) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      signal?.removeEventListener("abort", done);
+      clearTimeout(t);
+      resolve();
+    };
+    const t = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+
+/** Pause between `add --all` waves until the previous wave settles: always at
+ *  least one poll interval of pacing, then keep waiting while the wave's files
+ *  (when observable in the show listing) or the listing at large are still
+ *  processing — bounded by OVERCAST_INDEX_BATCH_WAIT_S (default 300). Show
+ *  errors degrade to the single pacing delay rather than failing the add. */
+async function waitForWaveSettled(
+  collectionId: string,
+  waveIds: Set<string>,
+  waveSize: number,
+  tcOpts: Parameters<typeof tcCollectionShow>[1],
+  signal?: AbortSignal,
+): Promise<number> {
+  const pollMs = envNum("OVERCAST_INDEX_BATCH_POLL_MS", 10_000);
+  const deadline = Date.now() + envNum("OVERCAST_INDEX_BATCH_WAIT_S", 300) * 1000;
+  let polls = 0;
+  for (;;) {
+    if (signal?.aborted) return polls;
+    await sleep(pollMs, signal);
+    polls++;
+    if (signal?.aborted || Date.now() >= deadline) return polls;
+    const shown = await tcCollectionShow(collectionId, tcOpts).catch(() => undefined);
+    const payload = shown?.rec.payload as Record<string, unknown> | undefined;
+    const files = shown?.rec.state === "ready" && Array.isArray(payload?.files) ? (payload.files as unknown[]) : undefined;
+    if (!files) return polls; // can't observe — the single pacing delay is the backpressure
+    const bp = batchBackpressure(files, waveIds);
+    const settled = bp.waveObserved > 0 ? bp.waveProcessing === 0 : bp.processing < waveSize;
+    if (settled) return polls;
+  }
+}
 
 /** show/delete take a POSITIONAL id; an `add`/`remove` target flag (--to/--from)
  *  with no positional is a misuse that must NOT fall through to the sole
@@ -375,6 +470,8 @@ export const indexVerb: VerbSpec = {
     { name: "to", summary: "add: target index id/name", type: "string" },
     { name: "from", summary: "remove: index id/name to remove the video from", type: "string" },
     { name: "all", summary: "add: register every video the case has captured or sensed (watch/listen/face)", type: "boolean" },
+    { name: "force", summary: "add: re-submit to the remote index even when the local mirror already lists the video as a member (reconciles a stale membership cache after server-side deletes/failures)", type: "boolean" },
+    { name: "batch", summary: "add --all: submission wave size — pauses between waves until the previous wave stops processing (default 12; 0 = single unpaced pass)", type: "number" },
     { name: "remote", summary: "list: also query tinycloud for all account indexes", type: "boolean" },
     { name: "no-upload", summary: "add: don't upload (use an already-uploaded source)", type: "boolean" },
     { name: "no-download", summary: "add: don't materialize the source locally", type: "boolean" },
@@ -598,6 +695,13 @@ export const indexVerb: VerbSpec = {
       // `add` targets with --to; --from is `remove`'s flag. Reject it rather than
       // ignoring it and falling back to the sole index (wrong target).
       if (ctx.opts.from != null) return [err("index add targets with --to, not --from")];
+      // --force bypasses the LOCAL membership mirror (.overcast/indexes.json) —
+      // the mirror can go stale when files are deleted or fail server-side, and
+      // a stale `already_member` skip silently no-ops the re-add.
+      const force = ctx.opts.force === true;
+      const batchErr = badNumber(ctx.opts, "batch", (n) => Number.isInteger(n) && n >= 0, "a non-negative integer (0 disables batching)");
+      if (batchErr) return [err(`index add: ${batchErr}`)];
+      if (ctx.opts.batch != null && ctx.opts.all !== true) return [err("index add: --batch only applies with --all")];
       const typeHint = ctx.opts.type != null ? normalizeIndexType(String(ctx.opts.type)) : undefined;
       // a typo'd OR empty --type must error here (like `create`), not be silently
       // dropped — otherwise the stub stays "unknown" and face auto-pick/type guards
@@ -645,6 +749,12 @@ export const indexVerb: VerbSpec = {
         return [err(`index add doesn't apply to a face-cluster index — it ingests media, not reference images. Use \`cluster add <video|image> --index ${id}\` (see \`overcast cluster --help\`).`)];
       }
       if (targetEntry && isLocalIndex(targetEntry)) {
+        // local index membership IS the index (no remote copy to drift from), so
+        // a stale-cache bypass has nothing to reconcile — reject rather than
+        // pretending to re-add.
+        if (force) {
+          return [err(`index add: --force only applies to remote (tinycloud) indexes — local index membership can't go stale (use \`index remove\` to drop a member)`)];
+        }
         // basic-clip members must be embedded (CLIP vectors), not just referenced —
         // that path lives on the `similar` verb, which computes + caches them.
         if (targetEntry.type === "basic-clip") {
@@ -713,7 +823,7 @@ export const indexVerb: VerbSpec = {
         if (ctx.rest[0]) return [err("index add: --all registers every case video — drop the positional video, or omit --all to add just that one")];
         const col = findIndex(scope, id);
         const members = new Set(col?.members.map((m) => m.ref) ?? []);
-        const vids = caseVideoRefs(c).filter((v) => !members.has(v.ref));
+        const vids = caseVideoRefs(c).filter((v) => force || !members.has(v.ref));
         if (vids.length === 0) {
           // caseVideoRefs only returns READY media not already a member — so when
           // it's empty, distinguish "still processing" and "sensing failed" from a
@@ -732,14 +842,49 @@ export const indexVerb: VerbSpec = {
                 : "index add --all: no new captured/sensed videos to register",
           )];
         }
+        const batchSize = ctx.opts.batch != null ? Number(ctx.opts.batch) : DEFAULT_ADD_BATCH;
+        const waves = chunkBatches(vids, batchSize);
         const recs: OvercastRecord[] = [];
-        for (const v of vids) {
-          const watched = await ensureLocalWatchRecord(ctx, v.ref);
-          const { rec } = await tcCollectionAdd(v.ref, id, addOpts);
-          if (accepted(rec)) addMember(scope, id, { ref: v.ref, recordId: v.recordId });
-          rec.meta = { ...rec.meta, case: c.dir };
-          recs.push(stampArchive(indexRecord(rec), scoped.bucket, c.dir));
-          if (watched) recs.push(watched);
+        const failedRefs: string[] = [];
+        for (let w = 0; w < waves.length; w++) {
+          const waveIds = new Set<string>();
+          for (const v of waves[w]) {
+            const watched = await ensureLocalWatchRecord(ctx, v.ref);
+            const { rec, fileId } = await tcCollectionAdd(v.ref, id, addOpts);
+            if (accepted(rec)) addMember(scope, id, { ref: v.ref, recordId: v.recordId });
+            else failedRefs.push(v.ref);
+            if (fileId) waveIds.add(fileId);
+            rec.meta = { ...rec.meta, case: c.dir };
+            recs.push(stampArchive(indexRecord(rec), scoped.bucket, c.dir));
+            if (watched) recs.push(watched);
+          }
+          // backpressure: pace waves so a large corpus can't flood the provider
+          // (the field failure mode) — never after the last wave.
+          if (w < waves.length - 1) await waitForWaveSettled(id, waveIds, waves[w].length, tcOpts, ctx.signal);
+        }
+        // a batched run gets one rollup so the outcome is readable without
+        // paging N per-file records (single-wave runs stay exactly as before).
+        if (waves.length > 1) {
+          recs.push(stampArchive(makeRecord({
+            verb: "index",
+            format: "json",
+            payload: {
+              op: "add",
+              index: id,
+              all: true,
+              summary: `registered ${vids.length - failedRefs.length}/${vids.length} videos in ${waves.length} waves of ≤${batchSize}${failedRefs.length ? ` — ${failedRefs.length} failed (re-run \`index add --all\`, or \`index add <video> --to ${id} --force\` for server-side failures)` : ""}`,
+              submitted: vids.length,
+              accepted: vids.length - failedRefs.length,
+              failed: failedRefs.length,
+              ...(failedRefs.length ? { failed_refs: failedRefs } : {}),
+              waves: waves.length,
+              batch_size: batchSize,
+            },
+            // per-file failures already carry their own error records; the rollup
+            // is the accounting surface, not a second failure signal.
+            meta: { provider: "tinycloud", case: c.dir },
+            state: "ready",
+          }), scoped.bucket, c.dir));
         }
         return recs;
       }
@@ -750,15 +895,21 @@ export const indexVerb: VerbSpec = {
       if (v.error) return [err(v.error)];
       const ref = v.ref!;
       // dedupe like `--all` (which filters existing members) — don't re-submit a
-      // video already in the index to tinycloud.
-      if (findIndex(scope, id)?.members.some((m) => m.ref === ref)) {
-        return [stampArchive(makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: ref, already_member: true }, meta: { case: c.dir }, state: "ready" }), scoped.bucket, c.dir)];
+      // video already in the index to tinycloud. The mirror is LOCAL and can go
+      // stale (server-side deletes/failures don't clear it): --force re-submits
+      // anyway, and tells the reader that's what happened.
+      const wasMember = findIndex(scope, id)?.members.some((m) => m.ref === ref) === true;
+      if (wasMember && !force) {
+        return [stampArchive(makeRecord({ verb: "index", format: "json", payload: { op: "add", index: id, file: ref, already_member: true, note: "skipped from the local membership mirror — pass --force to re-submit (e.g. after a server-side delete/failure)" }, meta: { case: c.dir }, state: "ready" }), scoped.bucket, c.dir)];
       }
       const watched = v.archive
         ? await ensureArchiveWatchRecord(ctx, v.archive, ref)
         : await ensureLocalWatchRecord(ctx, ref);
       const { rec } = await tcCollectionAdd(ref, id, addOpts);
       if (accepted(rec)) addMember(scope, id, { ref, recordId: v.recordId });
+      if (wasMember && rec.payload && typeof rec.payload === "object") {
+        (rec.payload as Record<string, unknown>).forced = true;
+      }
       rec.meta = { ...rec.meta, case: c.dir };
       // stamp only the add record — a bucket-persisted `watched` side-record
       // must keep its bucket ownership, not be re-homed to the case

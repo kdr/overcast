@@ -13,6 +13,7 @@ import { dirname, extname, join } from "node:path";
 import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, statSync } from "node:fs";
 import { execCapture, parseFirstJson } from "../exec.js";
 import { assertFetchHostAllowed } from "../../media/fetch.js";
+import { noAudioStreamWarning, probeSafe } from "../../media/ffmpeg.js";
 import { makeRecord, type OvercastRecord } from "../../record.js";
 import { redactSecrets } from "../../env.js";
 import { resolveShippedArgv } from "../shipped-ref.js";
@@ -390,12 +391,20 @@ export async function fetchSource(
   // transcript text must not be dropped at this boundary. Canonical keys win.
   const { path: _rp, media: _rm, kind: reportedKind, source: _rs, url: _ru, ...extra } =
     (parsed ?? {}) as Record<string, unknown>;
+  // post-download stream check: a yt-dlp format can ADVERTISE audio yet deliver
+  // a video-only file, and nothing downstream flags the silent data loss until
+  // audio matching refuses the clip. Best-effort (probeSafe = no ffprobe, no
+  // check) and media-only — transcript/thumb fetches aren't AV containers.
+  const audioWarning = (reportedKind ?? "media") === "media"
+    ? noAudioStreamWarning(await probeSafe(path))
+    : undefined;
   return makeRecord({
     verb: "capture",
     format: "json",
     payload: {
       ...extra,
       capture_id: "cap_" + Math.abs(hashString(path)).toString(16),
+      ...(audioWarning ? { warning: audioWarning, has_audio: false } : {}),
       path,
       kind: reportedKind ?? "media",
       source: desc.type,

@@ -75,6 +75,13 @@ scene contains — use `listen --describe`; for WHO is speaking, use `voice`.
 **Config / SDK / dist** — `setup` (bind providers + brain LLM), `provider`
 (init/list/describe), `doctor` (preflight), `skills` (generate/install).
 
+**Terminal output is a PREVIEW.** The default human render truncates every
+payload field to ~200 chars (long lists, URLs, and source refs get cut with a
+trailing `…`), so `grep`-ing the plain output gives false negatives on anything
+past the cut. Any scripted or exhaustive check must read `--json` (the full
+record) or `case memory get <id> --field <name>` (pages one large field in
+full).
+
 **Base verbs** come from pi: `read` `write` `edit` `bash` `grep` `find` `ls`.
 
 ## Case setup
@@ -149,6 +156,7 @@ bucket's qmd index).
 - `youtube:playlists:@handle` — enumerate a channel's playlists TAB: one hit per playlist, each carrying a `youtube:playlist:<id>` ref ready for `source add`.
 - `youtube:search:<query>` or `youtube:<keyword>` — YouTube keyword search.
 - `youtube:playlist:<id>` or `youtube:<full YouTube URL>` — enumerate a playlist/video URL. `scan … --pull --transcript` (or `capture <url> --transcript`) pulls captions + full metadata per video with NO video download (`--thumb` = thumbnail image; `--lang` picks the caption language).
+  - ⚠️ **Channel-tab dates are approximate.** Enumerating a channel tab reads yt-dlp's `youtubetab` extractor, whose per-video date (`approximate_date`) is inferred from YouTube's relative "N months ago" labels — observed off by up to ~9 months. Good enough for `--since` bucketing; NOT authoritative for a frozen manifest or a timeline figure. For exact dates, `capture <url> --transcript` (full per-video metadata, day-granular `upload_date`) or `exif` on the captured file.
 - `tiktok:@user` — enumerate a TikTok profile.
 - `tiktok:#tag` — enumerate a TikTok hashtag.
 - `x:@handle` — enumerate an X (Twitter) profile's posts.
