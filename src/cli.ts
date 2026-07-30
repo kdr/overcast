@@ -265,7 +265,9 @@ export function renderTopHelp(): string {
   lines.push("  --case <dir>     Operate on the case rooted at <dir> (default: cwd)");
   lines.push("  --home <dir>     overcast home for profiles (default: ~/.overcast)");
   lines.push("  --profile <name> Active profile (default: default)");
-  lines.push("  --json           JSON output  ·  --format json|md|txt");
+  lines.push("  --json           JSON output, one compact record per line (JSONL) — a verb can");
+  lines.push("                   emit several records (e.g. an appended suggested-finding lead),");
+  lines.push("                   so parse stdout line-by-line  ·  --format json|md|txt");
   lines.push("");
   lines.push(renderEnvHelp());
   lines.push("");

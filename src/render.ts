@@ -280,8 +280,14 @@ export function nativeReportFormat(rec: OvercastRecord): string | undefined {
  * Format-aware single-record render, shared by the CLI and the TUI slash handler
  * so both honor `--format`/`--json` identically (a paged `chunk` shows in full
  * under txt/md, not a truncated preview):
- *   json → the whole record · md/txt → the body text field (else the payload
- *   JSON) · default → the magnitude preview.
+ *   json → the whole record, COMPACT on one line · md/txt → the body text field
+ *   (else the payload JSON) · default → the magnitude preview.
+ *
+ * json is compact (no pretty-print) so a multi-record invocation — a verb's own
+ * output plus any appended suggested-finding leads — prints as valid JSONL: one
+ * record per line, parseable line-by-line. Pretty-printing here made stdout a
+ * stream of concatenated multi-line JSON documents that a whole-buffer
+ * JSON.parse/json.loads choked on exactly when a match fired a finding trigger.
  */
 export function renderForFormat(rec: OvercastRecord, format?: string): string {
   // sanitizeTerminalText on EVERY branch: a record's payload inlines scraped
@@ -290,7 +296,7 @@ export function renderForFormat(rec: OvercastRecord, format?: string): string {
   // page can repaint the analyst's screen with fabricated records. json is
   // sanitized too: JSON.stringify escapes control chars inside string
   // VALUES, but one in a key position or a non-string field would survive.
-  if (format === "json") return safeText(JSON.stringify(rec, null, 2));
+  if (format === "json") return safeText(JSON.stringify(rec));
   if (format === "md" || format === "txt") {
     if (typeof rec.payload === "string") return safeText(rec.payload);
     const p = rec.payload as JsonMap;

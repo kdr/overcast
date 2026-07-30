@@ -7,6 +7,15 @@ shows the full surface + env vars.) For how the verbs chain into real
 investigations, see the [Field Manual](field-manual.md); for binding backends,
 see [configuration.md](configuration.md).
 
+**Scripting note — `--json` stdout is JSONL.** Every record prints as one
+compact JSON object per line, and a verb can emit more than one record per run:
+a match that clears a findings threshold (face / image / similar / cluster /
+voice / audio, target phrases) appends a `status:"suggested"` finding record
+after the verb's own. Parse line-by-line (or with `jq`, which consumes the
+stream natively) and select the record whose `verb` matches the one you ran —
+a whole-buffer `JSON.parse` / `json.loads` fails with "extra data" exactly on
+the runs that found something.
+
 ## Verbs
 
 **Senses** — turn media into records

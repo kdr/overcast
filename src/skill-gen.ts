@@ -23,7 +23,11 @@ export function generateVerbReference(): string {
   lines.push("");
   lines.push(
     "Generated from the verb registry (`overcast commands --json`). Drive any verb",
-    "from a shell via `overcast <verb> [args] --json` and parse the emitted record.",
+    "from a shell via `overcast <verb> [args] --json` and parse the emitted records:",
+    "stdout is JSONL — one compact JSON record per line — and a verb can emit MORE",
+    "than one record per run (a match that clears a findings threshold appends a",
+    "suggested-finding record after the verb's own), so parse line-by-line and pick",
+    "the record whose `verb` is the one you ran; never whole-buffer `JSON.parse`.",
     "Every verb emits one or more loose records persisted to the case's `.overcast/`",
     "store; cite findings by `record.id` + `media.at`.",
     "",
@@ -86,7 +90,12 @@ ${verbList}
 
 ## How to drive it
 
-Run any verb from bash and parse the JSON record:
+Run any verb from bash and parse the JSON records. \`--json\` stdout is JSONL —
+ONE compact record per line — and a verb can emit MORE than one record per run:
+a match that clears a findings threshold (face/image/similar/cluster/voice/audio,
+target phrases) appends a \`finding\` record after the verb's own. Parse
+line-by-line and select the record whose \`verb\` matches the one you ran; a
+whole-buffer \`json.loads(stdout)\` breaks exactly on the runs that found something.
 
 \`\`\`bash
 overcast watch ./clip.mp4 --json          # video.analysis record
