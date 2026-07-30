@@ -385,14 +385,37 @@ export async function runWatch(
   if (typeof data.title === "string") meta.title = data.title;
   if (typeof data.duration_seconds === "number") meta.duration_seconds = data.duration_seconds;
 
+  // The envelope's top-level `segmentation` does not track the requested/actual
+  // segmentation (a shots run still echoes "uniform:20" there, tinycloud ≤ 0.3.15);
+  // `describe.primary_segmentation` is the authoritative field. Surface it — plus
+  // the modality list, which answers "does this analysis have the visual channel?"
+  // — on meta so readers never have to trust the misleading echo in `detailed`.
+  const describe =
+    data.describe && typeof data.describe === "object" ? (data.describe as Record<string, unknown>) : {};
+  const ranSegmentation =
+    typeof describe.primary_segmentation === "string" && describe.primary_segmentation
+      ? describe.primary_segmentation
+      : undefined;
+  if (ranSegmentation) meta.segmentation = ranSegmentation;
+  if (Array.isArray(describe.primary_modalities)) meta.modalities = describe.primary_modalities;
+  if (opts.segment) meta.segmentation_requested = opts.segment;
+
+  const payload: Record<string, unknown> = { content, transcript };
+  // A requested segmentation KIND that differs from what actually ran is a silent
+  // fallback (the provider reused an existing describe, or predates the segment
+  // flags) — say so instead of shipping a clean "ready" that reads as a shots
+  // pass. Kind-only compare: `uniform:<s>` window drift stays unflagged because
+  // the reported value's param shape isn't contractual.
+  const kindOf = (s: string) => s.trim().toLowerCase().split(":")[0];
+  if (opts.segment && ranSegmentation && kindOf(ranSegmentation) !== kindOf(opts.segment)) {
+    payload.warning = `requested --segment ${opts.segment} but the analysis ran ${ranSegmentation} — the provider likely reused an existing describe for this source; meta.segmentation is authoritative (the detailed.segmentation echo is not).`;
+  }
+  payload.detailed = data;
+
   return makeRecord({
     verb: "watch",
     format: "json",
-    payload: {
-      content,
-      transcript,
-      detailed: data,
-    },
+    payload,
     media: { ref: input },
     meta,
     state,

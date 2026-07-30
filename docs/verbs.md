@@ -12,7 +12,7 @@ see [configuration.md](configuration.md).
 **Senses** — turn media into records
 | verb | does |
 |---|---|
-| `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue); `--segment shots\|chapters\|segments\|uniform:<s>` picks the provider's segmentation (`--shot-min-seconds`/`--shot-max-seconds` tune shot detection) |
+| `watch` | analyze a video → `content` / `transcript` / `detailed` (default: Cloudglue); `--segment shots\|chapters\|segments\|uniform:<s>` picks the provider's segmentation (`--shot-min-seconds`/`--shot-max-seconds` tune shot detection); `meta.segmentation` reports what ACTUALLY ran — trust it over the `detailed` echo (tinycloud ≤ 0.3.15 echoes `uniform:20` there even on a shots run), and a request/ran kind mismatch adds `payload.warning` |
 | `listen` | transcribe audio / a video's audio; `--describe` for the full audio-scene |
 | `see` | caption / OCR / detect on an image, image URL, or video frame (default: the brain LLM when image-capable; falls back to HF, or bind a VLM / the opt-in tinycloud `see`+`extract` provider, ≥ 0.3.7) |
 | `face` | detect faces in a video, `--match <img>` to find a person, or search a face-analysis index |
@@ -89,7 +89,15 @@ or `qmd` when you want configured local semantic memory. Local memory defaults
 to `note`, `watch`, `listen`, `see`, and `scan` evidence, including source/search
 metadata from web, YouTube, TikTok, and similar scans. Remote collections are
 additive and optional: `face-analysis` / `media-descriptions` / `entities` are
-tinycloud-backed for scale and portability. When setup applies with local videos
+tinycloud-backed for scale and portability. Note the upstream default:
+`media-descriptions` collections created through tinycloud index **speech +
+summary only** (the Cloudglue-side `describe_config` disables visual scene
+descriptions, scene text, and audio descriptions; the tinycloud CLI has no flag
+to change it, and the config is immutable after create) — `ask --index` over
+such a collection answers from the spoken words, not the visual channel. For
+visual/on-screen-text questions, `watch` a clip directly (its default describe
+IS full multimodal) or create the collection out-of-band with an explicit
+`describe_config`. When setup applies with local videos
 routed to remote collections, overcast starts collection creation/ingestion
 immediately; use `--no-index` to save the setup without starting remote ingest.
 

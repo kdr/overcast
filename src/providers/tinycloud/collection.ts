@@ -55,7 +55,12 @@ function summarizeCollection(op: string, extra: Record<string, unknown>, state: 
       if (by.processing) parts.push(`${by.processing} processing`);
       if (by.failed) parts.push(`${by.failed} failed`);
       if (by.other) parts.push(`${by.other} other`);
-      return `${files.length} video${files.length === 1 ? "" : "s"}${parts.length ? `: ${parts.join(", ")}` : ""}`;
+      // `files` is ONE provider page (≤50) — the envelope's collection.file_count
+      // is the real total, so lead with it and say when the listing is partial
+      // (upstream `has_more` is unreliable, so the count comparison is the signal).
+      const total = typeof extra.file_count === "number" ? extra.file_count : files.length;
+      const partial = files.length < total ? ` (provider listed first ${files.length})` : "";
+      return `${total} video${total === 1 ? "" : "s"}${partial}${parts.length ? `: ${parts.join(", ")}` : ""}`;
     }
   }
   return undefined;
@@ -141,11 +146,21 @@ export async function tcCollectionAdd(
   return { rec, fileId };
 }
 
-/** `library collections show <id>` — live metadata + files[].status. */
+/** `library collections show <id>` — live metadata + files[].status.
+ *  `files` is one provider page (≤50 entries); `file_count` is the envelope's
+ *  collection.file_count — the authoritative REMOTE total — falling back to the
+ *  page length on older envelopes. The provider's has_more/next_page_token are
+ *  unreliable (has_more:false alongside a 58-file collection's 50-entry page),
+ *  so callers must compare `files.length` against `file_count`, not trust them. */
 export async function tcCollectionShow(collectionId: string, o: CollectionRunOpts = {}): Promise<{ rec: OvercastRecord }> {
   const out = await runTinycloud(["library", "collections", "show", collectionId, "--json"], o);
   const files = Array.isArray(out.data.files) ? (out.data.files as unknown[]) : [];
-  const rec = collectionRecord("show", out, { collection: collectionId, files, file_count: files.length });
+  const collection =
+    out.data.collection && typeof out.data.collection === "object"
+      ? (out.data.collection as Record<string, unknown>)
+      : {};
+  const total = typeof collection.file_count === "number" ? collection.file_count : files.length;
+  const rec = collectionRecord("show", out, { collection: collectionId, files, file_count: total });
   return { rec };
 }
 

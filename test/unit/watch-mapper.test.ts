@@ -281,6 +281,76 @@ test("runWatch appends segmentation flags to a custom run template (wrapper cont
   }
 });
 
+test("runWatch surfaces describe.primary_segmentation as the authoritative meta.segmentation", async () => {
+  // tinycloud ≤ 0.3.15's top-level `segmentation` doesn't track what ran (a real
+  // shots run still echoes "uniform:20" there — the field that sent a live case
+  // down a phantom "shots silently fell back" debugging spiral). The record must
+  // lead with describe.primary_segmentation + the modality list instead.
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchprimseg-"));
+  try {
+    const json = JSON.stringify({
+      status: "ready",
+      data: {
+        title: "talk",
+        summary: "a talk",
+        duration_seconds: 1298,
+        segmentation: "uniform:20", // the misleading upstream echo
+        segments: [{ index: 1, start_time: 0, end_time: 60, description: "d", summary: "s" }],
+        describe: {
+          profile: "default",
+          primary_segmentation: "shots",
+          primary_modalities: ["speech", "visual", "scene_text", "audio_description", "summary"],
+        },
+      },
+    });
+    const script = join(dir, "tc.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+
+    // requested kind matches what ran → truthful meta, NO warning
+    const rec = await runWatch("talk.mp4", { run: `bash ${script} {{input}}`, segment: "shots" });
+    assert.equal(rec.state, "ready");
+    assert.equal(rec.meta?.segmentation, "shots");
+    assert.equal(rec.meta?.segmentation_requested, "shots");
+    assert.deepEqual(rec.meta?.modalities, ["speech", "visual", "scene_text", "audio_description", "summary"]);
+    assert.equal((rec.payload as Record<string, unknown>).warning, undefined);
+
+    // requested kind DIFFERS from what ran → a leading warning names both sides
+    const fell = await runWatch("talk.mp4", { run: `bash ${script} {{input}}`, segment: "chapters" });
+    assert.equal(fell.state, "ready");
+    assert.equal(fell.meta?.segmentation, "shots");
+    assert.match((fell.payload as Record<string, unknown>).warning as string, /--segment chapters/);
+    assert.match((fell.payload as Record<string, unknown>).warning as string, /ran shots/);
+
+    // no --segment requested → meta still carries the truth, no requested echo
+    const plain = await runWatch("talk.mp4", { run: `bash ${script} {{input}}` });
+    assert.equal(plain.meta?.segmentation, "shots");
+    assert.equal(plain.meta?.segmentation_requested, undefined);
+    assert.equal((plain.payload as Record<string, unknown>).warning, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runWatch stays quiet about segmentation when the provider doesn't report it", async () => {
+  // an older tinycloud (or custom wrapper) with no describe.primary_segmentation:
+  // no meta.segmentation, and no mismatch warning to false-positive on.
+  const dir = mkdtempSync(join(tmpdir(), "oc-watchnoseg-"));
+  try {
+    const json = JSON.stringify({ status: "ready", data: { title: "t", summary: "s", segments: [] } });
+    const script = join(dir, "tc.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf '%s\\n' '${json}'\n`);
+    chmodSync(script, 0o755);
+    const rec = await runWatch("clip.mp4", { run: `bash ${script} {{input}}`, segment: "shots" });
+    assert.equal(rec.state, "ready");
+    assert.equal(rec.meta?.segmentation, undefined);
+    assert.equal(rec.meta?.segmentation_requested, "shots");
+    assert.equal((rec.payload as Record<string, unknown>).warning, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runWatch survives an envelope past the 64 KiB pipe buffer (stdoutToFile)", async () => {
   // shot segmentation on long-form video pushes the envelope well past 64 KiB —
   // exactly where the tinycloud bun-flush truncation used to sever the JSON.

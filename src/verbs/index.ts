@@ -340,6 +340,7 @@ function remoteFileRef(f: Record<string, unknown>): string | undefined {
     nonEmpty(f.path) ??
     nonEmpty(f.url) ??
     nonEmpty(f.file_id) ??
+    nonEmpty(f.cloudglue_file_id) ??
     nonEmpty(f.fileId) ??
     nonEmpty(f.id)
   );
@@ -572,19 +573,27 @@ export const indexVerb: VerbSpec = {
       const files = remoteFiles(shown);
       const members = files.flatMap((f) => {
         const ref = remoteFileRef(f);
-        return ref ? [{ ref, fileId: nonEmpty(f.file_id) ?? nonEmpty(f.fileId) ?? nonEmpty(f.id) }] : [];
+        // 0.3.15 `collections show` entries carry `cloudglue_file_id` — without it
+        // in this chain the mirror stored members with no file id at all.
+        return ref ? [{ ref, fileId: nonEmpty(f.file_id) ?? nonEmpty(f.cloudglue_file_id) ?? nonEmpty(f.fileId) ?? nonEmpty(f.id) }] : [];
       });
       setMembers(c, remoteId, members);
+      // files[] is ONE provider page (≤50); the show payload's file_count carries
+      // the envelope's authoritative remote total. Report the total — a 58-file
+      // collection must not read as "(50 remote files)" — and say when the mirror
+      // only holds the listed first page.
+      const fileCount = typeof shownPayload.file_count === "number" ? shownPayload.file_count : files.length;
+      const partial = files.length < fileCount ? `; provider listed first ${files.length}, mirrored those` : "";
       return [makeRecord({
         verb: "index",
         format: "json",
         payload: {
           op: "attach",
-          summary: `attached ${type} index '${entry.name}' (${files.length} remote file${files.length === 1 ? "" : "s"})`,
+          summary: `attached ${type} index '${entry.name}' (${fileCount} remote file${fileCount === 1 ? "" : "s"}${partial})`,
           index: entry.id,
           name: entry.name,
           type: entry.type,
-          files: files.length,
+          files: fileCount,
           member_count: listIndexes(c).find((x) => x.id === remoteId)?.members.length ?? entry.members.length,
           detailed: shownPayload.detailed,
         },

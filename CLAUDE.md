@@ -134,7 +134,9 @@ Run `overcast commands --json` for the authoritative registry, or `overcast <ver
 - **Senses** — `watch` (shot-detect + all-modality describe → `content` /
   `transcript` / `detailed`; `--segment shots|chapters|segments|uniform:<s>`
   picks the provider's segmentation, `--shot-min-seconds`/`--shot-max-seconds`
-  tune shot detection), `listen` (speech transcript; `--describe` for the
+  tune shot detection; `meta.segmentation` = what actually ran — the `detailed`
+  echo doesn't track it (tinycloud ≤ 0.3.15), a request/ran kind mismatch adds
+  `payload.warning`), `listen` (speech transcript; `--describe` for the
   full audio-scene, `--diarize`, `--lang`), `see` (caption / OCR / open-vocab
   `--detect` — **default: the brain LLM** when image-capable, i.e. a direct
   "describe this image" call; falls back to the Hugging Face captioner,
