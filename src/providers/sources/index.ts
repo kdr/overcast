@@ -398,20 +398,29 @@ export async function fetchSource(
   const audioWarning = (reportedKind ?? "media") === "media"
     ? noAudioStreamWarning(await probeSafe(path))
     : undefined;
+  const providerWarning = typeof extra.warning === "string" && extra.warning.trim()
+    ? extra.warning.trim()
+    : undefined;
+  const warning = audioWarning
+    ? `${providerWarning ? `${providerWarning}; ` : ""}${audioWarning}`
+    : providerWarning;
   return makeRecord({
     verb: "capture",
     format: "json",
     payload: {
       ...extra,
       capture_id: "cap_" + Math.abs(hashString(path)).toString(16),
-      ...(audioWarning ? { warning: audioWarning, has_audio: false } : {}),
+      ...(warning ? { warning } : {}),
+      ...(audioWarning ? { has_audio: false } : {}),
       path,
       kind: reportedKind ?? "media",
       source: desc.type,
       url: opts.url,
     },
     media: { ref: path },
-    meta: { provider: `source:${desc.type}` },
+    // meta.has_audio is the cross-verb machine-readable location (same as
+    // watch); payload.has_audio stays for capture-record compatibility.
+    meta: { provider: `source:${desc.type}`, ...(audioWarning ? { has_audio: false } : {}) },
     state: "ready",
   });
 }

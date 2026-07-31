@@ -635,4 +635,7 @@ test("yt-dlp runtime candidates never treat bare node/bun as enabled", () => {
     { name: "deno", command: "deno", configured: false },
     { name: "node", command: "/opt/node/bin/node", configured: true },
   ]);
+  assert.deepEqual(ytDlpJsRuntimeCandidates("--js-runtimes deno:/opt/deno/bin/deno"), [
+    { name: "deno", command: "/opt/deno/bin/deno", configured: true },
+  ]);
 });

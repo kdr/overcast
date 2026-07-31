@@ -2017,6 +2017,49 @@ test("index add --all --batch paces waves and appends ONE accounting rollup (§2
   }
 });
 
+test("multi-wave failure rollup names the bulk --force retry", async () => {
+  // The summary builder is exercised through a tinycloud command that rejects
+  // every add while keeping collection-show available.
+  const cdir = mkdtempSync(join(tmpdir(), "oc-batch-failhint-"));
+  const fake = join(cdir, "tinycloud-fail.sh");
+  const vids = [join(cdir, "a.mp4"), join(cdir, "b.mp4")];
+  for (const v of vids) writeFileSync(v, "x");
+  writeFileSync(fake, `#!/usr/bin/env bash
+if [ "$3" = "add" ]; then
+  echo '{"tinycloud":"1","kind":"collection","status":"error","error":"rejected","data":{}}'
+else
+  echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"files":[]}}'
+fi
+`);
+  chmodSync(fake, 0o755);
+  const prevPoll = process.env.OVERCAST_INDEX_BATCH_POLL_MS;
+  const prevWait = process.env.OVERCAST_INDEX_BATCH_WAIT_S;
+  process.env.OVERCAST_INDEX_BATCH_POLL_MS = "1";
+  process.env.OVERCAST_INDEX_BATCH_WAIT_S = "0";
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_fail", type: "media-descriptions", name: "fail" });
+    for (const v of vids) c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: v }, state: "ready" }));
+    const profile = defaultProfile();
+    profile.providers = {
+      ...profile.providers,
+      index: { type: "exec", run: `bash ${fake} {{input}}` },
+      watch: { type: "exec", run: `${BASE} watch {{input}} --json` },
+    };
+    const recs = await indexVerb.run({
+      input: "add", rest: [], opts: { all: true, to: "col_fail", batch: 1 },
+      case: openCase(cdir), profile,
+    });
+    const rollup = recs.find((r) => (r.payload as Record<string, unknown>).all === true);
+    assert.ok(rollup);
+    assert.match(String((rollup!.payload as Record<string, unknown>).summary), /index add --all --to col_fail --force/);
+  } finally {
+    if (prevPoll === undefined) delete process.env.OVERCAST_INDEX_BATCH_POLL_MS; else process.env.OVERCAST_INDEX_BATCH_POLL_MS = prevPoll;
+    if (prevWait === undefined) delete process.env.OVERCAST_INDEX_BATCH_WAIT_S; else process.env.OVERCAST_INDEX_BATCH_WAIT_S = prevWait;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test("index add --all --force re-submits EVERY case video, mirror membership notwithstanding", async () => {
   const cdir = mkdtempSync(join(tmpdir(), "oc-forceall-"));
   const vid = join(cdir, "v.mp4");

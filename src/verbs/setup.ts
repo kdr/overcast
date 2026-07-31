@@ -519,8 +519,14 @@ export function ytDlpJsRuntimeCandidates(rawArgs = process.env.OVERCAST_YTDLP_AR
   for (const value of values) {
     for (const spec of value.split(",")) {
       const [name, ...pathParts] = spec.trim().split(":");
-      if (!name || name === "deno") continue;
+      if (!name) continue;
       const command = pathParts.join(":") || (name === "quickjs" ? "qjs" : name);
+      if (name === "deno") {
+        // Explicit `deno:/custom/path` must replace the default PATH probe;
+        // otherwise doctor can reject a runtime yt-dlp is correctly using.
+        out[0] = { name: "deno", command, configured: true };
+        continue;
+      }
       if (!out.some((x) => x.name === name && x.command === command)) {
         out.push({ name, command, configured: true });
       }

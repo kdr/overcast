@@ -896,7 +896,7 @@ export const indexVerb: VerbSpec = {
               op: "add",
               index: id,
               all: true,
-              summary: `registered ${vids.length - failedRefs.length}/${vids.length} videos in ${waves.length} waves of ≤${batchSize}${failedRefs.length ? ` — ${failedRefs.length} failed (re-run \`index add --all\`, or \`index add <video> --to ${id} --force\` for server-side failures)` : ""}`,
+              summary: `registered ${vids.length - failedRefs.length}/${vids.length} videos in ${waves.length} waves of ≤${batchSize}${failedRefs.length ? ` — ${failedRefs.length} failed (retry each failed ref with \`index add <video> --to ${id} --force\`; or re-submit the full corpus with \`index add --all --to ${id} --force\`)` : ""}`,
               submitted: vids.length,
               accepted: vids.length - failedRefs.length,
               failed: failedRefs.length,
