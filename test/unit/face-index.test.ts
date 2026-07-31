@@ -38,7 +38,7 @@ import {
 } from "../../src/state/index.ts";
 import { faceVerb } from "../../src/verbs/face.ts";
 import { imageVerb } from "../../src/verbs/image.ts";
-import { indexVerb, chunkBatches, batchBackpressure } from "../../src/verbs/index.ts";
+import { indexVerb, chunkBatches, batchBackpressure, waveListingSettled, ensureLocalWatchRecord } from "../../src/verbs/index.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { doctorVerb, MIN_TINYCLOUD } from "../../src/verbs/setup.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
@@ -1897,6 +1897,19 @@ test("batchBackpressure reads wave + listing processing counts across file-id ke
   const unseen = batchBackpressure(files, new Set(["zz"]));
   assert.equal(unseen.waveObserved, 0);
   assert.equal(unseen.waveProcessing, 0);
+  assert.equal(waveListingSettled(files, new Set(["f1", "f2", "f3", "f4"])), false);
+  assert.equal(
+    waveListingSettled([{ file_id: "f1", status: "completed" }], new Set(["f1", "f2"])),
+    false,
+    "one completed file on a capped page cannot prove its omitted sibling settled",
+  );
+  assert.equal(
+    waveListingSettled([
+      { file_id: "f1", status: "completed" },
+      { cloudglue_file_id: "f2", status: "completed" },
+    ], new Set(["f1", "f2"])),
+    true,
+  );
 });
 
 test("index add --force re-submits a video the LOCAL mirror already lists (stale-cache reconcile)", async () => {
@@ -2024,6 +2037,56 @@ test("index add --all --force re-submits EVERY case video, mirror membership not
     const recs = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_fa", force: true }, case: openCase(cdir), profile });
     assert.ok(recs.some((r) => r.verb === "index" && (r.payload as Record<string, unknown>).file === vid));
   } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index auto-watch stamps silent-video audio truth (same post-processor as direct watch)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-autowatch-audio-"));
+  const vid = join(cdir, "silent.mp4");
+  try {
+    const ff = spawnSync("ffmpeg", [
+      "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=1",
+      "-pix_fmt", "yuv420p", vid,
+    ], { stdio: "ignore" });
+    assert.equal(ff.status, 0);
+    const c = openCase(cdir); c.ensure();
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const rec = await ensureLocalWatchRecord({ input: "add", rest: [], opts: {}, case: c, profile }, vid);
+    assert.ok(rec);
+    assert.equal(rec!.meta?.has_audio, false);
+    assert.match(String((rec!.payload as Record<string, unknown>).warning), /unavailable, not evidence/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("aborting during add --all backpressure stops before the next wave", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-batch-abort-"));
+  const vids = [join(cdir, "a.mp4"), join(cdir, "b.mp4")];
+  for (const v of vids) writeFileSync(v, "x");
+  const prevPoll = process.env.OVERCAST_INDEX_BATCH_POLL_MS;
+  const prevWait = process.env.OVERCAST_INDEX_BATCH_WAIT_S;
+  process.env.OVERCAST_INDEX_BATCH_POLL_MS = "60000";
+  process.env.OVERCAST_INDEX_BATCH_WAIT_S = "300";
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_abort", type: "media-descriptions", name: "abort" });
+    for (const v of vids) c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: v }, state: "ready" }));
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const controller = new AbortController();
+    const run = indexVerb.run({
+      input: "add", rest: [], opts: { all: true, to: "col_abort", batch: 1 },
+      case: openCase(cdir), profile, signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(new Error("test abort")), 100);
+    await assert.rejects(run, /test abort/);
+    assert.equal(findIndex(openCase(cdir), "col_abort")!.members.length, 1, "second wave was never submitted");
+  } finally {
+    if (prevPoll === undefined) delete process.env.OVERCAST_INDEX_BATCH_POLL_MS; else process.env.OVERCAST_INDEX_BATCH_POLL_MS = prevPoll;
+    if (prevWait === undefined) delete process.env.OVERCAST_INDEX_BATCH_WAIT_S; else process.env.OVERCAST_INDEX_BATCH_WAIT_S = prevWait;
     rmSync(cdir, { recursive: true, force: true });
   }
 });

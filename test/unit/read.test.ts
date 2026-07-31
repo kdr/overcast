@@ -1352,3 +1352,25 @@ test("a qmd step timeout failure carries the recovery recipe (raise timeout / pr
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("fanOutAnswer --deep surfaces a provider's building/partial recovery hint", async () => {
+  const building: MemoryProvider = {
+    id: "qmd",
+    backend: "qmd",
+    write() {},
+    query() { return []; },
+    deepsearch() { return []; },
+    status() {
+      return {
+        provider: "qmd",
+        backend: "qmd",
+        state: "building",
+        error: "rebuild may be interrupted (partial index); re-run rebuild",
+      };
+    },
+  };
+  await assert.rejects(
+    fanOutAnswer([building], "marker", undefined, true),
+    /building: rebuild may be interrupted \(partial index\); re-run rebuild/,
+  );
+});

@@ -3,7 +3,7 @@
 // ships `watch` (the vertical slice); later phases append entries.
 
 import { makeRecord } from "../record.js";
-import { noAudioStreamWarning, probeSafe } from "../media/ffmpeg.js";
+import { stampWatchAudioAvailability } from "../media/ffmpeg.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
@@ -115,20 +115,7 @@ export const watchVerb: VerbSpec = {
       ? await runBoundProvider("watch", binding!, input, { env: providerEnv(ctx.case.mediaDir), extraArgs, timeoutMs: 15 * 60_000, signal: ctx.signal, home: ctx.home })
       : await runWatch(input, { run: binding?.run, segment, shotMinSeconds: shotMin, shotMaxSeconds: shotMax, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
-    // Sense providers can FABRICATE audio_description spans for a video with no
-    // audio stream at all (observed in the field: "enthusiastic, rhythmic
-    // countdown in unison" on a silent file). ffprobe the local input and stamp
-    // the record so a reader knows the audio modality had no signal to describe.
-    // Best-effort: URLs / missing ffprobe / non-video inputs probe to undefined.
-    if (rec.state !== "error" && rec.state !== "needs_credentials" && rec.payload && typeof rec.payload === "object") {
-      const audioWarning = noAudioStreamWarning(await probeSafe(input));
-      if (audioWarning) {
-        rec.meta = { ...rec.meta, has_audio: false };
-        const p = rec.payload as Record<string, unknown>;
-        const prior = typeof p.warning === "string" && p.warning.trim() ? `${p.warning.trim()}; ` : "";
-        p.warning = `${prior}${audioWarning} — treat any audio_description/transcript text in this record as unavailable, not evidence`;
-      }
-    }
+    await stampWatchAudioAvailability(rec, input);
     // trace back to the originating post (like listen) — for archived media the
     // capture that materialized it lives in the BUCKET, so look there
     stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, resolved.archive, ctx.home), input));

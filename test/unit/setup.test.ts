@@ -6,7 +6,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openCase } from "../../src/case.ts";
 import { loadProfile, defaultProfile } from "../../src/profile.ts";
-import { parseProviderSpec, setupVerb, providerVerb, doctorVerb } from "../../src/verbs/setup.ts";
+import { parseProviderSpec, setupVerb, providerVerb, doctorVerb, ytDlpJsRuntimeCandidates } from "../../src/verbs/setup.ts";
 import { installProvider } from "../../src/verbs/provider-install.ts";
 import { invalidateManifestCache } from "../../src/providers/manifests.ts";
 import { addSource } from "../../src/state/source.ts";
@@ -613,13 +613,26 @@ test("doctor's yt-dlp check reports the JS runtime (yt-dlp needs one for some Yo
     const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
     const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
     const yt = checks.find((c) => c.name === "yt-dlp");
-    // the test process runs under node, so SOME runtime is always on PATH here —
-    // the assertion is that the check reports one either way (OK or the miss hint)
-    assert.match(yt?.detail ?? "", /JS runtime OK \((deno|node|bun)\)|NO JavaScript runtime/);
+    assert.match(yt?.detail ?? "", /JS runtime OK \(|NO usable JavaScript runtime/);
   } finally {
     if (prev === undefined) delete process.env.OVERCAST_YTDLP_CMD;
     else process.env.OVERCAST_YTDLP_CMD = prev;
     rmSync(dir, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("yt-dlp runtime candidates never treat bare node/bun as enabled", () => {
+  assert.deepEqual(ytDlpJsRuntimeCandidates(""), [
+    { name: "deno", command: "deno", configured: false },
+  ]);
+  assert.deepEqual(ytDlpJsRuntimeCandidates("--referer https://example.test --js-runtimes node,bun"), [
+    { name: "deno", command: "deno", configured: false },
+    { name: "node", command: "node", configured: true },
+    { name: "bun", command: "bun", configured: true },
+  ]);
+  assert.deepEqual(ytDlpJsRuntimeCandidates("--js-runtimes=node:/opt/node/bin/node"), [
+    { name: "deno", command: "deno", configured: false },
+    { name: "node", command: "/opt/node/bin/node", configured: true },
+  ]);
 });

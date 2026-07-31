@@ -500,6 +500,35 @@ interface Check {
   detail: string;
 }
 
+/** Runtime probes that are actually usable by yt-dlp. Deno is enabled by
+ * default; node/bun/quickjs only count when the operator explicitly enables
+ * them with `OVERCAST_YTDLP_ARGS="--js-runtimes node"` (optionally `name:path`).
+ * Merely finding node on PATH is a false positive. */
+export function ytDlpJsRuntimeCandidates(rawArgs = process.env.OVERCAST_YTDLP_ARGS ?? ""): Array<{
+  name: string;
+  command: string;
+  configured: boolean;
+}> {
+  const out = [{ name: "deno", command: "deno", configured: false }];
+  const argv = tokenizeCommand(rawArgs);
+  const values: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--js-runtimes" && argv[i + 1]) values.push(argv[++i]);
+    else if (argv[i].startsWith("--js-runtimes=")) values.push(argv[i].slice("--js-runtimes=".length));
+  }
+  for (const value of values) {
+    for (const spec of value.split(",")) {
+      const [name, ...pathParts] = spec.trim().split(":");
+      if (!name || name === "deno") continue;
+      const command = pathParts.join(":") || (name === "quickjs" ? "qjs" : name);
+      if (!out.some((x) => x.name === name && x.command === command)) {
+        out.push({ name, command, configured: true });
+      }
+    }
+  }
+  return out;
+}
+
 export const doctorVerb: VerbSpec = {
   name: "doctor",
   group: "config",
@@ -708,12 +737,12 @@ export const doctorVerb: VerbSpec = {
         .some((l) => /curl_cffi/i.test(l) && !/unavailable|not available/i.test(l));
       const vm = ytdlpVersion.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})/);
       const ageDays = vm ? Math.floor((Date.now() - Date.UTC(Number(vm[1]), Number(vm[2]) - 1, Number(vm[3]))) / 86_400_000) : undefined;
-      // yt-dlp needs an external JavaScript runtime for some YouTube formats
-      // ("No supported JavaScript runtime could be found" mid-download without
-      // one). Probe the runtimes yt-dlp's JS-interp searches for, on PATH.
-      let jsRuntime: string | undefined;
-      for (const rt of ["deno", "node", "bun"]) {
-        const probe = await execCapture(rt, ["--version"], { timeoutMs: 10_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+      // Deno is the ONLY runtime yt-dlp auto-enables. Node/bun/quickjs are usable
+      // only when OVERCAST_YTDLP_ARGS explicitly opts them in via --js-runtimes;
+      // counting a bare node on PATH made doctor green while downloads failed.
+      let jsRuntime: { name: string; configured: boolean } | undefined;
+      for (const rt of ytDlpJsRuntimeCandidates()) {
+        const probe = await execCapture(rt.command, ["--version"], { timeoutMs: 10_000 }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
         if (probe.code === 0) {
           jsRuntime = rt;
           break;
@@ -727,8 +756,8 @@ export const doctorVerb: VerbSpec = {
             ? "; curl_cffi impersonation OK"
             : "; NO curl_cffi impersonation — TLS-fingerprinting hosts (e.g. Vimeo embeds) will fail; reinstall via `pipx install \"yt-dlp[default,curl-cffi]\"` or a standalone release binary (brew/apt builds lack it), or point OVERCAST_YTDLP_CMD at one that has it") +
           (jsRuntime
-            ? `; JS runtime OK (${jsRuntime})`
-            : "; NO JavaScript runtime on PATH — some YouTube formats fail with 'No supported JavaScript runtime could be found'; install one (`brew install deno` / node / bun)") +
+            ? `; JS runtime OK (${jsRuntime.name}${jsRuntime.configured ? ", enabled via OVERCAST_YTDLP_ARGS" : ", enabled by default"})`
+            : "; NO usable JavaScript runtime — some YouTube formats fail with 'No supported JavaScript runtime could be found'; install Deno (`brew install deno`), or explicitly configure another installed runtime (e.g. `OVERCAST_YTDLP_ARGS=\"--js-runtimes node\"`)") +
           (ageDays !== undefined && ageDays > 90
             ? `; released ~${ageDays} days ago — update it (YouTube routinely breaks old extractors; standalone builds self-update via \`yt-dlp -U\`)`
             : ""),

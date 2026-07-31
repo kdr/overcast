@@ -4,11 +4,13 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OvercastRecord } from "../../src/record.ts";
 import {
   FFMPEG_PATH,
   probe,
   probeSafe,
   noAudioStreamWarning,
+  stampWatchAudioAvailability,
   extractFrame,
   enhance,
   defaultOps,
@@ -227,4 +229,21 @@ test("a video-only clip probes hasAudio=false and trips the warning end-to-end",
   assert.equal(p!.hasVideo, true);
   assert.equal(p!.hasAudio, false);
   assert.match(noAudioStreamWarning(p) ?? "", /no audio stream/);
+});
+
+test("stampWatchAudioAvailability mutates a ready watch record, preserves prior warning, and skips failures", async () => {
+  const silent = join(dir, "silent-stamp.mp4");
+  execFileSync(FFMPEG_PATH, [
+    "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=1",
+    "-pix_fmt", "yuv420p", silent,
+  ], { stdio: "ignore" });
+  const rec: OvercastRecord = { id: "r1", verb: "watch", format: "json", payload: { warning: "provider warning", audio_description: "invented speech" }, state: "ready" };
+  await stampWatchAudioAvailability(rec, silent);
+  assert.equal(rec.meta?.has_audio, false);
+  assert.match(String(rec.payload.warning), /^provider warning; .*no audio stream/);
+  assert.match(String(rec.payload.warning), /unavailable, not evidence/);
+
+  const failed: OvercastRecord = { id: "r2", verb: "watch", format: "json", payload: {}, state: "error" };
+  await stampWatchAudioAvailability(failed, silent);
+  assert.equal(failed.meta, undefined);
 });

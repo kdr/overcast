@@ -7,6 +7,7 @@ import { copyFileSync, existsSync, appendFileSync, mkdirSync, writeFileSync } fr
 import { createHash } from "node:crypto";
 import { makeRecord, errRecord, stripUrlTail, type OvercastRecord } from "../record.js";
 import { assertFetchHostAllowed, sniffExt } from "../media/fetch.js";
+import { stampWatchAudioAvailability } from "../media/ffmpeg.js";
 import {
   builtinDescriptor,
   enumerateSource,
@@ -797,6 +798,7 @@ async function pipeSense(
       r = await runListen(ref, { run: binding?.run, describe, signal: ctx.signal });
     }
     r.meta = { ...r.meta, case: ctx.case.dir };
+    if (verb === "watch") await stampWatchAudioAvailability(r, ref);
     return r;
   }
   if (verb === "face") {

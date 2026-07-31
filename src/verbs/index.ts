@@ -62,6 +62,7 @@ import { resolveVideoArg, resolveImageArg, resolveVisualArg, isRegisterableMedia
 import { openBucket, resolveIndexScope, stampArchive } from "../archive.js";
 import { badNumber, numFlag } from "./validate.js";
 import { tinycloudBaseFromRun } from "../providers/tinycloud/envelope.js";
+import { stampWatchAudioAvailability } from "../media/ffmpeg.js";
 import type { Case } from "../case.js";
 import type { VerbSpec, VerbContext } from "../registry/types.js";
 
@@ -203,6 +204,18 @@ export function batchBackpressure(
   return { waveProcessing, waveObserved, processing };
 }
 
+/** A capped collection page can prove a wave settled only when it contains
+ * every file id returned by that wave and none are processing. Seeing one
+ * completed wave file while its siblings fell off the ~50-entry page is NOT
+ * enough. If add responses supplied no ids, require the visible page to have no
+ * processing files (best available signal, still bounded by the wait deadline). */
+export function waveListingSettled(files: unknown[], waveIds: Set<string>): boolean {
+  const bp = batchBackpressure(files, waveIds);
+  return waveIds.size > 0
+    ? bp.waveObserved === waveIds.size && bp.waveProcessing === 0
+    : bp.processing === 0;
+}
+
 function envNum(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw == null || !raw.trim()) return fallback;
@@ -210,26 +223,31 @@ function envNum(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-const sleep = (ms: number, signal?: AbortSignal) =>
-  new Promise<void>((resolve) => {
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new Error("index add --all aborted"));
+  return new Promise<void>((resolve, reject) => {
     const done = () => {
-      signal?.removeEventListener("abort", done);
-      clearTimeout(t);
+      signal?.removeEventListener("abort", aborted);
       resolve();
     };
-    const t = setTimeout(done, ms);
-    signal?.addEventListener("abort", done, { once: true });
+    const aborted = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error("index add --all aborted"));
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", aborted, { once: true });
   });
+}
 
 /** Pause between `add --all` waves until the previous wave settles: always at
  *  least one poll interval of pacing, then keep waiting while the wave's files
  *  (when observable in the show listing) or the listing at large are still
- *  processing — bounded by OVERCAST_INDEX_BATCH_WAIT_S (default 300). Show
- *  errors degrade to the single pacing delay rather than failing the add. */
+ *  processing — bounded by OVERCAST_INDEX_BATCH_WAIT_S (default 300). A show
+ *  page is capped (~50), so a PARTIAL observation of the wave cannot prove it
+ *  settled: wait for every returned wave id, or the bounded deadline. */
 async function waitForWaveSettled(
   collectionId: string,
   waveIds: Set<string>,
-  waveSize: number,
   tcOpts: Parameters<typeof tcCollectionShow>[1],
   signal?: AbortSignal,
 ): Promise<number> {
@@ -237,17 +255,17 @@ async function waitForWaveSettled(
   const deadline = Date.now() + envNum("OVERCAST_INDEX_BATCH_WAIT_S", 300) * 1000;
   let polls = 0;
   for (;;) {
-    if (signal?.aborted) return polls;
+    signal?.throwIfAborted();
     await sleep(pollMs, signal);
     polls++;
-    if (signal?.aborted || Date.now() >= deadline) return polls;
+    signal?.throwIfAborted();
+    if (Date.now() >= deadline) return polls;
     const shown = await tcCollectionShow(collectionId, tcOpts).catch(() => undefined);
+    signal?.throwIfAborted();
     const payload = shown?.rec.payload as Record<string, unknown> | undefined;
     const files = shown?.rec.state === "ready" && Array.isArray(payload?.files) ? (payload.files as unknown[]) : undefined;
-    if (!files) return polls; // can't observe — the single pacing delay is the backpressure
-    const bp = batchBackpressure(files, waveIds);
-    const settled = bp.waveObserved > 0 ? bp.waveProcessing === 0 : bp.processing < waveSize;
-    if (settled) return polls;
+    if (!files) continue; // can't prove settled — preserve backpressure to the bounded deadline
+    if (waveListingSettled(files, waveIds)) return polls;
   }
 }
 
@@ -327,6 +345,7 @@ export async function ensureLocalWatchRecord(ctx: VerbContext, ref: string): Pro
       })
     : await runWatch(ref, { run: binding?.run, signal: ctx.signal });
   rec.meta = { ...rec.meta, case: ctx.case.dir, triggered_by: "index add" };
+  await stampWatchAudioAvailability(rec, ref);
   return rec;
 }
 
@@ -850,8 +869,10 @@ export const indexVerb: VerbSpec = {
         const recs: OvercastRecord[] = [];
         const failedRefs: string[] = [];
         for (let w = 0; w < waves.length; w++) {
+          ctx.signal?.throwIfAborted();
           const waveIds = new Set<string>();
           for (const v of waves[w]) {
+            ctx.signal?.throwIfAborted();
             const watched = await ensureLocalWatchRecord(ctx, v.ref);
             const { rec, fileId } = await tcCollectionAdd(v.ref, id, addOpts);
             if (accepted(rec)) addMember(scope, id, { ref: v.ref, recordId: v.recordId });
@@ -863,7 +884,7 @@ export const indexVerb: VerbSpec = {
           }
           // backpressure: pace waves so a large corpus can't flood the provider
           // (the field failure mode) — never after the last wave.
-          if (w < waves.length - 1) await waitForWaveSettled(id, waveIds, waves[w].length, tcOpts, ctx.signal);
+          if (w < waves.length - 1) await waitForWaveSettled(id, waveIds, tcOpts, ctx.signal);
         }
         // a batched run gets one rollup so the outcome is readable without
         // paging N per-file records (single-wave runs stay exactly as before).

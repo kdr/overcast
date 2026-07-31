@@ -22,6 +22,7 @@ import { providerBinding } from "../providers/bindings.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerEnv } from "../providers/provider-env.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
+import { stampWatchAudioAvailability } from "../media/ffmpeg.js";
 import type { Case } from "../case.js";
 import type { VerbContext, VerbSpec } from "../registry/types.js";
 
@@ -109,6 +110,7 @@ async function shotMarkers(ctx: VerbContext, ref: string): Promise<{ markers: nu
     ? await runBoundProvider("watch", binding!, ref, { env: providerEnv(ctx.case.mediaDir), timeoutMs: 15 * 60_000, signal: ctx.signal, home: ctx.home })
     : await runWatch(ref, { run: binding?.run, signal: ctx.signal });
   rec.meta = { ...rec.meta, case: ctx.case.dir, triggered_by: "similar" };
+  await stampWatchAudioAvailability(rec, ref);
   return { markers: isReady(rec) ? segmentStarts(rec) : [], watched: rec };
 }
 
