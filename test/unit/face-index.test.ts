@@ -1561,7 +1561,7 @@ test("index add --all pending count ignores a face-search record (shared predica
     // a pending face SEARCH record (media = query image) must NOT be counted as a pending video
     c.writeRecord(makeRecord({ verb: "face", payload: { op: "search" }, media: { ref: "/tmp/q.jpg" }, state: "pending" }));
     const [rec] = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_s" }, case: openCase(cdir), profile: defaultProfile() });
-    assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /no new captured\/sensed videos/);
+    assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /no captured\/sensed videos/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -2018,7 +2018,8 @@ test("index add --all --force re-submits EVERY case video, mirror membership not
     // without --force the member filter leaves nothing to add
     const [empty] = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_fa" }, case: openCase(cdir), profile });
     assert.equal(empty.state, "error");
-    assert.match(empty.error ?? "", /no new captured\/sensed videos/);
+    assert.match(empty.error ?? "", /already listed in the local membership mirror/);
+    assert.match(empty.error ?? "", /--force/, "bulk stale-cache path names the recovery flag");
     // with --force the video is re-submitted
     const recs = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_fa", force: true }, case: openCase(cdir), profile });
     assert.ok(recs.some((r) => r.verb === "index" && (r.payload as Record<string, unknown>).file === vid));

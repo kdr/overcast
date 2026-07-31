@@ -823,7 +823,8 @@ export const indexVerb: VerbSpec = {
         if (ctx.rest[0]) return [err("index add: --all registers every case video — drop the positional video, or omit --all to add just that one")];
         const col = findIndex(scope, id);
         const members = new Set(col?.members.map((m) => m.ref) ?? []);
-        const vids = caseVideoRefs(c).filter((v) => force || !members.has(v.ref));
+        const caseVids = caseVideoRefs(c);
+        const vids = caseVids.filter((v) => force || !members.has(v.ref));
         if (vids.length === 0) {
           // caseVideoRefs only returns READY media not already a member — so when
           // it's empty, distinguish "still processing" and "sensing failed" from a
@@ -839,7 +840,9 @@ export const indexVerb: VerbSpec = {
               ? `index add --all: ${pending} video(s) still processing (pending) — rerun once they're ready`
               : failed > 0
                 ? `index add --all: ${failed} video(s) failed to sense (state=error/needs_credentials) — re-run the sense, then --all`
-                : "index add --all: no new captured/sensed videos to register",
+                : caseVids.length > 0
+                  ? `index add --all: all ${caseVids.length} ready video(s) are already listed in the local membership mirror — pass --force to re-submit them after server-side deletes/failures`
+                  : "index add --all: no captured/sensed videos to register",
           )];
         }
         const batchSize = ctx.opts.batch != null ? Number(ctx.opts.batch) : DEFAULT_ADD_BATCH;
