@@ -102,7 +102,13 @@ if [ "$top" = "library" ] && [ "$sub" = "collections" ]; then
   case "$sub2" in
     create)   echo '{"tinycloud":"1","kind":"collection","status":"ready","result_id":"col_fake123","data":{"collection_id":"col_fake123","name":"fixture","type":"media-descriptions"}}' ;;
     add)      echo '{"tinycloud":"1","kind":"collection","status":"pending","data":{"file_id":"file_abc","status":"pending"}}' ;;
-    show)     echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"id":"col_fake123","files":[{"file_id":"file_abc","status":"completed"},{"file_id":"file_def","status":"pending"}]}}' ;;
+    # real 0.3.15 show shape: nested collection{file_count} + one ≤50-entry files
+    # page whose has_more/next_page_token are BROKEN upstream (has_more:false on a
+    # partially-listed collection; the token is the literal "[redacted]") — the
+    # mapper must trust collection.file_count, not the pagination markers. Entries
+    # carry cloudglue_file_id (not file_id). file_count 3 > 2 listed models the
+    # truncation.
+    show)     echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"view":"collection","collection":{"id":"col_fake123","name":"fixture","collection_type":"media-descriptions","file_count":3},"files":[{"cloudglue_file_id":"file_abc","filename":"clip-abc.mp4","media_type":"video","status":"completed"},{"cloudglue_file_id":"file_def","filename":"clip-def.mp4","media_type":"video","status":"pending"}],"has_more":false,"next_page_token":"[redacted]"}}' ;;
     list)     echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"collections":[{"id":"col_fake123","type":"media-descriptions","name":"fixture"}]}}' ;;
     delete)   echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"deleted":true,"id":"col_fake123"}}' ;;
     remove)   echo '{"tinycloud":"1","kind":"collection","status":"pending","data":{"status":"pending"}}' ;;

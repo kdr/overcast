@@ -570,7 +570,10 @@ test("index verb: create → add → list → show → delete, mirroring locally
     assert.equal((lp.indexes as unknown[]).length, 1);
 
     const [shown] = await indexVerb.run(mk("show", ["col_fake123"]));
-    assert.equal((shown.payload as Record<string, unknown>).file_count, 2);
+    // file_count = the envelope's collection.file_count (remote total), which can
+    // exceed the ≤50-entry files page (fixture: 3 remote, 2 listed)
+    assert.equal((shown.payload as Record<string, unknown>).file_count, 3);
+    assert.equal(((shown.payload as Record<string, unknown>).files as unknown[]).length, 2);
 
     const [deleted] = await indexVerb.run(mk("delete", ["col_fake123"]));
     assert.equal(deleted.state, "ready");
@@ -1271,9 +1274,10 @@ test("index ops lead with a synthesized summary headline (show file-status, crea
   try {
     const c = openCase(cdir); c.ensure();
     addIndex(c, { id: "col_fake123", type: "media-descriptions", name: "fixture" });
-    // show: a file-status headline (fixture has 1 completed + 1 pending)
+    // show: a file-status headline — remote total first, partial listing named
+    // (fixture: 3 remote files, 2 listed — 1 completed + 1 pending)
     const [show] = await indexVerb.run({ input: "show", rest: ["col_fake123"], opts: {}, case: openCase(cdir), profile: defaultProfile() });
-    assert.match(String((show.payload as Record<string, unknown>).summary), /2 videos:.*1 ready.*1 processing/);
+    assert.match(String((show.payload as Record<string, unknown>).summary), /3 videos \(provider listed first 2\):.*1 ready.*1 processing/);
     assert.equal(Object.keys(show.payload as Record<string, unknown>)[1], "summary"); // headline near the top (after op)
     // create: "created <type> index '<name>'"
     const [create] = await indexVerb.run({ input: "create", rest: ["acme"], opts: { type: "media-descriptions" }, case: openCase(cdir), profile: defaultProfile() });
@@ -1418,7 +1422,12 @@ test("index attach mirrors an existing remote index by name", async () => {
     assert.equal(p.index, "col_fake123");
     assert.equal(p.name, "fixture");
     assert.equal(p.type, "media-descriptions");
+    // `files` is the envelope's collection.file_count (the remote TOTAL), not the
+    // one listed page — a 58-file collection must not read as "50 remote files".
+    // The fixture models the provider's ≤50-entry page: 3 remote, 2 listed.
+    assert.equal(p.files, 3);
     assert.equal(p.member_count, 2);
+    assert.match(p.summary as string, /3 remote files; provider listed first 2/);
     assert.equal(findIndex(c, "fixture")?.id, "col_fake123");
     assert.equal(listIndexes(c)[0].members.length, 2);
   } finally {
@@ -1437,14 +1446,16 @@ test("index attach syncs mirrored members instead of keeping stale refs", async 
     const [attached] = await indexVerb.run({ input: "attach", rest: ["fixture"], opts: {}, case: c, profile: defaultProfile() });
     assert.equal(attached.state, "ready");
     assert.equal(setMembers(c, "col_fake123", [
-      { ref: "file_abc", fileId: "file_abc" },
+      { ref: "clip-abc.mp4", fileId: "file_abc" },
       { ref: "stale.mp4", fileId: "file_stale" },
     ]), true);
-    assert.deepEqual(listIndexes(c)[0].members.map((m) => m.ref), ["file_abc", "stale.mp4"]);
+    assert.deepEqual(listIndexes(c)[0].members.map((m) => m.ref), ["clip-abc.mp4", "stale.mp4"]);
 
     const [synced] = await indexVerb.run({ input: "attach", rest: ["fixture"], opts: {}, case: c, profile: defaultProfile() });
     assert.equal(synced.state, "ready");
-    assert.deepEqual(listIndexes(c)[0].members.map((m) => m.ref), ["file_abc", "file_def"]);
+    assert.deepEqual(listIndexes(c)[0].members.map((m) => m.ref), ["clip-abc.mp4", "clip-def.mp4"]);
+    // the 0.3.15 show entries carry `cloudglue_file_id` — the mirror must keep it
+    assert.deepEqual(listIndexes(c)[0].members.map((m) => m.fileId), ["file_abc", "file_def"]);
     assert.equal((synced.payload as Record<string, unknown>).member_count, 2);
   } finally {
     if (saved === undefined) delete process.env.OVERCAST_TINYCLOUD_CMD;

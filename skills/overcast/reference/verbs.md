@@ -9,7 +9,7 @@ store; cite findings by `record.id` + `media.at`.
 
 ### `overcast watch`
 
-Runs the bound sense provider (default: tinycloud, exec) over a video file or URL and emits a video.analysis record with markdown content, a transcript (when speech is present), and the full structured describe in `detailed`. `--segment` picks the provider's segmentation — shots (shot-detected boundaries; tune with --shot-min-seconds/--shot-max-seconds) | chapters | segments | uniform:<seconds> — instead of the provider default (uniform:20).
+Runs the bound sense provider (default: tinycloud, exec) over a video file or URL and emits a video.analysis record with markdown content, a transcript (when speech is present), and the full structured describe in `detailed`. `--segment` picks the provider's segmentation — shots (shot-detected boundaries; tune with --shot-min-seconds/--shot-max-seconds) | chapters | segments | uniform:<seconds> — instead of the provider default (uniform:20). The record's meta.segmentation reports the segmentation that ACTUALLY ran — trust it over any segmentation echo inside `detailed` (tinycloud ≤ 0.3.15 echoes uniform:20 there even on a shots run); a kind mismatch with the request adds payload.warning. Footage with no hard cuts (a locked-off talk camera) legitimately yields max-duration-capped shots that LOOK uniform.
 
 ```
 overcast watch <input> [options]
