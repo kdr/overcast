@@ -2,10 +2,11 @@
 // module is exercised directly by `node --test` (see ../../test).
 //
 // Contract (verified against src/cli.ts): with --json the CLI prints each
-// result record as JSON.stringify(rec, null, 2), one after another — i.e.
-// stdout is a stream of concatenated pretty-printed JSON documents, not a
-// single array. Exit codes: 0 ready/pending, 1 hard error (record
-// state:"error" or thrown handler), 2 CLI usage, 3 needs_credentials.
+// result record as compact single-line JSON, one per line (JSONL) — older
+// builds pretty-printed each record, so this scanner is brace-balanced and
+// handles both, plus stray non-JSON between records. Exit codes: 0
+// ready/pending, 1 hard error (record state:"error" or thrown handler),
+// 2 CLI usage, 3 needs_credentials.
 import type { OvercastRecord } from "../types.ts";
 
 /** Parse a stream of concatenated JSON objects (tolerates stray non-JSON). */

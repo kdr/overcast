@@ -163,6 +163,13 @@ test("renderForFormat: txt/md surface a paged chunk in full (shared by CLI + sla
   // json → the whole record; default → the magnitude preview
   assert.match(renderForFormat(page, "json"), /"chunk"/);
   assert.match(renderForFormat(page), /\[case\] state=ready payload:/);
+  // json is COMPACT single-line (JSONL contract): the CLI can emit several
+  // records per run (verb output + suggested-finding leads), so each must
+  // round-trip from its own line — a pretty-printed record broke line-by-line
+  // and whole-buffer parsing alike.
+  const jsonOut = renderForFormat(makeRecord({ verb: "audio", payload: { op: "match", matches: [{ score: 340 }], note: "multi\nline\tbody" } }), "json");
+  assert.doesNotMatch(jsonOut, /\n/);
+  assert.equal((JSON.parse(jsonOut) as { verb: string }).verb, "audio");
   // string payload under txt → the body
   assert.equal(renderForFormat(makeRecord({ verb: "note", payload: "hello body" }), "txt"), "hello body");
 });

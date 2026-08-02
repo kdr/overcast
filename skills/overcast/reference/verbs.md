@@ -1,7 +1,11 @@
 # overcast — verb reference
 
 Generated from the verb registry (`overcast commands --json`). Drive any verb
-from a shell via `overcast <verb> [args] --json` and parse the emitted record.
+from a shell via `overcast <verb> [args] --json` and parse the emitted records:
+stdout is JSONL — one compact JSON record per line — and a verb can emit MORE
+than one record per run (a match that clears a findings threshold appends a
+suggested-finding record after the verb's own), so parse line-by-line and pick
+the record whose `verb` is the one you ran; never whole-buffer `JSON.parse`.
 Every verb emits one or more loose records persisted to the case's `.overcast/`
 store; cite findings by `record.id` + `media.at`.
 

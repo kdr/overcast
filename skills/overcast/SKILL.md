@@ -68,7 +68,12 @@ records). Every verb emits a loose, indexable **record**; cite findings by
 
 ## How to drive it
 
-Run any verb from bash and parse the JSON record:
+Run any verb from bash and parse the JSON records. `--json` stdout is JSONL —
+ONE compact record per line — and a verb can emit MORE than one record per run:
+a match that clears a findings threshold (face/image/similar/cluster/voice/audio,
+target phrases) appends a `finding` record after the verb's own. Parse
+line-by-line and select the record whose `verb` matches the one you ran; a
+whole-buffer `json.loads(stdout)` breaks exactly on the runs that found something.
 
 ```bash
 overcast watch ./clip.mp4 --json          # video.analysis record
