@@ -6,7 +6,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openCase } from "../../src/case.ts";
 import { loadProfile, defaultProfile } from "../../src/profile.ts";
-import { parseProviderSpec, setupVerb, providerVerb, doctorVerb } from "../../src/verbs/setup.ts";
+import { parseProviderSpec, setupVerb, providerVerb, doctorVerb, ytDlpJsRuntimeCandidates } from "../../src/verbs/setup.ts";
 import { installProvider } from "../../src/verbs/provider-install.ts";
 import { invalidateManifestCache } from "../../src/providers/manifests.ts";
 import { addSource } from "../../src/state/source.ts";
@@ -577,4 +577,65 @@ test("exec providers inherit the full process environment (env vars + config fil
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- field papercut: provider describe/init accept --verb --------------------
+
+test("provider describe/init accept --verb <verb> as well as the positional", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-descverb-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dvhome-"));
+  try {
+    await setupVerb.run(ctx(dir, home, "provider", ["see", "exec:sh -c 'echo see-desc'"]));
+    const [flagged] = await providerVerb.run(ctx(dir, home, "describe", [], { verb: "see" }));
+    assert.equal(flagged.state, "ready");
+    assert.equal((flagged.payload as Record<string, unknown>).verb, "see");
+    // the positional keeps priority when both are given
+    const [both] = await providerVerb.run(ctx(dir, home, "describe", ["see"], { verb: "listen" }));
+    assert.equal((both.payload as Record<string, unknown>).verb, "see");
+    // neither → the usage error now names both forms
+    const [neither] = await providerVerb.run(ctx(dir, home, "describe", []));
+    assert.equal(neither.state, "error");
+    assert.match(neither.error ?? "", /--verb <verb>/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// ---- field report §2.10: yt-dlp needs a JS runtime ---------------------------
+
+test("doctor's yt-dlp check reports the JS runtime (yt-dlp needs one for some YouTube formats)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-doc-ytjs-"));
+  const home = mkdtempSync(join(tmpdir(), "oc-dhome-ytjs-"));
+  const prev = process.env.OVERCAST_YTDLP_CMD;
+  process.env.OVERCAST_YTDLP_CMD = `bash ${FAKE_YTDLP}`;
+  try {
+    const [rec] = await doctorVerb.run(ctx(dir, home, undefined));
+    const checks = (rec.payload as Record<string, unknown>).checks as Array<{ name: string; ok: boolean; detail: string }>;
+    const yt = checks.find((c) => c.name === "yt-dlp");
+    assert.match(yt?.detail ?? "", /JS runtime OK \(|NO usable JavaScript runtime/);
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_YTDLP_CMD;
+    else process.env.OVERCAST_YTDLP_CMD = prev;
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("yt-dlp runtime candidates never treat bare node/bun as enabled", () => {
+  assert.deepEqual(ytDlpJsRuntimeCandidates(""), [
+    { name: "deno", command: "deno", configured: false },
+  ]);
+  assert.deepEqual(ytDlpJsRuntimeCandidates("--referer https://example.test --js-runtimes node,bun"), [
+    { name: "deno", command: "deno", configured: false },
+    { name: "node", command: "node", configured: true },
+    { name: "bun", command: "bun", configured: true },
+  ]);
+  assert.deepEqual(ytDlpJsRuntimeCandidates("--js-runtimes=node:/opt/node/bin/node"), [
+    { name: "deno", command: "deno", configured: false },
+    { name: "node", command: "/opt/node/bin/node", configured: true },
+  ]);
+  assert.deepEqual(ytDlpJsRuntimeCandidates("--js-runtimes deno:/opt/deno/bin/deno"), [
+    { name: "deno", command: "/opt/deno/bin/deno", configured: true },
+  ]);
 });

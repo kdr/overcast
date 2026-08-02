@@ -11,7 +11,7 @@ import { addTarget } from "../../src/state/target.ts";
 import { addSource, listSources } from "../../src/state/source.ts";
 import { LocalMemoryProvider, recordText } from "../../src/providers/memory/local.ts";
 import { resolveMemory, fanOutAnswer } from "../../src/providers/memory/index.ts";
-import { QmdMemoryProvider, DEFAULT_QMD_MODEL } from "../../src/providers/memory/qmd.ts";
+import { QmdMemoryProvider, DEFAULT_QMD_MODEL, qmdRebuildTimeoutMs } from "../../src/providers/memory/qmd.ts";
 import { indexableFields } from "../../src/providers/memory/fields.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
@@ -1285,4 +1285,92 @@ test("brief treats only .html as an HTML export", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- field report §2.5: qmd rebuild timeouts + interrupted-partial state -----
+
+test("qmdRebuildTimeoutMs scales with corpus size; OVERCAST_QMD_TIMEOUT_MS overrides", () => {
+  const prev = process.env.OVERCAST_QMD_TIMEOUT_MS;
+  delete process.env.OVERCAST_QMD_TIMEOUT_MS;
+  try {
+    assert.equal(qmdRebuildTimeoutMs(0), 15 * 60_000, "15 min floor");
+    assert.equal(qmdRebuildTimeoutMs(50), 15 * 60_000, "small corpora keep the floor");
+    assert.equal(qmdRebuildTimeoutMs(408), 408 * 10_000, "~10s/doc headroom past the floor (the field corpus that blew a flat 15 min)");
+    process.env.OVERCAST_QMD_TIMEOUT_MS = "60000";
+    assert.equal(qmdRebuildTimeoutMs(10_000), 60_000, "env override wins outright");
+    process.env.OVERCAST_QMD_TIMEOUT_MS = "not-a-number";
+    assert.equal(qmdRebuildTimeoutMs(0), 15 * 60_000, "junk override falls back to derived");
+  } finally {
+    if (prev === undefined) delete process.env.OVERCAST_QMD_TIMEOUT_MS;
+    else process.env.OVERCAST_QMD_TIMEOUT_MS = prev;
+  }
+});
+
+test("an interrupted qmd rebuild reads as 'building' with a recovery hint, not plain 'stale'", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-qmd-partial-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "partial index marker" } }));
+    const fake = join(dir, "qmd.sh");
+    writeFileSync(fake, '#!/usr/bin/env bash\necho "{\\"ok\\":true}"\n');
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    assert.equal((await qmd.rebuild()).state, "ready");
+    // simulate a rebuild killed mid-embed (SIGKILL/machine sleep): the manifest
+    // stays at the state rebuild() writes when it STARTS
+    const manifestFile = join(c.indexDir, "case-search", "qmd", "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestFile, "utf8")) as Record<string, unknown>;
+    writeFileSync(manifestFile, JSON.stringify({ ...manifest, state: "building" }, null, 2) + "\n");
+    const st = await qmd.status();
+    assert.equal(st.state, "building");
+    assert.match(st.error ?? "", /interrupted|partial/i, "the status names the interrupted-partial possibility");
+    const ans = await qmd.answer("marker");
+    assert.match(ans.text, /building/);
+    assert.match(ans.text, /rebuild/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a qmd step timeout failure carries the recovery recipe (raise timeout / pre-embed natively)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-qmd-timeout-"));
+  try {
+    const c = openCase(dir);
+    c.ensure();
+    c.writeRecord(makeRecord({ verb: "note", payload: { text: "timeout marker" } }));
+    const fake = join(dir, "qmd.sh");
+    // the embed step fails the way execCapture reports a timeout
+    writeFileSync(fake, '#!/usr/bin/env bash\nif [ "$3" = "embed" ]; then echo "command timed out after 900000ms" >&2; exit 124; fi\necho "{\\"ok\\":true}"\n');
+    chmodSync(fake, 0o755);
+    const qmd = new QmdMemoryProvider(c, { command: `bash ${fake}` });
+    const st = await qmd.rebuild();
+    assert.equal(st.state, "error");
+    assert.match(st.error ?? "", /OVERCAST_QMD_TIMEOUT_MS/);
+    assert.match(st.error ?? "", /qmd collection add.*qmd embed|pre-build natively/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("fanOutAnswer --deep surfaces a provider's building/partial recovery hint", async () => {
+  const building: MemoryProvider = {
+    id: "qmd",
+    backend: "qmd",
+    write() {},
+    query() { return []; },
+    deepsearch() { return []; },
+    status() {
+      return {
+        provider: "qmd",
+        backend: "qmd",
+        state: "building",
+        error: "rebuild may be interrupted (partial index); re-run rebuild",
+      };
+    },
+  };
+  await assert.rejects(
+    fanOutAnswer([building], "marker", undefined, true),
+    /building: rebuild may be interrupted \(partial index\); re-run rebuild/,
+  );
 });

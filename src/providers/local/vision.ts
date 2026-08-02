@@ -5,6 +5,7 @@ import { makeRecord, type OvercastRecord } from "../../record.js";
 import { runExecProvider } from "../run.js";
 import { providerEnv } from "../provider-env.js";
 import { shippedPath, shippedProviderPath } from "../../pkg.js";
+import { resolveHome } from "../../home.js";
 import type { Case } from "../../case.js";
 
 export type LocalFaceOp = "detect" | "match" | "search";
@@ -82,8 +83,13 @@ function missingScript(verb: string, input: string, name: string): OvercastRecor
 export function localVisionPython(): string {
   const configured = process.env.OVERCAST_VISUAL_DB_PY || process.env.OC_VISUAL_DB_PY;
   if (configured) return configured;
+  // dev-checkout venv first (repo-local, intentional), then the DURABLE home
+  // venv — visual-db-uv.sh builds there for installed packages, because a venv
+  // inside the npm package dir is wiped by any reinstall/upgrade.
   const venvPy = shippedPath(".dev", "visual-db-py", "bin", "python");
   if (venvPy && existsSync(venvPy)) return venvPy;
+  const homePy = join(resolveHome(), "visual-db-py", "bin", "python");
+  if (existsSync(homePy)) return homePy;
   return "python3";
 }
 

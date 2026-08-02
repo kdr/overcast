@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
+import type { OvercastRecord } from "../record.js";
 
 const execFileP = promisify(execFile);
 
@@ -175,6 +176,52 @@ export async function probe(path: string): Promise<ProbeResult> {
     streams,
     modality,
   };
+}
+
+/** probe() that never throws — undefined when ffprobe is missing, the input
+ *  is non-local, or the file doesn't parse. For OPTIONAL post-download /
+ *  pre-sense stream checks that must not turn a working pipeline into an error
+ *  on boxes without ffprobe. */
+export async function probeSafe(path: string): Promise<ProbeResult | undefined> {
+  try {
+    return await probe(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The warning stamped on records whose VIDEO source carries no audio stream.
+ *  Two field failures hide behind a silent audio track: a yt-dlp format that
+ *  advertises audio but delivers video-only (data loss nobody flags), and a
+ *  sense provider that fabricates `audio_description` spans for a file with no
+ *  audio signal at all (trust loss). One shared sentence so capture + watch
+ *  can't drift. */
+export function noAudioStreamWarning(p: ProbeResult | undefined): string | undefined {
+  if (!p || !p.hasVideo || p.hasAudio || p.modality !== "video") return undefined;
+  return "no audio stream in this video (ffprobe) — audio was likely dropped at download (yt-dlp formats can advertise aac but deliver video-only; retry with `-S vcodec:h264` or check `yt-dlp -F`), and any audio/speech description a provider returns for it is fabricated";
+}
+
+/** Stamp a watch record with the local input's audio-stream truth. Every path
+ * that invokes a watch provider (direct watch, index auto-watch, scan --pipe,
+ * similar shot sampling) calls this shared post-processor so a side path cannot
+ * persist fabricated audio_description/transcript text without the warning.
+ * Best-effort: remote refs, missing ffprobe, and unparseable media make no claim. */
+export async function stampWatchAudioAvailability(
+  rec: OvercastRecord,
+  input: string,
+): Promise<OvercastRecord> {
+  if (rec.state === "error" || rec.state === "needs_credentials" || !rec.payload || typeof rec.payload !== "object") {
+    return rec;
+  }
+  const warning = noAudioStreamWarning(await probeSafe(input));
+  if (!warning) return rec;
+  rec.meta = { ...rec.meta, has_audio: false };
+  const payload = rec.payload as Record<string, unknown>;
+  const prior = typeof payload.warning === "string" && payload.warning.trim()
+    ? `${payload.warning.trim()}; `
+    : "";
+  payload.warning = `${prior}${warning} — treat any audio_description/transcript text in this record as unavailable, not evidence`;
+  return rec;
 }
 
 /** Ensure a directory exists and return it. */

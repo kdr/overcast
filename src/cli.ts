@@ -134,6 +134,9 @@ const ENV_GROUPS: Array<{ title: string; vars: Array<[string, string]> }> = [
     vars: [
       ["OVERCAST_QMD_CMD", "qmd command/wrapper for optional case-search backend (default qmd)"],
       ["OVERCAST_QMD_MODEL", "qmd embedding model for case-search backend (default embeddinggemma-300M-Q8_0)"],
+      ["OVERCAST_QMD_TIMEOUT_MS", "per-step qmd rebuild timeout override (default: derived from corpus size, 15 min floor + ~10s/doc)"],
+      ["OVERCAST_INDEX_BATCH_WAIT_S", "max seconds `index add --all` waits between submission waves for the previous wave to finish processing (default 300)"],
+      ["OVERCAST_INDEX_BATCH_POLL_MS", "poll interval while waiting between `index add --all` waves (default 10000)"],
     ],
   },
   {

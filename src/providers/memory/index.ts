@@ -148,7 +148,10 @@ export async function fanOutAnswer(
       if (p.status) {
         const st = await p.status();
         if (st.state !== "ready") {
-          const reason = st.state === "error" && st.error ? `: ${st.error}` : "";
+          // qmd uses `building` for both an active rebuild and an interrupted
+          // PARTIAL index; its status error carries the distinction + recovery
+          // hint. Surface any provider-supplied reason, not only state=error.
+          const reason = st.error ? `: ${st.error}` : "";
           throw new Error(
             `${p.id} index is ${st.state}${reason}; run ` +
               `\`overcast case memory index rebuild --memory ${p.id}\` before querying semantic memory.`,

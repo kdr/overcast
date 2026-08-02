@@ -38,7 +38,7 @@ import {
 } from "../../src/state/index.ts";
 import { faceVerb } from "../../src/verbs/face.ts";
 import { imageVerb } from "../../src/verbs/image.ts";
-import { indexVerb } from "../../src/verbs/index.ts";
+import { indexVerb, chunkBatches, batchBackpressure, waveListingSettled, ensureLocalWatchRecord } from "../../src/verbs/index.ts";
 import { askVerb, briefVerb } from "../../src/verbs/read.ts";
 import { doctorVerb, MIN_TINYCLOUD } from "../../src/verbs/setup.ts";
 import { caseVerb } from "../../src/verbs/case.ts";
@@ -1572,7 +1572,7 @@ test("index add --all pending count ignores a face-search record (shared predica
     // a pending face SEARCH record (media = query image) must NOT be counted as a pending video
     c.writeRecord(makeRecord({ verb: "face", payload: { op: "search" }, media: { ref: "/tmp/q.jpg" }, state: "pending" }));
     const [rec] = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_s" }, case: openCase(cdir), profile: defaultProfile() });
-    assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /no new captured\/sensed videos/);
+    assert.equal(rec.state, "error"); assert.match(rec.error ?? "", /no captured\/sensed videos/);
   } finally { rmSync(cdir, { recursive: true, force: true }); }
 });
 
@@ -1881,4 +1881,266 @@ test("index target rejects a BLANK explicit id but allows an omitted one (#R11)"
     const [omitted] = await indexVerb.run({ input: "show", rest: [], opts: {}, case: openCase(cdir), profile: defaultProfile() });
     assert.notEqual(omitted.state, "error");
   } finally { rmSync(cdir, { recursive: true, force: true }); }
+});
+
+// ---- field report §2.4 / §2.9: stale membership --force + add --all batching --
+
+test("chunkBatches splits into waves; 0/Infinity = one wave", () => {
+  assert.deepEqual(chunkBatches([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
+  assert.deepEqual(chunkBatches([1, 2, 3], 0), [[1, 2, 3]]);
+  assert.deepEqual(chunkBatches([1, 2, 3], Infinity), [[1, 2, 3]]);
+  assert.deepEqual(chunkBatches([], 2), []);
+});
+
+test("batchBackpressure reads wave + listing processing counts across file-id key variants", () => {
+  const files = [
+    { file_id: "f1", status: "completed" },
+    { cloudglue_file_id: "f2", status: "processing" },
+    { fileId: "f3", status: "processing" },
+    { id: "f4", status: "failed" },
+    { file_id: "f5", status: "processing" }, // not in this wave
+  ];
+  const bp = batchBackpressure(files, new Set(["f1", "f2", "f3", "f4"]));
+  assert.equal(bp.waveObserved, 4);
+  assert.equal(bp.waveProcessing, 2);
+  assert.equal(bp.processing, 3);
+  // a wave the (≤50-entry) listing doesn't show at all
+  const unseen = batchBackpressure(files, new Set(["zz"]));
+  assert.equal(unseen.waveObserved, 0);
+  assert.equal(unseen.waveProcessing, 0);
+  assert.equal(waveListingSettled(files, new Set(["f1", "f2", "f3", "f4"])), false);
+  assert.equal(
+    waveListingSettled([{ file_id: "f1", status: "completed" }], new Set(["f1", "f2"])),
+    false,
+    "one completed file on a capped page cannot prove its omitted sibling settled",
+  );
+  assert.equal(
+    waveListingSettled([
+      { file_id: "f1", status: "completed" },
+      { cloudglue_file_id: "f2", status: "completed" },
+    ], new Set(["f1", "f2"])),
+    true,
+  );
+});
+
+test("index add --force re-submits a video the LOCAL mirror already lists (stale-cache reconcile)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-force-"));
+  const vid = join(cdir, "v.mp4");
+  writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_stale", type: "media-descriptions", name: "stale" });
+    addMember(c, "col_stale", { ref: vid }); // the mirror says member — but the server may have dropped it
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    // without --force: skipped, with the escape hatch named
+    const [skipped] = await indexVerb.run({ input: "add", rest: [vid], opts: { to: "col_stale" }, case: openCase(cdir), profile });
+    assert.equal((skipped.payload as Record<string, unknown>).already_member, true);
+    assert.match(String((skipped.payload as Record<string, unknown>).note ?? ""), /--force/);
+    // with --force: the add reaches tinycloud and the record says it was forced
+    const recs = await indexVerb.run({ input: "add", rest: [vid], opts: { to: "col_stale", force: true }, case: openCase(cdir), profile });
+    const added = recs.find((r) => r.verb === "index")!;
+    assert.notEqual(added.state, "error");
+    assert.equal((added.payload as Record<string, unknown>).already_member, undefined);
+    assert.equal((added.payload as Record<string, unknown>).forced, true);
+    assert.equal(findIndex(openCase(cdir), "col_stale")!.members.length, 1, "addMember stays deduped by ref");
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index add --force on a LOCAL index is rejected (membership can't go stale)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-forcelocal-"));
+  const img = join(cdir, "logo.jpg");
+  writeFileSync(img, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    const [created] = await indexVerb.run({ input: "create", rest: ["logos"], opts: { type: "image-ransac", local: true }, case: openCase(cdir), profile: defaultProfile() });
+    const id = String((created.payload as Record<string, unknown>).index);
+    const [rec] = await indexVerb.run({ input: "add", rest: [img], opts: { to: id, force: true }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(rec.state, "error");
+    assert.match(rec.error ?? "", /--force only applies to remote/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index add --batch validates: requires --all, rejects negatives/blank", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-batchflag-"));
+  const vid = join(cdir, "v.mp4");
+  writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_b", type: "media-descriptions", name: "b" });
+    const [noAll] = await indexVerb.run({ input: "add", rest: [vid], opts: { to: "col_b", batch: 5 }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(noAll.state, "error");
+    assert.match(noAll.error ?? "", /--batch only applies with --all/);
+    const [neg] = await indexVerb.run({ input: "add", rest: [], opts: { to: "col_b", all: true, batch: -1 }, case: openCase(cdir), profile: defaultProfile() });
+    assert.equal(neg.state, "error");
+    assert.match(neg.error ?? "", /invalid --batch/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index add --all --batch paces waves and appends ONE accounting rollup (§2.9)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-batchall-"));
+  const vids = ["a.mp4", "b.mp4", "c.mp4"].map((n) => join(cdir, n));
+  for (const v of vids) writeFileSync(v, "x");
+  const prevPoll = process.env.OVERCAST_INDEX_BATCH_POLL_MS;
+  const prevWait = process.env.OVERCAST_INDEX_BATCH_WAIT_S;
+  process.env.OVERCAST_INDEX_BATCH_POLL_MS = "1";
+  process.env.OVERCAST_INDEX_BATCH_WAIT_S = "0"; // bound the wave wait to the single pacing poll
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_wave", type: "media-descriptions", name: "wave" });
+    for (const v of vids) c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: v }, state: "ready" }));
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const recs = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_wave", batch: 2 }, case: openCase(cdir), profile });
+    const adds = recs.filter((r) => r.verb === "index" && (r.payload as Record<string, unknown>).file);
+    assert.equal(adds.length, 3, "every video still gets its own add record");
+    const rollup = recs.find((r) => r.verb === "index" && (r.payload as Record<string, unknown>).all === true);
+    assert.ok(rollup, "a multi-wave run appends an accounting rollup");
+    const p = rollup!.payload as Record<string, unknown>;
+    assert.equal(p.submitted, 3);
+    assert.equal(p.accepted, 3);
+    assert.equal(p.failed, 0);
+    assert.equal(p.waves, 2);
+    assert.equal(p.batch_size, 2);
+    assert.equal(findIndex(openCase(cdir), "col_wave")!.members.length, 3);
+    // a single-wave run (default batch ≥ corpus) stays rollup-free — exact old shape
+    const c2dir = mkdtempSync(join(tmpdir(), "oc-onewave-"));
+    try {
+      const v2 = join(c2dir, "solo.mp4"); writeFileSync(v2, "x");
+      const c2 = openCase(c2dir); c2.ensure();
+      addIndex(c2, { id: "col_one", type: "media-descriptions", name: "one" });
+      c2.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: v2 }, state: "ready" }));
+      const one = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_one" }, case: openCase(c2dir), profile });
+      assert.ok(!one.some((r) => (r.payload as Record<string, unknown>).all === true), "no rollup for a single wave");
+    } finally {
+      rmSync(c2dir, { recursive: true, force: true });
+    }
+  } finally {
+    if (prevPoll === undefined) delete process.env.OVERCAST_INDEX_BATCH_POLL_MS; else process.env.OVERCAST_INDEX_BATCH_POLL_MS = prevPoll;
+    if (prevWait === undefined) delete process.env.OVERCAST_INDEX_BATCH_WAIT_S; else process.env.OVERCAST_INDEX_BATCH_WAIT_S = prevWait;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("multi-wave failure rollup names the bulk --force retry", async () => {
+  // The summary builder is exercised through a tinycloud command that rejects
+  // every add while keeping collection-show available.
+  const cdir = mkdtempSync(join(tmpdir(), "oc-batch-failhint-"));
+  const fake = join(cdir, "tinycloud-fail.sh");
+  const vids = [join(cdir, "a.mp4"), join(cdir, "b.mp4")];
+  for (const v of vids) writeFileSync(v, "x");
+  writeFileSync(fake, `#!/usr/bin/env bash
+if [ "$3" = "add" ]; then
+  echo '{"tinycloud":"1","kind":"collection","status":"error","error":"rejected","data":{}}'
+else
+  echo '{"tinycloud":"1","kind":"collection","status":"ready","data":{"files":[]}}'
+fi
+`);
+  chmodSync(fake, 0o755);
+  const prevPoll = process.env.OVERCAST_INDEX_BATCH_POLL_MS;
+  const prevWait = process.env.OVERCAST_INDEX_BATCH_WAIT_S;
+  process.env.OVERCAST_INDEX_BATCH_POLL_MS = "1";
+  process.env.OVERCAST_INDEX_BATCH_WAIT_S = "0";
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_fail", type: "media-descriptions", name: "fail" });
+    for (const v of vids) c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: v }, state: "ready" }));
+    const profile = defaultProfile();
+    profile.providers = {
+      ...profile.providers,
+      index: { type: "exec", run: `bash ${fake} {{input}}` },
+      watch: { type: "exec", run: `${BASE} watch {{input}} --json` },
+    };
+    const recs = await indexVerb.run({
+      input: "add", rest: [], opts: { all: true, to: "col_fail", batch: 1 },
+      case: openCase(cdir), profile,
+    });
+    const rollup = recs.find((r) => (r.payload as Record<string, unknown>).all === true);
+    assert.ok(rollup);
+    assert.match(String((rollup!.payload as Record<string, unknown>).summary), /index add --all --to col_fail --force/);
+  } finally {
+    if (prevPoll === undefined) delete process.env.OVERCAST_INDEX_BATCH_POLL_MS; else process.env.OVERCAST_INDEX_BATCH_POLL_MS = prevPoll;
+    if (prevWait === undefined) delete process.env.OVERCAST_INDEX_BATCH_WAIT_S; else process.env.OVERCAST_INDEX_BATCH_WAIT_S = prevWait;
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index add --all --force re-submits EVERY case video, mirror membership notwithstanding", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-forceall-"));
+  const vid = join(cdir, "v.mp4");
+  writeFileSync(vid, "x");
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_fa", type: "media-descriptions", name: "fa" });
+    c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: vid }, state: "ready" }));
+    addMember(c, "col_fa", { ref: vid });
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    // without --force the member filter leaves nothing to add
+    const [empty] = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_fa" }, case: openCase(cdir), profile });
+    assert.equal(empty.state, "error");
+    assert.match(empty.error ?? "", /already listed in the local membership mirror/);
+    assert.match(empty.error ?? "", /--force/, "bulk stale-cache path names the recovery flag");
+    // with --force the video is re-submitted
+    const recs = await indexVerb.run({ input: "add", rest: [], opts: { all: true, to: "col_fa", force: true }, case: openCase(cdir), profile });
+    assert.ok(recs.some((r) => r.verb === "index" && (r.payload as Record<string, unknown>).file === vid));
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("index auto-watch stamps silent-video audio truth (same post-processor as direct watch)", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-autowatch-audio-"));
+  const vid = join(cdir, "silent.mp4");
+  try {
+    const ff = spawnSync("ffmpeg", [
+      "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=1",
+      "-pix_fmt", "yuv420p", vid,
+    ], { stdio: "ignore" });
+    assert.equal(ff.status, 0);
+    const c = openCase(cdir); c.ensure();
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const rec = await ensureLocalWatchRecord({ input: "add", rest: [], opts: {}, case: c, profile }, vid);
+    assert.ok(rec);
+    assert.equal(rec!.meta?.has_audio, false);
+    assert.match(String((rec!.payload as Record<string, unknown>).warning), /unavailable, not evidence/);
+  } finally {
+    rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
+test("aborting during add --all backpressure stops before the next wave", async () => {
+  const cdir = mkdtempSync(join(tmpdir(), "oc-batch-abort-"));
+  const vids = [join(cdir, "a.mp4"), join(cdir, "b.mp4")];
+  for (const v of vids) writeFileSync(v, "x");
+  const prevPoll = process.env.OVERCAST_INDEX_BATCH_POLL_MS;
+  const prevWait = process.env.OVERCAST_INDEX_BATCH_WAIT_S;
+  process.env.OVERCAST_INDEX_BATCH_POLL_MS = "60000";
+  process.env.OVERCAST_INDEX_BATCH_WAIT_S = "300";
+  try {
+    const c = openCase(cdir); c.ensure();
+    addIndex(c, { id: "col_abort", type: "media-descriptions", name: "abort" });
+    for (const v of vids) c.writeRecord(makeRecord({ verb: "capture", payload: { kind: "media" }, media: { ref: v }, state: "ready" }));
+    const profile = defaultProfile();
+    profile.providers = { ...profile.providers, watch: { type: "exec", run: `${BASE} watch {{input}} --json` } };
+    const controller = new AbortController();
+    const run = indexVerb.run({
+      input: "add", rest: [], opts: { all: true, to: "col_abort", batch: 1 },
+      case: openCase(cdir), profile, signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(new Error("test abort")), 100);
+    await assert.rejects(run, /test abort/);
+    assert.equal(findIndex(openCase(cdir), "col_abort")!.members.length, 1, "second wave was never submitted");
+  } finally {
+    if (prevPoll === undefined) delete process.env.OVERCAST_INDEX_BATCH_POLL_MS; else process.env.OVERCAST_INDEX_BATCH_POLL_MS = prevPoll;
+    if (prevWait === undefined) delete process.env.OVERCAST_INDEX_BATCH_WAIT_S; else process.env.OVERCAST_INDEX_BATCH_WAIT_S = prevWait;
+    rmSync(cdir, { recursive: true, force: true });
+  }
 });

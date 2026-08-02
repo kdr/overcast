@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { openCase } from "../../src/case.ts";
 import { addTarget, listTargets, removeTarget, primaryTarget } from "../../src/state/target.ts";
 import {
@@ -354,6 +355,36 @@ console.log(JSON.stringify({ path: out, kind: "video" }));
     assert.equal(existsSync(out), false);
     assert.equal(existsSync(`${out}.mp4`), true);
     assert.equal(existsSync(`${out}_1.mp4`), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("fetchSource silent-video check preserves provider warning and aligns meta.has_audio with watch", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "oc-fetch-silent-"));
+  try {
+    const source = join(dir, "silent.mp4");
+    execFileSync("ffmpeg", [
+      "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=1",
+      "-pix_fmt", "yuv420p", source,
+    ], { stdio: "ignore" });
+    const script = join(dir, "fetcher.mjs");
+    writeFileSync(script, `
+import { copyFileSync } from "node:fs";
+const out = process.argv[process.argv.indexOf("--out") + 1];
+copyFileSync(${JSON.stringify(source)}, out);
+console.log(JSON.stringify({ path: out, kind: "media", warning: "provider quality warning" }));
+`);
+    const out = join(dir, "download.mp4");
+    const rec = await fetchSource(
+      { type: "tiktok", base: ["node", script] },
+      { url: "https://www.tiktok.com/@x/video/1", out },
+    );
+    const payload = rec.payload as Record<string, unknown>;
+    assert.equal(rec.state, "ready");
+    assert.equal(payload.has_audio, false);
+    assert.equal(rec.meta?.has_audio, false);
+    assert.match(String(payload.warning), /^provider quality warning; .*no audio stream/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -3,6 +3,7 @@
 // ships `watch` (the vertical slice); later phases append entries.
 
 import { makeRecord } from "../record.js";
+import { stampWatchAudioAvailability } from "../media/ffmpeg.js";
 import { runWatch } from "../providers/tinycloud/watch.js";
 import { isCustomBinding, runBoundProvider } from "../providers/run.js";
 import { providerBinding } from "../providers/bindings.js";
@@ -119,6 +120,7 @@ export const watchVerb: VerbSpec = {
       ? await runBoundProvider("watch", binding!, input, { env: providerEnv(ctx.case.mediaDir), extraArgs, timeoutMs: 15 * 60_000, signal: ctx.signal, home: ctx.home })
       : await runWatch(input, { run: binding?.run, segment, shotMinSeconds: shotMin, shotMaxSeconds: shotMax, signal: ctx.signal });
     rec.meta = { ...rec.meta, case: ctx.case.dir };
+    await stampWatchAudioAvailability(rec, input);
     // trace back to the originating post (like listen) — for archived media the
     // capture that materialized it lives in the BUCKET, so look there
     stampProvenance(rec, provenanceFromCapture(provenanceCase(ctx.case, resolved.archive, ctx.home), input));
