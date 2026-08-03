@@ -534,6 +534,23 @@ CLI router, bun binary), run the live suite (`npm run test:e2e:live`) and inspec
 the generated `report.md`. Keep pi touch-points isolated in `src/extension/` and
 `src/registry/to-agent-tool.ts` so a pi bump has a small blast radius.
 
+Before opening or merging a PR: run `npm test` + `npm run test:e2e` (and the
+live suite when providers/records/CLI/binary are touched) from the repo root,
+judging pass/fail on FULL output — never through a `| grep`/`| tail` filter.
+Put the real counts in the PR body's verification section; anything not proven
+by a run is "unverified", not a claim. Then re-read your own diff adversarially
+before every push — error paths that fall through to success, unbounded
+loops/spins, new crash surfaces (ENOENT/null), a regression of the exact bug
+class just fixed — review bots keep catching bugs introduced by fix commits;
+catch them first. Fix review findings by CLASS: grep the PR for adjacent
+instances of the same pattern and root-fix once (shared helper at 2+ sites),
+not one finding per review round.
+
+Shell must stay portable both ways: dev boxes are macOS (bash 3.2 — no
+associative arrays; BSD coreutils — no `split -n l/N`, no GNU-only tar/sed
+flags) while CI is GNU/Linux + shellcheck — anything shelling out to
+tar/split/sed/find must pass on both.
+
 ## Cursor Cloud specific instructions
 
 The startup update script runs `npm ci` for the root, `vscode/`, and the sibling
