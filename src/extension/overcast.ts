@@ -17,7 +17,7 @@ import { toAgentTool } from "../registry/to-agent-tool.js";
 import { openCase } from "../case.js";
 import { loadProfile, resolveCloudglue, resolveHome } from "../profile.js";
 import { loadSetup } from "../state/setup.js";
-import { CLOUDGLUE_MODEL_ID } from "../providers/brain/vision.js";
+import { CLOUDGLUE_MODEL_ID, CLOUDGLUE_PROVIDER_ID, cloudglueBrainModel, cloudglueBrainModels } from "../providers/brain/vision.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { OvercastHeader, OvercastFooter, workingIndicator, opLabel, idleLabel } from "./branding.js";
 import { registerSlashCommands } from "./slash.js";
@@ -191,7 +191,9 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
     setTimeout(() => { try { ctx.ui.setTitle(desiredTitle()); } catch { /* ignore */ } }, 50);
 
     // Header: the animated recording-deck banner (gradient wordmark + REC HUD +
-    // centered tagline + bracket status). Respect an explicit `setup llm` choice.
+    // centered tagline + bracket status). The live model (ctx.model, like the
+    // footer) wins so a `--model`/`/model` pick shows truthfully; before it
+    // binds, respect an explicit `setup llm` choice, then the turnkey default.
     const llmLabel = activeProfile.llm?.model || activeProfile.llm?.provider;
     const modelId = llmLabel || (cgKey ? CLOUDGLUE_MODEL_ID : "(set via /model)");
     if (bannerRaw) {
@@ -203,7 +205,7 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
             version: OVERCAST_VERSION,
             contextFile,
             tools: VERBS.length,
-            model: modelId,
+            model: () => ctx.model?.id ?? modelId,
             setup: () => setupHintLabel(cwd),
           }),
       );
@@ -233,22 +235,13 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
     });
     // Turnkey: when a Cloudglue key is available AND the user hasn't pinned
     // their own brain (`setup llm`), make Cloudglue the active model so overcast
-    // works out of the box. An explicit profile llm is always respected; this is
+    // works out of the box. An explicit profile llm is always respected, and a
+    // Cloudglue model that's already active (e.g. launched with
+    // `--model cloudglue/tinycloud:general-medium`) is left alone; this is
     // still overridable via /model — never hardcoded over a user's choice.
-    if (cgKey && !activeProfile.llm) {
+    if (cgKey && !activeProfile.llm && ctx.model?.provider !== CLOUDGLUE_PROVIDER_ID) {
       try {
-        await pi.setModel({
-          id: CLOUDGLUE_MODEL_ID,
-          name: "TinyCloud Advanced",
-          api: "anthropic-messages",
-          provider: "cloudglue",
-          baseUrl,
-          reasoning: false,
-          input: ["text", "image"],
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 1000000,
-          maxTokens: 32000,
-        } as Parameters<typeof pi.setModel>[0]);
+        await pi.setModel(cloudglueBrainModel(baseUrl) as Parameters<typeof pi.setModel>[0]);
       } catch {
         /* best-effort; user can still /model */
       }
@@ -271,17 +264,7 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
     baseUrl,
     apiKey: cgKey ?? "$CLOUDGLUE_API_KEY",
     api: "anthropic-messages",
-    models: [
-      {
-        id: CLOUDGLUE_MODEL_ID,
-        name: "TinyCloud Advanced",
-        reasoning: false,
-        input: ["text", "image"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 1000000,
-        maxTokens: 32000,
-      },
-    ],
+    models: cloudglueBrainModels(baseUrl),
   });
 
   // --- System prompt (persona + verb cheatsheet). --------------------------

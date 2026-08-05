@@ -31,13 +31,21 @@ import { resolveCloudglue, type Profile } from "../../profile.js";
  *  and the TUI brain agree on the id. */
 export const CLOUDGLUE_PROVIDER_ID = "cloudglue";
 export const CLOUDGLUE_MODEL_ID = "tinycloud:advanced";
+export const CLOUDGLUE_GENERAL_MEDIUM_MODEL_ID = "tinycloud:general-medium";
 
-/** The Cloudglue brain model descriptor (image-capable). One source of truth for
- *  both the see-path (here) and the extension's `pi.setModel`. */
-export function cloudglueBrainModel(baseUrl: string): Model<"anthropic-messages"> {
-  return {
-    id: CLOUDGLUE_MODEL_ID,
-    name: "TinyCloud Advanced",
+/** The pickable Cloudglue brain models. The turnkey default (advanced) stays
+ *  first — cloudglueBrainModel() and the extension's setModel rely on that. */
+const CLOUDGLUE_BRAIN_MODELS = [
+  { id: CLOUDGLUE_MODEL_ID, name: "TinyCloud Advanced" },
+  { id: CLOUDGLUE_GENERAL_MEDIUM_MODEL_ID, name: "TinyCloud General Medium" },
+] as const;
+
+/** The Cloudglue brain model descriptors (image-capable). One source of truth
+ *  for the see-path (here) and the extension's provider registration. */
+export function cloudglueBrainModels(baseUrl: string): Model<"anthropic-messages">[] {
+  return CLOUDGLUE_BRAIN_MODELS.map(({ id, name }) => ({
+    id,
+    name,
     api: "anthropic-messages",
     provider: CLOUDGLUE_PROVIDER_ID,
     baseUrl,
@@ -46,7 +54,12 @@ export function cloudglueBrainModel(baseUrl: string): Model<"anthropic-messages"
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 1_000_000,
     maxTokens: 32_000,
-  };
+  }));
+}
+
+/** The default (turnkey) Cloudglue brain model descriptor. */
+export function cloudglueBrainModel(baseUrl: string): Model<"anthropic-messages"> {
+  return cloudglueBrainModels(baseUrl)[0];
 }
 
 /** OVERCAST_SEE_BRAIN=off|0|false|no hard-disables the brain default (falls back
@@ -163,7 +176,7 @@ export async function resolveBrainModel(profile: Profile, opts: { requireImage?:
         name: "Cloudglue",
         baseUrl: cg.baseUrl,
         auth: { apiKey: envApiKeyAuth("Cloudglue API key", ["CLOUDGLUE_API_KEY"]) },
-        models: [cloudglueBrainModel(cg.baseUrl)],
+        models: cloudglueBrainModels(cg.baseUrl),
         api: anthropicMessagesApi(),
       });
       models.setProvider(cgProvider as unknown as Provider);
