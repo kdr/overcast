@@ -191,7 +191,9 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
     setTimeout(() => { try { ctx.ui.setTitle(desiredTitle()); } catch { /* ignore */ } }, 50);
 
     // Header: the animated recording-deck banner (gradient wordmark + REC HUD +
-    // centered tagline + bracket status). Respect an explicit `setup llm` choice.
+    // centered tagline + bracket status). The live model (ctx.model, like the
+    // footer) wins so a `--model`/`/model` pick shows truthfully; before it
+    // binds, respect an explicit `setup llm` choice, then the turnkey default.
     const llmLabel = activeProfile.llm?.model || activeProfile.llm?.provider;
     const modelId = llmLabel || (cgKey ? CLOUDGLUE_MODEL_ID : "(set via /model)");
     if (bannerRaw) {
@@ -203,7 +205,7 @@ export default async function overcastExtension(pi: ExtensionAPI): Promise<void>
             version: OVERCAST_VERSION,
             contextFile,
             tools: VERBS.length,
-            model: modelId,
+            model: () => ctx.model?.id ?? modelId,
             setup: () => setupHintLabel(cwd),
           }),
       );

@@ -145,8 +145,8 @@ export interface HeaderOptions {
   contextFile: string;
   /** Tool/verb count. */
   tools: number;
-  /** Active model id (e.g. "tinycloud:advanced"). */
-  model: string;
+  /** Active model id (e.g. "tinycloud:advanced"), or a getter for the live one. */
+  model: string | (() => string);
   /** First-run setup cue shown when no completed case setup exists. */
   setup?: string | (() => string | undefined);
 }
@@ -168,7 +168,7 @@ export class OvercastHeader implements Component {
   private readonly tagRaw: string;
   private readonly ctxTag: string;
   private readonly tools: number;
-  private readonly model: string;
+  private readonly model: string | (() => string);
   private readonly setup: string | (() => string | undefined) | undefined;
   private lastSetup: string | undefined;
   private readonly version: string;
@@ -287,6 +287,10 @@ export class OvercastHeader implements Component {
     return typeof this.setup === "function" ? this.setup() : this.setup;
   }
 
+  private modelLabel(): string {
+    return typeof this.model === "function" ? this.model() : this.model;
+  }
+
   private pollSetup(): void {
     const next = this.setupLabel();
     if (next === this.lastSetup) return;
@@ -302,7 +306,7 @@ export class OvercastHeader implements Component {
     const setup = this.setupLabel();
     return (
       `${this.ctxTag}  ${GREEN_DIM}[${MAGENTA}${this.tools}${GREEN_DIM}] ${PALE}tools  ` +
-      `${GREEN_DIM}[${CYAN}◆${GREEN_DIM}] ${PALE}${this.model}` +
+      `${GREEN_DIM}[${CYAN}◆${GREEN_DIM}] ${PALE}${this.modelLabel()}` +
       (setup ? `  ${GREEN_DIM}[${AMBER}SETUP${GREEN_DIM}] ${PALE}${setup}` : "") +
       RESET
     );

@@ -48,6 +48,16 @@ test("OvercastHeader: settled frame can show first-run setup cue", () => {
   assert.match(out, /\[[^\]]*SETUP[^\]]*\][^\n]*case not set up/, "setup cue appears in startup status row");
 });
 
+test("OvercastHeader: a function-valued model renders the LIVE model id", () => {
+  let active = "tinycloud:advanced";
+  const h = new OvercastHeader(null, { ...headerOpts, model: () => active });
+  setStart(h, 4000);
+  assert.ok(h.render(160).join("\n").includes("tinycloud:advanced"), "initial model in status");
+  active = "tinycloud:general-medium";
+  assert.ok(h.render(160).join("\n").includes("tinycloud:general-medium"), "model switch reflected");
+  h.dispose();
+});
+
 test("OvercastHeader: setup cue can refresh after first render", () => {
   let pending = true;
   const h = new OvercastHeader(null, { ...headerOpts, setup: () => (pending ? "case not set up" : undefined) });
