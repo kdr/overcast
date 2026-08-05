@@ -11,12 +11,31 @@ import {
   buildSeeContext,
   splitDescriptionOcr,
   mimeForImage,
+  cloudglueBrainModel,
+  cloudglueBrainModels,
+  CLOUDGLUE_MODEL_ID,
+  CLOUDGLUE_GENERAL_MEDIUM_MODEL_ID,
 } from "../../src/providers/brain/vision.ts";
 import { parseProviderSpec } from "../../src/verbs/setup.ts";
 import { seeVerb } from "../../src/verbs/senses.ts";
 import { openCase } from "../../src/case.ts";
 import { defaultProfile } from "../../src/profile.ts";
 import type { VerbContext } from "../../src/registry/types.ts";
+
+test("cloudglueBrainModels lists advanced (default, first) + general-medium, both image-capable", () => {
+  const models = cloudglueBrainModels("https://api.example.test");
+  assert.deepEqual(
+    models.map((m) => m.id),
+    [CLOUDGLUE_MODEL_ID, CLOUDGLUE_GENERAL_MEDIUM_MODEL_ID],
+  );
+  assert.equal(CLOUDGLUE_GENERAL_MEDIUM_MODEL_ID, "tinycloud:general-medium");
+  for (const m of models) {
+    assert.equal(m.provider, "cloudglue");
+    assert.equal(m.baseUrl, "https://api.example.test");
+    assert.ok(m.input.includes("image"), `${m.id} should accept image input`);
+  }
+  assert.equal(cloudglueBrainModel("https://api.example.test").id, CLOUDGLUE_MODEL_ID);
+});
 
 test("parseProviderSpec maps builtin:<name> to an inproc selector (prefix kept)", () => {
   assert.deepEqual(parseProviderSpec("builtin:brain"), { type: "inproc", module: "builtin:brain" });
