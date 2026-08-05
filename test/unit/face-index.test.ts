@@ -2135,7 +2135,19 @@ test("aborting during add --all backpressure stops before the next wave", async 
       input: "add", rest: [], opts: { all: true, to: "col_abort", batch: 1 },
       case: openCase(cdir), profile, signal: controller.signal,
     });
-    setTimeout(() => controller.abort(new Error("test abort")), 100);
+    // Abort only once wave 0's membership is visibly written: the run is then
+    // guaranteed to be inside the 60s between-wave settle sleep, whose abort
+    // path rejects with signal.reason. A wall-clock timer races the wave-0
+    // child processes under suite load — the abort can land mid-spawn, where
+    // node throws its own generic AbortError (reason demoted to `cause`).
+    let runSettled = false;
+    void run.catch(() => {}).finally(() => { runSettled = true; });
+    const deadline = Date.now() + 30_000;
+    while (!runSettled && (findIndex(openCase(cdir), "col_abort")?.members.length ?? 0) < 1) {
+      assert.ok(Date.now() < deadline, "wave 0 never registered its member");
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    controller.abort(new Error("test abort"));
     await assert.rejects(run, /test abort/);
     assert.equal(findIndex(openCase(cdir), "col_abort")!.members.length, 1, "second wave was never submitted");
   } finally {
